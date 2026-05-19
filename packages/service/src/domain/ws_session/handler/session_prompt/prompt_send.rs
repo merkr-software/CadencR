@@ -180,6 +180,32 @@ pub(crate) async fn handle_prompt_send(
                 );
                 p.persist_user_message(&persist_content).await;
             }
+            let adapter = match runtime_adapter(&provider_id) {
+                Some(adapter) => adapter,
+                None => {
+                    let message =
+                        format!("No runtime adapter registered for provider '{provider_id}'");
+                    persist_pause_and_send_session_error(
+                        &write_pool,
+                        &app_state.session_status_tx,
+                        sender,
+                        &envelope.id,
+                        feature_id,
+                        db_session_id,
+                        "UNSUPPORTED_PROVIDER",
+                        &message,
+                    )
+                    .await;
+                    return;
+                }
+            };
+            mark_agent_running(
+                &write_pool,
+                &app_state.session_status_tx,
+                db_session_id,
+                feature_id,
+            )
+            .await;
 
             // Worktree creation (blocking) — must complete before runtime spawn.
             let use_worktree = payload.use_worktree.unwrap_or(false);
@@ -254,26 +280,6 @@ pub(crate) async fn handle_prompt_send(
             // Set up permission bridge.
             let (permission_tx, permission_rx) = mpsc::channel::<PermissionResponse>(16);
             let content_value = build_content_value(&payload.text, &payload.images);
-            let adapter = match runtime_adapter(&provider_id) {
-                Some(adapter) => adapter,
-                None => {
-                    let message =
-                        format!("No runtime adapter registered for provider '{provider_id}'");
-                    persist_pause_and_send_session_error(
-                        &write_pool,
-                        &app_state.session_status_tx,
-                        sender,
-                        &envelope.id,
-                        feature_id,
-                        db_session_id,
-                        "UNSUPPORTED_PROVIDER",
-                        &message,
-                    )
-                    .await;
-                    return;
-                }
-            };
-
             let bridge = WsBridgeCanUseTool {
                 sender: sender.clone(),
                 response_rx: Arc::new(Mutex::new(permission_rx)),
@@ -309,8 +315,6 @@ pub(crate) async fn handle_prompt_send(
                         db_session_id,
                         "runtime query spawned successfully, starting stream reader"
                     );
-                    WsSessionPersistence::mark_running_static(&app_state.write_pool, db_session_id)
-                        .await;
                     let provider_context_window = runtime_session.context_window();
                     let runtime_control_endpoint = runtime_session.runtime_control_endpoint();
                     if let Some(cw) = provider_context_window {
@@ -321,13 +325,6 @@ pub(crate) async fn handle_prompt_send(
                         )
                         .await;
                     }
-                    WsSessionPersistence::broadcast_session_status(
-                        &app_state.session_status_tx,
-                        db_session_id,
-                        feature_id,
-                        crate::domain::session_status::AgentStatus::Agent,
-                        None,
-                    );
                     let message_rx = runtime_session.take_message_rx();
                     let query_arc = Arc::new(tokio::sync::RwLock::new(runtime_session));
 
@@ -447,14 +444,7 @@ pub(crate) async fn handle_prompt_send(
             // writes, turn 1's `mark_completed_static` + `"none"` tombstone
             // from `stream_reader.rs:191-197` stay sticky across the second
             // prompt and the UI never shows the agent is alive again.
-            WsSessionPersistence::mark_running_static(&write_pool, db_session_id).await;
-            WsSessionPersistence::broadcast_session_status(
-                &session_status_tx,
-                db_session_id,
-                feature_id,
-                crate::domain::session_status::AgentStatus::Agent,
-                None,
-            );
+            mark_agent_running(&write_pool, &session_status_tx, db_session_id, feature_id).await;
 
             info!(db_session_id, "follow-up prompt");
             let content = build_content_value(&payload.text, &payload.images);
@@ -490,4 +480,20 @@ pub(crate) async fn handle_prompt_send(
             });
         }
     }
+}
+
+async fn mark_agent_running(
+    write_pool: &sqlx::SqlitePool,
+    session_status_tx: &crate::domain::session_status::SessionStatusBroadcaster,
+    db_session_id: i64,
+    feature_id: i64,
+) {
+    WsSessionPersistence::mark_running_static(write_pool, db_session_id).await;
+    WsSessionPersistence::broadcast_session_status(
+        session_status_tx,
+        db_session_id,
+        feature_id,
+        crate::domain::session_status::AgentStatus::Agent,
+        None,
+    );
 }
