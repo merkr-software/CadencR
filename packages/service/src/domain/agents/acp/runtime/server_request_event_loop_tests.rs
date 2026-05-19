@@ -22,7 +22,7 @@ impl AcpProviderHooks for PlainHooks {
     fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
         input
     }
-    fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
+    fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
         None
     }
 }

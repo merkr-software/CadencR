@@ -10,7 +10,7 @@ import {
 } from "react";
 import type { AgentSessionHandle } from "@/components/agent-session";
 import type { FeatureTerminalTabHandle } from "@/components/FeatureTerminalTab";
-import { useAgentCatalog } from "@/api/agentRuntime";
+import { useAgentCatalog, type RuntimeProviderModeOption } from "@/api/agentRuntime";
 import {
   useGetBranch,
   useGetFeatureSettings,
@@ -75,9 +75,12 @@ interface SessionControls {
   activeProviderId: string;
   supportedThinkingEfforts: ReturnType<typeof supportedThinkingEffortLevels>;
   enabledOptInModes: PermissionMode[];
+  providerModes: readonly RuntimeProviderModeOption[];
   handlePermissionModeToggle: () => void;
   initialCwd: string;
 }
+
+const EMPTY_PROVIDER_MODES: readonly RuntimeProviderModeOption[] = [];
 
 export function useSessionRefs(): SessionRefs {
   const agent = useRef<AgentSessionHandle>(null);
@@ -176,8 +179,7 @@ export function useSessionControls(
   sessionId: string,
   featureId: number,
   projectId: number,
-  cwd: string,
-  featureSettings: Record<string, string>,
+  effectiveCwd: string,
   options?: { loadPersistedState?: boolean },
 ): SessionControls {
   const ws = useWebSocketSession(sessionId, featureId, {
@@ -191,7 +193,7 @@ export function useSessionControls(
   const setProjectSetting = useSetProjectSetting();
   const defaultWorktreeMode = defaultWorktreeModeFromSettings(projectSettingsData, "skip");
   const { resolveModel, resolveProvider, resolveModelThinkingEffort } = useResolvedModelContext();
-  const agentCatalog = useAgentCatalog();
+  const agentCatalog = useAgentCatalog({ cwd: effectiveCwd, staleTime: 30_000 });
   const resolvedProviderId = resolveProvider("session");
   const resolvedModelId = resolveModel("session");
   const resolvedThinkingEffort = resolveModelThinkingEffort(resolvedProviderId, resolvedModelId);
@@ -201,10 +203,14 @@ export function useSessionControls(
     ?.models.find((model) => model.id === (ws.currentModelId || resolvedModelId));
   const supportedThinkingEfforts = supportedThinkingEffortLevels(activeSessionModel);
   const enabledOptInModes = useEnabledOptInModes(activeProviderId);
+  const providerModes =
+    agentCatalog.data?.providers.find((provider) => provider.id === activeProviderId)?.modes ??
+    EMPTY_PROVIDER_MODES;
   const handlePermissionModeToggle = usePermissionModeToggle(
     sessionId,
     activeProviderId,
     enabledOptInModes,
+    providerModes,
   );
   useEffect(() => {
     if (projectSettingsData == null || worktreeDefaultProjectRef.current === projectId) return;
@@ -244,15 +250,15 @@ export function useSessionControls(
       activeProviderId,
       supportedThinkingEfforts,
       enabledOptInModes,
+      providerModes,
       handlePermissionModeToggle,
-      initialCwd: featureSettings.worktree_path ?? cwd,
+      initialCwd: effectiveCwd,
     }),
     [
       activeProviderId,
       agentCatalog,
-      cwd,
+      effectiveCwd,
       enabledOptInModes,
-      featureSettings.worktree_path,
       handlePermissionModeToggle,
       initializedRef,
       resolveModelThinkingEffort,
@@ -260,6 +266,7 @@ export function useSessionControls(
       resolvedProviderId,
       resolvedThinkingEffort,
       selectedBranch,
+      providerModes,
       supportedThinkingEfforts,
       toggleWorktree,
       useWorktree,
@@ -272,14 +279,20 @@ function usePermissionModeToggle(
   sessionId: string,
   activeProviderId: string,
   enabledOptInModes: PermissionMode[],
+  providerModes: readonly RuntimeProviderModeOption[],
 ): () => void {
   return useCallback((): void => {
     const store = useWsSessionStore.getState();
     const session = store.sessions[sessionId];
     if (!session) return;
-    const next = nextProviderMode(activeProviderId, session.permissionMode, enabledOptInModes);
+    const next = nextProviderMode(
+      activeProviderId,
+      session.permissionMode,
+      enabledOptInModes,
+      providerModes ?? [],
+    );
     if (next !== session.permissionMode) store.setPermissionMode(sessionId, next);
-  }, [activeProviderId, enabledOptInModes, sessionId]);
+  }, [activeProviderId, enabledOptInModes, providerModes, sessionId]);
 }
 
 export function useWsSessionEffects(args: {

@@ -82,6 +82,8 @@ export const AgentSession = memo(
       permissionMode,
       onPermissionModeToggle,
       enabledOptInModes,
+      providerModes,
+      agentCatalog: providedAgentCatalog,
       pendingPlanApproval,
       planApproveLabel,
       planApprovalError,
@@ -128,7 +130,8 @@ export const AgentSession = memo(
     const containerRef = useRef<HTMLDivElement>(null);
     const headerRef = useRef<HTMLDivElement>(null);
 
-    const agentCatalog = useAgentCatalog();
+    const fallbackAgentCatalog = useAgentCatalog({ enabled: providedAgentCatalog == null });
+    const agentCatalog = providedAgentCatalog ?? fallbackAgentCatalog;
     const cwdQuery = useGetFeatureWorkingDir(
       featureId ?? 0,
       { project_id: projectId ?? 0 },
@@ -298,6 +301,7 @@ export const AgentSession = memo(
         permissionMode={permissionMode}
         onPermissionModeToggle={onPermissionModeToggle}
         enabledOptInModes={enabledOptInModes}
+        providerModes={providerModes}
         showWorktreeChip={showWorktreeChip}
         useWorktree={useWorktree}
         onToggleWorktree={onToggleWorktree}

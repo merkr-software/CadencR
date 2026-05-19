@@ -59,10 +59,11 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     fn flatten_tool_result_content(&self, blocks: &[Value]) -> Value {
         flatten_tool_result_content(blocks)
     }
-    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<&'static str> {
+    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<String> {
         Some(match mode {
-            RuntimePermissionMode::Plan => "plan",
-            _ => "build",
+            RuntimePermissionMode::Plan => "plan".to_string(),
+            RuntimePermissionMode::OpenCodeAgent(name) => name,
+            _ => "build".to_string(),
         })
     }
     fn model_config_id(&self) -> Option<&'static str> {

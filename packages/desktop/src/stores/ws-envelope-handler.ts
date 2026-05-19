@@ -44,7 +44,11 @@ import { updateSession } from "./ws-session-types";
 import { transitionTurn, type TurnTerminalReason } from "./ws-turn-lifecycle";
 import { findProviderMode, nextProviderMode } from "@/lib/provider-modes";
 import { getEnabledOptInModesFromCache } from "@/hooks/useEnabledOptInModes";
-import type { PermissionMode } from "@/types/permission-mode";
+import {
+  OPENCODE_AGENT_MODE_PREFIX,
+  parsePermissionMode,
+  type PermissionMode,
+} from "@/types/permission-mode";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import {
   deferTailPromptTurnBoundary,
@@ -176,12 +180,16 @@ function handleSessionAction(
       // before we ever see this event, so reaching this branch with an
       // unrecognized mode would mean the FE catalog is stale.
       const session = p?.mode ? ctx.getSession(sessionId) : null;
-      if (p?.mode && session) {
+      const parsedMode = p?.mode ? parsePermissionMode(p.mode) : null;
+      if (parsedMode && session) {
         const providerId = session.currentProviderId || session.runtimeProvider;
-        if (findProviderMode(providerId, p.mode as PermissionMode)) {
+        if (
+          findProviderMode(providerId, parsedMode) ||
+          parsedMode.startsWith(OPENCODE_AGENT_MODE_PREFIX)
+        ) {
           ctx.set(
             updateSession(ctx.get(), sessionId, {
-              permissionMode: p.mode as PermissionMode,
+              permissionMode: parsedMode,
             }),
           );
         }

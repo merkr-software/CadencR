@@ -31,6 +31,7 @@ pub enum RuntimePermissionMode {
     /// permission level when this is selected.
     Auto,
     DontAsk,
+    OpenCodeAgent(String),
 }
 
 #[derive(Debug, Clone)]
@@ -693,6 +694,16 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.catalog_entry()
     }
 
+    /// Live catalog entry scoped to a workspace path. Providers whose catalog
+    /// includes project-local data (OpenCode agents, commands, etc.) can
+    /// override this without forcing global settings pages to pick a cwd.
+    async fn catalog_entry_live_for_cwd(
+        &self,
+        _cwd: Option<&Path>,
+    ) -> super::runtime::ProviderCatalogEntry {
+        self.catalog_entry_live().await
+    }
+
     /// Extra models contributed by user configuration (e.g. custom Claude Code
     /// model aliases stored in SQLite). Returned entries are merged into the
     /// adapter's catalog; on id collision the user entry wins.
@@ -1042,6 +1053,7 @@ mod tests {
                 status: crate::domain::agents::runtime::ProviderStatus::Available,
                 status_message: None,
                 models: vec![],
+                modes: vec![],
                 default_model: None,
             }
         }

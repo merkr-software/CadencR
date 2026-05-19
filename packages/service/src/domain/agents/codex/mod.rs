@@ -112,6 +112,7 @@ fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
         status: ProviderStatus::Available,
         status_message: None,
         models: models.into_iter().map(model_entry).collect(),
+        modes: Vec::new(),
         default_model,
     }
 }
@@ -123,6 +124,7 @@ fn unavailable_catalog(message: impl Into<String>) -> ProviderCatalogEntry {
         status: ProviderStatus::Unavailable,
         status_message: Some(message.into()),
         models: Vec::new(),
+        modes: Vec::new(),
         default_model: None,
     }
 }

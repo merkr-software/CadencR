@@ -701,7 +701,7 @@ pub(super) async fn handle_mode_set(
                         SessionErrorPayload {
                             code: "MODE_REJECTED_BY_CLI".into(),
                             message: e.to_string(),
-                            mode: Some(permission_mode_wire(&new_mode).into()),
+                            mode: Some(permission_mode_wire(&new_mode)),
                         }
                     }
                     _ => SessionErrorPayload {

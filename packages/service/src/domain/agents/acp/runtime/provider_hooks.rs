@@ -48,7 +48,7 @@ impl AcpProviderHooks for DefaultFlattenHooks {
     fn normalize_tool_input(&self, _tool_name: &str, input: Value) -> Value {
         input
     }
-    fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<&'static str> {
+    fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<String> {
         None
     }
 }
@@ -72,7 +72,7 @@ pub trait AcpProviderHooks: Send + Sync {
     }
 
     /// Map a Cadencr permission mode onto the provider's mode id.
-    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<&'static str>;
+    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<String>;
 
     /// Provider config id for model changes over `session/set_config_option`.
     fn model_config_id(&self) -> Option<&'static str> {

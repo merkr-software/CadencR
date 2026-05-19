@@ -85,7 +85,7 @@ function WebSocketSessionFeatureBody(
     gitMetadataEnabled: !embedded || gitVisible,
     projectLookupEnabled: !embedded,
   });
-  const controls = useSessionControls(sessionId, featureId, projectId, cwd, data.featureSettings, {
+  const controls = useSessionControls(sessionId, featureId, projectId, data.effectiveCwd, {
     loadPersistedState: !embedded,
   });
   const refs = useSessionRefs();

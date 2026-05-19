@@ -10,6 +10,7 @@ import type { TodoItem } from "@/types/agent";
 import type { ThinkingEffortLevel } from "@/shared/thinking-effort";
 import { findProviderMode, getVisibleModes } from "@/lib/provider-modes";
 import type { PermissionMode } from "@/types/permission-mode";
+import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
 import { ModelMetaChip, type Model, type Provider } from "./ModelMetaChip";
 import { META_BAR_CHIP, WORKTREE_ACTIVE_CHIP } from "./meta-bar-chip-styles";
 
@@ -27,6 +28,7 @@ export interface MetaBarProps {
    * appear here.
    */
   enabledOptInModes?: PermissionMode[];
+  providerModes?: readonly RuntimeProviderModeOption[];
   showWorktreeChip: boolean;
   useWorktree?: boolean;
   onToggleWorktree?: () => void;
@@ -94,6 +96,7 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
     permissionMode,
     onPermissionModeToggle,
     enabledOptInModes,
+    providerModes = [],
     showWorktreeChip,
     useWorktree,
     onToggleWorktree,
@@ -159,10 +162,10 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
   // Hide the chip when the provider can't cycle (< 2 visible modes).
   const activeMode = useMemo(() => {
     if (!onPermissionModeToggle || !permissionMode) return null;
-    const visibleModes = getVisibleModes(displayProviderId, enabledOptInModes ?? []);
+    const visibleModes = getVisibleModes(displayProviderId, enabledOptInModes ?? [], providerModes);
     if (visibleModes.length < 2) return null;
-    return findProviderMode(displayProviderId, permissionMode) ?? visibleModes[0];
-  }, [displayProviderId, enabledOptInModes, onPermissionModeToggle, permissionMode]);
+    return findProviderMode(displayProviderId, permissionMode, providerModes) ?? visibleModes[0];
+  }, [displayProviderId, enabledOptInModes, onPermissionModeToggle, permissionMode, providerModes]);
 
   const isStandalone = variant === "standalone";
   const shouldShowModel = !!onModelChange || showReadOnlyModel;

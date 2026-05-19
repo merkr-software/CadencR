@@ -33,12 +33,15 @@ impl AcpProviderHooks for SpawnHooks {
     fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
         input
     }
-    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<&'static str> {
-        Some(if matches!(mode, RuntimePermissionMode::Plan) {
-            "plan"
-        } else {
-            "build"
-        })
+    fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<String> {
+        Some(
+            if matches!(mode, RuntimePermissionMode::Plan) {
+                "plan"
+            } else {
+                "build"
+            }
+            .to_string(),
+        )
     }
     fn model_config_id(&self) -> Option<&'static str> {
         Some("model")

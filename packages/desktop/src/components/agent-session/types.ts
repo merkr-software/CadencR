@@ -12,6 +12,8 @@ import type { LiveAgentStatus as AgentStatus } from "@/types/agent";
 import type { SlashCommand } from "@/hooks/useSlashCommand";
 import type { ThinkingEffortLevel } from "@/shared/thinking-effort";
 import type { PermissionMode } from "@/types/permission-mode";
+import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
+import type { AgentCatalog } from "@/api/agentRuntime";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnTimingState } from "@/stores/ws-turn-timing";
 
@@ -94,6 +96,9 @@ export interface AgentSessionProps {
    * `codex_full_access_enabled` workspace settings.
    */
   enabledOptInModes?: PermissionMode[];
+  providerModes?: readonly RuntimeProviderModeOption[];
+  /** Optional catalog query supplied by parents that already fetched it. */
+  agentCatalog?: { data?: AgentCatalog };
   /** Pending plan approval from ExitPlanMode tool call */
   pendingPlanApproval?: {
     allowedPrompts?: Array<{ tool: string; prompt: string }>;

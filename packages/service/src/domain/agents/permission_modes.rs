@@ -3,6 +3,10 @@ use super::runtime_adapter;
 
 /// Parse a permission mode string from the client into a PermissionMode enum value.
 pub(crate) fn parse_permission_mode(mode: &str) -> RuntimePermissionMode {
+    if let Some(agent_name) = super::opencode::agents::agent_name_from_mode_id(mode) {
+        return RuntimePermissionMode::OpenCodeAgent(agent_name.to_string());
+    }
+
     match mode {
         "acceptEdits" => RuntimePermissionMode::AcceptEdits,
         "bypassPermissions" => RuntimePermissionMode::BypassPermissions,
@@ -13,14 +17,33 @@ pub(crate) fn parse_permission_mode(mode: &str) -> RuntimePermissionMode {
     }
 }
 
-pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> &'static str {
+pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> String {
     match mode {
-        RuntimePermissionMode::Default => "default",
-        RuntimePermissionMode::AcceptEdits => "acceptEdits",
-        RuntimePermissionMode::BypassPermissions => "bypassPermissions",
-        RuntimePermissionMode::Plan => "plan",
-        RuntimePermissionMode::Auto => "auto",
-        RuntimePermissionMode::DontAsk => "dontAsk",
+        RuntimePermissionMode::Default => "default".to_string(),
+        RuntimePermissionMode::AcceptEdits => "acceptEdits".to_string(),
+        RuntimePermissionMode::BypassPermissions => "bypassPermissions".to_string(),
+        RuntimePermissionMode::Plan => "plan".to_string(),
+        RuntimePermissionMode::Auto => "auto".to_string(),
+        RuntimePermissionMode::DontAsk => "dontAsk".to_string(),
+        RuntimePermissionMode::OpenCodeAgent(name) => {
+            super::opencode::agents::mode_id_for_agent(name)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{parse_permission_mode, permission_mode_wire};
+    use crate::domain::agents::adapter::RuntimePermissionMode;
+
+    #[test]
+    fn parses_opencode_agent_mode() {
+        let mode = parse_permission_mode("opencodeAgent:documentor");
+        assert_eq!(
+            mode,
+            RuntimePermissionMode::OpenCodeAgent("documentor".to_string())
+        );
+        assert_eq!(permission_mode_wire(&mode), "opencodeAgent:documentor");
     }
 }
 

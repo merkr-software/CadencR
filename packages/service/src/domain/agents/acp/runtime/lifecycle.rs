@@ -242,8 +242,8 @@ mod tests {
             input
         }
 
-        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
-            Some("build")
+        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
+            Some("build".to_string())
         }
 
         fn supports_durable_resume(&self) -> bool {

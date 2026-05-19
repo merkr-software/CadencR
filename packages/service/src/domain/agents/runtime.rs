@@ -57,7 +57,17 @@ pub struct ProviderCatalogEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
     pub models: Vec<ModelCatalogEntry>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modes: Vec<ProviderModeCatalogEntry>,
     pub default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ProviderModeCatalogEntry {
+    pub id: String,
+    pub label: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

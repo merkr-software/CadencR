@@ -171,6 +171,7 @@ fn map_permission_mode(mode: RuntimePermissionMode) -> claude_agent_sdk_rs::Perm
         RuntimePermissionMode::Plan => claude_agent_sdk_rs::PermissionMode::Plan,
         RuntimePermissionMode::Auto => claude_agent_sdk_rs::PermissionMode::Auto,
         RuntimePermissionMode::DontAsk => claude_agent_sdk_rs::PermissionMode::DontAsk,
+        RuntimePermissionMode::OpenCodeAgent(_) => claude_agent_sdk_rs::PermissionMode::Default,
     }
 }
 
@@ -319,6 +320,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             status: ProviderStatus::Available,
             status_message: None,
             models,
+            modes: Vec::new(),
             default_model,
         }
     }
@@ -371,9 +373,9 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         Ok(commands)
     }
 
-    fn supports_permission_mode(&self, _mode: &RuntimePermissionMode) -> bool {
-        // Claude Code's CLI accepts every variant the SDK exposes.
-        true
+    fn supports_permission_mode(&self, mode: &RuntimePermissionMode) -> bool {
+        // Claude Code's CLI accepts every built-in variant the SDK exposes.
+        !matches!(mode, RuntimePermissionMode::OpenCodeAgent(_))
     }
     // Default edit mode maps to Claude Code's primary edit mode.
 
@@ -421,6 +423,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             status: ProviderStatus::Available,
             status_message: None,
             models,
+            modes: Vec::new(),
             default_model,
         }
     }

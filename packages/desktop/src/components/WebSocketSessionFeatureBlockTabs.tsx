@@ -103,6 +103,8 @@ function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
           onAnswerSubmit={controls.ws.respondToQuestion}
           permissionMode={controls.ws.permissionMode}
           enabledOptInModes={controls.enabledOptInModes}
+          providerModes={controls.providerModes}
+          agentCatalog={controls.agentCatalog}
           onPermissionModeToggle={controls.handlePermissionModeToggle}
           pendingPlanApproval={controls.ws.pendingPlanApproval}
           onPlanApprove={controls.ws.approvePlan}

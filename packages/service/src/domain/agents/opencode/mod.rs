@@ -1,4 +1,5 @@
 pub(in crate::domain::agents) mod acp;
+pub(in crate::domain::agents) mod agents;
 pub(in crate::domain::agents::opencode) mod commands;
 pub(crate) mod permissions;
 mod questions;
@@ -59,6 +60,17 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
 
     async fn catalog_entry_live(&self) -> crate::domain::agents::runtime::ProviderCatalogEntry {
         super::providers::opencode::catalog_entry_live().await
+    }
+
+    async fn catalog_entry_live_for_cwd(
+        &self,
+        cwd: Option<&std::path::Path>,
+    ) -> crate::domain::agents::runtime::ProviderCatalogEntry {
+        let mut entry = super::providers::opencode::catalog_entry_live().await;
+        if let Some(cwd) = cwd {
+            entry.modes = agents::primary_agent_modes(cwd).await;
+        }
+        entry
     }
 
     async fn context_window_for_model(&self, model_id: &str) -> Option<u64> {
@@ -139,6 +151,7 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
             RuntimePermissionMode::Default
                 | RuntimePermissionMode::AcceptEdits
                 | RuntimePermissionMode::Plan
+                | RuntimePermissionMode::OpenCodeAgent(_)
         )
     }
     // Default `default_permission_mode_wire` ("acceptEdits") maps to OpenCode's
