@@ -194,7 +194,7 @@ mod tests {
         fn flatten_tool_result_content(&self, blocks: &[Value]) -> Value {
             json!(blocks)
         }
-        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
             None
         }
     }

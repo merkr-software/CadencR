@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "./client";
 import { AGENT_TYPES, DEFAULT_PROVIDER, type AgentTypeSetting } from "../shared/models";
+import type { PermissionMode } from "@/types/permission-mode";
 
 export interface RuntimeModelOption {
   id: string;
@@ -19,7 +20,14 @@ export interface RuntimeProviderOption {
   status: "available" | "unavailable" | "coming_soon";
   status_message?: string;
   models: RuntimeModelOption[];
+  modes?: RuntimeProviderModeOption[];
   default_model: string | null;
+}
+
+export interface RuntimeProviderModeOption {
+  id: PermissionMode;
+  label: string;
+  description?: string;
 }
 
 export interface AgentCatalog {
@@ -43,6 +51,7 @@ function defaultProviderSettings(): ProviderSettings {
 interface QueryExtras {
   enabled?: boolean;
   staleTime?: number;
+  cwd?: string;
 }
 
 function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
@@ -52,10 +61,16 @@ function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
 }
 
 export function useAgentCatalog(extras?: QueryExtras) {
+  const { cwd, ...queryExtras } = extras ?? {};
   return useQuery({
-    queryKey: ["agent-catalog"],
-    queryFn: () => customInstance<AgentCatalog>({ method: "GET", url: "/api/agent-catalog" }),
-    ...extras,
+    queryKey: ["agent-catalog", cwd ?? null],
+    queryFn: () =>
+      customInstance<AgentCatalog>({
+        method: "GET",
+        url: "/api/agent-catalog",
+        params: cwd ? { cwd } : undefined,
+      }),
+    ...queryExtras,
   });
 }
 

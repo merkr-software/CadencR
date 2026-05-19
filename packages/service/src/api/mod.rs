@@ -19,14 +19,39 @@ use crate::domain::sessions::routes::sessions_router;
 use crate::domain::terminal::routes::terminal_router;
 use crate::domain::workspace::routes::workspace_router;
 use crate::domain::ws_session::handler::ws_handler;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::Json;
 use axum::Router;
+use serde::Deserialize;
+use std::path::PathBuf;
 
-#[utoipa::path(get, path = "/api/agent-catalog", responses((status = 200, body = AgentCatalogResponse)))]
-pub async fn get_agent_catalog(State(state): State<AppState>) -> Json<AgentCatalogResponse> {
-    Json(crate::domain::agents::providers::provider_catalog_live(&state.read_pool).await)
+#[utoipa::path(
+    get,
+    path = "/api/agent-catalog",
+    params(("cwd" = Option<String>, Query, description = "Workspace path used to discover project-local provider modes")),
+    responses((status = 200, body = AgentCatalogResponse))
+)]
+pub async fn get_agent_catalog(
+    State(state): State<AppState>,
+    Query(query): Query<AgentCatalogQuery>,
+) -> Json<AgentCatalogResponse> {
+    let catalog = match query.cwd.as_deref() {
+        Some(cwd) => {
+            crate::domain::agents::providers::provider_catalog_live_for_cwd(
+                &state.read_pool,
+                Some(cwd),
+            )
+            .await
+        }
+        None => crate::domain::agents::providers::provider_catalog_live(&state.read_pool).await,
+    };
+    Json(catalog)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AgentCatalogQuery {
+    cwd: Option<PathBuf>,
 }
 
 pub fn build_router(state: AppState) -> Router {

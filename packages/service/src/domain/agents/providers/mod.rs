@@ -1,6 +1,7 @@
 pub(crate) mod opencode;
 
 use sqlx::SqlitePool;
+use std::path::Path;
 
 use super::adapter::AgentRuntimeAdapter;
 use super::runtime::{AgentCatalogResponse, ModelCatalogEntry, DEFAULT_PROVIDER};
@@ -68,8 +69,15 @@ fn merge_extra_models(
 }
 
 pub async fn provider_catalog_live(read_pool: &SqlitePool) -> AgentCatalogResponse {
+    provider_catalog_live_for_cwd(read_pool, None).await
+}
+
+pub async fn provider_catalog_live_for_cwd(
+    read_pool: &SqlitePool,
+    cwd: Option<&Path>,
+) -> AgentCatalogResponse {
     let providers = futures::future::join_all(ADAPTERS.iter().map(|(_, adapter)| async move {
-        let mut entry = adapter.catalog_entry_live().await;
+        let mut entry = adapter.catalog_entry_live_for_cwd(cwd).await;
         let extra = adapter.extra_models(read_pool).await;
         if !extra.is_empty() {
             entry.models = merge_extra_models(entry.models, extra);

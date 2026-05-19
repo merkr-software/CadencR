@@ -11,8 +11,13 @@ describe("parsePermissionMode", () => {
     expect(parsePermissionMode("dontAsk")).toBe("dontAsk");
   });
 
+  it("accepts OpenCode agent modes", () => {
+    expect(parsePermissionMode("opencodeAgent:documentor")).toBe("opencodeAgent:documentor");
+  });
+
   it("rejects unknown and non-string values", () => {
     expect(parsePermissionMode("codex")).toBeNull();
+    expect(parsePermissionMode("opencodeAgent:")).toBeNull();
     expect(parsePermissionMode(null)).toBeNull();
     expect(parsePermissionMode(undefined)).toBeNull();
   });

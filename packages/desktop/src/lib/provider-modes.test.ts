@@ -57,6 +57,23 @@ describe("getVisibleModes", () => {
     const visible = getVisibleModes(PROVIDER_IDS.OPENCODE, ["bypassPermissions"]);
     expect(visible.map((m) => m.id)).toEqual(["acceptEdits", "plan"]);
   });
+
+  it("adds project OpenCode agents to visible modes", () => {
+    const catalogModes = [
+      { id: "opencodeAgent:documentor" as const, label: "documentor" },
+      { id: "opencodeAgent:scenario-builder" as const, label: "scenario-builder" },
+    ];
+    const visible = getVisibleModes(PROVIDER_IDS.OPENCODE, [], catalogModes);
+    expect(visible.map((m) => m.id)).toEqual([
+      "acceptEdits",
+      "plan",
+      "opencodeAgent:documentor",
+      "opencodeAgent:scenario-builder",
+    ]);
+    expect(
+      findProviderMode(PROVIDER_IDS.OPENCODE, "opencodeAgent:documentor", catalogModes)?.label,
+    ).toBe("documentor");
+  });
 });
 
 describe("nextProviderMode (cycle)", () => {
@@ -78,6 +95,16 @@ describe("nextProviderMode (cycle)", () => {
   it("two-mode toggle for OpenCode", () => {
     expect(nextProviderMode(PROVIDER_IDS.OPENCODE, "acceptEdits", [])).toBe("plan");
     expect(nextProviderMode(PROVIDER_IDS.OPENCODE, "plan", [])).toBe("acceptEdits");
+  });
+
+  it("cycles through OpenCode custom agents", () => {
+    const customModes = [{ id: "opencodeAgent:documentor" as const, label: "documentor" }];
+    expect(nextProviderMode(PROVIDER_IDS.OPENCODE, "plan", [], customModes)).toBe(
+      "opencodeAgent:documentor",
+    );
+    expect(
+      nextProviderMode(PROVIDER_IDS.OPENCODE, "opencodeAgent:documentor", [], customModes),
+    ).toBe("acceptEdits");
   });
 
   it("Codex cycle: default → plan → [full access] → wrap", () => {

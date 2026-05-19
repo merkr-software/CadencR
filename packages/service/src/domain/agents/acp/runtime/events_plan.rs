@@ -97,7 +97,7 @@ mod tests {
             input
         }
 
-        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
             None
         }
     }

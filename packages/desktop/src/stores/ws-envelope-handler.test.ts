@@ -128,6 +128,21 @@ describe("handleEnvelope mode.changed", () => {
 
     expect(ctx.getSession("s1").permissionMode).toBe("acceptEdits");
   });
+
+  it("accepts project-scoped OpenCode agent modes", () => {
+    const session = createSessionEntry();
+    session.currentProviderId = "opencode";
+    session.permissionMode = "acceptEdits";
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "mode.changed",
+      payload: { mode: "opencodeAgent:documentor" },
+    });
+
+    expect(ctx.getSession("s1").permissionMode).toBe("opencodeAgent:documentor");
+  });
 });
 
 describe("handleEnvelope provider.set.ok", () => {

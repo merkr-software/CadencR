@@ -74,7 +74,7 @@ mod tests {
         fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
             input
         }
-        fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<String> {
             None
         }
         fn model_config_id(&self) -> Option<&'static str> {

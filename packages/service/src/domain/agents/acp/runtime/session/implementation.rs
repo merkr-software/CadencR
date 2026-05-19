@@ -273,7 +273,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         let mode_id = self
             .hooks
             .mode_for_permission_mode(mode)
-            .or_else(|| self.hooks.default_mode_id())
+            .or_else(|| self.hooks.default_mode_id().map(ToOwned::to_owned))
             .ok_or_else(|| RuntimeError::new("ACP provider does not support permission modes"))?;
         let session_id = self.require_session_id().await?;
         set_session_mode(
@@ -281,7 +281,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             &session_id,
             &self.current_mode,
             &self.supports_set_mode,
-            mode_id,
+            &mode_id,
         )
         .await
     }

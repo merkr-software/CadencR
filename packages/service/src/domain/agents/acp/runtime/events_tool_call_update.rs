@@ -129,7 +129,7 @@ mod tests {
             }
             json!(blocks)
         }
-        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
             None
         }
     }
@@ -287,7 +287,7 @@ mod tests {
         fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
             input
         }
-        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, _: RuntimePermissionMode) -> Option<String> {
             None
         }
         fn suppresses_raw_output(&self, tool_name: &str) -> bool {

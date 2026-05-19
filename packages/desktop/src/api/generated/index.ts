@@ -926,6 +926,7 @@ export interface ProviderCatalogEntry {
   id: string;
   label: string;
   models: ModelCatalogEntry[];
+  modes?: ProviderModeCatalogEntry[];
   status: ProviderStatus;
   status_message?: ProviderCatalogEntryStatusMessage;
 }
@@ -943,6 +944,14 @@ export interface ProviderDiscovery {
   /** User-set override path persisted in settings. `None` if unset. */
   override_path?: ProviderDiscoveryOverridePath;
   selected?: ProviderDiscoverySelected;
+}
+
+export type ProviderModeCatalogEntryDescription = string | null;
+
+export interface ProviderModeCatalogEntry {
+  description?: ProviderModeCatalogEntryDescription;
+  id: string;
+  label: string;
 }
 
 export interface ProviderSettings {
@@ -1354,6 +1363,13 @@ export interface WriteFileResponse {
   success: boolean;
 }
 
+export type GetAgentCatalogParams = {
+  /**
+   * Workspace path used to discover project-local provider modes
+   */
+  cwd?: string;
+};
+
 export type GetUnifiedAgentsParams = {
   mode?: null | UnifiedAgentsMode;
   fresh_minutes?: number | null;
@@ -1585,26 +1601,32 @@ export type ListProjectWorktreesParams = {
   project_id: number;
 };
 
-export const getAgentCatalog = (signal?: AbortSignal) => {
-  return customInstance<AgentCatalogResponse>({ url: `/api/agent-catalog`, method: "GET", signal });
+export const getAgentCatalog = (params?: GetAgentCatalogParams, signal?: AbortSignal) => {
+  return customInstance<AgentCatalogResponse>({
+    url: `/api/agent-catalog`,
+    method: "GET",
+    params,
+    signal,
+  });
 };
 
-export const getGetAgentCatalogQueryKey = () => {
-  return [`/api/agent-catalog`] as const;
+export const getGetAgentCatalogQueryKey = (params?: GetAgentCatalogParams) => {
+  return [`/api/agent-catalog`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetAgentCatalogQueryOptions = <
   TData = Awaited<ReturnType<typeof getAgentCatalog>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getAgentCatalog>>, TError, TData>;
-}) => {
+>(
+  params?: GetAgentCatalogParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getAgentCatalog>>, TError, TData> },
+) => {
   const { query: queryOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetAgentCatalogQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetAgentCatalogQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getAgentCatalog>>> = ({ signal }) =>
-    getAgentCatalog(signal);
+    getAgentCatalog(params, signal);
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getAgentCatalog>>,
@@ -1619,10 +1641,11 @@ export type GetAgentCatalogQueryError = ErrorType<unknown>;
 export function useGetAgentCatalog<
   TData = Awaited<ReturnType<typeof getAgentCatalog>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getAgentCatalog>>, TError, TData>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetAgentCatalogQueryOptions(options);
+>(
+  params?: GetAgentCatalogParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getAgentCatalog>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAgentCatalogQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

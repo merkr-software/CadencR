@@ -7,6 +7,7 @@
  */
 import {
   ClipboardList,
+  Bot,
   FileEditIcon,
   Hammer,
   ShieldOff,
@@ -16,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { PROVIDER_IDS, type ProviderId } from "./providers";
+import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
 import type { PermissionMode } from "@/types/permission-mode";
 
 export interface ProviderMode {
@@ -135,11 +137,26 @@ export const PROVIDER_MODES: Record<ProviderId, ProviderMode[]> = {
  * the chip hides via the standard < 2 visible-modes gate in MetaBar — better
  * than masquerading as a Claude session with Claude colors and labels.
  */
-export function getProviderModes(providerId?: string | null): ProviderMode[] {
+export function getProviderModes(
+  providerId?: string | null,
+  catalogModes: readonly RuntimeProviderModeOption[] = [],
+): ProviderMode[] {
   if (providerId && providerId in PROVIDER_MODES) {
-    return PROVIDER_MODES[providerId as ProviderId];
+    const modes = PROVIDER_MODES[providerId as ProviderId];
+    if (providerId !== PROVIDER_IDS.OPENCODE || catalogModes.length === 0) return modes;
+    return [...modes, ...catalogModes.map(opencodeCatalogMode)];
   }
   return [];
+}
+
+function opencodeCatalogMode(mode: RuntimeProviderModeOption): ProviderMode {
+  return {
+    id: mode.id,
+    label: mode.label,
+    icon: Bot,
+    chipClass: "bg-[var(--acc-cyan)]/15 text-[var(--acc-cyan)] hover:bg-[var(--acc-cyan)]/25",
+    description: mode.description ?? `Use the OpenCode ${mode.label} agent.`,
+  };
 }
 
 /**
@@ -150,8 +167,9 @@ export function getProviderModes(providerId?: string | null): ProviderMode[] {
 export function getVisibleModes(
   providerId: string | null | undefined,
   enabledOptInIds: PermissionMode[] = [],
+  catalogModes: readonly RuntimeProviderModeOption[] = [],
 ): ProviderMode[] {
-  return getProviderModes(providerId).filter(
+  return getProviderModes(providerId, catalogModes).filter(
     (mode) => !mode.optIn || enabledOptInIds.includes(mode.id),
   );
 }
@@ -164,8 +182,9 @@ export function getVisibleModes(
 export function findProviderMode(
   providerId: string | null | undefined,
   modeId: PermissionMode,
+  catalogModes: readonly RuntimeProviderModeOption[] = [],
 ): ProviderMode | null {
-  return getProviderModes(providerId).find((m) => m.id === modeId) ?? null;
+  return getProviderModes(providerId, catalogModes).find((m) => m.id === modeId) ?? null;
 }
 
 /**
@@ -191,8 +210,9 @@ export function nextProviderMode(
   providerId: string | null | undefined,
   current: PermissionMode,
   enabledOptInIds: PermissionMode[] = [],
+  catalogModes: readonly RuntimeProviderModeOption[] = [],
 ): PermissionMode {
-  const visible = getVisibleModes(providerId, enabledOptInIds);
+  const visible = getVisibleModes(providerId, enabledOptInIds, catalogModes);
   if (visible.length < 2) return current;
   const idx = visible.findIndex((m) => m.id === current);
   if (idx === -1) return visible[0].id;

@@ -29,7 +29,7 @@ pub(super) async fn transition_session_to_post_plan_mode(
     db_session_id: i64,
     write_pool: &sqlx::SqlitePool,
     sender: &WsSender,
-) -> Result<Option<&'static str>, RuntimeError> {
+) -> Result<Option<String>, RuntimeError> {
     let (transition, runtime_provider) = {
         let mut sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get_mut(&db_session_id) else {
@@ -98,7 +98,7 @@ pub(super) async fn transition_session_to_post_plan_mode(
         }
     }
 
-    WsSessionPersistence::update_permission_mode_static(write_pool, db_session_id, applied_wire)
+    WsSessionPersistence::update_permission_mode_static(write_pool, db_session_id, &applied_wire)
         .await;
     let envelope = WsEnvelope::new(
         "session",
@@ -125,7 +125,7 @@ fn recoverable_fallback_mode(
         {
             let fallback_wire = post_plan_approval_fallback_mode_wire(
                 runtime_provider,
-                permission_mode_wire(failed_mode),
+                &permission_mode_wire(failed_mode),
             )?;
             Some(parse_permission_mode(fallback_wire))
         }
@@ -414,7 +414,7 @@ mod tests {
         // The orchestrator picked `auto` first, the CLI rejected it, so we
         // ended up in `acceptEdits` — surfaced via the return value, the
         // session handle, the DB, and the broadcast envelope.
-        assert_eq!(changed, Some("acceptEdits"));
+        assert_eq!(changed.as_deref(), Some("acceptEdits"));
         assert_eq!(
             *modes.lock().await,
             vec![RuntimePermissionMode::AcceptEdits],
@@ -464,7 +464,7 @@ mod tests {
 
         let changed = transition_session_to_post_plan_mode(&sdk_sessions, 7, &pool, &sender).await;
 
-        assert_eq!(changed.unwrap(), Some("default"));
+        assert_eq!(changed.unwrap().as_deref(), Some("default"));
         assert_eq!(*modes.lock().await, vec![RuntimePermissionMode::Default]);
         let stored: String =
             sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE id = 7")

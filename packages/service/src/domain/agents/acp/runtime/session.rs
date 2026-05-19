@@ -40,10 +40,10 @@ mod tests {
         fn flatten_tool_result_content(&self, blocks: &[Value]) -> Value {
             json!(blocks)
         }
-        fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<&'static str> {
+        fn mode_for_permission_mode(&self, mode: RuntimePermissionMode) -> Option<String> {
             Some(match mode {
-                RuntimePermissionMode::Plan => "plan",
-                _ => "build",
+                RuntimePermissionMode::Plan => "plan".to_string(),
+                _ => "build".to_string(),
             })
         }
     }
