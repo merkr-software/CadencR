@@ -24,7 +24,7 @@ Cadencr is provider-neutral by design. Each supported agent (Claude Code, OpenCo
 
 ## Workflow
 
-Requires `pnpm` and Node `>=22.0.0 <23.0.0`.
+Requires `pnpm`, Node `>=22.18.0 <23.0.0`, and `cargo-watch` for `pnpm dev`.
 
 ```bash
 pnpm dev                                  # frontend + service via Turborepo (alias: pnpm start)
