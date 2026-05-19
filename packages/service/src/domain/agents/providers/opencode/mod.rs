@@ -122,6 +122,7 @@ fn catalog_from_response(
 fn provider_display_label(provider_id: &str) -> String {
     match provider_id {
         "opencode" => "OpenCode".to_string(),
+        "github-copilot" => "GitHub Copilot".to_string(),
         "openai" => "OpenAI".to_string(),
         _ => provider_id.to_string(),
     }
@@ -276,6 +277,28 @@ mod tests {
             .find(|model| model.id == "openai/gpt-5.4")
             .expect("gpt-5.4 entry");
         assert_eq!(model.label, "OpenAI: GPT-5.4");
+    }
+
+    #[test]
+    fn catalog_from_response_labels_github_copilot_without_wire_name() {
+        let response = parse(json!({
+            "providers": [
+                {
+                    "id": "github-copilot",
+                    "models": {
+                        "claude-opus-4.6": { "name": "Claude Opus 4.6" }
+                    }
+                }
+            ],
+            "default": { "github-copilot": "claude-opus-4.6" }
+        }));
+        let (catalog, _) = catalog_from_response(response);
+        let model = catalog
+            .models
+            .iter()
+            .find(|model| model.id == "github-copilot/claude-opus-4.6")
+            .expect("copilot opus entry");
+        assert_eq!(model.label, "GitHub Copilot: Claude Opus 4.6");
     }
 
     #[test]

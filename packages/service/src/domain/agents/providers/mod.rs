@@ -178,6 +178,13 @@ mod tests {
     }
 
     #[test]
+    fn adapter_for_model_routes_github_copilot_refs_to_opencode() {
+        let (id, _) = adapter_for_model("github-copilot/claude-opus-4.6")
+            .expect("should find opencode adapter");
+        assert_eq!(id, "opencode");
+    }
+
+    #[test]
     fn adapter_for_model_routes_bare_gpt_models_to_codex() {
         let (id, _) = adapter_for_model("gpt-5.4").expect("should find codex adapter");
         assert_eq!(id, "codex_cli");
@@ -199,6 +206,15 @@ mod tests {
     #[test]
     fn resolve_effective_provider_reroutes_default_when_model_belongs_to_other_adapter() {
         let routed = resolve_effective_provider("claude_code".to_string(), Some("openai/gpt-5.4"));
+        assert_eq!(routed, "opencode");
+    }
+
+    #[test]
+    fn resolve_effective_provider_reroutes_default_for_github_copilot_models() {
+        let routed = resolve_effective_provider(
+            "claude_code".to_string(),
+            Some("github-copilot/claude-opus-4.6"),
+        );
         assert_eq!(routed, "opencode");
     }
 

@@ -9,6 +9,7 @@ const OPENCODE_MODEL_PROVIDER_PREFIXES: &[&str] = &[
     "fireworks",
     "google",
     "groq",
+    "github-copilot",
     "mistral",
     "moonshot",
     "ollama",
@@ -41,6 +42,7 @@ mod tests {
     fn detects_provider_scoped_opencode_models() {
         assert!(is_opencode_model_ref("openai/gpt-5.4"));
         assert!(is_opencode_model_ref("anthropic/claude-sonnet-4-5"));
+        assert!(is_opencode_model_ref("github-copilot/claude-opus-4.6"));
         assert!(is_opencode_model_ref("default/default"));
     }
 
