@@ -204,9 +204,11 @@ mod tests {
     async fn query_stream_from_mock_cli() {
         let dir = TempDir::new().unwrap();
 
-        // Mock CLI: emit a system init, a stream event, and a result
+        // Mock CLI: drain the SDK init handshake and initial user prompt,
+        // then emit a system init, a stream event, and a result.
         let script = r#"#!/bin/sh
-read -r INPUT
+read -r INIT_REQ
+read -r USER_PROMPT
 echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_123","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
 echo '{"type":"stream_event","uuid":"u2","session_id":"sess_123","parent_tool_use_id":null,"event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}}'
 echo '{"type":"result","subtype":"success","uuid":"u3","session_id":"sess_123","duration_ms":100,"duration_api_ms":80,"is_error":false,"num_turns":1,"result":"Hello","errors":null,"stop_reason":"end_turn","total_cost_usd":0.001,"usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"permission_denials":[],"structured_output":null}'
@@ -249,9 +251,11 @@ echo '{"type":"result","subtype":"success","uuid":"u3","session_id":"sess_123","
     async fn take_message_rx_drains_stream_and_receiver_works() {
         let dir = TempDir::new().unwrap();
 
-        // Mock CLI: emit system init and a result
+        // Mock CLI: drain the SDK init handshake and initial user prompt,
+        // then emit system init and a result.
         let script = r#"#!/bin/sh
-read -r INPUT
+read -r INIT_REQ
+read -r USER_PROMPT
 echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_take","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
 echo '{"type":"result","subtype":"success","uuid":"u2","session_id":"sess_take","duration_ms":10,"duration_api_ms":5,"is_error":false,"num_turns":1,"result":"ok","errors":null,"stop_reason":"end_turn","total_cost_usd":0.0,"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"permission_denials":[],"structured_output":null}'
 "#;

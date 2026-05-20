@@ -229,9 +229,11 @@ mod tests {
     async fn close_kills_child_process() {
         let dir = TempDir::new().unwrap();
 
-        // Mock CLI: emit system init then sleep forever (simulates a long-running process)
+        // Mock CLI: drain the SDK init handshake and initial user prompt,
+        // emit system init, then sleep forever (simulates a long-running process).
         let script = r#"#!/bin/sh
-read -r INPUT
+read -r INIT_REQ
+read -r USER_PROMPT
 echo '{"type":"system","subtype":"init","uuid":"u1","session_id":"sess_close","claude_code_version":"1.0","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"claude-sonnet-4-20250514","permission_mode":"default","slash_commands":[],"output_style":"stream","skills":[],"plugins":[]}'
 sleep 300
 "#;
