@@ -553,6 +553,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_first_prompt_broadcasts_agent_before_runtime_spawn() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+        let app_state = make_test_app_state().await;
+        let missing_cwd = "/tmp/cadencr-test-missing-runtime-cwd";
+        let _ = tokio::fs::remove_dir_all(missing_cwd).await;
+        let session_id = init_session_with_payload(
+            &tx,
+            &mut rx,
+            &sdk_sessions,
+            &app_state,
+            SessionInitPayload {
+                provider: Some(crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string()),
+                model: None,
+                thinking_effort: None,
+                permission_mode: None,
+                system_prompt: None,
+                cwd: Some(missing_cwd.to_string()),
+                feature_id: Some(1),
+            },
+        )
+        .await;
+        let db_id: i64 = session_id.parse().unwrap();
+        let mut status_rx = app_state.session_status_tx.subscribe();
+
+        let envelope = make_envelope(
+            "session",
+            "prompt.send",
+            serde_json::json!({
+                "session_id": session_id,
+                "text": "start working",
+            }),
+        );
+        dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+        let status_event =
+            tokio::time::timeout(std::time::Duration::from_secs(2), status_rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+        assert_eq!(status_event.session_id, db_id);
+        assert_eq!(
+            status_event.status,
+            crate::domain::session_status::AgentStatus::Agent
+        );
+    }
+
+    #[tokio::test]
     async fn test_init_missing_feature_id_returns_error() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
@@ -1381,6 +1429,7 @@ mod tests {
         let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
         let db_id: i64 = session_id.parse().unwrap();
         let release = Arc::new(tokio::sync::Notify::new());
+        let mut status_rx = app_state.session_status_tx.subscribe();
 
         {
             let mut sessions = sdk_sessions.lock().await;
@@ -1413,6 +1462,13 @@ mod tests {
         assert!(
             result.is_ok(),
             "follow-up prompt handling must return without waiting for the provider turn"
+        );
+
+        let status_event = status_rx.recv().await.unwrap();
+        assert_eq!(status_event.session_id, db_id);
+        assert_eq!(
+            status_event.status,
+            crate::domain::session_status::AgentStatus::Agent
         );
     }
 
