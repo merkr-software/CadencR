@@ -1,16 +1,17 @@
 /**
- * Detects sleep/wake, network online/offline, and tab-visibility changes,
- * and uses each as a trigger to immediately force every registered WS
- * reconnector and run a fresh `/api/health` probe.
+ * Detects browser sleep/wake, network online/offline, and tab-visibility
+ * changes, then uses those triggers to immediately force every registered WS
+ * reconnector and run a fresh `/api/health` probe. In Electron, OS sleep/wake
+ * reconnection is owned by `usePowerEvents` via the powerMonitor bridge.
  *
  * Mounted once at the app shell (`__root.tsx`). The hook owns its own
  * timers/listeners and cleans up on unmount.
  *
  * Why this matters:
  *
- * - Without this, the only path back to "connected" after macOS sleep is
+ * - Without this, the only path back to "connected" after browser sleep is
  *   the slow TCP-level close detection (can be 30 s+) plus exponential
- *   backoff. With it, the moment the OS surface fires `visible` /
+ *   backoff. With it, the moment the browser surface fires `visible` /
  *   `online` we tear down stale sockets and reconnect at base delay —
  *   typically restoring the UI in well under a second.
  *
@@ -25,6 +26,7 @@ import {
   startHealthPolling,
   stopHealthPolling,
 } from "@/stores/connection-status-store";
+import { desktopBridge } from "@/lib/desktop-bridge";
 
 /** Threshold above which a setInterval delta is interpreted as a wake. */
 const CLOCK_JUMP_WAKE_MS = 30_000;
@@ -57,7 +59,7 @@ export function useConnectionWatchdog(): void {
         // means the event loop was paused (laptop sleep / heavy debugger
         // pause). 30 s is a comfortable buffer above any plausible GC/JIT
         // stall and well below the TCP keep-alive timeout.
-        if (elapsed > CLOCK_JUMP_WAKE_MS) force();
+        if (elapsed > CLOCK_JUMP_WAKE_MS && !desktopBridge.isElectron) force();
       }, CLOCK_TICK_MS);
     }
     function stopClockTicker(): void {
@@ -73,7 +75,11 @@ export function useConnectionWatchdog(): void {
       // resume on visible.
       if (document.visibilityState === "visible") {
         startClockTicker();
-        force();
+        // In Electron, switching to another fullscreen app can emit the same
+        // hidden -> visible transition as a browser tab restore. Do not tear
+        // down live agent sockets for ordinary app switches; real OS sleep is
+        // handled by usePowerEvents via Electron's powerMonitor bridge.
+        if (!desktopBridge.isElectron) force();
       } else {
         stopClockTicker();
       }
