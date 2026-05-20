@@ -26,7 +26,9 @@ import { ThinkingBlock } from "@/components/ThinkingBlock";
 import { CompactDivider, ClearDivider, TurnSummaryDivider } from "@/components/StreamDividers";
 import { CodeBlockHeader } from "@/components/CodeBlockHeader";
 import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
+import { isTaskTodoTool } from "@/lib/tool-adapter";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
+import type { PromptDeliveryState } from "@/types/agent";
 
 /** Block types that the agent stream can produce */
 export type BlockType =
@@ -84,7 +86,7 @@ export interface AgentBlockData {
   /** Client-generated id for local prompt delivery tracking. */
   clientMessageId?: string;
   /** Receipt state for local user prompt blocks when a runtime supports it. */
-  promptDeliveryState?: "pending_agent";
+  promptDeliveryState?: PromptDeliveryState;
 }
 
 interface AgentBlockProps {
@@ -122,7 +124,7 @@ export const AgentBlock = memo(function AgentBlock({
     case "code":
       return <CodeBlock content={block.content} language={block.language} />;
     case "tool_call": {
-      if (block.toolName === "TodoWrite") return null;
+      if (block.toolName === "TodoWrite" || isTaskTodoTool(block.toolName)) return null;
       if ((block.toolName === "Task" || block.toolName === "Agent") && block.childBlocks) {
         return <TaskAgentBlock block={block} isStreaming={isStreaming} basePath={basePath} />;
       }
@@ -180,7 +182,14 @@ export const AgentBlock = memo(function AgentBlock({
     case "thinking":
       return <ThinkingBlock content={block.content} cacheKey={markdownCacheKey} />;
     case "user_message":
-      return <UserMessageBlock content={block.content} deliveryState={block.promptDeliveryState} />;
+      return (
+        <UserMessageBlock
+          content={block.content}
+          deliveryState={
+            block.promptDeliveryState === "pending_agent" ? block.promptDeliveryState : undefined
+          }
+        />
+      );
     case "turn_summary":
       return <TurnSummaryDivider content={block.content} />;
     case "compact_divider":

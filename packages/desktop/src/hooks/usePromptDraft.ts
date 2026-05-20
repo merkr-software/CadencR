@@ -22,39 +22,63 @@ interface DraftResultPayload {
   draft: string | null;
 }
 
+const localDrafts = new Map<string, string | null>();
+const dirtyDraftScopes = new Set<string>();
+
+export function resetPromptDraftMemoryForTest(): void {
+  localDrafts.clear();
+  dirtyDraftScopes.clear();
+}
+
+function draftScope(sessionId: number | undefined, wsSessionId: string | undefined): string | null {
+  if (wsSessionId) return `ws:${wsSessionId}`;
+  return sessionId != null ? `http:${sessionId}` : null;
+}
+
+function draftForScope(scope: string | null, fallback: string | null): string | null {
+  return scope && localDrafts.has(scope) ? (localDrafts.get(scope) ?? null) : fallback;
+}
+
+function cacheDraft(scope: string | null, draft: string | null, dirty: boolean): void {
+  if (!scope) return;
+  localDrafts.set(scope, draft);
+  if (dirty) dirtyDraftScopes.add(scope);
+}
+
 export function usePromptDraft({ sessionId, wsSessionId, initialDraft }: UsePromptDraftOptions) {
   const sendRaw = useWsSessionStore((s) => s.send);
   const sendRequest = useWsSessionStore((s) => s.sendRequest);
   const isConnected = useWsSessionStore((s) =>
     wsSessionId ? (s.sessions[wsSessionId]?.isConnected ?? false) : false,
   );
-  const serverSessionId = useWsSessionStore((s) =>
-    wsSessionId ? (s.sessions[wsSessionId]?.serverSessionId ?? "") : "",
+  const wsDbSessionId = useWsSessionStore((s) =>
+    wsSessionId ? (s.sessions[wsSessionId]?.sessionDbId ?? undefined) : undefined,
   );
   const saveDraftMutation = useSaveSessionDraft();
 
-  // Resolve the DB session ID: use serverSessionId from WS store, or fall back to prop
-  const dbSessionId = useMemo(() => {
-    if (wsSessionId && serverSessionId) {
-      const parsed = parseInt(serverSessionId, 10);
-      return isNaN(parsed) ? sessionId : parsed;
-    }
-    return sessionId;
-  }, [wsSessionId, serverSessionId, sessionId]);
+  // Resolve the DB session ID from the WS store when available, or fall back to prop.
+  const dbSessionId = useMemo(() => wsDbSessionId ?? sessionId, [wsDbSessionId, sessionId]);
 
   // For HTTP-path agents, fetch the draft from DB on mount
   const httpDraftQuery = useGetSessionDraft(sessionId ?? 0, {
     query: { enabled: !wsSessionId && !!sessionId },
   });
 
-  const [restoredDraft, setRestoredDraft] = useState<string | null>(initialDraft);
+  const restoreScope = draftScope(sessionId, wsSessionId);
+  const [restoredDraft, setRestoredDraft] = useState<string | null>(() =>
+    draftForScope(restoreScope, initialDraft),
+  );
+
+  useEffect(() => {
+    setRestoredDraft(draftForScope(restoreScope, initialDraft));
+  }, [initialDraft, restoreScope]);
 
   // Sync HTTP draft query result
   useEffect(() => {
-    if (!wsSessionId && httpDraftQuery.data?.draftPrompt != null) {
-      setRestoredDraft(httpDraftQuery.data.draftPrompt);
+    if (!wsSessionId && httpDraftQuery.data) {
+      setRestoredDraft(draftForScope(restoreScope, httpDraftQuery.data.draftPrompt ?? null));
     }
-  }, [wsSessionId, httpDraftQuery.data]);
+  }, [restoreScope, wsSessionId, httpDraftQuery.data]);
 
   const pendingRef = useRef<string | null | undefined>(undefined);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -62,27 +86,38 @@ export function usePromptDraft({ sessionId, wsSessionId, initialDraft }: UseProm
   dbSessionIdRef.current = dbSessionId;
   const wsSessionIdRef = useRef(wsSessionId);
   wsSessionIdRef.current = wsSessionId;
+  const restoreScopeRef = useRef(restoreScope);
+  restoreScopeRef.current = restoreScope;
 
   // Fetch draft from DB via WS on mount when session is initialized
   useEffect(() => {
     if (initialDraft != null || !wsSessionId || !isConnected || !dbSessionId) return;
-    void sendRequest(wsSessionId, createDraftGet(dbSessionId)).then((payload) => {
-      const data = payload as DraftResultPayload;
-      if (data.draft != null) {
-        setRestoredDraft(data.draft);
-      }
-    });
-  }, [initialDraft, wsSessionId, isConnected, dbSessionId, sendRequest]);
+    let cancelled = false;
+    void sendRequest(wsSessionId, createDraftGet(dbSessionId))
+      .then((payload) => {
+        if (cancelled) return;
+        const data = payload as DraftResultPayload;
+        if (!restoreScope || !dirtyDraftScopes.has(restoreScope)) {
+          setRestoredDraft(data.draft);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [initialDraft, restoreScope, wsSessionId, isConnected, dbSessionId, sendRequest]);
 
   const flushSave = useCallback(() => {
     if (pendingRef.current === undefined) return;
     const sid = dbSessionIdRef.current;
     if (!sid) {
-      pendingRef.current = undefined;
       return;
     }
     const draft = pendingRef.current;
     pendingRef.current = undefined;
+    if (restoreScopeRef.current) {
+      dirtyDraftScopes.delete(restoreScopeRef.current);
+    }
 
     const wsSid = wsSessionIdRef.current;
     if (wsSid) {
@@ -103,9 +138,17 @@ export function usePromptDraft({ sessionId, wsSessionId, initialDraft }: UseProm
     };
   }, [dbSessionId, flushSave]);
 
+  useEffect(() => {
+    if (!dbSessionId || !restoreScope || !dirtyDraftScopes.has(restoreScope)) return;
+    if (pendingRef.current === undefined) {
+      pendingRef.current = localDrafts.get(restoreScope);
+    }
+    flushSave();
+  }, [dbSessionId, flushSave, restoreScope]);
+
   const saveDraft = useCallback(
     (text: string | null) => {
-      if (!dbSessionId) return;
+      cacheDraft(restoreScope, text, true);
       pendingRef.current = text;
       if (timerRef.current) clearTimeout(timerRef.current);
       timerRef.current = setTimeout(() => {
@@ -113,7 +156,7 @@ export function usePromptDraft({ sessionId, wsSessionId, initialDraft }: UseProm
         flushSave();
       }, 500);
     },
-    [dbSessionId, flushSave],
+    [flushSave, restoreScope],
   );
 
   return { initialDraft: restoredDraft, saveDraft };

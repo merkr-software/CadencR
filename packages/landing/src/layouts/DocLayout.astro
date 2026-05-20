@@ -5,11 +5,24 @@ import DocsSidebar from "@/components/docs/DocsSidebar.astro";
 import DocsToc from "@/components/docs/DocsToc.astro";
 import { DOC_SECTIONS } from "@/lib/docs";
 
-interface Props {
-  title: string;
+interface DocFrontmatter {
+  title?: string;
   description?: string;
 }
-const { title, description } = Astro.props;
+
+interface Props {
+  /**
+   * MDX files using `layout: "@/layouts/DocLayout.astro"` pass their
+   * frontmatter under `Astro.props.frontmatter` (Astro convention).
+   * The old top-level `title` / `description` props were never set,
+   * which is why every doc page emitted `<title>undefined — Cadencr</title>`.
+   */
+  frontmatter?: DocFrontmatter;
+  title?: string;
+  description?: string;
+}
+
+const { frontmatter, title: titleProp, description: descriptionProp } = Astro.props;
 
 /**
  * Derive the page slug from the current URL and look up the matching
@@ -23,10 +36,38 @@ function slugFromPath(pathname: string): string {
 }
 
 const slug = slugFromPath(Astro.url.pathname);
-const navLabel =
-  DOC_SECTIONS.flatMap((s) => s.pages).find((p) => p.slug === slug)?.navLabel ?? title;
+const docPage = DOC_SECTIONS.flatMap((s) => s.pages).find((p) => p.slug === slug);
+
+const title = frontmatter?.title ?? titleProp ?? docPage?.title ?? "Docs";
+const description = frontmatter?.description ?? descriptionProp ?? docPage?.description;
+const navLabel = docPage?.navLabel ?? title;
+
+const breadcrumbs = [
+  { name: "Home", url: "https://cadencr.com/" },
+  { name: "Docs", url: "https://cadencr.com/docs/" },
+];
+if (slug.length > 0) {
+  breadcrumbs.push({
+    name: navLabel,
+    url: `https://cadencr.com/docs/${slug}/`,
+  });
+}
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: breadcrumbs.map((b, i) => ({
+    "@type": "ListItem",
+    position: i + 1,
+    name: b.name,
+    item: b.url,
+  })),
+};
 ---
-<BaseLayout title={`${title} — Cadencr`} description={description}>
+<BaseLayout
+  title={`${title} — Cadencr`}
+  description={description}
+  structuredData={structuredData}
+>
   <section class="py-10 pb-24">
     <Wrap>
       <div class="mb-8 max-w-[760px]">

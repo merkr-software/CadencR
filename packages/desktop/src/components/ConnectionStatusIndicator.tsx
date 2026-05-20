@@ -1,9 +1,10 @@
 /**
  * Backend connection status pill rendered next to the Settings link in
  * the sidebar. Hidden entirely when the connection is healthy — only
- * appears during `reconnecting` (amber, pulsing) or `disconnected` (red)
- * states. Click opens a popover with the disconnection reason, the time
- * we last had a healthy connection, and a "Retry now" button.
+ * appears during `reconnecting` (amber, pulsing), `disconnected` (red),
+ * or `manual_reconnect_required` (red) states. Click opens a popover
+ * with the disconnection reason, the time we last had a healthy
+ * connection, and a "Retry now" button.
  *
  * Status colors follow the same Tailwind palette as
  * `CustomActionStatusDot` for visual consistency with the existing
@@ -33,8 +34,14 @@ export function ConnectionStatusIndicator({
   // so this stays fresh enough without a memo or interval.
   const lastConnectedLabel = lastConnectedAt == null ? null : formatRelativeAge(lastConnectedAt);
 
+  const isManualRequired = status === "manual_reconnect_required";
   const dotColor = status === "reconnecting" ? "bg-amber-500 animate-pulse" : "bg-red-500";
-  const label = status === "reconnecting" ? "Reconnecting…" : "Disconnected";
+  const label =
+    status === "reconnecting"
+      ? "Reconnecting…"
+      : isManualRequired
+        ? "Reconnect paused"
+        : "Disconnected";
 
   return (
     <Popover>
@@ -46,7 +53,7 @@ export function ConnectionStatusIndicator({
             "flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-medium",
             "hover:bg-accent transition-colors focus-visible:outline-none focus-visible:bg-accent",
             status === "reconnecting" && "text-amber-500",
-            status === "disconnected" && "text-red-500",
+            (status === "disconnected" || isManualRequired) && "text-red-500",
             className,
           )}
         >
@@ -59,7 +66,11 @@ export function ConnectionStatusIndicator({
           <div className="flex items-center gap-2">
             <span className={cn("size-2 rounded-full", dotColor)} />
             <span className="font-semibold">
-              {status === "reconnecting" ? "Reconnecting to backend" : "Backend disconnected"}
+              {status === "reconnecting"
+                ? "Reconnecting to backend"
+                : isManualRequired
+                  ? "Backend reconnect paused"
+                  : "Backend disconnected"}
             </span>
           </div>
           {reason ? (
@@ -74,7 +85,9 @@ export function ConnectionStatusIndicator({
               "mt-1 self-start px-2 py-1 text-xs rounded border",
               "hover:bg-accent transition-colors focus-visible:outline-none focus-visible:bg-accent",
             )}
-            onClick={() => useConnectionStatusStore.getState().forceReconnectAll()}
+            onClick={() =>
+              useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true })
+            }
           >
             Retry now
           </button>

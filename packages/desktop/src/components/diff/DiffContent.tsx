@@ -27,6 +27,7 @@ interface DiffContentProps {
   onToggleFile: (fileName: string) => void;
   onMarkViewedFile: (fileName: string) => void;
   onUnmarkViewedFile: (fileName: string) => void;
+  onOpenFileInEditor?: (filePath: string, lineNumber?: number) => void;
   onAddComment: (filePath: string, lineNumber: number, side?: CommentSide) => void;
   themeAppearance: ThemeAppearance;
   themeId: ThemeId;
@@ -47,6 +48,7 @@ function DiffContentImpl({
   onToggleFile,
   onMarkViewedFile,
   onUnmarkViewedFile,
+  onOpenFileInEditor,
   onAddComment,
   themeAppearance,
   themeId,
@@ -77,6 +79,7 @@ function DiffContentImpl({
             onToggleFile={onToggleFile}
             onMarkViewedFile={onMarkViewedFile}
             onUnmarkViewedFile={onUnmarkViewedFile}
+            onOpenFileInEditor={onOpenFileInEditor}
             onAddComment={onAddComment}
             themeAppearance={themeAppearance}
             themeId={themeId}

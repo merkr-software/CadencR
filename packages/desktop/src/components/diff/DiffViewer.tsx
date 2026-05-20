@@ -10,6 +10,7 @@ import { useDiffData, type DiffMode } from "./useDiffData";
 import { useDiffKeyboard } from "./useDiffKeyboard";
 import type { ActiveWidget, CommentCallbacks, CommentLineData } from "./diff-comment-decorations";
 import type { DiffComment } from "./DiffCommentWidget";
+import { useOpenDiffInEditor } from "./OpenDiffInEditorContext";
 
 interface DiffViewerProps {
   featureId: number;
@@ -18,6 +19,7 @@ interface DiffViewerProps {
   /** Optional controlled file-list collapsed state. */
   fileListCollapsed?: boolean;
   onFileListCollapsedChange?: (collapsed: boolean) => void;
+  onOpenFileInEditor?: (filePath: string, lineNumber?: number) => void;
 }
 
 const GIT_SIDEBAR_COLLAPSED_SETTING = "git_sidebar_collapsed";
@@ -28,7 +30,10 @@ export function DiffViewer({
   targetBranch,
   fileListCollapsed,
   onFileListCollapsedChange,
+  onOpenFileInEditor,
 }: DiffViewerProps) {
+  const contextOpenFileInEditor = useOpenDiffInEditor();
+  const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
   const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -188,6 +193,7 @@ export function DiffViewer({
     featureId,
     diffAreaRef,
     setCollapsedFiles,
+    onOpenFocusedFileInEditor: openFileInEditor,
   });
 
   const changedFileEntries: ChangedFileEntry[] = useMemo(() => {
@@ -261,6 +267,7 @@ export function DiffViewer({
         onToggleFile={toggleFile}
         onMarkViewedFile={markFileViewed}
         onUnmarkViewedFile={unmarkFileViewed}
+        onOpenFileInEditor={openFileInEditor}
         onAddComment={handleAddComment}
         themeAppearance={theme.appearance}
         themeId={theme.id}
@@ -278,6 +285,7 @@ export function DiffViewer({
       handleAddComment,
       markFileViewed,
       memoizedActiveWidget,
+      openFileInEditor,
       stableCallbacks,
       theme.appearance,
       theme.id,

@@ -21,8 +21,27 @@ interface Props {
 }
 const { entry } = Astro.props;
 const { Content } = await render(entry);
+
+const canonical = new URL(`news/${entry.id}/`, Astro.site).toString();
+const ogImage = new URL("og-image.png", Astro.site).toString();
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  headline: entry.data.title,
+  description: entry.data.summary,
+  datePublished: entry.data.date.toISOString(),
+  author: { "@type": "Person", name: entry.data.author },
+  publisher: { "@type": "Organization", name: "Cadencr" },
+  mainEntityOfPage: canonical,
+  image: ogImage,
+  keywords: entry.data.tags.join(", "),
+};
 ---
-<BaseLayout title={`${entry.data.title} — Cadencr`} description={entry.data.summary}>
+<BaseLayout
+  title={`${entry.data.title} — Cadencr`}
+  description={entry.data.summary}
+  structuredData={structuredData}
+>
   <section class="py-16 pb-24">
     <Wrap>
       <div class="mb-8 max-w-[680px]">

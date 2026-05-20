@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use super::super::models::*;
 use super::blocks::build_blocks;
 use super::feature_state_fetch::{
-    fetch_full_messages, fetch_incremental_data, fetch_latest_todos, FullMessagesResult,
-    IncrementalData,
+    fetch_full_messages, fetch_incremental_data, fetch_latest_todos, todo_fetch_session_ids,
+    todos_from_full_messages, FullMessagesResult, IncrementalData,
 };
 use super::pagination::{block_message_id, trim_blocks_to_cap, BLOCK_SOFT_CAP};
 use crate::error::AppError;
@@ -55,21 +55,36 @@ pub async fn get_feature_agent_state(
     // the session ends. If parent/child relationships need to be
     // recovered post-shutdown for ACP, add a database-backed hydration
     // path here — do not bring back an HTTP fetch.
+    let (full_result, incremental_result) = tokio::try_join!(
+        fetch_full_messages(pool, &full_fetch_ids, limit, &before_map),
+        fetch_incremental_data(pool, &incremental_fetches)
+    )?;
     let FullMessagesResult {
         messages: mut full_messages,
         has_more: has_more_map,
         oldest_message_id: oldest_message_id_map,
-    } = fetch_full_messages(pool, &full_fetch_ids, limit, &before_map).await?;
-
+    } = full_result;
     let IncrementalData {
         messages: mut incremental_messages,
         updated_tool_calls,
-    } = fetch_incremental_data(pool, &incremental_fetches).await?;
+    } = incremental_result;
 
-    // Extract todos for incremental sessions; full-fetch sessions derive theirs
-    // from their fetched message page below.
-    let incremental_ids: Vec<i64> = incremental_fetches.iter().map(|(sid, _)| *sid).collect();
-    let mut todos_by_session = fetch_latest_todos(pool, &incremental_ids).await?;
+    let mut todos_by_session = if limit.is_none() && before_map.is_empty() {
+        todos_from_full_messages(&full_messages)
+    } else {
+        HashMap::new()
+    };
+    let full_todo_fetch_ids = if limit.is_some() || !before_map.is_empty() {
+        full_fetch_ids.as_slice()
+    } else {
+        &[]
+    };
+    let todo_fetch_ids = todo_fetch_session_ids(
+        full_todo_fetch_ids,
+        &incremental_messages,
+        &updated_tool_calls,
+    );
+    todos_by_session.extend(fetch_latest_todos(pool, &todo_fetch_ids).await?);
 
     let session_states: Vec<SessionState> = sessions
         .into_iter()
@@ -109,21 +124,6 @@ fn build_session_state(
     has_more_map: &HashMap<i64, bool>,
     oldest_message_id_map: &HashMap<i64, i64>,
 ) -> SessionState {
-    // Extract todos for full-fetch sessions from the most recent TodoWrite
-    // tool_call in the fetched page.
-    if !is_incremental {
-        for msg in msgs.iter().rev() {
-            if msg.message_type == "tool_call" && msg.tool_name.as_deref() == Some("TodoWrite") {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
-                    if let Some(todos) = parsed.get("todos").and_then(|t| t.as_array()) {
-                        todos_by_session.insert(s.id, todos.clone());
-                    }
-                }
-                break;
-            }
-        }
-    }
-
     let max_message_id = if is_incremental {
         let new_max = msgs.iter().map(|m| m.id).max().unwrap_or(0);
         if new_max > 0 {

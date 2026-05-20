@@ -223,7 +223,7 @@ export const SHORTCUTS = [
   },
   {
     id: "agents-open-feature",
-    keys: ["mod", "o"],
+    keys: ["mod", "shift", "o"],
     description: "Open active agent's feature page",
     scope: "unified-agents",
   },
@@ -393,6 +393,12 @@ export const SHORTCUTS = [
     id: "diff-send-comments",
     keys: ["mod", "enter"],
     description: "Send pending comments",
+    scope: "diff-viewer",
+  },
+  {
+    id: "diff-open-focused-file",
+    keys: ["mod", "o"],
+    description: "Open focused file in editor",
     scope: "diff-viewer",
   },
 

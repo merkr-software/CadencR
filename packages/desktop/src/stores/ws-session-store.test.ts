@@ -249,8 +249,123 @@ describe("ws-session-store", () => {
     const userBlock = useWsSessionStore
       .getState()
       .sessions["s1"].blocks.find((block) => block.type === "user_message");
-    expect(userBlock?.promptDeliveryState).toBeUndefined();
+    expect(userBlock?.promptDeliveryState).toBe("received_agent");
     expect(userBlock?.clientMessageId).toBeUndefined();
+  });
+
+  it("keeps a pending steering prompt across old turn completion until receipt", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "srv-1",
+        provider: "claude_code",
+        supports_prompt_receipts: true,
+      },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "message",
+      payload: {
+        blocks: [
+          {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "working" }] },
+          },
+        ],
+      },
+    });
+
+    store.sendPrompt("s1", "steer now");
+    const sent = JSON.parse(ws.sent[ws.sent.length - 1]);
+    ws.simulateMessage({
+      domain: "session",
+      action: "message",
+      payload: {
+        blocks: [
+          {
+            type: "assistant",
+            message: { content: [{ type: "text", text: " still working" }] },
+          },
+        ],
+      },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "ended",
+      payload: { reason: "turn_complete" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "turn_complete",
+      payload: { reason: "turn_complete" },
+    });
+    store.setPersistedState("s1", {
+      blocks: [
+        {
+          id: "persisted-assistant-1",
+          type: "text",
+          content: "persisted old turn",
+        },
+      ],
+      lifecycle: { phase: "terminal", reason: "completed" },
+    });
+
+    let userBlocks = useWsSessionStore
+      .getState()
+      .sessions["s1"].blocks.filter((block) => block.type === "user_message");
+    let session = useWsSessionStore.getState().sessions["s1"];
+    expect(userBlocks).toHaveLength(1);
+    expect(userBlocks[0]).toMatchObject({
+      content: "steer now",
+      promptDeliveryState: "pending_agent",
+    });
+    expect(session.lifecycle).toEqual({ phase: "active" });
+    expect(session.blocks.some((block) => block.type === "turn_summary")).toBe(false);
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "prompt_received",
+      payload: { client_message_id: sent.payload.client_message_id },
+    });
+
+    userBlocks = useWsSessionStore
+      .getState()
+      .sessions["s1"].blocks.filter((block) => block.type === "user_message");
+    session = useWsSessionStore.getState().sessions["s1"];
+    expect(userBlocks).toHaveLength(1);
+    expect(userBlocks[0]).toMatchObject({
+      content: "steer now",
+      promptDeliveryState: "received_agent",
+    });
+    expect(session.lifecycle).toEqual({ phase: "active" });
+    expect(session.blocks.some((block) => block.type === "turn_summary")).toBe(false);
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "message",
+      payload: {
+        blocks: [
+          {
+            type: "assistant",
+            message: { content: [{ type: "text", text: "processing queued prompt" }] },
+          },
+        ],
+      },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "ended",
+      payload: { reason: "turn_complete" },
+    });
+
+    session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.lifecycle).toEqual({ phase: "terminal", reason: "completed" });
+    expect(session.blocks.filter((block) => block.type === "user_message")).toHaveLength(1);
   });
 
   it("sendPrompt before initialized queues prompt and flushes after initialized", async () => {

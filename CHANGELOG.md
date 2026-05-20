@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.2.0 - 2026-05-18
+
+Previous release: v0.1.3 (df0a9d0038c7869d9b04199d2f78bb5f3dc3ac67)
+
+### Added
+
+- Added archive cleanup controls for safely removing feature worktrees and deleting feature branches, including dirty-worktree and unmerged-branch warnings.
+- Added reusable patch diff rendering for inline edit diffs and the Git tab.
+- Added Codex steering prompt receipt support and keyboard-layout-aware shortcut handling.
+
+### Changed
+
+- Refined the sidebar and unified agent UI with clearer shortcut badges, portal hover tooltips, persistent row heights, and improved session timing state.
+- Persisted project worktree defaults for smoother feature setup.
+- Trimmed tool-call paths and Bash commands relative to the working directory for more readable agent output.
+
+### Fixed
+
+- Kept new sessions idle until the first prompt is sent.
+- Kept working-directory queries alive for unfocused unified-grid agents.
+- Passed response instructions through the OpenCode ACP adapter.
+
 ## v0.1.3 - 2026-05-17
 
 Previous release: v0.1.2 (42c9183a091f1e37e5fc40c4dc8d31a6e1977bf9)

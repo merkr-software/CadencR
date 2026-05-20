@@ -1,5 +1,5 @@
 import type { AgentBlockData } from "@/components/AgentBlock";
-import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
+import { isFileChangeTool, isTaskTodoTool, normalizeToolName } from "@/lib/tool-adapter";
 
 interface ToolBlockState {
   toolUseIdToBlock: Map<string, AgentBlockData>;
@@ -53,7 +53,9 @@ const INITIAL_INPUT_TOOLS = new Set([
 ]);
 
 function shouldKeepInitialToolInput(toolName: string): boolean {
-  return INITIAL_INPUT_TOOLS.has(toolName) || isFileChangeTool(toolName);
+  return (
+    INITIAL_INPUT_TOOLS.has(toolName) || isTaskTodoTool(toolName) || isFileChangeTool(toolName)
+  );
 }
 
 function isNonEmptyRecord(value: unknown): value is Record<string, unknown> {

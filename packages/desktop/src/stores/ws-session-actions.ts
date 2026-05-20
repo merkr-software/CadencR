@@ -12,6 +12,7 @@ import {
 } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parsePermissionPayload } from "./ws-envelope-payload";
+import { deferTailPromptTurnBoundary } from "./ws-pending-prompts";
 import {
   markLastPlanBlock,
   type PersistedStatePayload,
@@ -247,6 +248,12 @@ export function applyPersistedState(
         ? existing?.pendingRequestId || `${planRestorePrefix}${Date.now()}`
         : "";
 
+  const deferredPromptBoundary =
+    existing && existing.blocks.length > 0 ? deferTailPromptTurnBoundary(existing.blocks) : null;
+  const shouldPreservePromptLifecycle =
+    deferredPromptBoundary?.shouldDefer === true &&
+    lifecycleWithPendingGate.phase === "terminal" &&
+    lifecycleWithPendingGate.reason === "completed";
   const sessionMetaPatch: Partial<SessionEntry> = {
     persistedLoaded: true,
     historyPrependDisplayOffset: 0,
@@ -254,7 +261,8 @@ export function applyPersistedState(
     oldestMessageId: oldestMessageId ?? null,
     featureId: featureId ?? null,
     sessionDbId: sessionDbId ?? null,
-    lifecycle: lifecycleWithPendingGate,
+    lifecycle:
+      shouldPreservePromptLifecycle && existing ? existing.lifecycle : lifecycleWithPendingGate,
     ...(resolvedProviderId ? { currentProviderId: resolvedProviderId } : {}),
     ...(currentModelId ? { currentModelId } : {}),
     ...(resolvedRuntimeProvider ? { runtimeProvider: resolvedRuntimeProvider } : {}),
@@ -278,7 +286,14 @@ export function applyPersistedState(
   };
 
   if (existing && existing.blocks.length > 0) {
-    ctx.set(updateSession(ctx.get(), sessionId, sessionMetaPatch));
+    ctx.set(
+      updateSession(ctx.get(), sessionId, {
+        ...sessionMetaPatch,
+        ...(deferredPromptBoundary?.shouldDefer && deferredPromptBoundary.blocks !== existing.blocks
+          ? blocksPatchWithDerived(existing.streamingState, deferredPromptBoundary.blocks)
+          : {}),
+      }),
+    );
     return;
   }
 

@@ -9,15 +9,12 @@
  *    "service hung but socket still open" case that WS events alone can't.
  *
  * Aggregation:
- *  - If the `health` source is `disconnected` -> global = `disconnected`
- *    (with the HTTP error as reason). This is the only path that produces
- *    a red indicator + error toast.
- *  - Else if any source is `reconnecting` -> global = `reconnecting`
- *    (amber indicator). No toast.
+ *  - If any WS source has exhausted automatic reconnects -> global =
+ *    `manual_reconnect_required` and a persistent Retry toast appears.
+ *  - Else if the `health` source is `disconnected` -> global =
+ *    `disconnected` (sidebar indicator only; no early toast).
+ *  - Else if any source is `reconnecting` -> global = `reconnecting`.
  *  - Else -> `connected`.
- *
- * Transitions to `disconnected` are debounced by 2 s before firing the
- * error toast so we don't spam the user during transient WS blips.
  *
  * The store also owns `forceReconnectAll()` which the watchdog calls on
  * sleep/wake. It pokes the WS reconnect registry (`lib/ws-reconnect`) and
@@ -28,9 +25,16 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
 import { pingHealth } from "@/api/client";
-import { forceReconnectAll as forceReconnectAllWs } from "@/lib/ws-reconnect";
+import {
+  AUTO_RECONNECT_TIMEOUT_SECONDS,
+  forceReconnectAll as forceReconnectAllWs,
+} from "@/lib/ws-reconnect";
 
-export type ConnectionStatus = "connected" | "reconnecting" | "disconnected";
+export type ConnectionStatus =
+  | "connected"
+  | "reconnecting"
+  | "disconnected"
+  | "manual_reconnect_required";
 
 interface SourceState {
   status: ConnectionStatus;
@@ -47,37 +51,44 @@ interface ConnectionStatusState {
   reportSource: (key: string, status: ConnectionStatus, reason?: string | null) => void;
   clearSource: (key: string) => void;
   /** Force every registered WS reconnector + a fresh health probe. */
-  forceReconnectAll: () => void;
+  forceReconnectAll: (options?: { bypassManualPause?: boolean }) => void;
   /** Run a one-off health probe and update the `health` source. */
   probeHealth: () => Promise<void>;
 }
 
 /** Health-probe source key. The aggregator treats this one specially. */
 const HEALTH_KEY = "health";
-/** Disconnected toast debounce — short enough to feel responsive, long
- *  enough to skip transient WS reshuffles during navigation. */
-const DISCONNECTED_TOAST_DEBOUNCE_MS = 2000;
-
 function aggregate(sources: Record<string, SourceState>): {
   status: ConnectionStatus;
   reason: string | null;
 } {
-  const health = sources[HEALTH_KEY];
-  if (health?.status === "disconnected") {
-    return { status: "disconnected", reason: health.reason };
-  }
   let reconnecting: SourceState | null = null;
   for (const [key, src] of Object.entries(sources)) {
     if (key === HEALTH_KEY) continue;
-    if (src.status === "reconnecting") {
-      reconnecting = src;
-      break;
+    if (src.status === "manual_reconnect_required") {
+      return { status: "manual_reconnect_required", reason: src.reason };
     }
+    if (!reconnecting && src.status === "reconnecting") reconnecting = src;
+  }
+
+  const health = sources[HEALTH_KEY];
+  if (health?.status === "disconnected") {
+    return { status: "disconnected", reason: health.reason };
   }
   if (reconnecting) {
     return { status: "reconnecting", reason: reconnecting.reason };
   }
   return { status: "connected", reason: null };
+}
+
+export function reportManualReconnectRequired(key: string): void {
+  useConnectionStatusStore
+    .getState()
+    .reportSource(
+      key,
+      "manual_reconnect_required",
+      `Backend WebSocket failed to reconnect for ${AUTO_RECONNECT_TIMEOUT_SECONDS} seconds`,
+    );
 }
 
 export const useConnectionStatusStore = create<ConnectionStatusState>((set, get) => ({
@@ -128,8 +139,22 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
     }
   },
 
-  forceReconnectAll() {
-    forceReconnectAllWs();
+  forceReconnectAll(options = { bypassManualPause: false }) {
+    const bypassManualPause = options.bypassManualPause === true;
+    if (bypassManualPause) {
+      const sources = { ...get().sources };
+      let changed = false;
+      for (const [key, src] of Object.entries(sources)) {
+        if (src.status !== "manual_reconnect_required") continue;
+        sources[key] = { status: "reconnecting", reason: "Retrying backend connection" };
+        changed = true;
+      }
+      if (changed) {
+        const agg = aggregate(sources);
+        set({ sources, status: agg.status, reason: agg.reason });
+      }
+    }
+    forceReconnectAllWs({ bypassManualPause });
     void get().probeHealth();
   },
 }));
@@ -138,37 +163,36 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
 //
 // One module-level subscription so transitions fire exactly once. Component
 // subscribers would multiply per mount and double-toast.
-let pendingDisconnectedToast: ReturnType<typeof setTimeout> | null = null;
-const DISCONNECTED_TOAST_ID = "backend-disconnected";
+const MANUAL_RECONNECT_TOAST_ID = "backend-manual-reconnect-required";
 const RECONNECTED_TOAST_ID = "backend-reconnected";
 
 useConnectionStatusStore.subscribe((state, prev) => {
   if (state.status === prev.status) return;
 
-  if (state.status === "disconnected") {
-    // Debounce: only show the error after we've been disconnected for >2s.
-    if (pendingDisconnectedToast) clearTimeout(pendingDisconnectedToast);
-    pendingDisconnectedToast = setTimeout(() => {
-      pendingDisconnectedToast = null;
-      const current = useConnectionStatusStore.getState();
-      if (current.status !== "disconnected") return;
-      toast.error(`Backend disconnected — ${current.reason ?? "unreachable"}`, {
-        id: DISCONNECTED_TOAST_ID,
-        duration: Infinity,
-      });
-    }, DISCONNECTED_TOAST_DEBOUNCE_MS);
+  if (state.status === "manual_reconnect_required") {
+    toast.error("Backend reconnect paused", {
+      id: MANUAL_RECONNECT_TOAST_ID,
+      description: `${
+        state.reason ?? "Cadencr could not reconnect to the local backend."
+      } Automatic retries are paused after ${AUTO_RECONNECT_TIMEOUT_SECONDS} seconds.`,
+      duration: Infinity,
+      action: {
+        label: "Retry now",
+        onClick: () =>
+          useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true }),
+      },
+    });
     return;
   }
 
-  // Recovered or shifted to reconnecting — clear pending error toast.
-  if (pendingDisconnectedToast) {
-    clearTimeout(pendingDisconnectedToast);
-    pendingDisconnectedToast = null;
-  }
+  toast.dismiss(MANUAL_RECONNECT_TOAST_ID);
 
   if (state.status === "connected") {
-    toast.dismiss(DISCONNECTED_TOAST_ID);
-    if (prev.status === "disconnected" || prev.status === "reconnecting") {
+    if (
+      prev.status === "disconnected" ||
+      prev.status === "reconnecting" ||
+      prev.status === "manual_reconnect_required"
+    ) {
       toast.success("Reconnected to backend", { id: RECONNECTED_TOAST_ID, duration: 3000 });
     }
   }

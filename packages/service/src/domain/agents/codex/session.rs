@@ -15,6 +15,7 @@ use super::event_system::init_event;
 use super::event_turn_state::RootTurnTracker;
 use super::input::user_input_from_content;
 use super::permissions::PendingCodexRequest;
+use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::session_permissions::{
     is_plan_approval_request_id, permission_kind_for_request_id, plan_approval_prompt, take_pending,
@@ -40,6 +41,7 @@ pub(super) struct CodexSession {
     local_rx: Option<mpsc::UnboundedReceiver<Result<RuntimeEvent, RuntimeError>>>,
     local_tx: mpsc::UnboundedSender<Result<RuntimeEvent, RuntimeError>>,
     pending_requests: Arc<Mutex<HashMap<String, PendingCodexRequest>>>,
+    pending_prompt_receipts: Arc<PendingPromptReceipts>,
     temp_files: Arc<Mutex<Vec<TempPath>>>,
     closing: Arc<AtomicBool>,
     mcp_servers: Vec<RuntimeMcpServerStatus>,
@@ -72,6 +74,7 @@ impl CodexSession {
             local_rx: Some(local_rx),
             local_tx,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
             temp_files: Arc::new(Mutex::new(Vec::new())),
             closing: Arc::new(AtomicBool::new(false)),
             mcp_servers,
@@ -143,6 +146,7 @@ impl AgentRuntimeSession for CodexSession {
             source_rx,
             tx.clone(),
             Arc::clone(&self.pending_requests),
+            Arc::clone(&self.pending_prompt_receipts),
             RootTurnTracker {
                 active_turn_id: Arc::clone(&self.active_turn_id),
                 last_root_turn_id: Arc::clone(&self.last_root_turn_id),
@@ -169,13 +173,18 @@ impl AgentRuntimeSession for CodexSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        self.stream_input(content).await?;
-        if let Some(client_message_id) = client_message_id {
-            let _ = self
-                .local_tx
-                .send(Ok(RuntimeEvent::prompt_received_event(client_message_id)));
+        if let Some(client_message_id) = client_message_id.as_ref() {
+            self.pending_prompt_receipts
+                .enqueue(client_message_id.clone());
         }
-        Ok(())
+
+        let result = self.stream_input(content).await;
+        if result.is_err() {
+            if let Some(client_message_id) = client_message_id.as_deref() {
+                self.pending_prompt_receipts.discard(client_message_id);
+            }
+        }
+        result
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
@@ -216,6 +225,7 @@ impl AgentRuntimeSession for CodexSession {
         )
         .await;
         self.temp_files.lock().await.clear();
+        self.pending_prompt_receipts.clear();
         self.client.shutdown().await;
     }
 

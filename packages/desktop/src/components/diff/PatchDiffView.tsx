@@ -129,7 +129,6 @@ function SafePatchDiff<LAnnotation>({
     instance.setOptions(options);
     instance.render({ forceRender, fileDiff, lineAnnotations });
   }, [fileDiff, lineAnnotations, options]);
-
   const getHoveredLine = useCallback(() => instanceRef.current?.getHoveredLine(), []);
 
   return createElement(
@@ -182,6 +181,14 @@ const DIFF_UNSAFE_CSS = `
     white-space: nowrap;
   }
   [data-metadata] { font-size: 12px; }
+  [data-metadata] {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  [data-metadata] slot[name="header-metadata"] {
+    order: -1;
+  }
   [data-utility-button] {
     background-color: var(--primary);
     color: var(--primary-foreground);
@@ -294,6 +301,13 @@ function PatchDiffViewImpl({
     () => buildLineAnnotations(commentLines, activeWidget, commentCallbacks),
     [commentLines, activeWidget, commentCallbacks],
   );
+  const handleAddComment = useCallback(
+    (range: SelectedLineRange): void => {
+      const target = getCommentTarget(range);
+      onAddComment?.(target.lineNumber, target.side);
+    },
+    [onAddComment],
+  );
 
   const options = useMemo<FileDiffOptions<CommentAnnotationMetadata>>(
     () => ({
@@ -309,15 +323,19 @@ function PatchDiffViewImpl({
       maxLineDiffLength: 300,
       tokenizeMaxLineLength: 500,
       enableGutterUtility: Boolean(onAddComment),
-      onGutterUtilityClick: onAddComment
-        ? (range) => {
-            const target = getCommentTarget(range);
-            onAddComment(target.lineNumber, target.side);
-          }
-        : undefined,
+      onGutterUtilityClick: onAddComment ? handleAddComment : undefined,
       unsafeCSS: DIFF_UNSAFE_CSS,
     }),
-    [mode, hunkSeparators, onAddComment, themeAppearance, themeId, collapsed, disableFileHeader],
+    [
+      mode,
+      hunkSeparators,
+      onAddComment,
+      handleAddComment,
+      themeAppearance,
+      themeId,
+      collapsed,
+      disableFileHeader,
+    ],
   );
 
   return (
@@ -328,7 +346,7 @@ function PatchDiffViewImpl({
       renderAnnotation={renderAnnotation}
       renderHeaderPrefix={renderHeaderPrefix}
       renderHeaderMetadata={renderHeaderMetadata}
-      className={[className, focused ? "cadencr-patch-diff-focused" : null]
+      className={[className, "group/patch-file", focused ? "cadencr-patch-diff-focused" : null]
         .filter(Boolean)
         .join(" ")}
     />

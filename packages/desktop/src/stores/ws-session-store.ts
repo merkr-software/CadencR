@@ -4,12 +4,15 @@ import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
 import { createWsConnection } from "@/lib/ws-connection";
 import {
   scheduleReconnect,
-  resetReconnectDelay,
+  resetReconnectState,
   clearReconnect,
   registerReconnector,
   unregisterReconnector,
 } from "@/lib/ws-reconnect";
-import { useConnectionStatusStore } from "@/stores/connection-status-store";
+import {
+  reportManualReconnectRequired,
+  useConnectionStatusStore,
+} from "@/stores/connection-status-store";
 import {
   type SessionConfig,
   type GateCloseReason,
@@ -169,12 +172,14 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
 
       const entry = existing ?? createSessionEntry();
       const reconnectKey = wsSessionSourceKey(sessionId);
-      registerReconnector(reconnectKey, () => forceReconnectSession(sessionId));
+      registerReconnector(reconnectKey, () => forceReconnectSession(sessionId), {
+        onManualRequired: reportManualReconnectRequired,
+      });
       const conn = createWsConnection({
         url: getWsUrl(),
         protocols: getWsProtocols(),
         onOpen: () => {
-          resetReconnectDelay(reconnectKey);
+          resetReconnectState(reconnectKey);
           set(updateSession(get(), sessionId, { isConnected: true }));
           useConnectionStatusStore.getState().reportSource(reconnectKey, "connected");
           // If we already have a `serverSessionId`, this is a *reconnect*

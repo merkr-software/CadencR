@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/landing",
   "private": true,
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Cadencr marketing site, docs, news and roadmap.",
   "license": "Apache-2.0",
   "type": "module",
@@ -20,6 +20,7 @@
   "dependencies": {
     "@astrojs/check": "0.9.9",
     "@astrojs/mdx": "5.0.6",
+    "@astrojs/rss": "^4.0.18",
     "@astrojs/sitemap": "3.7.2",
     "@fontsource-variable/inter": "^5.2.8",
     "astro": "6.3.3"

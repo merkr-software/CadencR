@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  MAX_AUTO_RECONNECT_FAILURES,
+  RECONNECT_INTERVAL_MS,
   scheduleReconnect,
-  resetReconnectDelay,
+  resetReconnectState,
   clearReconnect,
   registerReconnector,
   unregisterReconnector,
@@ -12,6 +14,11 @@ import {
 describe("ws-reconnect", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+  });
+
+  it("caps automatic retries at a 240 second window", () => {
+    expect(MAX_AUTO_RECONNECT_FAILURES).toBe(240);
+    expect(RECONNECT_INTERVAL_MS).toBe(1000);
   });
 
   afterEach(() => {
@@ -25,35 +32,39 @@ describe("ws-reconnect", () => {
     scheduleReconnect("test", connect);
 
     expect(connect).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
     expect(connect).toHaveBeenCalledOnce();
   });
 
-  it("doubles delay on successive calls", () => {
+  it("uses the same 1s delay on successive failures", () => {
     const connect = vi.fn();
 
     scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
     expect(connect).toHaveBeenCalledTimes(1);
 
     scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(1999);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS - 1);
     expect(connect).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
     expect(connect).toHaveBeenCalledTimes(2);
   });
 
-  it("caps delay at 30s", () => {
+  it("pauses automatic reconnects after 240 consecutive failures", () => {
     const connect = vi.fn();
-    // Schedule and fire many times to exceed max
-    for (let i = 0; i < 20; i++) {
+    const onManualRequired = vi.fn();
+    registerReconnector("test", connect, { onManualRequired });
+
+    for (let i = 0; i < MAX_AUTO_RECONNECT_FAILURES; i++) {
       scheduleReconnect("test", connect);
-      vi.advanceTimersByTime(30000);
+      vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
     }
-    // Next schedule should still fire within 30s
+
     scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(30000);
-    expect(connect).toHaveBeenCalledTimes(21);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+
+    expect(connect).toHaveBeenCalledTimes(MAX_AUTO_RECONNECT_FAILURES);
+    expect(onManualRequired).toHaveBeenCalledOnce();
   });
 
   it("deduplicates concurrent schedules", () => {
@@ -62,24 +73,26 @@ describe("ws-reconnect", () => {
     scheduleReconnect("test", connect);
     scheduleReconnect("test", connect);
 
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
     expect(connect).toHaveBeenCalledOnce();
   });
 
-  it("resetReconnectDelay resets to base", () => {
+  it("resetReconnectState resets the failure count and manual pause", () => {
     const connect = vi.fn();
+    const onManualRequired = vi.fn();
+    registerReconnector("test", connect, { onManualRequired });
 
-    // Schedule twice to double the delay
+    for (let i = 0; i < MAX_AUTO_RECONNECT_FAILURES; i++) {
+      scheduleReconnect("test", connect);
+      vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    }
     scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(1000);
-    scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(2000);
+    expect(onManualRequired).toHaveBeenCalledOnce();
 
-    // Reset and schedule — should be back to 1s
-    resetReconnectDelay("test");
+    resetReconnectState("test");
     scheduleReconnect("test", connect);
-    vi.advanceTimersByTime(1000);
-    expect(connect).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    expect(connect).toHaveBeenCalledTimes(MAX_AUTO_RECONNECT_FAILURES + 1);
   });
 
   it("clearReconnect cancels pending timer", () => {
@@ -87,7 +100,7 @@ describe("ws-reconnect", () => {
     scheduleReconnect("test", connect);
     clearReconnect("test");
 
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS * 5);
     expect(connect).not.toHaveBeenCalled();
   });
 
@@ -99,7 +112,7 @@ describe("ws-reconnect", () => {
     scheduleReconnect("other", connectB);
 
     clearReconnect("test");
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
 
     expect(connectA).not.toHaveBeenCalled();
     expect(connectB).toHaveBeenCalledOnce();
@@ -123,24 +136,45 @@ describe("ws-reconnect", () => {
       scheduleReconnect("force-a", connect);
       forceReconnect("force-a");
       expect(connect).toHaveBeenCalledTimes(1);
-      // Pending timer should not fire a second time.
-      vi.advanceTimersByTime(2000);
+      vi.advanceTimersByTime(RECONNECT_INTERVAL_MS * 2);
       expect(connect).toHaveBeenCalledTimes(1);
     });
 
-    it("forceReconnect resets backoff to base", () => {
+    it("automatic forceReconnect does not bypass manual pause", () => {
       const connect = vi.fn();
-      // Push delay up to 2s.
-      scheduleReconnect("force-a", connect);
-      vi.advanceTimersByTime(1000);
-      scheduleReconnect("force-a", connect);
-      vi.advanceTimersByTime(2000);
-      expect(connect).toHaveBeenCalledTimes(2);
+      const onManualRequired = vi.fn();
+      registerReconnector("force-a", connect, { onManualRequired });
 
-      forceReconnect("force-a"); // also resets to base.
+      for (let i = 0; i < MAX_AUTO_RECONNECT_FAILURES; i++) {
+        scheduleReconnect("force-a", connect);
+        vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+      }
+
       scheduleReconnect("force-a", connect);
-      vi.advanceTimersByTime(1000);
-      expect(connect).toHaveBeenCalledTimes(4);
+      expect(onManualRequired).toHaveBeenCalledOnce();
+
+      forceReconnect("force-a");
+      expect(connect).toHaveBeenCalledTimes(MAX_AUTO_RECONNECT_FAILURES);
+    });
+
+    it("manual forceReconnect resets the pause and starts a fresh retry window", () => {
+      const connect = vi.fn();
+      const onManualRequired = vi.fn();
+      registerReconnector("force-a", connect, { onManualRequired });
+
+      for (let i = 0; i < MAX_AUTO_RECONNECT_FAILURES; i++) {
+        scheduleReconnect("force-a", connect);
+        vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+      }
+
+      scheduleReconnect("force-a", connect);
+      expect(onManualRequired).toHaveBeenCalledOnce();
+
+      forceReconnect("force-a", { bypassManualPause: true });
+      expect(connect).toHaveBeenCalledTimes(MAX_AUTO_RECONNECT_FAILURES + 1);
+      scheduleReconnect("force-a", connect);
+      vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+      expect(connect).toHaveBeenCalledTimes(MAX_AUTO_RECONNECT_FAILURES + 2);
     });
 
     it("forceReconnect on an unknown key is a no-op", () => {

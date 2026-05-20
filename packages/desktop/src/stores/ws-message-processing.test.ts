@@ -199,6 +199,8 @@ describe("processSdkMessage – Bash stream events", () => {
         raw_item: { name: "web_fetch", arguments: { url: "https://example.com/docs" } },
       },
     ],
+    ["TaskCreate", { subject: "Create task", activeForm: "Creating task" }],
+    ["TaskUpdate", { taskId: "task-1", status: "in_progress", activeForm: "Doing task" }],
   ])("keeps initial %s input for generic Codex tools", (toolName, input) => {
     const state = createStreamingState();
     const result = processSdkMessage(

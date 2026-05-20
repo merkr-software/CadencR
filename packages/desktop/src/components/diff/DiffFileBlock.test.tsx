@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render } from "@/test-utils";
+import { render, screen } from "@/test-utils";
 import { DiffFileBlock } from "./DiffFileBlock";
 
 const mocks = vi.hoisted(() => ({
@@ -71,6 +71,28 @@ describe("DiffFileBlock", () => {
   it("renders the authoritative patch hunk instead of fetching full file contents", () => {
     const { getByTestId } = render(<DiffFileBlock {...baseProps} isCollapsed={false} />);
     expect(getByTestId("patch-diff-view")).toHaveAttribute("data-patch", patch);
+  });
+
+  it("renders a hover editor button in expanded file metadata", async () => {
+    const onOpenFileInEditor = vi.fn();
+    const { user } = render(
+      <DiffFileBlock {...baseProps} isCollapsed={false} onOpenFileInEditor={onOpenFileInEditor} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open src/foo.ts in editor" }));
+
+    expect(onOpenFileInEditor).toHaveBeenCalledWith("src/foo.ts");
+  });
+
+  it("renders a hover editor button before numstats for collapsed files", async () => {
+    const onOpenFileInEditor = vi.fn();
+    const { user } = render(
+      <DiffFileBlock {...baseProps} isCollapsed onOpenFileInEditor={onOpenFileInEditor} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open src/foo.ts in editor" }));
+
+    expect(onOpenFileInEditor).toHaveBeenCalledWith("src/foo.ts");
   });
 
   it("renders a binary placeholder for binary/no-hunk patches", () => {

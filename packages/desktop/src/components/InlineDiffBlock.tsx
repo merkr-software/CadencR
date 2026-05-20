@@ -4,7 +4,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { toRelativePath } from "@/lib/utils";
 import { NumStat } from "@/components/NumStat";
 import { PatchDiffView } from "@/components/diff/PatchDiffView";
+import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { createUnifiedPatch } from "@/lib/create-unified-patch";
+import { firstChangedNewLine } from "@/lib/diff-line";
 import { countHunkStats, parseUnifiedDiff } from "@/lib/parse-unified-diff";
 
 interface InlineDiffBlockProps {
@@ -15,6 +17,7 @@ interface InlineDiffBlockProps {
   basePath?: string;
   /** Tool name (Edit or Write) — shown as a label in the header */
   toolName?: string;
+  onOpenFileInEditor?: (filePath: string, lineNumber?: number) => void;
 }
 
 /**
@@ -27,9 +30,12 @@ export function InlineDiffBlock({
   newContent,
   basePath,
   toolName,
+  onOpenFileInEditor,
 }: InlineDiffBlockProps) {
   const ToolIcon = toolName === "Write" ? FilePlusIcon : PencilIcon;
   const { theme } = useTheme();
+  const contextOpenFileInEditor = useOpenDiffInEditor();
+  const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
   const displayPath = useMemo(() => toRelativePath(filePath, basePath), [filePath, basePath]);
 
   const patch = useMemo(
@@ -68,6 +74,18 @@ export function InlineDiffBlock({
           {displayPath}
         </span>
         <NumStat additions={additions} deletions={deletions} hideZero={false} />
+        {openFileInEditor && (
+          <button
+            type="button"
+            aria-label={`Edit ${displayPath} in editor`}
+            title="Edit in editor"
+            onClick={() => openFileInEditor(filePath, firstChangedNewLine(patch))}
+            className="inline-flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-primary transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+          >
+            <PencilIcon className="size-3" />
+            <span className="text-[11px] font-medium">Edit</span>
+          </button>
+        )}
       </div>
 
       {/* Diff content */}

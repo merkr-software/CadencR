@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, PencilIcon } from "lucide-react";
 import { CopyButton } from "./CopyButton";
 import { NumStat } from "@/components/NumStat";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,6 +13,7 @@ interface DiffFileHeaderProps {
   isFileViewed: boolean;
   showViewedCheckbox: boolean;
   onToggle: () => void;
+  onOpenFileInEditor?: () => void;
   onMarkViewed: () => void;
   onUnmarkViewed: () => void;
 }
@@ -66,6 +67,32 @@ export function DiffFileHeaderPrefix({
   );
 }
 
+export function DiffFileHeaderOpenInEditor({
+  displayName,
+  onOpenFileInEditor,
+}: {
+  displayName: string;
+  onOpenFileInEditor?: () => void;
+}): ReactElement | null {
+  if (!onOpenFileInEditor) return null;
+
+  return (
+    <button
+      type="button"
+      aria-label={`Open ${displayName} in editor`}
+      title="Open in editor"
+      onClick={(event): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpenFileInEditor();
+      }}
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background/95 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/header:opacity-100 group-hover/patch-file:opacity-100"
+    >
+      <PencilIcon className="h-3.5 w-3.5" />
+    </button>
+  );
+}
+
 export function DiffFileHeaderViewed({
   isFileViewed,
   onMarkViewed,
@@ -104,6 +131,7 @@ export function DiffFileHeader({
   isFileViewed,
   showViewedCheckbox,
   onToggle,
+  onOpenFileInEditor,
   onMarkViewed,
   onUnmarkViewed,
 }: DiffFileHeaderProps): ReactElement {
@@ -115,6 +143,10 @@ export function DiffFileHeader({
         displayName={displayName}
         isCollapsed={isCollapsed}
         onToggle={onToggle}
+      />
+      <DiffFileHeaderOpenInEditor
+        displayName={displayName}
+        onOpenFileInEditor={onOpenFileInEditor}
       />
       <NumStat
         additions={additions}

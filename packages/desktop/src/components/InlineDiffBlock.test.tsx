@@ -31,6 +31,10 @@ vi.mock("@/components/diff/PatchDiffView", () => ({
     mocks.patchDiffViewMock(props),
 }));
 
+vi.mock("@/hooks/useTheme", () => ({
+  useTheme: () => ({ theme: { id: "dracula", appearance: "dark" } }),
+}));
+
 describe("InlineDiffBlock", () => {
   it("shows 'No changes' when content is identical", () => {
     render(
@@ -79,6 +83,24 @@ describe("InlineDiffBlock", () => {
       />,
     );
     expect(screen.getByText("src/foo.ts")).toBeInTheDocument();
+  });
+
+  it("calls edit handler with the file path and first changed line", async () => {
+    const onOpenFileInEditor = vi.fn();
+    const { user } = render(
+      <InlineDiffBlock
+        filePath="/home/user/project/src/foo.ts"
+        oldContent={"one\ntwo\nthree\n"}
+        newContent={"one\nTWO\nthree\n"}
+        basePath="/home/user/project"
+        toolName="Edit"
+        onOpenFileInEditor={onOpenFileInEditor}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit src/foo.ts in editor" }));
+
+    expect(onOpenFileInEditor).toHaveBeenCalledWith("/home/user/project/src/foo.ts", 2);
   });
 });
 

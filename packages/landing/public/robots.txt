@@ -1,0 +1,53 @@
+# Cadencr — https://cadencr.com
+#
+# Content-Signal:
+#   search       = yes (web search indexes and result snippets)
+#   ai-input     = unspecified
+#   ai-train     = no
+#
+# If a Content-Signal = no, you may not collect content for the
+# corresponding use. See https://content-signal.org/ for context.
+
+# General-purpose search crawlers are welcome.
+User-agent: *
+Allow: /
+Disallow:
+
+# AI training crawlers — opt out.
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: OAI-SearchBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: Applebot-Extended
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: cohere-ai
+Disallow: /
+
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+Sitemap: https://cadencr.com/sitemap-index.xml

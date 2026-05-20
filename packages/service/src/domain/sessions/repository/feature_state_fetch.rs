@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use super::super::models::*;
 use super::pagination::fetch_missing_parents;
+use super::task_todos::latest_todos_from_messages;
 use super::MESSAGE_SELECT;
 use crate::error::AppError;
 
@@ -116,6 +117,43 @@ pub(super) struct IncrementalData {
     pub updated_tool_calls: HashMap<i64, HashMap<i64, String>>,
 }
 
+pub(super) fn todo_fetch_session_ids(
+    full_fetch_ids: &[i64],
+    incremental_messages: &HashMap<i64, Vec<AgentMessageRow>>,
+    updated_tool_calls: &HashMap<i64, HashMap<i64, String>>,
+) -> Vec<i64> {
+    let mut ids = full_fetch_ids.to_vec();
+    for (session_id, messages) in incremental_messages {
+        if messages.iter().any(is_todo_source_message)
+            || updated_tool_calls.contains_key(session_id)
+        {
+            ids.push(*session_id);
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+pub(super) fn todos_from_full_messages(
+    messages: &HashMap<i64, Vec<AgentMessageRow>>,
+) -> HashMap<i64, Vec<serde_json::Value>> {
+    messages
+        .iter()
+        .filter_map(|(session_id, rows)| {
+            latest_todos_from_messages(rows).map(|todos| (*session_id, todos))
+        })
+        .collect()
+}
+
+fn is_todo_source_message(message: &AgentMessageRow) -> bool {
+    matches!(
+        (message.message_type.as_str(), message.tool_name.as_deref()),
+        ("tool_call", Some("TodoWrite" | "TaskCreate" | "TaskUpdate"))
+            | ("tool_result" | "tool_error", _)
+    )
+}
+
 /// Fetch the new messages produced since `after_id` for each incremental
 /// session, plus any stale tool_call rows whose content may have grown.
 pub(super) async fn fetch_incremental_data(
@@ -155,27 +193,113 @@ pub(super) async fn fetch_incremental_data(
     })
 }
 
-/// Fetch the latest `TodoWrite` tool_call payload for each incremental
-/// session, returning the parsed `todos` array.
+/// Fetch latest todo state for each session from `TodoWrite` snapshots or
+/// Claude Code task tool deltas.
 pub(super) async fn fetch_latest_todos(
     pool: &SqlitePool,
     session_ids: &[i64],
 ) -> Result<HashMap<i64, Vec<serde_json::Value>>, AppError> {
     let mut todos_by_session: HashMap<i64, Vec<serde_json::Value>> = HashMap::new();
+    if session_ids.is_empty() {
+        return Ok(todos_by_session);
+    }
+
+    let placeholders = session_ids
+        .iter()
+        .map(|_| "?")
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "WITH task_create_ids AS ( \
+            SELECT session_id, tool_use_id FROM agent_messages \
+            WHERE session_id IN ({placeholders}) \
+              AND message_type = 'tool_call' \
+              AND tool_name = 'TaskCreate' \
+              AND tool_use_id IS NOT NULL \
+         ) \
+         {MESSAGE_SELECT} FROM agent_messages \
+         WHERE session_id IN ({placeholders}) AND ( \
+           (message_type = 'tool_call' AND tool_name IN ('TodoWrite', 'TaskCreate', 'TaskUpdate')) \
+           OR (message_type IN ('tool_result', 'tool_error') AND EXISTS ( \
+                SELECT 1 FROM task_create_ids \
+                WHERE task_create_ids.session_id = agent_messages.session_id \
+                  AND task_create_ids.tool_use_id = agent_messages.tool_use_id \
+           )) \
+         ) \
+         ORDER BY session_id ASC, id ASC"
+    );
+    let mut query = sqlx::query_as::<_, AgentMessageRow>(&sql);
     for sid in session_ids {
-        let row = sqlx::query_as::<_, AgentMessageRow>(&format!(
-            "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND message_type = 'tool_call' AND tool_name = 'TodoWrite' ORDER BY id DESC LIMIT 1"
-        ))
-        .bind(sid)
-        .fetch_optional(pool)
-        .await?;
-        if let Some(row) = row {
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&row.content) {
-                if let Some(todos) = parsed.get("todos").and_then(|t| t.as_array()) {
-                    todos_by_session.insert(*sid, todos.clone());
-                }
-            }
+        query = query.bind(sid);
+    }
+    for sid in session_ids {
+        query = query.bind(sid);
+    }
+    let rows = query.fetch_all(pool).await?;
+    let mut rows_by_session: HashMap<i64, Vec<AgentMessageRow>> = HashMap::new();
+    for row in rows {
+        rows_by_session.entry(row.session_id).or_default().push(row);
+    }
+    for (session_id, rows) in rows_by_session {
+        if let Some(todos) = latest_todos_from_messages(&rows) {
+            todos_by_session.insert(session_id, todos);
         }
     }
     Ok(todos_by_session)
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::super::test_support::{insert_message, insert_session, setup_test_db};
+    use super::fetch_latest_todos;
+
+    #[tokio::test]
+    async fn fetch_latest_todos_reconstructs_persisted_task_tools() {
+        let pool = setup_test_db().await;
+        let session_id = insert_session(&pool, 1, "running").await;
+
+        insert_message(
+            &pool,
+            session_id,
+            "tool_call",
+            r#"{"subject":"Write replay tests","activeForm":"Writing replay tests"}"#,
+            Some("TaskCreate"),
+            Some("create-1"),
+            None,
+        )
+        .await;
+        insert_message(
+            &pool,
+            session_id,
+            "tool_result",
+            r#"{"id":"task-1"}"#,
+            None,
+            Some("create-1"),
+            None,
+        )
+        .await;
+        insert_message(
+            &pool,
+            session_id,
+            "tool_call",
+            r#"{"taskId":"task-1","status":"completed","activeForm":"Finishing replay tests"}"#,
+            Some("TaskUpdate"),
+            Some("update-1"),
+            None,
+        )
+        .await;
+
+        let todos = fetch_latest_todos(&pool, &[session_id]).await.unwrap();
+
+        assert_eq!(
+            todos.get(&session_id),
+            Some(&vec![json!({
+                "content": "Write replay tests",
+                "status": "completed",
+                "activeForm": "Finishing replay tests"
+            })])
+        );
+    }
 }

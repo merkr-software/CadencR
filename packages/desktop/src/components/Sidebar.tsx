@@ -8,6 +8,7 @@ import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { UnifiedAgentsSidebarLink } from "@/components/UnifiedAgentsSidebarLink";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
+import { InternetStatusIndicator } from "@/components/InternetStatusIndicator";
 import { SidebarUpdateButton } from "@/components/SidebarUpdateButton";
 import { getActiveFocusZone } from "@/lib/focus-zones";
 import { APP_VERSION } from "@/lib/app-version";
@@ -175,21 +176,25 @@ function SidebarFooter(): ReactElement {
   return (
     <div className="flex flex-col items-center gap-1 py-2">
       <SidebarUpdateButton />
-      <div className="relative flex w-full items-center justify-center">
+      <div className={cn(SIDEBAR_FOOTER_PILL_CLASS, "text-foreground/80")}>
         <Link
           to="/settings"
           data-nav-item
-          className={cn(SIDEBAR_FOOTER_PILL_CLASS, "text-foreground/80")}
+          className={cn(
+            "flex min-w-0 flex-1 items-center gap-2 rounded-full",
+            "focus-visible:outline-none focus-visible:text-foreground",
+          )}
         >
-          <span className="flex items-center gap-2">
-            <Settings className="size-4" />
-            <span>Settings</span>
-          </span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">v{APP_VERSION}</span>
+          <Settings className="size-4 shrink-0" />
+          <span>Settings</span>
         </Link>
-        {/* Hidden when healthy; renders a status pill + popover otherwise. */}
-        <ConnectionStatusIndicator className="absolute right-3" />
+        <span className="flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground tabular-nums">
+          <InternetStatusIndicator />
+          <span>v{APP_VERSION}</span>
+        </span>
       </div>
+      {/* Hidden when healthy; renders a status pill + popover otherwise. */}
+      <ConnectionStatusIndicator />
     </div>
   );
 }

@@ -7,6 +7,7 @@ import type { AgentBlockData } from "@/components/AgentBlock";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 import type { TodoItem } from "@/types/agent";
 import type { BlockMutation, ParserSignals, StreamingState } from "./ws-message-processing";
+import { parseTaskTodosFromBlocks, taskTodoMutationSeen } from "./ws-task-todos";
 import { latestValidJsonSnapshot, mergeToolContent } from "./ws-tool-content";
 
 export type ParsedTodo = TodoItem;
@@ -38,6 +39,7 @@ export function parseTodosFromBlocks(blocks: AgentBlockData[]): ParsedTodo[] | u
       }
       return undefined;
     }
+    if (taskTodoMutationSeen(b)) return parseTaskTodosFromBlocks(blocks)?.todos;
   }
   return undefined;
 }
@@ -68,6 +70,10 @@ export function buildMessagePatch(
     const todos = parseTodosFromBlocks([todoBlock]);
     if (todos) patch.todos = todos;
   }
+  if (!todoBlock && hasTaskTodoMutation(newBlocks, mutatedIds, allMutations)) {
+    const todos = parseTodosFromBlocks(newBlocks);
+    if (todos) patch.todos = todos;
+  }
   if (signals.enterPlanModeRequested) {
     patch.permissionMode = "plan";
   }
@@ -92,6 +98,22 @@ function findTodoBlock(
   }
   return allMutations.find((m) => m.block.type === "tool_call" && m.block.toolName === "TodoWrite")
     ?.block;
+}
+
+function hasTaskTodoMutation(
+  newBlocks: AgentBlockData[],
+  mutatedIds: Set<string>,
+  allMutations: BlockMutation[],
+): boolean {
+  if (allMutations.some((m) => taskTodoMutationSeen(m.block))) return true;
+  return newBlocks.some((block) => blockOrChildTaskTodoMutated(block, mutatedIds));
+}
+
+function blockOrChildTaskTodoMutated(block: AgentBlockData, mutatedIds: Set<string>): boolean {
+  if (mutatedIds.has(block.id) && taskTodoMutationSeen(block)) return true;
+  return (
+    block.childBlocks?.some((child) => blockOrChildTaskTodoMutated(child, mutatedIds)) ?? false
+  );
 }
 
 export function applyMutations(

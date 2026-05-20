@@ -1,7 +1,12 @@
 import { memo, useCallback, type ReactNode } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import { type FileDiffSection, hasTextHunks } from "@/lib/parse-unified-diff";
-import { DiffFileHeader, DiffFileHeaderPrefix, DiffFileHeaderViewed } from "./DiffFileHeader";
+import {
+  DiffFileHeader,
+  DiffFileHeaderOpenInEditor,
+  DiffFileHeaderPrefix,
+  DiffFileHeaderViewed,
+} from "./DiffFileHeader";
 import {
   type CommentLineData,
   type ActiveWidget,
@@ -26,6 +31,7 @@ export interface DiffFileBlockProps {
   onToggleFile: (fileName: string) => void;
   onMarkViewedFile: (fileName: string) => void;
   onUnmarkViewedFile: (fileName: string) => void;
+  onOpenFileInEditor?: (filePath: string, lineNumber?: number) => void;
   onAddComment?: (filePath: string, lineNumber: number, side?: CommentSide) => void;
   themeAppearance: ThemeAppearance;
   themeId: ThemeId;
@@ -54,6 +60,7 @@ function DiffFileBlockImpl({
   onToggleFile,
   onMarkViewedFile,
   onUnmarkViewedFile,
+  onOpenFileInEditor,
   onAddComment,
   themeAppearance,
   themeId,
@@ -74,6 +81,10 @@ function DiffFileBlockImpl({
     (lineNumber: number, side: CommentSide): void => onAddComment?.(displayName, lineNumber, side),
     [displayName, onAddComment],
   );
+  const onOpenFile = useCallback(
+    (): void => onOpenFileInEditor?.(displayName),
+    [displayName, onOpenFileInEditor],
+  );
 
   const renderHeaderPrefix = useCallback(
     (): ReactNode => (
@@ -89,19 +100,32 @@ function DiffFileBlockImpl({
     [displayName, isCollapsed, onToggle],
   );
 
-  const renderHeaderMetadata = useCallback(
-    (): ReactNode =>
-      showViewedCheckbox ? (
-        <div className="pr-3">
+  const renderHeaderMetadata = useCallback((): ReactNode => {
+    if (!onOpenFileInEditor && !showViewedCheckbox) return null;
+    return (
+      <div className="group/header flex items-center gap-2 pr-3">
+        <DiffFileHeaderOpenInEditor
+          displayName={displayName}
+          onOpenFileInEditor={onOpenFileInEditor ? onOpenFile : undefined}
+        />
+        {showViewedCheckbox && (
           <DiffFileHeaderViewed
             isFileViewed={isFileViewed}
             onMarkViewed={onMarkViewed}
             onUnmarkViewed={onUnmarkViewed}
           />
-        </div>
-      ) : null,
-    [isFileViewed, onMarkViewed, onUnmarkViewed, showViewedCheckbox],
-  );
+        )}
+      </div>
+    );
+  }, [
+    displayName,
+    isFileViewed,
+    onMarkViewed,
+    onOpenFile,
+    onOpenFileInEditor,
+    onUnmarkViewed,
+    showViewedCheckbox,
+  ]);
 
   if (isCollapsed) {
     return (
@@ -114,6 +138,7 @@ function DiffFileBlockImpl({
         isFileViewed={isFileViewed}
         showViewedCheckbox={showViewedCheckbox}
         onToggle={onToggle}
+        onOpenFileInEditor={onOpenFileInEditor ? onOpenFile : undefined}
         onMarkViewed={onMarkViewed}
         onUnmarkViewed={onUnmarkViewed}
       />

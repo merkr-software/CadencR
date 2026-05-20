@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test-utils";
-import CodeMirrorEditor from "../CodeMirrorEditor";
+import CodeMirrorEditor, { clampEditorLineNumber } from "../CodeMirrorEditor";
 
 vi.mock("@codemirror/state", () => ({
   Compartment: class {
@@ -148,5 +148,12 @@ describe("CodeMirrorEditor", () => {
     expect(screen.getByText("Ln 1, Col 1")).toBeInTheDocument();
     expect(screen.getByText("TypeScript")).toBeInTheDocument();
     expect(screen.getByText("UTF-8")).toBeInTheDocument();
+  });
+
+  it("clamps invalid pending go-to lines to the document range", () => {
+    expect(clampEditorLineNumber(0, 213)).toBe(1);
+    expect(clampEditorLineNumber(-5, 213)).toBe(1);
+    expect(clampEditorLineNumber(999, 213)).toBe(213);
+    expect(clampEditorLineNumber(10, 213)).toBe(10);
   });
 });

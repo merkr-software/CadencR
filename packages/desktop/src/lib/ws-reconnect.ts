@@ -1,30 +1,35 @@
 /**
- * Per-key exponential-backoff WebSocket reconnection manager.
+ * Per-key fixed-interval WebSocket reconnection manager.
  *
- * Two layers:
- *
- * 1. `scheduleReconnect(key, fn)` — fire-once, exponential-backoff timer
- *    used by every WS-owning store (`ws-session`, terminal, workflow,
- *    session-status). Each call registers `fn` as the "current connector"
- *    for that key so external code can later trigger it via §2.
- *
- * 2. `forceReconnectAll()` / `forceReconnect(key)` — used by the
- *    connection watchdog (visibility / online / wake) to reset every
- *    backoff and reconnect immediately, instead of waiting for the next
- *    scheduled tick. Resetting the backoff matters: after a long sleep
- *    we'd otherwise be at the 30 s ceiling and the user would stare at
- *    "Reconnecting…" for half a minute on a connection that's actually
- *    healthy again.
+ * The service is local to the user's machine, so exponential backoff makes
+ * recovery feel broken without protecting any remote dependency. Every
+ * automatic retry waits exactly `RECONNECT_INTERVAL_MS`. After too many
+ * consecutive failures, automatic retries pause and callers surface a
+ * manual "Retry now" affordance.
  */
 
-const BASE_MS = 1000;
-const MAX_MS = 30000;
+export const RECONNECT_INTERVAL_MS = 1000;
+export const AUTO_RECONNECT_TIMEOUT_MS = 240_000;
+export const AUTO_RECONNECT_TIMEOUT_SECONDS = AUTO_RECONNECT_TIMEOUT_MS / 1000;
+export const MAX_AUTO_RECONNECT_FAILURES = Math.ceil(
+  AUTO_RECONNECT_TIMEOUT_MS / RECONNECT_INTERVAL_MS,
+);
+
+interface ReconnectorOptions {
+  onManualRequired?: (key: string) => void;
+}
+
+interface ForceReconnectOptions {
+  bypassManualPause?: boolean;
+}
 
 interface ReconnectEntry {
   timer: ReturnType<typeof setTimeout> | null;
-  delay: number;
+  firstFailureAt: number | null;
+  manualOnly: boolean;
   /** Latest connector seen for this key. Updated on every `scheduleReconnect`. */
   connect: (() => void) | null;
+  onManualRequired: ((key: string) => void) | null;
 }
 
 const entries = new Map<string, ReconnectEntry>();
@@ -32,26 +37,57 @@ const entries = new Map<string, ReconnectEntry>();
 function getOrCreate(key: string): ReconnectEntry {
   let entry = entries.get(key);
   if (!entry) {
-    entry = { timer: null, delay: BASE_MS, connect: null };
+    entry = {
+      timer: null,
+      firstFailureAt: null,
+      manualOnly: false,
+      connect: null,
+      onManualRequired: null,
+    };
     entries.set(key, entry);
   }
   return entry;
 }
 
-export function scheduleReconnect(key: string, connect: () => void): void {
-  const entry = getOrCreate(key);
-  entry.connect = connect;
-  if (entry.timer) return;
-  entry.timer = setTimeout(() => {
-    entry.timer = null;
-    connect();
-  }, entry.delay);
-  entry.delay = Math.min(entry.delay * 2, MAX_MS);
+function applyOptions(entry: ReconnectEntry, options?: ReconnectorOptions): void {
+  if (options?.onManualRequired) entry.onManualRequired = options.onManualRequired;
 }
 
-export function resetReconnectDelay(key: string): void {
+function pauseForManualReconnect(key: string, entry: ReconnectEntry): void {
+  if (entry.manualOnly) return;
+  entry.manualOnly = true;
+  entry.onManualRequired?.(key);
+}
+
+export function scheduleReconnect(
+  key: string,
+  connect: () => void,
+  options?: ReconnectorOptions,
+): void {
+  const entry = getOrCreate(key);
+  entry.connect = connect;
+  applyOptions(entry, options);
+  if (entry.timer) return;
+  if (entry.manualOnly) return;
+
+  if (entry.firstFailureAt == null) entry.firstFailureAt = Date.now();
+  if (Date.now() - entry.firstFailureAt >= AUTO_RECONNECT_TIMEOUT_MS) {
+    pauseForManualReconnect(key, entry);
+    return;
+  }
+
+  entry.timer = setTimeout(() => {
+    entry.timer = null;
+    if (entry.manualOnly) return;
+    connect();
+  }, RECONNECT_INTERVAL_MS);
+}
+
+export function resetReconnectState(key: string): void {
   const entry = entries.get(key);
-  if (entry) entry.delay = BASE_MS;
+  if (!entry) return;
+  entry.firstFailureAt = null;
+  entry.manualOnly = false;
 }
 
 export function clearReconnect(key: string): void {
@@ -69,8 +105,14 @@ export function clearReconnect(key: string): void {
  * suffered a close (e.g. terminals: connect once and stay connected, but
  * still reconnectable on wake).
  */
-export function registerReconnector(key: string, connect: () => void): void {
-  getOrCreate(key).connect = connect;
+export function registerReconnector(
+  key: string,
+  connect: () => void,
+  options?: ReconnectorOptions,
+): void {
+  const entry = getOrCreate(key);
+  entry.connect = connect;
+  applyOptions(entry, options);
 }
 
 export function unregisterReconnector(key: string): void {
@@ -78,21 +120,27 @@ export function unregisterReconnector(key: string): void {
 }
 
 /**
- * Cancel the pending timer for `key`, reset its backoff to the base, and
- * invoke its connector now. No-ops if no connector is registered.
+ * Cancel the pending timer for `key` and invoke its connector now. Manual
+ * calls also reset the failure cap; automatic watchdog calls respect a
+ * paused/manual-only key.
  */
-export function forceReconnect(key: string): void {
+export function forceReconnect(key: string, options?: ForceReconnectOptions): void {
   const entry = entries.get(key);
   if (!entry?.connect) return;
+  if (options?.bypassManualPause) {
+    entry.firstFailureAt = null;
+    entry.manualOnly = false;
+  } else if (entry.manualOnly) {
+    return;
+  }
   if (entry.timer) {
     clearTimeout(entry.timer);
     entry.timer = null;
   }
-  entry.delay = BASE_MS;
   entry.connect();
 }
 
 /** Force-reconnect every registered key. */
-export function forceReconnectAll(): void {
-  for (const key of Array.from(entries.keys())) forceReconnect(key);
+export function forceReconnectAll(options?: ForceReconnectOptions): void {
+  for (const key of Array.from(entries.keys())) forceReconnect(key, options);
 }

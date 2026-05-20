@@ -197,6 +197,19 @@ index abc..def 100644
     ).toBeInTheDocument();
   });
 
+  it("does not render editor-open actions without an editor-open provider", () => {
+    mocks.useGetDiffMock.mockReturnValue({
+      data: { diff: singleFileDiff } as unknown,
+      isLoading: false,
+    });
+
+    render(<DiffViewer featureId={1} mode="worktree" />);
+
+    expect(
+      screen.queryByRole("button", { name: "Open src/foo.ts in editor" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders split/unified toggle buttons", () => {
     mocks.useGetDiffMock.mockReturnValue({
       data: { diff: singleFileDiff } as unknown,

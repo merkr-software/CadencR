@@ -6,10 +6,13 @@ import {
   scheduleReconnect,
   registerReconnector,
   unregisterReconnector,
-  resetReconnectDelay,
+  resetReconnectState,
   forceReconnect,
 } from "@/lib/ws-reconnect";
-import { useConnectionStatusStore } from "@/stores/connection-status-store";
+import {
+  reportManualReconnectRequired,
+  useConnectionStatusStore,
+} from "@/stores/connection-status-store";
 
 // -- Silent-failure visibility --
 //
@@ -189,7 +192,7 @@ export function useTerminalWebSocket(
         protocols: getWsProtocols(),
         onOpen: () => {
           setIsConnected(true);
-          resetReconnectDelay(reconnectKey);
+          resetReconnectState(reconnectKey);
           // Clear the force-reconnect debounce so a *later* stall triggers
           // immediate recovery rather than waiting out the cooldown window
           // we started during the prior failure.
@@ -268,10 +271,14 @@ export function useTerminalWebSocket(
       doConnect(cols, rows);
       // Register so the watchdog can force this terminal to reconnect on
       // wake/online without waiting for TCP-level close detection.
-      registerReconnector(reconnectKey, () => {
-        const dims = dimsRef.current;
-        if (dims) doConnect(dims.cols, dims.rows);
-      });
+      registerReconnector(
+        reconnectKey,
+        () => {
+          const dims = dimsRef.current;
+          if (dims) doConnect(dims.cols, dims.rows);
+        },
+        { onManualRequired: reportManualReconnectRequired },
+      );
     },
     [doConnect, reconnectKey],
   );

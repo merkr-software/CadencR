@@ -21,6 +21,7 @@ interface UseDiffKeyboardParams {
   featureId: number;
   diffAreaRef: RefObject<HTMLDivElement | null>;
   setCollapsedFiles: (updater: (prev: Set<string>) => Set<string>) => void;
+  onOpenFocusedFileInEditor?: (filePath: string) => void;
 }
 
 /**
@@ -42,6 +43,7 @@ export function useDiffKeyboard({
   featureId,
   diffAreaRef,
   setCollapsedFiles,
+  onOpenFocusedFileInEditor,
 }: UseDiffKeyboardParams): void {
   const focusedFileIndexRef = useRef(focusedFileIndex);
   focusedFileIndexRef.current = focusedFileIndex;
@@ -107,6 +109,19 @@ export function useDiffKeyboard({
       });
     },
     "git",
+  );
+
+  useScopedGlobalShortcutById(
+    "diff-open-focused-file",
+    (e) => {
+      const idx = focusedFileIndexRef.current;
+      if (!onOpenFocusedFileInEditor || idx < 0 || idx >= fileNames.length) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      onOpenFocusedFileInEditor(fileNames[idx]);
+    },
+    "git",
+    { enabled: Boolean(onOpenFocusedFileInEditor) },
   );
 
   useScopedGlobalShortcutById(

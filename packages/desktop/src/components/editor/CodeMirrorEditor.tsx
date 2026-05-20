@@ -20,6 +20,10 @@ interface CodeMirrorEditorProps {
 
 const AUTO_SAVE_DELAY_MS = 1500;
 
+export function clampEditorLineNumber(lineNumber: number, lineCount: number): number {
+  return Math.min(Math.max(1, lineNumber), Math.max(1, lineCount));
+}
+
 function getLanguageName(filePath: string): string {
   const ext = filePath.split(".").at(-1)?.toLowerCase() ?? "";
   const MAP: Record<string, string> = {
@@ -228,7 +232,7 @@ export default function CodeMirrorEditor({
     if (!view || !data || pendingGoToLine == null) return;
 
     const lineCount = view.state.doc.lines;
-    const targetLine = Math.min(pendingGoToLine, lineCount);
+    const targetLine = clampEditorLineNumber(pendingGoToLine, lineCount);
     const line = view.state.doc.line(targetLine);
 
     view.dispatch({

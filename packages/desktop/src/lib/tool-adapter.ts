@@ -12,6 +12,7 @@ export interface InlineDiffPreview {
 }
 
 const FILE_CHANGE_TOOLS = new Set(["Write", "Edit", "NotebookEdit", "ApplyPatch"]);
+const TASK_TODO_TOOLS = new Set(["TaskCreate", "TaskUpdate"]);
 const LEGACY_OPENCODE_OUTPUT_KEYS = ["__opencode_output", "__opencode_stdout"] as const;
 const LEGACY_OPENCODE_STATUS_KEY = "__opencode_status";
 
@@ -23,6 +24,10 @@ export function normalizeToolName(toolName: string): string {
 export function isFileChangeTool(toolName: string | undefined): boolean {
   if (!toolName) return false;
   return FILE_CHANGE_TOOLS.has(normalizeToolName(toolName));
+}
+
+export function isTaskTodoTool(toolName: string | undefined): boolean {
+  return toolName != null && TASK_TODO_TOOLS.has(toolName);
 }
 
 export function extractBashOutput(toolArgs?: string): string | undefined {

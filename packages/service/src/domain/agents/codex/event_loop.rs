@@ -10,12 +10,14 @@ use super::event_system::{permission_request_event, request_key};
 use super::event_turn_state::{update_turn_state, RootTurnTracker};
 use super::events::notification_events;
 use super::permissions::PendingCodexRequest;
+use super::prompt_receipts::PendingPromptReceipts;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
 
 pub(super) fn spawn_event_loop(
     mut source_rx: broadcast::Receiver<AppServerEvent>,
     tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     pending_requests: Arc<Mutex<HashMap<String, PendingCodexRequest>>>,
+    pending_prompt_receipts: Arc<PendingPromptReceipts>,
     turns: RootTurnTracker,
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
@@ -49,6 +51,13 @@ pub(super) fn spawn_event_loop(
                     .await;
                     clear_resolved_request(&method, &params, &pending_requests).await;
                     enrich_command_output(&method, &mut params, &mut command_outputs);
+                    if let Some(receipt_event) = pending_prompt_receipts
+                        .acknowledge_completed_user_message(&method, &params, &turns.root_thread_id)
+                    {
+                        if tx.send(Ok(receipt_event)).await.is_err() {
+                            return;
+                        }
+                    }
                     let current_model = model.read().await.clone();
                     for event in notification_events(
                         &method,
@@ -97,6 +106,7 @@ pub(super) fn spawn_event_loop(
                     return;
                 }
                 Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    pending_prompt_receipts.clear();
                     tracing::warn!(
                         skipped,
                         "Codex app-server event stream lagged; UI may miss deltas"

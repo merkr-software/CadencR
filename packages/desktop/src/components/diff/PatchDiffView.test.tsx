@@ -58,6 +58,9 @@ vi.mock("@pierre/diffs/react", () => ({
   }) => (
     <div data-testid="pierre-patch" data-patch={fileDiff.patch}>
       {renderHeaderPrefix?.(fileDiff)}
+      <span data-title>
+        <bdi>src/foo.ts</bdi>
+      </span>
       {renderHeaderMetadata?.(fileDiff)}
       {lineAnnotations?.map((annotation, index) => (
         <div key={`${annotation.side}-${annotation.lineNumber}-${index}`} data-testid="annotation">
@@ -194,7 +197,7 @@ describe("PatchDiffView", () => {
     expect(screen.getByPlaceholderText("Add a comment...")).toBeInTheDocument();
   });
 
-  it("uses Pierre's native gutter utility callback for adding comments", () => {
+  it("uses Pierre's native gutter click API for comments without render utility callbacks", () => {
     const onAddComment = vi.fn();
     render(
       <PatchDiffView
@@ -208,11 +211,13 @@ describe("PatchDiffView", () => {
 
     const options = mocks.setOptionsMock.mock.calls.at(-1)?.[0] as {
       onGutterUtilityClick?: (range: { start: number; side?: "deletions" | "additions" }) => void;
+      renderGutterUtility?: () => null;
       unsafeCSS?: string;
     };
     options.onGutterUtilityClick?.({ start: 2, side: "additions" });
 
     expect(onAddComment).toHaveBeenCalledWith(2, "new");
+    expect(options.renderGutterUtility).toBeUndefined();
     expect(options.unsafeCSS).toContain("[data-utility-button]");
     expect(options.unsafeCSS).toContain("background-color: var(--primary)");
     expect(options.unsafeCSS).toContain("color: var(--primary-foreground)");

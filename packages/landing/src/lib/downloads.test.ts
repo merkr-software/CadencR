@@ -5,19 +5,19 @@ describe("selectRecommendedDownload", () => {
   it("recommends the Apple Silicon DMG for macOS arm browsers", () => {
     const result = selectRecommendedDownload({ os: "macos", arch: "arm64" });
 
-    expect(result?.assetName).toBe("Cadencr-0.1.3-arm64.dmg");
+    expect(result?.assetName).toBe("Cadencr-0.2.0-arm64.dmg");
   });
 
   it("recommends the Intel DMG for macOS x64 browsers", () => {
     const result = selectRecommendedDownload({ os: "macos", arch: "x64" });
 
-    expect(result?.assetName).toBe("Cadencr-0.1.3.dmg");
+    expect(result?.assetName).toBe("Cadencr-0.2.0.dmg");
   });
 
   it("falls back to the universal macOS recommendation when the arch is unknown", () => {
     const result = selectRecommendedDownload({ os: "macos", arch: "unknown" });
 
-    expect(result?.assetName).toBe("Cadencr-0.1.3.dmg");
+    expect(result?.assetName).toBe("Cadencr-0.2.0.dmg");
   });
 
   it("does not recommend a download for operating systems not shipped yet", () => {
@@ -26,6 +26,6 @@ describe("selectRecommendedDownload", () => {
   });
 
   it("keeps asset URLs pinned to the current landing version", () => {
-    expect(DOWNLOAD_ASSETS.every((asset) => asset.url.includes("/v0.1.3/"))).toBe(true);
+    expect(DOWNLOAD_ASSETS.every((asset) => asset.url.includes("/v0.2.0/"))).toBe(true);
   });
 });

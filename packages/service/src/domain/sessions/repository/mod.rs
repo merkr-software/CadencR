@@ -12,6 +12,7 @@ mod feature_state;
 mod feature_state_fetch;
 mod pagination;
 mod queries;
+mod task_todos;
 mod tool_blocks;
 mod truncation;
 

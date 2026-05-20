@@ -82,7 +82,7 @@ pub(super) async fn update_turn_state(
 /// Notifications without a `threadId` (rare; some completion-style frames
 /// omit it) are treated as root so we don't accidentally swallow the
 /// root's turn boundaries.
-fn belongs_to_root_thread(params: &serde_json::Value, root_thread_id: &str) -> bool {
+pub(super) fn belongs_to_root_thread(params: &serde_json::Value, root_thread_id: &str) -> bool {
     match params.get("threadId").and_then(serde_json::Value::as_str) {
         Some(thread_id) => thread_id == root_thread_id,
         None => true,

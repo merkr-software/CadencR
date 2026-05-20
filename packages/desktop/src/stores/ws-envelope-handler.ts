@@ -47,6 +47,7 @@ import { getEnabledOptInModesFromCache } from "@/hooks/useEnabledOptInModes";
 import type { PermissionMode } from "@/types/permission-mode";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import {
+  deferTailPromptTurnBoundary,
   markPromptReceived,
   movePendingPromptBlocksToTail,
   removePendingPromptBlocks,
@@ -674,6 +675,21 @@ function handleTurnComplete(ctx: StoreAccessors, sessionId: string, payload: unk
     if (parent?.childBlocks) parent.taskComplete = true;
     stream.parentToolUseId = null;
   }
+
+  const deferredPromptBoundary = deferTailPromptTurnBoundary(session.blocks);
+  if (deferredPromptBoundary.shouldDefer) {
+    if (deferredPromptBoundary.blocks !== session.blocks) {
+      ctx.set(
+        updateSession(
+          ctx.get(),
+          sessionId,
+          blocksPatchWithDerived(state, deferredPromptBoundary.blocks),
+        ),
+      );
+    }
+    return;
+  }
+
   const blocks = removePendingPromptBlocks(session.blocks);
   ctx.set(
     updateSession(ctx.get(), sessionId, {

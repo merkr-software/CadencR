@@ -9,12 +9,14 @@ vi.mock("@/api/client", () => ({
 }));
 
 vi.mock("@/lib/ws-reconnect", () => ({
+  AUTO_RECONNECT_TIMEOUT_SECONDS: 240,
   forceReconnectAll: vi.fn(),
 }));
 
 import { useConnectionStatusStore } from "./connection-status-store";
 import { pingHealth } from "@/api/client";
 import { forceReconnectAll as forceReconnectAllWs } from "@/lib/ws-reconnect";
+import { toast } from "sonner";
 
 beforeEach(() => {
   // Reset store to initial state.
@@ -49,6 +51,20 @@ describe("connection-status-store / aggregation", () => {
     const s = useConnectionStatusStore.getState();
     expect(s.status).toBe("disconnected");
     expect(s.reason).toBe("Backend unreachable");
+  });
+
+  it("manual reconnect required dominates health and reconnecting sources", () => {
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource("ws-a", "reconnecting", "drop A");
+    reportSource("health", "disconnected", "Backend unreachable");
+    reportSource(
+      "ws-a",
+      "manual_reconnect_required",
+      "Backend WebSocket failed to reconnect for 240 seconds",
+    );
+    const s = useConnectionStatusStore.getState();
+    expect(s.status).toBe("manual_reconnect_required");
+    expect(s.reason).toBe("Backend WebSocket failed to reconnect for 240 seconds");
   });
 
   it("returns to connected when all sources clear or report connected", () => {
@@ -134,7 +150,80 @@ describe("connection-status-store / forceReconnectAll", () => {
   it("triggers ws-reconnect.forceReconnectAll and a fresh health probe", () => {
     vi.mocked(pingHealth).mockResolvedValueOnce({ ok: true });
     useConnectionStatusStore.getState().forceReconnectAll();
-    expect(forceReconnectAllWs).toHaveBeenCalledTimes(1);
+    expect(forceReconnectAllWs).toHaveBeenCalledWith({ bypassManualPause: false });
     expect(pingHealth).toHaveBeenCalledTimes(1);
+  });
+
+  it("manual force reconnect marks paused sources as reconnecting", () => {
+    vi.mocked(pingHealth).mockResolvedValueOnce({ ok: true });
+    useConnectionStatusStore
+      .getState()
+      .reportSource(
+        "ws-a",
+        "manual_reconnect_required",
+        "Backend WebSocket failed to reconnect for 240 seconds",
+      );
+
+    useConnectionStatusStore.getState().forceReconnectAll({ bypassManualPause: true });
+
+    expect(forceReconnectAllWs).toHaveBeenCalledWith({ bypassManualPause: true });
+    expect(useConnectionStatusStore.getState().sources["ws-a"]).toEqual({
+      status: "reconnecting",
+      reason: "Retrying backend connection",
+    });
+  });
+});
+
+describe("connection-status-store / manual reconnect toast", () => {
+  it("shows one persistent toast with a retry action when automatic reconnect pauses", () => {
+    useConnectionStatusStore
+      .getState()
+      .reportSource(
+        "ws-a",
+        "manual_reconnect_required",
+        "Backend WebSocket failed to reconnect for 240 seconds",
+      );
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "Backend reconnect paused",
+      expect.objectContaining({
+        id: "backend-manual-reconnect-required",
+        description: expect.stringContaining("240 seconds"),
+        duration: Infinity,
+        action: expect.objectContaining({ label: "Retry now" }),
+      }),
+    );
+  });
+
+  it("toast retry action performs a manual reconnect", () => {
+    vi.mocked(pingHealth).mockResolvedValueOnce({ ok: true });
+    useConnectionStatusStore
+      .getState()
+      .reportSource(
+        "ws-a",
+        "manual_reconnect_required",
+        "Backend WebSocket failed to reconnect for 240 seconds",
+      );
+
+    const options = vi.mocked(toast.error).mock.calls[0]?.[1] as
+      | { action?: { onClick?: () => void } }
+      | undefined;
+    options?.action?.onClick?.();
+
+    expect(forceReconnectAllWs).toHaveBeenCalledWith({ bypassManualPause: true });
+  });
+
+  it("dismisses the manual reconnect toast after reconnecting", () => {
+    const { reportSource } = useConnectionStatusStore.getState();
+    reportSource(
+      "ws-a",
+      "manual_reconnect_required",
+      "Backend WebSocket failed to reconnect for 240 seconds",
+    );
+    vi.mocked(toast.dismiss).mockClear();
+
+    reportSource("ws-a", "connected");
+
+    expect(toast.dismiss).toHaveBeenCalledWith("backend-manual-reconnect-required");
   });
 });

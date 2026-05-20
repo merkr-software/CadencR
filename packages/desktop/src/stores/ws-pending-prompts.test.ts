@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBlockData } from "@/components/AgentBlock";
-import { markPromptReceived, movePendingPromptBlocksToTail } from "./ws-pending-prompts";
+import {
+  deferTailPromptTurnBoundary,
+  markPromptReceived,
+  movePendingPromptBlocksToTail,
+} from "./ws-pending-prompts";
 
 function block(
   id: string,
@@ -58,7 +62,31 @@ describe("pending prompt delivery ordering", () => {
       "assistant-2",
       "user-2",
     ]);
-    expect(reordered[1].promptDeliveryState).toBeUndefined();
+    expect(reordered[1].promptDeliveryState).toBe("received_agent");
     expect(reordered[3].promptDeliveryState).toBe("pending_agent");
+  });
+
+  it("defers stale turn boundaries for a received tail prompt", () => {
+    const received = markPromptReceived([block("user-1", "user_message", "client-1")], "client-1");
+
+    const deferred = deferTailPromptTurnBoundary(received);
+    const duplicate = deferTailPromptTurnBoundary(deferred.blocks);
+
+    expect(deferred.shouldDefer).toBe(true);
+    expect(duplicate.shouldDefer).toBe(true);
+    expect(deferred.blocks[0].promptDeliveryState).toBe("received_agent");
+  });
+
+  it("removes stale turn summaries after a pending tail prompt", () => {
+    const deferred = deferTailPromptTurnBoundary([block("user-1", "user_message", "client-1")]);
+    const summaryDeferred = deferTailPromptTurnBoundary([
+      ...deferred.blocks,
+      { id: "summary-1", type: "turn_summary" as const, content: "1s" },
+    ]);
+
+    expect(deferred.shouldDefer).toBe(true);
+    expect(summaryDeferred.shouldDefer).toBe(true);
+    expect(summaryDeferred.blocks).toHaveLength(1);
+    expect(summaryDeferred.blocks[0].promptDeliveryState).toBe("pending_agent");
   });
 });

@@ -27,6 +27,7 @@ mod permission_options;
 #[cfg(test)]
 mod permission_options_tests;
 mod permissions;
+mod prompt_receipts;
 mod raw_tool_names;
 mod responses;
 mod session;

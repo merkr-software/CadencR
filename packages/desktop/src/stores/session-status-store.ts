@@ -41,8 +41,16 @@ import { create } from "zustand";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import { createEnvelope, parseEnvelope } from "@/lib/ws-envelope";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
-import { useConnectionStatusStore } from "@/stores/connection-status-store";
-import { registerReconnector, unregisterReconnector } from "@/lib/ws-reconnect";
+import {
+  reportManualReconnectRequired,
+  useConnectionStatusStore,
+} from "@/stores/connection-status-store";
+import {
+  registerReconnector,
+  resetReconnectState,
+  scheduleReconnect,
+  unregisterReconnector,
+} from "@/lib/ws-reconnect";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { updateSession, type SessionEntry, type WsSessionStore } from "@/stores/ws-session-types";
 import { transitionTurn, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
@@ -76,26 +84,11 @@ interface SessionStatusState {
   disconnect: () => void;
 }
 
-const RECONNECT_BASE_MS = 1000;
-const RECONNECT_MAX_MS = 30000;
-
 type IntentionalCloseWebSocket = WebSocket & {
   __intentionalClose?: () => void;
 };
 
 export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  let reconnectDelay = RECONNECT_BASE_MS;
-
-  function scheduleReconnect(): void {
-    if (reconnectTimer) return;
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      get().connect();
-    }, reconnectDelay);
-    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
-  }
-
   function dispatchEnvelope(
     domain: string,
     action: string,
@@ -134,15 +127,19 @@ export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
     connect() {
       // Register so the connection watchdog can force-reconnect us on
       // wake/online without us having to wait for a TCP-level close.
-      registerReconnector(APP_WS_SOURCE, () => {
-        const live = get().ws;
-        if (live && live.readyState !== WebSocket.CLOSED) {
-          (live as IntentionalCloseWebSocket).__intentionalClose?.();
-          live.close();
-        }
-        set({ ws: null, isConnected: false });
-        get().connect();
-      });
+      registerReconnector(
+        APP_WS_SOURCE,
+        () => {
+          const live = get().ws;
+          if (live && live.readyState !== WebSocket.CLOSED) {
+            (live as IntentionalCloseWebSocket).__intentionalClose?.();
+            live.close();
+          }
+          set({ ws: null, isConnected: false });
+          get().connect();
+        },
+        { onManualRequired: reportManualReconnectRequired },
+      );
 
       const existing = get().ws;
       if (
@@ -161,7 +158,7 @@ export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
       let intentionalClose = false;
 
       ws.addEventListener("open", () => {
-        reconnectDelay = RECONNECT_BASE_MS;
+        resetReconnectState(APP_WS_SOURCE);
         // Preserve `bySession` so sidebar icons don't blink during the
         // 100–300 ms window before the snapshot arrives. `applySnapshot`
         // reconciles per-session via the seq, so any stale entries
@@ -186,7 +183,7 @@ export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
           useConnectionStatusStore
             .getState()
             .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket dropped");
-          scheduleReconnect();
+          scheduleReconnect(APP_WS_SOURCE, () => get().connect());
         } else {
           useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
         }
@@ -227,10 +224,6 @@ export const useSessionStatusStore = create<SessionStatusState>((set, get) => {
     },
 
     disconnect() {
-      if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-      }
       unregisterReconnector(APP_WS_SOURCE);
       useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
       const ws = get().ws;
@@ -296,7 +289,9 @@ function lifecyclePatchFromStatus(
 ): LifecyclePatch | null {
   const lifecycle = lifecycleFromStatus(session.lifecycle, entry.status, entry.kind);
   const resetStaleActiveTiming =
-    lifecycle === session.lifecycle && enteredAgentFromIdle(previousStatus, entry.status);
+    lifecycle === session.lifecycle &&
+    (session.turnTiming.startedAt == null || session.blocks.length === 0) &&
+    enteredAgentFromIdle(previousStatus, entry.status);
   if (lifecycle === session.lifecycle && !resetStaleActiveTiming) return null;
   return {
     lifecycle,
