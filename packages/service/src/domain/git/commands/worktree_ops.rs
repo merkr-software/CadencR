@@ -333,6 +333,9 @@ detached
         crate::shared::git_cli::run_git(&["config", "user.name", "Test"], &repo)
             .await
             .unwrap();
+        crate::shared::git_cli::run_git(&["config", "commit.gpgsign", "false"], &repo)
+            .await
+            .unwrap();
         std::fs::write(repo.join("README.md"), "hello").unwrap();
         crate::shared::git_cli::run_git(&["add", "README.md"], &repo)
             .await

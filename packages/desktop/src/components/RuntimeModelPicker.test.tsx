@@ -1,6 +1,6 @@
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@/test-utils";
 import { RuntimeModelPicker } from "./RuntimeModelPicker";
 
@@ -38,6 +38,10 @@ function Harness(props: {
 }
 
 describe("RuntimeModelPicker", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("calls the post-close callback after selecting a model", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
@@ -50,6 +54,29 @@ describe("RuntimeModelPicker", () => {
 
     expect(onSelect).toHaveBeenCalledWith("claude_code", "opus");
     await waitFor(() => expect(onAfterSelectClose).toHaveBeenCalled());
+  });
+
+  it("focuses and scrolls to the selected model when opened", async () => {
+    const user = userEvent.setup();
+    const models = [
+      ...Array.from({ length: 24 }, (_, index) => ({
+        id: `model-${index}`,
+        label: `Model ${index}`,
+      })),
+      { id: "opus", label: "Opus" },
+    ];
+
+    render(<Harness models={models} />);
+
+    await user.click(screen.getByRole("button", { name: "Open picker" }));
+
+    const selectedOption = screen.getByRole("option", { name: /Claude \/ Opus/i });
+    await waitFor(() => expect(selectedOption).toHaveAttribute("data-selected", "true"));
+    await waitFor(() =>
+      expect(window.HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
+        block: "nearest",
+      }),
+    );
   });
 
   it("resets the results scroll position when the filter changes", async () => {

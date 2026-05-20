@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckIcon, LockIcon } from "lucide-react";
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+import { Command, CommandEmpty, CommandInput, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ProviderIcon } from "@/lib/provider-icons";
 import { cn } from "@/lib/utils";
+import {
+  ModelGroup,
+  ProviderStateGroup,
+  SelectionGroup,
+  getModelEntries,
+  getProviderStateEntries,
+  type ModelEntry,
+  type ProviderStateEntry,
+  type RuntimeModelPickerAction,
+} from "./RuntimeModelPickerSections";
 
 export interface RuntimeModelPickerModel {
   id: string;
@@ -25,15 +26,6 @@ export interface RuntimeModelPickerProvider {
   status?: "available" | "unavailable" | "coming_soon";
   statusMessage?: string;
   models: RuntimeModelPickerModel[];
-}
-
-interface RuntimeModelPickerAction {
-  id: string;
-  label: string;
-  description?: string;
-  selected: boolean;
-  keywords?: string[];
-  onSelect: () => void;
 }
 
 interface RuntimeModelPickerProps {
@@ -52,18 +44,39 @@ interface RuntimeModelPickerProps {
   onAfterSelectClose?: () => void;
 }
 
-interface ModelEntry {
-  providerId: string;
-  providerLabel: string;
-  modelId: string;
-  modelLabel: string;
-  description?: string;
+interface SelectedModelScrollParams {
+  listRef: React.RefObject<HTMLDivElement | null>;
+  resolvedOpen: boolean;
+  search: string;
+  selectedModelValue: string;
 }
 
-interface ProviderStateEntry {
-  providerId: string;
-  providerLabel: string;
-  statusLabel: string;
+function useScrollSelectedModel({
+  listRef,
+  resolvedOpen,
+  search,
+  selectedModelValue,
+}: SelectedModelScrollParams): void {
+  useEffect(() => {
+    if (!resolvedOpen || !listRef.current) return undefined;
+
+    const frameId = requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (!list) return;
+
+      if (search.length === 0 && selectedModelValue) {
+        const selectedItem = list.querySelector<HTMLElement>('[data-selected="true"]');
+        if (selectedItem) {
+          selectedItem.scrollIntoView({ block: "nearest" });
+          return;
+        }
+      }
+
+      list.scrollTop = 0;
+    });
+
+    return () => cancelAnimationFrame(frameId);
+  }, [listRef, resolvedOpen, search, selectedModelValue]);
 }
 
 export function RuntimeModelPicker({
@@ -80,59 +93,27 @@ export function RuntimeModelPicker({
   align = "start",
   contentClassName,
   onAfterSelectClose,
-}: RuntimeModelPickerProps) {
+}: RuntimeModelPickerProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const restoreFocusAfterCloseRef = useRef(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const resolvedOpen = open ?? internalOpen;
+  const selectedModelValue =
+    selectedProviderId && selectedModelId ? `${selectedProviderId}:${selectedModelId}` : "";
+  const selectedCommandValue = selectedModelValue || (action?.selected ? action.id : "");
 
   useEffect(() => {
     if (!resolvedOpen) setSearch("");
   }, [resolvedOpen]);
 
-  useEffect(() => {
-    if (!resolvedOpen || !listRef.current) return undefined;
+  useScrollSelectedModel({ listRef, resolvedOpen, search, selectedModelValue });
 
-    const frameId = requestAnimationFrame(() => {
-      if (listRef.current) listRef.current.scrollTop = 0;
-    });
-
-    return () => cancelAnimationFrame(frameId);
-  }, [resolvedOpen, search]);
-
-  const modelEntries = useMemo<ModelEntry[]>(
-    () =>
-      providers.flatMap((provider) => {
-        if (provider.disabled || provider.models.length === 0) return [];
-        return provider.models.map((model) => ({
-          providerId: provider.id,
-          providerLabel: provider.label,
-          modelId: model.id,
-          modelLabel: model.label,
-          description: model.description,
-        }));
-      }),
-    [providers],
-  );
+  const modelEntries = useMemo<ModelEntry[]>(() => getModelEntries(providers), [providers]);
 
   const providerStateEntries = useMemo<ProviderStateEntry[]>(
-    () =>
-      providers.flatMap((provider) => {
-        if (!provider.disabled && provider.models.length > 0) return [];
-        return [
-          {
-            providerId: provider.id,
-            providerLabel: provider.label,
-            statusLabel: provider.disabled
-              ? provider.status === "unavailable"
-                ? (provider.statusMessage ?? "Unavailable")
-                : "Coming soon"
-              : "No models available",
-          },
-        ];
-      }),
+    () => getProviderStateEntries(providers),
     [providers],
   );
 
@@ -143,6 +124,19 @@ export function RuntimeModelPicker({
   function handleOpenChange(nextOpen: boolean): void {
     if (open === undefined) setInternalOpen(nextOpen);
     onOpenChange?.(nextOpen);
+  }
+
+  function handleActionSelect(): void {
+    if (!action) return;
+    restoreFocusAfterCloseRef.current = true;
+    action.onSelect();
+    handleOpenChange(false);
+  }
+
+  function handleModelSelect(entry: ModelEntry): void {
+    restoreFocusAfterCloseRef.current = true;
+    onSelect(entry.providerId, entry.modelId);
+    handleOpenChange(false);
   }
 
   return (
@@ -162,7 +156,7 @@ export function RuntimeModelPicker({
           onAfterSelectClose?.();
         }}
       >
-        <Command>
+        <Command defaultValue={selectedCommandValue}>
           <CommandInput
             ref={inputRef}
             placeholder={searchPlaceholder}
@@ -172,107 +166,16 @@ export function RuntimeModelPicker({
           />
           <CommandList ref={listRef} className="max-h-[320px]">
             <CommandEmpty className="py-3 text-center text-xs">{emptyText}</CommandEmpty>
-            {action ? (
-              <CommandGroup heading="Selection">
-                <CommandItem
-                  value={action.id}
-                  keywords={action.keywords}
-                  onSelect={() => {
-                    restoreFocusAfterCloseRef.current = true;
-                    action.onSelect();
-                    handleOpenChange(false);
-                  }}
-                  className="flex items-start gap-2 text-xs"
-                >
-                  <CheckIcon
-                    className={cn(
-                      "mt-0.5 size-3 shrink-0",
-                      action.selected ? "opacity-100" : "opacity-0",
-                    )}
-                  />
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="truncate text-foreground">{action.label}</span>
-                    {action.description ? (
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        {action.description}
-                      </span>
-                    ) : null}
-                  </span>
-                </CommandItem>
-              </CommandGroup>
-            ) : null}
-
+            {action ? <SelectionGroup action={action} onSelect={handleActionSelect} /> : null}
             {modelEntries.length > 0 ? (
-              <CommandGroup heading="Models">
-                {modelEntries.map((entry) => (
-                  <CommandItem
-                    key={`${entry.providerId}:${entry.modelId}`}
-                    value={`${entry.providerId}:${entry.modelId}`}
-                    keywords={[
-                      entry.providerLabel,
-                      entry.providerId,
-                      entry.modelLabel,
-                      entry.modelId,
-                      entry.description ?? "",
-                    ]}
-                    onSelect={() => {
-                      restoreFocusAfterCloseRef.current = true;
-                      onSelect(entry.providerId, entry.modelId);
-                      handleOpenChange(false);
-                    }}
-                    className="flex items-start justify-between gap-2 text-xs"
-                    title={entry.description}
-                  >
-                    <span className="flex min-w-0 items-start gap-2">
-                      <ProviderIcon
-                        providerId={entry.providerId}
-                        alt={entry.modelLabel}
-                        className="mt-0.5 size-3.5 shrink-0 rounded-sm"
-                      />
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="truncate text-foreground">
-                          {entry.providerLabel} / {entry.modelLabel}
-                        </span>
-                        {entry.description ? (
-                          <span className="truncate text-[11px] text-muted-foreground">
-                            {entry.description}
-                          </span>
-                        ) : null}
-                      </span>
-                    </span>
-                    <CheckIcon
-                      className={cn(
-                        "mt-0.5 size-3 shrink-0 text-violet-400",
-                        entry.providerId === selectedProviderId && entry.modelId === selectedModelId
-                          ? "opacity-100"
-                          : "opacity-0",
-                      )}
-                    />
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              <ModelGroup
+                entries={modelEntries}
+                selectedModelValue={selectedModelValue}
+                onSelect={handleModelSelect}
+              />
             ) : null}
-
             {providerStateEntries.length > 0 ? (
-              <CommandGroup heading="Providers">
-                {providerStateEntries.map((entry) => (
-                  <CommandItem
-                    key={`${entry.providerId}:state`}
-                    value={`${entry.providerId}:state`}
-                    keywords={[entry.providerLabel, entry.providerId, entry.statusLabel]}
-                    disabled
-                    className="flex items-start gap-2 text-xs"
-                  >
-                    <LockIcon className="mt-0.5 size-3 shrink-0 text-muted-foreground" />
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-muted-foreground">{entry.providerLabel}</span>
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        {entry.statusLabel}
-                      </span>
-                    </span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
+              <ProviderStateGroup entries={providerStateEntries} />
             ) : null}
           </CommandList>
         </Command>
