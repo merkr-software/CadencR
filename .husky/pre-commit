@@ -2,8 +2,8 @@
 set -u
 
 cmd="pnpm turbo run format:check lint ts-check test knip"
-log_file="$(mktemp -t cadencr-precommit-log)" || exit 1
-tmp_dir="$(mktemp -d -t cadencr-precommit)" || {
+log_file="$(mktemp -t cadencr-precommit-log.XXXXXX)" || exit 1
+tmp_dir="$(mktemp -d -t cadencr-precommit.XXXXXX)" || {
   rm -f "$log_file"
   exit 1
 }

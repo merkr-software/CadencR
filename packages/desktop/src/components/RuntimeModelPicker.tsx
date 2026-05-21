@@ -65,7 +65,13 @@ function useScrollSelectedModel({
       if (!list) return;
 
       if (search.length === 0 && selectedModelValue) {
-        const selectedItem = list.querySelector<HTMLElement>('[data-selected="true"]');
+        // Query by the specific value rather than [data-selected="true"]:
+        // cmdk's data-selected tracks the currently highlighted item, which
+        // can drift after the user types and clears the search. data-value
+        // is stable, so we always scroll to the actual selected model.
+        const selectedItem = list.querySelector<HTMLElement>(
+          `[data-value="${CSS.escape(selectedModelValue)}"]`,
+        );
         if (selectedItem) {
           selectedItem.scrollIntoView({ block: "nearest" });
           return;
