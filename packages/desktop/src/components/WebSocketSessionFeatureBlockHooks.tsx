@@ -28,7 +28,6 @@ import type { useResolvedModel } from "@/hooks/useResolvedModel";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { useWebSocketSession } from "@/hooks/useWebSocketSession";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
-import { nextProviderMode } from "@/lib/provider-modes";
 import {
   DEFAULT_WORKTREE_MODE_KEY,
   defaultWorktreeModeFromSettings,
@@ -39,6 +38,10 @@ import { useGitStatusStore } from "@/stores/useGitStatusStore";
 import type { PermissionMode } from "@/types/permission-mode";
 import type { FeatureEditorTabHandle } from "@/components/editor/FeatureEditorTab";
 import type { WorktreeStatus } from "@/types/workflow";
+import {
+  EMPTY_PROVIDER_MODES,
+  usePermissionModeToggle,
+} from "@/components/WebSocketSessionPermissionMode";
 
 interface SessionRefs {
   agent: RefObject<AgentSessionHandle | null>;
@@ -79,8 +82,6 @@ interface SessionControls {
   handlePermissionModeToggle: () => void;
   initialCwd: string;
 }
-
-const EMPTY_PROVIDER_MODES: readonly RuntimeProviderModeOption[] = [];
 
 export function useSessionRefs(): SessionRefs {
   const agent = useRef<AgentSessionHandle>(null);
@@ -273,26 +274,6 @@ export function useSessionControls(
       ws,
     ],
   );
-}
-
-function usePermissionModeToggle(
-  sessionId: string,
-  activeProviderId: string,
-  enabledOptInModes: PermissionMode[],
-  providerModes: readonly RuntimeProviderModeOption[],
-): () => void {
-  return useCallback((): void => {
-    const store = useWsSessionStore.getState();
-    const session = store.sessions[sessionId];
-    if (!session) return;
-    const next = nextProviderMode(
-      activeProviderId,
-      session.permissionMode,
-      enabledOptInModes,
-      providerModes ?? [],
-    );
-    if (next !== session.permissionMode) store.setPermissionMode(sessionId, next);
-  }, [activeProviderId, enabledOptInModes, providerModes, sessionId]);
 }
 
 export function useWsSessionEffects(args: {

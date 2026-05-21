@@ -102,7 +102,11 @@ fn parse_primary_agent_modes(raw: &str) -> Vec<ProviderModeCatalogEntry> {
         let Some((name, mode)) = parse_agent_header(line) else {
             continue;
         };
-        if mode != "primary" || BUILTIN_PRIMARY_AGENTS.contains(&name) || !seen.insert(name) {
+        if !is_user_invokable_mode(mode)
+            || BUILTIN_PRIMARY_AGENTS.contains(&name)
+            || name.contains('/')
+            || !seen.insert(name)
+        {
             continue;
         }
         modes.push(ProviderModeCatalogEntry {
@@ -113,6 +117,14 @@ fn parse_primary_agent_modes(raw: &str) -> Vec<ProviderModeCatalogEntry> {
     }
 
     modes
+}
+
+/// OpenCode agents declare themselves as `primary` (user-invokable),
+/// `subagent` (only callable by other agents), or `all` (both). The Shift+Tab
+/// cycle should expose anything the user can invoke directly, so accept both
+/// `primary` and `all`.
+fn is_user_invokable_mode(mode: &str) -> bool {
+    matches!(mode, "primary" | "all")
 }
 
 fn parse_agent_header(line: &str) -> Option<(&str, &str)> {
@@ -148,6 +160,39 @@ scenario-builder/SCENARIO_TEMPLATE (all)
         assert_eq!(modes[0].id, "opencodeAgent:documentor");
         assert_eq!(modes[0].label, "documentor");
         assert_eq!(modes[1].id, "opencodeAgent:scenario-builder");
+    }
+
+    #[test]
+    fn includes_custom_all_mode_agents() {
+        // Custom agents declared with `mode: all` should also surface in the
+        // Shift+Tab cycle — `all` just means the agent can be invoked both
+        // directly and as a sub-agent.
+        let modes = parse_primary_agent_modes(
+            r#"build (primary)
+  []
+researcher (all)
+  []
+explore (subagent)
+  []
+"#,
+        );
+
+        assert_eq!(modes.len(), 1);
+        assert_eq!(modes[0].id, "opencodeAgent:researcher");
+        assert_eq!(modes[0].label, "researcher");
+    }
+
+    #[test]
+    fn excludes_subagents_and_nested_templates() {
+        let modes = parse_primary_agent_modes(
+            r#"explore (subagent)
+  []
+scenario-builder/SCENARIO_TEMPLATE (all)
+  []
+"#,
+        );
+
+        assert!(modes.is_empty());
     }
 
     #[test]
