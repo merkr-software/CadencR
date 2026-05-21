@@ -31,6 +31,8 @@ export interface BashBlockProps {
   truncatedContent?: boolean;
   bodyExtraClassName?: string;
   runningFooter?: ReactNode;
+  /** Start with the output collapsed; the command header stays visible. */
+  collapsible?: boolean;
 }
 
 export const BashBlock = memo(function BashBlock({
@@ -43,6 +45,7 @@ export const BashBlock = memo(function BashBlock({
   truncatedContent,
   bodyExtraClassName,
   runningFooter,
+  collapsible,
 }: BashBlockProps): ReactElement {
   const lines = content?.split("\n") ?? [];
   const totalLines = lines.length;
@@ -61,6 +64,7 @@ export const BashBlock = memo(function BashBlock({
             totalCount={totalLines}
             visibleCount={maxLines}
             unit="lines"
+            collapsible={collapsible}
             className={isError ? "border-destructive/40" : "border-border"}
             headerClassName={cn(
               "bg-[var(--block-bash-header-bg)] py-1",

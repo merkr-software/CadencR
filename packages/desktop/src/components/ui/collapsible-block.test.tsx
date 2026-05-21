@@ -50,4 +50,38 @@ describe("CollapsibleBlock", () => {
     await user.click(screen.getByRole("button"));
     expect(screen.getByText("showing all")).toBeInTheDocument();
   });
+
+  describe("collapsible mode", () => {
+    it("hides the body by default while keeping the header visible", () => {
+      render(
+        <CollapsibleBlock
+          collapsible
+          totalCount={3}
+          visibleCount={5}
+          unit="lines"
+          header={<span>Header</span>}
+        >
+          {() => <div>Body content</div>}
+        </CollapsibleBlock>,
+      );
+      expect(screen.getByText("Header")).toBeInTheDocument();
+      expect(screen.queryByText("Body content")).not.toBeInTheDocument();
+    });
+
+    it("reveals the body when the header is clicked", async () => {
+      const { user } = render(
+        <CollapsibleBlock
+          collapsible
+          totalCount={3}
+          visibleCount={5}
+          unit="lines"
+          header={<span>Header</span>}
+        >
+          {() => <div>Body content</div>}
+        </CollapsibleBlock>,
+      );
+      await user.click(screen.getByRole("button", { name: /header/i }));
+      expect(screen.getByText("Body content")).toBeInTheDocument();
+    });
+  });
 });

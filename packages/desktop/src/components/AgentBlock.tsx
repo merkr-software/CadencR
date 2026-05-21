@@ -148,6 +148,7 @@ export const AgentBlock = memo(function AgentBlock({
             isError={result?.isError}
             messageId={result ? messageIdFromBlockId(result.id) : undefined}
             truncatedContent={result?.truncatedContent === true}
+            collapsible
           />
         );
       }
