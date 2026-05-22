@@ -1,0 +1,79 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, matching the previous default-setup cadence.
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+      packages: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: manual
+
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+
+      - if: matrix.language == 'rust'
+        name: Install Rust stable toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - if: matrix.language == 'rust'
+        name: Cache cargo registry and target
+        # actions/cache@v4 — pin via Dependabot
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: codeql-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            codeql-cargo-${{ runner.os }}-
+
+      - name: Initialize CodeQL
+        # github/codeql-action/init@v3 — pin via Dependabot
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Match the previous default-setup query suite. Switch to
+          # `security-extended` or `security-and-quality` to broaden coverage.
+          # queries: security-extended
+
+      # Manual build for Rust: compile the entire workspace with all features
+      # so CodeQL's extractor sees every cfg-gated path, every workspace
+      # member, and every cross-crate call. This is what gets the
+      # "calls with known target" metric above the 50% threshold.
+      - if: matrix.language == 'rust'
+        name: Build full Rust workspace
+        run: cargo build --workspace --all-features --locked --verbose
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"
