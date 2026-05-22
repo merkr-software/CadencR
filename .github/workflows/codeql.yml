@@ -40,7 +40,12 @@ jobs:
 
       - if: matrix.language == 'rust'
         name: Install Rust stable toolchain
-        run: rustup toolchain install stable --profile minimal
+        # rust-src is required so rust-analyzer (used by the CodeQL Rust
+        # extractor) can expand standard-library macros like assert!, format!,
+        # vec!, matches!, panic!. Without it ~80 % of files fail extraction
+        # with "macro expansion failed" warnings and the database-quality
+        # warning persists at ~48 % call-target resolution.
+        run: rustup toolchain install stable --profile minimal --component rust-src
 
       - if: matrix.language == 'rust'
         name: Cache cargo registry and target
