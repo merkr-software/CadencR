@@ -91,30 +91,44 @@ pub fn init_git_repo(dir: &Path) {
 }
 
 /// Process-global lock for tests that mutate `$HOME` to redirect the
-/// `~/.cadencr/worktrees` root into a tempdir. cargo test runs tokio tests in
+/// Cadencr worktrees root into a tempdir. cargo test runs tokio tests in
 /// parallel; without this lock two of them would race and one's `$HOME`
 /// pop would leak into the other.
 static HOME_LOCK: Mutex<()> = Mutex::new(());
 
+const XDG_VARS: &[&str] = &["XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"];
+
+/// Saves/restores `$HOME` plus the XDG roots. On Linux `app_paths::data_dir()`
+/// honours `$XDG_DATA_HOME` first, so we have to clear it as well — otherwise
+/// the developer's real XDG dir would leak into the test and the assertions
+/// pinned to the tempdir would fail.
 pub struct HomeGuard {
-    prev: Option<std::ffi::OsString>,
+    saved: Vec<(&'static str, Option<std::ffi::OsString>)>,
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
 impl HomeGuard {
     pub fn set(new_home: &Path) -> Self {
         let lock = HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let prev = std::env::var_os("HOME");
+        let mut saved: Vec<(&'static str, Option<std::ffi::OsString>)> =
+            Vec::with_capacity(1 + XDG_VARS.len());
+        saved.push(("HOME", std::env::var_os("HOME")));
+        for key in XDG_VARS {
+            saved.push((key, std::env::var_os(key)));
+            std::env::remove_var(key);
+        }
         std::env::set_var("HOME", new_home);
-        Self { prev, _lock: lock }
+        Self { saved, _lock: lock }
     }
 }
 
 impl Drop for HomeGuard {
     fn drop(&mut self) {
-        match &self.prev {
-            Some(v) => std::env::set_var("HOME", v),
-            None => std::env::remove_var("HOME"),
+        for (key, value) in &self.saved {
+            match value {
+                Some(v) => std::env::set_var(key, v),
+                None => std::env::remove_var(key),
+            }
         }
     }
 }
