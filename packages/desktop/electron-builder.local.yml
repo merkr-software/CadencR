@@ -42,3 +42,10 @@ mac:
     - target: zip
       arch:
         - arm64
+
+linux:
+  target:
+    - AppImage
+  category: Development
+  icon: icons/
+  synopsis: Desktop shell for driving local AI coding agents

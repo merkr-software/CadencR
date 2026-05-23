@@ -237,6 +237,10 @@ if (!app.isPackaged) {
   app.setPath("userData", devUserData);
 }
 
+if (process.platform === "linux") {
+  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   throw new Error("second instance — exiting");

@@ -46,5 +46,12 @@ mac:
         - arm64
         - x64
 
+linux:
+  target:
+    - AppImage
+  category: Development
+  icon: icons/
+  synopsis: Desktop shell for driving local AI coding agents
+
 dmg:
   sign: true
