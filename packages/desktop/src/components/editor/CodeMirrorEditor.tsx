@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { EditorView } from "@codemirror/view";
 import { Compartment } from "@codemirror/state";
+import { Loader2Icon } from "lucide-react";
 import { useReadFile, useWriteFile, useGetBlame } from "@/api/generated";
 import { useEditorStore } from "@/stores/editor-store";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
@@ -97,7 +98,7 @@ export default function CodeMirrorEditor({
         ?.pendingGoToLine,
   );
 
-  const { data, isLoading, error } = useReadFile(
+  const { data, error } = useReadFile(
     { project_id: projectId, feature_id: featureId, file_path: filePath },
     {
       query: {
@@ -212,20 +213,6 @@ export default function CodeMirrorEditor({
     };
   }, []);
 
-  // Update editor content when data loads
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!view || !data) return;
-
-    const currentContent = view.state.doc.toString();
-    if (currentContent !== data.content) {
-      view.dispatch({
-        changes: { from: 0, to: view.state.doc.length, insert: data.content },
-      });
-      setDirty(featureId, paneId, filePath, false);
-    }
-  }, [data, filePath, featureId, paneId, setDirty]);
-
   // Scroll to pending go-to line after content is loaded
   useEffect(() => {
     const view = viewRef.current;
@@ -243,23 +230,26 @@ export default function CodeMirrorEditor({
     clearPendingGoToLine(featureId, paneId, filePath);
   }, [data, pendingGoToLine, featureId, paneId, filePath, clearPendingGoToLine]);
 
-  const overlay = isLoading ? (
-    <div className="absolute inset-0 flex flex-col gap-2 p-4 animate-pulse z-10 bg-background">
-      <div className="h-4 w-3/4 rounded bg-muted" />
-      <div className="h-4 w-1/2 rounded bg-muted" />
-      <div className="h-4 w-5/6 rounded bg-muted" />
-      <div className="h-4 w-2/3 rounded bg-muted" />
-    </div>
-  ) : error ? (
-    <div className="absolute inset-0 flex items-center justify-center z-10 bg-background text-destructive text-sm px-6 text-center">
-      {error instanceof Error ? error.message : "Failed to load file"}
-    </div>
-  ) : null;
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center bg-background text-destructive text-sm px-6 text-center">
+        {error instanceof Error ? error.message : "Failed to load file"}
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="h-full flex items-center justify-center bg-background">
+        <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
-    <div className="h-full flex flex-col relative">
-      {overlay}
+    <div className="h-full flex flex-col">
       <BaseCodeMirrorEditor
+        initialContent={data.content}
         language={langExt}
         vimMode={isVimEnabled}
         onChange={handleChange}

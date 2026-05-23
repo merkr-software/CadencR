@@ -27,15 +27,20 @@ vi.mock("@codemirror/view", () => {
   };
 });
 
+const baseEditorProps = vi.fn();
+
 // Mock BaseCodeMirrorEditor to render a simple div with the className
 vi.mock("../BaseCodeMirrorEditor", () => ({
   default: ({
     className,
+    initialContent,
     editorViewRef,
   }: {
     className?: string;
+    initialContent?: string;
     editorViewRef?: React.MutableRefObject<unknown>;
   }) => {
+    baseEditorProps({ className, initialContent });
     if (editorViewRef) {
       editorViewRef.current = {
         state: { doc: { toString: () => "", length: 0 } },
@@ -43,7 +48,9 @@ vi.mock("../BaseCodeMirrorEditor", () => ({
         destroy: vi.fn(),
       };
     }
-    return <div className={className} data-testid="base-editor" />;
+    return (
+      <div className={className} data-testid="base-editor" data-initial-content={initialContent} />
+    );
   },
 }));
 
@@ -103,42 +110,37 @@ const defaultProps = {
 
 beforeEach(() => {
   mockReadFileReturn = { data: undefined, isLoading: true, error: null };
+  baseEditorProps.mockClear();
 });
 
 describe("CodeMirrorEditor", () => {
-  it("renders container div even while loading", () => {
+  it("renders a spinner and does not mount the editor while loading", () => {
     mockReadFileReturn = { data: undefined, isLoading: true, error: null };
     const { container } = render(<CodeMirrorEditor {...defaultProps} />);
 
-    // The container div for CodeMirror should always be present
-    const editorContainer = container.querySelector(".flex-1.overflow-auto");
-    expect(editorContainer).toBeInTheDocument();
-
-    // Loading overlay should also be present
-    const overlay = container.querySelector(".animate-pulse");
-    expect(overlay).toBeInTheDocument();
+    expect(container.querySelector(".animate-spin")).toBeInTheDocument();
+    expect(screen.queryByTestId("base-editor")).not.toBeInTheDocument();
+    expect(baseEditorProps).not.toHaveBeenCalled();
   });
 
-  it("renders container div when there is an error", () => {
+  it("renders an error message and does not mount the editor on error", () => {
     mockReadFileReturn = { data: undefined, isLoading: false, error: new Error("Not found") };
-    const { container } = render(<CodeMirrorEditor {...defaultProps} />);
-
-    const editorContainer = container.querySelector(".flex-1.overflow-auto");
-    expect(editorContainer).toBeInTheDocument();
+    render(<CodeMirrorEditor {...defaultProps} />);
 
     expect(screen.getByText("Not found")).toBeInTheDocument();
+    expect(screen.queryByTestId("base-editor")).not.toBeInTheDocument();
+    expect(baseEditorProps).not.toHaveBeenCalled();
   });
 
-  it("renders container div when data is loaded", () => {
+  it("mounts the editor with initialContent once data is loaded", () => {
     mockReadFileReturn = { data: { content: "hello" }, isLoading: false, error: null };
     const { container } = render(<CodeMirrorEditor {...defaultProps} />);
 
-    const editorContainer = container.querySelector(".flex-1.overflow-auto");
-    expect(editorContainer).toBeInTheDocument();
-
-    // No overlay when data is loaded
-    const overlay = container.querySelector(".animate-pulse");
-    expect(overlay).not.toBeInTheDocument();
+    expect(container.querySelector(".animate-spin")).not.toBeInTheDocument();
+    expect(screen.getByTestId("base-editor")).toBeInTheDocument();
+    expect(baseEditorProps).toHaveBeenCalledWith(
+      expect.objectContaining({ initialContent: "hello" }),
+    );
   });
 
   it("renders status bar with language and position", () => {
