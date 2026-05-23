@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { describeStartupFailure, parsePhaseLine, serviceArgs, serviceEnv } from "./sidecar";
+import {
+  describeStartupFailure,
+  ensureLinuxSidecarExecutable,
+  parsePhaseLine,
+  serviceArgs,
+  serviceEnv,
+} from "./sidecar";
 
 describe("sidecar process arguments", () => {
   it("does not expose the auth token on argv", () => {
@@ -101,5 +107,19 @@ describe("describeStartupFailure", () => {
     expect(message).toContain("restore a pre-migration backup");
     expect(message).not.toContain("health check");
     expect(message).not.toContain("Open data folder");
+  });
+});
+
+describe("ensureLinuxSidecarExecutable", () => {
+  it("surfaces chmod failures on Linux", () => {
+    expect(() =>
+      ensureLinuxSidecarExecutable("/definitely/missing/cadencr-service", "linux"),
+    ).toThrow(/Failed to mark cadencr-service executable/);
+  });
+
+  it("does nothing on non-Linux platforms", () => {
+    expect(() =>
+      ensureLinuxSidecarExecutable("/definitely/missing/cadencr-service", "darwin"),
+    ).not.toThrow();
   });
 });

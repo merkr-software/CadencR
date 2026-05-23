@@ -118,8 +118,10 @@ export async function spawnProductionSidecar(
   await assertPortAvailable(SIDECAR_PORT);
   onStatus({ phase: "starting_service" });
 
+  const binary = productionBinaryPath();
+  ensureLinuxSidecarExecutable(binary, process.platform);
   const child = spawnService(
-    productionBinaryPath(),
+    binary,
     productionDbPath(),
     authToken,
     options.appVersion,
@@ -181,6 +183,17 @@ export function serviceEnv(
         }
       : {}),
   };
+}
+
+export function ensureLinuxSidecarExecutable(binary: string, platform: NodeJS.Platform): void {
+  if (platform !== "linux") return;
+
+  try {
+    fs.chmodSync(binary, 0o755);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to mark cadencr-service executable at ${binary}: ${message}`);
+  }
 }
 
 export function serviceArgs(
