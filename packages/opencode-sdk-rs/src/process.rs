@@ -21,8 +21,13 @@ use crate::error::SdkError;
 pub fn opencode_discovery_spec() -> DiscoverySpec {
     DiscoverySpec {
         bin_name: "opencode",
-        well_known_relative_to_home: vec![".opencode/bin"],
-        well_known_absolute: vec!["/opt/homebrew/bin", "/usr/local/bin"],
+        well_known_relative_to_home: vec![".opencode/bin", ".cargo/bin"],
+        well_known_absolute: vec![
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/snap/bin",
+        ],
         version_args: &["--version"],
         version_must_contain: None,
     }
@@ -103,6 +108,9 @@ mod tests {
         assert_eq!(spec.bin_name, "opencode");
         assert!(spec.well_known_relative_to_home.contains(&".opencode/bin"));
         assert!(spec.well_known_absolute.contains(&"/opt/homebrew/bin"));
+        assert!(spec.well_known_absolute.contains(&"/usr/bin"));
+        assert!(spec.well_known_absolute.contains(&"/snap/bin"));
+        assert!(spec.well_known_relative_to_home.contains(&".cargo/bin"));
     }
 
     #[tokio::test]
