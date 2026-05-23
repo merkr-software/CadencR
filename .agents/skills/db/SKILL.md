@@ -12,7 +12,7 @@ Cadencr stores its state in a SQLite file. There are two locations to be aware o
 | Context | Path | When |
 |---|---|---|
 | **Dev** (default) | `packages/service/cadencr.local.db` | When running `pnpm dev` — set by `CADENCR_DB_PATH=./cadencr.local.db` in `packages/service/.env`. |
-| **Production** (packaged Electron) | `~/.cadencr/database/cadencr.db` | When the Electron sidecar spawns the service binary (see `packages/desktop/electron/main/sidecar.ts`). |
+| **Production** (packaged Electron) | macOS: `~/.cadencr/database/cadencr.db`. Linux: `$XDG_DATA_HOME/cadencr/database/cadencr.db` (default `~/.local/share/cadencr/database/cadencr.db`). | When the Electron sidecar spawns the service binary (see `packages/desktop/electron/main/sidecar.ts`). |
 | Custom | Whatever `CADENCR_DB_PATH` / `--db-path` points at | Override either of the above. |
 
 **Never remove any database** — not the dev DB, not the production DB, not a custom path. Never delete, truncate, overwrite, replace, or `rm` a database file. No exceptions.

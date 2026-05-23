@@ -70,6 +70,8 @@ Node `>=22.18.0 <23.0.0`. Pre-commit runs `format:check lint ts-check test knip`
 
 Use the `qa` skill to drive the UI, and `finish-job` to simplify, check coverage, and prepare a commit.
 
+**Per-user paths (database, worktrees, logs).** Cadencr stores user data under a platform-specific root. On macOS everything lives under `~/.cadencr/` (database at `~/.cadencr/database/cadencr.db`, worktrees at `~/.cadencr/worktrees`). On Linux we follow the XDG Base Directory spec: data under `$XDG_DATA_HOME/cadencr` (default `~/.local/share/cadencr`), config under `$XDG_CONFIG_HOME/cadencr` (default `~/.config/cadencr`), cache/logs under `$XDG_CACHE_HOME/cadencr` (default `~/.cache/cadencr`). New code MUST go through `cadencr_service::shared::app_paths` (Rust) or `packages/desktop/electron/main/app-paths.ts` (Electron main) instead of building paths from the home directory — those modules are the single seam keeping the two platforms in sync.
+
 ## Going deeper
 
 - `DESIGN.md` — source of truth for desktop visual design (tokens, themes, typography, component anatomy). Read before user-facing visual work.
