@@ -94,7 +94,8 @@ fn parse_worktree_list(output: &str) -> Vec<WorktreeInfo> {
 }
 
 /// Create a git worktree with a new branch.
-/// Places the worktree at ~/.cadencr/worktrees/<project_name>/<safe_branch>.
+/// Places the worktree at `<worktrees-root>/<project_name>/<safe_branch>`,
+/// where the root is platform-dependent — see `shared::app_paths`.
 pub async fn create_worktree(
     repo_path: &Path,
     branch_name: &str,

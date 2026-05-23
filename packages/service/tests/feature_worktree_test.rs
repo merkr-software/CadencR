@@ -2,13 +2,16 @@
 //! handler only persists settings; the dispatcher logic exercised here lives
 //! one layer below. Validation cases are in `feature_create_test.rs`.
 //!
-//! `ensure_worktree` writes provisioned worktrees to `~/.cadencr/worktrees`.
+//! `ensure_worktree` writes provisioned worktrees to the Cadencr worktrees
+//! root (`<data_dir>/worktrees`, platform-dependent — see `shared::app_paths`).
 //! To avoid polluting the developer's home dir, these tests redirect `$HOME`
-//! to a tempdir for the duration of each test via `common::worktree::HomeGuard`.
+//! (and the XDG roots) to a tempdir for the duration of each test via
+//! `common::worktree::HomeGuard`.
 
 mod common;
 
 use cadencr_service::domain::workflow::worktree::{ensure_worktree, WorktreeMode};
+use cadencr_service::shared::app_paths;
 
 use common::git_in;
 use common::worktree::{
@@ -98,8 +101,8 @@ async fn ensure_worktree_new_with_base_branch_forks_from_base() {
 #[tokio::test]
 async fn ensure_worktree_reuse_unattached_branch_creates_new_worktree() {
     // Branch exists but no worktree yet — `git worktree add` must fire and
-    // produce a new path under
-    // `~/.cadencr/worktrees/{project}/{safe-branch}`.
+    // produce a new path under `<worktrees-root>/{project}/{safe-branch}`
+    // (root is platform-specific — see `shared::app_paths`).
     let pool = worktree_pool().await;
     let tmp_home = tempfile::tempdir().unwrap();
     let _guard = HomeGuard::set(tmp_home.path());
@@ -121,19 +124,19 @@ async fn ensure_worktree_reuse_unattached_branch_creates_new_worktree() {
     let canon_wt = std::fs::canonicalize(&wt_path).unwrap_or(wt_path.clone());
     assert!(
         canon_wt.starts_with(&canon_home),
-        "worktree path must land under HOME-redirected ~/.cadencr/worktrees; got {} (home={})",
+        "worktree path must land under HOME-redirected worktrees root; got {} (home={})",
         canon_wt.display(),
         canon_home.display()
     );
-    assert!(
-        wt_path.ends_with(
-            std::path::Path::new(".cadencr")
-                .join("worktrees")
-                .join("reuseproj")
-                .join("feat-free")
-        ),
-        "worktree path must use the Cadencr worktrees layout; got {}",
-        wt_path.display()
+    // The worktrees root canonicalizes through `/private/var/...` symlinks on
+    // macOS, so compare canonical-to-canonical to avoid a spurious mismatch.
+    let expected_leaf =
+        std::fs::canonicalize(app_paths::worktrees_dir().unwrap().join("reuseproj"))
+            .unwrap()
+            .join("feat-free");
+    assert_eq!(
+        canon_wt, expected_leaf,
+        "worktree path must use the Cadencr worktrees layout for this platform"
     );
     assert!(
         wt_path.exists(),

@@ -1,5 +1,6 @@
 #![allow(clippy::single_match)]
 
+pub mod app_paths;
 pub mod db;
 pub mod env_file;
 pub mod git_cli;
