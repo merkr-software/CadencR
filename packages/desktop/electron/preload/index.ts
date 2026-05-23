@@ -68,7 +68,8 @@ type UpdateEvent =
   | { kind: "not-available"; version: string }
   | { kind: "error"; message: string }
   | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string };
+  | { kind: "downloaded"; version: string }
+  | { kind: "unsupported"; reason: "package-manager"; message: string };
 
 function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
   const unsubs = [
@@ -88,6 +89,9 @@ function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
     ),
     onIpc<{ version: string }>("update:downloaded", (p) =>
       cb({ kind: "downloaded", version: p.version }),
+    ),
+    onIpc<{ reason: "package-manager"; message: string }>("update:unsupported", (p) =>
+      cb({ kind: "unsupported", reason: p.reason, message: p.message }),
     ),
   ];
   return () => {

@@ -84,7 +84,18 @@ export type UpdateEvent =
   | { kind: "not-available"; version: string }
   | { kind: "error"; message: string }
   | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string };
+  | { kind: "downloaded"; version: string }
+  | {
+      /**
+       * In-app updates are unavailable for this install. Today this only
+       * fires on Linux deb / rpm / unknown installs where the package
+       * manager owns upgrades; the renderer should render `message` instead
+       * of offering a "Check for updates" button.
+       */
+      kind: "unsupported";
+      reason: "package-manager";
+      message: string;
+    };
 
 export interface RendererErrorReportPayload {
   source: "error" | "unhandledrejection" | "react-boundary";
