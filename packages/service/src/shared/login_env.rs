@@ -1,7 +1,7 @@
 //! Hydrate the service process env from the user's login shell so GUI launches
 //! get the same `PATH`, signing, and SSH variables the user sees in Terminal.
 //! All later service-spawned Git and agent subprocesses inherit this env.
-//! Scope: macOS-only by default, best-effort, and bounded by a timeout.
+//! Scope: macOS/Linux by default, best-effort, and bounded by a timeout.
 
 use std::collections::HashSet;
 use std::process::Stdio;
@@ -92,18 +92,18 @@ pub async fn hydrate_from_login_shell() -> usize {
         return 0;
     }
 
-    // Linux/Windows GUI launchers don't reproduce the macOS launchd vs
-    // login-shell split nearly as often. Restrict to macOS for now; if we
-    // ever ship a Linux desktop build with a similar bug we can lift this.
-    if !cfg!(target_os = "macos") {
+    // macOS launchd and Linux desktop launchers often omit the user's
+    // interactive shell PATH, which hides agent CLIs installed in user dirs.
+    if !cfg!(any(target_os = "macos", target_os = "linux")) {
         return 0;
     }
 
     let shell = match std::env::var("SHELL") {
         Ok(s) if !s.is_empty() => s,
         _ => {
-            tracing::warn!("$SHELL not set; falling back to /bin/zsh for env hydration");
-            "/bin/zsh".to_string()
+            let fallback = default_login_shell();
+            tracing::warn!("$SHELL not set; falling back to {fallback} for env hydration");
+            fallback.to_string()
         }
     };
 
@@ -118,6 +118,14 @@ pub async fn hydrate_from_login_shell() -> usize {
     let parsed = parse_env_null_separated(&raw);
     let written = apply_env(parsed);
     written + crate::shared::ssh_env::hydrate_macos_ssh_auth_sock().await
+}
+
+fn default_login_shell() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "/bin/zsh"
+    } else {
+        "/bin/bash"
+    }
 }
 
 /// Spawn `$SHELL -ilc '<sentinel>; env -0'`: `-0` preserves multiline values,
@@ -327,6 +335,15 @@ mod tests {
         let script = login_env_capture_script();
         assert!(script.contains(LOGIN_ENV_SENTINEL));
         assert!(script.ends_with("; env -0"));
+    }
+
+    #[test]
+    fn default_login_shell_exists_for_supported_platforms() {
+        if cfg!(target_os = "macos") {
+            assert_eq!(default_login_shell(), "/bin/zsh");
+        } else {
+            assert_eq!(default_login_shell(), "/bin/bash");
+        }
     }
 
     /// Single test mutating real env vars — kept serial via the unique key.
