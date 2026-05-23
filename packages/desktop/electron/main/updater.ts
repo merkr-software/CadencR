@@ -1,6 +1,7 @@
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import pkg from "electron-updater";
 import { assertTrustedSender } from "./ipc";
+import { detectLinuxInstallType, type LinuxInstallInfo } from "./linux-install-type";
 import { sendToWindow } from "./safe-send";
 
 // `electron-updater` ships as CommonJS; the `autoUpdater` named export is on
@@ -23,11 +24,27 @@ type UpdateChannel =
   | { channel: "update:not-available"; version: string }
   | { channel: "update:error"; message: string }
   | { channel: "update:download-progress"; percent: number; bytesPerSecond: number }
-  | { channel: "update:downloaded"; version: string };
+  | { channel: "update:downloaded"; version: string }
+  | { channel: "update:unsupported"; reason: "package-manager"; message: string };
 
 let initialized = false;
 let registered = false;
 let intervalHandle: NodeJS.Timeout | null = null;
+let unsupportedAnnounceTimeout: NodeJS.Timeout | null = null;
+
+/**
+ * Returns install info when the in-app updater can't service this build
+ * (Linux deb / rpm / unknown); null on AppImage, macOS, Windows. Cached
+ * after first call — `/etc/os-release` doesn't change mid-session, so the
+ * syscall is paid once. Drives both the IPC handlers and `initAutoUpdater`.
+ */
+let cachedUnsupported: LinuxInstallInfo | null | undefined;
+function unsupportedInstall(): LinuxInstallInfo | null {
+  if (cachedUnsupported !== undefined) return cachedUnsupported;
+  if (process.platform !== "linux") return (cachedUnsupported = null);
+  const info = detectLinuxInstallType();
+  return (cachedUnsupported = info.type === "appimage" ? null : info);
+}
 
 interface InitOptions {
   getMainWindow: () => BrowserWindow | null;
@@ -46,6 +63,15 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
       });
       return;
     }
+    const unsupported = unsupportedInstall();
+    if (unsupported) {
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "package-manager",
+        message: unsupported.message,
+      });
+      return;
+    }
     void autoUpdater.checkForUpdates().catch((error: unknown) => {
       sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
     });
@@ -53,6 +79,18 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
   ipcMain.handle("app:install-update", async (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event, getMainWindow);
     if (!app.isPackaged) return;
+    const unsupported = unsupportedInstall();
+    if (unsupported) {
+      // Renderer should never reach this path (the install button is hidden
+      // for unsupported installs), but if it does we surface the same hint
+      // rather than silently ignoring the call — per error-handling.md.
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "package-manager",
+        message: unsupported.message,
+      });
+      return;
+    }
     try {
       await prepareInstallUpdate?.();
       // `quitAndInstall(isSilent, isForceRunAfter)` — silent install, relaunch.
@@ -78,6 +116,28 @@ export function initAutoUpdater({ getMainWindow }: InitOptions): void {
   initialized = true;
   if (!app.isPackaged) {
     console.info("[updater] dev build — skipping auto-update setup");
+    return;
+  }
+
+  const unsupported = unsupportedInstall();
+  if (unsupported) {
+    console.info(`[updater] linux ${unsupported.type} install — auto-update disabled`);
+    // Push the state to the renderer once the window exists so the About
+    // section can render "managed by your package manager" instead of an
+    // empty status line. We defer with the same delay as the first
+    // AppImage check so the splash has time to hand off to the main window.
+    // Defer the announce so the renderer's `useAutoUpdateBridge` effect has
+    // mounted and called `onUpdateEvent` before we fire — otherwise the IPC
+    // message is delivered to nobody. Tracked so `shutdownAutoUpdater` can
+    // cancel it if the app quits within the delay window.
+    unsupportedAnnounceTimeout = setTimeout(() => {
+      unsupportedAnnounceTimeout = null;
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "package-manager",
+        message: unsupported.message,
+      });
+    }, FIRST_CHECK_DELAY_MS);
     return;
   }
 
@@ -140,6 +200,10 @@ export function shutdownAutoUpdater(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+  }
+  if (unsupportedAnnounceTimeout) {
+    clearTimeout(unsupportedAnnounceTimeout);
+    unsupportedAnnounceTimeout = null;
   }
 }
 

@@ -49,9 +49,36 @@ mac:
 linux:
   target:
     - AppImage
+    - deb
+    - rpm
   category: Development
   icon: icons/
   synopsis: Desktop shell for driving local AI coding agents
+
+# Distro packages. Auto-updater is disabled for these in updater.ts — users
+# upgrade through their package manager. Dep lists are pinned explicitly
+# (rather than relying on electron-builder defaults) so a future Electron bump
+# can't silently drop required libs.
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libdrm2
+    - libgbm1
+    - libxkbcommon0
+  priority: optional
+rpm:
+  depends:
+    - libXScrnSaver
+    - libnotify
+    - nss
+    - libdrm
+    - libxkbcommon
 
 dmg:
   sign: true
