@@ -7,6 +7,7 @@
 )]
 
 pub mod commands;
+pub mod discovery;
 pub mod error;
 pub mod mcp;
 pub mod mcp_discovery;
@@ -19,6 +20,7 @@ pub mod types;
 
 // Re-export key public types for convenient top-level access.
 pub use commands::{list_builtin_commands, list_commands, list_filesystem_commands};
+pub use discovery::{claude_discovery_spec, set_binary_override};
 pub use error::SdkError;
 pub use mcp::McpServerConfig;
 pub use messages::{
@@ -32,7 +34,6 @@ pub use permissions::{
 pub use query::{
     query, supported_commands, supported_models, supported_models_with_env, Query, TurnState,
 };
-pub use transport::{claude_discovery_spec, set_binary_override};
 pub use types::{
     AccountInfo, AgentInfo, CompactMetadata, ContentBlock, ContentDelta, McpServerStatus,
     ModelInfo, PermissionDenial, PluginInfo, SlashCommand, Usage,

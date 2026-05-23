@@ -9,9 +9,10 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, info};
 
+use crate::discovery::find_cli;
 use crate::error::SdkError;
 use crate::options::Options;
-use crate::transport::{find_cli, CliProcess};
+use crate::transport::CliProcess;
 
 use super::cancelled_control::CancelledControlRequests;
 use super::query_struct::Query;

@@ -23,11 +23,17 @@ pub fn codex_discovery_spec() -> DiscoverySpec {
             ".local/bin",
             ".bun/bin",
             ".npm-global/bin",
+            ".cargo/bin",
             ".volta/bin",
             ".fnm/aliases/default/bin",
             ".asdf/shims",
         ],
-        well_known_absolute: vec!["/opt/homebrew/bin", "/usr/local/bin"],
+        well_known_absolute: vec![
+            "/opt/homebrew/bin",
+            "/usr/local/bin",
+            "/usr/bin",
+            "/snap/bin",
+        ],
         version_args: &["--version"],
         version_must_contain: None,
     }
@@ -120,6 +126,9 @@ mod tests {
         assert_eq!(spec.bin_name, "codex");
         assert_eq!(spec.version_args, &["--version"]);
         assert!(spec.well_known_absolute.contains(&"/opt/homebrew/bin"));
+        assert!(spec.well_known_absolute.contains(&"/usr/bin"));
+        assert!(spec.well_known_absolute.contains(&"/snap/bin"));
+        assert!(spec.well_known_relative_to_home.contains(&".cargo/bin"));
     }
 
     #[test]
