@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import CodeMirrorEditor, { clampEditorLineNumber } from "../CodeMirrorEditor";
+import { gitBlameExtension } from "../git-blame-extension";
 
 vi.mock("@codemirror/state", () => ({
   Compartment: class {
@@ -73,10 +74,12 @@ let mockReadFileReturn: { data: unknown; isLoading: boolean; error: Error | null
   error: null,
 };
 
+let mockBlameReturn: { data: unknown } = { data: undefined };
+
 vi.mock("@/api/generated", () => ({
   useReadFile: vi.fn(() => mockReadFileReturn),
   useWriteFile: vi.fn(() => ({ mutateAsync: vi.fn() })),
-  useGetBlame: vi.fn(() => ({ data: undefined })),
+  useGetBlame: vi.fn(() => mockBlameReturn),
 }));
 
 vi.mock("@/stores/editor-store", () => ({
@@ -97,8 +100,12 @@ vi.mock("@/stores/editor-store", () => ({
   ),
 }));
 
+const mockDebouncedSettings: Record<string, string> = {};
+
 vi.mock("@/hooks/useDebouncedSetting", () => ({
-  useDebouncedSetting: vi.fn(() => ({ value: "false" })),
+  useDebouncedSetting: vi.fn((key: string) => ({
+    value: mockDebouncedSettings[key] ?? "false",
+  })),
 }));
 
 const defaultProps = {
@@ -110,7 +117,10 @@ const defaultProps = {
 
 beforeEach(() => {
   mockReadFileReturn = { data: undefined, isLoading: true, error: null };
+  mockBlameReturn = { data: undefined };
+  for (const k of Object.keys(mockDebouncedSettings)) delete mockDebouncedSettings[k];
   baseEditorProps.mockClear();
+  vi.mocked(gitBlameExtension).mockClear();
 });
 
 describe("CodeMirrorEditor", () => {
@@ -150,6 +160,30 @@ describe("CodeMirrorEditor", () => {
     expect(screen.getByText("Ln 1, Col 1")).toBeInTheDocument();
     expect(screen.getByText("TypeScript")).toBeInTheDocument();
     expect(screen.getByText("UTF-8")).toBeInTheDocument();
+  });
+
+  it("applies the blame extension once the editor mounts even if blame data arrived earlier", () => {
+    // Blame is enabled and blame data is already available, but the file content
+    // hasn't loaded yet — so the editor isn't mounted on the first render.
+    mockDebouncedSettings["editor_git_blame"] = "true";
+    mockBlameReturn = { data: { lines: [{ line: 1, sha: "abc", author: "x", date: "now" }] } };
+    mockReadFileReturn = { data: undefined, isLoading: true, error: null };
+
+    const { rerender } = render(<CodeMirrorEditor {...defaultProps} />);
+
+    // Spinner state: editor not mounted, blame extension not constructed.
+    expect(screen.queryByTestId("base-editor")).not.toBeInTheDocument();
+    expect(gitBlameExtension).not.toHaveBeenCalled();
+
+    // File content arrives → editor mounts → blame effect must re-run.
+    mockReadFileReturn = { data: { content: "hello" }, isLoading: false, error: null };
+    rerender(<CodeMirrorEditor {...defaultProps} />);
+
+    expect(screen.getByTestId("base-editor")).toBeInTheDocument();
+    expect(gitBlameExtension).toHaveBeenCalledWith(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (mockBlameReturn.data as any).lines,
+    );
   });
 
   it("clamps invalid pending go-to lines to the document range", () => {

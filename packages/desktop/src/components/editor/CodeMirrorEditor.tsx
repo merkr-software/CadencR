@@ -178,13 +178,15 @@ export default function CodeMirrorEditor({
 
   const langExt = useMemo(() => getLanguageExtension(filePath), [filePath]);
 
-  // Hot-swap blame extension when data or setting changes
+  // Hot-swap blame extension when data or setting changes.
+  // `data` is in deps so the effect re-runs once the editor mounts after the file loads;
+  // otherwise an early-arriving blameData would be lost when viewRef is still null.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     const ext = isBlameEnabled && blameData ? gitBlameExtension(blameData.lines) : [];
     view.dispatch({ effects: blameCompartment.current.reconfigure(ext) });
-  }, [isBlameEnabled, blameData]);
+  }, [isBlameEnabled, blameData, data]);
 
   const cursorExtension = useMemo(() => {
     return EditorView.updateListener.of((update) => {
