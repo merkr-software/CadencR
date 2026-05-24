@@ -18,16 +18,19 @@ function macos(env: NodeJS.ProcessEnv = {}): AppPathsOverrides {
 }
 
 describe("app-paths on macOS", () => {
-  it("returns the legacy ~/.cadencr root for data, config, and cache", () => {
+  it("keeps the legacy ~/.cadencr root for data and namespaces config/cache", () => {
+    // Data stays at the legacy root — moving it would orphan every
+    // existing macOS user's database and worktrees.
     expect(resolveDataDir(macos())).toBe("/Users/u/.cadencr");
-    expect(resolveConfigDir(macos())).toBe("/Users/u/.cadencr");
-    expect(resolveCacheDir(macos())).toBe("/Users/u/.cadencr");
+    // Config/cache get dedicated subroots so they can't collide.
+    expect(resolveConfigDir(macos())).toBe("/Users/u/.cadencr/config");
+    expect(resolveCacheDir(macos())).toBe("/Users/u/.cadencr/cache");
   });
 
-  it("places derived paths under ~/.cadencr", () => {
+  it("places derived paths under the right subroot", () => {
     expect(resolveDatabasePath(macos())).toBe("/Users/u/.cadencr/database/cadencr.db");
     expect(resolveWorktreesDir(macos())).toBe("/Users/u/.cadencr/worktrees");
-    expect(resolveLogsDir(macos())).toBe("/Users/u/.cadencr/logs");
+    expect(resolveLogsDir(macos())).toBe("/Users/u/.cadencr/cache/logs");
   });
 
   it("ignores XDG env vars on macOS", () => {

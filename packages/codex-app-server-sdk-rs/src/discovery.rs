@@ -23,10 +23,10 @@ pub fn codex_discovery_spec() -> DiscoverySpec {
             ".local/bin",
             ".bun/bin",
             ".npm-global/bin",
-            ".cargo/bin",
             ".volta/bin",
             ".fnm/aliases/default/bin",
             ".asdf/shims",
+            ".cargo/bin",
         ],
         well_known_absolute: vec![
             "/opt/homebrew/bin",
