@@ -57,6 +57,7 @@ pub fn claude_discovery_spec() -> DiscoverySpec {
             "/snap/bin",
         ],
         version_args: &["--version"],
+        version_must_contain: None,
     }
 }
 
@@ -132,11 +133,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn find_cli_returns_searched_dirs_on_not_found() {
+    async fn find_cli_reports_searched_dirs_if_cli_not_found() {
         let bogus_override = Path::new("/definitely/not/here/claude");
         let result = find_cli(Some(bogus_override)).await;
+        // A bogus override does NOT short-circuit to an error — `find_cli`
+        // documents that it falls through to PATH / login-shell / well-known
+        // discovery (see the doc comment on `find_cli`). So this test only
+        // exercises the CliNotFound branch on hosts where no `claude` binary
+        // is resolvable anywhere. When one IS resolvable (CI runners with
+        // npm-installed claude, dev machines with `~/.local/bin/claude`,
+        // etc.) we skip the assertion rather than asserting the wrong
+        // contract. The real check is: the error, when it fires, must carry
+        // the list of searched dirs so the host can render an actionable
+        // "we looked here" message.
         match result {
-            Ok(_) => {}
+            Ok(_) => { /* environment has a `claude` install — nothing to assert */ }
             Err(SdkError::CliNotFound { searched }) => {
                 assert!(!searched.is_empty(), "searched dirs must be reported");
             }
