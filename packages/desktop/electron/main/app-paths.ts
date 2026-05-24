@@ -5,10 +5,13 @@
 // means the sidecar writes one file and the app reads another.
 //
 // Linux follows the XDG Base Directory spec; macOS keeps the legacy
-// `~/.cadencr/...` layout so existing installs and the `db` skill keep
-// working. We deliberately do NOT use `app.getPath("userData")` — its Linux
-// default is `~/.config/Cadencr`, which would collide with what we want
-// for config-only data and would be wrong for the database.
+// `~/.cadencr/...` layout for data (database, worktrees) so existing
+// installs and the `db` skill keep working. Config and cache are
+// namespaced under `~/.cadencr/config` and `~/.cadencr/cache` on macOS so
+// they never collide with each other or with data/. We deliberately do
+// NOT use `app.getPath("userData")` — its Linux default is
+// `~/.config/Cadencr`, which would collide with what we want for
+// config-only data and would be wrong for the database.
 
 import os from "node:os";
 import path from "node:path";
@@ -37,10 +40,22 @@ const XDG_FALLBACK: Record<Kind, string> = {
   cache: ".cache",
 };
 
+// macOS subroot per Kind. `data` stays at the legacy root so existing
+// installs aren't orphaned; `config` and `cache` get dedicated subdirs.
+const MACOS_SUBROOT: Record<Kind, string> = {
+  data: "",
+  config: "config",
+  cache: "cache",
+};
+
 function resolveRoot(kind: Kind, overrides: AppPathsOverrides = {}): string {
   const platform = overrides.platform ?? process.platform;
   const homedir = overrides.homedir ?? os.homedir();
-  if (platform === "darwin") return path.join(homedir, MACOS_LEGACY_DIRNAME);
+  if (platform === "darwin") {
+    const legacy = path.join(homedir, MACOS_LEGACY_DIRNAME);
+    const sub = MACOS_SUBROOT[kind];
+    return sub ? path.join(legacy, sub) : legacy;
+  }
   const env = overrides.env ?? process.env;
   const xdgValue = env[XDG_VAR[kind]];
   // Per the XDG spec, non-absolute values must be ignored.

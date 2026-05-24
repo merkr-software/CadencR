@@ -5,15 +5,26 @@
 //! `$XDG_CACHE_HOME` (with the standard `~/.local/share`, `~/.config`,
 //! `~/.cache` fallbacks). The `dirs` crate already returns those.
 //!
-//! On macOS we deliberately keep the legacy `~/.cadencr/...` layout so
-//! existing installs, backup tooling, and the `db` skill keep working with
-//! no migration. `dirs::data_dir()` on macOS returns
-//! `~/Library/Application Support`, which is not where Cadencr has ever
-//! stored its files, so we override the macOS branch here.
+//! On macOS we deliberately keep the legacy `~/.cadencr/...` layout for
+//! **data** (database, worktrees) so existing installs, backup tooling, and
+//! the `db` skill keep working with no migration. `dirs::data_dir()` on
+//! macOS returns `~/Library/Application Support`, which is not where
+//! Cadencr has ever stored its files, so we override the macOS branch here.
+//!
+//! `config` and `cache` are namespaced under `~/.cadencr/config` and
+//! `~/.cadencr/cache` on macOS so they never collide with each other or
+//! with `data`. If everything pointed at the same directory, a future
+//! caller doing `config_dir().join("state.json")` and
+//! `cache_dir().join("state.json")` would silently corrupt data on macOS
+//! while behaving correctly on Linux.
 //!
 //! Every Cadencr callsite that needs a Cadencr-owned path on disk should go
 //! through this module rather than building paths from `dirs::home_dir()` —
 //! that's the single seam that keeps Linux and macOS behaviour in sync.
+//!
+//! Mirrored by `packages/desktop/electron/main/app-paths.ts`; the two MUST
+//! agree because the Electron main process resolves the database path and
+//! passes it to the spawned Rust sidecar.
 
 use std::path::PathBuf;
 
@@ -75,7 +86,16 @@ fn resolve(kind: Kind) -> Result<PathBuf, String> {
     if cfg!(target_os = "macos") {
         let home =
             dirs::home_dir().ok_or_else(|| "Could not determine home directory".to_string())?;
-        return Ok(home.join(MACOS_LEGACY_DIRNAME));
+        let legacy = home.join(MACOS_LEGACY_DIRNAME);
+        return Ok(match kind {
+            // Data stays at the legacy root — moving it would orphan every
+            // existing macOS user's database and worktrees.
+            Kind::Data => legacy,
+            // Config/cache live under dedicated subroots so they can never
+            // collide with each other or with `data/`.
+            Kind::Config => legacy.join("config"),
+            Kind::Cache => legacy.join("cache"),
+        });
     }
     let (root, label) = match kind {
         Kind::Data => (dirs::data_dir(), "data"),
@@ -98,30 +118,31 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn macos_uses_legacy_cadencr_dir_for_every_root() {
+    fn macos_data_stays_at_legacy_root_but_config_and_cache_are_namespaced() {
         let home = dirs::home_dir().unwrap();
         let legacy = home.join(MACOS_LEGACY_DIRNAME);
+        // Data lives at the legacy root — existing installs depend on this.
         assert_eq!(data_dir().unwrap(), legacy);
-        assert_eq!(config_dir().unwrap(), legacy);
-        assert_eq!(cache_dir().unwrap(), legacy);
         assert_eq!(
             database_path().unwrap(),
             legacy.join("database").join("cadencr.db")
         );
         assert_eq!(worktrees_dir().unwrap(), legacy.join("worktrees"));
-        assert_eq!(logs_dir().unwrap(), legacy.join("logs"));
+        // Config and cache get their own subroots so callers can use the
+        // same filename in both without colliding.
+        assert_eq!(config_dir().unwrap(), legacy.join("config"));
+        assert_eq!(cache_dir().unwrap(), legacy.join("cache"));
+        assert_eq!(logs_dir().unwrap(), legacy.join("cache").join("logs"));
     }
 
     #[cfg(target_os = "linux")]
     #[test]
     fn linux_data_dir_honors_xdg_data_home() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let xdg = tempfile::tempdir().unwrap();
         let prev = std::env::var_os("XDG_DATA_HOME");
-        std::env::set_var("XDG_DATA_HOME", "/tmp/xdg-cadencr-test");
-        assert_eq!(
-            data_dir().unwrap(),
-            PathBuf::from("/tmp/xdg-cadencr-test/cadencr")
-        );
+        std::env::set_var("XDG_DATA_HOME", xdg.path());
+        assert_eq!(data_dir().unwrap(), xdg.path().join("cadencr"));
         match prev {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),
             None => std::env::remove_var("XDG_DATA_HOME"),
@@ -132,13 +153,14 @@ mod tests {
     #[test]
     fn linux_data_dir_falls_back_to_local_share() {
         let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let home = tempfile::tempdir().unwrap();
         let prev_xdg = std::env::var_os("XDG_DATA_HOME");
         let prev_home = std::env::var_os("HOME");
         std::env::remove_var("XDG_DATA_HOME");
-        std::env::set_var("HOME", "/tmp/cadencr-home");
+        std::env::set_var("HOME", home.path());
         assert_eq!(
             data_dir().unwrap(),
-            PathBuf::from("/tmp/cadencr-home/.local/share/cadencr")
+            home.path().join(".local").join("share").join("cadencr")
         );
         match prev_xdg {
             Some(v) => std::env::set_var("XDG_DATA_HOME", v),

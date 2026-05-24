@@ -75,7 +75,13 @@ export function createDevSidecarHandle(): SidecarHandle {
 
 export function productionDbPath(): string {
   const dbPath = resolveDatabasePath();
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const dir = path.dirname(dbPath);
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (error) {
+    const cause = error instanceof Error ? error.message : String(error);
+    throw new Error(`Cadencr can't initialize its data directory at ${dir}: ${cause}`);
+  }
   return dbPath;
 }
 
