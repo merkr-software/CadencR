@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.3.1 - 2026-05-25
+
+Previous release: v0.3.0 - 2026-05-24
+
+### ✨ Added
+
+- Added editor previews for Markdown, HTML, SVG, and image files so generated docs and visual assets can be inspected without leaving Cadencr.
+- Added broader `.env` file visibility in the file tree, file picker, editor, and language handling.
+- Added sidebar grouping for features that share the same worktree, making related sessions easier to scan.
+
+### 🔧 Changed
+
+- Improved file-tree navigation by automatically revealing the active editor file.
+- Improved live Git diff refresh behavior so changed files and viewed-state collapse stay in sync while work continues.
+- Updated the new-session tips list to mention the new editor preview workflow.
+
+### 🐛 Fixed
+
+- Fixed SVG previews to run in a sandbox, while preserving preview zoom and `Cmd+W` / `Ctrl+W` close-buffer behavior.
+- Fixed the file-tree agent shortcut so `Cmd+Shift+A` works when the file tree has focus.
+- Fixed the Settings About row to use the Cadencr logo consistently.
+
 ## v0.3.0 - 2026-05-24
 
 Previous release: v0.2.2 - 2026-05-20

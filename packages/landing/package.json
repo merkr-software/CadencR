@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/landing",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Cadencr marketing site, docs, news and roadmap.",
   "license": "Apache-2.0",
   "type": "module",

@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/desktop",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Cadencr desktop shell — Electron app with a React frontend for driving local AI coding agents.",
   "license": "Apache-2.0",
   "main": "out/main/index.js",

@@ -22,6 +22,7 @@ export const SESSION_HINT_BEHAVIORS: readonly string[] = [
   "You can mark files as viewed in the Diff viewer, the same way you would on a GitHub pull request — perfect for big reviews.",
   "Diff comments queue up locally and are sent to the agent in one batch, so you can write a full review before triggering another turn.",
   "The Editor tab is a real text editor with fuzzy file search and a togglable file explorer — handy for quick fixes without leaving Cadencr.",
+  "The Editor previews Markdown, HTML, SVG, and image files in place, so agent-generated docs and visual assets are easy to inspect without leaving the workspace.",
   "The Terminal can be split horizontally or vertically, and you can hop between panes with the same arrow-based shortcut family used in the Editor.",
   "The Unified Agents view shows every running agent across every feature on a single grid, so nothing slips off your radar.",
   "You can pin an agent in the Unified Agents view to keep it at the top while you scan everything else.",

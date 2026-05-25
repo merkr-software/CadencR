@@ -371,7 +371,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cadencr-service"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -505,7 +505,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "claude-agent-sdk-rs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "async-trait",
  "cli-discovery",
@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "cli-discovery"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "futures",
  "once_cell",
@@ -538,7 +538,7 @@ dependencies = [
 
 [[package]]
 name = "codex-app-server-sdk-rs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "cli-discovery",
  "serde",
@@ -1996,7 +1996,7 @@ checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
 name = "opencode-sdk-rs"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "axum",
  "cli-discovery",
