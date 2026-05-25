@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { X } from "lucide-react";
-import { useScopedGlobalShortcutById, useScopedShortcut } from "@/hooks/useShortcut";
+import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { cn } from "@/lib/utils";
 import { copyToClipboard } from "@/lib/clipboard";
 import { FileSymbolIcon } from "./file-icons";
@@ -114,17 +114,18 @@ export default function EditorSubTabs({ featureId, paneId, projectId }: EditorSu
     "editor",
   );
 
-  // CMD+W: close active buffer (works even when CodeMirror has focus).
-  useScopedShortcut(
+  // CMD+W: close active buffer. Capture phase keeps this ahead of CodeMirror,
+  // and sandboxed previews bridge their own keydown back to this parent listener.
+  useScopedGlobalShortcutById(
     "editor-close",
-    () => {
+    (event) => {
       if (!activeFilePath) return;
+      event.preventDefault();
+      event.stopPropagation();
       const tab = tabs.find((t) => t.filePath === activeFilePath);
       if (tab) requestClose(tab.filePath, tab.fileName, tab.isDirty);
     },
     "editor",
-    { preventDefault: true },
-    [tabs, activeFilePath, featureId, paneId],
   );
 
   if (!tabs.length) return null;
