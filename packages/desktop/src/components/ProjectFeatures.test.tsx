@@ -24,8 +24,17 @@ const mockUpdateStatus = vi.fn();
 const mockDelete = vi.fn();
 const mockDeleteWorktree = vi.fn();
 const mockDeleteBranch = vi.fn();
+interface MockFeatureWorktreeInfo {
+  feature_id: number;
+  worktree_path: string;
+  worktree_branch: string | null;
+  live: boolean;
+}
+
 const { mockListFeatureWorktrees, mockGetGitStatus } = vi.hoisted(() => ({
-  mockListFeatureWorktrees: vi.fn(() => ({ data: [] })),
+  mockListFeatureWorktrees: vi.fn<() => { data: MockFeatureWorktreeInfo[] }>(() => ({
+    data: [],
+  })),
   mockGetGitStatus: vi.fn(() => ({ data: undefined, isLoading: false })),
 }));
 
@@ -357,6 +366,93 @@ describe("ProjectFeatures", () => {
     await user.type(input, "In progress");
 
     expect(mockNavigate).toHaveBeenCalledTimes(callsBeforeTyping);
+  });
+
+  it("groups active features that share a non-main worktree (>= 2 features)", () => {
+    mockListFeatureWorktrees.mockReturnValue({
+      data: [
+        // Two features share the same non-main worktree -> should group.
+        {
+          feature_id: 1,
+          worktree_path: "/test/wt/shared",
+          worktree_branch: "feature/shared",
+          live: true,
+        },
+        {
+          feature_id: 2,
+          worktree_path: "/test/wt/shared",
+          worktree_branch: "feature/shared",
+          live: true,
+        },
+        // Singleton non-main worktree -> stays flat, no header.
+        {
+          feature_id: 3,
+          worktree_path: "/test/wt/solo",
+          worktree_branch: "feature/solo",
+          live: true,
+        },
+      ],
+    });
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("feature/shared")).toBeInTheDocument();
+    expect(screen.getByText("(2)")).toBeInTheDocument();
+    // Singleton worktree branch is NOT used as a group header.
+    expect(screen.queryByText("feature/solo")).not.toBeInTheDocument();
+  });
+
+  it("does not group features in the main worktree", () => {
+    mockListFeatureWorktrees.mockReturnValue({
+      data: [
+        // Both features point at the project path (main worktree) -> no group.
+        { feature_id: 1, worktree_path: "/test/path", worktree_branch: "main", live: true },
+        { feature_id: 2, worktree_path: "/test/path", worktree_branch: "main", live: true },
+      ],
+    });
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("main")).not.toBeInTheDocument();
+    expect(screen.queryByText("(2)")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the worktree path basename when branch is missing", () => {
+    mockListFeatureWorktrees.mockReturnValue({
+      data: [
+        {
+          feature_id: 1,
+          worktree_path: "/test/wt/my-branch-dir",
+          worktree_branch: null,
+          live: true,
+        },
+        {
+          feature_id: 2,
+          worktree_path: "/test/wt/my-branch-dir",
+          worktree_branch: null,
+          live: true,
+        },
+      ],
+    });
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("my-branch-dir")).toBeInTheDocument();
   });
 
   it("ignores row keyboard navigation from interactive descendants", () => {
