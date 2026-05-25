@@ -60,8 +60,12 @@ export const useGitStatusStore = create<GitStatusState>((set) => ({
       // UI doesn't keep showing a stale toast/inline message.
       const { [snapshot.feature_id]: _droppedErr, ...remainingErrors } = state.errorByFeature;
       if (existing && gitStatusSnapshotsEqual(existing, snapshot)) {
-        if (state.errorByFeature[snapshot.feature_id] === undefined) return state;
-        return { errorByFeature: remainingErrors };
+        const hasError = state.errorByFeature[snapshot.feature_id] !== undefined;
+        if (!hasError && existing.computed_at === snapshot.computed_at) return state;
+        return {
+          byFeature: { ...state.byFeature, [snapshot.feature_id]: snapshot },
+          errorByFeature: remainingErrors,
+        };
       }
       return {
         byFeature: { ...state.byFeature, [snapshot.feature_id]: snapshot },

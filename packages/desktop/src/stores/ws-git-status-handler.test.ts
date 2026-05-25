@@ -12,6 +12,8 @@ import {
 } from "./useCommitOutputStore";
 import { selectPushOutput, selectPushRunning, usePushOutputStore } from "./usePushOutputStore";
 import { queryClient } from "@/lib/queryClient";
+import { getGetFileBlobShasQueryKey } from "@/api/generated";
+import { getInvalidatePredicate } from "@/test-utils";
 
 const validSnapshot = {
   feature_id: 7,
@@ -81,7 +83,7 @@ describe("handleGitEnvelope", () => {
     expect(spy).toHaveBeenCalledOnce();
   });
 
-  it("does not invalidate git queries for an unchanged status refresh", () => {
+  it("invalidates git queries for a newer status event even when counts are unchanged", () => {
     const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
     useGitStatusStore.getState().setStatus(validSnapshot);
 
@@ -90,8 +92,29 @@ describe("handleGitEnvelope", () => {
       computed_at: validSnapshot.computed_at + 1,
     } as Record<string, unknown>);
 
-    expect(useGitStatusStore.getState().byFeature[7]?.computed_at).toBe(validSnapshot.computed_at);
-    expect(spy).not.toHaveBeenCalled();
+    expect(useGitStatusStore.getState().byFeature[7]?.computed_at).toBe(
+      validSnapshot.computed_at + 1,
+    );
+    expect(spy).toHaveBeenCalledOnce();
+    const predicate = getInvalidatePredicate(spy.mock.calls[0]?.[0]);
+    expect(predicate({ queryKey: ["/api/git/diff", { feature_id: 7 }] })).toBe(true);
+    expect(predicate({ queryKey: ["/api/git/commit-log", { feature_id: 7 }] })).toBe(false);
+  });
+
+  it("invalidates cached blob SHAs for the changed feature so viewed files reset", () => {
+    const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    useGitStatusStore.getState().setStatus(validSnapshot);
+
+    handleGitEnvelope("status", {
+      ...validSnapshot,
+      unstaged_count: 2,
+      uncommitted_count: 4,
+      computed_at: validSnapshot.computed_at + 1,
+    } as Record<string, unknown>);
+
+    const predicate = getInvalidatePredicate(spy.mock.calls[0]?.[0]);
+    expect(predicate({ queryKey: getGetFileBlobShasQueryKey({ feature_id: 7 }) })).toBe(true);
+    expect(predicate({ queryKey: getGetFileBlobShasQueryKey({ feature_id: 8 }) })).toBe(false);
   });
 
   it("ignores a malformed status payload (no store write, no toast)", () => {

@@ -6,6 +6,7 @@ import { queryClient } from "@/lib/queryClient";
 import { handleAppEnvelope } from "@/stores/session-status-handlers";
 import { transitionTurn } from "@/stores/ws-turn-lifecycle";
 import { startTurnTiming } from "@/stores/ws-turn-timing";
+import { getInvalidatePredicate } from "@/test-utils";
 
 class MockWebSocket {
   static CLOSED = 3;
@@ -107,16 +108,3 @@ describe("session status lifecycle sync", () => {
     invalidateSpy.mockRestore();
   });
 });
-
-type QueryPredicate = (query: { queryKey: readonly unknown[] }) => boolean;
-
-function getInvalidatePredicate(options: unknown): QueryPredicate {
-  if (typeof options !== "object" || options === null || !("predicate" in options)) {
-    throw new Error("Expected invalidateQueries to receive a predicate");
-  }
-  const predicate = (options as { predicate?: unknown }).predicate;
-  if (typeof predicate !== "function") {
-    throw new Error("Expected invalidateQueries predicate to be a function");
-  }
-  return predicate as QueryPredicate;
-}
