@@ -53,3 +53,16 @@ export function render(ui: React.ReactElement, options: CustomRenderOptions = {}
     ...rtlRender(ui, { wrapper: Wrapper, ...renderOptions }),
   };
 }
+
+export type QueryPredicate = (query: { queryKey: readonly unknown[] }) => boolean;
+
+export function getInvalidatePredicate(options: unknown): QueryPredicate {
+  if (typeof options !== "object" || options === null || !("predicate" in options)) {
+    throw new Error("Expected invalidateQueries to receive a predicate");
+  }
+  const predicate = (options as { predicate?: unknown }).predicate;
+  if (typeof predicate !== "function") {
+    throw new Error("Expected invalidateQueries predicate to be a function");
+  }
+  return predicate as QueryPredicate;
+}

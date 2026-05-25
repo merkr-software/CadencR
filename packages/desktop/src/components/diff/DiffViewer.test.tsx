@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => {
   const useGetDiffMock = vi.fn(() => ({ data: undefined as unknown, isLoading: false }));
   const useMutationMock = vi.fn(() => ({ mutate: vi.fn(), mutateAsync: vi.fn() }));
   const useGetFileContentMock = vi.fn(() => ({ data: undefined }));
+  const useGetFileBlobShasMock = vi.fn<() => { data: unknown[] }>(() => ({ data: [] }));
+  const useListDiffViewedMock = vi.fn<() => { data: unknown[] }>(() => ({ data: [] }));
   const patchDiffViewMock = vi.fn(
     ({
       patch,
@@ -42,6 +44,8 @@ const mocks = vi.hoisted(() => {
     useGetDiffMock,
     useMutationMock,
     useGetFileContentMock,
+    useGetFileBlobShasMock,
+    useListDiffViewedMock,
     patchDiffViewMock,
     persistFileListCollapsedMock,
     useDebouncedSettingMock,
@@ -50,7 +54,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/api/generated", () => ({
   useGetDiff: mocks.useGetDiffMock,
-  useGetFileBlobShas: vi.fn(() => ({ data: [] })),
+  useGetFileBlobShas: mocks.useGetFileBlobShasMock,
   useGetCommitLog: vi.fn(() => ({ data: { commits: [], is_on_base_branch: true } })),
   useGetChangedFiles: vi.fn(() => ({ data: [] })),
   useGetFileContent: mocks.useGetFileContentMock,
@@ -60,7 +64,7 @@ vi.mock("@/api/generated", () => ({
   getGetFileContentQueryKey: vi.fn(() => ["git", "file-content"]),
   getListDiffViewedQueryKey: vi.fn((id?: number) => ["/api/features", id, "diff-viewed"]),
   getListDiffCommentsQueryKey: vi.fn((id?: number) => ["/api/features", id, "diff-comments"]),
-  useListDiffViewed: vi.fn(() => ({ data: [] })),
+  useListDiffViewed: mocks.useListDiffViewedMock,
   useMarkDiffViewed: mocks.useMutationMock,
   useUnmarkDiffViewed: mocks.useMutationMock,
   useListDiffComments: vi.fn(() => ({ data: [] })),
@@ -106,6 +110,10 @@ beforeEach(() => {
   mocks.persistFileListCollapsedMock.mockReset();
   mocks.patchDiffViewMock.mockClear();
   mocks.useDebouncedSettingMock.mockReset();
+  mocks.useGetFileBlobShasMock.mockReset();
+  mocks.useGetFileBlobShasMock.mockReturnValue({ data: [] });
+  mocks.useListDiffViewedMock.mockReset();
+  mocks.useListDiffViewedMock.mockReturnValue({ data: [] });
   mocks.useDebouncedSettingMock.mockReturnValue({
     value: null,
     setValue: mocks.persistFileListCollapsedMock,
@@ -274,6 +282,40 @@ index abc..def 100644
     // so we check the visibility contract instead of DOM presence.
     const filterInput = screen.queryByPlaceholderText("Filter files...");
     expect(filterInput?.closest("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("expands a previously viewed file when its blob SHA changes", async () => {
+    mocks.useGetDiffMock.mockReturnValue({
+      data: { diff: singleFileDiff } as unknown,
+      isLoading: false,
+    });
+    mocks.useGetFileBlobShasMock.mockReturnValue({
+      data: [{ file_path: "src/foo.ts", sha: "old-sha" }],
+    });
+    mocks.useListDiffViewedMock.mockReturnValue({
+      data: [
+        {
+          id: 1,
+          feature_id: 1,
+          file_path: "src/foo.ts",
+          blob_sha: "old-sha",
+          viewed_at: "now",
+        },
+      ],
+    });
+
+    const { rerender } = render(<DiffViewer featureId={1} mode="worktree" />);
+    await vi.waitFor(() => expect(screen.queryByTestId("patch-diff-view")).not.toBeInTheDocument());
+
+    mocks.useGetFileBlobShasMock.mockReturnValue({
+      data: [{ file_path: "src/foo.ts", sha: "new-sha" }],
+    });
+    rerender(<DiffViewer featureId={1} mode="worktree" />);
+
+    expect(await screen.findByTestId("patch-diff-view")).toHaveAttribute(
+      "data-patch",
+      singleFileDiff,
+    );
   });
 
   it("does not emit nested button warnings for file headers", () => {

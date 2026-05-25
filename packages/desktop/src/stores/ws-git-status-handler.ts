@@ -23,10 +23,20 @@ import { usePushOutputStore } from "@/stores/usePushOutputStore";
  *  the HTTP one-shot would race the WS push and cause the branch chip to
  *  flicker — the HTTP response computed at T can land after a WS push
  *  computed at T+Δ. The HTTP query is only used for first-paint hydration. */
-const GIT_INVALIDATION_PREFIXES = [
+const GIT_STATUS_INVALIDATION_PREFIXES = [
   "/api/git/changed-files",
   "/api/git/commit-log",
   "/api/git/diff",
+  "/api/git/file-blob-shas",
+  "/api/git/stats",
+  "/api/git/uncommitted-files",
+  "/api/git/has-uncommitted-changes",
+] as const;
+
+const GIT_CONTENT_INVALIDATION_PREFIXES = [
+  "/api/git/changed-files",
+  "/api/git/diff",
+  "/api/git/file-blob-shas",
   "/api/git/stats",
   "/api/git/uncommitted-files",
   "/api/git/has-uncommitted-changes",
@@ -37,9 +47,9 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
     const snapshot = parseGitStatusSnapshot(payload);
     if (!snapshot) return;
     const existing = useGitStatusStore.getState().byFeature[snapshot.feature_id];
-    const shouldInvalidate = shouldInvalidateGitQueries(existing, snapshot);
+    const prefixes = getGitInvalidationPrefixes(existing, snapshot);
     useGitStatusStore.getState().setStatus(snapshot);
-    if (shouldInvalidate) void invalidateGitQueriesForFeature(snapshot.feature_id);
+    if (prefixes.length > 0) void invalidateGitQueriesForFeature(snapshot.feature_id, prefixes);
     return;
   }
   if (action === "status_error") {
@@ -108,21 +118,26 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
   }
 }
 
-function shouldInvalidateGitQueries(
+function getGitInvalidationPrefixes(
   existing: GitStatusSnapshot | undefined,
   snapshot: GitStatusSnapshot,
-): boolean {
-  if (!existing) return false;
-  if (existing.computed_at > snapshot.computed_at) return false;
-  return !gitStatusSnapshotsEqual(existing, snapshot);
+): readonly string[] {
+  if (!existing) return [];
+  if (existing.computed_at > snapshot.computed_at) return [];
+  if (!gitStatusSnapshotsEqual(existing, snapshot)) return GIT_STATUS_INVALIDATION_PREFIXES;
+  if (snapshot.computed_at > existing.computed_at) return GIT_CONTENT_INVALIDATION_PREFIXES;
+  return [];
 }
 
-function invalidateGitQueriesForFeature(featureId: number): Promise<void> {
+function invalidateGitQueriesForFeature(
+  featureId: number,
+  prefixes: readonly string[],
+): Promise<void> {
   return queryClient.invalidateQueries({
     predicate: (query) => {
       const head = query.queryKey[0];
       if (typeof head !== "string") return false;
-      if (!GIT_INVALIDATION_PREFIXES.some((prefix) => head.startsWith(prefix))) return false;
+      if (!prefixes.some((prefix) => head.startsWith(prefix))) return false;
       return queryParamsMatchFeature(query.queryKey[1], featureId);
     },
   });

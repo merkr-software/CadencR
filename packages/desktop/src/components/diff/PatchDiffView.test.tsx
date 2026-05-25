@@ -152,6 +152,30 @@ describe("PatchDiffView", () => {
     );
   });
 
+  it("remounts Pierre when the patch changes to avoid stale async renders", () => {
+    const { rerender } = render(
+      <PatchDiffView patch={patch} mode="unified" themeAppearance="dark" themeId="dracula" />,
+    );
+    const initialInstances = mocks.instances.length;
+    mocks.cleanUpMock.mockClear();
+
+    const updatedPatch = patch.replace("+line2", "+updated line");
+    rerender(
+      <PatchDiffView
+        patch={updatedPatch}
+        mode="unified"
+        themeAppearance="dark"
+        themeId="dracula"
+      />,
+    );
+
+    expect(mocks.cleanUpMock).toHaveBeenCalledOnce();
+    expect(mocks.instances).toHaveLength(initialInstances + 1);
+    expect(mocks.hydrateMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ fileDiff: expect.objectContaining({ patch: updatedPatch }) }),
+    );
+  });
+
   it("passes the selected Cadencr theme to Pierre options", () => {
     render(<PatchDiffView patch={patch} mode="unified" themeAppearance="light" themeId="aurora" />);
     expect(mocks.setOptionsMock).toHaveBeenCalledWith(

@@ -81,14 +81,22 @@ const VIRTUAL_FILE_METRICS: Partial<VirtualFileMetrics> = {
 
 function getRenderableFilePatches(patch: string): RenderableFilePatch[] {
   const sections = parseUnifiedDiff(patch);
-  if (sections.length === 0) return [{ key: "single", patch }];
+  if (sections.length === 0) return [{ key: `single:${hashPatchKey(patch)}`, patch }];
 
   return sections.flatMap((section, sectionIndex) =>
-    section.hunks.map((filePatch, hunkIndex) => ({
-      key: `${sectionIndex}:${section.oldFileName}->${section.newFileName}:${hunkIndex}`,
-      patch: filePatch,
-    })),
+    section.hunks.map((filePatch, hunkIndex) => {
+      const fileKey = `${sectionIndex}:${section.oldFileName}->${section.newFileName}:${hunkIndex}`;
+      return { key: `${fileKey}:${hashPatchKey(filePatch)}`, patch: filePatch };
+    }),
   );
+}
+
+function hashPatchKey(patch: string): string {
+  let hash = 0;
+  for (let i = 0; i < patch.length; i++) {
+    hash = Math.imul(31, hash) + patch.charCodeAt(i);
+  }
+  return hash.toString(36);
 }
 
 function SafePatchDiff<LAnnotation>({

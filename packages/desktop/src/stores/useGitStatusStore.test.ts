@@ -60,6 +60,13 @@ describe("useGitStatusStore.setStatus", () => {
     expect(useGitStatusStore.getState().byFeature[1]?.uncommitted_count).toBe(5);
   });
 
+  it("keeps computed_at fresh for otherwise equal newer snapshots", () => {
+    const setStatus = useGitStatusStore.getState().setStatus;
+    setStatus(snap({ computed_at: 100 }));
+    setStatus(snap({ computed_at: 200 }));
+    expect(useGitStatusStore.getState().byFeature[1]?.computed_at).toBe(200);
+  });
+
   it("clears any prior error for the feature when a snapshot arrives", () => {
     useGitStatusStore.getState().setStatusError({ feature_id: 1, error: "boom" });
     useGitStatusStore.getState().setStatus(snap());

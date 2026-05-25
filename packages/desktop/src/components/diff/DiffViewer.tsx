@@ -8,6 +8,7 @@ import type { CommentSide } from "./PatchDiffView";
 import { DiffViewerBottomBar } from "./DiffViewerBottomBar";
 import { useDiffData, type DiffMode } from "./useDiffData";
 import { useDiffKeyboard } from "./useDiffKeyboard";
+import { useExpandFilesWhenViewedReset } from "./useViewedFileCollapseSync";
 import type { ActiveWidget, CommentCallbacks, CommentLineData } from "./diff-comment-decorations";
 import type { DiffComment } from "./DiffCommentWidget";
 import { useOpenDiffInEditor } from "./OpenDiffInEditorContext";
@@ -137,6 +138,8 @@ export function DiffViewer({
       setCollapsedFiles((prev) => new Set([...prev, ...data.viewedFilesSet]));
     }
   }, [data.viewedFilesSet, data.hasInitializedCollapse]);
+
+  useExpandFilesWhenViewedReset(data.viewedFilesSet, setCollapsedFiles);
 
   const scrollToFileIndex = useCallback(
     (index: number, behavior: ScrollBehavior = "smooth") => {
