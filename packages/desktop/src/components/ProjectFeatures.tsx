@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, GitBranchIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import { useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import {
   useListFeatureWorktrees,
   type Feature,
   type FeatureStatus,
+  type FeatureWorktreeInfo,
 } from "@/api/generated";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { apiErrorMessage } from "@/lib/api-errors";
@@ -23,6 +24,7 @@ import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
+import { getFileName } from "@/lib/file-language";
 
 const ACTIVE_FEATURE_STATUS: FeatureStatus = "active";
 const ARCHIVED_FEATURE_STATUS: FeatureStatus = "archived";
@@ -70,6 +72,49 @@ export function ProjectFeatures({
     }
     return { worktreeFeatureIds: all, liveWorktreeFeatureIds: live };
   }, [featureWorktrees]);
+
+  const worktreeByFeatureId = useMemo(() => {
+    const map = new Map<number, FeatureWorktreeInfo>();
+    for (const w of featureWorktrees) map.set(w.feature_id, w);
+    return map;
+  }, [featureWorktrees]);
+
+  const { worktreeGroups, flatActiveFeatures } = useMemo(() => {
+    // First pass: count features per non-main worktree path so we know which
+    // paths qualify as groups (>= 2 features).
+    const counts = new Map<string, number>();
+    for (const f of activeFeatures) {
+      const wt = worktreeByFeatureId.get(f.id);
+      if (wt && wt.worktree_path !== projectPath) {
+        counts.set(wt.worktree_path, (counts.get(wt.worktree_path) ?? 0) + 1);
+      }
+    }
+    // Second pass: place each feature in flat or its group bucket. Group order
+    // and intra-group order both follow activeFeatures iteration order.
+    const flat: Feature[] = [];
+    const groups: { key: string; label: string; features: Feature[] }[] = [];
+    const groupByPath = new Map<string, Feature[]>();
+    for (const f of activeFeatures) {
+      const wt = worktreeByFeatureId.get(f.id);
+      const path = wt?.worktree_path;
+      if (!wt || path === projectPath || (counts.get(path!) ?? 0) < 2) {
+        flat.push(f);
+        continue;
+      }
+      let features = groupByPath.get(path!);
+      if (!features) {
+        features = [];
+        groupByPath.set(path!, features);
+        groups.push({
+          key: path!,
+          label: wt.worktree_branch ?? (getFileName(path!) || path!),
+          features,
+        });
+      }
+      features.push(f);
+    }
+    return { worktreeGroups: groups, flatActiveFeatures: flat };
+  }, [activeFeatures, worktreeByFeatureId, projectPath]);
 
   // Live WS-pushed titles from auto-naming. Read raw store slices; derive per-feature inline.
   const wsSessions = useWsSessionStore((s) => s.sessions);
@@ -224,7 +269,15 @@ export function ProjectFeatures({
 
   return (
     <div className="flex flex-col gap-0.5">
-      {activeFeatures.map(renderFeature)}
+      {worktreeGroups.map((group) => (
+        <WorktreeGroup
+          key={group.key}
+          label={group.label}
+          features={group.features}
+          renderFeature={renderFeature}
+        />
+      ))}
+      {flatActiveFeatures.map(renderFeature)}
 
       <ArchiveFeatureDialog
         open={confirmFeatureId != null && !isConfirmDelete}
@@ -280,6 +333,30 @@ export function ProjectFeatures({
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function WorktreeGroup({
+  label,
+  features,
+  renderFeature,
+}: {
+  label: string;
+  features: readonly Feature[];
+  renderFeature: (feature: Feature) => ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-md bg-muted/30 p-1">
+      <div
+        className="flex items-center gap-1.5 px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground"
+        title={label}
+      >
+        <GitBranchIcon className="size-3 shrink-0 opacity-70" />
+        <span className="truncate">{label}</span>
+        <span className="shrink-0 opacity-70">({features.length})</span>
+      </div>
+      {features.map(renderFeature)}
     </div>
   );
 }
