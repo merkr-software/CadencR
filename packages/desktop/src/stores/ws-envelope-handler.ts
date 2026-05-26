@@ -570,18 +570,7 @@ function handleModeRejectedByCli(
   const providerId = session.currentProviderId || session.runtimeProvider;
   const optInModes = getEnabledOptInModesFromCache(providerId ?? "");
   const next = nextProviderMode(providerId, rejectedMode, optInModes);
-
-  const rejectedLabel = findProviderMode(providerId, rejectedMode)?.label ?? rejectedMode;
-  // No recoverable next (only one visible mode, or wrap-around lands on
-  // the rejected mode itself). Toast and stop — re-issuing the same mode
-  // would just loop.
-  if (next === rejectedMode) {
-    toast.error(`${rejectedLabel} mode is unavailable for this model.`);
-    return;
-  }
-
-  const nextLabel = findProviderMode(providerId, next)?.label ?? next;
-  toast.error(`${rejectedLabel} unavailable for this model — switched to ${nextLabel}.`);
+  if (next === rejectedMode) return;
   ctx.get().setPermissionMode(sessionId, next);
 }
 

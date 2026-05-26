@@ -669,13 +669,13 @@ pub(super) async fn handle_mode_set(
     }
 
     info!(db_session_id, mode = %payload.mode, "updating permission mode");
-    handle.desired_permission_mode = Some(new_mode.clone());
-    handle.config.permission_mode = Some(new_mode.clone());
 
     match &mut handle.state {
         QueryState::Pending(options) => {
             // No live CLI yet; the queued mode will be passed via
             // `Options.permission_mode` at spawn time.
+            handle.desired_permission_mode = Some(new_mode.clone());
+            handle.config.permission_mode = Some(new_mode.clone());
             options.permission_mode = Some(new_mode);
         }
         QueryState::Active { query, .. } => {
@@ -683,10 +683,9 @@ pub(super) async fn handle_mode_set(
             if let Err(e) = q.set_permission_mode(new_mode.clone()).await {
                 // The CLI rejected (or never acked) the mode change.
                 // Per `no-optimistic-updates.md` we leave the FE chip
-                // alone — surface the error so the caller can retry. We
-                // deliberately don't roll back `desired_permission_mode`:
-                // the user's intent stays recorded so a subsequent
-                // success starts from there rather than CLI state.
+                // alone, and don't mutate desired/config state until the
+                // CLI accepts. Otherwise the next prompt sees desired !=
+                // spawned and respawns into the rejected mode invisibly.
                 error!(db_session_id, error = %e, "failed to set permission mode on active query");
                 // `ControlRequestRejected` for `set_permission_mode` is
                 // the recoverable case (CLI alive, refused this mode for
@@ -719,6 +718,8 @@ pub(super) async fn handle_mode_set(
                 let _ = sender.send(Message::Text(String::from(err).into()));
                 return;
             }
+            handle.desired_permission_mode = Some(new_mode.clone());
+            handle.config.permission_mode = Some(new_mode.clone());
             // Track what the CLI actually accepted. Without this,
             // `plan_post_plan_mode_transition`'s "already in target mode"
             // short-circuit (post_plan_mode.rs) reads stale state and

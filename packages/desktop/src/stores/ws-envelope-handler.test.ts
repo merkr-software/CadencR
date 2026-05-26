@@ -299,7 +299,7 @@ describe("handleEnvelope error handling", () => {
     expect(updated.blocks).toHaveLength(0);
   });
 
-  it("MODE_REJECTED_BY_CLI auto-advances past the rejected mode and toasts", () => {
+  it("MODE_REJECTED_BY_CLI silently auto-advances past rejected auto mode", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
     session.lifecycle = { phase: "idle" } as SessionEntry["lifecycle"];
@@ -332,8 +332,8 @@ describe("handleEnvelope error handling", () => {
     // Claude Code cycle (no opt-ins) is acceptEdits → plan → auto → wrap to
     // acceptEdits. Skipping `auto` lands on acceptEdits.
     expect(setPermissionMode).toHaveBeenCalledWith("s1", "acceptEdits");
-    expect(toast.error).toHaveBeenCalledTimes(1);
-    // No inline error block injected (meta-bar action, toast only).
+    expect(toast.error).not.toHaveBeenCalled();
+    // No inline error block injected (meta-bar action handled outside chat).
     expect(ctx.getSession("s1").blocks).toHaveLength(0);
   });
 
