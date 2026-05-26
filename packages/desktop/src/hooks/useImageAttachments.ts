@@ -28,9 +28,16 @@ function getMimeFromExtension(fileName: string): string | undefined {
 
 export function useImageAttachments(promptId?: string) {
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
-  const [isDragging, setIsDragging] = useState(false);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // `isDragging` used to be driven from the preload's document-level
+  // `enter`/`leave` events, which fired for every mounted prompt bar at once
+  // — so a drag anywhere in the window lit up every card in the unified grid.
+  // The drag highlight now lives on the agent `<section>` (via React drag
+  // handlers + a `data-agent-dragover` attribute) so only the card under the
+  // cursor highlights. We keep this field for back-compat with existing
+  // mocks; new consumers should read drag state from the section.
+  const isDragging = false;
 
   const addAttachment = useCallback((attachment: ImageAttachment) => {
     setAttachments((prev) => {
@@ -105,23 +112,22 @@ export function useImageAttachments(promptId?: string) {
   const addDroppedFilesRef = useRef(addDroppedFiles);
   addDroppedFilesRef.current = addDroppedFiles;
 
-  // Listen for OS-level file drops (e.g. from Finder).
+  // Listen for OS-level file drops (e.g. from Finder). The agent `<section>`
+  // owns the visual drop-zone state; this effect only routes the file payload
+  // to the prompt under the cursor.
   useEffect(() => {
     return desktopBridge.onFileDrop((event) => {
-      if (event.type === "enter") {
-        setIsDragging(true);
-      } else if (event.type === "leave") {
-        setIsDragging(false);
-      } else if (event.type === "drop") {
-        setIsDragging(false);
-        // Non-file drags (text, links) still produce a drop event with no files;
-        // bail before the user-facing toast so we don't nag for inert drops.
+      if (event.type === "drop") {
+        // Non-file drags (text, links) still produce a drop event with no
+        // files — bail so we don't surface any user-facing noise for inert
+        // drops.
         if (event.files.length === 0) return;
+        // No matching prompt under the cursor (e.g. the drop landed on the
+        // sidebar or empty grid space). Surface one toast — sonner's `id`
+        // collapses concurrent calls from every mounted subscriber into a
+        // single visible toast.
         if (!event.targetPromptId) {
-          // Toast `id` dedupes across every mounted prompt bar — the same drop
-          // fires this listener on every subscriber, but sonner collapses calls
-          // that share an id into a single visible toast.
-          toast.error("Drop an image directly on an agent prompt.", {
+          toast.error("Drop the image on an agent to attach it.", {
             id: "image-drop-missing-target",
           });
           return;
@@ -129,13 +135,13 @@ export function useImageAttachments(promptId?: string) {
         if (promptId && event.targetPromptId !== promptId) return;
         void addDroppedFilesRef.current(event.files);
       } else if (event.type === "error") {
-        setIsDragging(false);
-        // Same dedup rationale as the missing-target toast above.
         toast.error("Couldn't read dropped files.", {
           id: "image-drop-read-error",
           description: event.message ?? "The desktop shell rejected the dropped file paths.",
         });
       }
+      // `enter` / `leave` are intentionally ignored — the per-section React
+      // drag handlers in `WebSocketSessionFeatureBlock` own the highlight.
     });
   }, [promptId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -160,16 +166,17 @@ export function useImageAttachments(promptId?: string) {
     setAttachments(next);
   }, []);
 
-  // React-level handlers — still needed for visual drag feedback.
-  // Note: Desktop shell intercepts OS file drops, so onDrop won't receive files
-  // from Finder. But we preventDefault to avoid browser default behavior.
+  // React-level handlers — kept for back-compat. The Electron preload now
+  // calls `preventDefault()` on dragover at the document level, and the
+  // section owns the visual feedback; these are no-ops left in the API so
+  // callers spreading `dragHandlers` onto the prompt-bar wrapper keep
+  // working.
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
   }, []);
 
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    setIsDragging(false);
   }, []);
 
   const dragHandlers = useMemo(() => ({ onDragOver, onDrop }), [onDragOver, onDrop]);

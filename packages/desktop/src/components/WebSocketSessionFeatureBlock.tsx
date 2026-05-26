@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import { EditorFuzzyShortcut } from "@/components/editor/EditorFuzzyShortcut";
+import { promptDropTargetIdOf } from "@/lib/prompt-drop-target";
 import { OpenDiffInEditorProvider } from "@/components/diff/OpenDiffInEditorContext";
 import { FeatureContentSearchShortcut } from "@/components/FeatureContentSearchShortcut";
 import { FeatureTopBar } from "@/components/FeatureTopBar";
@@ -149,6 +150,15 @@ function WebSocketSessionFeatureBody(
   ]);
   useWsSessionShortcuts({ controls, hotkeysEnabled });
 
+  // The whole feature/card area is the drop zone — drops on history, meta
+  // bar, or any tab content route to this agent's prompt. The id must match
+  // what `AgentPromptBar` computes so `useImageAttachments` accepts the drop.
+  const promptDropTargetId = useMemo(
+    () => promptDropTargetIdOf({ wsSessionId: sessionId, featureId }),
+    [sessionId, featureId],
+  );
+  const agentDropZone = useAgentDropZone();
+
   const tabs = useFeatureBlockTabs({
     sessionId,
     featureId,
@@ -169,7 +179,18 @@ function WebSocketSessionFeatureBody(
         tabIndex={0}
         onFocusCapture={onActivate}
         onPointerDownCapture={onActivate}
-        className="flex h-full min-h-0 flex-col outline-none"
+        // `data-agent-prompt-id` tags this whole agent area as the drop
+        // target — the Electron preload walks `closest()` to find it. The
+        // `group/agent-section` + `data-agent-dragover` pair lets the prompt
+        // bar paint its primary ring via CSS, with no React state crossing
+        // component boundaries — so in the unified grid only the card under
+        // the cursor highlights, not every mounted prompt.
+        data-agent-prompt-id={promptDropTargetId}
+        data-agent-dragover={agentDropZone.isDragging ? "true" : undefined}
+        onDragEnter={agentDropZone.onDragEnter}
+        onDragLeave={agentDropZone.onDragLeave}
+        onDrop={agentDropZone.onDrop}
+        className="group/agent-section flex h-full min-h-0 flex-col outline-none"
       >
         {!embedded && (
           <FeatureContentSearchShortcut
@@ -238,6 +259,45 @@ function useOpenDiffFileInEditor({
     },
     [featureId, layoutFeatureId, refs.editor, rootPath],
   );
+}
+
+interface AgentDropZone {
+  isDragging: boolean;
+  onDragEnter: (e: React.DragEvent<HTMLElement>) => void;
+  onDragLeave: (e: React.DragEvent<HTMLElement>) => void;
+  onDrop: (e: React.DragEvent<HTMLElement>) => void;
+}
+
+function useAgentDropZone(): AgentDropZone {
+  const [isDragging, setIsDragging] = useState(false);
+  // `dragenter`/`dragleave` bubble from child elements, so moving the cursor
+  // between two children of the section would normally flicker isDragging
+  // off then back on. We disambiguate by checking `relatedTarget` — only flip
+  // to false when the cursor genuinely leaves the section.
+  const onDragEnter = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    if (!isFileDragEvent(event)) return;
+    setIsDragging(true);
+  }, []);
+  const onDragLeave = useCallback((event: React.DragEvent<HTMLElement>): void => {
+    if (!isFileDragEvent(event)) return;
+    const next = event.relatedTarget as Node | null;
+    if (next && event.currentTarget.contains(next)) return;
+    setIsDragging(false);
+  }, []);
+  const onDrop = useCallback((): void => setIsDragging(false), []);
+  return { isDragging, onDragEnter, onDragLeave, onDrop };
+}
+
+function isFileDragEvent(event: React.DragEvent<HTMLElement>): boolean {
+  // Filter out text/link drags so the ring only lights up for actual file
+  // attachments. `types` is a DOMStringList in older specs but behaves like
+  // an array in Chromium.
+  const types = event.dataTransfer?.types;
+  if (!types) return false;
+  for (const type of types) {
+    if (type === "Files") return true;
+  }
+  return false;
 }
 
 function focusTabTrigger(container: HTMLElement, layoutFeatureId: number, tab: TabKind): void {

@@ -5,9 +5,9 @@ import {
   useRef,
   useImperativeHandle,
   forwardRef,
-  useId,
   useMemo,
 } from "react";
+import { promptDropTargetIdOf } from "@/lib/prompt-drop-target";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { Loader2, Send, Pause } from "lucide-react";
@@ -123,18 +123,13 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       requestAnimationFrame(() => editorRef.current?.focus());
     }, [hasSpecialState]);
     const history = usePromptHistory(projectId ?? 0, wsSessionId);
-    // Drop-routing id — must be unique per mounted prompt bar so a desktop drop
-    // resolves to exactly one `useImageAttachments` consumer in the unified
-    // grid. Prefer the session/feature identity so the same prompt across
-    // remounts keeps the same id; fall back to `useId()` to guarantee
-    // uniqueness if no IDs are available yet.
-    const fallbackPromptId = useId();
-    const promptDropTargetId = useMemo(() => {
-      if (wsSessionId) return `ws:${wsSessionId}`;
-      if (sessionId) return `db:${sessionId}`;
-      if (featureId) return `feature:${featureId}`;
-      return `prompt:${fallbackPromptId}`;
-    }, [wsSessionId, sessionId, featureId, fallbackPromptId]);
+    // Must match the id stamped on the enclosing agent `<section>` in
+    // `WebSocketSessionFeatureBlock` — the section is the actual drop zone,
+    // and this hook only accepts drops whose `targetPromptId` matches.
+    const promptDropTargetId = useMemo(
+      () => promptDropTargetIdOf({ wsSessionId, dbSessionId: sessionId, featureId }),
+      [wsSessionId, sessionId, featureId],
+    );
     const {
       attachments,
       addFiles,
@@ -142,7 +137,6 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       clearAttachments,
       restoreAttachments,
       dragHandlers,
-      isDragging,
     } = useImageAttachments(promptDropTargetId);
     const filesQuery = useListFiles(
       { feature_id: featureId! },
@@ -338,28 +332,23 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
         {planApprovalDeferred && <AgentPromptPendingIndicator kind="plan" />}
         {questionsDeferred && <AgentPromptPendingIndicator kind="question" />}
         {specialPrompt && (
-          <div
-            data-permission-area={!!visiblePermission}
-            data-question-area
-            // Mirror the prompt-bar's id so a desktop drop while a permission /
-            // plan / question gate is showing still routes to this prompt
-            // (the main wrapper is `hidden` in that state so `closest()` won't
-            // see it).
-            data-agent-prompt-id={promptDropTargetId}
-          >
+          <div data-permission-area={!!visiblePermission} data-question-area>
             {specialPrompt}
           </div>
         )}
         <div
           ref={wrapperRef}
           data-agent-prompt-bar="true"
-          data-agent-prompt-id={promptDropTargetId}
           hidden={hasSpecialState}
           aria-hidden={hasSpecialState}
           className={cn(
             "flex flex-col px-3 pb-4",
             noTopPadding ? "pt-0" : "pt-3",
-            isDragging && "ring-2 ring-primary/50 ring-inset",
+            // The drop zone is the agent `<section>` above; it toggles
+            // `data-agent-dragover` while a file is dragged over this card,
+            // and that drives the primary ring here without needing React
+            // state to cross component boundaries.
+            "group-data-[agent-dragover]/agent-section:ring-2 group-data-[agent-dragover]/agent-section:ring-inset group-data-[agent-dragover]/agent-section:ring-primary/50",
           )}
           {...dragHandlers}
         >

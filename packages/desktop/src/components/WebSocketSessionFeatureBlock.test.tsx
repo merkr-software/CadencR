@@ -1,4 +1,4 @@
-import { act, render } from "@/test-utils";
+import { act, fireEvent, render } from "@/test-utils";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WebSocketSessionFeatureBlock } from "./WebSocketSessionFeatureBlock";
@@ -315,6 +315,40 @@ describe("WebSocketSessionFeatureBlock", () => {
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
       expect.objectContaining({ nonAgentTabsEnabled: true }),
     );
+  });
+
+  it("stamps the agent section as the drop zone and highlights only on file drags", () => {
+    const { container } = render(
+      <WebSocketSessionFeatureBlock
+        sessionId="ws-feature-1"
+        cwd="/repo"
+        featureId={1}
+        projectId={2}
+      />,
+    );
+    const section = container.querySelector<HTMLElement>(
+      'section[data-agent-prompt-id="ws:ws-feature-1"]',
+    );
+    expect(section).not.toBeNull();
+    if (!section) throw new Error("section missing");
+
+    // Text drags must not toggle the highlight — only File drags do.
+    act(() => {
+      fireEvent.dragEnter(section, { dataTransfer: { types: ["text/plain"] } });
+    });
+    expect(section.getAttribute("data-agent-dragover")).toBeNull();
+
+    // A real file drag flips on the highlight via `data-agent-dragover`.
+    act(() => {
+      fireEvent.dragEnter(section, { dataTransfer: { types: ["Files"] } });
+    });
+    expect(section.getAttribute("data-agent-dragover")).toBe("true");
+
+    // Leaving the section entirely (relatedTarget outside) clears it.
+    act(() => {
+      fireEvent.dragLeave(section, { dataTransfer: { types: ["Files"] } });
+    });
+    expect(section.getAttribute("data-agent-dragover")).toBeNull();
   });
 
   it("hydrates an embedded non-agent tab only when that tab is focused", () => {

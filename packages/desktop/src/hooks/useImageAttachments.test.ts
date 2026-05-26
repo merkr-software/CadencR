@@ -212,7 +212,7 @@ describe("useImageAttachments", () => {
     // Each subscriber still calls toast.error, but it must share a stable id so
     // sonner collapses them to a single visible toast — assert the id is set.
     expect(toast.error).toHaveBeenCalledWith(
-      "Drop an image directly on an agent prompt.",
+      "Drop the image on an agent to attach it.",
       expect.objectContaining({ id: "image-drop-missing-target" }),
     );
   });
