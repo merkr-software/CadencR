@@ -5,6 +5,7 @@ import {
   useRef,
   useImperativeHandle,
   forwardRef,
+  useId,
   useMemo,
 } from "react";
 import { useScopedShortcut } from "@/hooks/useShortcut";
@@ -122,12 +123,18 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       requestAnimationFrame(() => editorRef.current?.focus());
     }, [hasSpecialState]);
     const history = usePromptHistory(projectId ?? 0, wsSessionId);
+    // Drop-routing id — must be unique per mounted prompt bar so a desktop drop
+    // resolves to exactly one `useImageAttachments` consumer in the unified
+    // grid. Prefer the session/feature identity so the same prompt across
+    // remounts keeps the same id; fall back to `useId()` to guarantee
+    // uniqueness if no IDs are available yet.
+    const fallbackPromptId = useId();
     const promptDropTargetId = useMemo(() => {
       if (wsSessionId) return `ws:${wsSessionId}`;
       if (sessionId) return `db:${sessionId}`;
       if (featureId) return `feature:${featureId}`;
-      return "prompt:default";
-    }, [wsSessionId, sessionId, featureId]);
+      return `prompt:${fallbackPromptId}`;
+    }, [wsSessionId, sessionId, featureId, fallbackPromptId]);
     const {
       attachments,
       addFiles,
@@ -331,7 +338,15 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
         {planApprovalDeferred && <AgentPromptPendingIndicator kind="plan" />}
         {questionsDeferred && <AgentPromptPendingIndicator kind="question" />}
         {specialPrompt && (
-          <div data-permission-area={!!visiblePermission} data-question-area>
+          <div
+            data-permission-area={!!visiblePermission}
+            data-question-area
+            // Mirror the prompt-bar's id so a desktop drop while a permission /
+            // plan / question gate is showing still routes to this prompt
+            // (the main wrapper is `hidden` in that state so `closest()` won't
+            // see it).
+            data-agent-prompt-id={promptDropTargetId}
+          >
             {specialPrompt}
           </div>
         )}

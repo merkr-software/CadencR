@@ -114,15 +114,25 @@ export function useImageAttachments(promptId?: string) {
         setIsDragging(false);
       } else if (event.type === "drop") {
         setIsDragging(false);
+        // Non-file drags (text, links) still produce a drop event with no files;
+        // bail before the user-facing toast so we don't nag for inert drops.
+        if (event.files.length === 0) return;
         if (!event.targetPromptId) {
-          toast.error("Drop an image directly on an agent prompt.");
+          // Toast `id` dedupes across every mounted prompt bar — the same drop
+          // fires this listener on every subscriber, but sonner collapses calls
+          // that share an id into a single visible toast.
+          toast.error("Drop an image directly on an agent prompt.", {
+            id: "image-drop-missing-target",
+          });
           return;
         }
         if (promptId && event.targetPromptId !== promptId) return;
         void addDroppedFilesRef.current(event.files);
       } else if (event.type === "error") {
         setIsDragging(false);
+        // Same dedup rationale as the missing-target toast above.
         toast.error("Couldn't read dropped files.", {
+          id: "image-drop-read-error",
           description: event.message ?? "The desktop shell rejected the dropped file paths.",
         });
       }

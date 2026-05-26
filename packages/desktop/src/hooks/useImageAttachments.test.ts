@@ -4,12 +4,12 @@ import {
   clearDesktopBridgeOverrideForTests,
   setDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
-import type { CadencrDesktopBridge } from "@/lib/desktop-bridge";
+import type { CadencrDesktopBridge, FileDropPayload } from "@/lib/desktop-bridge";
 import { useImageAttachments } from "./useImageAttachments";
 import { toast } from "sonner";
 
-const dropSubscribers: Array<(payload: unknown) => void> = [];
-const mockOnFileDrop = vi.fn((cb: (payload: unknown) => void) => {
+const dropSubscribers: Array<(payload: FileDropPayload) => void> = [];
+const mockOnFileDrop = vi.fn((cb: (payload: FileDropPayload) => void) => {
   dropSubscribers.push(cb);
   return () => undefined;
 });
@@ -60,6 +60,7 @@ describe("useImageAttachments", () => {
     readFileBase64.mockReset();
     readFileBase64.mockResolvedValue("abc123");
     setDesktopBridgeOverrideForTests({ ...bridge(), readFileBase64 });
+    vi.mocked(toast.error).mockReset?.();
     vi.spyOn(toast, "error").mockImplementation(() => "" as never);
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
@@ -196,6 +197,34 @@ describe("useImageAttachments", () => {
 
     await new Promise((r) => setTimeout(r, 10));
     expect(result.current.attachments).toHaveLength(0);
+  });
+
+  it("dedupes the missing-target toast across mounted hooks", () => {
+    renderHook(() => useImageAttachments("ws:first"));
+    renderHook(() => useImageAttachments("ws:second"));
+
+    const payload = { type: "drop" as const, files: [{ handle: "h-1", name: "one.png" }] };
+    act(() => {
+      dropSubscribers[0](payload);
+      dropSubscribers[1](payload);
+    });
+
+    // Each subscriber still calls toast.error, but it must share a stable id so
+    // sonner collapses them to a single visible toast — assert the id is set.
+    expect(toast.error).toHaveBeenCalledWith(
+      "Drop an image directly on an agent prompt.",
+      expect.objectContaining({ id: "image-drop-missing-target" }),
+    );
+  });
+
+  it("does not toast for empty drops (e.g. text drags)", () => {
+    renderHook(() => useImageAttachments("ws:first"));
+
+    act(() => {
+      dropSubscribers[0]({ type: "drop", files: [] });
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   afterEach(() => clearDesktopBridgeOverrideForTests());

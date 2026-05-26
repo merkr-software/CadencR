@@ -83,6 +83,27 @@ function onIpc<T>(channel: string, cb: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, handler);
 }
 
+function resolvePromptIdFromEvent(event: DragEvent): string | undefined {
+  // composedPath() walks through shadow DOM and gives us the actual elements
+  // under the cursor. Prefer that; fall back to climbing from `event.target`
+  // when composedPath is empty (jsdom, older WebView).
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  for (const node of path) {
+    if (node instanceof Element && node.hasAttribute("data-agent-prompt-id")) {
+      return node.getAttribute("data-agent-prompt-id") ?? undefined;
+    }
+  }
+  const fromTarget =
+    event.target instanceof Element
+      ? event.target
+      : event.target instanceof Node
+        ? event.target.parentElement
+        : null;
+  return (
+    fromTarget?.closest("[data-agent-prompt-id]")?.getAttribute("data-agent-prompt-id") ?? undefined
+  );
+}
+
 function onFileDrop(cb: (payload: FileDropPayload) => void): () => void {
   let dragDepth = 0;
   const onDragOver = (event: DragEvent): void => event.preventDefault();
@@ -99,11 +120,11 @@ function onFileDrop(cb: (payload: FileDropPayload) => void): () => void {
   const onDrop = (event: DragEvent): void => {
     event.preventDefault();
     dragDepth = 0;
-    const targetPromptId =
-      event.target instanceof Element
-        ? (event.target.closest("[data-agent-prompt-id]")?.getAttribute("data-agent-prompt-id") ??
-          undefined)
-        : undefined;
+    // `event.target` is occasionally a non-Element Node (e.g. a Text node when
+    // the drop lands directly on text inside the prompt editor). Walk the
+    // composedPath first so shadow-DOM hosts are handled, then fall back to
+    // the parent element of a Node target so we don't lose valid prompt drops.
+    const targetPromptId = resolvePromptIdFromEvent(event);
     const files = Array.from(event.dataTransfer?.files ?? []);
     const paths = files.map((file) => webUtils.getPathForFile(file)).filter(Boolean);
     void ipcRenderer
