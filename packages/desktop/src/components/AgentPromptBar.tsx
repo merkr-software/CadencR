@@ -1,13 +1,4 @@
-import {
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  useImperativeHandle,
-  forwardRef,
-  useMemo,
-} from "react";
-import { promptDropTargetIdOf } from "@/lib/prompt-drop-target";
+import { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { Loader2, Send, Pause } from "lucide-react";
@@ -22,7 +13,7 @@ import { SplitSendActions } from "./SplitSendActions";
 import { PromptEditor } from "./prompt-editor/PromptEditor";
 import type { PromptEditorHandle } from "./prompt-editor/PromptEditor";
 import { shouldFocusPromptFromSurfaceClick } from "./agent-prompt-focus";
-import { useImageAttachments } from "@/hooks/useImageAttachments";
+import { usePromptAttachments } from "@/hooks/usePromptAttachments";
 import { usePromptDraft } from "@/hooks/usePromptDraft";
 import { draftScope } from "@/lib/draft-scope";
 import { usePromptEditorRestore } from "@/hooks/usePromptEditorRestore";
@@ -123,13 +114,6 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       requestAnimationFrame(() => editorRef.current?.focus());
     }, [hasSpecialState]);
     const history = usePromptHistory(projectId ?? 0, wsSessionId);
-    // Must match the id stamped on the enclosing agent `<section>` in
-    // `WebSocketSessionFeatureBlock` — the section is the actual drop zone,
-    // and this hook only accepts drops whose `targetPromptId` matches.
-    const promptDropTargetId = useMemo(
-      () => promptDropTargetIdOf({ wsSessionId, dbSessionId: sessionId, featureId }),
-      [wsSessionId, sessionId, featureId],
-    );
     const {
       attachments,
       addFiles,
@@ -137,7 +121,7 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       clearAttachments,
       restoreAttachments,
       dragHandlers,
-    } = useImageAttachments(promptDropTargetId);
+    } = usePromptAttachments({ wsSessionId, sessionId, featureId });
     const filesQuery = useListFiles(
       { feature_id: featureId! },
       { query: { enabled: !!featureId && agentTabActive && !disabled } },
