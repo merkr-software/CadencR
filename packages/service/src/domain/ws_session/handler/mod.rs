@@ -2249,6 +2249,7 @@ mod tests {
                     env: None,
                 },
                 manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+                manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
             },
         );
 
