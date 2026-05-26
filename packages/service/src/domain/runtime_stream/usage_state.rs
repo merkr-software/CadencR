@@ -87,6 +87,11 @@ impl RuntimeUsageState {
         runtime_event: &RuntimeEvent,
     ) -> RuntimeUsageUpdate {
         if self.is_subagent_event(runtime_event) {
+            // Even when usage is ignored, a root tool_result can still carry
+            // `parent_tool_use_id` in some provider transcripts. Record the
+            // close so the fallback window does not get stuck open.
+            self.subagent_window.record_ends(runtime_event);
+
             return RuntimeUsageUpdate {
                 snapshot: self.snapshot,
                 changed: false,
@@ -225,7 +230,11 @@ mod tests {
         )
     }
 
-    fn make_user_with_tool_result(session_id: &str, tool_use_id: &str) -> RuntimeEvent {
+    fn make_user_with_tool_result_with_parent(
+        session_id: &str,
+        tool_use_id: &str,
+        parent_tool_use_id: Option<&str>,
+    ) -> RuntimeEvent {
         RuntimeEvent::new(
             RuntimeEventMetadata {
                 session_id: Some(session_id.into()),
@@ -241,9 +250,13 @@ mod tests {
                         content: json!("ok"),
                     }],
                 },
-                parent_tool_use_id: None,
+                parent_tool_use_id: parent_tool_use_id.map(ToOwned::to_owned),
             },
         )
+    }
+
+    fn make_user_with_tool_result(session_id: &str, tool_use_id: &str) -> RuntimeEvent {
+        make_user_with_tool_result_with_parent(session_id, tool_use_id, None)
     }
 
     fn make_result_with_context_window(session_id: &str, context_window: u64) -> RuntimeEvent {
@@ -437,6 +450,43 @@ mod tests {
         assert!(update.changed);
         assert_eq!(update.snapshot.input_tokens, 6000);
         assert_eq!(update.snapshot.output_tokens, 900);
+    }
+
+    #[test]
+    fn task_tool_result_with_parent_tool_use_id_still_closes_window() {
+        // Some transcripts include parent_tool_use_id on the root tool_result
+        // that closes a Task. We still must close the fallback window, or
+        // later root events will be misclassified as sub-agent traffic.
+        let mut state = RuntimeUsageState::new(None);
+        state.set_root_session_id("root-1");
+        state.apply_event(
+            None,
+            &make_assistant_with_tool_use("root-1", "toolu_1", "Task", None),
+        );
+
+        // While the window is active, leaked same-session events are filtered.
+        let update = state.apply_event(None, &make_message_start("root-1", 150_000, None));
+        assert!(!update.changed);
+
+        // Close event includes parent_tool_use_id and should still close.
+        state.apply_event(
+            None,
+            &make_user_with_tool_result_with_parent("root-1", "toolu_1", Some("toolu_1")),
+        );
+
+        let update = state.apply_event(
+            None,
+            &make_assistant_usage(
+                "root-1",
+                RuntimeUsage {
+                    input_tokens: 6000,
+                    output_tokens: 900,
+                },
+                None,
+            ),
+        );
+        assert!(update.changed);
+        assert_eq!(update.snapshot.input_tokens, 6000);
     }
 
     #[test]

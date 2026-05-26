@@ -48,10 +48,12 @@ impl SubagentWindow {
         }
     }
 
-    /// Walks a root user message for tool_result blocks and removes any id
-    /// it closes. Same `parent_tool_use_id` guard as `record_starts`.
+    /// Walks a user message for tool_result blocks and removes any id it
+    /// closes. We intentionally do NOT require `parent_tool_use_id` to be
+    /// absent because some provider transcripts attach it to the root close
+    /// event; if we skip that event, the fallback window can get stuck open.
     pub(super) fn record_ends(&mut self, runtime_event: &RuntimeEvent) {
-        if self.active.is_empty() || runtime_event.parent_tool_use_id().is_some() {
+        if self.active.is_empty() {
             return;
         }
         let Some(msg) = runtime_event.user_message() else {
@@ -204,6 +206,33 @@ mod tests {
 
         win.record_starts(&assistant_with_tool_use("toolu_1", "Task", None));
         assert!(win.carries_lifecycle_block(&user_with_tool_result("toolu_1")));
+    }
+
+    #[test]
+    fn record_ends_accepts_tool_result_with_parent_tool_use_id() {
+        let mut win = SubagentWindow::new();
+        win.record_starts(&assistant_with_tool_use("toolu_1", "Task", None));
+        let event = RuntimeEvent::new(
+            RuntimeEventMetadata {
+                session_id: Some("root-1".into()),
+                usage: None,
+                context_window: None,
+                raw: json!({ "type": "user" }),
+            },
+            RuntimeEventKind::UserMessage {
+                message: RuntimeUserMessage {
+                    content: vec![RuntimeUserContentBlock::ToolResult {
+                        tool_use_id: Some("toolu_1".into()),
+                        is_error: false,
+                        content: json!("ok"),
+                    }],
+                },
+                parent_tool_use_id: Some("toolu_1".into()),
+            },
+        );
+
+        win.record_ends(&event);
+        assert!(!win.is_active());
     }
 
     #[test]
