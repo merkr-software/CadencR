@@ -516,7 +516,7 @@ function handleError(ctx: StoreAccessors, sessionId: string, payload: unknown): 
   // non-auto-capable model). The payload carries the rejected wire mode;
   // skip past it in the Shift+Tab cycle so the chip isn't stuck.
   if (p?.code === "MODE_REJECTED_BY_CLI" && p.mode) {
-    handleModeRejectedByCli(ctx, sessionId, p.mode as PermissionMode);
+    handleModeRejectedByCli(ctx, sessionId, p.mode as PermissionMode, p.message);
     return;
   }
 
@@ -558,7 +558,13 @@ function handleModeRejectedByCli(
   ctx: StoreAccessors,
   sessionId: string,
   rejectedMode: PermissionMode,
+  rejectedMessage?: string,
 ): void {
+  if (rejectedMode !== "auto") {
+    toast.error(rejectedMessage ?? `${rejectedMode} mode was rejected by the provider.`);
+    return;
+  }
+
   const session = ctx.get().sessions[sessionId];
   if (!session) return;
   const providerId = session.currentProviderId || session.runtimeProvider;

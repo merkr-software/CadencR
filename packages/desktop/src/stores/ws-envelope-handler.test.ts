@@ -337,6 +337,40 @@ describe("handleEnvelope error handling", () => {
     expect(ctx.getSession("s1").blocks).toHaveLength(0);
   });
 
+  it("does not auto-cycle non-auto MODE_REJECTED_BY_CLI rejections", () => {
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.currentProviderId = "claude_code";
+    session.runtimeProvider = "claude_code";
+    session.permissionMode = "bypassPermissions";
+    const setPermissionMode = vi.fn();
+    let state = {
+      sessions: { s1: session },
+      setPermissionMode,
+    } as unknown as WsSessionStore;
+    const ctx: StoreAccessors = {
+      get: (): WsSessionStore => state,
+      set: (partial: Partial<WsSessionStore>): void => {
+        state = { ...state, ...partial };
+      },
+      getSession: (id: string): SessionEntry => state.sessions[id],
+    };
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: {
+        code: "MODE_REJECTED_BY_CLI",
+        message: "bypassPermissions was rejected",
+        mode: "bypassPermissions",
+      },
+    });
+
+    expect(setPermissionMode).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith("bypassPermissions was rejected");
+    expect(ctx.getSession("s1").blocks).toHaveLength(0);
+  });
+
   it("falls back to the inline error block for ordinary errors", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
