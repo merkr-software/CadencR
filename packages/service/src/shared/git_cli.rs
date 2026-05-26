@@ -75,6 +75,17 @@ pub fn guard_positionals(positionals: &[&str]) -> Result<(), AppError> {
     validate_positionals(positionals)
 }
 
+/// Spawn `git` with `args` in `cwd`. Returns stdout on success; on failure
+/// returns a `GitCommandError` with the (sanitized) stderr.
+///
+/// We do NOT pass `--no-optional-locks` per call here. Instead, the service
+/// exports `GIT_OPTIONAL_LOCKS=0` once at startup (see
+/// `crate::shared::git_env`) so every git child — including this function,
+/// `run_git_capture`, the PTY commands in
+/// `domain::git::commands::pty_spawn`, and any ad-hoc `Command::new("git")`
+/// elsewhere — inherits the same defensive setting. That avoids racing a
+/// user-initiated `git rebase` for `.git/index.lock` when the watcher fires
+/// `git status` mid-rebase.
 async fn run_raw(args: &[&str], cwd: &Path) -> Result<String, AppError> {
     let output = Command::new("git")
         .args(args)
@@ -202,6 +213,77 @@ mod tests {
         let out = scrub_home_prefix(&input);
         assert!(out.starts_with("error in ~/"), "{out}");
         assert!(!out.contains(home_str.as_ref()), "{out}");
+    }
+
+    /// Regression test for the `git rebase` vs. watcher `index.lock` race.
+    ///
+    /// Default-on `git status` writes `.git/index` and briefly takes
+    /// `.git/index.lock` to do so. To prove our `GIT_OPTIONAL_LOCKS=0`
+    /// startup default actually prevents that, we:
+    ///   1. set up a tiny repo,
+    ///   2. drop a sentinel `.git/index.lock` file (simulating a rebase /
+    ///      commit in flight),
+    ///   3. invoke `run_git(["status", "--porcelain=v2"], ...)` with the
+    ///      env var set, and assert it succeeds.
+    ///
+    /// Without `GIT_OPTIONAL_LOCKS=0`, this call typically fails with
+    /// `Unable to create '.git/index.lock': File exists` because git tries
+    /// to refresh the index. With the var set, git skips the optional
+    /// lock-take and the status read goes through.
+    #[tokio::test]
+    async fn run_git_status_does_not_race_existing_index_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+
+        // Minimal repo: init, identity, one commit so `git status -b` has a
+        // HEAD to report on.
+        for args in [
+            ["init", "-q", "-b", "main"].as_slice(),
+            &["config", "user.email", "t@t"],
+            &["config", "user.name", "Test"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            let st = std::process::Command::new("git")
+                .args(args.iter().copied())
+                .current_dir(repo)
+                .status()
+                .expect("git spawn");
+            assert!(st.success(), "git {args:?} failed");
+        }
+        std::fs::write(repo.join("seed.txt"), "seed\n").unwrap();
+        for args in [
+            ["add", "seed.txt"].as_slice(),
+            &["commit", "-q", "-m", "seed"],
+        ] {
+            let st = std::process::Command::new("git")
+                .args(args.iter().copied())
+                .current_dir(repo)
+                .status()
+                .expect("git spawn");
+            assert!(st.success(), "git {args:?} failed");
+        }
+
+        // Plant a sentinel index.lock — the same file `git rebase` would be
+        // holding mid-pick.
+        let lock_path = repo.join(".git").join("index.lock");
+        std::fs::write(&lock_path, b"").unwrap();
+
+        // Mirror the production startup: export GIT_OPTIONAL_LOCKS=0 before
+        // spawning. Without this, git refuses because index.lock exists.
+        std::env::set_var("GIT_OPTIONAL_LOCKS", "0");
+
+        let result = run_git(&["status", "--porcelain=v2", "-b"], repo).await;
+
+        // Clean up the env regardless of outcome to keep the test isolated.
+        std::env::remove_var("GIT_OPTIONAL_LOCKS");
+        let _ = std::fs::remove_file(&lock_path);
+
+        assert!(
+            result.is_ok(),
+            "`git status` must not race a held index.lock when \
+             GIT_OPTIONAL_LOCKS=0 is exported; got: {:?}",
+            result.err()
+        );
     }
 
     #[tokio::test]
