@@ -76,7 +76,7 @@ mod tests {
     use super::*;
     use crate::domain::agents::adapter::{
         AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeMessageRx,
-        RuntimePermissionMode,
+        RuntimePermissionMode, RuntimeSessionHandle,
     };
     use crate::domain::agents::claude_code::ClaudeCodeSession;
     use claude_agent_sdk_rs::{Query, SdkError};
@@ -89,6 +89,10 @@ mod tests {
     struct BlockingFollowUpSession {
         message_rx: Option<RuntimeMessageRx>,
         release: Arc<tokio::sync::Notify>,
+    }
+
+    struct RejectingModeSession {
+        message_rx: Option<RuntimeMessageRx>,
     }
 
     impl InPlaceEffortSession {
@@ -106,6 +110,15 @@ mod tests {
             Self {
                 message_rx: Some(rx),
                 release,
+            }
+        }
+    }
+
+    impl RejectingModeSession {
+        fn new() -> Self {
+            let (_tx, rx) = mpsc::channel(1);
+            Self {
+                message_rx: Some(rx),
             }
         }
     }
@@ -184,6 +197,45 @@ mod tests {
             _mode: RuntimePermissionMode,
         ) -> Result<(), RuntimeError> {
             Ok(())
+        }
+
+        fn pid(&self) -> Option<u32> {
+            None
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AgentRuntimeSession for RejectingModeSession {
+        fn take_message_rx(&mut self) -> RuntimeMessageRx {
+            self.message_rx.take().unwrap()
+        }
+
+        async fn session_id(&self) -> Option<String> {
+            Some("runtime-session".to_string())
+        }
+
+        async fn stream_input(&self, _content: Value) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn interrupt(&self) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn close(&mut self) {}
+
+        async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+            Ok(())
+        }
+
+        async fn set_permission_mode(
+            &self,
+            _mode: RuntimePermissionMode,
+        ) -> Result<(), RuntimeError> {
+            Err(RuntimeError::ControlRequestRejected {
+                subtype: "set_permission_mode".to_string(),
+                message: "requested mode is unavailable".to_string(),
+            })
         }
 
         fn pid(&self) -> Option<u32> {
@@ -2150,6 +2202,90 @@ mod tests {
             handle.desired_permission_mode,
             Some(default_permission_mode("opencode"))
         );
+    }
+
+    #[tokio::test]
+    async fn mode_set_rejection_keeps_accepted_mode_as_desired_mode() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+        let app_state = make_test_app_state().await;
+
+        sqlx::query(
+            "INSERT INTO agent_sessions (id, feature_id, agent_type, status, permission_mode) VALUES (77, 1, 'session', 'idle', 'plan')",
+        )
+        .execute(&app_state.write_pool)
+        .await
+        .unwrap();
+
+        let (permission_tx, _permission_rx) = mpsc::channel(1);
+        let query: RuntimeSessionHandle =
+            Arc::new(RwLock::new(Box::new(RejectingModeSession::new())));
+        sdk_sessions.lock().await.insert(
+            77,
+            SdkHandle {
+                state: QueryState::Active {
+                    query,
+                    permission_tx,
+                },
+                feature_id: 1,
+                runtime_provider: "claude_code".to_string(),
+                desired_model: None,
+                spawned_model: None,
+                desired_permission_mode: Some(RuntimePermissionMode::Plan),
+                spawned_permission_mode: Some(RuntimePermissionMode::Plan),
+                desired_thinking_effort: None,
+                spawned_thinking_effort: None,
+                runtime_control_endpoint: None,
+                resume_session_id: None,
+                config: SessionConfig {
+                    cwd: PathBuf::from("/tmp/test"),
+                    canonical_cwd: PathBuf::from("/tmp/test"),
+                    permission_mode: Some(RuntimePermissionMode::Plan),
+                    thinking_effort: None,
+                    system_prompt: None,
+                    env: None,
+                },
+                manual_compact_cancel: Arc::new(AtomicBool::new(false)),
+            },
+        );
+
+        let envelope = make_envelope(
+            "session",
+            "mode.set",
+            serde_json::json!({ "session_id": "77", "mode": "bypassPermissions" }),
+        );
+        dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+        let msg = rx.recv().await.unwrap();
+        if let Message::Text(text) = msg {
+            let env: WsEnvelope = serde_json::from_str(&text).unwrap();
+            assert_eq!(env.action, "error");
+            let payload: SessionErrorPayload = serde_json::from_value(env.payload).unwrap();
+            assert_eq!(payload.code, "MODE_REJECTED_BY_CLI");
+            assert_eq!(payload.mode.as_deref(), Some("bypassPermissions"));
+        } else {
+            panic!("expected text message");
+        }
+
+        let (desired_mode, spawned_mode, config_mode) = {
+            let sessions = sdk_sessions.lock().await;
+            let handle = sessions.get(&77).unwrap();
+            (
+                handle.desired_permission_mode.clone(),
+                handle.spawned_permission_mode.clone(),
+                handle.config.permission_mode.clone(),
+            )
+        };
+        assert_eq!(desired_mode, Some(RuntimePermissionMode::Plan));
+        assert_eq!(spawned_mode, Some(RuntimePermissionMode::Plan));
+        assert_eq!(config_mode, Some(RuntimePermissionMode::Plan));
+
+        let persisted_mode: Option<String> =
+            sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE id = 77")
+                .fetch_one(&app_state.read_pool)
+                .await
+                .unwrap();
+        assert_eq!(persisted_mode.as_deref(), Some("plan"));
     }
 
     // ----- handle_provider_set: mode reset + mode.changed broadcast -----
