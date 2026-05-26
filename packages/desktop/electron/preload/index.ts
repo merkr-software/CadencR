@@ -39,6 +39,7 @@ interface FileDropItem {
 interface FileDropPayload {
   type: "enter" | "leave" | "drop" | "error";
   files: FileDropItem[];
+  targetPromptId?: string;
   message?: string;
 }
 
@@ -98,12 +99,17 @@ function onFileDrop(cb: (payload: FileDropPayload) => void): () => void {
   const onDrop = (event: DragEvent): void => {
     event.preventDefault();
     dragDepth = 0;
+    const targetPromptId =
+      event.target instanceof Element
+        ? (event.target.closest("[data-agent-prompt-id]")?.getAttribute("data-agent-prompt-id") ??
+          undefined)
+        : undefined;
     const files = Array.from(event.dataTransfer?.files ?? []);
     const paths = files.map((file) => webUtils.getPathForFile(file)).filter(Boolean);
     void ipcRenderer
       .invoke("fs:register-file-paths", paths)
       .then((registered: FileDropItem[]) => {
-        cb({ type: "drop", files: registered });
+        cb({ type: "drop", files: registered, targetPromptId });
       })
       .catch((error: unknown) => {
         cb({

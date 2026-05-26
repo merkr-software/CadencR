@@ -42,6 +42,7 @@ export interface FileDropItem {
 export interface FileDropPayload {
   type: "enter" | "leave" | "drop" | "error";
   files: FileDropItem[];
+  targetPromptId?: string;
   message?: string;
 }
 

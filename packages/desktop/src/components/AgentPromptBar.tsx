@@ -1,4 +1,12 @@
-import { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
+import {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  useMemo,
+} from "react";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { useShortcut } from "@/hooks/useShortcut";
 import { Loader2, Send, Pause } from "lucide-react";
@@ -114,6 +122,12 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       requestAnimationFrame(() => editorRef.current?.focus());
     }, [hasSpecialState]);
     const history = usePromptHistory(projectId ?? 0, wsSessionId);
+    const promptDropTargetId = useMemo(() => {
+      if (wsSessionId) return `ws:${wsSessionId}`;
+      if (sessionId) return `db:${sessionId}`;
+      if (featureId) return `feature:${featureId}`;
+      return "prompt:default";
+    }, [wsSessionId, sessionId, featureId]);
     const {
       attachments,
       addFiles,
@@ -122,7 +136,7 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       restoreAttachments,
       dragHandlers,
       isDragging,
-    } = useImageAttachments();
+    } = useImageAttachments(promptDropTargetId);
     const filesQuery = useListFiles(
       { feature_id: featureId! },
       { query: { enabled: !!featureId && agentTabActive && !disabled } },
@@ -324,6 +338,7 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
         <div
           ref={wrapperRef}
           data-agent-prompt-bar="true"
+          data-agent-prompt-id={promptDropTargetId}
           hidden={hasSpecialState}
           aria-hidden={hasSpecialState}
           className={cn(

@@ -26,7 +26,7 @@ function getMimeFromExtension(fileName: string): string | undefined {
   return EXTENSION_TO_MIME[ext];
 }
 
-export function useImageAttachments() {
+export function useImageAttachments(promptId?: string) {
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const attachmentsRef = useRef(attachments);
@@ -114,6 +114,11 @@ export function useImageAttachments() {
         setIsDragging(false);
       } else if (event.type === "drop") {
         setIsDragging(false);
+        if (!event.targetPromptId) {
+          toast.error("Drop an image directly on an agent prompt.");
+          return;
+        }
+        if (promptId && event.targetPromptId !== promptId) return;
         void addDroppedFilesRef.current(event.files);
       } else if (event.type === "error") {
         setIsDragging(false);
@@ -122,7 +127,7 @@ export function useImageAttachments() {
         });
       }
     });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [promptId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
