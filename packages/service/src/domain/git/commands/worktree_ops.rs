@@ -227,12 +227,14 @@ fn parse_worktree_branches(output: &str) -> HashMap<String, std::path::PathBuf> 
 /// Check if a worktree has uncommitted or untracked changes.
 ///
 /// This is a read-style probe — `run_git_background` so it can't race a
-/// concurrent user-initiated mutation for `.git/index.lock`.
+/// concurrent user-initiated mutation for `.git/index.lock`. Errors are
+/// propagated rather than collapsed to "clean": a failed probe is not the
+/// same as a clean worktree, and callers (merge guards, dirty-state
+/// checks) rely on this distinction to refuse destructive operations
+/// when they can't verify the worktree's state.
 pub async fn has_uncommitted_changes(worktree_path: &Path) -> Result<bool, AppError> {
-    match run_git_background(&["status", "--porcelain"], worktree_path).await {
-        Ok(stdout) => Ok(!stdout.trim().is_empty()),
-        Err(_) => Ok(false),
-    }
+    let stdout = run_git_background(&["status", "--porcelain"], worktree_path).await?;
+    Ok(!stdout.trim().is_empty())
 }
 
 #[cfg(test)]

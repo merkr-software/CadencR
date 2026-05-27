@@ -56,12 +56,9 @@ async fn compute_status(
     feature_id: i64,
     target_branch: &str,
 ) -> Result<GitStatusSnapshot, AppError> {
-    // `compute_status` runs on every watcher fs event. Every git
-    // invocation in this function MUST go through `run_git_background` so
-    // none of these polls can race a concurrent user-initiated rebase /
-    // commit for `.git/index.lock`. The flag is a no-op for the
-    // `rev-list` / `config` calls below, but tagging the whole code path
-    // makes the intent (background read) explicit at every call site.
+    // Watcher hot path: every git spawn here goes through
+    // `run_git_background` so this code path can't race a user-initiated
+    // rebase/commit for `.git/index.lock`. See `run_git_background` docs.
     let porcelain =
         run_git_background(&["status", "--porcelain=v2", "-b", "--ahead-behind"], repo).await?;
     let parsed = parse_porcelain_v2(&porcelain);
