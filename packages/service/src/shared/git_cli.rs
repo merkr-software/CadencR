@@ -268,15 +268,28 @@ mod tests {
         let lock_path = repo.join(".git").join("index.lock");
         std::fs::write(&lock_path, b"").unwrap();
 
+        // Snapshot + serialize against any other test in this binary that
+        // mutates the real `GIT_OPTIONAL_LOCKS`. The guard's Drop restores
+        // the prior value when this scope ends.
+        let _env_guard = crate::shared::git_env::OptionalLocksGuard::acquire();
+
         // Mirror the production startup: export GIT_OPTIONAL_LOCKS=0 before
         // spawning. Without this, git refuses because index.lock exists.
         std::env::set_var("GIT_OPTIONAL_LOCKS", "0");
 
         let result = run_git(&["status", "--porcelain=v2", "-b"], repo).await;
 
-        // Clean up the env regardless of outcome to keep the test isolated.
-        std::env::remove_var("GIT_OPTIONAL_LOCKS");
-        let _ = std::fs::remove_file(&lock_path);
+        // Clean up the planted lock file. NotFound is fine (somebody else
+        // already removed it, e.g. git itself); any other IO error is a
+        // real fault we want to surface rather than silently swallow per
+        // `error-handling.md`.
+        if let Err(err) = std::fs::remove_file(&lock_path) {
+            assert_eq!(
+                err.kind(),
+                std::io::ErrorKind::NotFound,
+                "unexpected lock-file cleanup failure: {err}"
+            );
+        }
 
         assert!(
             result.is_ok(),

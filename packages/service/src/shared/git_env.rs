@@ -40,12 +40,60 @@ fn set_if_unset(key: &str, value: &str) {
     }
 }
 
+/// Serialize tests that mutate `GIT_OPTIONAL_LOCKS` across this crate. Cargo
+/// runs unit tests in parallel within a single binary, and the process env
+/// is shared state — without this mutex two tests touching the same real
+/// env var can race and clobber each other's snapshots. Exposed
+/// `pub(crate)` so the regression test in `shared::git_cli` can lock the
+/// same mutex.
+#[cfg(test)]
+pub(crate) static OPTIONAL_LOCKS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Snapshot the current value of `GIT_OPTIONAL_LOCKS` and restore it when
+/// the returned guard is dropped. Combine with `OPTIONAL_LOCKS_TEST_MUTEX`
+/// to serialize concurrent test mutations of this env var.
+#[cfg(test)]
+pub(crate) struct OptionalLocksGuard {
+    prior: Option<std::ffi::OsString>,
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl OptionalLocksGuard {
+    pub(crate) fn acquire() -> Self {
+        // Recover from a poisoned mutex (a previous test panicked while
+        // holding it). The env state is already corrupted in that case;
+        // we still want to run, restore as best we can, and surface our
+        // own assertion failures rather than leaking the poison.
+        let lock = OPTIONAL_LOCKS_TEST_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        Self {
+            prior: std::env::var_os("GIT_OPTIONAL_LOCKS"),
+            _lock: lock,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for OptionalLocksGuard {
+    fn drop(&mut self) {
+        match &self.prior {
+            Some(v) => std::env::set_var("GIT_OPTIONAL_LOCKS", v),
+            None => std::env::remove_var("GIT_OPTIONAL_LOCKS"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    // The process env is shared by every test in the binary, so each test
-    // here uses a uniquely-named var to avoid stepping on its neighbors.
+    // The process env is shared by every test in the binary, so tests that
+    // need to mutate the real `GIT_OPTIONAL_LOCKS` go through
+    // `OptionalLocksGuard` (snapshot + mutex). Tests below that only touch
+    // uniquely-named test vars stay isolated by name and don't need the
+    // mutex.
 
     #[test]
     fn set_if_unset_sets_when_missing() {
@@ -71,8 +119,9 @@ mod tests {
 
     #[test]
     fn set_global_defaults_exports_optional_locks() {
-        // Force-reset so the assertion is meaningful even if a parent
-        // process already exported the var.
+        let _guard = OptionalLocksGuard::acquire();
+        // Force-reset inside the guarded window so the assertion is
+        // meaningful even if a parent process already exported the var.
         std::env::remove_var("GIT_OPTIONAL_LOCKS");
         set_global_defaults();
         assert_eq!(
@@ -80,6 +129,20 @@ mod tests {
             Some("0"),
             "set_global_defaults must export GIT_OPTIONAL_LOCKS=0 when unset"
         );
-        std::env::remove_var("GIT_OPTIONAL_LOCKS");
+        // _guard's Drop restores the prior value (or removes the var if it
+        // wasn't set), so we don't clobber state for other tests in this
+        // binary.
+    }
+
+    #[test]
+    fn set_global_defaults_respects_existing_value() {
+        let _guard = OptionalLocksGuard::acquire();
+        std::env::set_var("GIT_OPTIONAL_LOCKS", "1");
+        set_global_defaults();
+        assert_eq!(
+            std::env::var("GIT_OPTIONAL_LOCKS").ok().as_deref(),
+            Some("1"),
+            "an existing user/CI value must win over our default"
+        );
     }
 }
