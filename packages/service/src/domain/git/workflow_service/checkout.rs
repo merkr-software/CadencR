@@ -61,6 +61,12 @@ async fn validate_checkout(
 
     // Clean working tree → checkout is always safe. Skips the (expensive on
     // large repos) tree-diff entirely for the common case.
+    //
+    // TODO(#26): this `git status` is a read but still goes through the
+    // default (potentially lock-taking) path. The race window is narrow
+    // here (single user-initiated call, not a polling loop), so we accept
+    // it for now rather than duplicate `run_git_safe_refs` into a
+    // `_background` variant. Revisit if a real-world race ever surfaces.
     let status = run_git_safe_refs(&["status"], &["--porcelain", "-uno"], &[], repo).await?;
     let dirty_files = parse_porcelain_dirty_files(&status);
     if dirty_files.is_empty() {

@@ -73,12 +73,6 @@ async fn main() -> anyhow::Result<()> {
             // never blocks startup.
             shared::login_env::hydrate_from_login_shell().await;
 
-            // Export `GIT_OPTIONAL_LOCKS=0` so our watcher-driven
-            // `git status` calls don't race a user-initiated `git rebase`
-            // for `.git/index.lock`. See `shared::git_env` for the full
-            // rationale.
-            shared::git_env::set_global_defaults();
-
             let db_path = config
                 .db_path
                 .clone()

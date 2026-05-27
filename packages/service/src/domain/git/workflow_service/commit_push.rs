@@ -11,7 +11,7 @@ use crate::domain::git::models::{CommitBody, GetUncommittedFilesParams, SuccessR
 use crate::domain::git::porcelain::{parse_porcelain_v2_files, UncommittedFile};
 use crate::domain::git::service::resolve_feature_git_path;
 use crate::error::AppError;
-use crate::shared::git_cli::run_git;
+use crate::shared::git_cli::run_git_background;
 
 use super::broadcast_after_write;
 use super::streaming::{broadcast_complete, stream_git_operation, GitStreamOp};
@@ -106,10 +106,14 @@ pub async fn get_uncommitted_files(
     // numstat — their `additions`/`deletions` stay at the parser's `0`
     // defaults, which is the right answer (we don't have a baseline to
     // diff against until they're staged).
+    //
+    // All three are read-style probes: `run_git_background` so they pass
+    // `--no-optional-locks` and can't race a concurrent user-initiated
+    // rebase / commit for `.git/index.lock`.
     let (porcelain, staged_num, unstaged_num) = tokio::try_join!(
-        run_git(&["status", "--porcelain=v2"], repo),
-        run_git(&["diff", "--cached", "--numstat"], repo),
-        run_git(&["diff", "--numstat"], repo),
+        run_git_background(&["status", "--porcelain=v2"], repo),
+        run_git_background(&["diff", "--cached", "--numstat"], repo),
+        run_git_background(&["diff", "--numstat"], repo),
     )?;
 
     let staged_stats = commands::parse_numstat(&staged_num);

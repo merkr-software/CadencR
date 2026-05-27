@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::domain::git::models::WorktreeInfo;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_safe, run_git_safe_refs};
+use crate::shared::git_cli::{run_git, run_git_background, run_git_safe, run_git_safe_refs};
 use crate::shared::worktree_paths::compute_worktree_path;
 
 /// List all worktrees for a repository.
@@ -225,8 +225,11 @@ fn parse_worktree_branches(output: &str) -> HashMap<String, std::path::PathBuf> 
 }
 
 /// Check if a worktree has uncommitted or untracked changes.
+///
+/// This is a read-style probe — `run_git_background` so it can't race a
+/// concurrent user-initiated mutation for `.git/index.lock`.
 pub async fn has_uncommitted_changes(worktree_path: &Path) -> Result<bool, AppError> {
-    match run_git(&["status", "--porcelain"], worktree_path).await {
+    match run_git_background(&["status", "--porcelain"], worktree_path).await {
         Ok(stdout) => Ok(!stdout.trim().is_empty()),
         Err(_) => Ok(false),
     }

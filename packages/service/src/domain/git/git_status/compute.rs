@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::error::AppError;
-use crate::shared::git_cli::run_git;
+use crate::shared::git_cli::run_git_background;
 
 use super::parsing::{self, parse_porcelain_v2};
 use super::{GitStatusSnapshot, SharedFeatureRef};
@@ -56,7 +56,14 @@ async fn compute_status(
     feature_id: i64,
     target_branch: &str,
 ) -> Result<GitStatusSnapshot, AppError> {
-    let porcelain = run_git(&["status", "--porcelain=v2", "-b", "--ahead-behind"], repo).await?;
+    // `compute_status` runs on every watcher fs event. Every git
+    // invocation in this function MUST go through `run_git_background` so
+    // none of these polls can race a concurrent user-initiated rebase /
+    // commit for `.git/index.lock`. The flag is a no-op for the
+    // `rev-list` / `config` calls below, but tagging the whole code path
+    // makes the intent (background read) explicit at every call site.
+    let porcelain =
+        run_git_background(&["status", "--porcelain=v2", "-b", "--ahead-behind"], repo).await?;
     let parsed = parse_porcelain_v2(&porcelain);
     let ahead_of_remote = count_unpushed(repo, &parsed).await;
     let ahead_of_target = count_ahead(repo, target_branch).await;
@@ -90,7 +97,7 @@ async fn compute_status(
 /// well-formed snapshot rather than a 500.
 async fn count_ahead(repo: &Path, target_branch: &str) -> u32 {
     let range = format!("{target_branch}..HEAD");
-    match run_git(&["rev-list", "--count", &range], repo).await {
+    match run_git_background(&["rev-list", "--count", &range], repo).await {
         Ok(out) => out.trim().parse().unwrap_or(0),
         Err(_) => 0,
     }
@@ -109,7 +116,7 @@ async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> u32 {
     if parsed.has_upstream {
         return parsed.ahead;
     }
-    run_git(&["rev-list", "--count", "HEAD", "--not", "--remotes"], repo)
+    run_git_background(&["rev-list", "--count", "HEAD", "--not", "--remotes"], repo)
         .await
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -119,7 +126,7 @@ async fn count_unpushed(repo: &Path, parsed: &parsing::ParsedPorcelain) -> u32 {
 /// Read `remote.origin.url` and feed it to `host::detect_remote`. Returns
 /// `None` when there's no `origin` remote (fresh repo, detached clone, etc).
 async fn resolve_remote_info(repo: &Path) -> Option<RemoteInfo> {
-    let url = run_git(&["config", "--get", "remote.origin.url"], repo)
+    let url = run_git_background(&["config", "--get", "remote.origin.url"], repo)
         .await
         .ok()?;
     host::detect_remote(url.trim())
