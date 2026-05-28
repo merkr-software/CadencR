@@ -110,17 +110,25 @@ export const FeatureTerminalTab = memo(
       { enabled: hotkeysEnabled && !hidden },
     );
 
+    // Track whether any pane exists. Closing the last pane (Cmd+W or the X
+    // button) sets `root` to null. Including this flag in the effects below
+    // makes them re-run the instant the pane count drops to zero — without it,
+    // the auto-open effect only fires when `isTerminalVisible` *changes*, so
+    // killing the only terminal left a blank panel until the user switched
+    // tabs and back. Reacting to `hasPanes` restarts a fresh terminal in place.
+    const hasPanes = terminalState.root != null;
+
     // Auto-create a pane and open if none exist when the terminal tab is visible,
     // but only move real DOM focus there when this pane is the focused one.
     useEffect(() => {
       if (hidden || !isTerminalVisible) return;
       ensureTerminalOpen();
-    }, [hidden, ensureTerminalOpen, isTerminalVisible]);
+    }, [hidden, ensureTerminalOpen, isTerminalVisible, hasPanes]);
 
     useEffect(() => {
       if (hidden || !isTerminalFocused) return;
       activate();
-    }, [hidden, activate, isTerminalFocused]);
+    }, [hidden, activate, isTerminalFocused, hasPanes]);
 
     return (
       <div className={hidden ? "hidden" : "h-full"}>
