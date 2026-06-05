@@ -41,6 +41,7 @@ const MAC_GLYPHS: Record<string, string> = {
   comma: ",",
   slash: "/",
   backtick: "`",
+  backspace: "⌫",
   lbracket: "[",
   rbracket: "]",
   question: "?",

@@ -47,6 +47,7 @@ const TOKEN_TO_ENGINE: Record<string, string> = {
   comma: ",",
   slash: "/",
   backtick: "`",
+  backspace: "Backspace",
   lbracket: "[",
   rbracket: "]",
   // Project-level token: the binding layer expands this to the

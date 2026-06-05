@@ -9,8 +9,14 @@ export const TERMINAL_SHORTCUTS = [
   },
   {
     id: "terminal-clear",
-    keys: ["mod", "backtick"],
+    keys: ["mod", "k"],
     description: "Clear terminal",
+    scope: "terminal",
+  },
+  {
+    id: "terminal-delete-line",
+    keys: ["mod", "backspace"],
+    description: "Delete line",
     scope: "terminal",
   },
   {

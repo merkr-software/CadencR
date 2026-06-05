@@ -23,6 +23,7 @@ export type ShortcutKey =
   | "comma"
   | "slash"
   | "backtick"
+  | "backspace"
   | "lbracket"
   | "rbracket"
   | "question" // Shift+/ on QWERTY — used by the help cheatsheet shortcut.
