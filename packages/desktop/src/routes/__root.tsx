@@ -36,7 +36,7 @@ import {
 import { useAppClose } from "@/hooks/useAppClose";
 import { useRemotePairingToast } from "@/hooks/useRemotePairingToast";
 import { SidebarContext } from "@/components/SidebarContext";
-import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
+import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 import { useThemeSync } from "@/hooks/useTheme";
 import UniversalContextMenu from "@/components/UniversalContextMenu";
 import { RootOverlays, type ConfirmFeatureAction } from "@/components/RootOverlays";
@@ -284,7 +284,9 @@ function RootLayout() {
   useShortcut("command-palette", (e) => {
     // ⌘K is also "Delete line" inside the CodeMirror buffer; let the editor
     // keymap win when focus is in the editor (see `editor-buffer-keymap.ts`).
-    if (isInCodeMirrorEditor(e.target)) return;
+    // It should also stay out of terminals, where the shell/xterm should own
+    // command-editing chords while terminal focus is active.
+    if (isInCodeMirrorEditor(e.target) || isInTerminalFocusZone(e.target)) return;
     e.preventDefault();
     setCommandPaletteOpen((prev) => !prev);
   });

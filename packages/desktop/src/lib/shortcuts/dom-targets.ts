@@ -13,3 +13,7 @@
 export function isInCodeMirrorEditor(target: EventTarget | null): boolean {
   return target instanceof Element && target.closest(".cm-editor") !== null;
 }
+
+export function isInTerminalFocusZone(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest('[data-focus-zone="terminal"]') !== null;
+}

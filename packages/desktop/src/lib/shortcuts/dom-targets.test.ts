@@ -1,0 +1,24 @@
+import { describe, expect, it } from "vitest";
+import { isInCodeMirrorEditor, isInTerminalFocusZone } from "./dom-targets";
+
+describe("shortcut DOM target predicates", () => {
+  it("detects CodeMirror editor descendants", () => {
+    const editor = document.createElement("div");
+    editor.className = "cm-editor";
+    const child = document.createElement("textarea");
+    editor.appendChild(child);
+
+    expect(isInCodeMirrorEditor(child)).toBe(true);
+    expect(isInCodeMirrorEditor(document.createElement("div"))).toBe(false);
+  });
+
+  it("detects terminal focus-zone descendants", () => {
+    const terminal = document.createElement("div");
+    terminal.dataset.focusZone = "terminal";
+    const textarea = document.createElement("textarea");
+    terminal.appendChild(textarea);
+
+    expect(isInTerminalFocusZone(textarea)).toBe(true);
+    expect(isInTerminalFocusZone(document.createElement("div"))).toBe(false);
+  });
+});
