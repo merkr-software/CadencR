@@ -1,4 +1,4 @@
-import type { Shortcut } from "@/lib/shortcuts/types";
+import type { Shortcut } from "./types";
 
 export const TERMINAL_SHORTCUTS = [
   {
