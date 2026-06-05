@@ -17,9 +17,9 @@
  * `ShortcutId` union below is derived from this single source — typos in
  * `useShortcut("comand-palette", …)` become compile errors.
  */
-import type { Shortcut } from "./types";
-import { EDITOR_SHORTCUTS } from "./entries-editor";
-import { TERMINAL_SHORTCUTS } from "./entries-terminal";
+import { EDITOR_SHORTCUTS } from "@/lib/shortcuts/entries-editor";
+import { TERMINAL_SHORTCUTS } from "@/lib/shortcuts/entries-terminal";
+import type { Shortcut } from "@/lib/shortcuts/types";
 
 const APP_SHORTCUTS = [
   // ─── Global ──────────────────────────────────────────────────────────

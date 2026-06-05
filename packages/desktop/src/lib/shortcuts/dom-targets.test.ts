@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isInCodeMirrorEditor, isInTerminalFocusZone } from "./dom-targets";
+import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 
 describe("shortcut DOM target predicates", () => {
   it("detects CodeMirror editor descendants", () => {
