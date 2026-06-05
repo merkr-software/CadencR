@@ -1,5 +1,5 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef, useCallback } from "react";
-import { Terminal } from "@xterm/xterm";
+import type { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
@@ -7,6 +7,8 @@ import { useTerminalWebSocket } from "@/hooks/useTerminalWebSocket";
 import { isResizing, subscribeResize } from "@/lib/resize-coordinator";
 import { toControlChar } from "@/lib/terminal-keys";
 import type { XTermPalette } from "@/lib/themes";
+import { createXtermInstance } from "./createXtermInstance";
+import { attachXtermNavigationKeys } from "./xtermNavigationKeys";
 
 interface XTermInstanceProps {
   featureId: number;
@@ -47,6 +49,10 @@ interface XTermInstanceProps {
 export interface XTermInstanceHandle {
   /** Focus this terminal instance */
   focus: () => void;
+  /** Clear the terminal viewport without deleting scrollback history */
+  clearScreen: () => void;
+  /** Delete the whole current shell input line without clearing terminal history */
+  clearInput: () => void;
   /** Blur this terminal instance and stop cursor blink */
   blur: () => void;
   /** Mark this instance for PTY kill on next unmount */
@@ -81,11 +87,8 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
     const mountedRef = useRef(true);
     const exitedRef = useRef(false);
     const shouldKillRef = useRef(killOnUnmount);
-    // True once `terminal.open(container)` has actually run — only after that
-    // point does `term.focus()` reach a real textarea. Focus requests that
-    // arrive before then (e.g. CMD+T or post-split focus, where the new pane
-    // mounts and we ask it to focus on the same frame) are remembered in
-    // `pendingFocusRef` and replayed at the end of `ensureOpen()`.
+    // True once `terminal.open(container)` has run and focus can reach a real
+    // textarea. Earlier focus requests are replayed at the end of `ensureOpen()`.
     const openedRef = useRef(false);
     const pendingFocusRef = useRef(false);
 
@@ -116,6 +119,12 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
           return;
         }
         term.focus();
+      },
+      clearScreen: () => {
+        writeRef.current?.("\x0c");
+      },
+      clearInput: () => {
+        writeRef.current?.("\x05\x15");
       },
       blur: () => {
         const term = terminalRef.current;
@@ -258,25 +267,7 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
       // would win on CMD+OPT+ArrowLeft and we'd ship \x01 (Ctrl+A) to the
       // pane the user is *leaving*, which the user reported as "arrows do
       // nothing visible to the splits".
-      terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type !== "keydown") return true;
-        if (!ptyIdRef.current || exitedRef.current) return true;
-        const keyMap: Record<string, string> = {
-          "meta+ArrowLeft": "\x01",
-          "meta+ArrowRight": "\x05",
-          "alt+ArrowLeft": "\x1bb",
-          "alt+ArrowRight": "\x1bf",
-        };
-        const isOnlyMeta = event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
-        const isOnlyAlt = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey;
-        const mod = isOnlyMeta ? "meta" : isOnlyAlt ? "alt" : "";
-        const seq = mod ? keyMap[`${mod}+${event.key}`] : undefined;
-        if (seq) {
-          writeRef.current?.(seq);
-          return false;
-        }
-        return true;
-      });
+      attachXtermNavigationKeys(terminal, { exitedRef, ptyIdRef, writeRef });
 
       terminalRef.current = terminal;
       fitAddonRef.current = fitAddon;
@@ -325,9 +316,7 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
         touchScrollCleanup = attachTouchScroll(container, terminal);
         opened = true;
         openedRef.current = true;
-        // Replay any focus request that came in before the textarea existed.
-        // This is what makes CMD+T / post-split focus actually land on the
-        // freshly-mounted pane.
+        // Replay focus requested before the textarea existed.
         if (pendingFocusRef.current) {
           pendingFocusRef.current = false;
           terminal.focus();
@@ -392,10 +381,7 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
       });
       intersectionObserver.observe(container);
 
-      // Belt-and-braces rAF retry: covers any layout edge case that
-      // neither RO nor IO catch (e.g. container parented but still 0×0
-      // because a flex parent hasn't laid out yet). Stops the moment
-      // xterm opens successfully.
+      // Belt-and-braces rAF retry for layout edges missed by RO/IO.
       let bootstrapRaf = 0;
       const tryBootstrap = (): void => {
         if (opened || !mountedRef.current || exitedRef.current) return;
@@ -453,6 +439,7 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
   },
 );
 
+
 /**
  * Make the terminal draggable by finger on touch devices. xterm 6 drives
  * scrolling through VS Code's `ScrollableElement` (not a native CSS overflow
@@ -502,21 +489,3 @@ function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () => void
   };
 }
 
-function createXtermInstance(theme: XTermPalette): Terminal {
-  return new Terminal({
-    cursorBlink: true,
-    cursorStyle: "block",
-    cursorWidth: 2,
-    fontSize: 13,
-    lineHeight: 1.2,
-    fontFamily:
-      "'FiraCode Nerd Font', 'Fira Code', 'CaskaydiaCove Nerd Font', 'Cascadia Code', 'SF Mono', Menlo, Monaco, 'Courier New', monospace",
-    fontWeight: "400",
-    fontWeightBold: "600",
-    letterSpacing: 0,
-    theme,
-    macOptionIsMeta: true,
-    allowProposedApi: true,
-    scrollback: 5000,
-  });
-}

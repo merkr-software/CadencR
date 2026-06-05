@@ -2,12 +2,13 @@ import { render } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { XTermPalette } from "@/lib/themes";
-import { XTermInstance } from "./XTermInstance";
+import { XTermInstance, type XTermInstanceHandle } from "./XTermInstance";
 
 const mocks = vi.hoisted(() => ({
   focus: vi.fn(),
   blur: vi.fn(),
   write: vi.fn(),
+  writeAction: vi.fn(),
   refresh: vi.fn(),
   connect: vi.fn(),
   resize: vi.fn(),
@@ -75,7 +76,7 @@ vi.mock("@/hooks/useTerminalWebSocket", () => ({
     mocks.onReconnected = args.onReconnected;
     return {
       connect: mocks.connect,
-      write: vi.fn(),
+      write: mocks.writeAction,
       resize: mocks.resize,
       kill: mocks.kill,
     };
@@ -158,5 +159,27 @@ describe("XTermInstance", () => {
     mocks.onReconnected?.("", true, "/repo");
 
     expect(mocks.focus).not.toHaveBeenCalled();
+  });
+
+  it("exposes an imperative clearScreen method that sends Ctrl+L", () => {
+    const write = vi.fn();
+    mocks.writeAction = write;
+    const ref = { current: null as XTermInstanceHandle | null };
+    render(<XTermInstance ref={ref} featureId={1} projectId={2} theme={theme} />);
+
+    ref.current?.clearScreen();
+
+    expect(write).toHaveBeenCalledWith("\x0c");
+  });
+
+  it("exposes an imperative clearInput method that deletes the whole current shell line", () => {
+    const write = vi.fn();
+    mocks.writeAction = write;
+    const ref = { current: null as XTermInstanceHandle | null };
+    render(<XTermInstance ref={ref} featureId={1} projectId={2} theme={theme} />);
+
+    ref.current?.clearInput();
+
+    expect(write).toHaveBeenCalledWith("\x05\x15");
   });
 });

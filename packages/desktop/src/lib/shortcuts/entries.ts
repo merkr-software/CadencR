@@ -19,6 +19,7 @@
  */
 import type { Shortcut } from "./types";
 import { EDITOR_SHORTCUTS } from "./entries-editor";
+import { TERMINAL_SHORTCUTS } from "./entries-terminal";
 
 const APP_SHORTCUTS = [
   // ─── Global ──────────────────────────────────────────────────────────
@@ -368,53 +369,8 @@ const APP_SHORTCUTS = [
     description: "Open focused file in editor",
     scope: "diff-viewer",
   },
-
-  // ─── Terminal ────────────────────────────────────────────────────────
-  {
-    id: "terminal-focus",
-    keys: ["mod", "t"],
-    description: "Focus or open terminal",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-split-h",
-    keys: ["mod", "d"],
-    description: "Split horizontal",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-split-v",
-    keys: ["mod", "shift", "d"],
-    description: "Split vertical",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-nav-pane-left",
-    keys: ["mod", "alt", "left"],
-    description: "Focus pane left",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-nav-pane-right",
-    keys: ["mod", "alt", "right"],
-    description: "Focus pane right",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-nav-pane-up",
-    keys: ["mod", "alt", "up"],
-    description: "Focus pane up",
-    scope: "terminal",
-  },
-  {
-    id: "terminal-nav-pane-down",
-    keys: ["mod", "alt", "down"],
-    description: "Focus pane down",
-    scope: "terminal",
-  },
-  { id: "terminal-close", keys: ["mod", "w"], description: "Close pane", scope: "terminal" },
 ] as const satisfies readonly Shortcut[];
 
-export const SHORTCUTS = [...APP_SHORTCUTS, ...EDITOR_SHORTCUTS] as const;
+export const SHORTCUTS = [...APP_SHORTCUTS, ...TERMINAL_SHORTCUTS, ...EDITOR_SHORTCUTS] as const;
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];

@@ -12,18 +12,16 @@ import { createPortal } from "react-dom";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { XTermInstance, type XTermInstanceHandle } from "./XTermInstance";
-import { PaneSlotPlaceholder } from "./PaneSlotPlaceholder";
 import { TerminalPaneToolbar } from "./TerminalPaneToolbar";
 import { MobileTerminalKeyBar } from "./MobileTerminalKeyBar";
+import { TerminalSplitTree } from "./TerminalSplitTree";
 import {
   type TerminalPanelState,
   type SplitOrientation,
-  type SplitNode,
   getLeaves,
   findAdjacentLeaf,
   useTerminalStore,
 } from "@/hooks/useTerminalState";
-import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { useTheme } from "@/hooks/useTheme";
 
 interface TerminalPanelProps {
@@ -254,6 +252,30 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
       { enabled: hotkeysEnabled },
     );
 
+    useScopedGlobalShortcutById(
+      "terminal-clear",
+      (e) => {
+        if (!resolvedActivePaneId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        paneRefs.current.get(resolvedActivePaneId)?.clearScreen();
+      },
+      "terminal",
+      { enabled: hotkeysEnabled },
+    );
+
+    useScopedGlobalShortcutById(
+      "terminal-delete-line",
+      (e) => {
+        if (!resolvedActivePaneId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        paneRefs.current.get(resolvedActivePaneId)?.clearInput();
+      },
+      "terminal",
+      { enabled: hotkeysEnabled },
+    );
+
     // Use ref for leaves so closePane stays stable
     const leavesRef = useRef(leaves);
     leavesRef.current = leaves;
@@ -328,41 +350,6 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
       else placeholderRefs.current.delete(id);
     }, []);
 
-    // -- Tree layout (empty placeholders — no XTermInstances) --
-
-    const renderTreeNode = useCallback(
-      (node: SplitNode): React.ReactNode => {
-        if (node.type === "leaf") {
-          return (
-            <PaneSlotPlaceholder
-              leaf={node}
-              expectedCwd={expectedCwd}
-              registerPlaceholder={registerPlaceholder}
-              onFocus={focusPane}
-              onRestart={restartPane}
-              onDismiss={dismissPaneWarning}
-            />
-          );
-        }
-        const [a, b] = node.children;
-        const isVertical = node.orientation === "vertical";
-        return (
-          <ResizablePanelGroup orientation={node.orientation} className="h-full">
-            <ResizablePanel minSize={10}>{renderTreeNode(a)}</ResizablePanel>
-            <ResizableHandle
-              className={
-                isVertical
-                  ? "!h-0.5 !w-full bg-[var(--terminal-panel-handle-bg)] hover:bg-[var(--terminal-panel-handle-bg-hover)] transition-colors"
-                  : "bg-[var(--terminal-panel-handle-bg)] hover:bg-[var(--terminal-panel-handle-bg-hover)] transition-colors"
-              }
-            />
-            <ResizablePanel minSize={10}>{renderTreeNode(b)}</ResizablePanel>
-          </ResizablePanelGroup>
-        );
-      },
-      [focusPane, expectedCwd, registerPlaceholder, restartPane, dismissPaneWarning],
-    );
-
     // Move persistent slots into placeholders before paint
     useLayoutEffect(() => {
       for (const { leaf, slot } of activeSlots) {
@@ -383,10 +370,9 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
         }}
       >
         <TerminalPaneToolbar
-          activePaneId={resolvedActivePaneId}
-          splitPane={splitPane}
-          onClose={closeActivePane}
           canClose={leaves.length > 0}
+          onClose={closeActivePane}
+          onSplit={splitAndFocus}
         />
 
         {/* Split tree layout — provides resizable placeholders */}
@@ -394,7 +380,16 @@ export const TerminalPanel = forwardRef<TerminalPanelHandle, TerminalPanelProps>
           className="min-h-0 flex-1 overflow-hidden transition-[height] duration-150 ease-in-out"
           style={isMinimized ? { height: 0, minHeight: 0 } : undefined}
         >
-          {root && renderTreeNode(root)}
+          {root && (
+            <TerminalSplitTree
+              node={root}
+              expectedCwd={expectedCwd}
+              onFocusPane={focusPane}
+              onRestartPane={restartPane}
+              onDismissWarning={dismissPaneWarning}
+              onRegisterPlaceholder={registerPlaceholder}
+            />
+          )}
         </div>
 
         {/* Touch-keyboard accessory bar — restores Esc/Tab/Ctrl/arrows on phones */}
