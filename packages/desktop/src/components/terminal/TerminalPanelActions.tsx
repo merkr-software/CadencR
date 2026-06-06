@@ -22,7 +22,7 @@ export const TerminalPanelActions = memo(function TerminalPanelActions({
       <ShortcutTooltip label="Split vertical" keys={["cmd", "D"]}>
         <button
           type="button"
-          aria-label="Split terminal horizontally"
+          aria-label="Split terminal vertically"
           onClick={() => onSplit("horizontal")}
           className={ICON_BTN}
         >
@@ -32,7 +32,7 @@ export const TerminalPanelActions = memo(function TerminalPanelActions({
       <ShortcutTooltip label="Split horizontal" keys={["cmd", "shift", "D"]} alignRight>
         <button
           type="button"
-          aria-label="Split terminal vertically"
+          aria-label="Split terminal horizontally"
           onClick={() => onSplit("vertical")}
           className={ICON_BTN}
         >
@@ -41,7 +41,12 @@ export const TerminalPanelActions = memo(function TerminalPanelActions({
       </ShortcutTooltip>
       {hasLeaves && (
         <ShortcutTooltip label="Close terminal" keys={["cmd", "W"]} alignRight>
-          <button type="button" aria-label="Close terminal" onClick={onClose} className={ICON_BTN}>
+          <button
+            type="button"
+            aria-label="Close terminal pane"
+            onClick={onClose}
+            className={ICON_BTN}
+          >
             <X className="size-3" />
           </button>
         </ShortcutTooltip>
