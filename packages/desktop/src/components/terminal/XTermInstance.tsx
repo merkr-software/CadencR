@@ -439,7 +439,6 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
   },
 );
 
-
 /**
  * Make the terminal draggable by finger on touch devices. xterm 6 drives
  * scrolling through VS Code's `ScrollableElement` (not a native CSS overflow
@@ -488,4 +487,3 @@ function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () => void
     surface.removeEventListener("touchmove", onTouchMove);
   };
 }
-

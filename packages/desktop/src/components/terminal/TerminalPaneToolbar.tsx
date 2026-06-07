@@ -42,7 +42,12 @@ export const TerminalPaneToolbar = memo(function TerminalPaneToolbar({
       </ShortcutTooltip>
       {canClose && (
         <ShortcutTooltip label="Close terminal" alignRight>
-          <button type="button" aria-label="Close terminal pane" onClick={onClose} className={ICON_BTN}>
+          <button
+            type="button"
+            aria-label="Close terminal pane"
+            onClick={onClose}
+            className={ICON_BTN}
+          >
             <X className="size-3" />
           </button>
         </ShortcutTooltip>
