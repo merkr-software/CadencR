@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@/test-utils";
+import { render, screen, waitFor } from "@/test-utils";
 import { Sidebar } from "./Sidebar";
 
 const mockNavigate = vi.fn();
@@ -150,6 +150,35 @@ describe("Sidebar", () => {
     render(<Sidebar onSearch={onSearch} />);
     await user.click(screen.getByTitle("Search (⌘K)"));
     expect(onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows an inactive search shortcut hint while terminal focus is active", async () => {
+    render(<Sidebar onSearch={() => {}} />);
+    expect(screen.getByTitle("Search (⌘K)")).toBeInTheDocument();
+
+    const terminal = document.createElement("div");
+    terminal.dataset.focusZone = "terminal";
+    const textarea = document.createElement("textarea");
+    terminal.appendChild(textarea);
+    document.body.appendChild(terminal);
+    const outsideButton = document.createElement("button");
+    document.body.appendChild(outsideButton);
+
+    textarea.focus();
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Search unavailable while terminal is focused")).toBeInTheDocument();
+    });
+    expect(screen.getByText("--")).toBeInTheDocument();
+
+    outsideButton.focus();
+
+    await waitFor(() => {
+      expect(screen.getByTitle("Search (⌘K)")).toBeInTheDocument();
+    });
+
+    terminal.remove();
+    outsideButton.remove();
   });
 
   it("renders ProjectTree with projects", () => {

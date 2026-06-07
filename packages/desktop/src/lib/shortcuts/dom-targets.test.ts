@@ -9,6 +9,8 @@ describe("shortcut DOM target predicates", () => {
     editor.appendChild(child);
 
     expect(isInCodeMirrorEditor(child)).toBe(true);
+    expect(isInCodeMirrorEditor(editor)).toBe(true);
+    expect(isInCodeMirrorEditor(null)).toBe(false);
     expect(isInCodeMirrorEditor(document.createElement("div"))).toBe(false);
   });
 
@@ -19,6 +21,8 @@ describe("shortcut DOM target predicates", () => {
     terminal.appendChild(textarea);
 
     expect(isInTerminalFocusZone(textarea)).toBe(true);
+    expect(isInTerminalFocusZone(terminal)).toBe(true);
+    expect(isInTerminalFocusZone(null)).toBe(false);
     expect(isInTerminalFocusZone(document.createElement("div"))).toBe(false);
   });
 });

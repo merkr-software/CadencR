@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactElement, type RefObject } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useShortcut } from "@/hooks/useShortcut";
 import { Settings, PanelLeftClose, Search, Maximize, Minimize, Share } from "lucide-react";
@@ -162,11 +162,13 @@ function useSidebarKeyboardNavigation(
 }
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {
+  const terminalFocused = useIsTerminalFocusActive();
+  const title = terminalFocused ? "Search unavailable while terminal is focused" : "Search (⌘K)";
   return (
     <button
       type="button"
       onClick={onSearch}
-      title="Search (⌘K)"
+      title={title}
       className={cn(
         "flex w-full items-center gap-2 rounded-md border border-border/60 bg-background/40 px-2 py-1.5",
         "text-sm text-muted-foreground outline-none transition-colors",
@@ -175,8 +177,43 @@ function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactEleme
     >
       <Search className="size-3.5 shrink-0" />
       <span className="min-w-0 flex-1 truncate text-left">Search</span>
-      <KbdShortcut keys={["cmd", "K"]} variant="hint" />
+      {terminalFocused ? (
+        <InactiveShortcutHint />
+      ) : (
+        <KbdShortcut keys={["cmd", "K"]} variant="hint" />
+      )}
     </button>
+  );
+}
+
+function useIsTerminalFocusActive(): boolean {
+  const [activeFocusZone, setActiveFocusZone] = useState<string | null>(() => getActiveFocusZone());
+
+  useEffect(() => {
+    let timeoutId = 0;
+    const refresh = (): void => setActiveFocusZone(getActiveFocusZone());
+    const refreshAfterFocusSettles = (): void => {
+      window.clearTimeout(timeoutId);
+      timeoutId = window.setTimeout(refresh, 0);
+    };
+
+    window.addEventListener("focusin", refresh, true);
+    window.addEventListener("focusout", refreshAfterFocusSettles, true);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.removeEventListener("focusin", refresh, true);
+      window.removeEventListener("focusout", refreshAfterFocusSettles, true);
+    };
+  }, []);
+
+  return activeFocusZone === "terminal";
+}
+
+function InactiveShortcutHint(): ReactElement {
+  return (
+    <kbd className="inline-flex items-center justify-center gap-px rounded border border-current/25 bg-transparent px-1 py-0.5 text-[10px] font-mono font-medium leading-none text-current opacity-50">
+      <span className="leading-none">--</span>
+    </kbd>
   );
 }
 
