@@ -5,7 +5,7 @@ import {
   setDesktopBridgeOverrideForTests,
 } from "@/lib/desktop-bridge";
 import type { CadencrDesktopBridge, FileDropPayload } from "@/lib/desktop-bridge";
-import { useImageAttachments } from "./useImageAttachments";
+import { isImageAttachment, isTextAttachment, useImageAttachments } from "./useImageAttachments";
 import { toast } from "sonner";
 
 const dropSubscribers: Array<(payload: FileDropPayload) => void> = [];
@@ -69,12 +69,16 @@ describe("useImageAttachments", () => {
     vi.stubGlobal(
       "FileReader",
       class {
+        private cb: ((e: { target: { result: string } }) => void) | null = null;
         addEventListener(event: string, cb: (e: { target: { result: string } }) => void) {
-          if (event === "load") {
-            setTimeout(() => cb({ target: { result: "data:image/png;base64,abc123" } }), 0);
-          }
+          if (event === "load") this.cb = cb;
         }
-        readAsDataURL() {}
+        readAsDataURL() {
+          setTimeout(() => this.cb?.({ target: { result: "data:image/png;base64,abc123" } }), 0);
+        }
+        readAsText() {
+          setTimeout(() => this.cb?.({ target: { result: "col1,col2\n1,2" } }), 0);
+        }
       },
     );
 
@@ -102,8 +106,32 @@ describe("useImageAttachments", () => {
       expect(result.current.attachments).toHaveLength(1);
     });
 
-    expect(result.current.attachments[0].mimeType).toBe("image/png");
-    expect(result.current.attachments[0].base64).toBe("abc123");
+    const att = result.current.attachments[0];
+    expect(isImageAttachment(att)).toBe(true);
+    if (isImageAttachment(att)) {
+      expect(att.mimeType).toBe("image/png");
+      expect(att.base64).toBe("abc123");
+    }
+  });
+
+  it("adds a text file as a text attachment", async () => {
+    const { result } = renderHook(() => useImageAttachments());
+    const file = createMockFile("data.csv", "text/csv");
+
+    act(() => {
+      result.current.addFiles([file]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.attachments).toHaveLength(1);
+    });
+
+    const att = result.current.attachments[0];
+    expect(isTextAttachment(att)).toBe(true);
+    if (isTextAttachment(att)) {
+      expect(att.fileName).toBe("data.csv");
+      expect(att.text).toBe("col1,col2\n1,2");
+    }
   });
 
   it("rejects unsupported file types", async () => {
@@ -213,8 +241,8 @@ describe("useImageAttachments", () => {
     // Each subscriber still calls toast.error, but it must share a stable id so
     // sonner collapses them to a single visible toast — assert the id is set.
     expect(toast.error).toHaveBeenCalledWith(
-      "Drop the image on an agent to attach it.",
-      expect.objectContaining({ id: "image-drop-missing-target" }),
+      "Drop the file on an agent to attach it.",
+      expect.objectContaining({ id: "attachment-drop-missing-target" }),
     );
   });
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { ImageAttachmentPreview } from "./ImageAttachmentPreview";
-import type { ImageAttachment } from "@/hooks/useImageAttachments";
+import type { ImageAttachment, TextAttachment } from "@/hooks/useImageAttachments";
 
 function makeAttachment(overrides: Partial<ImageAttachment> = {}): ImageAttachment {
   return {
@@ -10,6 +10,16 @@ function makeAttachment(overrides: Partial<ImageAttachment> = {}): ImageAttachme
     previewUrl: "data:image/png;base64,abc123",
     base64: "abc123",
     mimeType: "image/png",
+    ...overrides,
+  };
+}
+
+function makeTextAttachment(overrides: Partial<TextAttachment> = {}): TextAttachment {
+  return {
+    id: "txt-1",
+    fileName: "data.csv",
+    text: "a,b\n1,2",
+    sizeBytes: 7,
     ...overrides,
   };
 }
@@ -27,6 +37,13 @@ describe("ImageAttachmentPreview", () => {
     ];
     render(<ImageAttachmentPreview attachments={attachments} onRemove={vi.fn()} />);
     expect(screen.getAllByRole("img")).toHaveLength(2);
+  });
+
+  it("renders a file chip (not an image) for text attachments", () => {
+    render(<ImageAttachmentPreview attachments={[makeTextAttachment()]} onRemove={vi.fn()} />);
+    expect(screen.queryByRole("img")).toBeNull();
+    expect(screen.getByText("data.csv")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /remove data\.csv/i })).toBeInTheDocument();
   });
 
   it("renders remove button for each attachment", () => {

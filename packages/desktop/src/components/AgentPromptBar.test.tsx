@@ -194,7 +194,7 @@ describe("AgentPromptBar", () => {
     );
     const textbox = screen.getByRole("textbox");
     screen.getByTestId("outside").focus();
-    fireEvent.click(screen.getByLabelText("Attach images"));
+    fireEvent.click(screen.getByLabelText("Attach files"));
     expect(document.activeElement).not.toBe(textbox);
   });
 

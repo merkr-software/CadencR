@@ -20,7 +20,12 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import type { RefObject } from "react";
-import type { ImageAttachment } from "@/hooks/useImageAttachments";
+import {
+  formatTextAttachmentsForPrompt,
+  isImageAttachment,
+  isTextAttachment,
+  type PromptAttachment,
+} from "@/lib/prompt-attachments";
 import type { PromptEditorHandle } from "./prompt-editor/PromptEditor";
 
 export type SendFn = (
@@ -32,10 +37,10 @@ export interface RunSendDeps {
   editorRef: RefObject<PromptEditorHandle | null>;
   setText: (text: string) => void;
   clearAttachments: (options?: { revokeObjectUrls?: boolean }) => void;
-  restoreAttachments: (attachments: ImageAttachment[]) => void;
+  restoreAttachments: (attachments: PromptAttachment[]) => void;
   saveDraft: (text: string | null) => void;
   addHistoryEntry: (text: string) => void;
-  getAttachments: () => ImageAttachment[];
+  getAttachments: () => PromptAttachment[];
 }
 
 export interface AgentPromptSendApi {
@@ -64,10 +69,15 @@ export function useAgentPromptSend(deps: RunSendDeps): AgentPromptSendApi {
   const runSend = useCallback(
     async (send: SendFn, trimmed: string): Promise<void> => {
       const attachments = getAttachments();
+      // Images travel as base64 blocks; text files are inlined into the
+      // prompt text so every provider sees them as plain text.
+      const imageAttachments = attachments.filter(isImageAttachment);
+      const textAttachments = attachments.filter(isTextAttachment);
       const images =
-        attachments.length > 0
-          ? attachments.map((a) => ({ base64: a.base64, mimeType: a.mimeType }))
+        imageAttachments.length > 0
+          ? imageAttachments.map((a) => ({ base64: a.base64, mimeType: a.mimeType }))
           : undefined;
+      const sendText = formatTextAttachmentsForPrompt(trimmed, textAttachments);
       // Optimistically clear the visible textarea so the user sees their
       // submission "in flight". On failure we restore it below.
       setText("");
@@ -75,9 +85,9 @@ export function useAgentPromptSend(deps: RunSendDeps): AgentPromptSendApi {
       clearAttachments({ revokeObjectUrls: false });
       setSending(true);
       try {
-        await send(trimmed, images);
+        await send(sendText, images);
         // Success: drop the persisted draft, record history, refocus.
-        attachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
+        imageAttachments.forEach((attachment) => URL.revokeObjectURL(attachment.previewUrl));
         addHistoryEntry(trimmed);
         saveDraft(null);
         requestAnimationFrame(() => editorRef.current?.focus());

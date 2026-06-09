@@ -1,25 +1,30 @@
 import { useEffect } from "react";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { COMMAND_PRIORITY_NORMAL, PASTE_COMMAND } from "lexical";
-import { ALLOWED_IMAGE_TYPES } from "@/hooks/useImageAttachments";
+import { classifyAttachment } from "@/lib/prompt-attachments";
 
 interface ImagePastePluginProps {
+  /** Receives attachable files (images or text) pasted as file items. */
   onPasteImages?: (files: File[]) => void;
 }
 
-function extractImageFiles(clipboardData: DataTransfer | null): File[] {
+function extractAttachableFiles(clipboardData: DataTransfer | null): File[] {
   if (!clipboardData) return [];
   const files: File[] = [];
   for (const item of clipboardData.items) {
     if (item.kind !== "file") continue;
-    if (!ALLOWED_IMAGE_TYPES.includes(item.type)) continue;
     const file = item.getAsFile();
-    if (file) files.push(file);
+    if (!file) continue;
+    if (classifyAttachment(file.name, file.type).kind === "unsupported") continue;
+    files.push(file);
   }
   return files;
 }
 
-/** Forwards image files from clipboard pastes to `onPasteImages`; text-only pastes fall through. */
+/**
+ * Forwards attachable files (images, CSV/text) from clipboard pastes to
+ * `onPasteImages`; plain-text pastes (no file items) fall through to the editor.
+ */
 export function ImagePastePlugin({ onPasteImages }: ImagePastePluginProps) {
   const [editor] = useLexicalComposerContext();
 
@@ -29,10 +34,10 @@ export function ImagePastePlugin({ onPasteImages }: ImagePastePluginProps) {
       PASTE_COMMAND,
       (event) => {
         if (!event || !("clipboardData" in event)) return false;
-        const images = extractImageFiles(event.clipboardData);
-        if (images.length === 0) return false;
+        const attachable = extractAttachableFiles(event.clipboardData);
+        if (attachable.length === 0) return false;
         event.preventDefault();
-        onPasteImages(images);
+        onPasteImages(attachable);
         return true;
       },
       COMMAND_PRIORITY_NORMAL,

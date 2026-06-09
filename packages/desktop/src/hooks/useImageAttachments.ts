@@ -1,14 +1,22 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { desktopBridge, type FileDropItem } from "@/lib/desktop-bridge";
+import {
+  ATTACHMENT_SUPPORT_HINT,
+  MAX_ATTACHMENT_FILES,
+  MAX_IMAGE_BYTES,
+  MAX_TEXT_BYTES,
+  classifyAttachment,
+  decodeBase64Utf8,
+  isImageAttachment,
+  type PromptAttachment,
+} from "@/lib/prompt-attachments";
 
-export interface ImageAttachment {
-  id: string;
-  fileName: string;
-  base64: string;
-  mimeType: string;
-  previewUrl: string;
-}
+// Re-exported so existing importers (`@/hooks/useImageAttachments`) keep
+// working; the canonical home for attachment types/guards is
+// `@/lib/prompt-attachments`.
+export type { ImageAttachment, TextAttachment, PromptAttachment } from "@/lib/prompt-attachments";
+export { isImageAttachment, isTextAttachment } from "@/lib/prompt-attachments";
 
 export interface ImageAttachmentDragHandlers {
   onDragOver: (event: React.DragEvent) => void;
@@ -16,11 +24,11 @@ export interface ImageAttachmentDragHandlers {
 }
 
 export interface UseImageAttachmentsResult {
-  attachments: ImageAttachment[];
+  attachments: PromptAttachment[];
   addFiles: (files: FileList | File[]) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: (options?: { revokeObjectUrls?: boolean }) => void;
-  restoreAttachments: (next: ImageAttachment[]) => void;
+  restoreAttachments: (next: PromptAttachment[]) => void;
   dragHandlers: ImageAttachmentDragHandlers;
   /**
    * Always `false`. The visual drag highlight is now owned by the agent
@@ -31,24 +39,8 @@ export interface UseImageAttachmentsResult {
   isDragging: boolean;
 }
 
-export const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
-const EXTENSION_TO_MIME: Record<string, string> = {
-  png: "image/png",
-  jpg: "image/jpeg",
-  jpeg: "image/jpeg",
-  gif: "image/gif",
-  webp: "image/webp",
-};
-const MAX_FILES = 10;
-const MAX_SIZE_BYTES = 20 * 1024 * 1024; // 20MB
-
-function getMimeFromExtension(fileName: string): string | undefined {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  return EXTENSION_TO_MIME[ext];
-}
-
 export function useImageAttachments(promptId?: string): UseImageAttachmentsResult {
-  const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // `isDragging` used to be driven from the preload's document-level
@@ -60,9 +52,9 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
   // mocks; new consumers should read drag state from the section.
   const isDragging = false;
 
-  const addAttachment = useCallback((attachment: ImageAttachment) => {
+  const addAttachment = useCallback((attachment: PromptAttachment) => {
     setAttachments((prev) => {
-      if (prev.length >= MAX_FILES) return prev;
+      if (prev.length >= MAX_ATTACHMENT_FILES) return prev;
       return [...prev, attachment];
     });
   }, []);
@@ -70,27 +62,50 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
   const addFiles = useCallback(
     (files: FileList | File[]) => {
       const fileArray = Array.from(files);
-      const remaining = MAX_FILES - attachmentsRef.current.length;
+      const remaining = MAX_ATTACHMENT_FILES - attachmentsRef.current.length;
       if (remaining <= 0) return;
 
       fileArray.slice(0, remaining).forEach((file) => {
-        if (!ALLOWED_IMAGE_TYPES.includes(file.type)) return;
-        if (file.size > MAX_SIZE_BYTES) return;
+        const classification = classifyAttachment(file.name, file.type);
+        if (classification.kind === "unsupported") return;
 
+        if (classification.kind === "image") {
+          if (file.size > MAX_IMAGE_BYTES) return;
+          const reader = new FileReader();
+          reader.addEventListener("load", (e) => {
+            const dataUrl = e.target?.result as string;
+            const base64 = dataUrl.split(",")[1];
+            const previewUrl = URL.createObjectURL(file);
+            addAttachment({
+              id: crypto.randomUUID(),
+              fileName: file.name,
+              base64,
+              mimeType: classification.mimeType,
+              previewUrl,
+            });
+          });
+          reader.readAsDataURL(file);
+          return;
+        }
+
+        // Text file: inline its contents into the prompt at send time.
+        if (file.size > MAX_TEXT_BYTES) {
+          toast.error(`${file.name} is too large to attach`, {
+            description: "Text attachments must be under 1 MB.",
+          });
+          return;
+        }
         const reader = new FileReader();
         reader.addEventListener("load", (e) => {
-          const dataUrl = e.target?.result as string;
-          const base64 = dataUrl.split(",")[1];
-          const previewUrl = URL.createObjectURL(file);
+          const text = (e.target?.result as string) ?? "";
           addAttachment({
             id: crypto.randomUUID(),
             fileName: file.name,
-            base64,
-            mimeType: file.type,
-            previewUrl,
+            text,
+            sizeBytes: file.size,
           });
         });
-        reader.readAsDataURL(file);
+        reader.readAsText(file);
       });
     },
     [addAttachment],
@@ -98,28 +113,38 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
 
   const addDroppedFiles = useCallback(
     async (files: FileDropItem[]) => {
-      const remaining = MAX_FILES - attachmentsRef.current.length;
+      const remaining = MAX_ATTACHMENT_FILES - attachmentsRef.current.length;
       if (remaining <= 0) return;
 
       for (const file of files.slice(0, remaining)) {
-        const mimeType = getMimeFromExtension(file.name);
-        if (!mimeType) {
+        const classification = classifyAttachment(file.name);
+        if (classification.kind === "unsupported") {
           toast.error(`Unsupported file: ${file.name}`, {
-            description: "Only PNG, JPEG, GIF, and WebP images can be attached.",
+            description: ATTACHMENT_SUPPORT_HINT,
           });
           continue;
         }
 
         try {
           const base64 = await desktopBridge.readFileBase64(file.handle);
-          const previewUrl = `data:${mimeType};base64,${base64}`;
-          addAttachment({
-            id: crypto.randomUUID(),
-            fileName: file.name,
-            base64,
-            mimeType,
-            previewUrl,
-          });
+          if (classification.kind === "image") {
+            const previewUrl = `data:${classification.mimeType};base64,${base64}`;
+            addAttachment({
+              id: crypto.randomUUID(),
+              fileName: file.name,
+              base64,
+              mimeType: classification.mimeType,
+              previewUrl,
+            });
+          } else {
+            const text = decodeBase64Utf8(base64);
+            addAttachment({
+              id: crypto.randomUUID(),
+              fileName: file.name,
+              text,
+              sizeBytes: text.length,
+            });
+          }
         } catch (e) {
           const message = e instanceof Error ? e.message : String(e);
           toast.error(`Couldn't attach ${file.name}`, { description: message });
@@ -148,8 +173,8 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
         // collapses concurrent calls from every mounted subscriber into a
         // single visible toast.
         if (!event.targetPromptId) {
-          toast.error("Drop the image on an agent to attach it.", {
-            id: "image-drop-missing-target",
+          toast.error("Drop the file on an agent to attach it.", {
+            id: "attachment-drop-missing-target",
           });
           return;
         }
@@ -169,7 +194,7 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id);
-      if (target) URL.revokeObjectURL(target.previewUrl);
+      if (target && isImageAttachment(target)) URL.revokeObjectURL(target.previewUrl);
       return prev.filter((a) => a.id !== id);
     });
   }, []);
@@ -177,13 +202,15 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
   const clearAttachments = useCallback((options?: { revokeObjectUrls?: boolean }) => {
     setAttachments((prev) => {
       if (options?.revokeObjectUrls !== false) {
-        prev.forEach((a) => URL.revokeObjectURL(a.previewUrl));
+        prev.forEach((a) => {
+          if (isImageAttachment(a)) URL.revokeObjectURL(a.previewUrl);
+        });
       }
       return [];
     });
   }, []);
 
-  const restoreAttachments = useCallback((next: ImageAttachment[]) => {
+  const restoreAttachments = useCallback((next: PromptAttachment[]) => {
     setAttachments(next);
   }, []);
 

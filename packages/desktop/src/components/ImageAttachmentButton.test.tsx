@@ -5,7 +5,7 @@ import { ImageAttachmentButton } from "./ImageAttachmentButton";
 describe("ImageAttachmentButton", () => {
   it("renders a button with paperclip icon", () => {
     render(<ImageAttachmentButton onFilesSelected={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /attach images/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /attach files/i })).toBeInTheDocument();
   });
 
   it("is disabled when disabled prop is true", () => {
@@ -28,12 +28,13 @@ describe("ImageAttachmentButton", () => {
     expect(onFilesSelected).toHaveBeenCalled();
   });
 
-  it("renders hidden file input with image accept types", () => {
+  it("renders hidden file input accepting images and text files", () => {
     const { container } = render(<ImageAttachmentButton onFilesSelected={vi.fn()} />);
     const input = container.querySelector("input[type='file']");
     expect(input).toBeInTheDocument();
     expect(input).toHaveClass("hidden");
     expect(input).toHaveAttribute("accept", expect.stringContaining("image/"));
+    expect(input).toHaveAttribute("accept", expect.stringContaining(".csv"));
     expect(input).toHaveAttribute("multiple");
   });
 });
