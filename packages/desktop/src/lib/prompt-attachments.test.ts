@@ -36,9 +36,14 @@ describe("classifyAttachment", () => {
     expect(classifyAttachment("noext", "text/plain")).toEqual({ kind: "text" });
   });
 
+  it("classifies PDFs by extension or MIME", () => {
+    expect(classifyAttachment("report.PDF")).toEqual({ kind: "pdf" });
+    expect(classifyAttachment("blob", "application/pdf")).toEqual({ kind: "pdf" });
+  });
+
   it("rejects unsupported files", () => {
-    expect(classifyAttachment("doc.pdf", "application/pdf")).toEqual({ kind: "unsupported" });
     expect(classifyAttachment("archive.zip")).toEqual({ kind: "unsupported" });
+    expect(classifyAttachment("clip.mp4", "video/mp4")).toEqual({ kind: "unsupported" });
   });
 });
 
@@ -50,8 +55,9 @@ describe("getExtension", () => {
 });
 
 describe("ATTACHMENT_ACCEPT", () => {
-  it("includes image MIME types and text extensions", () => {
+  it("includes images, PDF, and text extensions", () => {
     expect(ATTACHMENT_ACCEPT).toContain("image/png");
+    expect(ATTACHMENT_ACCEPT).toContain(".pdf");
     expect(ATTACHMENT_ACCEPT).toContain(".csv");
     expect(ATTACHMENT_ACCEPT).toContain(".tsv");
   });

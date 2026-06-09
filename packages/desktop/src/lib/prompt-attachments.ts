@@ -54,16 +54,20 @@ export const MAX_ATTACHMENT_FILES = 10;
 export const MAX_IMAGE_BYTES = 20 * 1024 * 1024; // 20MB
 /** Text files are inlined into the prompt, so keep them prompt-sized. */
 export const MAX_TEXT_BYTES = 1024 * 1024; // 1MB
+/** PDFs are parsed to text in-app before inlining; cap the raw file size. */
+export const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
 
-/** `accept` attribute for the file picker — image MIME types + text extensions. */
+/** `accept` attribute for the file picker — images + PDF + text extensions. */
 export const ATTACHMENT_ACCEPT = [
   ...ALLOWED_IMAGE_TYPES,
+  "application/pdf",
+  ".pdf",
   ...TEXT_ATTACHMENT_EXTENSIONS.map((ext) => `.${ext}`),
 ].join(",");
 
 /** User-facing hint listing what can be attached. */
 export const ATTACHMENT_SUPPORT_HINT =
-  "Attach images (PNG, JPEG, GIF, WebP) or text files like CSV, TSV, JSON, and Markdown.";
+  "Attach images (PNG, JPEG, GIF, WebP), PDFs, or text files like CSV, TSV, JSON, and Markdown.";
 
 export interface ImageAttachment {
   id: string;
@@ -94,6 +98,7 @@ export function isTextAttachment(attachment: PromptAttachment): attachment is Te
 export type AttachmentClass =
   | { kind: "image"; mimeType: string }
   | { kind: "text" }
+  | { kind: "pdf" }
   | { kind: "unsupported" };
 
 export function getExtension(fileName: string): string {
@@ -113,6 +118,7 @@ export function classifyAttachment(fileName: string, fileType?: string): Attachm
   const ext = getExtension(fileName);
   const imageMime = IMAGE_EXTENSION_TO_MIME[ext];
   if (imageMime) return { kind: "image", mimeType: imageMime };
+  if (ext === "pdf" || fileType === "application/pdf") return { kind: "pdf" };
   if (TEXT_EXTENSIONS.has(ext)) return { kind: "text" };
   // Fallback: any file the browser tags as text (e.g. an extensionless
   // `text/plain` drop) is safe to inline.
@@ -120,11 +126,15 @@ export function classifyAttachment(fileName: string, fileType?: string): Attachm
   return { kind: "unsupported" };
 }
 
-/** Decode a base64 string (from the desktop bridge) as UTF-8 text. */
-export function decodeBase64Utf8(base64: string): string {
+/** Decode a base64 string (from the desktop bridge) into raw bytes. */
+export function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
-  const bytes = Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
+  return Uint8Array.from(binary, (ch) => ch.charCodeAt(0));
+}
+
+/** Decode a base64 string as UTF-8 text. */
+export function decodeBase64Utf8(base64: string): string {
+  return new TextDecoder().decode(base64ToBytes(base64));
 }
 
 function longestBacktickRun(value: string): number {

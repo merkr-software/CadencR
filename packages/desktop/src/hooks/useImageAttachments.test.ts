@@ -8,6 +8,12 @@ import type { CadencrDesktopBridge, FileDropPayload } from "@/lib/desktop-bridge
 import { isImageAttachment, isTextAttachment, useImageAttachments } from "./useImageAttachments";
 import { toast } from "sonner";
 
+// PDF parsing is exercised in pdf-text.test.ts; here we just assert the
+// hook turns a PDF into a text attachment, so stub the extractor.
+vi.mock("@/lib/pdf-text", () => ({
+  extractPdfText: vi.fn(async () => "PDF TEXT FROM MOCK"),
+}));
+
 const dropSubscribers: Array<(payload: FileDropPayload) => void> = [];
 const mockOnFileDrop = vi.fn((cb: (payload: FileDropPayload) => void) => {
   dropSubscribers.push(cb);
@@ -134,9 +140,32 @@ describe("useImageAttachments", () => {
     }
   });
 
+  it("extracts a PDF into a text attachment", async () => {
+    const { result } = renderHook(() => useImageAttachments());
+    const file = createMockFile("report.pdf", "application/pdf");
+    // jsdom's File may not implement arrayBuffer(); provide a stub since
+    // the extractor itself is mocked and ignores the bytes.
+    Object.defineProperty(file, "arrayBuffer", { value: async () => new ArrayBuffer(8) });
+
+    act(() => {
+      result.current.addFiles([file]);
+    });
+
+    await waitFor(() => {
+      expect(result.current.attachments).toHaveLength(1);
+    });
+
+    const att = result.current.attachments[0];
+    expect(isTextAttachment(att)).toBe(true);
+    if (isTextAttachment(att)) {
+      expect(att.fileName).toBe("report.pdf");
+      expect(att.text).toBe("PDF TEXT FROM MOCK");
+    }
+  });
+
   it("rejects unsupported file types", async () => {
     const { result } = renderHook(() => useImageAttachments());
-    const file = createMockFile("doc.pdf", "application/pdf");
+    const file = createMockFile("archive.zip", "application/zip");
 
     act(() => {
       result.current.addFiles([file]);

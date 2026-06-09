@@ -5,12 +5,15 @@ import {
   ATTACHMENT_SUPPORT_HINT,
   MAX_ATTACHMENT_FILES,
   MAX_IMAGE_BYTES,
+  MAX_PDF_BYTES,
   MAX_TEXT_BYTES,
+  base64ToBytes,
   classifyAttachment,
   decodeBase64Utf8,
   isImageAttachment,
   type PromptAttachment,
 } from "@/lib/prompt-attachments";
+import { extractPdfText } from "@/lib/pdf-text";
 
 // Re-exported so existing importers (`@/hooks/useImageAttachments`) keep
 // working; the canonical home for attachment types/guards is
@@ -59,6 +62,32 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
     });
   }, []);
 
+  // Parse a PDF's text in-app, then attach it like any other text file.
+  // Extraction is async and can be slow, so a loading toast covers the
+  // wait; the attachment chip appearing is the success signal.
+  const attachPdf = useCallback(
+    async (fileName: string, readBytes: () => Promise<ArrayBuffer | Uint8Array>): Promise<void> => {
+      const toastId = `pdf-extract-${fileName}`;
+      toast.loading(`Reading ${fileName}…`, { id: toastId });
+      try {
+        const text = (await extractPdfText(await readBytes())).trim();
+        if (!text) {
+          toast.error(`Couldn't extract text from ${fileName}`, {
+            id: toastId,
+            description: "It may be a scanned or image-only PDF.",
+          });
+          return;
+        }
+        toast.dismiss(toastId);
+        addAttachment({ id: crypto.randomUUID(), fileName, text, sizeBytes: text.length });
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        toast.error(`Couldn't read ${fileName}`, { id: toastId, description: message });
+      }
+    },
+    [addAttachment],
+  );
+
   const addFiles = useCallback(
     (files: FileList | File[]) => {
       const fileArray = Array.from(files);
@@ -88,6 +117,17 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
           return;
         }
 
+        if (classification.kind === "pdf") {
+          if (file.size > MAX_PDF_BYTES) {
+            toast.error(`${file.name} is too large to attach`, {
+              description: "PDF attachments must be under 20 MB.",
+            });
+            return;
+          }
+          void attachPdf(file.name, () => file.arrayBuffer());
+          return;
+        }
+
         // Text file: inline its contents into the prompt at send time.
         if (file.size > MAX_TEXT_BYTES) {
           toast.error(`${file.name} is too large to attach`, {
@@ -108,7 +148,7 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
         reader.readAsText(file);
       });
     },
-    [addAttachment],
+    [addAttachment, attachPdf],
   );
 
   const addDroppedFiles = useCallback(
@@ -136,6 +176,15 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
               mimeType: classification.mimeType,
               previewUrl,
             });
+          } else if (classification.kind === "pdf") {
+            const bytes = base64ToBytes(base64);
+            if (bytes.byteLength > MAX_PDF_BYTES) {
+              toast.error(`${file.name} is too large to attach`, {
+                description: "PDF attachments must be under 20 MB.",
+              });
+              continue;
+            }
+            await attachPdf(file.name, async () => bytes);
           } else {
             const text = decodeBase64Utf8(base64);
             addAttachment({
@@ -151,7 +200,7 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
         }
       }
     },
-    [addAttachment],
+    [addAttachment, attachPdf],
   );
 
   // Stable ref so the effect doesn't re-register on every render
