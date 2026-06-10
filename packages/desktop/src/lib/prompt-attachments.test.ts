@@ -80,12 +80,17 @@ describe("formatTextAttachmentsForPrompt", () => {
     const out = formatTextAttachmentsForPrompt("summarize this", [
       { fileName: "data.csv", text: "a,b\n1,2" },
     ]);
-    expect(out).toBe("summarize this\n\nAttached file `data.csv`:\n```csv\na,b\n1,2\n```");
+    expect(out).toBe("summarize this\n\nAttached file: data.csv\n```csv\na,b\n1,2\n```");
   });
 
   it("drops empty typed text and still includes the file", () => {
     const out = formatTextAttachmentsForPrompt("", [{ fileName: "x.txt", text: "hi" }]);
-    expect(out).toBe("Attached file `x.txt`:\n```txt\nhi\n```");
+    expect(out).toBe("Attached file: x.txt\n```txt\nhi\n```");
+  });
+
+  it("does not let a backtick in the filename break formatting", () => {
+    const out = formatTextAttachmentsForPrompt("", [{ fileName: "we`ird.csv", text: "a" }]);
+    expect(out).toBe("Attached file: we`ird.csv\n```csv\na\n```");
   });
 
   it("grows the fence so backticks in content can't break out", () => {

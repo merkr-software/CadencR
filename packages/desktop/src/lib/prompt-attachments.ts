@@ -147,7 +147,8 @@ function longestBacktickRun(value: string): number {
  * Build the message text sent to the agent: the typed prompt followed by
  * each text attachment fenced in a code block labelled with its filename.
  * The fence length adapts so file contents containing backticks can't
- * break out of the block.
+ * break out of the block. The filename label is left unformatted so a
+ * backtick in the name can't break out of an inline-code span.
  */
 export function formatTextAttachmentsForPrompt(
   text: string,
@@ -157,7 +158,7 @@ export function formatTextAttachmentsForPrompt(
   const blocks = files.map((file) => {
     const fence = "`".repeat(Math.max(3, longestBacktickRun(file.text) + 1));
     const lang = getExtension(file.fileName);
-    return `Attached file \`${file.fileName}\`:\n${fence}${lang}\n${file.text}\n${fence}`;
+    return `Attached file: ${file.fileName}\n${fence}${lang}\n${file.text}\n${fence}`;
   });
   return [text.trim(), ...blocks].filter((part) => part.length > 0).join("\n\n");
 }

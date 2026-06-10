@@ -145,7 +145,7 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
             sizeBytes: file.size,
           });
         });
-        reader.readAsText(file);
+        reader.readAsText(file, "utf-8");
       });
     },
     [addAttachment, attachPdf],
@@ -186,12 +186,21 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
             }
             await attachPdf(file.name, async () => bytes);
           } else {
-            const text = decodeBase64Utf8(base64);
+            // Enforce the same limit as browser-picked text files. Estimate
+            // the decoded size from the base64 length so a huge dropped file
+            // is rejected before it's decoded into a string.
+            const sizeBytes = Math.floor((base64.length * 3) / 4);
+            if (sizeBytes > MAX_TEXT_BYTES) {
+              toast.error(`${file.name} is too large to attach`, {
+                description: "Text attachments must be under 1 MB.",
+              });
+              continue;
+            }
             addAttachment({
               id: crypto.randomUUID(),
               fileName: file.name,
-              text,
-              sizeBytes: text.length,
+              text: decodeBase64Utf8(base64),
+              sizeBytes,
             });
           }
         } catch (e) {
@@ -222,9 +231,13 @@ export function useImageAttachments(promptId?: string): UseImageAttachmentsResul
         // collapses concurrent calls from every mounted subscriber into a
         // single visible toast.
         if (!event.targetPromptId) {
-          toast.error("Drop the file on an agent to attach it.", {
-            id: "attachment-drop-missing-target",
-          });
+          const many = event.files.length > 1;
+          toast.error(
+            many
+              ? "Drop the files on an agent to attach them."
+              : "Drop the file on an agent to attach it.",
+            { id: "attachment-drop-missing-target" },
+          );
           return;
         }
         if (promptId && event.targetPromptId !== promptId) return;

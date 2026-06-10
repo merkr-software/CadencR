@@ -220,6 +220,27 @@ describe("useImageAttachments", () => {
     expect(mockOnFileDrop).toHaveBeenCalled();
   });
 
+  it("rejects an oversized dropped text file", async () => {
+    // ~1.5 MB once decoded — over the 1 MB text cap.
+    readFileBase64.mockResolvedValue("A".repeat(2 * 1024 * 1024));
+    const { result } = renderHook(() => useImageAttachments("ws:first"));
+
+    act(() => {
+      dropSubscribers[0]({
+        type: "drop",
+        files: [{ handle: "h-1", name: "big.csv" }],
+        targetPromptId: "ws:first",
+      });
+    });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(result.current.attachments).toHaveLength(0);
+    expect(toast.error).toHaveBeenCalledWith(
+      "big.csv is too large to attach",
+      expect.objectContaining({ description: expect.stringContaining("1 MB") }),
+    );
+  });
+
   it("routes a desktop drop to only the matching prompt id", async () => {
     const { result: first } = renderHook(() => useImageAttachments("ws:first"));
     const { result: second } = renderHook(() => useImageAttachments("ws:second"));
