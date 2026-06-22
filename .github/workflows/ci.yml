@@ -34,4 +34,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run pre-commit checks
-        run: pnpm turbo run format:check lint ts-check test knip
+        run: |
+          pnpm run test:release-scripts
+          pnpm turbo run format:check lint ts-check test knip

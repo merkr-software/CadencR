@@ -34,6 +34,9 @@ jobs:
       # actions/checkout@v6.0.2
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
+      - name: Test Homebrew cask update script
+        run: env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh
+
       - name: Enable pnpm from packageManager
         run: corepack enable
 
@@ -59,6 +62,9 @@ jobs:
 
       - name: Verify service sidecar runtime dependencies
         run: pnpm --filter @cadencr/service check:macos-runtime-deps
+
+      - name: Smoke test packaged service sidecar startup
+        run: pnpm --filter @cadencr/service smoke:packaged-sidecar
 
       - name: Build renderer + main bundles
         run: pnpm --filter @cadencr/desktop exec electron-vite build

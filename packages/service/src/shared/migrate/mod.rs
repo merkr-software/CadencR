@@ -11,6 +11,7 @@ mod seed;
 mod support;
 #[cfg(test)]
 mod test_fixtures;
+mod version_guard;
 use support::{backup_database, emit_phase, has_pending_migrations, table_exists};
 /// Inputs for a single startup migration pass.
 pub struct MigrationContext<'a> {
@@ -44,6 +45,7 @@ pub async fn run_migrations(ctx: &MigrationContext<'_>) -> anyhow::Result<()> {
     if table_exists(ctx.pool, "migrations").await? {
         seed::seed_sqlx_migrations(ctx.pool, &migrator).await?;
     }
+    version_guard::ensure_database_not_newer(ctx.pool, &migrator).await?;
 
     if has_pending_migrations(ctx.pool, &migrator).await? {
         if let Some(db_path) = ctx.db_path {
