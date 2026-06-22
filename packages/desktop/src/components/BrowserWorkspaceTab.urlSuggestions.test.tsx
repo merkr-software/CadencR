@@ -52,6 +52,7 @@ function bridge(): CadencrBrowserBridge {
     onCloseRequested: vi.fn(() => () => undefined),
     confirmClose: vi.fn(),
     requestQuit: vi.fn(),
+    reportRendererError: vi.fn(() => Promise.resolve()),
     setZoom: vi.fn(),
     currentTheme: vi.fn(),
     onThemeChange: vi.fn(() => () => undefined),
