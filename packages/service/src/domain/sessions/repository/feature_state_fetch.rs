@@ -5,7 +5,7 @@
 //! reads — they hand back plain maps that the orchestrator weaves into the
 //! per-session response.
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 
 use super::super::models::*;
@@ -72,11 +72,11 @@ async fn fetch_before_or_latest_per_session(
     let msg_limit = limit.unwrap_or(i64::MAX - 1).max(1);
     for sid in session_ids {
         let mut q = if let Some(&before_id) = before_map.get(sid) {
-            sqlx::query_as::<_, AgentMessageRow>(&with_before_sql)
+            sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(with_before_sql.as_str()))
                 .bind(sid)
                 .bind(before_id)
         } else {
-            sqlx::query_as::<_, AgentMessageRow>(&latest_sql).bind(sid)
+            sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(latest_sql.as_str())).bind(sid)
         };
         q = q.bind(msg_limit.saturating_add(1));
         let mut rows = q.fetch_all(pool).await?;
@@ -111,11 +111,11 @@ async fn fetch_initial_user_anchor_before(
     let Some(before_id) = before_id else {
         return Ok(None);
     };
-    let anchor = sqlx::query_as::<_, AgentMessageRow>(&format!(
+    let anchor = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
         "{MESSAGE_SELECT} FROM agent_messages
          WHERE session_id = ? AND message_type = ?
          ORDER BY id ASC LIMIT 1"
-    ))
+    )))
     .bind(session_id)
     .bind(USER_MESSAGE_TYPE)
     .fetch_optional(pool)
@@ -160,7 +160,7 @@ async fn fetch_unbounded_batch(
     let sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id IN ({placeholders}) ORDER BY id ASC"
     );
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(&sql);
+    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
     for sid in session_ids {
         query = query.bind(sid);
     }
@@ -229,9 +229,9 @@ pub(super) async fn fetch_incremental_data(
     let mut updated_tool_calls: HashMap<i64, HashMap<i64, String>> = HashMap::new();
 
     for (sid, after_id) in fetches {
-        let msgs = sqlx::query_as::<_, AgentMessageRow>(&format!(
+        let msgs = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
             "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id > ? ORDER BY id ASC"
-        ))
+        )))
         .bind(sid)
         .bind(after_id)
         .fetch_all(pool)
@@ -239,9 +239,9 @@ pub(super) async fn fetch_incremental_data(
         messages.insert(*sid, msgs);
 
         // Re-fetch stale tool_call rows
-        let stale = sqlx::query_as::<_, AgentMessageRow>(&format!(
+        let stale = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
             "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id <= ? AND message_type = 'tool_call' AND content != '{{}}' ORDER BY id ASC"
-        ))
+        )))
         .bind(sid)
         .bind(after_id)
         .fetch_all(pool)
@@ -296,7 +296,7 @@ pub(super) async fn fetch_latest_todos(
          WHERE m.message_type IN ('tool_result', 'tool_error') \
          ORDER BY session_id ASC, id ASC"
     );
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(&sql);
+    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
     for sid in session_ids {
         query = query.bind(sid);
     }

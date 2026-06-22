@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{AssertSqlSafe, FromRow, SqlitePool};
 
 use super::super::models::{AgentMessageOrigin, AgentMessageRow};
 use crate::error::AppError;
@@ -72,7 +72,7 @@ async fn fetch_origins(
                 source_project_id, source_message_id, note, created_at
          FROM agent_message_origins WHERE message_id IN ({placeholders})"
     );
-    let mut query = sqlx::query_as::<_, OriginRow>(&sql);
+    let mut query = sqlx::query_as::<_, OriginRow>(AssertSqlSafe(sql));
     for id in message_ids {
         query = query.bind(id);
     }

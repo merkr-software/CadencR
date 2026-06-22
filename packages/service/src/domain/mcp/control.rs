@@ -366,7 +366,7 @@ mod tests {
     }
 
     async fn seed_send_message_schema(pool: &sqlx::SqlitePool, target_status: &'static str) {
-        sqlx::raw_sql(&format!(
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
             r#"
             CREATE TABLE projects (id INTEGER PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL);
             CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL, title TEXT NOT NULL);
@@ -381,7 +381,7 @@ mod tests {
             INSERT INTO agent_sessions (id, feature_id, status, runtime_provider, model)
             VALUES (777, 42, 'running', NULL, NULL), (888, 43, '{target_status}', 'missing_provider', 'missing-model');
             "#
-        ))
+        )))
         .execute(pool)
         .await
         .unwrap();

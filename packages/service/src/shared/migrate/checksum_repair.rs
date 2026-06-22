@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use anyhow::Context;
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::info;
 
 use super::checksum_repair_data::{
@@ -177,7 +177,7 @@ async fn assert_legacy_setting_keys_absent(
                 "SELECT COUNT(*) FROM {table_name} WHERE key IN ({})",
                 placeholders(LEGACY_SETTING_KEYS.len())
             );
-            let mut query = sqlx::query_scalar::<_, i64>(&sql);
+            let mut query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql));
             for key in LEGACY_SETTING_KEYS {
                 query = query.bind(key);
             }

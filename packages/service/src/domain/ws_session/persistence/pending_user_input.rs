@@ -88,7 +88,7 @@ impl WsSessionPersistence {
         // Column name is a compile-time &'static str from our own enum — not
         // user input, so string interpolation into SQL is safe here.
         let sql = format!("UPDATE agent_sessions SET {column} = ? WHERE id = ?");
-        if let Err(e) = sqlx::query(&sql)
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(payload)
             .bind(session_id)
             .execute(pool)
@@ -112,7 +112,11 @@ impl WsSessionPersistence {
     ) {
         let column = kind.column();
         let sql = format!("UPDATE agent_sessions SET {column} = NULL WHERE id = ?");
-        if let Err(e) = sqlx::query(&sql).bind(session_id).execute(pool).await {
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(sql))
+            .bind(session_id)
+            .execute(pool)
+            .await
+        {
             error!(
                 error = %e,
                 session_db_id = session_id,
@@ -228,7 +232,7 @@ mod pending_user_input_tests {
 
     async fn column(pool: &SqlitePool, session_id: i64, col: &str) -> Option<String> {
         let sql = format!("SELECT {col} FROM agent_sessions WHERE id = ?");
-        let row: (Option<String>,) = sqlx::query_as(&sql)
+        let row: (Option<String>,) = sqlx::query_as(sqlx::AssertSqlSafe(sql))
             .bind(session_id)
             .fetch_one(pool)
             .await
