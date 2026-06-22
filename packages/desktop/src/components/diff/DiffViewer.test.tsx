@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, screen, within } from "@/test-utils";
 
@@ -8,24 +7,11 @@ const mocks = vi.hoisted(() => {
   const useGetFileContentMock = vi.fn(() => ({ data: undefined }));
   const useGetFileBlobShasMock = vi.fn<() => { data: unknown[] }>(() => ({ data: [] }));
   const useListDiffViewedMock = vi.fn<() => { data: unknown[] }>(() => ({ data: [] }));
-  const patchDiffViewMock = vi.fn(
-    ({
-      patch,
-      renderHeaderPrefix,
-      renderHeaderMetadata,
-    }: {
-      patch: string;
-      renderHeaderPrefix?: () => ReactNode;
-      renderHeaderMetadata?: () => ReactNode;
-    }) => (
-      <div data-testid="patch-diff-view" data-patch={patch}>
-        {renderHeaderPrefix?.()}
-        <span>src/foo.ts</span>
-        {renderHeaderMetadata?.()}
-        PatchDiffView
-      </div>
-    ),
-  );
+  const patchDiffViewMock = vi.fn(({ patch }: { patch: string }) => (
+    <div data-testid="patch-diff-view" data-patch={patch}>
+      PatchDiffView
+    </div>
+  ));
   const persistFileListCollapsedMock = vi.fn();
   const useDebouncedSettingMock = vi.fn<
     (
@@ -190,17 +176,20 @@ index abc..def 100644
     expect(screen.getByText("src/foo.ts")).toBeInTheDocument();
   });
 
-  it("renders the file copy button in Pierre header prefix", () => {
+  it("renders the file copy and collapse controls in the file header", () => {
     mocks.useGetDiffMock.mockReturnValue({
       data: { diff: singleFileDiff } as unknown,
       isLoading: false,
     });
     render(<DiffViewer featureId={1} mode="worktree" />);
 
-    const fileHeader = screen.getByTestId("patch-diff-view");
-    expect(within(fileHeader).getByRole("button", { name: /copy path/i })).toBeInTheDocument();
+    const fileHeader = document.querySelector<HTMLElement>("[data-diff-file-header]");
+    expect(fileHeader).not.toBeNull();
     expect(
-      within(fileHeader).getByRole("button", { name: /collapse src\/foo.ts/i }),
+      within(fileHeader as HTMLElement).getByRole("button", { name: /copy path/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(fileHeader as HTMLElement).getByRole("button", { name: /collapse src\/foo.ts/i }),
     ).toBeInTheDocument();
   });
 

@@ -1,8 +1,10 @@
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { ChevronDown, ChevronRight, PencilIcon } from "lucide-react";
+import type { ThemeAppearance } from "@/lib/themes";
 import { CopyButton } from "./CopyButton";
 import { NumStat } from "@/components/NumStat";
 import { Checkbox } from "@/components/ui/checkbox";
+import { pierreDiffCountColors } from "./DiffStatusIcon";
 
 interface DiffFileHeaderProps {
   displayName: string;
@@ -12,6 +14,8 @@ interface DiffFileHeaderProps {
   isFocused: boolean;
   isFileViewed: boolean;
   showViewedCheckbox: boolean;
+  statusIcon?: ReactNode;
+  themeAppearance: ThemeAppearance;
   onToggle: () => void;
   onOpenFileInEditor?: () => void;
   onMarkViewed: () => void;
@@ -22,6 +26,7 @@ interface DiffFileHeaderPrefixProps {
   displayName: string;
   isCollapsed: boolean;
   showName?: boolean;
+  statusIcon?: ReactNode;
   onToggle: () => void;
 }
 
@@ -31,10 +36,11 @@ interface DiffFileHeaderViewedProps {
   onUnmarkViewed: () => void;
 }
 
-export function DiffFileHeaderPrefix({
+function DiffFileHeaderPrefix({
   displayName,
   isCollapsed,
   showName = true,
+  statusIcon,
   onToggle,
 }: DiffFileHeaderPrefixProps): ReactElement {
   return (
@@ -59,15 +65,16 @@ export function DiffFileHeaderPrefix({
         ) : (
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
         )}
-        {showName && (
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">{displayName}</span>
-        )}
+        {statusIcon}
+        {/* Sans, 12px — matches Pierre's expanded [data-title] so the filename
+            doesn't switch fonts between collapsed and expanded states. */}
+        {showName && <span className="min-w-0 flex-1 truncate text-xs">{displayName}</span>}
       </button>
     </>
   );
 }
 
-export function DiffFileHeaderOpenInEditor({
+function DiffFileHeaderOpenInEditor({
   displayName,
   onOpenFileInEditor,
 }: {
@@ -93,7 +100,7 @@ export function DiffFileHeaderOpenInEditor({
   );
 }
 
-export function DiffFileHeaderViewed({
+function DiffFileHeaderViewed({
   isFileViewed,
   onMarkViewed,
   onUnmarkViewed,
@@ -130,11 +137,14 @@ export function DiffFileHeader({
   isFocused,
   isFileViewed,
   showViewedCheckbox,
+  statusIcon,
+  themeAppearance,
   onToggle,
   onOpenFileInEditor,
   onMarkViewed,
   onUnmarkViewed,
 }: DiffFileHeaderProps): ReactElement {
+  const countColors = pierreDiffCountColors(themeAppearance);
   return (
     <div
       data-diff-file-header
@@ -143,17 +153,22 @@ export function DiffFileHeader({
       <DiffFileHeaderPrefix
         displayName={displayName}
         isCollapsed={isCollapsed}
+        statusIcon={statusIcon}
         onToggle={onToggle}
+      />
+      {/* NumStat before the edit button, zero counts hidden, and Pierre's exact
+          colors — so this single header looks identical whether the file is
+          collapsed or expanded over a Pierre diff body. */}
+      <NumStat
+        additions={additions}
+        deletions={deletions}
+        addColor={countColors.add}
+        delColor={countColors.del}
+        className="text-xs shrink-0"
       />
       <DiffFileHeaderOpenInEditor
         displayName={displayName}
         onOpenFileInEditor={onOpenFileInEditor}
-      />
-      <NumStat
-        additions={additions}
-        deletions={deletions}
-        hideZero={false}
-        className="text-xs shrink-0"
       />
       {showViewedCheckbox && (
         <DiffFileHeaderViewed
