@@ -12,7 +12,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::{info, warn};
 
 use super::{ephemeral, file, paths};
@@ -109,7 +109,7 @@ async fn migrate_project(pool: &SqlitePool, dir: &Path, project_id: i64) -> Resu
     // Real columns on `projects`.
     for column in PROJECT_COLUMNS {
         let sql = format!("SELECT \"{column}\" FROM projects WHERE id = ?");
-        let value = sqlx::query_as::<_, (Option<String>,)>(&sql)
+        let value = sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
             .bind(project_id)
             .fetch_optional(pool)
             .await

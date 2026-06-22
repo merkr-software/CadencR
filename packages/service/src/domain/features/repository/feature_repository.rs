@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::{Feature, FeatureStatus};
 use crate::error::AppError;
@@ -33,7 +33,7 @@ pub async fn list_by_project(
          WHERE f.project_id = ?{status_filter} \
          ORDER BY datetime(COALESCE(ua.last_user_at, f.created_at)) DESC, f.id DESC"
     );
-    let rows = sqlx::query_as::<_, Feature>(&sql)
+    let rows = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .bind(project_id)
         .fetch_all(pool)
         .await?;
@@ -59,13 +59,15 @@ pub async fn list_pinned(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
          WHERE f.is_pinned != 0 AND f.status = 'active' \
          ORDER BY datetime(COALESCE(ua.last_user_at, f.created_at)) DESC, f.id DESC"
     );
-    let rows = sqlx::query_as::<_, Feature>(&sql).fetch_all(pool).await?;
+    let rows = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
+        .fetch_all(pool)
+        .await?;
     Ok(rows)
 }
 
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Feature>, AppError> {
     let sql = format!("SELECT {FEATURE_COLUMNS} FROM features WHERE id = ?");
-    let row = sqlx::query_as::<_, Feature>(&sql)
+    let row = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(pool)
         .await?;
