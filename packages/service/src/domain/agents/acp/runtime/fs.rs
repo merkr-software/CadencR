@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_client_protocol::schema::{AgentRequest, ReadTextFileRequest, WriteTextFileRequest};
+use agent_client_protocol::schema::v1::{AgentRequest, ReadTextFileRequest, WriteTextFileRequest};
 use serde_json::{json, Value};
 
 use crate::domain::agents::acp::incoming::AcpServerRequest;
@@ -334,7 +334,7 @@ mod tests {
     #[tokio::test]
     async fn typed_read_request_returns_file_contents() {
         use super::handle_read_text_file_typed;
-        use agent_client_protocol::schema::ReadTextFileRequest;
+        use agent_client_protocol::schema::v1::ReadTextFileRequest;
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("foo.txt");
@@ -352,7 +352,7 @@ mod tests {
     #[tokio::test]
     async fn typed_read_outside_cwd_is_rejected() {
         use super::handle_read_text_file_typed;
-        use agent_client_protocol::schema::ReadTextFileRequest;
+        use agent_client_protocol::schema::v1::ReadTextFileRequest;
 
         let dir = tempdir().unwrap();
         let outside = std::env::temp_dir().join("typed-outside-acp.txt");
@@ -369,7 +369,7 @@ mod tests {
     #[tokio::test]
     async fn typed_write_request_creates_file() {
         use super::handle_write_text_file_typed;
-        use agent_client_protocol::schema::WriteTextFileRequest;
+        use agent_client_protocol::schema::v1::WriteTextFileRequest;
 
         let dir = tempdir().unwrap();
         let path = dir.path().join("typed/write.txt");
@@ -384,7 +384,7 @@ mod tests {
     #[tokio::test]
     async fn typed_write_outside_cwd_is_rejected() {
         use super::handle_write_text_file_typed;
-        use agent_client_protocol::schema::WriteTextFileRequest;
+        use agent_client_protocol::schema::v1::WriteTextFileRequest;
 
         let dir = tempdir().unwrap();
         let outside = std::env::temp_dir().join("typed-danger.txt");
