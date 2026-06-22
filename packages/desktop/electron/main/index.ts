@@ -25,7 +25,7 @@ import { dispatchBrowserMcpTool } from "./browser-mcp-dispatch";
 import type { BrowserManager } from "./browser-manager";
 import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
-
+import { installDefaultRendererCrashRecovery } from "./renderer-crash-recovery";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
@@ -181,6 +181,7 @@ function createWindow(): BrowserWindow {
   });
   secureWebContents(win.webContents);
   installContextMenu(win, win.webContents);
+  installDefaultRendererCrashRecovery(win);
 
   win.on("close", (event) => {
     if (allowClose) return;

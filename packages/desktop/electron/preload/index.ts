@@ -39,6 +39,16 @@ interface NotifyOptions {
   mode: NotifyMode;
 }
 
+interface RendererErrorReportPayload {
+  source: "error" | "unhandledrejection" | "react-boundary";
+  message: string;
+  stack?: string | null;
+  componentStack?: string | null;
+  url?: string | null;
+  line?: number | null;
+  column?: number | null;
+}
+
 interface FileDropItem {
   handle: string;
   name: string;
@@ -183,6 +193,8 @@ contextBridge.exposeInMainWorld("cadencr", {
   onCloseRequested: (cb: () => void): (() => void) => onIpc("app:close-requested", cb),
   confirmClose: (): Promise<void> => ipcRenderer.invoke("app:confirm-close"),
   requestQuit: (): Promise<void> => ipcRenderer.invoke("app:request-quit"),
+  reportRendererError: (payload: RendererErrorReportPayload): Promise<void> =>
+    ipcRenderer.invoke("app:renderer-error", payload),
   setZoom: (factor: number): Promise<void> => ipcRenderer.invoke("webview:set-zoom", factor),
   currentTheme: (): Promise<DesktopTheme> => ipcRenderer.invoke("theme:current"),
   onThemeChange: (cb: (appearance: DesktopTheme) => void): (() => void) =>
