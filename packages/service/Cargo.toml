@@ -43,7 +43,7 @@ dotenvy = "0.15"
 tempfile = "3"
 trash = "5"
 flate2 = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 # `web-push` depends on `ece -> openssl`. In release builds that previously
 # linked the sidecar against Homebrew's `/opt/homebrew/opt/openssl@3` dylibs,
 # which are not present on user machines. Enable OpenSSL's vendored build so
