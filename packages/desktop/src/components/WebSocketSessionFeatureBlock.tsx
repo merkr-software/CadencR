@@ -24,7 +24,11 @@ import {
   useWsSessionShortcuts,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
 import { useSessionTabs } from "@/components/WebSocketSessionFeatureBlockTabs";
-import { useAgentFirstNonAgentWork } from "@/components/useAgentFirstNonAgentWork";
+import {
+  useAgentFirstNonAgentWork,
+  useStaggeredTabReadiness,
+  type NonAgentTabReadiness,
+} from "@/components/useAgentFirstNonAgentWork";
 import { useEditorStore } from "@/stores/editor-store";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { toRelativePath } from "@/lib/utils";
@@ -85,11 +89,27 @@ function WebSocketSessionFeatureBody(
   const layoutState = useFeatureLayoutStore(selectFeatureLayout(layoutFeatureId));
   const requestedFocusPending = useRequestedFeatureFocus(layoutFeatureId, requestedFocusTab);
   const focusedTabId = getFocusedTab(layoutState) ?? "agent";
-  const nonAgentTabRequested =
-    focusedTabId !== "agent" || (requestedFocusTab != null && requestedFocusTab !== "agent");
+  // The non-agent tab the user is explicitly looking at (focused in its pane,
+  // or requested by a deep-link). It loads the instant the gate opens; the
+  // rest stagger in behind it.
+  const immediateNonAgentTab: TabKind | null =
+    focusedTabId !== "agent"
+      ? focusedTabId
+      : requestedFocusTab != null && requestedFocusTab !== "agent"
+        ? requestedFocusTab
+        : null;
+  const nonAgentTabRequested = immediateNonAgentTab != null;
   const nonAgentWorkEnabled = useAgentFirstNonAgentWork({
     enabled: !embedded || nonAgentTabRequested,
     immediate: nonAgentTabRequested,
+    resetKey: sessionId,
+  });
+  // Reveal non-agent tab content in priority order (editor → git → terminal →
+  // browser) so split layouts don't hydrate every panel in the same frame as
+  // the agent stream.
+  const tabReady = useStaggeredTabReadiness({
+    enabled: nonAgentWorkEnabled,
+    immediateTab: immediateNonAgentTab,
     resetKey: sessionId,
   });
 
@@ -180,7 +200,7 @@ function WebSocketSessionFeatureBody(
     controls,
     refs,
     layoutState,
-    nonAgentWorkEnabled,
+    tabReady,
     hotkeysEnabled,
     sendFromGitTab,
   });
@@ -338,7 +358,7 @@ function useFeatureBlockTabs(args: {
   controls: ReturnType<typeof useSessionControls>;
   refs: ReturnType<typeof useSessionRefs>;
   layoutState: Parameters<typeof isTabVisible>[0];
-  nonAgentWorkEnabled: boolean;
+  tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
 }): ReturnType<typeof useSessionTabs> {
@@ -351,7 +371,7 @@ function useFeatureBlockTabs(args: {
     controls: args.controls,
     refs: args.refs,
     agentVisible: isTabVisible(args.layoutState, "agent"),
-    nonAgentTabsEnabled: args.nonAgentWorkEnabled,
+    tabReady: args.tabReady,
     hotkeysEnabled: args.hotkeysEnabled,
     sendFromGitTab: args.sendFromGitTab,
   });

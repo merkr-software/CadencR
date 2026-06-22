@@ -13,6 +13,7 @@ vi.mock("@/api/generated", () => ({
 }));
 
 import { useWebSocketSession } from "./useWebSocketSession";
+import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
@@ -270,7 +271,7 @@ describe("useWebSocketSession", () => {
     const lastCall = mockedQuery.mock.calls[mockedQuery.mock.calls.length - 1];
     expect(lastCall).toEqual([
       42,
-      { limit: 100 },
+      { limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT },
       expect.objectContaining({
         query: expect.objectContaining({ enabled: true, cacheTime: 0 }),
       }),
@@ -294,7 +295,7 @@ describe("useWebSocketSession", () => {
 
     expect(mockedQuery).toHaveBeenCalledWith(
       42,
-      { limit: 100 },
+      { limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT },
       expect.objectContaining({
         query: expect.objectContaining({ enabled: false }),
       }),
