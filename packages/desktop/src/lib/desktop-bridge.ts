@@ -85,6 +85,16 @@ export type UpdateEvent =
   | { kind: "download-progress"; percent: number; bytesPerSecond: number }
   | { kind: "downloaded"; version: string };
 
+export interface RendererErrorReportPayload {
+  source: "error" | "unhandledrejection" | "react-boundary";
+  message: string;
+  stack?: string | null;
+  componentStack?: string | null;
+  url?: string | null;
+  line?: number | null;
+  column?: number | null;
+}
+
 export interface CadencrDesktopBridge {
   isElectron: boolean;
   runtimeConfig: () => Promise<RuntimeConfig>;
@@ -107,6 +117,7 @@ export interface CadencrDesktopBridge {
   onCloseRequested: (cb: () => void) => () => void;
   confirmClose: () => Promise<void>;
   requestQuit: () => Promise<void>;
+  reportRendererError?: (payload: RendererErrorReportPayload) => Promise<void>;
   setZoom: (factor: number) => Promise<void>;
   currentTheme: () => Promise<DesktopTheme>;
   onThemeChange: (cb: (appearance: DesktopTheme) => void) => () => void;
@@ -144,6 +155,7 @@ export interface CadencrDesktopBridge {
 }
 
 export interface CadencrBrowserBridge extends CadencrDesktopBridge {
+  reportRendererError: (payload: RendererErrorReportPayload) => Promise<void>;
   createBrowserTab: (
     url?: string,
     profileId?: string,
@@ -238,6 +250,7 @@ const browserBridge: CadencrBrowserBridge = {
   onCloseRequested: () => () => undefined,
   confirmClose: () => Promise.resolve(),
   requestQuit: () => Promise.resolve(),
+  reportRendererError: () => Promise.resolve(),
   setZoom: () => Promise.resolve(),
   currentTheme: () => Promise.resolve(browserTheme()),
   onThemeChange: () => () => undefined,
@@ -316,7 +329,7 @@ export function isDesktopShell(): boolean {
   return desktopBridge.isElectron;
 }
 
-export function setDesktopBridgeOverrideForTests(bridge: CadencrDesktopBridge): void {
+export function setDesktopBridgeOverrideForTests(bridge: Partial<CadencrBrowserBridge>): void {
   bridgeOverride = bridge;
 }
 
