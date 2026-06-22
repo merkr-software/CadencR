@@ -1,7 +1,7 @@
 use super::models::{Project, ProjectModelSettings, ProjectProviderSettings, ProjectSetting};
 use crate::domain::agents::runtime::{runtime_setting_key, validate_agent_type};
 use crate::error::AppError;
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> {
     let rows = sqlx::query_as::<_, (i64, String, String, Option<String>, String)>(
@@ -101,7 +101,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
 
         let session_ids: Vec<i64> = {
             let query = format!("SELECT id FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query_as::<_, (i64,)>(&query);
+            let mut q = sqlx::query_as::<_, (i64,)>(AssertSqlSafe(query));
             for fid in &feature_ids {
                 q = q.bind(fid);
             }
@@ -119,7 +119,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
                 .collect::<Vec<_>>()
                 .join(",");
             let query = format!("DELETE FROM agent_messages WHERE session_id IN ({})", sp);
-            let mut q = sqlx::query(&query);
+            let mut q = sqlx::query(AssertSqlSafe(query));
             for sid in &session_ids {
                 q = q.bind(sid);
             }
@@ -128,7 +128,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
 
         {
             let query = format!("DELETE FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(&query);
+            let mut q = sqlx::query(AssertSqlSafe(query));
             for fid in &feature_ids {
                 q = q.bind(fid);
             }
@@ -136,7 +136,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
         }
         {
             let query = format!("DELETE FROM feature_settings WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(&query);
+            let mut q = sqlx::query(AssertSqlSafe(query));
             for fid in &feature_ids {
                 q = q.bind(fid);
             }
@@ -144,7 +144,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<(), AppError> 
         }
         {
             let query = format!("DELETE FROM diff_viewed_files WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(&query);
+            let mut q = sqlx::query(AssertSqlSafe(query));
             for fid in &feature_ids {
                 q = q.bind(fid);
             }

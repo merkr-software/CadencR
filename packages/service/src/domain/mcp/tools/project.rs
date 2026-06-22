@@ -184,7 +184,7 @@ fn trimmed_string(args: &serde_json::Value, key: &str) -> Option<String> {
         .map(ToString::to_string)
 }
 
-fn push_string_filter(builder: &mut QueryBuilder<'_, Sqlite>, column: &str, values: &[String]) {
+fn push_string_filter(builder: &mut QueryBuilder<Sqlite>, column: &str, values: &[String]) {
     if values.is_empty() {
         return;
     }

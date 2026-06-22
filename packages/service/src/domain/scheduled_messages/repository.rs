@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::models::ScheduledMessage;
 use crate::error::AppError;
@@ -17,7 +17,7 @@ pub async fn get_pending(
     feature_id: i64,
 ) -> Result<Option<ScheduledMessage>, AppError> {
     let sql = format!("{SELECT} WHERE feature_id = ? AND status = 'pending' LIMIT 1");
-    Ok(sqlx::query_as(&sql)
+    Ok(sqlx::query_as(AssertSqlSafe(sql))
         .bind(feature_id)
         .fetch_optional(pool)
         .await?)
@@ -50,7 +50,7 @@ pub async fn upsert(
     tx.commit().await?;
 
     let sql = format!("{SELECT} WHERE id = ?");
-    sqlx::query_as(&sql)
+    sqlx::query_as(AssertSqlSafe(sql))
         .bind(id)
         .fetch_one(pool)
         .await
@@ -74,7 +74,7 @@ pub async fn list_due(pool: &SqlitePool) -> Result<Vec<ScheduledMessage>, AppErr
     let sql = format!(
         "{SELECT} WHERE status = 'pending' AND scheduled_at <= datetime('now') ORDER BY scheduled_at ASC"
     );
-    Ok(sqlx::query_as(&sql).fetch_all(pool).await?)
+    Ok(sqlx::query_as(AssertSqlSafe(sql)).fetch_all(pool).await?)
 }
 
 pub async fn mark_sent(pool: &SqlitePool, id: i64) -> Result<(), AppError> {

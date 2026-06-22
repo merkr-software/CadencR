@@ -5,7 +5,7 @@
 //! `fetch_missing_parents` repairs nesting when pagination splits a Task /
 //! Agent tool_call from its children.
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashSet;
 
 use super::super::models::*;
@@ -103,7 +103,7 @@ pub(super) async fn fetch_missing_parents(
     let sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND message_type = 'tool_call' AND tool_use_id IN ({placeholders}) ORDER BY id ASC"
     );
-    let mut q = sqlx::query_as::<_, AgentMessageRow>(&sql).bind(session_id);
+    let mut q = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql)).bind(session_id);
     for tuid in &missing {
         q = q.bind(tuid);
     }

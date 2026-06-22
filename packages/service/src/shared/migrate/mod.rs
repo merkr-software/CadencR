@@ -1,3 +1,5 @@
+#[cfg(test)]
+use sqlx::AssertSqlSafe;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::{info, warn};
@@ -257,9 +259,9 @@ mod tests {
             );
         }
         for table in ["settings", "project_settings", "feature_settings"] {
-            let count: i64 = sqlx::query_scalar(&format!(
+            let count: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
                 "SELECT COUNT(*) FROM {table} WHERE key IN ('model_qa', 'agent_autonomy', 'parallel_execution')"
-            ))
+            )))
             .fetch_one(&pool)
             .await
             .unwrap();

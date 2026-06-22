@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::models::FeatureLayout;
 use crate::error::AppError;
@@ -6,18 +6,18 @@ use crate::error::AppError;
 const SELECT_COLUMNS: &str = "id, name, config, is_default, created_at, updated_at";
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<FeatureLayout>, AppError> {
-    let rows = sqlx::query_as::<_, FeatureLayout>(&format!(
+    let rows = sqlx::query_as::<_, FeatureLayout>(AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM feature_layouts ORDER BY name ASC, id ASC"
-    ))
+    )))
     .fetch_all(pool)
     .await?;
     Ok(rows)
 }
 
 pub async fn get(pool: &SqlitePool, id: i64) -> Result<Option<FeatureLayout>, AppError> {
-    let row = sqlx::query_as::<_, FeatureLayout>(&format!(
+    let row = sqlx::query_as::<_, FeatureLayout>(AssertSqlSafe(format!(
         "SELECT {SELECT_COLUMNS} FROM feature_layouts WHERE id = ?"
-    ))
+    )))
     .bind(id)
     .fetch_optional(pool)
     .await?;
