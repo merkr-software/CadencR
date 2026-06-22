@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{AssertSqlSafe, FromRow, SqlitePool};
 
 use super::limits::MAX_AGENT_MESSAGE_LIMIT;
 use super::models::{
@@ -131,7 +131,7 @@ async fn load_candidates(
     }
     sql.push_str(" ORDER BY agent_created_at DESC, s.id DESC");
 
-    let mut q = sqlx::query_as::<_, UnifiedAgentCandidate>(&sql);
+    let mut q = sqlx::query_as::<_, UnifiedAgentCandidate>(AssertSqlSafe(sql));
     if let Some(project_id) = query.project_id {
         q = q.bind(project_id);
     }

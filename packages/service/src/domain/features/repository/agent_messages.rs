@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::warn;
 
 /// Extra WHERE filter for `retry_update_agent_message_content`.
@@ -31,7 +31,7 @@ pub async fn retry_update_agent_message_content(
     );
 
     for attempt in 0..5 {
-        let result = sqlx::query(&sql)
+        let result = sqlx::query(AssertSqlSafe(sql.as_str()))
             .bind(content)
             .bind(session_id)
             .bind(tool_use_id)

@@ -17,6 +17,7 @@
     "format:check": "cargo fmt -- --check",
     "copy:release": "node ./scripts/copy-service-binary.mjs release",
     "copy:debug": "node ./scripts/copy-service-binary.mjs debug",
-    "check:macos-runtime-deps": "node ./scripts/check-macos-runtime-deps.mjs"
+    "check:macos-runtime-deps": "node ./scripts/check-macos-runtime-deps.mjs",
+    "smoke:packaged-sidecar": "node ./scripts/smoke-test-packaged-sidecar.mjs"
   }
 }

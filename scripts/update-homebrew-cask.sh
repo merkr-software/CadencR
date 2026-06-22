@@ -14,9 +14,14 @@ fail() {
   exit 1
 }
 
+UPDATE_HOMEBREW_CASK_WORKDIR=""
 SOURCE_REPO="${CADENCR_RELEASE_REPO:-merkr-software/cadencr}"
 TAP_REPO="${HOMEBREW_TAP_REPO:-merkr-software/homebrew-cadencr}"
 TEMPLATE="homebrew/cadencr.rb.tmpl"
+
+cleanup() {
+  [ -z "$UPDATE_HOMEBREW_CASK_WORKDIR" ] || rm -rf "$UPDATE_HOMEBREW_CASK_WORKDIR"
+}
 
 main() {
   [ "$#" -eq 1 ] || { usage; exit 2; }
@@ -30,7 +35,8 @@ main() {
 
   local workdir
   workdir="$(mktemp -d)"
-  trap 'rm -rf "$workdir"' EXIT
+  UPDATE_HOMEBREW_CASK_WORKDIR="$workdir"
+  trap cleanup EXIT
 
   local arm_dmg="Cadencr-${version}-arm64.dmg"
   local intel_dmg="Cadencr-${version}.dmg"
@@ -55,7 +61,7 @@ main() {
     -e "s/__SHA256_INTEL__/${sha_intel}/g" \
     "$TEMPLATE")"
 
-  echo "Cloning tap $TAP_REPO…"
+  echo "Cloning tap ${TAP_REPO}…"
   local tap_dir="$workdir/tap"
   git clone --depth 1 \
     "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${TAP_REPO}.git" \
@@ -73,7 +79,7 @@ main() {
   git -C "$tap_dir" \
     -c user.name="cadencr-release-bot" \
     -c user.email="release-bot@users.noreply.github.com" \
-    commit -m "cadencr ${version}"
+    commit -m "cadencr ${version}" || fail "failed to commit cask update"
   git -C "$tap_dir" push origin HEAD || fail "failed to push to tap $TAP_REPO"
 
   echo "Updated $TAP_REPO cask to $version."

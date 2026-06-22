@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use crate::domain::settings_store::{self, paths, store, Scope};
 
@@ -28,7 +28,7 @@ async fn resolve_table_kv_setting(
     };
 
     let sql = format!("SELECT value FROM {kv_table} WHERE {scope_id} = ? AND key = ? LIMIT 1");
-    sqlx::query_scalar::<_, Option<String>>(&sql)
+    sqlx::query_scalar::<_, Option<String>>(AssertSqlSafe(sql))
         .bind(row_id)
         .bind(key)
         .fetch_optional(pool)
@@ -41,7 +41,7 @@ async fn resolve_table_kv_setting(
 
 async fn table_has_column(pool: &SqlitePool, table: &str, key: &str) -> bool {
     let sql = format!("SELECT 1 FROM pragma_table_info('{table}') WHERE name = ? LIMIT 1");
-    sqlx::query_scalar::<_, i64>(&sql)
+    sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql))
         .bind(key)
         .fetch_optional(pool)
         .await
@@ -61,7 +61,7 @@ pub(crate) async fn resolve_table_column_setting(
     }
 
     let sql = format!(r#"SELECT "{key}" as v FROM {table} WHERE id = ?"#);
-    if let Ok(Some((Some(v),))) = sqlx::query_as::<_, (Option<String>,)>(&sql)
+    if let Ok(Some((Some(v),))) = sqlx::query_as::<_, (Option<String>,)>(AssertSqlSafe(sql))
         .bind(row_id)
         .fetch_optional(pool)
         .await
