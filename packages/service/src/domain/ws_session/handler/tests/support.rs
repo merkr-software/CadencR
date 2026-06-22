@@ -34,6 +34,10 @@ pub(super) use crate::domain::agents::claude_code::ClaudeCodeSession;
 pub(super) use claude_agent_sdk_rs::{Query, SdkError};
 pub(super) use serde_json::Value;
 
+// Re-exported so the `use super::support::*` glob keeps reaching it; the body
+// lives in its own module to keep this file under the size limit.
+pub(super) use super::reader_spawn::spawn_test_stream_reader;
+
 pub(crate) struct InPlaceEffortSession {
     message_rx: Option<RuntimeMessageRx>,
 }

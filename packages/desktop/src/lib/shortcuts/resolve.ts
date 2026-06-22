@@ -55,6 +55,7 @@ const TOKEN_TO_ENGINE: Record<string, string> = {
   // `event.key === "?"`. On QWERTY that's Shift+/.
   question: "?",
   f2: "F2",
+  f12: "F12",
 };
 
 function tokenToEngine(token: ShortcutKey): string {

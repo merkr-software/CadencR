@@ -6,6 +6,8 @@
 
 mod support;
 
+mod reader_spawn;
+
 mod app;
 mod bidirectional_controls;
 mod codex_provider;
@@ -18,4 +20,5 @@ mod permission_mode;
 mod prompt;
 mod provider;
 mod stream_reader;
+mod stream_reader_background_agents;
 mod stream_reader_mcp;

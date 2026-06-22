@@ -25,6 +25,7 @@ import { OPENCODE_AGENT_MODE_PREFIX, parsePermissionMode } from "@/types/permiss
 import type { StoreAccessors } from "./ws-envelope-types";
 import {
   handleCleared,
+  handleCompacting,
   handleGateClosed,
   handleInitialized,
   handleMcpServers,
@@ -159,6 +160,9 @@ function handleBaseSessionAction(
       return true;
     case "error":
       handleError(ctx, sessionId, envelope.payload);
+      return true;
+    case "compacting":
+      handleCompacting(ctx, sessionId, envelope.payload);
       return true;
     default:
       return false;
@@ -330,6 +334,7 @@ function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
       }),
       compactRequestPending: false,
       pendingManualCompact: false,
+      runtimeCompacting: false,
     }),
   );
 }

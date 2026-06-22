@@ -81,6 +81,13 @@ const DOC_PAGES: DocPage[] = [
     section: "Features",
   },
   {
+    slug: "browser",
+    title: "Browser",
+    navLabel: "Browser",
+    description: "Preview local apps, keep tabs feature-scoped, and send page context to agents.",
+    section: "Features",
+  },
+  {
     slug: "custom-actions",
     title: "Custom actions",
     navLabel: "Custom Actions",

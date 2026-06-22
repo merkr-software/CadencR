@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use sqlx::{Row, SqlitePool};
+use sqlx::{AssertSqlSafe, Row, SqlitePool};
 
 /// Marker line consumed by the Electron sidecar to drive the splash status.
 /// One line, fixed prefix; keep the format stable - the parser in
@@ -48,9 +48,11 @@ pub(super) async fn table_columns(
     table_name: &str,
 ) -> anyhow::Result<HashSet<String>> {
     let escaped_table = table_name.replace('"', "\"\"");
-    let rows = sqlx::query(&format!(r#"PRAGMA table_info("{escaped_table}")"#))
-        .fetch_all(pool)
-        .await?;
+    let rows = sqlx::query(AssertSqlSafe(format!(
+        r#"PRAGMA table_info("{escaped_table}")"#
+    )))
+    .fetch_all(pool)
+    .await?;
     let mut columns = HashSet::new();
     for row in rows {
         let name: String = row.try_get("name")?;
@@ -98,7 +100,7 @@ pub(super) async fn backup_database(
     let staging_str = staging
         .to_str()
         .ok_or_else(|| anyhow::anyhow!("backup path is not valid UTF-8: {}", staging.display()))?;
-    sqlx::query(&format!("VACUUM INTO '{staging_str}'"))
+    sqlx::query(AssertSqlSafe(format!("VACUUM INTO '{staging_str}'")))
         .execute(pool)
         .await?;
     std::fs::rename(&staging, &backup)?;

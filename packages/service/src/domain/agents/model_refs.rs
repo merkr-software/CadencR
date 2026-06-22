@@ -25,13 +25,18 @@ const OPENCODE_MODEL_PROVIDER_PREFIXES: &[&str] = &[
 
 /// Provider-scoped model refs like `openai/gpt-5.4` are routed through OpenCode.
 /// Plain Claude Code model ids stay on the default runtime.
-pub fn is_opencode_model_ref(model: &str) -> bool {
+pub fn parse_opencode_model_ref(model: &str) -> Option<(&str, &str)> {
     let trimmed = model.trim();
     let Some((provider_id, model_id)) = trimmed.split_once('/') else {
-        return false;
+        return None;
     };
 
-    !model_id.is_empty() && OPENCODE_MODEL_PROVIDER_PREFIXES.contains(&provider_id)
+    (!model_id.is_empty() && OPENCODE_MODEL_PROVIDER_PREFIXES.contains(&provider_id))
+        .then_some((provider_id, model_id))
+}
+
+pub fn is_opencode_model_ref(model: &str) -> bool {
+    parse_opencode_model_ref(model).is_some()
 }
 
 #[cfg(test)]

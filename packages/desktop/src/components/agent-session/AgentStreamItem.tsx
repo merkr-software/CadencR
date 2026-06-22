@@ -104,7 +104,7 @@ export const AgentStreamItem = memo(function AgentStreamItem({
 
   return (
     <AgentStreamContextMenu block={block}>
-      <div className="py-0.5">
+      <div className="py-0.5" data-block-id={block.id}>
         {showHeader && block.createdAt && (
           <div
             className={`text-xs text-muted-foreground/60 mt-2 mb-0.5 ${isUserMessage ? "text-right" : ""}`}

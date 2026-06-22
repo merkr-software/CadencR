@@ -1,14 +1,14 @@
 {
   "name": "@cadencr/service",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.1",
   "description": "Cadencr Rust backend service \u2014 HTTP/WebSocket API powering the desktop app.",
   "license": "Apache-2.0",
   "dependencies": {
     "@cadencr/claude-agent-sdk-rs": "workspace:*"
   },
   "scripts": {
-    "build": "cargo build --release && pnpm copy:release",
+    "build": "cargo build --release && pnpm copy:release && pnpm check:macos-runtime-deps",
     "build:debug": "cargo build && pnpm copy:debug",
     "dev": "cargo watch -w src -w .env -x 'run --bin cadencr-service'",
     "test": "cargo test",
@@ -16,6 +16,8 @@
     "format": "cargo fmt",
     "format:check": "cargo fmt -- --check",
     "copy:release": "node ./scripts/copy-service-binary.mjs release",
-    "copy:debug": "node ./scripts/copy-service-binary.mjs debug"
+    "copy:debug": "node ./scripts/copy-service-binary.mjs debug",
+    "check:macos-runtime-deps": "node ./scripts/check-macos-runtime-deps.mjs",
+    "smoke:packaged-sidecar": "node ./scripts/smoke-test-packaged-sidecar.mjs"
   }
 }

@@ -138,6 +138,37 @@ export function describeWorktreeMode(
   }
 }
 
+/**
+ * One-line, future-tense summary of what the **first prompt** will do for the
+ * current mode + branch selection. The pre-prompt chip only configures intent —
+ * the branch checkout / worktree provisioning is deferred until the first
+ * message is sent (see `WebSocketSessionFeatureBlockTabs`' send handler). This
+ * hint spells that out so the chip never implies the branch already switched.
+ *
+ * Returns `null` for "On branch" on the current branch, where nothing is
+ * deferred and there's nothing to announce.
+ */
+export function firstPromptBranchEffect(args: {
+  mode: WorktreeMode;
+  selectedBranch: string | null;
+  defaultBranch: string | undefined;
+}): string | null {
+  const { mode, selectedBranch, defaultBranch } = args;
+  const branch = selectedBranch ?? defaultBranch ?? "the current branch";
+  const switching = selectedBranch != null && selectedBranch !== defaultBranch;
+  const suffix = "when you send your first message";
+  switch (mode) {
+    case "on_branch":
+      return switching ? `Switches the project to ${branch} ${suffix}.` : null;
+    case "from_branch":
+      return `Creates a new branch from ${branch} ${suffix}.`;
+    case "branch_worktree":
+      return `Sets up a worktree on ${branch} ${suffix}.`;
+    case "from_branch_worktree":
+      return `Creates a new branch from ${branch} in a worktree ${suffix}.`;
+  }
+}
+
 /** Project default (`new | skip`) mapped onto the richer mode set. */
 export function defaultWorktreeMode(projectDefault: DefaultWorktreeMode): WorktreeMode {
   return projectDefault === "new" ? "from_branch_worktree" : "on_branch";

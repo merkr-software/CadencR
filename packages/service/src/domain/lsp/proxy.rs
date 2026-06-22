@@ -74,23 +74,47 @@ pub async fn run_proxy(
     // Exit as soon as any branch fires: a transport task ends, or the idle
     // timer trips. Whichever wins first, we tear down everyone else so the
     // child can't hang half-connected.
-    tokio::select! {
-        _ = stdout_task => debug!("lsp stdout closed; ending proxy for {display_name}"),
-        _ = stdin_task => debug!("lsp ws-stream closed; ending proxy for {display_name}"),
-        _ = send_task => debug!("lsp ws-sink closed; ending proxy for {display_name}"),
-        _ = idle_task => info!("lsp {display_name} idle for {:?}; shutting down child", IDLE_TIMEOUT),
-    }
+    //
+    // `clean_close` distinguishes a client-initiated WS close (the renderer
+    // tearing down its own transport — including the new auto-reconnect
+    // cycle) from a server crash. A clean close must NOT trip the crash
+    // backoff, or reconnecting would ratchet the cooldown against us.
+    let clean_close = tokio::select! {
+        _ = stdout_task => {
+            debug!("lsp stdout closed; ending proxy for {display_name}");
+            false
+        }
+        clean = stdin_task => {
+            debug!("lsp ws-stream closed; ending proxy for {display_name}");
+            // Task panics are rare; treat a join error as a non-clean exit.
+            clean.unwrap_or(false)
+        }
+        _ = send_task => {
+            debug!("lsp ws-sink closed; ending proxy for {display_name}");
+            false
+        }
+        _ = idle_task => {
+            info!("lsp {display_name} idle for {:?}; shutting down child", IDLE_TIMEOUT);
+            // An idle teardown is our decision, not a crash.
+            true
+        }
+    };
     let _ = child.kill().await;
     let _ = child.wait().await;
 
-    // Backoff bookkeeping: a child that died within the crash window
-    // increments the fail counter; one that lived longer clears it.
-    if spawn_instant.elapsed() < CRASH_WINDOW {
+    // Backoff bookkeeping: only a child that *died on its own* within the
+    // crash window counts as a crash. A clean client close (code 1000) or an
+    // idle teardown clears the failure history instead.
+    if !clean_close && spawn_instant.elapsed() < CRASH_WINDOW {
         crash_tracker.record_crash(crash_key).await;
     } else {
         crash_tracker.record_success(&crash_key).await;
     }
 }
+
+/// WebSocket "Normal Closure" status code (RFC 6455 §7.4.1). The renderer's
+/// transport sends this on an intentional `close()`.
+const WS_CLOSE_NORMAL: u16 = 1000;
 
 /// Waits until [`IDLE_TIMEOUT`] has elapsed since the last observed activity
 /// and then returns. The proxy's `select!` arm uses that to tear down the
@@ -156,37 +180,53 @@ async fn stdout_to_ws(
 /// WS → stdin. Stops when the WebSocket closes or stdin write fails. Bumps
 /// the activity watch on every text message so the idle watchdog only
 /// trips during a genuine quiet period (no requests, no notifications).
+///
+/// Returns `true` iff the stream ended via a client-initiated *normal* close
+/// (WS code 1000) — i.e. the renderer tearing down its transport on purpose
+/// (tab close, language switch, or the auto-reconnect cycle). The caller uses
+/// that to avoid mis-attributing a clean close to the crash backoff. A write
+/// failure, transport error, or any non-1000 close returns `false`.
 async fn ws_to_stdin<S>(
     mut stream: S,
     mut stdin: ChildStdin,
     activity_tx: Arc<watch::Sender<Instant>>,
-) where
+) -> bool
+where
     S: StreamExt<Item = Result<Message, axum::Error>> + Unpin,
 {
     while let Some(msg) = stream.next().await {
         let Ok(msg) = msg else {
-            return;
+            return false;
         };
         match msg {
             Message::Text(text) => {
                 let _ = activity_tx.send(Instant::now());
                 let frame = encode_frame(text.as_bytes());
                 if stdin.write_all(&frame).await.is_err() {
-                    return;
+                    return false;
                 }
                 if stdin.flush().await.is_err() {
-                    return;
+                    return false;
                 }
             }
             Message::Binary(_) => {
                 // LSP is JSON text only. Ignore binary; matches existing /ws
                 // handler's stance on unexpected frame types.
             }
-            Message::Close(_) => return,
+            Message::Close(frame) => return is_normal_close(&frame),
             // Pings/pongs are handled by axum's built-in keepalive.
             _ => {}
         }
     }
+    // Stream ended without an explicit Close frame (peer dropped) — not clean.
+    false
+}
+
+/// Whether a WS close frame represents a normal (intentional) closure. A
+/// missing frame means the peer closed without a status code, which we treat
+/// as non-clean (could be a dropped connection).
+fn is_normal_close(frame: &Option<axum::extract::ws::CloseFrame>) -> bool {
+    frame.as_ref().is_some_and(|f| f.code == WS_CLOSE_NORMAL)
 }
 
 /// Outbound channel → WS sink. Splitting this out lets stdout_to_ws use a
@@ -235,7 +275,29 @@ fn looks_like_error(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::looks_like_error;
+    use super::{is_normal_close, looks_like_error, WS_CLOSE_NORMAL};
+    use axum::extract::ws::CloseFrame;
+
+    #[test]
+    fn normal_close_code_is_clean() {
+        let frame = Some(CloseFrame {
+            code: WS_CLOSE_NORMAL,
+            reason: "client".into(),
+        });
+        assert!(is_normal_close(&frame));
+    }
+
+    #[test]
+    fn abnormal_close_codes_are_not_clean() {
+        // 1006 (abnormal closure) and a missing frame both mean "not a clean
+        // client teardown" — they must NOT clear the crash backoff.
+        let abnormal = Some(CloseFrame {
+            code: 1006,
+            reason: "".into(),
+        });
+        assert!(!is_normal_close(&abnormal));
+        assert!(!is_normal_close(&None));
+    }
 
     #[test]
     fn classifies_real_errors_as_errors() {

@@ -11,6 +11,7 @@ import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { bracketMatching, indentOnInput } from "@codemirror/language";
 import { vim } from "@replit/codemirror-vim";
 import { cadencrEditorTheme } from "./editor-theme";
+import { ergonomicsExtensions } from "@/lib/editor/ergonomics-extensions";
 
 interface BaseCodeMirrorEditorProps {
   /** Initial document content (only used on mount) */
@@ -21,6 +22,13 @@ interface BaseCodeMirrorEditorProps {
   readOnly?: boolean;
   /** Toggle vim mode (hot-swappable) */
   vimMode?: boolean;
+  /**
+   * Mount the editing-ergonomics extensions (code folding, auto-close brackets,
+   * rectangular selection, selection-match highlight, fold/active-line gutter).
+   * Read once at mount. Callers disable this in large-file mode to keep
+   * multi-MB read-only buffers lightweight. Defaults to `true`.
+   */
+  ergonomics?: boolean;
   /** Called on every doc change — callers own debounce */
   onChange?: (value: string) => void;
   /** Mod-s handler */
@@ -38,6 +46,7 @@ export default function BaseCodeMirrorEditor({
   language,
   readOnly = false,
   vimMode = false,
+  ergonomics = true,
   onChange,
   onSave,
   extraExtensions,
@@ -120,6 +129,12 @@ export default function BaseCodeMirrorEditor({
       highlightActiveLine(),
       bracketMatching(),
       indentOnInput(),
+      // Editing-ergonomics layer (folding, auto-close brackets, rectangular
+      // selection, selection-match + fold/active-line gutters). Mounted once at
+      // create-time; large-file mode passes `ergonomics={false}` to keep heavy
+      // read-only buffers lightweight. Reading the prop here (not via a ref) is
+      // safe because this create effect runs a single time per mount.
+      ergonomics ? ergonomicsExtensions : [],
       keymap.of([...defaultKeymap, ...historyKeymap]),
       saveKeymap,
       updateListener,

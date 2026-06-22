@@ -187,4 +187,38 @@ export const EDITOR_SHORTCUTS = [
     description: "Rename symbol",
     scope: "editor-buffer",
   },
+  {
+    // ⇧F12 — classic IDE "Find all references" (VS Code uses the same chord).
+    id: "editor-find-references",
+    keys: ["shift", "f12"],
+    description: "Find all references",
+    scope: "editor-buffer",
+  },
+  {
+    // ⌘⇧O — "Go to symbol in file" (VS Code convention). Editor-scoped +
+    // capture-phase so it wins over the feature-level ⌘⇧O (Open PR) while the
+    // editor tab is focused.
+    id: "editor-symbol-outline",
+    keys: ["mod", "shift", "o"],
+    description: "Go to symbol in file",
+    scope: "editor-buffer",
+  },
+  {
+    // ⌘T — "Go to symbol in workspace" (VS Code convention). Editor-scoped so
+    // it doesn't clash with the agent tab's ⌘T (cycle thinking effort).
+    id: "editor-workspace-symbols",
+    keys: ["mod", "t"],
+    description: "Go to symbol in workspace",
+    scope: "editor-buffer",
+  },
+  {
+    // ⌘⇧I — "Format document" (VS Code's alternate chord; we avoid VS Code's
+    // default ⇧⌥F because ⌥+letter triggers a macOS dead key). Runs the
+    // project's configured formatter. Capture-phase so it fires while focus
+    // is inside the CodeMirror buffer.
+    id: "editor-format-document",
+    keys: ["mod", "shift", "i"],
+    description: "Format document",
+    scope: "editor-buffer",
+  },
 ] as const satisfies readonly Shortcut[];

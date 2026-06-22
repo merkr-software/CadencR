@@ -110,6 +110,23 @@ pub enum SystemMessage {
         session_id: String,
         compact_metadata: CompactMetadata,
     },
+
+    /// Transient background-progress status update.
+    ///
+    /// Claude emits this for long-running work such as context compaction.
+    #[serde(rename = "status")]
+    Status {
+        uuid: String,
+        session_id: String,
+        #[serde(default)]
+        status: Option<String>,
+        #[serde(default)]
+        compact_result: Option<String>,
+        #[serde(default)]
+        compact_error: Option<String>,
+        #[serde(flatten)]
+        extra: HashMap<String, Value>,
+    },
 }
 
 impl SystemMessage {
@@ -118,7 +135,16 @@ impl SystemMessage {
         match self {
             SystemMessage::Init { session_id, .. } => session_id,
             SystemMessage::CompactBoundary { session_id, .. } => session_id,
+            SystemMessage::Status { session_id, .. } => session_id,
         }
+    }
+
+    /// `true` when this status message marks the start of a compaction.
+    pub fn is_compaction_started(&self) -> bool {
+        matches!(
+            self,
+            SystemMessage::Status { status: Some(s), .. } if s == "compacting"
+        )
     }
 }
 

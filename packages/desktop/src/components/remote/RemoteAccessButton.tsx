@@ -58,7 +58,7 @@ export function RemoteAccessButton(): ReactElement | null {
         title={title}
         aria-label={title}
         className={cn(
-          "flex shrink-0 items-center gap-1 rounded-full border border-transparent px-2 py-0.5",
+          "flex shrink-0 items-center gap-1 rounded-[var(--radius-pill)] border border-transparent px-2 py-0.5",
           "text-[10px] text-muted-foreground transition-colors tabular-nums",
           "hover:border-border hover:bg-accent hover:text-foreground",
           "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none",

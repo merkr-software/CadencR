@@ -1,7 +1,10 @@
+use std::collections::HashSet;
+
 use axum::extract::ws::Message;
 use tokio::time::Instant;
 use tracing::{debug, info};
 
+use crate::app_state::AppState;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeMessageRx};
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
 use crate::domain::runtime_stream::RuntimeUsageState;
@@ -26,6 +29,8 @@ pub(super) struct StreamReaderTask {
     pub sdk_sessions: SdkSessions,
     pub runtime_provider: String,
     pub provider_context_window: Option<u64>,
+    pub app_state: AppState,
+    pub cleanup_session_on_end: bool,
 }
 
 pub(super) struct StreamReaderState {
@@ -40,6 +45,24 @@ pub(super) struct StreamReaderState {
     /// just-started turn (whose first event hasn't arrived yet, so
     /// `between_turns` is still its initial `true`) is never torn down.
     pub(super) saw_result: bool,
+    /// True while the runtime is inside a provider-reported compaction turn.
+    pub(super) compacting: bool,
+    /// Opaque handles of background (run-in-background) agents that have
+    /// started but not yet finished. Non-empty means the session is still
+    /// working even though the launching turn's `Result` has arrived, so the
+    /// turn-complete path must keep it `running` instead of going idle (issue
+    /// #58). Keyed by [`BackgroundAgentSignal`](crate::domain::agents::adapter::BackgroundAgentSignal)'s `agent_id`.
+    ///
+    /// Entries are released on the agent's terminal `task_notification` (the
+    /// "came to rest" signal), matched permissively by `is_terminal_task_status`
+    /// so an unforeseen terminal label still drains the set. If that signal is
+    /// ever missed entirely, the stale entry keeps the session "working" only
+    /// until this reader's stream closes, which drops the whole state — it never
+    /// pins across reconnects. We accept that bounded risk rather than add a
+    /// timer/TTL: over-holding the spinner for one stream is recoverable, and a
+    /// premature eviction (e.g. on a nested-agent `MessageStart`) would wrongly
+    /// drop it mid-run.
+    pub(super) live_background_agents: HashSet<String>,
 }
 
 enum ReaderAction {
@@ -61,6 +84,8 @@ impl StreamReaderState {
             last_signal_status: None,
             between_turns: true,
             saw_result: false,
+            compacting: false,
+            live_background_agents: HashSet::new(),
         }
     }
 }
@@ -131,6 +156,9 @@ impl StreamReaderTask {
         }
 
         transition_active_to_pending_on_stream_end(&self.sdk_sessions, self.db_session_id).await;
+        if self.cleanup_session_on_end {
+            self.sdk_sessions.lock().await.remove(&self.db_session_id);
+        }
     }
 
     async fn initial_context_window(&self) -> Option<u64> {

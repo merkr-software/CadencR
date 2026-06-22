@@ -15,14 +15,25 @@ pub struct McpContext {
     #[allow(dead_code)]
     pub write_pool: SqlitePool,
     pub feature_id: i64,
+    pub source_session_id: Option<i64>,
 }
 
 impl McpContext {
     pub fn new(read_pool: SqlitePool, write_pool: SqlitePool, feature_id: i64) -> Arc<Self> {
+        Self::new_with_source_session(read_pool, write_pool, feature_id, None)
+    }
+
+    pub fn new_with_source_session(
+        read_pool: SqlitePool,
+        write_pool: SqlitePool,
+        feature_id: i64,
+        source_session_id: Option<i64>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             read_pool,
             write_pool,
             feature_id,
+            source_session_id,
         })
     }
 

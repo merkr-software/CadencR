@@ -66,6 +66,10 @@ vi.mock("../editor-theme", () => ({
   cadencrEditorTheme: [],
 }));
 
+vi.mock("@/lib/editor/ergonomics-extensions", () => ({
+  ergonomicsExtensions: [],
+}));
+
 beforeEach(() => {
   mockDispatch.mockClear();
   mockDestroy.mockClear();

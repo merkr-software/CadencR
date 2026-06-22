@@ -19,6 +19,7 @@ pub(super) struct MutableBlock {
     pub(super) source_tool_name: Option<String>,
     pub(super) created_at: Option<String>,
     pub(super) model: Option<String>,
+    pub(super) origin: Option<AgentMessageOrigin>,
     pub(super) has_child_slots: bool, // Task/Agent get child slots
     pub(super) child_indices: Vec<usize>,
     pub(super) truncated_content: Option<bool>,
@@ -54,6 +55,7 @@ fn convert_block(idx: usize, all: &[MutableBlock]) -> AgentBlock {
         created_at: b.created_at.clone(),
         model: b.model.clone(),
         truncated_content: b.truncated_content,
+        origin: b.origin.clone(),
     }
 }
 
@@ -120,6 +122,7 @@ fn push_or_merge_streaming(
             } else {
                 None
             },
+            origin: msg.origin.clone(),
             has_child_slots: false,
             child_indices: Vec::new(),
             truncated_content: None,
@@ -155,6 +158,7 @@ fn make_simple_block(
             None
         },
         model: None,
+        origin: msg.origin.clone(),
         has_child_slots: false,
         child_indices: Vec::new(),
         truncated_content: None,
@@ -321,6 +325,27 @@ mod tests {
         assert_eq!(blocks[0].content, "Hello from user");
         assert_eq!(blocks[1].type_, "text");
         assert_eq!(blocks[1].content, "Hello from assistant");
+    }
+
+    #[test]
+    fn test_build_blocks_user_message_preserves_origin() {
+        let mut msg = make_message(1, 1, "user_message", "Delegated prompt");
+        msg.origin = Some(AgentMessageOrigin {
+            origin_kind: "session_generated".to_string(),
+            source_session_id: Some(123),
+            source_feature_id: Some(45),
+            source_project_id: Some(6),
+            source_message_id: Some(789),
+            note: Some("spawned helper".to_string()),
+            created_at: Some("2026-06-18T12:00:00Z".to_string()),
+        });
+
+        let blocks = build_blocks(&[msg]);
+
+        let origin = blocks[0].origin.as_ref().expect("origin");
+        assert_eq!(origin.origin_kind, "session_generated");
+        assert_eq!(origin.source_session_id, Some(123));
+        assert_eq!(origin.note.as_deref(), Some("spawned helper"));
     }
 
     #[test]

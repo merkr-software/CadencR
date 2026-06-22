@@ -138,6 +138,8 @@ export interface SessionEntry {
   pendingPlanApproval: PendingPlanApproval | null;
   compactRequestPending: boolean;
   pendingManualCompact: boolean;
+  /** True while the provider-neutral runtime reports an active compaction turn. */
+  runtimeCompacting: boolean;
   currentProviderId: string;
   currentModelId: string;
   runtimeProvider: string;
@@ -205,6 +207,7 @@ export function createSessionEntry(): SessionEntry {
     pendingPlanApproval: null,
     compactRequestPending: false,
     pendingManualCompact: false,
+    runtimeCompacting: false,
     currentProviderId: DEFAULT_PROVIDER,
     currentModelId: FALLBACK_MODEL_ID,
     runtimeProvider: DEFAULT_PROVIDER,

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{AssertSqlSafe, FromRow, SqlitePool};
 
 use super::limits::MAX_AGENT_MESSAGE_LIMIT;
 use super::models::{
@@ -106,7 +106,7 @@ async fn load_candidates(
                    '%Y-%m-%dT%H:%M:%SZ',
                    COALESCE(MAX(am.created_at), s.started_at, f.created_at)
                ) AS last_activity_at,
-               s.is_pinned != 0 AS is_pinned
+               f.is_pinned != 0 AS is_pinned
            FROM agent_sessions s
            INNER JOIN features f ON f.id = s.feature_id
            INNER JOIN projects p ON p.id = f.project_id
@@ -114,7 +114,7 @@ async fn load_candidates(
            WHERE f.status = 'active'"#,
     );
 
-    sql.push_str(" AND (s.is_pinned != 0 OR (1 = 1");
+    sql.push_str(" AND (f.is_pinned != 0 OR (1 = 1");
     if query.project_id.is_some() {
         sql.push_str(" AND p.id = ?");
     }
@@ -122,7 +122,7 @@ async fn load_candidates(
     sql.push_str(")) GROUP BY s.id");
     if matches!(query.mode, UnifiedAgentsMode::Recent) {
         sql.push_str(
-            r#" HAVING s.is_pinned != 0
+            r#" HAVING f.is_pinned != 0
                 OR s.status = 'running'
                 OR s.pending_questions IS NOT NULL
                 OR s.pending_permission IS NOT NULL
@@ -131,7 +131,7 @@ async fn load_candidates(
     }
     sql.push_str(" ORDER BY agent_created_at DESC, s.id DESC");
 
-    let mut q = sqlx::query_as::<_, UnifiedAgentCandidate>(&sql);
+    let mut q = sqlx::query_as::<_, UnifiedAgentCandidate>(AssertSqlSafe(sql));
     if let Some(project_id) = query.project_id {
         q = q.bind(project_id);
     }
@@ -139,24 +139,6 @@ async fn load_candidates(
         q = q.bind(format!("-{} minutes", query.fresh_minutes.max(1)));
     }
     Ok(q.fetch_all(pool).await?)
-}
-
-pub async fn set_agent_pinned(
-    pool: &SqlitePool,
-    session_id: i64,
-    is_pinned: bool,
-) -> Result<(), AppError> {
-    let result = sqlx::query("UPDATE agent_sessions SET is_pinned = ? WHERE id = ?")
-        .bind(if is_pinned { 1 } else { 0 })
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-    if result.rows_affected() == 0 {
-        return Err(AppError::NotFound(format!(
-            "agent session {session_id} not found"
-        )));
-    }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -183,7 +165,8 @@ mod tests {
                 status TEXT NOT NULL DEFAULT 'active',
                 label TEXT,
                 created_at TEXT NOT NULL,
-                type TEXT NOT NULL
+                type TEXT NOT NULL,
+                is_pinned INTEGER NOT NULL DEFAULT 0
             )"#,
         )
         .execute(&pool)
@@ -210,8 +193,7 @@ mod tests {
                 output_tokens INTEGER,
                 context_window INTEGER,
                 was_compacted INTEGER DEFAULT 0,
-                draft_prompt TEXT,
-                is_pinned INTEGER NOT NULL DEFAULT 0
+                draft_prompt TEXT
             )"#,
         )
         .execute(&pool)
@@ -322,14 +304,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_agent_pinned_returns_not_found() {
-        let pool = setup_pool().await;
-        let err = set_agent_pinned(&pool, 404, true).await.unwrap_err();
-        assert!(matches!(err, AppError::NotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn pinned_agents_bypass_recent_and_project_filters() {
+    async fn pinned_features_bypass_recent_and_project_filters() {
         let pool = setup_pool().await;
         sqlx::query(
             "INSERT INTO projects (id, name, path) VALUES (1, 'p1', '/p1'), (2, 'p2', '/p2')",
@@ -337,14 +312,16 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        // Feature 2 is pinned, so its session must surface even though it lives
+        // in another project and falls outside the Recent window.
         sqlx::query(
-            "INSERT INTO features (id, project_id, title, status, created_at, type) VALUES (1, 1, 'a', 'active', datetime('now', '-1 day'), 'ws-session'), (2, 2, 'b', 'active', datetime('now', '-1 day'), 'ws-session')",
+            "INSERT INTO features (id, project_id, title, status, created_at, type, is_pinned) VALUES (1, 1, 'a', 'active', datetime('now', '-1 day'), 'ws-session', 0), (2, 2, 'b', 'active', datetime('now', '-1 day'), 'ws-session', 1)",
         )
         .execute(&pool)
         .await
         .unwrap();
         sqlx::query(
-            "INSERT INTO agent_sessions (id, feature_id, agent_type, status, started_at, is_pinned) VALUES (1, 1, 'session', 'completed', datetime('now', '-1 day'), 0), (2, 2, 'session', 'completed', datetime('now', '-1 day'), 1)",
+            "INSERT INTO agent_sessions (id, feature_id, agent_type, status, started_at) VALUES (1, 1, 'session', 'completed', datetime('now', '-1 day')), (2, 2, 'session', 'completed', datetime('now', '-1 day'))",
         )
         .execute(&pool)
         .await

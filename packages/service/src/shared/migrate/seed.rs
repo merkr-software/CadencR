@@ -52,25 +52,19 @@ pub(super) async fn seed_sqlx_migrations(
     Ok(())
 }
 
-/// Ensure `agent_sessions.is_pinned` exists even when migration history was
-/// seeded for an older database and sqlx therefore skipped the add-column DDL.
-pub(super) async fn repair_agent_sessions_pin_column(pool: &SqlitePool) -> anyhow::Result<()> {
-    if !table_exists(pool, "agent_sessions").await? {
+/// Repair dev-era/minimal legacy schemas before migrations that build FTS over
+/// `agent_messages.content`. The canonical baseline has this column, but some
+/// historical fixtures and hand-edited dev DBs may not.
+pub(super) async fn repair_agent_messages_content_column(pool: &SqlitePool) -> anyhow::Result<()> {
+    if !table_exists(pool, "agent_messages").await? {
         return Ok(());
     }
-
-    if !table_has_column(pool, "agent_sessions", "is_pinned").await? {
-        info!("Repairing missing agent_sessions.is_pinned column");
-        sqlx::query("ALTER TABLE agent_sessions ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0")
+    if !table_has_column(pool, "agent_messages", "content").await? {
+        info!("Repairing missing agent_messages.content column");
+        sqlx::query("ALTER TABLE agent_messages ADD COLUMN content TEXT NOT NULL DEFAULT ''")
             .execute(pool)
             .await?;
     }
-
-    sqlx::query(
-        "CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_pinned ON agent_sessions(is_pinned)",
-    )
-    .execute(pool)
-    .await?;
     Ok(())
 }
 
@@ -174,55 +168,5 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(old_count, 1);
-    }
-
-    #[tokio::test]
-    async fn test_existing_seeded_db_repairs_missing_pin_column() {
-        let tmp = tempfile::NamedTempFile::new().unwrap();
-        let path = tmp.path().to_str().unwrap();
-        let pool = test_pool(path).await;
-
-        sqlx::query(
-            "CREATE TABLE migrations (
-                version INTEGER PRIMARY KEY,
-                description TEXT NOT NULL,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            )",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE TABLE agent_sessions (
-                id INTEGER PRIMARY KEY,
-                feature_id INTEGER NOT NULL,
-                status TEXT NOT NULL
-            )",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("INSERT INTO agent_sessions (id, feature_id, status) VALUES (1, 1, 'idle')")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        run_migrations(&MigrationContext::pool_only(&pool))
-            .await
-            .unwrap();
-        run_migrations(&MigrationContext::pool_only(&pool))
-            .await
-            .unwrap();
-
-        assert!(
-            super::super::support::table_has_column(&pool, "agent_sessions", "is_pinned")
-                .await
-                .unwrap()
-        );
-        let pinned: i64 = sqlx::query_scalar("SELECT is_pinned FROM agent_sessions WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(pinned, 0);
     }
 }

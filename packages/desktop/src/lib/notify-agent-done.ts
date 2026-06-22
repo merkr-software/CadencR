@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import {
   getGetWorkspaceSettingQueryKey,
   getListProjectsQueryKey,
+  getMessagePreview,
   type Project,
   type SettingValueResponse,
 } from "@/api/generated";
@@ -63,10 +64,6 @@ interface NotifyOptions {
   featureId: number;
   projectId: number;
   routeType: "session";
-  /** Agent kind label, e.g. "Execute", "Review" */
-  agentKind?: string;
-  /** Agent-specific title, e.g. phase title */
-  agentTitle?: string;
 }
 
 /**
@@ -85,21 +82,42 @@ export function isViewingFeature(featureId: number): boolean {
   return hashPath === `/ws-session/${wsSessionIdFromFeature(featureId)}`;
 }
 
-function titleForStatus(status: NotifyOptions["status"]): string {
+/** Colored status emoji prefixed to the title (`<emoji> | <feature title>`). */
+function statusEmoji(status: NotifyOptions["status"]): string {
   switch (status) {
     case "completed":
-      return "Agent finished";
+      return "🟢";
     case "error":
-      return "Agent error";
+      return "🔴";
     case "needs_input":
-      return "Agent needs input";
+      return "🟠";
+  }
+}
+
+/**
+ * Start of the agent's latest reply, for the notification's second line.
+ * Best-effort: on failure we fall back to the feature title, so a cosmetic
+ * fetch error never blocks the (still user-visible) notification.
+ */
+async function fetchMessagePreview(featureId: number): Promise<string | null> {
+  try {
+    const { preview } = await getMessagePreview(featureId);
+    return preview && preview.length > 0 ? preview : null;
+  } catch (e) {
+    console.warn("[notify] message preview fetch failed:", e);
+    return null;
   }
 }
 
 /**
  * Send a native desktop notification for agent events (completion, error,
  * or waiting for user input), unless the user is already viewing that feature.
- * Clicking the notification navigates to the relevant route and focuses the prompt.
+ * Title is `<emoji> | <feature title>`; the body is the start of the agent's
+ * latest reply (falling back to the feature title). Clicking navigates to the
+ * route and focuses the prompt.
+ *
+ * Fire-and-forget: the preview fetch is gated behind the same guards so we
+ * never hit the network for a notification that won't show.
  */
 export function notifyAgentDone(opts: NotifyOptions): void {
   if (!permissionCache) return;
@@ -107,24 +125,22 @@ export function notifyAgentDone(opts: NotifyOptions): void {
   if (mode === "off") return;
   if (isViewingFeature(opts.featureId)) return;
 
-  const bodyParts = [opts.featureTitle];
-  if (opts.agentKind) {
-    bodyParts.push(opts.agentTitle ? `${opts.agentKind}: ${opts.agentTitle}` : opts.agentKind);
-  }
-
-  void desktopBridge
-    .notify({
-      title: titleForStatus(opts.status),
-      body: bodyParts.join("\n"),
-      featureId: opts.featureId,
-      projectId: opts.projectId,
-      routeType: opts.routeType,
-      mode,
-    })
-    .catch((e: unknown) => {
+  void (async () => {
+    const preview = await fetchMessagePreview(opts.featureId);
+    try {
+      await desktopBridge.notify({
+        title: `${statusEmoji(opts.status)} | ${opts.featureTitle}`,
+        body: preview ?? opts.featureTitle,
+        featureId: opts.featureId,
+        projectId: opts.projectId,
+        routeType: opts.routeType,
+        mode,
+      });
+    } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       toast.error("Couldn't send notification", { description: message });
-    });
+    }
+  })();
 }
 
 /**
@@ -182,6 +198,24 @@ export function listenForNotificationFallbacks(
         : undefined,
     });
   });
+}
+
+/**
+ * Open a session route from a Web Push notification click (PWA/remote). Reuses
+ * the exact navigation the desktop notification path uses, so both shells land
+ * on the same screen and focus the prompt.
+ */
+export function openSessionFromPush(
+  navigate: NavigateFn,
+  queryClient: QueryClient,
+  featureId: number,
+  projectId: number,
+): void {
+  openFromNotification(
+    { feature_id: featureId, project_id: projectId, route_type: "session" },
+    navigate,
+    queryClient,
+  );
 }
 
 function openFromNotification(

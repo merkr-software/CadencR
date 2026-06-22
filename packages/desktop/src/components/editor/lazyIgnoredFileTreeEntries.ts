@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
-import type { FileTree as FileTreeModel, FileTreeDirectoryHandle } from "@pierre/trees";
-import { getFileTreeQueryOptions, type FileTreeEntry, type FileTreeParams } from "@/api/generated";
-import { toPierrePath } from "@/components/file-tree/CadencrFileTree";
+import { useCallback, useMemo } from "react";
+import type { FileTree as FileTreeModel } from "@pierre/trees";
+import type { FileTreeEntry } from "@/api/generated";
+import {
+  ROOT_DIR,
+  useLazyDirectoryEntries,
+  type DirectoryQueryResult,
+} from "./useLazyDirectoryEntries";
 
 interface UseLazyIgnoredFileTreeEntriesOptions {
   model: FileTreeModel;
@@ -10,17 +13,8 @@ interface UseLazyIgnoredFileTreeEntriesOptions {
   featureId: number;
   trackedEntries: readonly FileTreeEntry[] | undefined;
   onEntriesChange: (entries: readonly FileTreeEntry[]) => void;
-}
-
-interface DirectoryQueryResult {
-  dirPath: string;
-  entries: readonly FileTreeEntry[] | undefined;
-}
-
-const ROOT_DIR = ".";
-
-function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
+  /** Off in lazy-tracked mode, where the whole tree loads on demand instead. */
+  enabled?: boolean;
 }
 
 /**
@@ -42,14 +36,6 @@ export function knownIgnoredDirectoryPaths(
     if (entry.is_dir && entry.is_gitignored) paths.add(entry.path);
   }
   return [...paths];
-}
-
-function entriesSignature(entries: readonly FileTreeEntry[]): string {
-  return entries
-    .map(
-      (entry) => `${entry.path}\t${entry.is_dir ? "d" : "f"}\t${entry.is_gitignored ? "i" : "-"}`,
-    )
-    .join("\n");
 }
 
 export function mergeFileTreeEntries(
@@ -92,76 +78,44 @@ export function collectLazyIgnoredEntries(
   return entries;
 }
 
-function readExpandedIgnoredDirectories(
-  model: FileTreeModel,
-  ignoredDirectoryPaths: readonly string[],
-): readonly string[] {
-  const expanded: string[] = [];
-  for (const path of ignoredDirectoryPaths) {
-    const item = model.getItem(toPierrePath({ path, is_dir: true }));
-    if (item == null || !item.isDirectory()) continue;
-    if ((item as FileTreeDirectoryHandle).isExpanded()) expanded.push(path);
-  }
-  return expanded;
-}
-
+/**
+ * Lazily loads the contents of gitignored directories (`node_modules`,
+ * `target`, …) the first time the user expands them, so the fast tracked
+ * tree never has to walk them. A thin specialization of the generic
+ * `useLazyDirectoryEntries`: it watches the gitignored directories and shapes
+ * each loaded entry as ignored.
+ */
 export function useLazyIgnoredFileTreeEntries({
   model,
   projectId,
   featureId,
   trackedEntries,
   onEntriesChange,
+  enabled = true,
 }: UseLazyIgnoredFileTreeEntriesOptions): void {
-  const [expandedIgnoredDirs, setExpandedIgnoredDirs] = useState<readonly string[]>([]);
-  const ignoredDirsRef = useRef<readonly string[]>([]);
-  const entriesSignatureRef = useRef("");
-  const queryDirs = useMemo(() => [ROOT_DIR, ...expandedIgnoredDirs], [expandedIgnoredDirs]);
-
-  const queries = useQueries({
-    queries: queryDirs.map((dirPath) => {
-      const params: FileTreeParams = {
-        project_id: projectId,
-        feature_id: featureId,
-        dir_path: dirPath,
-      };
-      return getFileTreeQueryOptions(params, { query: { staleTime: 30_000 } });
-    }),
-  });
-
-  const queryDataVersion = queries
-    .map((query, index) => `${queryDirs[index] ?? ROOT_DIR}:${query.dataUpdatedAt}`)
-    .join(",");
-  const lazyEntries = useMemo(() => {
-    const queryResults: DirectoryQueryResult[] = queries.map((query, index) => ({
-      dirPath: queryDirs[index] ?? ROOT_DIR,
-      entries: query.data,
-    }));
-    return collectLazyIgnoredEntries(queryResults, trackedEntries);
-  }, [featureId, projectId, queryDataVersion, trackedEntries]);
-
-  const ignoredDirs = useMemo(
-    () => knownIgnoredDirectoryPaths(trackedEntries, lazyEntries),
-    [trackedEntries, lazyEntries],
+  const expandableDirectoryPaths = useMemo(
+    () => knownIgnoredDirectoryPaths(trackedEntries, []),
+    [trackedEntries],
   );
-  const syncExpanded = useCallback((): void => {
-    const next = readExpandedIgnoredDirectories(model, ignoredDirsRef.current);
-    setExpandedIgnoredDirs((current) => (sameStringArray(current, next) ? current : next));
-  }, [model]);
 
-  useEffect(() => {
-    ignoredDirsRef.current = ignoredDirs;
-    syncExpanded();
-  }, [ignoredDirs, syncExpanded]);
+  const collectEntries = useCallback(
+    (queryResults: readonly DirectoryQueryResult[]) =>
+      collectLazyIgnoredEntries(queryResults, trackedEntries),
+    [trackedEntries],
+  );
 
-  useEffect(() => {
-    syncExpanded();
-    return model.subscribe(syncExpanded);
-  }, [model, syncExpanded]);
+  useLazyDirectoryEntries({
+    model,
+    projectId,
+    featureId,
+    enabled,
+    expandableDirectoryPaths,
+    directoryPredicate: isIgnoredDirectory,
+    collectEntries,
+    onEntriesChange,
+  });
+}
 
-  useEffect(() => {
-    const signature = entriesSignature(lazyEntries);
-    if (entriesSignatureRef.current === signature) return;
-    entriesSignatureRef.current = signature;
-    onEntriesChange(lazyEntries);
-  }, [lazyEntries, onEntriesChange]);
+function isIgnoredDirectory(entry: FileTreeEntry): boolean {
+  return entry.is_dir && entry.is_gitignored;
 }

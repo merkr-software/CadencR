@@ -2,7 +2,10 @@ use sqlx::SqlitePool;
 
 pub(super) async fn create_pre_agent_message_index_schema(pool: &SqlitePool) {
     sqlx::raw_sql(
-        r#"-- The run_in_terminal migration (20260609120000) alters custom_actions,
+        r#"-- The pin_features migration (20260621120000) alters features, which
+        -- already existed at this baseline, so the fixture must provide it.
+        CREATE TABLE features (id INTEGER PRIMARY KEY AUTOINCREMENT);
+        -- The run_in_terminal migration (20260609120000) alters custom_actions,
         -- which already existed at this baseline, so the fixture must provide it.
         CREATE TABLE custom_actions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -10,7 +13,10 @@ pub(super) async fn create_pre_agent_message_index_schema(pool: &SqlitePool) {
             command TEXT NOT NULL,
             scope TEXT NOT NULL DEFAULT 'global'
         );
-        CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL);
+        -- The pin rework drops agent_sessions.is_pinned (migration
+        -- 20260621130000); the column existed at this baseline (added by
+        -- 20260504001317), so the fixture must provide it for the drop to run.
+        CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL, is_pinned INTEGER NOT NULL DEFAULT 0);
         CREATE TABLE agent_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL REFERENCES agent_sessions(id),

@@ -1,4 +1,5 @@
 pub mod context;
+pub mod control;
 pub mod loopback;
 pub mod servers;
 pub mod stdio;

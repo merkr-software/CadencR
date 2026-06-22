@@ -48,6 +48,10 @@ export interface UseWebSocketSessionReturn {
   lifecycle: TurnLifecycle;
   turnTiming: TurnTimingState;
   status: LiveAgentStatus;
+  /** True while any backend-confirmed compaction is in progress.
+   *  Manual compaction is driven by `compact.started`; runtime/auto compaction
+   *  is driven by `session.compacting`. Drives the "Compacting…" indicator. */
+  isCompacting: boolean;
   isConnected: boolean;
   sessionId: string;
   sessionDbId: number | null;
@@ -282,6 +286,8 @@ function useSessionSnapshot(
       lifecycle,
       turnTiming: session?.turnTiming ?? createTurnTiming(),
       status,
+      isCompacting:
+        (session?.pendingManualCompact ?? false) || (session?.runtimeCompacting ?? false),
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,

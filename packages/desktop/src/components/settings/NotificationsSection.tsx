@@ -10,12 +10,14 @@ import {
   parseNotificationMode,
   type NotificationMode,
 } from "@/lib/notification-mode";
+import { isBrowserRemote } from "@/lib/remote/device-token";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsSection } from "./SettingsSection";
 import { IconTile } from "./IconTile";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
+import { PushNotificationsSubsection } from "./PushNotificationsSubsection";
 
 /**
  * Two-row Notifications section:
@@ -77,6 +79,11 @@ export function NotificationsSection(): React.JSX.Element {
             disabled={modeSetting.isLoading}
           />
         </SettingsSubsection>
+        {/* Background Web Push is the only cross-platform delivery for an
+            installed PWA / remote browser, where the Electron-native path
+            no-ops. Per-device opt-in, distinct from the shared destination
+            picker above. */}
+        {isBrowserRemote() ? <PushNotificationsSubsection /> : null}
         {/* The OS notification path only exists in the desktop shell. */}
         {isDesktopShell() ? (
           <SettingsSubsection padded={false}>

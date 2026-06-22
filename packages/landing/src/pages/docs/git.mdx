@@ -55,10 +55,15 @@ Inside the Git tab, Cadencr helps you:
 - review changed files before you trust them,
 - switch between **uncommitted changes** and **changes vs the target branch**,
 - inspect the diff instead of guessing,
+- switch to the commit graph when you need history, branch shape, or a commit-level diff,
 - see what branch you are on and what it is compared against,
 - reach the header actions for the next sensible step: **Commit** (<kbd>⌘<ShiftIcon />K</kbd>), **Push** (<kbd>⌘<ShiftIcon />U</kbd>), and **Open compare / PR** (<kbd>⌘<ShiftIcon />O</kbd>), or the <kbd>⌘G</kbd> popover for everything else.
 
 The branch picker lives behind <kbd>⌘B</kbd> while a feature is focused, so swapping branches inside a worktree never needs a mouse trip.
+
+### Commit graph
+
+The Git tab also includes a commit graph view. Use it when the question is about history rather than uncommitted files: which branch contains a commit, how your branch diverged from the target, or what changed in a specific commit. When a remote URL is available, Cadencr can also open the matching online commit or comparison view.
 
 ### Reviewing the diff with the keyboard
 
@@ -111,4 +116,5 @@ Good next stops from here:
 - [Workspace pages](../workspace-pages/) for the app tour
 - [Session view](../session-view/) for following what an agent is doing
 - [Editor](../editor/) for inspecting files and manual changes
+- [Browser](../browser/) for checking web-facing changes before review
 - [Terminal](../terminal/) for the cases where you do want the command line involved

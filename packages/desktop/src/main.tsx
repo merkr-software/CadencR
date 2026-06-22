@@ -3,7 +3,10 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import { preloadRuntimeConfig } from "./api/client";
 import { ensurePaired } from "./api/remote-pairing";
+import { registerPushServiceWorker } from "./lib/remote/push-register";
 import { applyThemeToDocument, readPersistedTheme } from "./lib/themes";
+import { installGlobalRendererErrorHandlers } from "./lib/renderer-error-reporting";
+import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
 import { detectStandalone } from "./hooks/useFullscreen";
 import "./index.css";
 
@@ -20,6 +23,7 @@ if (detectStandalone()) document.documentElement.classList.add("is-standalone");
 // localStorage paint hint only avoids a flash on cold start. `useThemeSync`
 // rewrites the cache once the workspace setting resolves.
 applyThemeToDocument(readPersistedTheme());
+installGlobalRendererErrorHandlers();
 
 // Preload port + token before mounting so sync accessors everywhere have
 // the config by the time the first request or WebSocket fires.
@@ -28,10 +32,16 @@ async function bootstrap(): Promise<void> {
   // and persist it *before* the API client reads its config below.
   await ensurePaired();
   await preloadRuntimeConfig();
+  // Register the push service worker in the web/PWA shell (no-op in Electron and
+  // when push is unsupported). Fire-and-forget — it must not block first paint,
+  // and actually subscribing is a separate user-gesture flow in settings.
+  void registerPushServiceWorker();
   const root = createRoot(document.getElementById("root")!);
   root.render(
     <React.StrictMode>
-      <App />
+      <GlobalErrorBoundary>
+        <App />
+      </GlobalErrorBoundary>
     </React.StrictMode>,
   );
 }

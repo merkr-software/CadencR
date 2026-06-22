@@ -3,7 +3,8 @@ use serde_json::Value;
 use crate::domain::agents::adapter::{
     RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeContentBlock, RuntimeContentDelta,
     RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeMcpServerStatus,
-    RuntimeStreamEvent, RuntimeUsage, RuntimeUserContentBlock, RuntimeUserMessage,
+    RuntimeStreamEvent, RuntimeTurnStartedSource, RuntimeUsage, RuntimeUserContentBlock,
+    RuntimeUserMessage,
 };
 
 pub(super) fn context_window_for_model_from_raw(raw: &Value, model: &str) -> Option<u64> {
@@ -165,6 +166,7 @@ fn map_user_message(message: &Value) -> RuntimeUserMessage {
 }
 
 pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEvent {
+    let background_agent = super::background_agents::background_agent_signal(&msg);
     let metadata = RuntimeEventMetadata {
         session_id: msg.session_id().map(ToOwned::to_owned),
         usage: msg.usage().map(|usage| RuntimeUsage {
@@ -204,6 +206,15 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
                     pre_tokens: Some(compact_metadata.pre_tokens),
                 }),
             },
+            status @ claude_agent_sdk_rs::messages::SystemMessage::Status { .. } => {
+                if status.is_compaction_started() {
+                    RuntimeEventKind::TurnStarted {
+                        source: RuntimeTurnStartedSource::ManualCompact,
+                    }
+                } else {
+                    RuntimeEventKind::Other
+                }
+            }
         },
         claude_agent_sdk_rs::SdkMessage::Assistant {
             message,
@@ -255,7 +266,7 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
         _ => RuntimeEventKind::Other,
     };
 
-    RuntimeEvent::new(metadata, kind)
+    RuntimeEvent::new(metadata, kind).with_background_agent(background_agent)
 }
 
 #[cfg(test)]
@@ -290,6 +301,27 @@ mod tests {
             }
             other => panic!("unexpected stream mapping: {other:?}"),
         }
+    }
+
+    #[test]
+    fn normalize_event_turns_compacting_status_into_manual_compact_start() {
+        let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "system",
+            "subtype": "status",
+            "status": "compacting",
+            "session_id": "s1",
+            "uuid": "st1"
+        }))
+        .unwrap();
+        let event = normalize_event(msg);
+        assert_eq!(
+            event.turn_started_source(),
+            Some(crate::domain::agents::adapter::RuntimeTurnStartedSource::ManualCompact)
+        );
+        let raw = event.raw_json();
+        assert_eq!(raw["type"], "system");
+        assert_eq!(raw["subtype"], "status");
+        assert_eq!(raw["status"], "compacting");
     }
 
     #[test]

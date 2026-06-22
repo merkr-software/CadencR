@@ -116,6 +116,8 @@ pub(super) async fn spawn_pending_runtime_for_compact(
         spawn.provider_id.clone(),
         spawn.spawned_model.as_deref(),
         provider_context_window,
+        app_state.clone(),
+        false,
     );
     Some(query)
 }

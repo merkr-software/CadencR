@@ -17,6 +17,10 @@ pub async fn list_by_project(
     repository::list_by_project(pool, project_id, include_archived).await
 }
 
+pub async fn list_pinned(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
+    repository::list_pinned(pool).await
+}
+
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Feature>, AppError> {
     repository::get_by_id(pool, id).await
 }
@@ -58,6 +62,7 @@ pub async fn create_feature_with_worktree(
     type_: Option<String>,
     worktree_mode: Option<String>,
     reuse_branch: Option<String>,
+    base_branch: Option<String>,
 ) -> Result<CreateFeatureResponse, AppError> {
     // After the ws-feature removal the only valid feature type is ws-session.
     // Reject any other value defensively in case an old client tries to
@@ -90,6 +95,9 @@ pub async fn create_feature_with_worktree(
     }
     if let Some(branch) = reuse_branch.as_deref() {
         set_feature_setting_in_tx(&mut tx, id, "worktree_reuse_branch", branch).await?;
+    }
+    if let Some(branch) = base_branch.as_deref() {
+        set_feature_setting_in_tx(&mut tx, id, "worktree_base_branch", branch).await?;
     }
     tx.commit().await?;
     Ok(CreateFeatureResponse { id })
@@ -126,6 +134,10 @@ pub async fn update_status(
 
 pub async fn update_label(pool: &SqlitePool, id: i64, label: Option<&str>) -> Result<(), AppError> {
     repository::update_label(pool, id, label).await
+}
+
+pub async fn set_pinned(pool: &SqlitePool, id: i64, is_pinned: bool) -> Result<(), AppError> {
+    repository::set_pinned(pool, id, is_pinned).await
 }
 
 pub async fn is_empty(pool: &SqlitePool, id: i64) -> Result<IsEmptyResponse, AppError> {

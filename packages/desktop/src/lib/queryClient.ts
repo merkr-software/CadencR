@@ -45,6 +45,19 @@ export function invalidateByUrlPrefix(
 }
 
 /**
+ * Invalidate every cached query whose URL key is exactly `url` (any params).
+ * Unlike {@link invalidateByUrlPrefix}, this does NOT match longer sibling
+ * URLs — `/api/editor/tree` won't match `/api/editor/tree-all`. Used by the
+ * file tree's lazy mode, which must refresh the per-directory `tree` queries
+ * without re-triggering the (disabled) `tree-all` / `tree-count` queries.
+ */
+export function invalidateByExactUrl(client: QueryClient, url: string): Promise<void> {
+  return client.invalidateQueries({
+    predicate: (query) => query.queryKey[0] === url,
+  });
+}
+
+/**
  * localStorage persister used by `PersistQueryClientProvider` in `App.tsx`.
  *
  * Only queries that pass `shouldDehydrateQuery` (see `persistedQueries.ts`)

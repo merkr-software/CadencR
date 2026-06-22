@@ -1,0 +1,79 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Browser"
+description: "Preview local apps, keep browser tabs scoped to a feature, and send page context back to an agent."
+---
+
+import DocCallout from "@/components/docs/DocCallout.astro";
+import Kbd from "@/components/ui/Kbd.astro";
+
+The Browser tab gives each feature workspace a built-in web browser. Use it when the work needs a live page nearby: a local dev server, a docs site, an OAuth flow, or a UI you want the agent to inspect with you.
+
+## What the Browser is for
+
+The Browser is most useful when the task depends on what a page actually does, not just what the code says.
+
+Use it to:
+
+- preview a local app without leaving the feature workspace,
+- keep web research or product docs next to the agent conversation,
+- test a page in the same workspace as the files and Git diff,
+- add page comments and send them to the agent as context,
+- let trusted browser tools open URLs in the right feature tab.
+
+<DocCallout title="Feature-scoped tabs" variant="note">
+  Browser tabs are scoped to the current feature workspace. A tab opened for one feature does not
+  leak into another feature's Browser tab.
+</DocCallout>
+
+## Everyday browser controls
+
+The Browser has the usual basics: tabs, back / forward, reload / stop, an address bar, page loading state, favicons, and DevTools access. The address bar accepts normal URLs and local addresses like `localhost:3000`.
+
+The tab strip includes a cookie-mode toggle:
+
+| Mode        | What it means                                      | Use it when...                                               |
+| ----------- | -------------------------------------------------- | ------------------------------------------------------------ |
+| **Normal**  | Reuses the normal browser session and its cookies. | You want existing logins, app state, or repeated test setup. |
+| **Private** | Uses an in-memory session cleared when closed.     | You want a fresh login state or a clean browser context.     |
+
+Set the default for new Browser tabs in **Settings → Browser**.
+
+## Page comments
+
+Page comments are a lightweight way to turn what you see into agent context.
+
+A common loop looks like this:
+
+1. open the page in the Browser tab,
+2. click the comment control or press <Kbd>⌘</Kbd> <Kbd>S</Kbd>,
+3. mark the relevant page area and write the note,
+4. send the collected comments to the agent.
+
+That keeps visual feedback close to the page instead of turning it into a vague prompt like “the button looks weird.”
+
+## Local files and permission-gated URLs
+
+The Browser can open local files and external URLs, but Cadencr treats that as part of the same permission-aware workflow as the rest of the app. The goal is simple: make previews convenient without quietly handing an agent unlimited browsing power.
+
+If a provider or trusted browser tool opens a URL, Cadencr reuses the active Browser tab for that feature when it can. That keeps browser-driven agent work attached to the same workspace you are already reviewing.
+
+## Shortcuts
+
+The Browser has its own shortcut scope. The full list appears on [Shortcuts](../shortcuts/), but the ones you will probably reach for first are:
+
+| Shortcut                               | What it does            |
+| -------------------------------------- | ----------------------- |
+| <Kbd>⌘</Kbd> <Kbd>T</Kbd>              | New browser tab         |
+| <Kbd>⌘</Kbd> <Kbd>W</Kbd>              | Close browser tab       |
+| <Kbd>⌘</Kbd> <Kbd>L</Kbd>              | Focus the address bar   |
+| <Kbd>⌘</Kbd> <Kbd>R</Kbd>              | Reload the page         |
+| <Kbd>⌘</Kbd> <Kbd>S</Kbd>              | Add a page comment      |
+| <Kbd>⌘</Kbd> <Kbd>⌥</Kbd> <Kbd>I</Kbd> | Toggle Browser DevTools |
+
+## Related docs
+
+- [Feature workspace](../feature-workspace/) — where the Browser sits next to Agent, Editor, Terminal, and Git
+- [Prompt](../prompting/) — send page context and screenshots back into a session
+- [Settings](../settings/) — default Browser mode and related preferences
+- [Shortcuts](../shortcuts/) — the complete Browser shortcut scope

@@ -28,6 +28,7 @@ export type ShortcutKey =
   | "rbracket"
   | "question" // Shift+/ on QWERTY — used by the help cheatsheet shortcut.
   | "f2" // F2 — used by Rename Symbol.
+  | "f12" // F12 — used by Find References (with Shift).
   // Letter / digit / single-char literals are passed through verbatim.
   | (string & {});
 

@@ -14,7 +14,7 @@ export function WorktreeGroup({
   renderFeature,
 }: WorktreeGroupProps): ReactElement {
   return (
-    <div className="flex flex-col gap-0.5 rounded-md bg-muted/30 p-1">
+    <div className="worktree-group flex flex-col gap-0.5 rounded-md border border-transparent bg-muted/30 p-1">
       <div
         className="flex items-center gap-1.5 px-2 pt-1 pb-0.5 text-xs font-medium text-muted-foreground"
         title={label}

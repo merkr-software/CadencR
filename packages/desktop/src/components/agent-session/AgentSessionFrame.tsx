@@ -5,6 +5,7 @@ import type { AgentBlockData } from "../AgentBlock";
 import type { LiveAgentStatus } from "@/types/agent";
 import type { AgentSessionProps } from "./types";
 import { CollapsibleHeader } from "./CollapsibleHeader";
+import type { BadgeConfig } from "./CollapsibleHeader";
 import { SessionHint } from "./SessionHint";
 
 interface AgentSessionFrameProps extends Pick<
@@ -30,7 +31,7 @@ interface AgentSessionFrameProps extends Pick<
   bottomContent: ReactNode;
   onToggle: () => void;
   IconComponent: ComponentType<LucideProps>;
-  badge: { label: string; className: string };
+  badge: BadgeConfig;
   displayLabel: string;
 }
 

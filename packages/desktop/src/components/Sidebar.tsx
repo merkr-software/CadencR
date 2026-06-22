@@ -13,12 +13,14 @@ import {
 } from "@/components/ui/dialog";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { ProjectTree } from "@/components/ProjectTree";
+import { SidebarPinnedConversations } from "@/components/SidebarPinnedConversations";
 import { AppEnvironmentBadge } from "@/components/AppEnvironmentBadge";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { UnifiedAgentsSidebarLink } from "@/components/UnifiedAgentsSidebarLink";
 import { ConnectionStatusIndicator } from "@/components/ConnectionStatusIndicator";
 import { InternetStatusIndicator } from "@/components/InternetStatusIndicator";
 import { SidebarUpdateButton } from "@/components/SidebarUpdateButton";
+import { SidebarPushButton } from "@/components/SidebarPushButton";
 import { RemoteAccessButton } from "@/components/remote/RemoteAccessButton";
 import { getActiveFocusZone } from "@/lib/focus-zones";
 import { APP_VERSION } from "@/lib/app-version";
@@ -56,6 +58,10 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
             <UnifiedAgentsSidebarLink />
           </div>
         )}
+        <SidebarPinnedConversations
+          activeFeatureId={effectiveFeatureId}
+          onSelectFeature={setSelectedFeatureId}
+        />
         <div className="min-h-0 flex-1">
           <ProjectTree
             activeProjectId={activeProjectId}
@@ -343,13 +349,14 @@ function SidebarFooter(): ReactElement {
   return (
     <div className="flex flex-col items-center gap-1 py-2">
       <SidebarFullscreenButton />
+      <SidebarPushButton />
       <SidebarUpdateButton />
       <div className="flex w-[90%] items-center gap-1.5">
         <Link
           to="/settings"
           data-nav-item
           className={cn(
-            "flex min-w-0 flex-1 items-center gap-2 rounded-full border border-transparent px-3 py-1.5 text-xs text-foreground/80 transition-colors",
+            "flex min-w-0 flex-1 items-center gap-2 rounded-[var(--radius-pill)] border border-transparent px-3 py-1.5 text-xs text-foreground/80 transition-colors",
             "hover:border-border hover:bg-accent hover:text-foreground",
             "focus-visible:border-border focus-visible:bg-accent focus-visible:outline-none focus-visible:text-foreground",
           )}

@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
 
-use super::config::{RuntimeMcpServerStatus, RuntimePermissionMode};
+use super::config::{RuntimeAccessMode, RuntimeMcpServerStatus, RuntimePermissionMode};
 use super::error::RuntimeError;
 use super::event_types::RuntimeEvent;
 use super::permission::{
@@ -57,6 +57,13 @@ pub trait AgentRuntimeSession: Send + Sync {
     async fn close(&mut self);
     async fn set_model(&self, model: &str) -> Result<(), RuntimeError>;
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError>;
+    /// Optional provider runtime hook for access/autonomy controls that can be
+    /// updated without respawning a session.
+    async fn set_access_mode(&self, _mode: RuntimeAccessMode) -> Result<(), RuntimeError> {
+        Err(RuntimeError::new(
+            "access mode changes are not supported by this runtime",
+        ))
+    }
     fn applies_thinking_effort_in_place(&self) -> bool {
         false
     }

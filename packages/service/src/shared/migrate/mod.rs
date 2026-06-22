@@ -1,18 +1,20 @@
+#[cfg(test)]
+use sqlx::AssertSqlSafe;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::{info, warn};
-
 mod checksum_repair;
 mod checksum_repair_data;
 #[cfg(test)]
 mod codex_permission_mode_migration_tests;
+#[cfg(test)]
+mod mcp_orchestration_migration_tests;
 mod seed;
 mod support;
 #[cfg(test)]
 mod test_fixtures;
-
+mod version_guard;
 use support::{backup_database, emit_phase, has_pending_migrations, table_exists};
-
 /// Inputs for a single startup migration pass.
 pub struct MigrationContext<'a> {
     pub pool: &'a SqlitePool,
@@ -22,7 +24,6 @@ pub struct MigrationContext<'a> {
     /// Version label used in the backup filename. Falls back to `"unknown"` if `None`.
     pub app_version: Option<&'a str>,
 }
-
 #[cfg(test)]
 impl<'a> MigrationContext<'a> {
     /// Pool-only context, intended for tests that don't care about backups.
@@ -34,7 +35,6 @@ impl<'a> MigrationContext<'a> {
         }
     }
 }
-
 /// Run database migrations defensively.
 ///
 /// For existing databases (detected by the presence of the old Electron `migrations` table),
@@ -44,10 +44,10 @@ impl<'a> MigrationContext<'a> {
 /// Returns an error if any migration fails — the caller must abort startup.
 pub async fn run_migrations(ctx: &MigrationContext<'_>) -> anyhow::Result<()> {
     let migrator = sqlx::migrate!("./migrations");
-
     if table_exists(ctx.pool, "migrations").await? {
         seed::seed_sqlx_migrations(ctx.pool, &migrator).await?;
     }
+    version_guard::ensure_database_not_newer(ctx.pool, &migrator).await?;
 
     if has_pending_migrations(ctx.pool, &migrator).await? {
         if let Some(db_path) = ctx.db_path {
@@ -67,8 +67,8 @@ pub async fn run_migrations(ctx: &MigrationContext<'_>) -> anyhow::Result<()> {
     }
 
     checksum_repair::repair_known_sqlx_checksum_mismatches(ctx.pool, &migrator).await?;
+    seed::repair_agent_messages_content_column(ctx.pool).await?;
     migrator.run(ctx.pool).await?;
-    seed::repair_agent_sessions_pin_column(ctx.pool).await?;
     seed::repair_agent_messages_perf_indexes(ctx.pool).await?;
 
     info!("Database migrations completed successfully");
@@ -259,9 +259,9 @@ mod tests {
             );
         }
         for table in ["settings", "project_settings", "feature_settings"] {
-            let count: i64 = sqlx::query_scalar(&format!(
+            let count: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
                 "SELECT COUNT(*) FROM {table} WHERE key IN ('model_qa', 'agent_autonomy', 'parallel_execution')"
-            ))
+            )))
             .fetch_one(&pool)
             .await
             .unwrap();
@@ -302,6 +302,68 @@ mod tests {
                 "missing {expected}"
             );
         }
+
+        let fk_violations: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(fk_violations, 0);
+    }
+
+    #[tokio::test]
+    async fn drop_agent_sessions_pin_migration_removes_column_and_index() {
+        const DROP_PIN_VERSION: i64 = 20260621130000;
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path().to_str().unwrap();
+        let pool = test_pool(path).await;
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Old shape: the per-session pin column and its index, as shipped by
+        // migration 20260504001317. A pinned row must survive the column drop.
+        sqlx::raw_sql(
+            r#"CREATE TABLE agent_sessions (
+                id INTEGER PRIMARY KEY,
+                feature_id INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'idle',
+                is_pinned INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX idx_agent_sessions_is_pinned ON agent_sessions(is_pinned);
+            INSERT INTO agent_sessions (id, feature_id, status, is_pinned)
+                VALUES (1, 7, 'running', 1);"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        seed_applied_migrations_before(&pool, DROP_PIN_VERSION).await;
+
+        run_migrations(&MigrationContext::pool_only(&pool))
+            .await
+            .unwrap();
+
+        assert!(!table_has_column(&pool, "agent_sessions", "is_pinned").await);
+        let indexes: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM pragma_index_list('agent_sessions')")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            !indexes
+                .iter()
+                .any(|name| name == "idx_agent_sessions_is_pinned"),
+            "pin index should be dropped"
+        );
+
+        // Non-pin data on the row is preserved across the column drop.
+        let feature_id: i64 =
+            sqlx::query_scalar("SELECT feature_id FROM agent_sessions WHERE id = 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(feature_id, 7);
 
         let fk_violations: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
@@ -380,7 +442,7 @@ mod tests {
             CREATE TABLE workflow_dependencies (id INTEGER PRIMARY KEY, queue_item_id INTEGER NOT NULL REFERENCES workflow_queue(id), depends_on_item_id INTEGER NOT NULL REFERENCES workflow_queue(id));
             CREATE TABLE phases (id INTEGER PRIMARY KEY, plan_id INTEGER NOT NULL);
             CREATE TABLE plans (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL REFERENCES features(id));
-            CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL REFERENCES features(id), pending_plan_approval TEXT, pending_prd_approval TEXT, plan_approval_result TEXT, prd_approval_result TEXT, run_id INTEGER, phase_id INTEGER, question_answer_result TEXT);
+            CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL REFERENCES features(id), pending_plan_approval TEXT, pending_prd_approval TEXT, plan_approval_result TEXT, prd_approval_result TEXT, run_id INTEGER, phase_id INTEGER, question_answer_result TEXT, is_pinned INTEGER NOT NULL DEFAULT 0);
             CREATE TABLE session_runtime_ids (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES agent_sessions(id));
             CREATE TABLE agent_messages (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL REFERENCES agent_sessions(id), role TEXT NOT NULL DEFAULT 'assistant', created_at TEXT NOT NULL DEFAULT (datetime('now')));
             CREATE TABLE feature_settings (id INTEGER PRIMARY KEY, feature_id INTEGER NOT NULL REFERENCES features(id), key TEXT NOT NULL, value TEXT NOT NULL);

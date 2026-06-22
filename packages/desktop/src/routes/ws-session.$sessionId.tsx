@@ -8,7 +8,7 @@ import {
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
-import { validateWsSessionSearch } from "./ws-session-search";
+import { validateWsSessionSearch } from "./-ws-session-search";
 
 export const Route = createFileRoute("/ws-session/$sessionId")({
   component: WebSocketSessionPage,

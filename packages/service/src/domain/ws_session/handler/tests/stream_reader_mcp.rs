@@ -81,18 +81,14 @@ async fn test_stream_reader_refreshes_mcp_servers_after_turn_result() {
         .unwrap();
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions,
-        "claude_code".to_string(),
-        None,
-        None,
+        "claude_code",
     );
 
     let payload = recv_mcp_servers_payload(&mut ws_rx).await;

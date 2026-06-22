@@ -225,6 +225,30 @@ describe("parseCadencrMcpTool", () => {
     expect(result!.label).toBe("Taking screenshot");
   });
 
+  it("parses project and workspace MCP tool names as Cadencr tools", () => {
+    const project = parseCadencrMcpTool(
+      "mcp__cadencr-project__project_spawn_session",
+      JSON.stringify({ title: "Investigate flaky login test" }),
+    );
+    expect(project).toMatchObject({
+      server: "project",
+      tool: "project_spawn_session",
+      label: "Spawning session",
+      detail: "Investigate flaky login test",
+    });
+
+    const workspace = parseCadencrMcpTool(
+      "mcp__cadencr_workspace____workspace_read_sessions",
+      JSON.stringify({ query: "MCP session spawning" }),
+    );
+    expect(workspace).toMatchObject({
+      server: "workspace",
+      tool: "workspace_read_sessions",
+      label: "Searching workspace sessions",
+      detail: "MCP session spawning",
+    });
+  });
+
   it("returns known human-readable label", () => {
     expect(parseCadencrMcpTool("mcp__cadencr-browser__browser_open_url")!.label).toBe(
       "Opening URL",

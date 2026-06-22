@@ -31,7 +31,7 @@ Each action stores:
 - a list of **variable names** parsed from the command, and
 - a position so you can reorder them in the menu.
 
-The command is run with a hard **5-minute timeout** on the host machine. The working directory is the feature's worktree (so anything `cd`-relative starts from the right place automatically).
+The command is run with a hard **5-minute timeout** on the host machine. The working directory is the feature's worktree (so anything `cd`-relative starts from the right place automatically). When you want to watch output live, run the action in a terminal split instead of only reading the status dot afterward.
 
 ## Variables
 
@@ -53,10 +53,10 @@ There are no implicit variables. If you want the feature path or branch name in 
 
 Every action can be scheduled to run automatically on the current feature. The schedule control is a switch plus an interval (seconds / minutes / hours), with a minimum of **5 seconds**:
 
-| Trigger      | When it fires                                                                                       |
-| ------------ | --------------------------------------------------------------------------------------------------- |
-| **Manual**   | You click the action in the menu (or run it from the header).                                       |
-| **Schedule** | A fixed-interval tokio task fires it on the feature in the background, as long as the switch is on. |
+| Trigger      | When it fires                                                                                            |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| **Manual**   | You click the action in the menu (or run it from the header), optionally opening it in a terminal split. |
+| **Schedule** | A fixed-interval tokio task fires it on the feature in the background, as long as the switch is on.      |
 
 Schedules are not cron — they are pure fixed intervals starting from when you enable them. Saving a new interval cancels the previous task and starts fresh, so you can change the cadence safely while the action is enabled. Like variables, the schedule is tracked per `(action, feature)` — the same action can poll every 30 s on one feature and stay off on another.
 
@@ -99,5 +99,6 @@ When you have more actions than the toolbar can fit, the overflow dropdown keeps
 ## Related docs
 
 - [Feature workspace](../feature-workspace/) — where the actions toolbar lives
+- [Terminal](../terminal/) — custom actions can run in a visible terminal split
 - [Worktrees](../worktrees/) — each action runs in the feature's worktree
 - [Settings](../settings/) — global vs project scope is set when you create the action

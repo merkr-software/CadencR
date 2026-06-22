@@ -23,6 +23,7 @@ pub(super) async fn mirror_user_message(
         "user_message",
         serde_json::to_value(UserMessageMirrorPayload {
             text: text.to_string(),
+            origin: None,
         })
         .unwrap(),
     );

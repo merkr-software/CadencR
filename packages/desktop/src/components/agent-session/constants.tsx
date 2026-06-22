@@ -1,4 +1,5 @@
 import { Loader2Icon, MessageCircleQuestionIcon } from "lucide-react";
+import type { ReactNode } from "react";
 import type { AgentType } from "../../types/agent-types";
 
 export type { LiveAgentStatus as AgentStatus } from "@/types/agent";
@@ -26,4 +27,11 @@ export const STATUS_BADGE: Record<
     className: "bg-amber-500/15 text-amber-300",
     icon: <MessageCircleQuestionIcon className="size-3" />,
   },
+};
+
+// Backend-confirmed in-progress compaction badge.
+export const COMPACTING_BADGE: { label: string; className: string; icon: ReactNode } = {
+  label: "Compacting…",
+  className: "bg-orange-500/15 text-orange-300",
+  icon: <Loader2Icon className="size-3 animate-spin" />,
 };

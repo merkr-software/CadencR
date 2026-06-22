@@ -218,6 +218,11 @@
   --option-card-border: oklch(1 0 0 / 0.14);
   --option-card-bg-hover: oklch(1 0 0 / 0.09);
   --option-card-border-hover: oklch(1 0 0 / 0.22);
+
+  /* Sidebar worktree group — reuses --option-card-bg for the fill; the rim is
+   * softened vs --option-card-border (0.14 → 0.10) so the band reads as a
+   * grouping container, not a tappable tile. */
+  --worktree-group-border: oklch(1 0 0 / 0.1);
 }
 
 /* -------------------------------------------------------------------------
@@ -390,6 +395,10 @@
   --option-card-border: oklch(0.5 0.04 255 / 0.22);
   --option-card-bg-hover: oklch(0.5 0.04 255 / 0.12);
   --option-card-border-hover: oklch(0.5 0.04 255 / 0.32);
+
+  /* Sidebar worktree group — see Frost Dark note. Rim softened vs
+   * --option-card-border (0.22 → 0.16). */
+  --worktree-group-border: oklch(0.5 0.04 255 / 0.16);
 }
 
 /* -------------------------------------------------------------------------
@@ -533,6 +542,17 @@
 :root[data-theme="frost-light"] .agent-option-card:not(.border-primary):hover {
   background-color: var(--option-card-bg-hover);
   border-color: var(--option-card-border-hover);
+}
+
+/* Sidebar worktree group — same vanishing-`bg-muted` problem as the option
+ * tiles. The default `bg-muted/30` is a ~2% wash in Frost and the container
+ * has no visible rim, so the grouping disappears into the sidebar. Reuse the
+ * option-card fill and swap in a softer rim. Color-only overrides keep the
+ * box model identical to the transparent-border slot the component reserves. */
+:root[data-theme="frost-dark"] .worktree-group,
+:root[data-theme="frost-light"] .worktree-group {
+  background-color: var(--option-card-bg);
+  border-color: var(--worktree-group-border);
 }
 
 /* Git/diff sticky file headers — frosted band instead of see-through.

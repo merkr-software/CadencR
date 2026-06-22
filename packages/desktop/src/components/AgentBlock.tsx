@@ -30,6 +30,7 @@ import { isTaskTodoTool } from "@/lib/tool-adapter";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 import { verbosityControlsCollapse, type AgentVerbosityMode } from "@/lib/agent-verbosity";
 import type { PromptDeliveryState } from "@/types/agent";
+import type { AgentMessageOrigin } from "@/api/generated";
 
 /** Block types that the agent stream can produce */
 export type BlockType =
@@ -91,6 +92,8 @@ export interface AgentBlockData {
   promptDeliveryState?: PromptDeliveryState;
   /** For `error` blocks — machine-readable code from the backend. */
   errorCode?: string;
+  /** Provenance for machine-generated user messages. */
+  origin?: AgentMessageOrigin | null;
 }
 
 interface AgentBlockProps {
@@ -211,6 +214,7 @@ export const AgentBlock = memo(function AgentBlock({
       return (
         <UserMessageBlock
           content={block.content}
+          origin={block.origin}
           deliveryState={
             block.promptDeliveryState === "pending_agent" ? block.promptDeliveryState : undefined
           }
@@ -345,12 +349,21 @@ function ToolCallBlock({
   const summary = parseToolCall(canonicalName, args);
   const detail =
     summary?.detail && basePath ? toRelativePath(summary.detail, basePath) : summary?.detail;
-  const toolColorClass = isFileChangeTool(canonicalName)
-    ? "text-primary"
+  // File-patch tools (Edit / Write / ApplyPatch) get a distinct green "file
+  // change" identity so they stand apart from generic tool calls, which keep the
+  // neutral tool accent. The green is derived from each theme's --numstat-add-fg
+  // (the diff "lines added" color), so it stays distinct in every theme without
+  // per-theme tuning.
+  const isEdit = isFileChangeTool(canonicalName);
+  const toolColorClass = isEdit
+    ? "text-[var(--numstat-add-fg)]"
     : "text-[var(--block-tool-accent)]";
+  const wrapperClass = isEdit
+    ? "border-[color-mix(in_srgb,var(--numstat-add-fg)_35%,transparent)] bg-[color-mix(in_srgb,var(--numstat-add-fg)_12%,var(--card))]"
+    : "border-border bg-[var(--block-tool-bg)]";
 
   return (
-    <div className="my-1 rounded-md border border-border bg-[var(--block-tool-bg)]">
+    <div className={cn("my-1 rounded-md border", wrapperClass)}>
       <button
         type="button"
         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs"

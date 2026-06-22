@@ -268,7 +268,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::test_env::{env_lock, EnvVarGuard};
+    use crate::shared::test_env::EnvVarGuard;
     use sqlx::sqlite::SqlitePoolOptions;
     use std::os::unix::fs::PermissionsExt;
 
@@ -312,7 +312,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_setup_commands_does_not_start_interactive_shell_without_pty() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
         let temp = tempfile::tempdir().expect("tempdir");
         let shell = temp.path().join("fake-shell.sh");
         std::fs::write(

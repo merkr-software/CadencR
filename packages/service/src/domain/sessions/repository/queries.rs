@@ -87,10 +87,54 @@ pub async fn get_session_status_snapshot(
     Ok(result)
 }
 
+/// Max characters of an agent reply surfaced in a notification preview.
+const PREVIEW_MAX_CHARS: usize = 120;
+
+/// The start of the agent's most recent text reply for a feature, cleaned for a
+/// single-line notification body (whitespace collapsed, truncated with an
+/// ellipsis). Thinking blocks, tool calls and tool results are excluded — only
+/// `role = 'assistant'` / `message_type = 'text'` rows. `None` when the feature
+/// has no assistant text yet. Shared by the desktop notification endpoint and
+/// the Web Push dispatcher so both render the same body.
+pub async fn latest_assistant_preview(
+    pool: &SqlitePool,
+    feature_id: i64,
+) -> Result<Option<String>, AppError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT content FROM agent_messages \
+         WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?) \
+           AND role = 'assistant' AND message_type = 'text' AND TRIM(content) <> '' \
+         ORDER BY id DESC LIMIT 1",
+    )
+    .bind(feature_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(content,)| preview_snippet(&content)))
+}
+
+/// Collapse whitespace and truncate to [`PREVIEW_MAX_CHARS`] on a char boundary.
+fn preview_snippet(content: &str) -> String {
+    let collapsed = content.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.chars().count() <= PREVIEW_MAX_CHARS {
+        return collapsed;
+    }
+    let truncated: String = collapsed.chars().take(PREVIEW_MAX_CHARS).collect();
+    format!("{}…", truncated.trim_end())
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_support::*;
     use super::*;
+
+    #[test]
+    fn preview_snippet_collapses_whitespace_and_truncates() {
+        assert_eq!(preview_snippet("  hello\n\n  world  "), "hello world");
+        let snippet = preview_snippet(&"a".repeat(200));
+        assert!(snippet.ends_with('…'));
+        // 120 kept chars + the ellipsis.
+        assert_eq!(snippet.chars().count(), PREVIEW_MAX_CHARS + 1);
+    }
 
     #[tokio::test]
     async fn test_get_sessions() {

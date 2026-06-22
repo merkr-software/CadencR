@@ -9,6 +9,7 @@ import { UnifiedAgentsShortcut } from "@/components/UnifiedAgentsShortcut";
 import { PostUpdateChangelogDialog } from "@/components/PostUpdateChangelogDialog";
 import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
+import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
 import { type FeatureArchiveAction } from "@/lib/feature-archive-decision";
@@ -30,8 +31,6 @@ interface RootOverlaysProps {
   setCommandPaletteOpen: Dispatch<SetStateAction<boolean>>;
   activeProjectId: number | null;
   activeFeatureId: number | null;
-  shortcutsHelpOpen: boolean;
-  setShortcutsHelpOpen: Dispatch<SetStateAction<boolean>>;
   confirmAction: ConfirmFeatureAction | null;
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
   onArchiveFeature: (featureId: number) => void;
@@ -44,8 +43,6 @@ export function RootOverlays({
   setCommandPaletteOpen,
   activeProjectId,
   activeFeatureId,
-  shortcutsHelpOpen,
-  setShortcutsHelpOpen,
   confirmAction,
   setConfirmAction,
   onArchiveFeature,
@@ -54,6 +51,11 @@ export function RootOverlays({
 }: RootOverlaysProps): ReactElement {
   // In a remote PWA, watch for newer host frontend code and offer a reload.
   useRemoteUpdateCheck();
+  // The help modal's open state is owned by its store (driven by the global
+  // ⌘⇧? shortcut and the Settings button), so it subscribes here rather than
+  // re-rendering the root layout on every toggle.
+  const shortcutsHelpOpen = useShortcutsHelpStore((s) => s.open);
+  const setShortcutsHelpOpen = useShortcutsHelpStore((s) => s.setOpen);
   const archiveConfirmAction = confirmAction?.action === "archive" ? confirmAction : null;
   const deleteConfirmAction = confirmAction?.action === "delete" ? confirmAction : null;
   const archiveFeatureId = archiveConfirmAction?.feature.id ?? null;

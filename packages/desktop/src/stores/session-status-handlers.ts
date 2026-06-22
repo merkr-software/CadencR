@@ -264,6 +264,12 @@ export function handleAppEnvelope(
     } else {
       void queryClient.invalidateQueries({ queryKey: getListFeaturesQueryKey() });
     }
+    // The global "Pinned" sidebar section is keyed by `/api/features/pinned`,
+    // a sibling URL that the `["/api/features"]` array-prefix above can't reach
+    // (React Query only prefix-matches array elements). Refresh it explicitly
+    // so a pin/unpin (or a delete of a pinned conversation) on any device keeps
+    // the section in sync.
+    void invalidateByUrlPrefix(queryClient, "/api/features/pinned");
     return true;
   }
   return false;

@@ -19,7 +19,7 @@ cask "cadencr" do
   # Cadencr ships its own electron-updater, so Homebrew must not flag the app
   # as outdated when it updates itself in place.
   auto_updates true
-  depends_on macos: ">= :big_sur"
+  depends_on macos: :big_sur
 
   app "Cadencr.app"
 

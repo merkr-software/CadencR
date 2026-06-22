@@ -25,6 +25,7 @@ pub mod platform;
 pub mod probe;
 pub mod proxy;
 pub mod registry;
+pub mod root;
 pub mod routes;
 pub mod spawn;
 

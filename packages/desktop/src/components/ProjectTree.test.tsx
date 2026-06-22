@@ -55,6 +55,7 @@ vi.mock("../api/generated", () => ({
     },
   })),
   useUpdateFeatureStatus: vi.fn(() => ({ mutate: vi.fn() })),
+  useUpdateFeaturePinned: vi.fn(() => ({ mutate: vi.fn() })),
   useDeleteFeature: vi.fn(() => ({ mutate: vi.fn() })),
   useUpdateFeatureLabel: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
   useDeleteWorktree: vi.fn(() => ({ mutateAsync: vi.fn() })),

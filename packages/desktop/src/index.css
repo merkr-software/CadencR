@@ -4,6 +4,7 @@
 @import "@fontsource-variable/figtree";
 @import "./theme.css";
 @import "./theme-frost.css";
+@import "./theme-square.css";
 @import "./pierre-tree.css";
 
 @theme inline {

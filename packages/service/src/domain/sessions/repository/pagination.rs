@@ -5,7 +5,7 @@
 //! `fetch_missing_parents` repairs nesting when pagination splits a Task /
 //! Agent tool_call from its children.
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashSet;
 
 use super::super::models::*;
@@ -103,7 +103,7 @@ pub(super) async fn fetch_missing_parents(
     let sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND message_type = 'tool_call' AND tool_use_id IN ({placeholders}) ORDER BY id ASC"
     );
-    let mut q = sqlx::query_as::<_, AgentMessageRow>(&sql).bind(session_id);
+    let mut q = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql)).bind(session_id);
     for tuid in &missing {
         q = q.bind(tuid);
     }
@@ -204,6 +204,55 @@ mod tests {
         assert_eq!(s.oldest_message_id, Some(first_child_id));
         assert!(s.has_more);
         assert_ne!(s.oldest_message_id, Some(parent_id));
+    }
+
+    #[tokio::test]
+    async fn latest_limited_hydration_keeps_initial_user_message_anchor() {
+        let pool = setup_test_db().await;
+        let fid: (i64,) = sqlx::query_as("INSERT INTO features (title) VALUES ('f') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let session_id = insert_session(&pool, fid.0, "completed").await;
+
+        let initial_id = insert_message(
+            &pool,
+            session_id,
+            "user_message",
+            "original spawned prompt",
+            None,
+            None,
+            None,
+        )
+        .await;
+        for i in 0..105 {
+            insert_message(
+                &pool,
+                session_id,
+                "tool_call",
+                "{}",
+                Some("Read"),
+                Some(&format!("tu-anchor-{i}")),
+                None,
+            )
+            .await;
+        }
+
+        let state = get_feature_agent_state(&pool, fid.0, None, Some(100), None)
+            .await
+            .unwrap();
+        let session = &state.sessions[0];
+
+        assert!(session.has_more);
+        assert_ne!(session.oldest_message_id, Some(initial_id));
+        assert!(
+            session
+                .blocks
+                .iter()
+                .any(|block| block.type_ == "user_message"
+                    && block.content == "original spawned prompt"),
+            "initial user prompt should remain visible even when latest-window hydration is limited"
+        );
     }
 
     #[tokio::test]

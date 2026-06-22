@@ -11,7 +11,7 @@
 use serde::Serialize;
 use utoipa::ToSchema;
 
-use super::catalog::{self, CatalogEntry};
+use super::catalog::{self, CatalogEntry, ServerRole};
 use super::downloader;
 
 /// One catalog row's installation state.
@@ -23,6 +23,10 @@ pub struct ServerProbe {
     pub bin_name: String,
     /// All LSP `languageId`s served by this entry.
     pub language_ids: Vec<String>,
+    /// The role this server fills (type checker, linter, …). Lets the renderer
+    /// build the per-file active-server set from this catalog data instead of
+    /// duplicating the catalog client-side.
+    pub role: ServerRole,
     /// Where the binary was found, or `missing` if not installed.
     pub status: ServerProbeStatus,
     /// Absolute path on disk when found. `None` otherwise.
@@ -61,6 +65,7 @@ async fn probe_entry(entry: &CatalogEntry) -> ServerProbe {
         lsp_id: entry.lsp_id.to_string(),
         bin_name: entry.bin_name.to_string(),
         language_ids: entry.language_ids.iter().map(|s| s.to_string()).collect(),
+        role: entry.role,
         status: ServerProbeStatus::Missing,
         path: None,
         version: None,

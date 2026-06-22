@@ -373,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_pty_inherits_process_environment() {
-        let _guard = crate::shared::test_env::env_lock().lock().unwrap();
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
         let _shell = crate::shared::test_env::EnvVarGuard::set("SHELL", "/bin/sh");
         let _marker =
             crate::shared::test_env::EnvVarGuard::set("CADENCR_TEST_PTY_ENV", "visible-to-pty");
@@ -400,7 +400,7 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn create_pty_starts_login_shell() {
-        let _guard = crate::shared::test_env::env_lock().lock().unwrap();
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
         let _shell = crate::shared::test_env::EnvVarGuard::set("SHELL", "/bin/sh");
 
         let manager = PtyManager::new();

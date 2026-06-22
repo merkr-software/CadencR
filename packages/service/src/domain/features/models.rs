@@ -32,6 +32,8 @@ pub struct Feature {
     pub label: Option<String>,
     pub model_session: Option<String>,
     pub created_at: String,
+    /// Whether the conversation is pinned to the top of the sidebar.
+    pub is_pinned: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -62,6 +64,11 @@ pub struct UpdateStatusRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateLabelRequest {
     pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdatePinnedRequest {
+    pub pinned: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -130,6 +137,7 @@ mod tests {
             label: Some("Review".to_string()),
             model_session: Some("claude-session".to_string()),
             created_at: "2024-01-01T00:00:00".to_string(),
+            is_pinned: false,
         };
 
         let json = serde_json::to_string(&feature).unwrap();

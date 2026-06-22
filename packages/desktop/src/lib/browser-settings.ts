@@ -4,9 +4,6 @@ import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 /** Workspace setting holding the browser tab's default cookie mode. */
 export const BROWSER_DEFAULT_MODE_SETTING_KEY = "browser_default_mode";
 
-/** Workspace setting toggling whether agents get the `cadencr-browser` MCP. */
-export const BROWSER_MCP_ENABLED_SETTING_KEY = "browser_mcp_enabled";
-
 /** Two cookie modes the user can pick. Normal reuses an on-disk profile; private is in-memory only. */
 export type CookieMode = "normal" | "private";
 
@@ -56,20 +53,4 @@ export interface UseBrowserDefaultModeResult {
 export function useBrowserDefaultMode(): UseBrowserDefaultModeResult {
   const setting = useDebouncedSetting(BROWSER_DEFAULT_MODE_SETTING_KEY, 0);
   return { mode: parseCookieMode(setting.value), isLoading: setting.isLoading };
-}
-
-export interface UseBrowserMcpEnabledResult {
-  enabled: boolean;
-  setEnabled: (next: boolean) => void;
-  isLoading: boolean;
-}
-
-/** Toggle for exposing the `cadencr-browser` MCP to agents. Defaults to enabled. */
-export function useBrowserMcpEnabled(): UseBrowserMcpEnabledResult {
-  const setting = useDebouncedSetting(BROWSER_MCP_ENABLED_SETTING_KEY, 0);
-  return {
-    enabled: setting.value !== "false",
-    setEnabled: (next: boolean) => setting.setValue(next ? "true" : "false"),
-    isLoading: setting.isLoading,
-  };
 }

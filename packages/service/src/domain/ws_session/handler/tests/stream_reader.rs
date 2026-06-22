@@ -1,7 +1,3 @@
-//! `session_prompt::spawn_stream_reader`: Active→Pending transitions on
-//! close/error, the removed-session no-op, ACP permission routing, and the
-//! pending-input status guard.
-
 use super::support::*;
 
 #[tokio::test]
@@ -14,7 +10,6 @@ async fn test_stream_reader_transitions_active_to_pending_on_stream_close() {
     let feature_id = 1i64;
     let cli_session_id = "cli-sess-for-resume".to_string();
 
-    // Insert an Active handle
     {
         let mut sessions = sdk_sessions.lock().await;
         sessions.insert(
@@ -23,25 +18,19 @@ async fn test_stream_reader_transitions_active_to_pending_on_stream_close() {
         );
     }
 
-    // Create a message channel and immediately close the sender to simulate stream end
     let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string(),
-        None,
-        None,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // Wait for the "session.ended" message from the stream reader
     let msg = ws_rx.recv().await.unwrap();
     if let Message::Text(text) = msg {
         let env: WsEnvelope = serde_json::from_str(&text).unwrap();
@@ -52,10 +41,8 @@ async fn test_stream_reader_transitions_active_to_pending_on_stream_close() {
         panic!("expected text message");
     }
 
-    // Give the spawned task a moment to complete the state transition
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Verify state transitioned to Pending with resume session ID
     let sessions = sdk_sessions.lock().await;
     let handle = sessions.get(&db_session_id).unwrap();
     match &handle.state {
@@ -75,7 +62,6 @@ async fn test_stream_reader_mirrors_to_other_feature_viewers() {
     let app_state = make_test_app_state().await;
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let (ws_tx, _ws_rx) = mpsc::unbounded_channel();
-    // A second device viewing the same feature, registered as a feature sender.
     let (viewer_tx, mut viewer_rx) = mpsc::unbounded_channel();
 
     let db_session_id = 77i64;
@@ -89,25 +75,19 @@ async fn test_stream_reader_mirrors_to_other_feature_viewers() {
         .register(feature_id, viewer_tx)
         .await;
 
-    // Close the stream immediately so the reader emits a single `ended`.
     let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string(),
-        None,
-        None,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // The passive viewer receives the turn's `ended` even though it never drove
     // the turn — that's the remote-access conversation mirror.
     let msg = tokio::time::timeout(std::time::Duration::from_secs(2), viewer_rx.recv())
         .await
@@ -123,10 +103,6 @@ async fn test_stream_reader_mirrors_to_other_feature_viewers() {
 
 #[tokio::test]
 async fn test_stream_reader_mirrors_prompt_received_to_other_viewers() {
-    // With cross-device steering the device that SENT a prompt may not be the
-    // turn owner socket (e.g. the host steers a phone-owned turn). The
-    // `prompt_received` ack must therefore reach every viewer, not just the
-    // owner, or the real sender's message stays stuck pending.
     let app_state = make_test_app_state().await;
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
@@ -152,21 +128,16 @@ async fn test_stream_reader_mirrors_prompt_received_to_other_viewers() {
         .unwrap();
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string(),
-        None,
-        None,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // Block until the owner gets its first message, then let the reader drain.
     tokio::time::timeout(std::time::Duration::from_secs(2), ws_rx.recv())
         .await
         .expect("owner should receive a message");
@@ -198,13 +169,11 @@ async fn test_stream_reader_transitions_active_to_pending_on_error() {
     let db_session_id = 43i64;
     let feature_id = 2i64;
 
-    // Insert an Active handle (no session ID this time)
     {
         let mut sessions = sdk_sessions.lock().await;
         sessions.insert(db_session_id, make_active_handle(feature_id, None));
     }
 
-    // Create session row for mark_paused_static
     sqlx::query(
         "INSERT INTO agent_sessions (id, feature_id, agent_type, status) VALUES (?, ?, 'session', 'running')"
     )
@@ -214,7 +183,6 @@ async fn test_stream_reader_transitions_active_to_pending_on_error() {
     .await
     .unwrap();
 
-    // Send an error through the channel
     let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
     msg_tx
         .send(Err(RuntimeError::from(SdkError::ProcessExit {
@@ -225,21 +193,16 @@ async fn test_stream_reader_transitions_active_to_pending_on_error() {
         .unwrap();
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string(),
-        None,
-        None,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // Wait for the error message
     let msg = ws_rx.recv().await.unwrap();
     if let Message::Text(text) = msg {
         let env: WsEnvelope = serde_json::from_str(&text).unwrap();
@@ -250,7 +213,6 @@ async fn test_stream_reader_transitions_active_to_pending_on_error() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Verify state transitioned to Pending with no resume (no session ID)
     let sessions = sdk_sessions.lock().await;
     let handle = sessions.get(&db_session_id).unwrap();
     match &handle.state {
@@ -265,32 +227,23 @@ async fn test_stream_reader_transitions_active_to_pending_on_error() {
 
 #[tokio::test]
 async fn test_stream_reader_no_transition_when_session_removed() {
-    // If the session was already removed from the map (e.g., destroy),
-    // the stream reader should not panic.
     let app_state = make_test_app_state().await;
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
 
-    // Don't insert any handle — simulate it being removed
-
     let (msg_tx, msg_rx) = mpsc::channel::<Result<RuntimeEvent, RuntimeError>>(1);
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         99,
         1,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions.clone(),
-        crate::domain::agents::runtime::DEFAULT_PROVIDER.to_string(),
-        None,
-        None,
+        crate::domain::agents::runtime::DEFAULT_PROVIDER,
     );
 
-    // Should still get the ended message
     let msg = ws_rx.recv().await.unwrap();
     if let Message::Text(text) = msg {
         let env: WsEnvelope = serde_json::from_str(&text).unwrap();
@@ -299,7 +252,6 @@ async fn test_stream_reader_no_transition_when_session_removed() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // No panic, no handle in map — just a no-op
     assert!(sdk_sessions.lock().await.is_empty());
 }
 
@@ -336,18 +288,14 @@ async fn test_stream_reader_routes_acp_permission_request() {
     msg_tx.send(Ok(event)).await.unwrap();
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions,
-        "opencode".to_string(),
-        None,
-        None,
+        "opencode",
     );
 
     let msg = ws_rx.recv().await.unwrap();
@@ -395,18 +343,14 @@ async fn test_stream_reader_result_keeps_pending_user_input_status() {
         .unwrap();
     drop(msg_tx);
 
-    session_prompt::spawn_stream_reader(
+    spawn_test_stream_reader(
+        &app_state,
         db_session_id,
         feature_id,
         msg_rx,
         ws_tx,
-        app_state.ws_feature_senders.clone(),
-        app_state.write_pool.clone(),
-        app_state.session_status_tx.clone(),
         sdk_sessions,
-        "codex".to_string(),
-        None,
-        None,
+        "codex",
     );
 
     while let Some(Message::Text(text)) = ws_rx.recv().await {

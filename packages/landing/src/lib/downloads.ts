@@ -31,7 +31,6 @@ function releaseAssetUrl(assetName: string): string {
 
 export const LATEST_RELEASE_URL: string =
   "https://github.com/merkr-software/CadencR/releases/latest";
-export const ROADMAP_URL: string = "/roadmap/";
 export const DISPLAY_VERSION: string = releaseTag;
 
 export const DOWNLOAD_ASSETS: DownloadAsset[] = [

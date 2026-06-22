@@ -311,7 +311,10 @@ mod tests {
     use super::*;
 
     async fn exec(pool: &SqlitePool, sql: &str) {
-        sqlx::query(sql).execute(pool).await.unwrap();
+        sqlx::query(sqlx::AssertSqlSafe(sql))
+            .execute(pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

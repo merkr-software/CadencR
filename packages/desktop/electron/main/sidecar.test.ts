@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePhaseLine, serviceArgs, serviceEnv } from "./sidecar";
+import { describeStartupFailure, parsePhaseLine, serviceArgs, serviceEnv } from "./sidecar";
 
 describe("sidecar process arguments", () => {
   it("does not expose the auth token on argv", () => {
@@ -83,5 +83,23 @@ describe("parsePhaseLine", () => {
   it("ignores unrelated log lines", () => {
     expect(parsePhaseLine("INFO cadencr_service: listening")).toBeNull();
     expect(parsePhaseLine("CADENCR_PHASE bogus")).toBeNull();
+  });
+});
+
+describe("describeStartupFailure", () => {
+  it("turns newer-database startup failures into explicit old-version fallback guidance", () => {
+    const message = describeStartupFailure(
+      "cadencr-service exited before passing health check at http://127.0.0.1:5004",
+      [
+        "Error: This database was updated by a newer version of Cadencr and cannot be opened safely by this older app. Install the latest Cadencr version, or restore a pre-migration backup before starting this older version.",
+      ],
+      1,
+      null,
+    );
+
+    expect(message).toContain("updated by a newer version of Cadencr");
+    expect(message).toContain("restore a pre-migration backup");
+    expect(message).not.toContain("health check");
+    expect(message).not.toContain("Open data folder");
   });
 });

@@ -261,18 +261,20 @@ mod tests {
             metadata(),
             &PlainHooks,
         );
-        let partial = result
-            .events
-            .iter()
-            .find_map(|event| match event.stream_event()? {
-                RuntimeStreamEvent::ContentBlockDelta { delta, .. } => match delta {
-                    crate::domain::agents::adapter::RuntimeContentDelta::InputJson {
-                        partial_json,
+        let partial =
+            result
+                .events
+                .iter()
+                .find_map(|event| match event.stream_event()? {
+                    RuntimeStreamEvent::ContentBlockDelta {
+                        delta:
+                            crate::domain::agents::adapter::RuntimeContentDelta::InputJson {
+                                partial_json,
+                            },
+                        ..
                     } => Some(partial_json.as_str()),
                     _ => None,
-                },
-                _ => None,
-            });
+                });
         assert_eq!(
             partial,
             Some(r#"{"file_path":"packages/service/src/main.rs"}"#)

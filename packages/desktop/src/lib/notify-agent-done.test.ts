@@ -4,6 +4,14 @@ const mockToastError = vi.hoisted(() => vi.fn());
 const mockToastMessage = vi.hoisted(() => vi.fn());
 vi.mock("sonner", () => ({ toast: { error: mockToastError, message: mockToastMessage } }));
 
+// `notifyAgentDone` fetches the agent's latest-reply preview for the body.
+// Partial-mock the generated client so the real query-key helpers stay intact.
+const mockGetMessagePreview = vi.hoisted(() => vi.fn());
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
+  getMessagePreview: mockGetMessagePreview,
+}));
+
 // Hash history: `isViewingFeature` parses `window.location.hash`, so drive the
 // route by stubbing the hash (`pathname` is always `/` under hash history).
 function setRoute(pathname: string): void {
@@ -87,6 +95,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   setDesktopBridgeOverrideForTests(bridge());
   setStoredMode("native");
+  // Default: no preview available → body falls back to the feature title.
+  mockGetMessagePreview.mockResolvedValue({ preview: null });
 });
 
 afterEach(() => {
@@ -121,14 +131,16 @@ describe("notifyAgentDone", () => {
     setRoute("/projects/2/features/1");
 
     notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent finished",
-      body: "My Feature",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🟢 | My Feature",
+        body: "My Feature",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
   });
 
   it("does not send when user is on the session page", async () => {
@@ -160,21 +172,21 @@ describe("notifyAgentDone", () => {
     notifyAgentDone({
       status: "completed",
       featureTitle: "My Feature",
-      agentKind: "Session",
-      agentTitle: "Build login",
       ...baseOpts,
     });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent finished",
-      body: "My Feature\nSession: Build login",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🟢 | My Feature",
+        body: "My Feature",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
   });
 
-  it("uses 'Agent error' title for error status", async () => {
+  it("uses error title for error status", async () => {
     mockNotifyPermission.mockResolvedValue(true);
     mockNotify.mockResolvedValue(undefined);
     await initNotificationPermission();
@@ -185,20 +197,21 @@ describe("notifyAgentDone", () => {
     notifyAgentDone({
       status: "error",
       featureTitle: "Broken Feature",
-      agentKind: "Session",
       ...baseOpts,
     });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent error",
-      body: "Broken Feature\nSession",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🔴 | Broken Feature",
+        body: "Broken Feature",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
   });
 
-  it("uses 'Agent needs input' title for needs_input status", async () => {
+  it("uses awaiting title for needs_input status", async () => {
     mockNotifyPermission.mockResolvedValue(true);
     mockNotify.mockResolvedValue(undefined);
     await initNotificationPermission();
@@ -207,33 +220,55 @@ describe("notifyAgentDone", () => {
     setRoute("/other");
 
     notifyAgentDone({ status: "needs_input", featureTitle: "Waiting Feature", ...baseOpts });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent needs input",
-      body: "Waiting Feature",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🟠 | Waiting Feature",
+        body: "Waiting Feature",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
   });
 
-  it("shows only feature title when no agentKind provided", async () => {
+  it("uses the agent's latest reply as the body when available", async () => {
     mockNotifyPermission.mockResolvedValue(true);
     mockNotify.mockResolvedValue(undefined);
+    mockGetMessagePreview.mockResolvedValue({ preview: "Refactored the auth module." });
     await initNotificationPermission();
     mockNotify.mockClear();
 
     setRoute("/other");
 
     notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent finished",
-      body: "My Feature",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🟢 | My Feature",
+        body: "Refactored the auth module.",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
+  });
+
+  it("falls back to the feature title when there is no reply preview", async () => {
+    mockNotifyPermission.mockResolvedValue(true);
+    mockNotify.mockResolvedValue(undefined);
+    mockGetMessagePreview.mockResolvedValue({ preview: null });
+    await initNotificationPermission();
+    mockNotify.mockClear();
+
+    setRoute("/other");
+
+    notifyAgentDone({ status: "completed", featureTitle: "My Feature", ...baseOpts });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "🟢 | My Feature", body: "My Feature" }),
+      ),
+    );
   });
 });
 
@@ -281,11 +316,15 @@ describe("notification mode from query cache", () => {
     await setup();
     setStoredMode("in_app");
     notifyAgentDone(opts);
-    expect(mockNotify).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "in_app" }));
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "in_app" })),
+    );
 
     setStoredMode("native");
     notifyAgentDone(opts);
-    expect(mockNotify).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "native" }));
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "native" })),
+    );
   });
 
   it("readNotificationMode defaults when no value is cached", () => {
@@ -313,15 +352,15 @@ describe("listenForNotificationFallbacks", () => {
     expect(captured).toHaveLength(1);
 
     captured[0]({
-      title: "Agent finished",
-      body: "My Feature\nSession",
+      title: "🟢 | My Feature",
+      body: "Refactored the auth module.",
       click: { feature_id: 9, project_id: 2, route_type: "session" },
     });
 
     expect(mockToastMessage).toHaveBeenCalledWith(
-      "Agent finished",
+      "🟢 | My Feature",
       expect.objectContaining({
-        description: "My Feature\nSession",
+        description: "Refactored the auth module.",
         action: expect.objectContaining({ label: "Open" }),
       }),
     );
@@ -371,14 +410,16 @@ describe("notifyAgentNeedsInput", () => {
 
     setRoute("/other");
 
-    notifyAgentNeedsInput({ featureTitle: "My Feature", agentKind: "Session", ...baseOpts });
-    expect(mockNotify).toHaveBeenCalledWith({
-      title: "Agent needs input",
-      body: "My Feature\nSession",
-      featureId: 1,
-      projectId: 2,
-      routeType: "session",
-      mode: "native",
-    });
+    notifyAgentNeedsInput({ featureTitle: "My Feature", ...baseOpts });
+    await vi.waitFor(() =>
+      expect(mockNotify).toHaveBeenCalledWith({
+        title: "🟠 | My Feature",
+        body: "My Feature",
+        featureId: 1,
+        projectId: 2,
+        routeType: "session",
+        mode: "native",
+      }),
+    );
   });
 });

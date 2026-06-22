@@ -1,10 +1,7 @@
 import type { BlockMutation, ParserSignals, StreamingState } from "./ws-message-processing-core";
 import { isRecord, nextSyntheticBlockId } from "./ws-message-processing-utils";
 
-/**
- * Log every system message for runtime tracing; only `compact_boundary`
- * currently produces a block and a `wasCompacted` signal.
- */
+/** Log system messages; `compact_boundary` produces the visible divider. */
 export function processSystemMessage(
   msg: Record<string, unknown>,
   state: StreamingState,

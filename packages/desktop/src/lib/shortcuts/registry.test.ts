@@ -21,4 +21,16 @@ describe("shortcut registry", () => {
     expect(agentsNew?.scope).toBe("unified-agents");
     expect(agentsNew?.keys).toEqual(["mod", "shift", "n"]);
   });
+
+  it("registers find-in-conversation on mod+f in the agent scope", () => {
+    const conversationSearch = SHORTCUTS.find((s) => s.id === "conversation-search");
+    expect(conversationSearch?.keys).toEqual(["mod", "f"]);
+    expect(conversationSearch?.scope).toBe("agent");
+    // mod+f is shared with the editor's "find in current file" — a deliberate
+    // cross-scope reuse, gated by which tab is focused. They must NOT collide
+    // within the same scope.
+    const editorSearch = SHORTCUTS.find((s) => s.id === "editor-buffer-search");
+    expect(editorSearch?.keys).toEqual(["mod", "f"]);
+    expect(editorSearch?.scope).not.toBe(conversationSearch?.scope);
+  });
 });

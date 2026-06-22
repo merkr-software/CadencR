@@ -252,7 +252,7 @@ impl TerminalRegistry {
 #[cfg(test)]
 mod tests {
     use super::TerminalRegistry;
-    use crate::shared::test_env::{env_lock, EnvVarGuard};
+    use crate::shared::test_env::EnvVarGuard;
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -331,7 +331,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_does_not_leak_parent_secret_env_by_default() {
-        let _guard = env_lock().lock().expect("env lock");
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
         let _secret = EnvVarGuard::set("CADENCR_TEST_AGENT_SECRET", "leaked");
         let registry = TerminalRegistry::default();
         let result = registry

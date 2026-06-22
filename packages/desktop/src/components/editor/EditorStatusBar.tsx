@@ -22,6 +22,13 @@ export interface EditorStatusBarProps {
   lspStatus: LspStatus;
   lspLanguageId: string | null;
   lspError?: string;
+  /**
+   * Force a fresh LSP connection attempt. Supplied by the editor as
+   * `useLsp().onRetry`; when present the error indicator becomes clickable.
+   * Kept as a prop (not an internal `client-manager` import) so this status
+   * bar stays a light leaf component with no CodeMirror/LSP module pull-in.
+   */
+  onLspRetry?: () => void;
   /** Present only for files that support a markdown preview. */
   preview?: PreviewToggle;
 }
@@ -34,6 +41,7 @@ export const EditorStatusBar = memo(function EditorStatusBar({
   lspStatus,
   lspLanguageId,
   lspError,
+  onLspRetry,
   preview,
 }: EditorStatusBarProps) {
   const isPreview = preview?.active ?? false;
@@ -58,6 +66,7 @@ export const EditorStatusBar = memo(function EditorStatusBar({
             status={lspStatus}
             languageId={lspLanguageId}
             errorMessage={lspError}
+            onRetry={onLspRetry}
           />
           {language}
         </span>

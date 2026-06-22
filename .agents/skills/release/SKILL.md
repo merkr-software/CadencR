@@ -36,6 +36,9 @@ The helper script creates the local tag only. The agent must push the tag explic
    - Write the changelog around user impact: what changed for users, what got better, and what was fixed.
    - Use emoji-prefixed changelog section headings for standard groups, such as `### ✨ Added`, `### 🔧 Changed`, and `### 🐛 Fixed`.
    - Inspect the relevant commit diffs, linked GitHub issues, and linked PRs before wording each changelog line; avoid vague summaries that hide the actual user-facing issue.
+   - Use one changelog bullet per new user-facing feature, even if that feature was merged, fixed, polished, or refactored multiple times before the release. Fold those pre-release fixes into the single feature bullet instead of listing them again as separate `Fixed` bullets.
+   - New feature bullets may use longer descriptions when needed to explain the shipped capability clearly. Prefer one rich, publish-ready feature line over several short bullets for the same feature.
+   - Reserve separate `Fixed` bullets for independent bug fixes or regressions that are not merely pre-release follow-up work for a newly added feature.
    - Prefix every changelog bullet with one existing GitHub label scope in bold square-bracket form, for example `[**Desktop**]`, `[**Backend**]`, `[**provider:codex**]`, or `[**provider:claude**]`.
    - Prefer the label scope from the linked issue or PR. If multiple labels apply, choose the most user-relevant area/provider label. If no issue or PR is linked, use `gh label list` and the affected files to choose an existing label; do not invent new scope names.
    - Avoid contributor/internal framing unless it directly affects users.
@@ -48,6 +51,8 @@ The helper script creates the local tag only. The agent must push the tag explic
    - If the developer requests no news post, continue with changelog-only release notes and do not create a landing news file.
    - If the developer provides news copy, create a post under `packages/landing/src/content/news/` whose filename includes the release version, for example `cadencr-v0-2-0.mdx`.
    - The post should sell the release clearly while remaining accurate.
+   - Stop after `CHANGELOG.md` and any requested landing news post are modified. Show the drafted changelog section and news file path or changelog-only status, then ask the developer to confirm before continuing.
+   - Wait for explicit developer confirmation before continuing to version bumps, security review, CI checks, release preparation commit, preflight, tagging, pushing, or asset polling.
 
 5. **Update every application version**
    - Update package versions in package manifests under `packages/*/package.json` that already have a version field.

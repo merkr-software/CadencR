@@ -15,7 +15,9 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 
-const DEFAULT_BASH_LINES = 10;
+/** Lines of tool output rendered before the "Show all" toggle collapses the
+ * rest. Exported so in-conversation search counts the same visible tail. */
+export const DEFAULT_BASH_LINES = 10;
 
 /** Insert line breaks before shell operators for readability in the header. */
 function formatShellCommand(cmd: string): string {

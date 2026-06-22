@@ -264,14 +264,22 @@ describe("WorktreeSetupSection", () => {
     expect(logEl.parentElement?.className).toContain("bg-[var(--block-bash-body-bg)]");
   });
 
-  it("shows persisted log from snapshot on resume via ws mode", async () => {
+  it("falls back to persisted setup log when ws resume has no output", async () => {
+    mockGetSettings.mockReturnValue({
+      data: settingsArray({
+        worktree_setup_step: "ready",
+        worktree_setup_log: "pnpm install\ncompleted",
+        worktree_setup_error: "",
+        worktree_branch: "feat/resume",
+      }),
+    });
     const { user } = render(
       <WorktreeSetupSection
         featureId={1}
         projectId={1}
         wsWorktreeStatus="ready"
         wsWorktreeBranch="feat/resume"
-        wsWorktreeSetupOutput={["pnpm install", "completed"]}
+        wsWorktreeSetupOutput={[]}
       />,
     );
     await user.click(screen.getByText("Worktree Setup"));

@@ -1,6 +1,6 @@
 # @cadencr/landing
 
-Static marketing site, docs, news, and roadmap for [cadencr.com](https://cadencr.com), built with Astro + MDX + Tailwind v4 and deployed with Cloudflare Pages.
+Static marketing site, docs, and news for [cadencr.com](https://cadencr.com), built with Astro + MDX + Tailwind v4 and deployed with Cloudflare Pages.
 
 ## Scripts
 
@@ -15,9 +15,9 @@ pnpm --filter @cadencr/landing format:check
 
 ## Structure
 
-- `src/pages/` — routes (`index.astro`, `/docs`, `/news`, `/roadmap`, `404.astro`)
+- `src/pages/` — routes (`index.astro`, `/docs`, `/news`, `404.astro`)
 - `src/components/` — section components (Nav, Hero, Features, Footer) and shared primitives
-- `src/content/` — MDX content collections for news and roadmap entries
+- `src/content/` — MDX content collections for news entries
 - `src/styles/` — Tailwind v4 import, design tokens, and landing-specific styles
 - `design/` — original HTML mockup used as the source of truth for copy and markup
 - `public/CNAME` — custom domain marker for `cadencr.com`

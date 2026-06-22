@@ -2,18 +2,9 @@ use sqlx::SqlitePool;
 
 use crate::domain::agents::adapter::RuntimeAccessMode;
 use crate::domain::agents::codex::{parse_access_mode, PROVIDER_ID as CODEX_PROVIDER_ID};
-use crate::domain::settings;
 
 pub(super) async fn configured_access_mode(read_pool: &SqlitePool) -> String {
-    settings::resolve_setting(
-        read_pool,
-        "codex_permission_mode",
-        None,
-        None,
-        Some("default"),
-    )
-    .await
-    .unwrap_or_else(|| "default".to_string())
+    crate::domain::agents::codex::configured_access_mode(read_pool).await
 }
 
 pub(super) fn runtime_access_mode(

@@ -1,6 +1,6 @@
 [package]
 name = "cadencr-service"
-version = "0.5.1"
+version = "0.6.1"
 edition = "2021"
 license.workspace = true
 
@@ -12,7 +12,7 @@ codex-app-server-sdk-rs = { path = "../codex-app-server-sdk-rs" }
 opencode-sdk-rs = { path = "../opencode-sdk-rs" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
-sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
@@ -43,7 +43,12 @@ dotenvy = "0.15"
 tempfile = "3"
 trash = "5"
 flate2 = "1"
-sha2 = "0.10"
+sha2 = "0.11"
+# `web-push` depends on `ece -> openssl`. In release builds that previously
+# linked the sidecar against Homebrew's `/opt/homebrew/opt/openssl@3` dylibs,
+# which are not present on user machines. Enable OpenSSL's vendored build so
+# the packaged service is self-contained.
+openssl = { version = "0.10", features = ["vendored"] }
 # Remote access: self-signed TLS listener + device-token auth.
 rcgen = "0.13"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
@@ -52,6 +57,12 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 subtle = "2.6"
 if-addrs = "0.13"
+# Web Push (PWA/remote background notifications): VAPID signing + RFC 8291
+# payload encryption. `hyper-client` avoids the default isahc/libcurl backend;
+# hyper-tls uses native-tls, already pulled in by reqwest. `jwt-simple`
+# (pure-rust, the same crate web-push uses for ES256) generates the VAPID keypair.
+web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
+jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
 
 [[bin]]
 name = "dump-openapi"

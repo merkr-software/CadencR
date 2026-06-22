@@ -6,11 +6,9 @@ import {
   DISPLAY_VERSION,
   DOWNLOAD_ASSETS,
   LATEST_RELEASE_URL,
-  ROADMAP_URL,
   selectRecommendedDownload,
 } from "@/lib/downloads";
 
-const base = import.meta.env.BASE_URL;
 const defaultDownload = selectRecommendedDownload({ os: "macos", arch: "unknown" });
 const pageTitle = "Download Cadencr for macOS — agent IDE for Claude, OpenCode, and Codex";
 const pageDescription =
@@ -122,19 +120,13 @@ const softwareApplicationJsonLd = {
           Coming next
         </p>
         <h2 class="mt-2 text-[24px] font-semibold tracking-[-0.018em]">
-          Linux and Windows builds are on the roadmap.
+          Linux and Windows builds are coming next.
         </h2>
         <p class="mt-3 text-[13.5px] leading-[1.65] text-muted-foreground">
           The app already runs as an Electron desktop shell with a Rust sidecar. The next
           distribution work is predictable packaging, update behavior, and installer flows
           for Linux and Windows.
         </p>
-        <a
-          href={`${base}${ROADMAP_URL.replace(/^\//, "")}`}
-          class="mt-5 inline-flex h-9 items-center rounded-lg border border-border bg-background px-3.5 text-[13px] font-medium transition-colors hover:bg-accent"
-        >
-          See the roadmap
-        </a>
       </aside>
     </div>
   </section>
@@ -220,7 +212,7 @@ const softwareApplicationJsonLd = {
     if (!recommendation) {
       if (title) title.textContent = os === "unknown" ? "Choose your build" : "Coming soon for your OS";
       if (copy) {
-        copy.textContent = "Cadencr currently ships for macOS. Linux and Windows builds are planned in the roadmap.";
+        copy.textContent = "Cadencr currently ships for macOS. Linux and Windows builds are planned next.";
       }
       if (label) label.textContent = "View available downloads";
       if (primary) primary.href = "#macos-intel-dmg";

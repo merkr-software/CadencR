@@ -50,7 +50,10 @@ use tokio::sync::{Mutex, RwLock};
 use self::instructions::codex_developer_instructions;
 use self::mcp::{mcp_server_names, thread_config};
 use self::mcp_status::mcp_server_statuses;
-pub(crate) use self::model::{access_mode_wire, parse_access_mode, parse_access_mode_wire};
+pub(crate) use self::model::{
+    access_mode_wire, canonical_access_mode_wire, configured_access_mode, parse_access_mode,
+    parse_access_mode_wire,
+};
 pub(crate) use self::raw_tool_names::function_tool_name;
 use self::session::CodexSession;
 use self::thread_params::{thread_resume_params, thread_start_params};

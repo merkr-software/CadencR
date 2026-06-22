@@ -1,3 +1,4 @@
+mod model_validation;
 pub(crate) mod opencode;
 
 use sqlx::SqlitePool;
@@ -5,6 +6,8 @@ use std::path::Path;
 
 use super::adapter::AgentRuntimeAdapter;
 use super::runtime::{AgentCatalogResponse, ModelCatalogEntry, DEFAULT_PROVIDER};
+
+pub use model_validation::validate_provider_model;
 
 /// All registered runtime adapters. Add new providers here.
 static ADAPTERS: &[(&str, &dyn AgentRuntimeAdapter)] = &[
@@ -77,14 +80,7 @@ pub async fn provider_catalog_live_for_cwd(
     cwd: Option<&Path>,
 ) -> AgentCatalogResponse {
     let providers = futures::future::join_all(ADAPTERS.iter().map(|(_, adapter)| async move {
-        let mut entry = adapter
-            .catalog_entry_live_for_settings(read_pool, cwd)
-            .await;
-        let extra = adapter.extra_models(read_pool).await;
-        if !extra.is_empty() {
-            entry.models = merge_extra_models(entry.models, extra);
-        }
-        entry
+        provider_catalog_entry_live_for_settings(read_pool, cwd, *adapter).await
     }))
     .await;
 
@@ -92,6 +88,21 @@ pub async fn provider_catalog_live_for_cwd(
         default_provider: DEFAULT_PROVIDER.to_string(),
         providers,
     }
+}
+
+pub(super) async fn provider_catalog_entry_live_for_settings(
+    read_pool: &SqlitePool,
+    cwd: Option<&Path>,
+    adapter: &dyn AgentRuntimeAdapter,
+) -> super::runtime::ProviderCatalogEntry {
+    let (mut entry, extra) = tokio::join!(
+        adapter.catalog_entry_live_for_settings(read_pool, cwd),
+        adapter.extra_models(read_pool),
+    );
+    if !extra.is_empty() {
+        entry.models = merge_extra_models(entry.models, extra);
+    }
+    entry
 }
 
 pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -> Option<String> {
@@ -254,6 +265,15 @@ mod tests {
         tokio::fs::create_dir_all(source.path().join(".claude"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(source.path().join(".claude/skills/qa"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(source.path().join(".claude/commands"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(source.path().join(".claude/rules"))
+            .await
+            .unwrap();
         tokio::fs::create_dir_all(source.path().join(".codex/agents"))
             .await
             .unwrap();
@@ -261,6 +281,18 @@ mod tests {
             .await
             .unwrap();
         tokio::fs::write(source.path().join(".claude/settings.local.json"), "claude")
+            .await
+            .unwrap();
+        tokio::fs::write(source.path().join(".claude/settings.json"), "shared")
+            .await
+            .unwrap();
+        tokio::fs::write(source.path().join(".claude/skills/qa/SKILL.md"), "skill")
+            .await
+            .unwrap();
+        tokio::fs::write(source.path().join(".claude/commands/review.md"), "command")
+            .await
+            .unwrap();
+        tokio::fs::write(source.path().join(".claude/rules/provider.md"), "rule")
             .await
             .unwrap();
         tokio::fs::write(source.path().join(".codex/agents/reviewer.md"), "codex")
@@ -282,6 +314,30 @@ mod tests {
                 .await
                 .unwrap(),
             "claude"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(worktree.path().join(".claude/settings.json"))
+                .await
+                .unwrap(),
+            "shared"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(worktree.path().join(".claude/skills/qa/SKILL.md"))
+                .await
+                .unwrap(),
+            "skill"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(worktree.path().join(".claude/commands/review.md"))
+                .await
+                .unwrap(),
+            "command"
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(worktree.path().join(".claude/rules/provider.md"))
+                .await
+                .unwrap(),
+            "rule"
         );
         assert_eq!(
             tokio::fs::read_to_string(worktree.path().join(".codex/agents/reviewer.md"))

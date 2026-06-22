@@ -82,13 +82,20 @@ impl LiveSessions {
     /// Drives the "N connected" badge in the host sidebar; a single device with
     /// several open tabs counts once.
     pub fn connected_device_count(&self) -> usize {
+        self.connected_device_ids().len()
+    }
+
+    /// The distinct device ids with at least one live session right now. The push
+    /// dispatcher uses this to skip devices that already hold a WebSocket — a
+    /// foregrounded tab gets the live/in-app path, so pushing to it too would
+    /// double-notify.
+    pub fn connected_device_ids(&self) -> std::collections::HashSet<i64> {
         let inner = self.inner.lock().unwrap();
         inner
             .sessions
             .values()
             .map(|(device_id, _)| *device_id)
-            .collect::<std::collections::HashSet<i64>>()
-            .len()
+            .collect()
     }
 }
 

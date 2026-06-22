@@ -100,6 +100,13 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         None
     }
 
+    /// Whether this adapter knows that `model_id` accepts the supplied
+    /// thinking-effort level. `None` means the adapter cannot answer
+    /// authoritatively, so callers should preserve existing effort state.
+    fn supports_thinking_effort_level(&self, _model_id: &str, _effort: &str) -> Option<bool> {
+        None
+    }
+
     /// Whether prompts can be acknowledged when delivered to a live runtime.
     fn supports_prompt_receipts(&self) -> bool {
         false

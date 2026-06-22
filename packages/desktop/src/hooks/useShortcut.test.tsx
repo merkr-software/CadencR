@@ -199,6 +199,44 @@ describe("useGlobalShortcutById", () => {
     expect(onFire).toHaveBeenCalledTimes(1);
   });
 
+  it("opens shortcuts-help on QWERTY when macOS mangles event.key to '/' under Cmd", () => {
+    const onFire = vi.fn();
+    render(<GlobalHarness onFire={onFire} />);
+
+    // Under Cmd, macOS reports the base char ("/") for QWERTY's Shift+Slash.
+    // The `/` variant matches that event.key so help still opens.
+    fireEvent.keyDown(window, { key: "/", metaKey: true, shiftKey: true, code: "Slash" });
+    expect(onFire).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens shortcuts-help on AZERTY when macOS mangles event.key to ',' under Cmd", () => {
+    const onFire = vi.fn();
+    render(<GlobalHarness onFire={onFire} />);
+
+    // AZERTY's labelled "?" is Shift+Comma; under Cmd, macOS reports the base
+    // char (","). The `,` variant matches that event.key so help still opens.
+    fireEvent.keyDown(window, { key: ",", metaKey: true, shiftKey: true, code: "Comma" });
+    expect(onFire).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens shortcuts-help on ⌘? without Shift (layouts where ? is a base char)", () => {
+    const onFire = vi.fn();
+    render(<GlobalHarness onFire={onFire} />);
+
+    fireEvent.keyDown(window, { key: "?", metaKey: true, code: "Slash" });
+    expect(onFire).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT open shortcuts-help on QWERTY ⌘+Shift+, (the '<' key)", () => {
+    const onFire = vi.fn();
+    render(<GlobalHarness onFire={onFire} />);
+
+    // The `,` variant's exactKeys pins it to event.key === ",", so a real
+    // shifted comma ("<") on QWERTY must not trigger the help modal.
+    fireEvent.keyDown(window, { key: "<", metaKey: true, shiftKey: true, code: "Comma" });
+    expect(onFire).not.toHaveBeenCalled();
+  });
+
   it("re-binds when the override changes", () => {
     const onFire = vi.fn();
     render(<GlobalHarness onFire={onFire} />);

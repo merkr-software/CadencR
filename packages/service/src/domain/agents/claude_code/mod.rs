@@ -1,4 +1,5 @@
 mod adapter_impl;
+mod background_agents;
 mod catalog;
 pub mod custom_models;
 mod events;

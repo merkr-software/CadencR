@@ -51,7 +51,24 @@ pub fn resolve_language(language_id: &str) -> Result<&'static CatalogEntry, AppE
 /// this as "install `<bin_name>` to enable LSP for `<language>`").
 pub async fn resolve_server(language_id: &str) -> Result<ServerSpec, AppError> {
     let entry = resolve_language(language_id)?;
+    resolve_entry(entry).await
+}
 
+/// Resolve a specific catalog server by its stable `lsp_id` (Phase 4: a project
+/// may select e.g. `tsgo` or `biome` rather than the language default). Reuses
+/// the same discovery → managed-install path as [`resolve_server`].
+pub async fn resolve_server_by_id(lsp_id: &str) -> Result<ServerSpec, AppError> {
+    let entry = catalog::lookup_by_id(lsp_id).ok_or_else(|| {
+        AppError::BadRequest(format!("no language server registered with id {lsp_id:?}"))
+    })?;
+    resolve_entry(entry).await
+}
+
+/// Shared discovery + managed-install resolution for one catalog entry.
+///
+/// Returns `NotFound` when we know *what* binary to look for but couldn't find
+/// it on disk (renderer surfaces this as "install `<bin_name>` to enable LSP").
+async fn resolve_entry(entry: &'static CatalogEntry) -> Result<ServerSpec, AppError> {
     // Step 1: cli-discovery walks PATH + login-shell PATH + well-known dirs.
     let spec = entry.discovery_spec();
     let candidates = cli_discovery::discover_all(&spec, None).await;
@@ -76,10 +93,10 @@ pub async fn resolve_server(language_id: &str) -> Result<ServerSpec, AppError> {
     }
 
     Err(AppError::NotFound(format!(
-        "language server {bin:?} not found for {lang:?}; install it on $PATH \
+        "language server {bin:?} ({id}) not found; install it on $PATH \
          (looked under common install dirs as well)",
         bin = entry.bin_name,
-        lang = language_id,
+        id = entry.lsp_id,
     )))
 }
 
@@ -154,5 +171,26 @@ mod tests {
     fn unknown_language_is_bad_request() {
         let err = resolve_language("brainfuck").unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[tokio::test]
+    async fn resolve_by_unknown_id_is_bad_request() {
+        let err = resolve_server_by_id("not-a-real-server").await.unwrap_err();
+        assert!(matches!(err, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn known_id_resolves_in_catalog() {
+        // Resolution-by-id is exercised without spawning the managed-install
+        // pipeline (which would hit the network and write to ~/.cadencr in a
+        // unit test). The async resolve path reuses `resolve_entry`, covered by
+        // the language-based tests; here we just confirm the id lookup feeding
+        // `resolve_server_by_id` finds the new servers.
+        for id in ["tsgo", "biome", "eslint", "oxlint"] {
+            assert!(
+                catalog::lookup_by_id(id).is_some(),
+                "{id} missing from catalog"
+            );
+        }
     }
 }

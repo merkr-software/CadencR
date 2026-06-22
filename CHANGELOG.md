@@ -1,5 +1,48 @@
 # Changelog
 
+## v0.6.1 - 2026-06-22
+
+Previous release: v0.6.0 - 2026-06-22
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed the macOS packaged app failing to start the bundled service on machines without Homebrew OpenSSL installed by building the service sidecar with vendored OpenSSL and adding a release guard that rejects Homebrew-linked sidecars before assets are published.
+- [**Backend**] Fixed MCP-spawned sessions so an explicitly requested provider is preserved during model validation instead of being overridden by model-based auto-routing.
+- [**Backend**] Fixed formatter execution when a formatter exits before reading stdin, returning a user-visible formatting error instead of surfacing an internal broken-pipe failure.
+
+## v0.6.0 - 2026-06-22
+
+Previous release: v0.5.1 - 2026-06-16
+
+### ✨ Added
+
+- [**Desktop**] Added Cadencr-owned project and workspace MCP orchestration, surfaced in Settings and available to agent sessions, so agents can inspect workspace activity, list and search projects, tail and compare conversation context, and safely **message or spawn scoped sessions** without leaving the active Cadencr workspace.
+- [**Backend**] Added **JSON-backed global and project settings** for **programmatic configuration changes**, while preserving the existing settings APIs, validation, migration path, and user-visible errors for malformed or unsupported settings.
+- [**Desktop**] Added a much more capable editor workspace with **large-file read-only mode**, **hybrid lazy file-tree loading**, git gutter markers, **LSP diagnostics and status**, symbol navigation, references, rename, workspace symbols, formatting, and multi-server language tooling for TypeScript, linters, and formatters.
+- [**Desktop**] Added **scheduled conversation prompts** with a prompt-bar split button, date/time picker, scheduled-message cards, and backend scheduling, so follow-up work can be queued for a conversation instead of kept in a separate reminder.
+- [**Desktop**] Added **in-conversation search** with `Cmd+F` / `Ctrl+F`, highlighted matches, match navigation, `Enter` / `Shift+Enter`, and `Escape`, making long agent runs easier to search like an IDE or browser page.
+- [**Desktop**] Added a global **Pinned conversations** section above the project list, with persisted pin state, so important or long-running conversations stay reachable without scrolling through chronological history.
+- [**Desktop**] Added remote Web Push notifications for paired browser/PWA clients, so remote Cadencr sessions can notify the user when agent work finishes.
+- [**provider:claude**] Added per-session Claude profile selection before the first prompt and during a conversation, with profile overrides applied when prompts are dispatched.
+- [**Desktop**] Added Carbon Owl and Paper Owl square themes, plus a distinct file-patch tool-call color in the agent stream.
+
+### 🔧 Changed
+
+- [**Desktop**] Refreshed first-turn session tips and the landing documentation around recent workspace, browser, editor, settings, shortcut, and prompting workflows.
+
+### 🐛 Fixed
+
+- [**provider:claude**] Fixed Claude worktree sessions for subfolder projects by preserving root-level Claude configuration, skills, commands, rules, and MCP settings inside generated worktrees, so skills available before entering a worktree remain available afterward.
+- [**Backend**] Fixed worktree session reliability by preventing new worktree sessions from reusing the project's main working tree, replaying persisted setup output, and making MCP-spawned worktree sessions start consistently.
+- [**provider:claude**] Fixed conversation status while Claude background agents are still running, so the session stays visibly active instead of showing completed work too early.
+- [**Desktop**] Fixed compaction feedback by showing in-progress compacting status and cursor state across providers while compaction is running.
+- [**Desktop**] Fixed branch-switch truthfulness for worktree-backed projects by surfacing that the switch is deferred until the first message instead of implying the underlying worktree branch changed immediately.
+- [**provider:codex**] Fixed Codex permission-mode propagation and live permission-mode handling so spawned sessions and running conversations keep the requested access behavior.
+- [**provider:opencode**] Fixed OpenCode thinking-effort handling by clearing unsupported effort values when the selected model cannot use them.
+- [**Backend**] Fixed incompatible-model session startup by clearing unsupported thinking-effort settings and recognizing dynamic per-model effort keys plus remote-access settings.
+- [**provider:claude**] Fixed Claude API errors and pending steering prompts so provider error messages are surfaced and turn-boundary prompts no longer leave conversations stuck pending.
+- [**Desktop**] Fixed editor and shell polish around fresh-file `Cmd+Click`, hover sizing, Frost theme worktree visibility, worktree setup badges, and route/highlight build warnings.
+
 ## v0.5.1 - 2026-06-16
 
 Previous release: v0.5.0 - 2026-06-14

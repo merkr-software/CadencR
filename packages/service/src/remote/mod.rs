@@ -8,7 +8,7 @@ mod net;
 pub mod pairing;
 pub mod paths;
 mod secrets;
-mod secure_fs;
+pub(crate) mod secure_fs;
 mod spa;
 mod tls;
 

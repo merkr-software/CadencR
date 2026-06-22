@@ -29,4 +29,16 @@ describe("frost theme CSS", () => {
       /:root\[data-theme="frost-dark"\] body,\s*:root\[data-theme="frost-light"\] body\s*{\s*background-color:\s*transparent;/s,
     );
   });
+
+  it("gives the sidebar worktree group a visible frost fill + rim without a layout shift", () => {
+    // The default `bg-muted/30` vanishes in frost. The frost override must:
+    //   - reuse --option-card-bg (no redundant --worktree-group-bg token),
+    //   - swap border-COLOR only (the component reserves a transparent border
+    //     slot, so a `border:` shorthand here would add border-width and shift
+    //     inner content by 1px on frost themes).
+    expect(frostRules).not.toMatch(/--worktree-group-bg/);
+    expect(frostRules).toMatch(
+      /:root\[data-theme="frost-dark"\]\s+\.worktree-group,\s*:root\[data-theme="frost-light"\]\s+\.worktree-group\s*{\s*background-color:\s*var\(--option-card-bg\);\s*border-color:\s*var\(--worktree-group-border\);\s*}/s,
+    );
+  });
 });

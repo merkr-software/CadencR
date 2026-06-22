@@ -269,6 +269,14 @@ impl AgentRuntimeSession for CodexSession {
         Ok(())
     }
 
+    async fn set_access_mode(
+        &self,
+        mode: crate::domain::agents::adapter::RuntimeAccessMode,
+    ) -> Result<(), RuntimeError> {
+        *self.access_mode.write().await = Some(mode);
+        Ok(())
+    }
+
     async fn set_thinking_effort(&self, effort: Option<String>) -> Result<(), RuntimeError> {
         *self.effort.write().await = effort;
         Ok(())

@@ -45,8 +45,34 @@ impl SettingSpec {
 const BOOL: ValueKind = ValueKind::Bool;
 const NUMBER: ValueKind = ValueKind::Number;
 
+/// Validators for the Phase-4 editor tooling keys. Shared between the workspace
+/// (global default) and project scopes so a value valid at one scope is valid
+/// at the other. Returns `None` for keys not in this set.
+fn editor_tooling_spec(key: &str) -> Option<SettingSpec> {
+    let spec = match key {
+        "editor_typescript_server" => SettingSpec::new(
+            ValueKind::Enum(&["typescript-language-server", "tsgo"]),
+            Some("typescript-language-server"),
+        ),
+        "editor_linter" => SettingSpec::new(
+            ValueKind::Enum(&["off", "eslint", "biome", "oxlint"]),
+            Some("off"),
+        ),
+        "editor_formatter" => SettingSpec::new(
+            ValueKind::Enum(&["off", "biome", "oxfmt", "prettier"]),
+            Some("off"),
+        ),
+        "editor_format_on_save" => SettingSpec::new(BOOL, Some("false")),
+        _ => return None,
+    };
+    Some(spec)
+}
+
 /// Spec for a workspace/global key, or `None` for free-form keys.
 pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
+    if let Some(spec) = editor_tooling_spec(key) {
+        return Some(spec);
+    }
     let spec = match key {
         // Booleans default to "false" — the historical "unset == off" behavior.
         "editor_vim_mode"
@@ -60,9 +86,12 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "codex_full_access_enabled"
         | "onboarding_intro_shown" => SettingSpec::new(BOOL, Some("false")),
         // These default on.
-        "editor_auto_save" | "animations_enabled" | "browser_mcp_enabled" => {
-            SettingSpec::new(BOOL, Some("true"))
-        }
+        "editor_auto_save"
+        | "animations_enabled"
+        | "browser_mcp_enabled"
+        | "project_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
+        "workspace_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
+        "workspace_mcp_max_result_chars" => SettingSpec::new(NUMBER, Some("100000")),
         // Enums (mirrors the frontend option sets).
         "notification_mode" => SettingSpec::new(
             ValueKind::Enum(&["native", "in_app", "off"]),
@@ -92,6 +121,9 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
 
 /// Spec for a project key, or `None` for free-form keys.
 pub fn project_spec(key: &str) -> Option<SettingSpec> {
+    if let Some(spec) = editor_tooling_spec(key) {
+        return Some(spec);
+    }
     match key {
         "default_worktree_mode" => Some(SettingSpec::new(
             ValueKind::Enum(&["new", "reuse", "skip"]),
@@ -112,6 +144,26 @@ mod tests {
         assert!(spec.is_valid("false"));
         assert!(!spec.is_valid("yes"));
         assert_eq!(spec.default, Some("true"));
+    }
+
+    #[test]
+    fn mcp_setting_defaults_enable_agent_mcp_tools_by_default() {
+        assert_eq!(
+            workspace_spec("project_mcp_enabled").unwrap().default,
+            Some("true")
+        );
+        assert_eq!(
+            workspace_spec("workspace_mcp_enabled").unwrap().default,
+            Some("true")
+        );
+        assert_eq!(
+            workspace_spec("workspace_mcp_max_result_chars")
+                .unwrap()
+                .default,
+            Some("100000")
+        );
+        assert!(workspace_spec("project_mcp_allow_spawn").is_none());
+        assert!(workspace_spec("project_mcp_allow_send_message").is_none());
     }
 
     #[test]
@@ -141,5 +193,46 @@ mod tests {
         let spec = project_spec("default_worktree_mode").unwrap();
         assert!(spec.is_valid("new"));
         assert!(!spec.is_valid("clone"));
+    }
+
+    #[test]
+    fn editor_tooling_specs_present_at_both_scopes() {
+        for key in [
+            "editor_typescript_server",
+            "editor_linter",
+            "editor_formatter",
+            "editor_format_on_save",
+        ] {
+            assert!(
+                workspace_spec(key).is_some(),
+                "{key} missing workspace spec"
+            );
+            assert!(project_spec(key).is_some(), "{key} missing project spec");
+        }
+    }
+
+    #[test]
+    fn editor_tooling_enums_validate_and_default() {
+        let ts = project_spec("editor_typescript_server").unwrap();
+        assert!(ts.is_valid("tsgo"));
+        assert!(ts.is_valid("typescript-language-server"));
+        assert!(!ts.is_valid("flow"));
+        assert_eq!(ts.default, Some("typescript-language-server"));
+
+        let linter = project_spec("editor_linter").unwrap();
+        assert!(linter.is_valid("off"));
+        assert!(linter.is_valid("biome"));
+        assert!(!linter.is_valid("tslint"));
+        assert_eq!(linter.default, Some("off"));
+
+        let fmt = project_spec("editor_formatter").unwrap();
+        assert!(fmt.is_valid("prettier"));
+        assert!(!fmt.is_valid("eslint"));
+        assert_eq!(fmt.default, Some("off"));
+
+        let fos = project_spec("editor_format_on_save").unwrap();
+        assert!(fos.is_valid("true"));
+        assert!(!fos.is_valid("yes"));
+        assert_eq!(fos.default, Some("false"));
     }
 }

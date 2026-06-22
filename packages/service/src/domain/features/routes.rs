@@ -69,6 +69,7 @@ pub async fn create_feature_handler(
         body.type_,
         worktree_mode,
         reuse_branch,
+        None,
     )
     .await?;
     // Tell every connected client (including remote devices) to refresh their
@@ -80,6 +81,14 @@ pub async fn create_feature_handler(
         FeatureEventAction::Created,
     );
     Ok(Json(created))
+}
+
+#[utoipa::path(get, path = "/api/features/pinned",
+    responses((status = 200, body = Vec<Feature>)))]
+pub async fn list_pinned_features_handler(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<Feature>>, AppError> {
+    Ok(Json(service::list_pinned(&state.read_pool).await?))
 }
 
 #[utoipa::path(get, path = "/api/features/{id}",
@@ -189,6 +198,24 @@ pub async fn update_feature_label_handler(
         .filter(|label| !label.is_empty());
     service::update_label(&state.write_pool, id, normalized).await?;
     broadcast_label_update(&state, id).await;
+    Ok(Json(SuccessResponse { success: true }))
+}
+
+#[utoipa::path(put, path = "/api/features/{id}/pin",
+    params(("id" = i64, Path,)),
+    request_body = UpdatePinnedRequest,
+    responses((status = 200, body = SuccessResponse)))]
+pub async fn update_feature_pinned_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<UpdatePinnedRequest>,
+) -> Result<Json<SuccessResponse>, AppError> {
+    service::set_pinned(&state.write_pool, id, body.pinned).await?;
+    // Pinning moves a conversation into/out of the sidebar "Pinned" section,
+    // so every connected client must refetch its feature lists.
+    state
+        .feature_events_tx
+        .emit(id, None, FeatureEventAction::Updated);
     Ok(Json(SuccessResponse { success: true }))
 }
 
@@ -324,6 +351,7 @@ pub fn features_router() -> Router<AppState> {
             get(list_features_handler).post(create_feature_handler),
         )
         .route("/api/features/activity", get(list_feature_activity_handler))
+        .route("/api/features/pinned", get(list_pinned_features_handler))
         .route(
             "/api/features/{id}",
             get(get_feature_handler).delete(delete_feature_handler),
@@ -340,6 +368,7 @@ pub fn features_router() -> Router<AppState> {
             "/api/features/{id}/label",
             put(update_feature_label_handler),
         )
+        .route("/api/features/{id}/pin", put(update_feature_pinned_handler))
         .route("/api/features/{id}/empty", get(is_empty_handler))
         .route(
             "/api/features/{id}/settings",

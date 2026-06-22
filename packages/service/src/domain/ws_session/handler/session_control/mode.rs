@@ -12,9 +12,6 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimePermissionMode, RuntimeSessionHandle, RuntimeSpawnConfig,
 };
-use crate::domain::agents::codex::{
-    access_mode_wire, parse_access_mode_wire, PROVIDER_ID as CODEX_PROVIDER_ID,
-};
 use crate::domain::agents::permission_modes::permission_mode_wire;
 
 /// Handle session.mode.set: change the permission mode and persist to DB.
@@ -24,25 +21,11 @@ pub(crate) async fn handle_mode_set(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
 ) {
-    let payload: ModeSetPayload = match serde_json::from_value(envelope.payload.clone()) {
-        Ok(p) => p,
-        Err(e) => {
-            send_error(sender, &envelope.id, "INVALID_PAYLOAD", &e.to_string());
-            return;
-        }
+    let Some(payload) = parse_mode_set_payload(&envelope, sender) else {
+        return;
     };
-
-    let db_session_id = match parse_session_id(&payload.session_id) {
-        Some(id) => id,
-        None => {
-            send_error(
-                sender,
-                &envelope.id,
-                "INVALID_SESSION_ID",
-                "Invalid session_id",
-            );
-            return;
-        }
+    let Some(db_session_id) = parse_mode_set_session_id(&payload, &envelope.id, sender) else {
+        return;
     };
 
     let new_mode = parse_permission_mode(&payload.mode);
@@ -122,6 +105,30 @@ pub(crate) async fn handle_mode_set(
         serde_json::json!({ "mode": payload.mode }),
     )
     .await;
+}
+
+fn parse_mode_set_payload(envelope: &WsEnvelope, sender: &WsSender) -> Option<ModeSetPayload> {
+    match serde_json::from_value(envelope.payload.clone()) {
+        Ok(payload) => Some(payload),
+        Err(error) => {
+            send_error(sender, &envelope.id, "INVALID_PAYLOAD", &error.to_string());
+            None
+        }
+    }
+}
+
+fn parse_mode_set_session_id(
+    payload: &ModeSetPayload,
+    ref_id: &str,
+    sender: &WsSender,
+) -> Option<i64> {
+    match parse_session_id(&payload.session_id) {
+        Some(id) => Some(id),
+        None => {
+            send_error(sender, ref_id, "INVALID_SESSION_ID", "Invalid session_id");
+            None
+        }
+    }
 }
 
 fn queue_pending_permission_mode(
@@ -244,134 +251,4 @@ fn send_mode_set_error(sender: &WsSender, ref_id: &str, payload: SessionErrorPay
         serde_json::to_value(payload).unwrap(),
     );
     let _ = sender.send(Message::Text(String::from(err).into()));
-}
-
-/// Handle session.codex_permission_mode.set: change Codex access mode for this conversation.
-pub(crate) async fn handle_codex_permission_mode_set(
-    envelope: WsEnvelope,
-    sender: &WsSender,
-    sdk_sessions: &SdkSessions,
-    app_state: &AppState,
-) {
-    let payload: CodexPermissionModeSetPayload =
-        match serde_json::from_value(envelope.payload.clone()) {
-            Ok(p) => p,
-            Err(e) => {
-                send_error(sender, &envelope.id, "INVALID_PAYLOAD", &e.to_string());
-                return;
-            }
-        };
-
-    let db_session_id = match parse_session_id(&payload.session_id) {
-        Some(id) => id,
-        None => {
-            send_error(
-                sender,
-                &envelope.id,
-                "INVALID_SESSION_ID",
-                "Invalid session_id",
-            );
-            return;
-        }
-    };
-
-    // The live turn may be owned by another connection (e.g. the host changing
-    // the mode of a conversation started on a remote device). Operate on the
-    // owning map so the change reaches the running CLI, not just our viewer.
-    let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
-    let sdk_sessions = &effective_sessions;
-
-    let feature_id = {
-        let sessions = sdk_sessions.lock().await;
-        let handle = match sessions.get(&db_session_id) {
-            Some(h) => h,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "SESSION_NOT_FOUND",
-                    "Session not found",
-                );
-                return;
-            }
-        };
-
-        if handle.runtime_provider != CODEX_PROVIDER_ID {
-            send_error(
-                sender,
-                &envelope.id,
-                "MODE_NOT_SUPPORTED",
-                "Codex access mode can only be changed on Codex sessions",
-            );
-            return;
-        }
-        handle.feature_id
-    };
-
-    let Some(access_mode) = parse_access_mode_wire(&payload.mode) else {
-        send_error(
-            sender,
-            &envelope.id,
-            "INVALID_PAYLOAD",
-            "Invalid Codex access mode",
-        );
-        return;
-    };
-    let mode_wire = access_mode_wire(&access_mode);
-    if let Err(error) = WsSessionPersistence::update_codex_permission_mode_static(
-        &app_state.write_pool,
-        db_session_id,
-        mode_wire,
-    )
-    .await
-    {
-        error!(
-            db_session_id,
-            %error,
-            "failed to persist Codex permission mode"
-        );
-        send_error(
-            sender,
-            &envelope.id,
-            "DB_ERROR",
-            "Failed to persist Codex permission mode",
-        );
-        return;
-    }
-
-    {
-        let mut sessions = sdk_sessions.lock().await;
-        let handle = match sessions.get_mut(&db_session_id) {
-            Some(h) => h,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "SESSION_NOT_FOUND",
-                    "Session not found",
-                );
-                return;
-            }
-        };
-        handle.desired_access_mode = Some(access_mode.clone());
-        handle.config.access_mode = Some(access_mode.clone());
-        match &mut handle.state {
-            QueryState::Pending(options) => {
-                options.access_mode = Some(access_mode);
-            }
-            QueryState::Active { .. } => {}
-        }
-    }
-
-    // Reply to the caller and mirror to other devices so their mode chip updates.
-    super::reply_and_broadcast(
-        app_state,
-        sender,
-        &envelope.id,
-        feature_id,
-        "codex_permission_mode.changed",
-        serde_json::json!({ "mode": mode_wire }),
-    )
-    .await;
 }

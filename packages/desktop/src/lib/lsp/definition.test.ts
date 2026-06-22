@@ -4,13 +4,18 @@ import { EditorView } from "@codemirror/view";
 
 const toastError = vi.fn();
 vi.mock("sonner", () => ({
-  toast: { error: (...args: unknown[]) => toastError(...args) },
+  toast: {
+    error: (...args: unknown[]) => toastError(...args),
+    loading: () => "toast-id",
+    dismiss: () => {},
+  },
 }));
 
 // LSPPlugin.get is static — we stub it per-test so we don't need a full
 // LSPClient instance just to verify the toast path.
 type ClientStub = {
   serverCapabilities: { definitionProvider?: boolean | object | null } | null;
+  initializing: Promise<unknown>;
   sync: () => void;
   request: (method: string, params: unknown) => Promise<unknown>;
   workspace: { displayFile: (uri: string) => Promise<EditorView | null> };
@@ -37,6 +42,7 @@ function createView(): EditorView {
 function defaultClient(overrides: Partial<ClientStub> = {}): ClientStub {
   return {
     serverCapabilities: { definitionProvider: true },
+    initializing: Promise.resolve(null),
     sync: () => {},
     request: () => Promise.resolve(null),
     workspace: { displayFile: async () => null },
@@ -74,10 +80,51 @@ describe("jumpToDefinitionCommand", () => {
     view.destroy();
   });
 
-  it("returns false before the server's initialize response arrives", () => {
-    pluginStub = defaultPlugin(defaultClient({ serverCapabilities: null }));
+  it("defers the jump until the server finishes initializing", async () => {
+    let resolveInit!: () => void;
+    const client = defaultClient({
+      serverCapabilities: null,
+      initializing: new Promise<void>((r) => {
+        resolveInit = () => r();
+      }),
+    });
+    const requestSpy = vi.fn(() => Promise.resolve(null));
+    client.request = requestSpy;
+    pluginStub = defaultPlugin(client);
     const view = createView();
-    expect(jumpToDefinitionCommand(view)).toBe(false);
+    // Swallows the click (returns true) instead of no-op'ing, and waits.
+    expect(jumpToDefinitionCommand(view)).toBe(true);
+    await Promise.resolve();
+    expect(requestSpy).not.toHaveBeenCalled();
+    // Server's `initialize` lands and it advertises the capability; the deferred
+    // jump proceeds once `initializing` resolves.
+    client.serverCapabilities = { definitionProvider: true };
+    resolveInit();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+    view.destroy();
+  });
+
+  it("drops a deferred jump silently when the view is gone before init", async () => {
+    let resolveInit!: () => void;
+    const client = defaultClient({
+      serverCapabilities: null,
+      initializing: new Promise<void>((r) => {
+        resolveInit = () => r();
+      }),
+    });
+    const requestSpy = vi.fn(() => Promise.resolve(null));
+    client.request = requestSpy;
+    pluginStub = defaultPlugin(client);
+    const view = createView();
+    expect(jumpToDefinitionCommand(view)).toBe(true);
+    // User closes the file while the server is still starting.
+    pluginStub = null;
+    client.serverCapabilities = { definitionProvider: true };
+    resolveInit();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
     view.destroy();
   });
 

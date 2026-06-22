@@ -33,6 +33,9 @@ use std::path::PathBuf;
 
 use sqlx::SqlitePool;
 
+use crate::domain::git::worktree_context::{
+    build_worktree_context, resolve_source_git_root, WorktreeContext,
+};
 use crate::domain::workflow::ws_sender::WsSender;
 use crate::shared::worktree_paths::compute_worktree_path;
 
@@ -68,7 +71,7 @@ pub async fn ensure_worktree(
         return Ok(existing);
     }
 
-    match mode {
+    let result = match mode {
         WorktreeMode::Skip => unreachable!("handled above"),
         WorktreeMode::Reuse(branch) => {
             ensure_reuse(
@@ -79,7 +82,20 @@ pub async fn ensure_worktree(
         WorktreeMode::New => {
             ensure_new(read_pool, write_pool, feature_id, project_id, ws_sender).await
         }
+    };
+
+    // Surface a provisioning failure on the worktree chip (which may already be
+    // showing "creating") before the error propagates up to pause the prompt —
+    // the caller must never fall back to running the agent in the project root.
+    if let Err(ref error) = result {
+        send_envelope(
+            ws_sender,
+            "workflow",
+            "worktree.setup_error",
+            serde_json::json!({ "feature_id": feature_id, "error": error }),
+        );
     }
+    result
 }
 
 /// Create a new branch forked from `base` (or the project's current HEAD),
@@ -171,10 +187,19 @@ async fn ensure_new(
         }),
     );
 
-    new_branch::add_new_worktree(&project_dir, &branch, &path_str, base_branch.as_deref()).await?;
-    notify_provider_worktree_created(&project_dir, &path_str).await?;
-    persist_and_announce(write_pool, feature_id, &path_str, &branch, ws_sender).await?;
-    Ok(PathBuf::from(path_str))
+    let source_root = resolve_source_git_root(std::path::Path::new(&project_dir)).await?;
+    let source_root_str = source_root.to_string_lossy();
+    new_branch::add_new_worktree(&source_root_str, &branch, &path_str, base_branch.as_deref())
+        .await?;
+    let context = build_worktree_context(
+        &source_root,
+        std::path::Path::new(&project_dir),
+        std::path::Path::new(&path_str),
+    )?;
+    let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
+    notify_provider_worktree_created(&context).await?;
+    persist_and_announce(write_pool, feature_id, &session_cwd_str, &branch, ws_sender).await?;
+    Ok(context.session_cwd)
 }
 
 /// `worktree_mode == "reuse"` path: attach to `branch`, sharing an existing
@@ -202,14 +227,19 @@ async fn ensure_reuse(
         }),
     );
 
-    let attached =
-        attach_to_existing_branch(branch, std::path::Path::new(&project_dir), &project_name)
-            .await?;
+    let source_root = resolve_source_git_root(std::path::Path::new(&project_dir)).await?;
+    let attached = attach_to_existing_branch(branch, &source_root, &project_name).await?;
+    let context = build_worktree_context(
+        &source_root,
+        std::path::Path::new(&project_dir),
+        std::path::Path::new(&attached.worktree_path),
+    )?;
+    let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
 
     persist_and_announce(
         write_pool,
         feature_id,
-        &attached.worktree_path,
+        &session_cwd_str,
         &attached.branch,
         ws_sender,
     )
@@ -226,18 +256,18 @@ async fn ensure_reuse(
             serde_json::json!({ "feature_id": feature_id }),
         );
     } else {
-        notify_provider_worktree_created(&project_dir, &attached.worktree_path).await?;
+        notify_provider_worktree_created(&context).await?;
     }
     // Else: the ws-session prompt path spawns `run_setup_commands` exactly as
     // it does for the `New` path.
 
-    Ok(PathBuf::from(attached.worktree_path))
+    Ok(context.session_cwd)
 }
 
-async fn notify_provider_worktree_created(project_dir: &str, path_str: &str) -> Result<(), String> {
+async fn notify_provider_worktree_created(context: &WorktreeContext) -> Result<(), String> {
     crate::domain::agents::providers::notify_worktree_created_for_all_providers(
-        std::path::Path::new(project_dir),
-        std::path::Path::new(path_str),
+        &context.source_root,
+        &context.worktree_root,
     )
     .await
     .map_err(|e| e.to_string())

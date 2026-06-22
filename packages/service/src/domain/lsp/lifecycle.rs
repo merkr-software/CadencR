@@ -20,10 +20,13 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::Mutex;
 
-/// How long an idle proxy can sit before we kill the child. 5 minutes
-/// matches typical "I switched tabs to read Slack" intervals; longer than
-/// that and the memory cost of dozens of LSP servers becomes real.
-pub const IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+/// How long an idle proxy can sit before we kill the child. An *open editor*
+/// is not "idle" — the user may be reading without typing for long stretches —
+/// so 30 minutes avoids tearing the server out from under a live buffer (which
+/// previously stranded Cmd-click with no reconnect). Long enough to span a
+/// reading/meeting break; short enough that a forgotten tab doesn't keep a
+/// language server resident forever.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
 /// Backoff schedule: `2^min(fails, 6)` seconds, capped at ~1 minute. After
 /// 6 failures in a row, callers wait 64s between attempts — long enough

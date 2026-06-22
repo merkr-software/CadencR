@@ -1,5 +1,5 @@
 use axum::extract::{Json, Path, Query, State};
-use axum::routing::{get, put};
+use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -8,9 +8,7 @@ use crate::app_state::AppState;
 use crate::domain::sessions::limits::normalize_agent_message_limit;
 use crate::domain::sessions::models::*;
 use crate::domain::sessions::repository;
-use crate::domain::sessions::unified_agents::{
-    list_unified_agents, set_agent_pinned, UnifiedAgentsQuery,
-};
+use crate::domain::sessions::unified_agents::{list_unified_agents, UnifiedAgentsQuery};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
@@ -93,34 +91,6 @@ pub async fn get_unified_agents_handler(
     ))
 }
 
-#[utoipa::path(put, path = "/api/agents/{session_id}/pin",
-    params(("session_id" = i64, Path,)),
-    responses((status = 200, body = AgentPinResponse)))]
-pub async fn pin_agent_handler(
-    State(state): State<AppState>,
-    Path(session_id): Path<i64>,
-) -> Result<Json<AgentPinResponse>, AppError> {
-    set_agent_pinned(&state.write_pool, session_id, true).await?;
-    Ok(Json(AgentPinResponse {
-        success: true,
-        is_pinned: true,
-    }))
-}
-
-#[utoipa::path(delete, path = "/api/agents/{session_id}/pin",
-    params(("session_id" = i64, Path,)),
-    responses((status = 200, body = AgentPinResponse)))]
-pub async fn unpin_agent_handler(
-    State(state): State<AppState>,
-    Path(session_id): Path<i64>,
-) -> Result<Json<AgentPinResponse>, AppError> {
-    set_agent_pinned(&state.write_pool, session_id, false).await?;
-    Ok(Json(AgentPinResponse {
-        success: true,
-        is_pinned: false,
-    }))
-}
-
 #[utoipa::path(get, path = "/api/sessions/{session_id}/draft",
     params(("session_id" = i64, Path,)),
     responses((status = 200, body = DraftResponse)))]
@@ -161,6 +131,17 @@ pub async fn get_message_full_content_handler(
     Ok(Json(MessageFullContentResponse { content }))
 }
 
+#[utoipa::path(get, path = "/api/features/{feature_id}/message-preview",
+    params(("feature_id" = i64, Path,)),
+    responses((status = 200, body = MessagePreviewResponse)))]
+pub async fn get_message_preview_handler(
+    State(state): State<AppState>,
+    Path(feature_id): Path<i64>,
+) -> Result<Json<MessagePreviewResponse>, AppError> {
+    let preview = repository::latest_assistant_preview(&state.read_pool, feature_id).await?;
+    Ok(Json(MessagePreviewResponse { preview }))
+}
+
 pub fn sessions_router() -> Router<AppState> {
     Router::new()
         .route(
@@ -168,14 +149,14 @@ pub fn sessions_router() -> Router<AppState> {
             get(get_sessions_handler),
         )
         .route(
+            "/api/features/{feature_id}/message-preview",
+            get(get_message_preview_handler),
+        )
+        .route(
             "/api/features/{feature_id}/agent-state",
             get(get_feature_agent_state_handler),
         )
         .route("/api/agents/unified", get(get_unified_agents_handler))
-        .route(
-            "/api/agents/{session_id}/pin",
-            put(pin_agent_handler).delete(unpin_agent_handler),
-        )
         .route(
             "/api/sessions/{session_id}/draft",
             get(get_draft_handler).put(save_draft_handler),

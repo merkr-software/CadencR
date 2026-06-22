@@ -7,12 +7,38 @@
  * editor accent palette, terminal chrome. New themes are added by appending
  * a new `:root[data-theme="<id>"] { ... }` block here.
  *
- * The unscoped `:root` block carries values that are theme-agnostic (radius)
- * and acts as a safety net for any var that a theme forgets to override.
+ * The unscoped `:root` block carries the *default* geometry (radius + border
+ * width) and acts as a safety net for any var that a theme forgets to override.
+ *
+ * Geometry is themeable: `--radius` and `--border-width` may be overridden in a
+ * `:root[data-theme="<id>"]` block to reshape the whole UI. The rounded default
+ * themes use the 10px radius below; the "square" themes (Carbon Owl, Paper Owl,
+ * in `theme-square.css`) pull `--radius` down to a tight 4px for a crisp,
+ * lightly-rounded look. `--radius` already feeds Tailwind's radius scale via
+ * `@theme inline` in `index.css`; `--border-width` is routed through Tailwind's
+ * `border` utility by the unlayered rule below so a theme *can* thicken every
+ * framed surface, though all current themes keep the crisp 1px default.
  * ------------------------------------------------------------------------- */
 
 :root {
   --radius: 0.625rem;
+  --border-width: 1px;
+  /* Radius for pill-shaped chrome buttons (sidebar Settings, remote toggle).
+   * A fully-round pill by default; the square themes square it back to
+   * `--radius` via their `rounded-[…]` clamp in `theme-square.css` (a literal
+   * `rounded-full` is excluded there to protect status dots / avatars, so pill
+   * *buttons* route through this token instead). */
+  --radius-pill: 9999px;
+}
+
+/* Make the all-sides `border` utility's width theme-controllable. Tailwind
+ * hardcodes `border` to 1px; routing it through `--border-width` lets a theme
+ * thicken every framed surface (cards, panels, inputs, outline buttons) without
+ * touching components. Unlayered so it overrides Tailwind's layered utility;
+ * scoped to `.border` only, so directional and `border-0` utilities are
+ * untouched. At the 1px default this is a no-op for every existing theme. */
+.border {
+  border-width: var(--border-width);
 }
 
 /* Default — Dracula. Also used when `data-theme` is absent (first paint, SSR). */
@@ -950,6 +976,11 @@
 .user-message-markdown {
   text-align: left;
 }
+
+/* In-conversation search (⌘F) match painting uses the CSS Custom Highlight API;
+   its `::highlight(...)` paint rules are injected at runtime from
+   `lib/conversation-search/highlight.ts` (Lightning CSS can't parse the
+   pseudo-element, so it can't live in this stylesheet). */
 
 /* Suppress the native number-input spinner for inputs that opt in via
    `className="no-spinner"`. Used by the custom-action schedule control. */

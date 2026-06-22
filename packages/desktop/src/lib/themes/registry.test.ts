@@ -17,6 +17,8 @@ describe("theme registry", () => {
     expect(ids).toContain("monokai-light");
     expect(ids).toContain("frost-dark");
     expect(ids).toContain("frost-light");
+    expect(ids).toContain("carbon-owl");
+    expect(ids).toContain("paper-owl");
   });
 
   it("isThemeId narrows to known ids", () => {
@@ -26,6 +28,8 @@ describe("theme registry", () => {
     expect(isThemeId("one-light")).toBe(true);
     expect(isThemeId("monokai")).toBe(true);
     expect(isThemeId("monokai-light")).toBe(true);
+    expect(isThemeId("carbon-owl")).toBe(true);
+    expect(isThemeId("paper-owl")).toBe(true);
     expect(isThemeId("solarized")).toBe(false);
     expect(isThemeId(null)).toBe(false);
     expect(isThemeId(undefined)).toBe(false);
@@ -89,5 +93,14 @@ describe("theme registry", () => {
     expect(frostLight.appearance).toBe("light");
     expect(frostLight.logo.variant).toBe("light");
     expect(frostLight.xterm.background).toMatch(/^#[0-9a-fA-F]{6}$/);
+
+    const carbonOwl = getTheme("carbon-owl");
+    const paperOwl = getTheme("paper-owl");
+    expect(carbonOwl.appearance).toBe("dark");
+    expect(carbonOwl.logo.variant).toBe("dark");
+    expect(carbonOwl.xterm.background).toMatch(/^#[0-9a-fA-F]{6}$/);
+    expect(paperOwl.appearance).toBe("light");
+    expect(paperOwl.logo.variant).toBe("light");
+    expect(paperOwl.xterm.background).toMatch(/^#[0-9a-fA-F]{6}$/);
   });
 });

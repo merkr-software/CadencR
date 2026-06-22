@@ -1,3 +1,4 @@
+use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeMessageRx;
 use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -19,6 +20,8 @@ pub(crate) fn spawn_stream_reader(
     runtime_provider: String,
     _model: Option<&str>,
     provider_context_window: Option<u64>,
+    app_state: AppState,
+    cleanup_session_on_end: bool,
 ) {
     let task = StreamReaderTask {
         db_session_id,
@@ -31,6 +34,8 @@ pub(crate) fn spawn_stream_reader(
         sdk_sessions,
         runtime_provider,
         provider_context_window,
+        app_state,
+        cleanup_session_on_end,
     };
     tokio::spawn(async move {
         task.run().await;

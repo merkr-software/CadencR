@@ -3,7 +3,8 @@ import { LSPClient, type Transport } from "@codemirror/lsp-client";
 import { diagnosticCount } from "@codemirror/lint";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { cadencrServerDiagnostics } from "./diagnostics";
+import { cadencrServerDiagnostics, type ClientRef } from "./diagnostics";
+import { mergedDiagnostics } from "./merged-diagnostics";
 
 class FakeTransport implements Transport {
   readonly sent: string[] = [];
@@ -46,11 +47,13 @@ describe("cadencrServerDiagnostics", () => {
   it("applies publishDiagnostics even when a server reports a mismatched version", async () => {
     const uri = "file:///workspace/config.yaml";
     const transport = new FakeTransport();
-    const client = new LSPClient({ extensions: [cadencrServerDiagnostics()] });
+    const ref: ClientRef = { current: null };
+    const client = new LSPClient({ extensions: [cadencrServerDiagnostics("yaml", ref)] });
+    ref.current = client;
     await initializeClient(client, transport);
     const view = new EditorView({
       doc: "name: test\n",
-      extensions: [client.plugin(uri, "yaml")],
+      extensions: [mergedDiagnostics(), client.plugin(uri, "yaml")],
     });
 
     transport.emit(
@@ -83,11 +86,13 @@ describe("cadencrServerDiagnostics", () => {
     vi.useFakeTimers();
     const uri = "file:///workspace/config.yaml";
     const transport = new FakeTransport();
-    const client = new LSPClient({ extensions: [cadencrServerDiagnostics()] });
+    const ref: ClientRef = { current: null };
+    const client = new LSPClient({ extensions: [cadencrServerDiagnostics("yaml", ref)] });
+    ref.current = client;
     await initializeClient(client, transport);
     const view = new EditorView({
       doc: "name: ok\n",
-      extensions: [client.plugin(uri, "yaml")],
+      extensions: [mergedDiagnostics(), client.plugin(uri, "yaml")],
     });
     await Promise.resolve();
     transport.sent.length = 0;

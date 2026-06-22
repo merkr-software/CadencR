@@ -1,7 +1,11 @@
 use crate::domain::agents::adapter::{RuntimeAccessMode, RuntimePermissionMode};
+use crate::domain::settings;
 
 #[cfg(test)]
 pub type CodexAccessMode = RuntimeAccessMode;
+
+pub const ACCESS_MODE_SETTING_KEY: &str = "codex_permission_mode";
+pub const DEFAULT_ACCESS_MODE_WIRE: &str = "default";
 
 pub fn accepts_model(model: &str) -> bool {
     let trimmed = model.trim();
@@ -30,6 +34,22 @@ pub fn access_mode_wire(mode: &RuntimeAccessMode) -> &'static str {
         RuntimeAccessMode::FullAccess => "fullAccess",
         RuntimeAccessMode::AutoReview => "autoReview",
     }
+}
+
+pub async fn configured_access_mode(read_pool: &sqlx::SqlitePool) -> String {
+    settings::resolve_setting(
+        read_pool,
+        ACCESS_MODE_SETTING_KEY,
+        None,
+        None,
+        Some(DEFAULT_ACCESS_MODE_WIRE),
+    )
+    .await
+    .unwrap_or_else(|| DEFAULT_ACCESS_MODE_WIRE.to_string())
+}
+
+pub fn canonical_access_mode_wire(raw_mode: &str) -> Option<String> {
+    parse_access_mode_wire(raw_mode).map(|mode| access_mode_wire(&mode).to_string())
 }
 
 pub fn approval_policy(

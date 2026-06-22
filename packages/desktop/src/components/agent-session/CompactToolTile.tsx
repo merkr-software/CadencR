@@ -132,8 +132,8 @@ const ACCENT_CLASSES: Record<Accent, { wrapper: string; label: string }> = {
   },
   edit: {
     wrapper:
-      "bg-[color-mix(in_srgb,var(--primary)_15%,var(--editor-bg))] border-[var(--editor-border)]",
-    label: "text-primary",
+      "bg-[color-mix(in_srgb,var(--numstat-add-fg)_12%,var(--card))] border-[color-mix(in_srgb,var(--numstat-add-fg)_35%,transparent)]",
+    label: "text-[var(--numstat-add-fg)]",
   },
   tool: {
     wrapper: "bg-[var(--block-tool-bg)] border-border",

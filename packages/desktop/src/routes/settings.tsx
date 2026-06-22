@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useShortcut } from "@/hooks/useShortcut";
 import {
@@ -14,28 +14,23 @@ import {
   Info,
   Keyboard,
   MonitorCog,
+  Network,
   Palette,
   Plug,
   Save,
   Settings2,
-  ZoomIn,
 } from "lucide-react";
-import { CadencrLogo } from "@/components/CadencrLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ModelSelector } from "@/components/ModelSelector";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ProviderIcon } from "@/lib/provider-icons";
-import { CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY } from "@/shared/permission-mode-settings";
-import { BinaryDiscoverySection } from "@/components/settings/BinaryDiscoverySection";
-import { CustomModelsSection } from "@/components/settings/CustomModelsSection";
-import { DangerousModeToggle } from "@/components/settings/DangerousModeToggle";
-import { CodexPermissionModeSetting } from "@/components/settings/CodexPermissionModeSetting";
-import { ProfilesSection } from "@/components/settings/ProfilesSection";
-import { GitSettings } from "@/components/settings/GitSettings";
 import { NotificationsSection } from "@/components/settings/NotificationsSection";
 import { BrowserSection } from "@/components/settings/BrowserSection";
+import { McpSection } from "@/components/settings/McpSection";
+import { InterfaceSection } from "@/components/settings/InterfaceSection";
+import { GitSection } from "@/components/settings/GitSection";
+import { ProvidersSection } from "@/components/settings/ProvidersSection";
+import { AboutSection } from "@/components/settings/AboutSection";
 import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
 import { ThemeSelector } from "@/components/settings/ThemeSelector";
 import { FileTreeIconSetSelector } from "@/components/settings/FileTreeIconSetSelector";
@@ -52,13 +47,8 @@ import {
   type SettingsNavGroup,
 } from "@/components/settings/SettingsNavSidebar";
 import { IconTile } from "@/components/settings/IconTile";
-import { useZoom } from "@/hooks/useZoom";
-import { useIsMobile } from "@/hooks/useIsMobile";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
-import { getProviderMetadata, PROVIDER_IDS, type ProviderId } from "@/lib/providers";
 import { APP_VERSION } from "@/lib/app-version";
-import { desktopBridge } from "@/lib/desktop-bridge";
-import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -92,6 +82,16 @@ const NAV_GROUPS: SettingsNavGroup[] = [
         id: "browser",
         label: "Browser",
         icon: <Globe className="size-4" />,
+      },
+    ],
+  },
+  {
+    label: "MCP",
+    items: [
+      {
+        id: "mcp",
+        label: "MCP",
+        icon: <Network className="size-4" />,
       },
     ],
   },
@@ -221,6 +221,7 @@ function SettingsPage() {
           <InterfaceSection />
           <NotificationsSection />
           <BrowserSection />
+          <McpSection />
           <RuntimeSection />
           <GitSection />
           <ProvidersSection />
@@ -386,68 +387,6 @@ function EditorSection(): React.JSX.Element {
   );
 }
 
-/* ─── Interface & Zoom ───────────────────────────────────────────────── */
-
-function InterfaceSection(): React.JSX.Element {
-  const { zoomLevel, zoomIn, zoomOut, resetZoom } = useZoom();
-  // Desktop and mobile keep independent zoom levels, so this control only ever
-  // shows (and edits) the option for the device type it's running on.
-  const isMobile = useIsMobile();
-
-  return (
-    <SettingsSection id="interface" title="Interface & Zoom" subtitle="UI scaling for this device">
-      <SettingsCard>
-        <SettingsRow
-          align="start"
-          icon={
-            <IconTile tint="cyan">
-              <ZoomIn className="size-4" />
-            </IconTile>
-          }
-          label="UI zoom"
-          description={
-            isMobile ? (
-              "Scales the interface on this device only — separate from the desktop app's zoom."
-            ) : (
-              <>
-                Affects sidebar, editor, terminal, and chrome together.
-                <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <Kbd>⌘ +</Kbd>
-                  <Kbd>⌘ −</Kbd>
-                  <Kbd>⌘ 0</Kbd>
-                  work everywhere.
-                </span>
-              </>
-            )
-          }
-          control={
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" className="size-7 p-0" onClick={zoomOut}>
-                −
-              </Button>
-              <span className="w-14 text-center text-sm tabular-nums">{zoomLevel}%</span>
-              <Button variant="outline" size="sm" className="size-7 p-0" onClick={zoomIn}>
-                +
-              </Button>
-              <Button variant="ghost" size="sm" onClick={resetZoom}>
-                Reset
-              </Button>
-            </div>
-          }
-        />
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-function Kbd({ children }: { children: ReactNode }): React.JSX.Element {
-  return (
-    <kbd className="inline-flex h-[20px] min-w-[20px] items-center justify-center rounded border border-b-2 border-border bg-card px-1.5 font-mono text-[10px] font-medium text-foreground">
-      {children}
-    </kbd>
-  );
-}
-
 /* ─── Runtime & Models ───────────────────────────────────────────────── */
 
 function RuntimeSection(): React.JSX.Element {
@@ -458,229 +397,4 @@ function RuntimeSection(): React.JSX.Element {
       </SettingsCard>
     </SettingsSection>
   );
-}
-
-/* ─── Git ────────────────────────────────────────────────────────────── */
-
-function GitSection(): React.JSX.Element {
-  return (
-    <SettingsSection id="git" title="Git" subtitle="Header actions defaults">
-      <SettingsCard
-        padded
-        title="Merge strategy"
-        description={
-          <>
-            Default mode used by the{" "}
-            <span className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">Merge</span> action
-            in the feature top bar.
-          </>
-        }
-      >
-        <GitSettings />
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-/* ─── Providers ──────────────────────────────────────────────────────── */
-
-const PROVIDER_TABS: ProviderId[] = [
-  PROVIDER_IDS.CLAUDE_CODE,
-  PROVIDER_IDS.OPENCODE,
-  PROVIDER_IDS.CODEX_CLI,
-];
-
-function ProvidersSection(): React.JSX.Element {
-  return (
-    <SettingsSection
-      id="providers"
-      title="CLI Providers"
-      subtitle="Binaries · Profiles · Permission modes"
-    >
-      <SettingsCard padded={false}>
-        <Tabs defaultValue={PROVIDER_IDS.CLAUDE_CODE}>
-          <TabsList aria-label="Provider" className="px-2">
-            {PROVIDER_TABS.map((id) => (
-              <TabsTrigger key={id} value={id}>
-                <ProviderIcon providerId={id} alt="" className="size-4 rounded-sm shrink-0" />
-                <span>{getProviderMetadata(id)?.label ?? id}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-          <TabsContent value={PROVIDER_IDS.CLAUDE_CODE}>
-            <ClaudeProviderPanel />
-          </TabsContent>
-          <TabsContent value={PROVIDER_IDS.OPENCODE}>
-            <OpencodeProviderPanel />
-          </TabsContent>
-          <TabsContent value={PROVIDER_IDS.CODEX_CLI}>
-            <CodexProviderPanel />
-          </TabsContent>
-        </Tabs>
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-function ClaudeProviderPanel(): React.JSX.Element {
-  return (
-    <>
-      <SettingsSubsection>
-        <BinaryDiscoverySection
-          discoveryKey="claude"
-          description={
-            <>
-              Every <strong>claude</strong> install Cadencr found on disk. The selected one is what
-              gets spawned. To override, set a path during onboarding.
-            </>
-          }
-        />
-      </SettingsSubsection>
-      <SettingsSubsection>
-        <ProfilesSection />
-      </SettingsSubsection>
-      <SettingsSubsection>
-        <CustomModelsSection />
-      </SettingsSubsection>
-      <DangerousModeToggle
-        variant="subsection"
-        settingKey={CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY}
-        title="Allow BypassPermissions"
-        description={
-          <>
-            Adds <strong>Bypass</strong> to Claude's permission-mode selector and cycle. Enabling
-            this setting makes the mode available; Claude only skips checks when the current mode is
-            Bypass.
-          </>
-        }
-        warningTitle="Enable BypassPermissions for Claude?"
-        warningBody={
-          <>
-            <p>
-              BypassPermissions disables every safety check. Claude can edit, delete, and run any
-              command without confirmation, including destructive ones.
-            </p>
-            <p>
-              Only enable this in isolated environments (containers, VMs, dev containers) where
-              Claude cannot damage your host system. You can always toggle it off later.
-            </p>
-          </>
-        }
-      />
-    </>
-  );
-}
-
-function OpencodeProviderPanel(): React.JSX.Element {
-  return (
-    <SettingsSubsection>
-      <BinaryDiscoverySection
-        discoveryKey="opencode"
-        description={
-          <>
-            Every <strong>opencode</strong> install Cadencr found on disk. The selected one is
-            spawned as <strong>opencode acp</strong>; override via onboarding or the{" "}
-            <strong>opencode_cli_path</strong> workspace setting.
-          </>
-        }
-      />
-    </SettingsSubsection>
-  );
-}
-
-function CodexProviderPanel(): React.JSX.Element {
-  return (
-    <>
-      <SettingsSubsection>
-        <BinaryDiscoverySection
-          discoveryKey="codex"
-          description={
-            <>
-              Every <strong>codex</strong> install Cadencr found on disk. The selected one is used
-              to start <strong>codex app-server</strong>; override via onboarding or the{" "}
-              <strong>codex_cli_path</strong> workspace setting.
-            </>
-          }
-        />
-      </SettingsSubsection>
-      <SettingsSubsection>
-        <CodexPermissionModeSetting />
-      </SettingsSubsection>
-    </>
-  );
-}
-
-/* ─── About ──────────────────────────────────────────────────────────── */
-
-function AboutSection(): React.JSX.Element {
-  const isDesktop = desktopBridge.isElectron;
-  const status = useUpdateStore((s) => s.status);
-  const updateVersion = useUpdateStore((s) => s.version);
-  const progress = useUpdateStore((s) => s.progress);
-  const error = useUpdateStore((s) => s.error);
-  const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
-  const installUpdate = useUpdateStore((s) => s.installUpdate);
-  const checking = status === "checking" || status === "downloading";
-
-  return (
-    <SettingsSection id="about" title="About" subtitle="Build · Diagnostics">
-      <SettingsCard padded>
-        <div className="flex items-center gap-4">
-          <div className="grid size-12 shrink-0 place-items-center">
-            <CadencrLogo className="size-12" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold">Cadencr Desktop</div>
-            <div className="font-mono text-xs text-muted-foreground">v{APP_VERSION}</div>
-          </div>
-          {isDesktop && (
-            <div className="flex items-center gap-2">
-              {status === "downloaded" ? (
-                <Button size="sm" onClick={() => void installUpdate()}>
-                  Restart to install v{updateVersion ?? ""}
-                </Button>
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={checking}
-                  onClick={() => void checkForUpdates()}
-                >
-                  {checking ? "Checking…" : "Check for updates"}
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-        {isDesktop && (
-          <div role="status" aria-live="polite" className="mt-3 text-xs text-muted-foreground">
-            {updateStatusMessage(status, { progress, version: updateVersion, error })}
-          </div>
-        )}
-      </SettingsCard>
-    </SettingsSection>
-  );
-}
-
-function updateStatusMessage(
-  status: UpdateStatus,
-  detail: { progress: number; version: string | null; error: string | null },
-): string {
-  switch (status) {
-    case "checking":
-      return "Checking for updates…";
-    case "downloading":
-      return `Downloading update${detail.version ? ` v${detail.version}` : ""}… ${Math.round(detail.progress)}%`;
-    case "downloaded":
-      return `Update v${detail.version ?? ""} ready — restart to install.`;
-    case "up-to-date":
-      return "You're on the latest version.";
-    case "available":
-      return `Update v${detail.version ?? ""} available.`;
-    case "error":
-      return detail.error ? `Update check failed: ${detail.error}` : "Update check failed.";
-    case "idle":
-    default:
-      return "";
-  }
 }

@@ -77,6 +77,10 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
         super::providers::opencode::context_window_for_model(model_id).await
     }
 
+    fn supports_thinking_effort_level(&self, model_id: &str, effort: &str) -> Option<bool> {
+        Some(super::providers::opencode::supports_effort_level_for_model_ref(model_id, effort))
+    }
+
     fn supports_prompt_receipts(&self) -> bool {
         true
     }

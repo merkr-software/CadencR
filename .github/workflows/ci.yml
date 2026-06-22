@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 45
     steps:
       # actions/checkout@v6.0.2
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
 
       - name: Enable pnpm from packageManager
         run: corepack enable
@@ -34,4 +34,6 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Run pre-commit checks
-        run: pnpm turbo run format:check lint ts-check test knip
+        run: |
+          pnpm run test:release-scripts
+          pnpm turbo run format:check lint ts-check test knip

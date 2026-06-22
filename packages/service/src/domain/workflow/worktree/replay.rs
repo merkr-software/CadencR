@@ -46,17 +46,22 @@ pub async fn replay_persisted_state(
         .await
         .unwrap_or_else(|| "created".to_string());
     match step.as_str() {
-        "ready" => send_envelope(
-            sender,
-            "workflow",
-            "worktree.ready",
-            serde_json::json!({ "feature_id": feature_id }),
-        ),
+        "ready" => replay_ready(read_pool, feature_id, sender).await,
         "setup_error" => replay_setup_error(read_pool, feature_id, sender).await,
         "setup_running" => replay_setup_running(read_pool, feature_id, sender).await,
         _ => {}
     }
     Some(PathBuf::from(path))
+}
+
+async fn replay_ready(read_pool: &SqlitePool, feature_id: i64, sender: &WsSender) {
+    replay_setup_output(read_pool, feature_id, sender).await;
+    send_envelope(
+        sender,
+        "workflow",
+        "worktree.ready",
+        serde_json::json!({ "feature_id": feature_id }),
+    );
 }
 
 async fn replay_setup_error(read_pool: &SqlitePool, feature_id: i64, sender: &WsSender) {
@@ -84,6 +89,10 @@ async fn replay_setup_running(read_pool: &SqlitePool, feature_id: i64, sender: &
     // `worktree_setup_log` is only flushed to the DB on completion, so mid-run
     // there is usually nothing to replay; the live mirror feeds new lines from
     // here on. Replay whatever is persisted just in case.
+    replay_setup_output(read_pool, feature_id, sender).await;
+}
+
+async fn replay_setup_output(read_pool: &SqlitePool, feature_id: i64, sender: &WsSender) {
     if let Some(log) = get_setting(read_pool, feature_id, "worktree_setup_log").await {
         for line in log.lines() {
             send_envelope(
@@ -134,7 +143,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ready_worktree_replays_created_and_ready() {
+    async fn ready_worktree_replays_created_output_and_ready() {
         let pool = test_pool().await;
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_string_lossy().to_string();
@@ -145,11 +154,22 @@ mod tests {
         set_setting(&pool, 1, "worktree_setup_step", "ready")
             .await
             .unwrap();
+        set_setting(&pool, 1, "worktree_setup_log", "$ pnpm install\nDone")
+            .await
+            .unwrap();
         let (tx, mut rx) = mpsc::unbounded_channel();
 
         assert!(replay_persisted_state(&pool, 1, &tx).await.is_some());
 
-        assert_eq!(actions(&mut rx), vec!["worktree.created", "worktree.ready"]);
+        assert_eq!(
+            actions(&mut rx),
+            vec![
+                "worktree.created",
+                "worktree.setup_output",
+                "worktree.setup_output",
+                "worktree.ready"
+            ]
+        );
     }
 
     #[tokio::test]

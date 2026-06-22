@@ -373,6 +373,49 @@ fn system_compact_boundary() {
     assert_eq!(msg.session_id(), Some("sess_abc"));
 }
 
+// ── System status (compaction lifecycle) ─────────────────────────────────────
+// These are the exact shapes the CLI emits around `/compact`, captured by
+// driving the real `claude` binary. The `status: "compacting"` event is the
+// in-progress signal issue #60 was missing.
+
+#[test]
+fn system_status_compacting_started() {
+    let raw = json!({
+        "type": "system",
+        "subtype": "status",
+        "status": "compacting",
+        "session_id": "sess_abc",
+        "uuid": "st1"
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    assert_eq!(msg.session_id(), Some("sess_abc"));
+    let SdkMessage::System(system) = &msg else {
+        panic!("expected System, got {msg:?}");
+    };
+    assert!(system.is_compaction_started());
+}
+
+/// The critical regression guard for issue #60: an untyped `system/status`
+/// degrades to `SdkMessage::Unknown`, whose `raw` serializes to `null` and is
+/// dropped before reaching the frontend. A typed variant must round-trip with
+/// `type` / `subtype` / `status` intact so the raw passthrough survives.
+#[test]
+fn roundtrip_system_status_preserves_raw_shape() {
+    let raw = json!({
+        "type": "system",
+        "subtype": "status",
+        "status": "compacting",
+        "session_id": "s1",
+        "uuid": "rt-status"
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    let serialized = serde_json::to_value(&msg).unwrap();
+    assert_eq!(serialized["type"], "system");
+    assert_eq!(serialized["subtype"], "status");
+    assert_eq!(serialized["status"], "compacting");
+    assert_eq!(serialized["session_id"], "s1");
+}
+
 // ── Assistant message ────────────────────────────────────────────────────────
 
 #[test]

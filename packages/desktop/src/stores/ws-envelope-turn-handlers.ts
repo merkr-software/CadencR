@@ -80,11 +80,19 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     type: "turn_ended",
     reason: mapTerminalReason(parseEndedPayload(payload)?.reason),
   });
-  if (blocks === session.blocks && lifecycle === session.lifecycle) return;
+  const shouldClearRuntimeCompacting = session.runtimeCompacting;
+  if (
+    blocks === session.blocks &&
+    lifecycle === session.lifecycle &&
+    !shouldClearRuntimeCompacting
+  ) {
+    return;
+  }
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       ...(blocks === session.blocks ? {} : blocksPatchWithDerived(state, blocks)),
       lifecycle,
+      ...(shouldClearRuntimeCompacting ? { runtimeCompacting: false } : {}),
     }),
   );
 }

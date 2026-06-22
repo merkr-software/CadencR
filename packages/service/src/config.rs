@@ -65,5 +65,10 @@ pub enum Command {
 
         #[arg(long)]
         feature_id: i64,
+
+        /// Source CadencR agent session id for provenance and orchestration
+        /// controls. Optional for older browser-only MCP launches.
+        #[arg(long)]
+        session_id: Option<i64>,
     },
 }

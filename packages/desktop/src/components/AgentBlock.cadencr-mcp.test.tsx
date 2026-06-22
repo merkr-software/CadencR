@@ -48,4 +48,32 @@ describe("AgentBlock Cadencr MCP browser tools", () => {
     expect(screen.getByText("Taking screenshot")).toBeInTheDocument();
     expect(screen.getByText("Tab tab-42")).toBeInTheDocument();
   });
+
+  it("renders project and workspace MCP calls with the existing Cadencr MCP block", () => {
+    const { rerender } = render(
+      <AgentBlock
+        block={makeBlock({
+          toolName: "mcp__cadencr-project__project_spawn_session",
+          toolArgs: JSON.stringify({ title: "Investigate flaky login test" }),
+        })}
+      />,
+    );
+
+    expect(screen.getByText("project")).toBeInTheDocument();
+    expect(screen.getByText("Spawning session")).toBeInTheDocument();
+    expect(screen.getByText("Investigate flaky login test")).toBeInTheDocument();
+
+    rerender(
+      <AgentBlock
+        block={makeBlock({
+          toolName: "mcp__cadencr_workspace____workspace_read_sessions",
+          toolArgs: JSON.stringify({ query: "MCP session spawning" }),
+        })}
+      />,
+    );
+
+    expect(screen.getByText("workspace")).toBeInTheDocument();
+    expect(screen.getByText("Searching workspace sessions")).toBeInTheDocument();
+    expect(screen.getByText("MCP session spawning")).toBeInTheDocument();
+  });
 });

@@ -211,4 +211,21 @@ mod tests {
         assert!(changes.profile_changed);
         assert!(!changes.needs_respawn);
     }
+
+    #[test]
+    fn codex_access_change_marks_active_runtime_for_respawn() {
+        let mut handle = pending_handle();
+        handle.runtime_provider = crate::domain::agents::codex::PROVIDER_ID.to_string();
+        handle.desired_access_mode =
+            Some(crate::domain::agents::adapter::RuntimeAccessMode::AutoReview);
+        handle.spawned_access_mode =
+            Some(crate::domain::agents::adapter::RuntimeAccessMode::Default);
+        handle.desired_claude_profile = None;
+        handle.spawned_claude_profile = None;
+
+        let changes = dispatch_changes_for_active(&handle, true);
+
+        assert!(changes.access_changed);
+        assert!(changes.needs_respawn);
+    }
 }

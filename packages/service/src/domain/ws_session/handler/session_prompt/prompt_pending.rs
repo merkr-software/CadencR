@@ -1,18 +1,5 @@
-use std::sync::Arc;
-
-use tokio::sync::{mpsc, Mutex};
-use tracing::{error, info, warn};
-
-use crate::app_state::AppState;
-use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeSpawnConfig};
-use crate::domain::agents::runtime_adapter;
-use crate::domain::feature_events::FeatureEventAction;
-use crate::domain::workflow::worktree;
-use crate::domain::ws_session::permissions;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::domain::ws_session::protocol::PromptSendPayload;
-
-use super::super::{QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender};
+mod active_session;
+use super::super::{SdkSessions, SessionConfig, WsSender};
 use super::bridge::{PermissionResponse, WsBridgeCanUseTool};
 use super::content::{
     build_content_value_for_provider, build_persist_content, payload_attachments,
@@ -21,9 +8,23 @@ use super::errors::persist_pause_and_send_session_error;
 use super::mcp_servers::send_mcp_servers_for_runtime;
 use super::prompt_status::{mark_agent_running, mirror_user_message};
 use super::prompt_worktree::{prepare_branch_provisioning, spawn_auto_name_if_needed};
-use super::runtime_mcp::{attach_current_cadencr_browser_mcp, browser_mcp_enabled};
+use super::runtime_mcp::{
+    attach_current_cadencr_browser_mcp, attach_current_cadencr_orchestration_mcps,
+    attach_current_cadencr_project_mcp, attach_current_cadencr_workspace_mcp, browser_mcp_enabled,
+    project_mcp_enabled, workspace_mcp_enabled,
+};
 use super::stream_reader::spawn_stream_reader;
-
+use crate::app_state::AppState;
+use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeSpawnConfig};
+use crate::domain::agents::runtime_adapter;
+use crate::domain::feature_events::FeatureEventAction;
+use crate::domain::workflow::worktree;
+use crate::domain::ws_session::permissions;
+use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::protocol::PromptSendPayload;
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
+use tracing::{error, info, warn};
 pub(super) struct PendingPromptContext {
     pub envelope_id: String,
     pub sender: WsSender,
@@ -39,7 +40,6 @@ pub(super) struct PendingPromptContext {
     pub payload: PromptSendPayload,
     pub(super) permission_tx: Option<mpsc::Sender<PermissionResponse>>,
 }
-
 pub(super) async fn handle_pending_prompt(mut context: PendingPromptContext) {
     persist_initial_user_message(&context).await;
     let Some(adapter) = resolve_adapter_or_report(&context).await else {
@@ -70,22 +70,57 @@ pub(super) async fn handle_pending_prompt(mut context: PendingPromptContext) {
     validate_resume_id(adapter, &mut context);
     spawn_runtime(context, adapter, auto_name_handled).await;
 }
-
 async fn attach_cadencr_mcp(context: &mut PendingPromptContext) -> Result<(), String> {
-    // Respect the workspace toggle: when the browser MCP is disabled, agents
-    // run without browser tools while the Browser tab stays usable manually.
-    if !browser_mcp_enabled(&context.app_state.read_pool).await {
-        return Ok(());
+    let pool = &context.app_state.read_pool;
+    let db_path = &context.app_state.db_path;
+    let feature_id = context.feature_id;
+    let session_id = context.db_session_id;
+    let service_url = format!("http://127.0.0.1:{}", context.app_state.port);
+    let control_token = context.app_state.mcp_control_token.clone();
+    let options = &mut context.options;
+    let browser_enabled = browser_mcp_enabled(pool).await;
+    let project_enabled = project_mcp_enabled(pool).await;
+    match (browser_enabled, project_enabled) {
+        (true, true) => {
+            let browser_bridge = context.app_state.browser_bridge_config()?;
+            attach_current_cadencr_orchestration_mcps(
+                options,
+                db_path,
+                feature_id,
+                session_id,
+                browser_bridge,
+                &service_url,
+                &control_token,
+            )?;
+        }
+        (true, false) => {
+            let browser_bridge = context.app_state.browser_bridge_config()?;
+            attach_current_cadencr_browser_mcp(options, db_path, feature_id, browser_bridge)?;
+        }
+        (false, true) => {
+            attach_current_cadencr_project_mcp(
+                options,
+                db_path,
+                feature_id,
+                session_id,
+                &service_url,
+                &control_token,
+            )?;
+        }
+        (false, false) => {}
     }
-    let browser_bridge = context.app_state.browser_bridge_config()?;
-    attach_current_cadencr_browser_mcp(
-        &mut context.options,
-        &context.app_state.db_path,
-        context.feature_id,
-        browser_bridge,
-    )
+    if workspace_mcp_enabled(pool).await {
+        attach_current_cadencr_workspace_mcp(
+            options,
+            db_path,
+            feature_id,
+            session_id,
+            &service_url,
+            &control_token,
+        )?;
+    }
+    Ok(())
 }
-
 /// Correct stale session state from `session.init` before spawning. When a
 /// conversation was started on another device, this connection's `Pending`
 /// handle can carry a pre-worktree cwd and no resume id (init ran before the
@@ -109,7 +144,6 @@ async fn reresolve_worktree_and_resume(context: &mut PendingPromptContext) {
             context.options.cwd = cwd;
         }
     }
-
     if context.options.resume_session_id.is_some() {
         return;
     }
@@ -129,7 +163,6 @@ async fn reresolve_worktree_and_resume(context: &mut PendingPromptContext) {
         context.options.resume_session_id = Some(sid);
     }
 }
-
 async fn persist_initial_user_message(context: &PendingPromptContext) {
     if context.payload.replay {
         return;
@@ -158,7 +191,6 @@ async fn persist_initial_user_message(context: &PendingPromptContext) {
         FeatureEventAction::Reordered,
     );
 }
-
 async fn resolve_adapter_or_report(
     context: &PendingPromptContext,
 ) -> Option<&'static dyn AgentRuntimeAdapter> {
@@ -184,7 +216,6 @@ async fn resolve_adapter_or_report(
         }
     }
 }
-
 async fn prepare_worktree(context: &mut PendingPromptContext) -> Result<bool, String> {
     prepare_branch_provisioning(
         &context.app_state,
@@ -197,7 +228,6 @@ async fn prepare_worktree(context: &mut PendingPromptContext) -> Result<bool, St
     )
     .await
 }
-
 /// Abort the prompt when first-prompt branch setup fails (e.g. the "From
 /// branch" `git checkout -b` hit a dirty tree). Pauses the session and surfaces
 /// the git error so the agent never runs on an unexpected branch.
@@ -215,7 +245,6 @@ async fn report_branch_setup_error(context: PendingPromptContext, message: Strin
     )
     .await;
 }
-
 fn attach_permission_bridge(context: &mut PendingPromptContext) {
     let (permission_tx, permission_rx) = mpsc::channel::<PermissionResponse>(16);
     let bridge = WsBridgeCanUseTool {
@@ -231,7 +260,6 @@ fn attach_permission_bridge(context: &mut PendingPromptContext) {
     context.options.permission_handler = Some(Arc::new(bridge));
     context.permission_tx = Some(permission_tx);
 }
-
 fn validate_resume_id(
     adapter: &'static dyn AgentRuntimeAdapter,
     context: &mut PendingPromptContext,
@@ -333,6 +361,10 @@ async fn register_runtime(
         .expect("permission bridge must be attached before runtime spawn");
     let stream_provider = context.provider_id.clone();
     let stream_model = context.spawned_model.clone();
+    let cleanup_session_on_end = Arc::ptr_eq(
+        &context.sdk_sessions,
+        &context.app_state.mcp_control_sessions,
+    );
 
     spawn_auto_name_if_needed(
         auto_name_handled,
@@ -343,57 +375,26 @@ async fn register_runtime(
         context.payload.text.clone(),
         context.config.cwd.to_string_lossy().to_string(),
     );
-    insert_active_session(&context, query_arc, permission_tx, runtime_control_endpoint).await;
+    active_session::insert_active_session(
+        &context,
+        query_arc,
+        permission_tx,
+        runtime_control_endpoint,
+    )
+    .await;
     spawn_stream_reader(
         context.db_session_id,
         context.feature_id,
         message_rx,
         context.sender,
         context.app_state.ws_feature_senders.clone(),
-        context.app_state.write_pool,
-        context.app_state.session_status_tx,
-        context.sdk_sessions,
+        context.app_state.write_pool.clone(),
+        context.app_state.session_status_tx.clone(),
+        context.sdk_sessions.clone(),
         stream_provider,
         stream_model.as_deref(),
         provider_context_window,
-    );
-}
-
-async fn insert_active_session(
-    context: &PendingPromptContext,
-    query: crate::domain::agents::adapter::RuntimeSessionHandle,
-    permission_tx: mpsc::Sender<PermissionResponse>,
-    runtime_control_endpoint: Option<String>,
-) {
-    let spawned_permission_mode = context.config.permission_mode.clone();
-    let spawned_access_mode = context.config.access_mode.clone();
-    let spawned_effort = context.spawned_thinking_effort.clone();
-    let spawned_claude_profile = context.config.claude_profile.clone();
-    let mut sessions = context.sdk_sessions.lock().await;
-    sessions.insert(
-        context.db_session_id,
-        SdkHandle {
-            state: QueryState::Active {
-                query,
-                permission_tx,
-            },
-            feature_id: context.feature_id,
-            runtime_provider: context.provider_id.clone(),
-            desired_model: context.spawned_model.clone(),
-            spawned_model: context.spawned_model.clone(),
-            desired_permission_mode: spawned_permission_mode.clone(),
-            spawned_permission_mode,
-            desired_access_mode: spawned_access_mode.clone(),
-            spawned_access_mode,
-            desired_thinking_effort: spawned_effort.clone(),
-            spawned_thinking_effort: spawned_effort,
-            desired_claude_profile: spawned_claude_profile.clone(),
-            spawned_claude_profile,
-            runtime_control_endpoint,
-            resume_session_id: None,
-            config: context.config.clone(),
-            manual_compact_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            manual_compact_spawn_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        },
+        context.app_state.clone(),
+        cleanup_session_on_end,
     );
 }

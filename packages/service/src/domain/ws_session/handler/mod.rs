@@ -32,12 +32,14 @@ mod session_gate;
 mod session_init;
 mod session_init_worktree;
 pub(crate) mod session_prompt;
+mod thinking_effort;
 mod types;
 
 pub use connection::ws_handler;
 
 // Public type for crate-wide use (referenced via `handler::SdkHandle`).
 pub use types::SdkHandle;
+pub(crate) use types::{new_sdk_sessions, SdkSessions};
 
 // Process-global registry of which connection owns each session's live turn.
 // Held on `AppState` so cross-device permission/question/plan answers and the
@@ -57,7 +59,7 @@ use helpers::{
     send_runtime_session_id,
 };
 #[allow(unused_imports)]
-use types::{QueryState, SdkSessions, SessionConfig, WsSender};
+use types::{QueryState, SessionConfig, WsSender};
 
 // Exception to the inline-rust-tests rule: this dispatch-layer test suite is a
 // single ~2.5k-line integration suite that cannot stay inline without breaching

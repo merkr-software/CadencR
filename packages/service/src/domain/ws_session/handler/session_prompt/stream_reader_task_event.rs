@@ -1,21 +1,19 @@
 use axum::extract::ws::Message;
 use tracing::{debug, error, info};
 
-use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeError, RuntimeEvent};
+use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent, RuntimeTurnStartedSource};
 use crate::domain::runtime_stream::{
     capture_runtime_session_id, permission_request_payload, persist_usage,
 };
 use crate::domain::session_status::AgentStatus;
-use crate::domain::ws_session::persistence::{
-    raw_event_with_agent_message_id, PendingUserInput, PersistedMessageRef, WsSessionPersistence,
-};
+use crate::domain::ws_session::persistence::{PendingUserInput, WsSessionPersistence};
 use crate::domain::ws_session::protocol::{
-    PermissionRequestPayload, SessionEndedPayload, SessionErrorPayload, SessionMessagePayload,
-    SessionUsageUpdatePayload, WsEnvelope,
+    PermissionRequestPayload, SessionErrorPayload, WsEnvelope,
 };
 
 use super::super::send_runtime_session_id;
 use super::mcp_servers::{refresh_mcp_servers_for_active_session, send_mcp_servers_if_init};
+use super::stream_reader_background_agents::track_background_agents;
 use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
@@ -33,6 +31,8 @@ impl StreamReaderTask {
         runtime_event: RuntimeEvent,
     ) {
         state.last_runtime_activity = tokio::time::Instant::now();
+        self.forward_compaction_state(state, &runtime_event).await;
+        track_background_agents(&mut state.live_background_agents, &runtime_event);
 
         match forward_immediate_event(self, &runtime_event).await {
             // `prompt_received` / `commands.updated` / `stream_status` are
@@ -196,6 +196,38 @@ impl StreamReaderTask {
         true
     }
 
+    /// Emit `session.compacting` when a provider reports a compaction start/end.
+    async fn forward_compaction_state(
+        &self,
+        state: &mut StreamReaderState,
+        runtime_event: &RuntimeEvent,
+    ) {
+        let next = if matches!(
+            runtime_event.turn_started_source(),
+            Some(RuntimeTurnStartedSource::ContextCompaction)
+                | Some(RuntimeTurnStartedSource::ManualCompact)
+        ) {
+            true
+        } else if runtime_event.is_compact_boundary() || runtime_event.is_result() {
+            false
+        } else {
+            return;
+        };
+
+        if state.compacting == next {
+            return;
+        }
+        state.compacting = next;
+        let envelope = WsEnvelope::new(
+            "session",
+            "compacting",
+            serde_json::json!({ "active": next }),
+        );
+        let _ = self
+            .send_and_mirror(Message::Text(String::from(envelope).into()))
+            .await;
+    }
+
     async fn handle_non_result_signal(
         &self,
         state: &mut StreamReaderState,
@@ -281,12 +313,37 @@ impl StreamReaderTask {
             .runtime_event_envelope(state, runtime_event, persisted_message, current_model)
             .await;
         // The event is already persisted and mirrored to any other connected
-        // device, so a gone owner socket is fine — keep streaming.
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
-            .await;
+        // device, so a gone owner socket is fine — keep streaming. A `None`
+        // envelope means the turn-complete signal was intentionally withheld
+        // because a background agent is still alive (issue #58) — keep the turn
+        // lifecycle in `active` so the header timer doesn't reset on resume.
+        if let Some(envelope) = envelope {
+            let _ = self
+                .send_and_mirror(Message::Text(String::from(envelope).into()))
+                .await;
+        }
         if runtime_event.is_result() {
             let _ = self.refresh_mcp_servers_after_turn().await;
+            self.drain_queued_message_after_result().await;
+        }
+    }
+
+    async fn drain_queued_message_after_result(&self) {
+        let has_pending_user_input =
+            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
+                .await
+                .is_some_and(|row| row.has_pending_user_input());
+        if has_pending_user_input {
+            return;
+        }
+        if let Err(error) = crate::domain::mcp::control::message_queue::drain_next_queued_message(
+            &self.app_state,
+            self.feature_id,
+            self.db_session_id,
+        )
+        .await
+        {
+            error!(self.db_session_id, error = %error, "failed to drain queued MCP message");
         }
     }
 
@@ -304,139 +361,5 @@ impl StreamReaderTask {
             );
         }
         result
-    }
-
-    async fn send_usage_update(
-        &self,
-        input_tokens: u64,
-        output_tokens: u64,
-        context_window: Option<u64>,
-    ) {
-        let usage_env = WsEnvelope::new(
-            "session",
-            "usage_update",
-            serde_json::to_value(SessionUsageUpdatePayload {
-                input_tokens,
-                output_tokens,
-                context_window,
-            })
-            .unwrap(),
-        );
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(usage_env).into()))
-            .await;
-    }
-
-    async fn runtime_event_envelope(
-        &self,
-        state: &mut StreamReaderState,
-        runtime_event: &RuntimeEvent,
-        persisted_message: Option<PersistedMessageRef>,
-        current_model: Option<&str>,
-    ) -> WsEnvelope {
-        if runtime_event.is_result() {
-            return self.result_envelope(state).await;
-        }
-        let mut block =
-            raw_event_with_agent_message_id(runtime_event.raw_json(), persisted_message);
-        // Stamp the active model onto the live block (`current_model` is set only
-        // for stream events). The block created on `content_block_start` would
-        // otherwise rely on the client having applied `message_start` first —
-        // unreliable for a remote device that joined the turn late, which then
-        // renders the model as "unknown".
-        if let (Some(model), serde_json::Value::Object(object)) = (current_model, &mut block) {
-            object.insert(
-                "model".to_string(),
-                serde_json::Value::String(model.to_string()),
-            );
-        }
-        WsEnvelope::new(
-            "session",
-            "message",
-            serde_json::to_value(SessionMessagePayload {
-                blocks: vec![block],
-            })
-            .unwrap(),
-        )
-    }
-
-    async fn result_envelope(&self, state: &mut StreamReaderState) -> WsEnvelope {
-        WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
-        state.between_turns = true;
-        state.saw_result = true;
-        let has_pending_user_input =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.has_pending_user_input());
-        if !has_pending_user_input {
-            WsSessionPersistence::broadcast_session_status(
-                &self.session_status_tx,
-                self.db_session_id,
-                self.feature_id,
-                AgentStatus::Idle,
-                None,
-            );
-            state.last_signal_status = Some(AgentStatus::Idle);
-        }
-        WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
-                reason: "turn_complete".into(),
-            })
-            .unwrap(),
-        )
-    }
-
-    pub(super) async fn handle_stream_error(&self, error: RuntimeError) {
-        let code = match &error {
-            RuntimeError::CompactFailed(_) => "COMPACT_ERROR",
-            _ => "SDK_ERROR",
-        };
-        let message = error.to_string();
-        error!(self.db_session_id, error = %message, "SDK stream error");
-        WsSessionPersistence::persist_error_message_static(
-            &self.write_pool,
-            self.db_session_id,
-            &message,
-            None,
-        )
-        .await;
-        WsSessionPersistence::mark_paused_static(&self.write_pool, self.db_session_id).await;
-        WsSessionPersistence::broadcast_session_status(
-            &self.session_status_tx,
-            self.db_session_id,
-            self.feature_id,
-            AgentStatus::Idle,
-            None,
-        );
-        let err_env = WsEnvelope::new(
-            "session",
-            "error",
-            serde_json::to_value(SessionErrorPayload {
-                code: code.into(),
-                message,
-                ..Default::default()
-            })
-            .unwrap(),
-        );
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(err_env).into()))
-            .await;
-    }
-
-    pub(super) async fn send_stream_closed(&self) {
-        info!(self.db_session_id, "SDK stream closed");
-        let end_env = WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
-                reason: "stream_closed".into(),
-            })
-            .unwrap(),
-        );
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(end_env).into()))
-            .await;
     }
 }

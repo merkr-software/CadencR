@@ -7,6 +7,8 @@ import {
   MessageCircleQuestionIcon,
   GitBranchIcon,
   TerminalIcon,
+  PinIcon,
+  PinOffIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -62,6 +64,7 @@ interface ProjectFeatureRowProps {
   onCancelLabelEdit: () => void;
   onArchiveOrDelete: (featureId: number) => void;
   onUnarchive: (featureId: number) => void;
+  onTogglePin: (featureId: number, pinned: boolean) => void;
 }
 
 /**
@@ -91,6 +94,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
   onCancelLabelEdit,
   onArchiveOrDelete,
   onUnarchive,
+  onTogglePin,
 }: ProjectFeatureRowProps): ReactElement {
   const startLabelEditOnMenuCloseRef = useRef(false);
   // Live status is the canonical 3-value enum: per-session entries pushed
@@ -122,7 +126,9 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
   const hasActivity = shellCount > 0 || browserCount > 0;
   const showMetaLine = isEditingLabel || hasLabel || hasStats || hasActivity;
   const isArchived = feature.status === "archived";
+  const isPinned = feature.is_pinned;
   const archiveActionLabel = isArchived ? "Delete" : "Archive";
+  const pinActionLabel = isPinned ? "Unpin" : "Pin";
   const markStartLabelEditAfterMenuClose = (): void => {
     startLabelEditOnMenuCloseRef.current = true;
   };
@@ -234,6 +240,25 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1">
+            {!isArchived && (
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-pressed={isPinned}
+                className={`size-6 shrink-0 p-0 hover:text-foreground transition-none ${
+                  isPinned
+                    ? "text-foreground"
+                    : "text-muted-foreground opacity-0 group-hover/feature:opacity-100"
+                }`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onTogglePin(feature.id, !isPinned);
+                }}
+              >
+                {isPinned ? <PinOffIcon className="size-3.5" /> : <PinIcon className="size-3.5" />}
+                <span className="sr-only">{pinActionLabel}</span>
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
@@ -259,6 +284,11 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
         onCloseAutoFocus={handleMenuCloseAutoFocus}
       >
         <ContextMenuItem onSelect={() => onNavigate(feature)}>Open</ContextMenuItem>
+        {!isArchived && (
+          <ContextMenuItem onSelect={() => onTogglePin(feature.id, !isPinned)}>
+            {pinActionLabel}
+          </ContextMenuItem>
+        )}
         <ContextMenuItem onSelect={markStartLabelEditAfterMenuClose}>Set label</ContextMenuItem>
         <ContextMenuSeparator />
         {isArchived && (

@@ -5,7 +5,7 @@
 //! reads — they hand back plain maps that the orchestrator weaves into the
 //! per-session response.
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
 
 use super::super::models::*;
@@ -14,10 +14,18 @@ use super::task_todos::latest_todos_from_messages;
 use super::MESSAGE_SELECT;
 use crate::error::AppError;
 
+const USER_MESSAGE_TYPE: &str = "user_message";
+
 pub(super) struct FullMessagesResult {
     pub messages: HashMap<i64, Vec<AgentMessageRow>>,
     pub has_more: HashMap<i64, bool>,
     pub oldest_message_id: HashMap<i64, i64>,
+}
+
+struct MessagePage {
+    rows: Vec<AgentMessageRow>,
+    has_more: bool,
+    oldest_cursor_id: Option<i64>,
 }
 
 /// Fetch messages for sessions that need a full (re)hydration. Limited fetches
@@ -64,42 +72,79 @@ async fn fetch_before_or_latest_per_session(
     let msg_limit = limit.unwrap_or(i64::MAX - 1).max(1);
     for sid in session_ids {
         let mut q = if let Some(&before_id) = before_map.get(sid) {
-            sqlx::query_as::<_, AgentMessageRow>(&with_before_sql)
+            sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(with_before_sql.as_str()))
                 .bind(sid)
                 .bind(before_id)
         } else {
-            sqlx::query_as::<_, AgentMessageRow>(&latest_sql).bind(sid)
+            sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(latest_sql.as_str())).bind(sid)
         };
         q = q.bind(msg_limit.saturating_add(1));
-        let mut msgs = q.fetch_all(pool).await?;
-        let session_has_more = msgs.len() as i64 > msg_limit;
-        if session_has_more {
-            msgs.truncate(msg_limit as usize);
+        let mut rows = q.fetch_all(pool).await?;
+        let has_more = rows.len() as i64 > msg_limit;
+        if has_more {
+            rows.truncate(msg_limit as usize);
         }
-        msgs.reverse();
-        finish_paginated_session(pool, &mut result, *sid, msgs, session_has_more).await?;
+        rows.reverse();
+        let oldest_cursor_id = rows.first().map(|message| message.id);
+        let mut page = MessagePage {
+            rows,
+            has_more,
+            oldest_cursor_id,
+        };
+        if page.has_more && !before_map.contains_key(sid) {
+            if let Some(anchor) =
+                fetch_initial_user_anchor_before(pool, *sid, page.oldest_cursor_id).await?
+            {
+                page.rows.insert(0, anchor);
+            }
+        }
+        finish_paginated_session(pool, &mut result, *sid, page).await?;
     }
     Ok(result)
+}
+
+async fn fetch_initial_user_anchor_before(
+    pool: &SqlitePool,
+    session_id: i64,
+    before_id: Option<i64>,
+) -> Result<Option<AgentMessageRow>, AppError> {
+    let Some(before_id) = before_id else {
+        return Ok(None);
+    };
+    let anchor = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
+        "{MESSAGE_SELECT} FROM agent_messages
+         WHERE session_id = ? AND message_type = ?
+         ORDER BY id ASC LIMIT 1"
+    )))
+    .bind(session_id)
+    .bind(USER_MESSAGE_TYPE)
+    .fetch_optional(pool)
+    .await?;
+    Ok(anchor.filter(|message| message.id < before_id))
 }
 
 async fn finish_paginated_session(
     pool: &SqlitePool,
     result: &mut FullMessagesResult,
     session_id: i64,
-    mut msgs: Vec<AgentMessageRow>,
-    session_has_more: bool,
+    page: MessagePage,
 ) -> Result<(), AppError> {
-    if let Some(oldest) = msgs.first().map(|m| m.id) {
+    let MessagePage {
+        mut rows,
+        has_more,
+        oldest_cursor_id,
+    } = page;
+    if let Some(oldest) = oldest_cursor_id {
         result.oldest_message_id.insert(session_id, oldest);
     }
-    let parent_msgs = fetch_missing_parents(pool, session_id, &msgs).await?;
+    let parent_msgs = fetch_missing_parents(pool, session_id, &rows).await?;
     if !parent_msgs.is_empty() {
         let mut merged = parent_msgs;
-        merged.append(&mut msgs);
-        msgs = merged;
+        merged.append(&mut rows);
+        rows = merged;
     }
-    result.has_more.insert(session_id, session_has_more);
-    result.messages.insert(session_id, msgs);
+    result.has_more.insert(session_id, has_more);
+    result.messages.insert(session_id, rows);
     Ok(())
 }
 
@@ -115,7 +160,7 @@ async fn fetch_unbounded_batch(
     let sql = format!(
         "{MESSAGE_SELECT} FROM agent_messages WHERE session_id IN ({placeholders}) ORDER BY id ASC"
     );
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(&sql);
+    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
     for sid in session_ids {
         query = query.bind(sid);
     }
@@ -184,9 +229,9 @@ pub(super) async fn fetch_incremental_data(
     let mut updated_tool_calls: HashMap<i64, HashMap<i64, String>> = HashMap::new();
 
     for (sid, after_id) in fetches {
-        let msgs = sqlx::query_as::<_, AgentMessageRow>(&format!(
+        let msgs = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
             "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id > ? ORDER BY id ASC"
-        ))
+        )))
         .bind(sid)
         .bind(after_id)
         .fetch_all(pool)
@@ -194,9 +239,9 @@ pub(super) async fn fetch_incremental_data(
         messages.insert(*sid, msgs);
 
         // Re-fetch stale tool_call rows
-        let stale = sqlx::query_as::<_, AgentMessageRow>(&format!(
+        let stale = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(format!(
             "{MESSAGE_SELECT} FROM agent_messages WHERE session_id = ? AND id <= ? AND message_type = 'tool_call' AND content != '{{}}' ORDER BY id ASC"
-        ))
+        )))
         .bind(sid)
         .bind(after_id)
         .fetch_all(pool)
@@ -251,7 +296,7 @@ pub(super) async fn fetch_latest_todos(
          WHERE m.message_type IN ('tool_result', 'tool_error') \
          ORDER BY session_id ASC, id ASC"
     );
-    let mut query = sqlx::query_as::<_, AgentMessageRow>(&sql);
+    let mut query = sqlx::query_as::<_, AgentMessageRow>(AssertSqlSafe(sql));
     for sid in session_ids {
         query = query.bind(sid);
     }

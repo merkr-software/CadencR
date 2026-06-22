@@ -1,19 +1,17 @@
 //! `get_feature_agent_state` — the main hydration query for the agent
 //! workspace. Per-session message-fetching is delegated to
 //! `feature_state_fetch`; block capping/trimming lives in `pagination`.
-
-use sqlx::SqlitePool;
-use std::collections::HashMap;
-
 use super::super::models::*;
 use super::blocks::build_blocks;
 use super::feature_state_fetch::{
     fetch_full_messages, fetch_incremental_data, fetch_latest_todos, todo_fetch_session_ids,
     todos_from_full_messages, FullMessagesResult, IncrementalData,
 };
+use super::origins::attach_message_origins;
 use super::pagination::{block_message_id, trim_blocks_to_cap, BLOCK_SOFT_CAP};
 use crate::error::AppError;
-
+use sqlx::SqlitePool;
+use std::collections::HashMap;
 pub async fn get_feature_agent_state(
     pool: &SqlitePool,
     feature_id: i64,
@@ -31,14 +29,11 @@ pub async fn get_feature_agent_state(
     .bind(feature_id)
     .fetch_all(pool)
     .await?;
-
     if sessions.is_empty() {
         return Ok(FeatureAgentStateResponse { sessions: vec![] });
     }
-
     let after_map = after_message_ids.unwrap_or_default();
     let before_map = before_message_ids.unwrap_or_default();
-
     // Split sessions into full-fetch vs incremental
     let mut full_fetch_ids: Vec<i64> = Vec::new();
     let mut incremental_fetches: Vec<(i64, i64)> = Vec::new(); // (session_id, after_id)
@@ -48,7 +43,6 @@ pub async fn get_feature_agent_state(
             _ => full_fetch_ids.push(s.id),
         }
     }
-
     // OpenCode HTTP-server hydration used to run here. Removed with the
     // removed long-lived transport: ACP sessions are subprocess-scoped and
     // there's no remote server to query for child-session messages once
@@ -68,7 +62,8 @@ pub async fn get_feature_agent_state(
         messages: mut incremental_messages,
         updated_tool_calls,
     } = incremental_result;
-
+    attach_message_origins(pool, &mut full_messages).await?;
+    attach_message_origins(pool, &mut incremental_messages).await?;
     let mut todos_by_session = if limit.is_none() && before_map.is_empty() {
         todos_from_full_messages(&full_messages)
     } else {
@@ -82,7 +77,6 @@ pub async fn get_feature_agent_state(
         &updated_tool_calls,
     );
     todos_by_session.extend(fetch_latest_todos(pool, &todo_fetch_ids).await?);
-
     let session_states: Vec<SessionState> = sessions
         .into_iter()
         .map(|s| {
@@ -104,12 +98,10 @@ pub async fn get_feature_agent_state(
             )
         })
         .collect();
-
     Ok(FeatureAgentStateResponse {
         sessions: session_states,
     })
 }
-
 #[allow(clippy::too_many_arguments)]
 fn build_session_state(
     s: AgentSessionRow,
@@ -131,9 +123,7 @@ fn build_session_state(
     } else {
         msgs.iter().map(|m| m.id).max().unwrap_or(0)
     };
-
     let mut blocks = build_blocks(&msgs);
-
     // Block-level pagination soft cap (full-fetch only). The
     // per-session message `limit` is on `agent_messages` rows, but
     // payload size scales with BLOCKS (every Bash call expands to two
@@ -148,7 +138,6 @@ fn build_session_state(
             trimmed_oldest_id = blocks.iter().filter_map(block_message_id).min();
         }
     }
-
     let tool_call_updates: Option<HashMap<String, String>> = if is_incremental {
         updated_tool_calls.get(&s.id).map(|m| {
             m.iter()
@@ -158,7 +147,6 @@ fn build_session_state(
     } else {
         None
     };
-
     let pending_questions = s
         .pending_questions
         .as_deref()
@@ -167,7 +155,6 @@ fn build_session_state(
         .pending_permission
         .as_deref()
         .and_then(|p| serde_json::from_str(p).ok());
-
     let resumable = (s.status == "paused" || s.status == "completed" || s.status == "error")
         && s.runtime_session_id.is_some();
 
@@ -234,6 +221,48 @@ mod tests {
         assert_eq!(s.session_db_id, session_id);
         assert_eq!(s.blocks.len(), 1);
         assert_eq!(s.blocks[0].content, "hello");
+    }
+
+    #[tokio::test]
+    async fn get_feature_agent_state_hydrates_message_origins() {
+        let pool = setup_test_db().await;
+        sqlx::query("CREATE TABLE agent_message_origins (message_id INTEGER PRIMARY KEY, origin_kind TEXT NOT NULL, source_session_id INTEGER, source_feature_id INTEGER, source_project_id INTEGER, source_message_id INTEGER, note TEXT, created_at TEXT)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let fid: (i64,) = sqlx::query_as("INSERT INTO features (title) VALUES ('f') RETURNING id")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let session_id = insert_session(&pool, fid.0, "completed").await;
+        let msg_id = insert_message(
+            &pool,
+            session_id,
+            "user_message",
+            "delegated",
+            None,
+            None,
+            None,
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO agent_message_origins
+             (message_id, origin_kind, source_session_id, note)
+             VALUES (?, 'session_generated', 123, 'helper prompt')",
+        )
+        .bind(msg_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let state = get_feature_agent_state(&pool, fid.0, None, None, None)
+            .await
+            .unwrap();
+
+        let origin = state.sessions[0].blocks[0].origin.as_ref().expect("origin");
+        assert_eq!(origin.origin_kind, "session_generated");
+        assert_eq!(origin.source_session_id, Some(123));
+        assert_eq!(origin.note.as_deref(), Some("helper prompt"));
     }
 
     #[tokio::test]

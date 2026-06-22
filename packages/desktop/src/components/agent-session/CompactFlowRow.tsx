@@ -21,7 +21,11 @@ export const CompactFlowRow = memo(function CompactFlowRow({
   return (
     <div className="my-1 flex flex-wrap items-center gap-1.5 py-0.5">
       {blocks.map((block) => (
-        <CompactToolTile key={block.id} block={block} basePath={basePath} />
+        // `display: contents` keeps the flex layout identical while giving the
+        // search highlighter a per-block anchor for active-match resolution.
+        <div key={block.id} data-block-id={block.id} className="contents">
+          <CompactToolTile block={block} basePath={basePath} />
+        </div>
       ))}
     </div>
   );

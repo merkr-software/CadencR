@@ -23,6 +23,12 @@ export interface AgentPromptBarProps {
    * the draft on rejection.
    */
   onSend: (message: string, attachments?: PromptAttachmentPayload[]) => void | Promise<void>;
+  /**
+   * Schedule the typed message for future delivery. When provided (and a DB
+   * `sessionId` exists), a "schedule" affordance appears next to Send. Rejects
+   * on failure so the bar keeps the user's text.
+   */
+  onSchedule?: (message: string, scheduledAt: Date) => Promise<void>;
   onStop: () => void;
   status: LiveAgentStatus;
   splitSendActions?: SplitSendAction[];

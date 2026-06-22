@@ -43,6 +43,21 @@ const cadencrToolLabels: Record<string, string> = {
   browser_select_element_context: "Selecting element context",
   browser_screenshot: "Taking screenshot",
   browser_type: "Typing in browser",
+  project_compare_sessions: "Comparing sessions",
+  project_find_related_sessions: "Finding related sessions",
+  project_get_session_status: "Checking session status",
+  project_get_worktree_status: "Checking worktree status",
+  project_link_sessions: "Linking sessions",
+  project_list_sessions: "Listing project sessions",
+  project_read_session: "Reading project session",
+  project_read_session_tail: "Reading session tail",
+  project_send_session_message: "Sending session message",
+  project_spawn_session: "Spawning session",
+  workspace_list_projects: "Listing workspace projects",
+  workspace_read_session: "Reading workspace session",
+  workspace_read_sessions: "Searching workspace sessions",
+  workspace_recent_activity: "Reading recent activity",
+  workspace_session_graph: "Reading session graph",
 };
 
 /**
@@ -66,6 +81,10 @@ function cadencrDetail(tool: string, args: Record<string, unknown>): string | un
   if (commitMessage) return commitMessage;
   const prompt = nonEmptyString(args.prompt);
   if (prompt) return prompt.slice(0, 80);
+  const query = nonEmptyString(args.query);
+  if (query) return query.slice(0, 80);
+  const message = nonEmptyString(args.message);
+  if (message) return message.slice(0, 80);
   const url = nonEmptyString(args.url);
   if (url) return url;
   const tabId = nonEmptyString(args.tab_id);
@@ -138,8 +157,12 @@ function parsedMcpParts(
   const server = rest.slice(0, sep);
   const tool = rest.slice(sep + separatorLength);
   if (!server || !tool) return undefined;
-  if (server !== "browser") return undefined;
+  if (!isCadencrMcpServer(server)) return undefined;
   return { server, tool };
+}
+
+function isCadencrMcpServer(server: string): boolean {
+  return server === "browser" || server === "project" || server === "workspace";
 }
 
 type ToolParser = (args: Record<string, unknown>) => ToolSummary;

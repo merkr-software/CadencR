@@ -11,7 +11,7 @@ import {
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
+import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 
 export type FileTreeMutations = ReturnType<typeof useFileTreeMutations>;
 
@@ -25,12 +25,19 @@ export type FileTreeMutations = ReturnType<typeof useFileTreeMutations>;
  * The prefix `"/api/editor/tree"` covers both the per-directory `tree` query
  * (still used by ad-hoc callers) and the recursive `tree-all` query the
  * pierre file tree reads from.
+ *
+ * In lazy mode (giant repos, where `tree-all` is disabled and the tree loads
+ * per-directory), we invalidate only the exact per-directory `tree` queries so
+ * mutations refresh the affected folders without re-triggering the disabled
+ * `tree-all` / `tree-count` queries.
  */
-export function useFileTreeMutations(projectId: number, featureId: number) {
+export function useFileTreeMutations(projectId: number, featureId: number, lazyMode = false) {
   const qc = useQueryClient();
 
   function invalidateTree(): Promise<void> {
-    return invalidateByUrlPrefix(qc, "/api/editor/tree");
+    return lazyMode
+      ? invalidateByExactUrl(qc, "/api/editor/tree")
+      : invalidateByUrlPrefix(qc, "/api/editor/tree");
   }
 
   const createFile = useCreateEditorFile({

@@ -28,13 +28,15 @@ Cadencr’s built-in editor is where you read files, make small manual fixes, an
 
 Here is the quick version:
 
-| If you want to...                | Use the editor for...                       |
-| -------------------------------- | ------------------------------------------- |
-| find a file                      | browsing the file tree or using file search |
-| find a word, function, or phrase | content search across the project           |
-| keep two things visible          | split panes and multiple open tabs          |
-| compare what changed             | read-only diffs                             |
-| understand who touched a line    | blame view                                  |
+| If you want to...                | Use the editor for...                          |
+| -------------------------------- | ---------------------------------------------- |
+| find a file                      | browsing the file tree or using file search    |
+| find a word, function, or phrase | content search across the project              |
+| keep two things visible          | split panes and multiple open tabs             |
+| compare what changed             | read-only diffs and Git gutter markers         |
+| jump through code                | symbol navigation, definitions, and references |
+| rename safely                    | LSP-backed symbol rename where supported       |
+| understand who touched a line    | blame view                                     |
 
 ### Browse files without going on a side quest
 
@@ -108,6 +110,9 @@ In practice, that means you can keep your place instead of repeatedly reopening 
 A few editor details quietly do a lot of work:
 
 - **Read-only diffs** let you review changes safely before you edit anything.
+- **Git gutter markers** show changed lines while you read a file.
+- **Large-file mode** opens oversized files read-only instead of freezing the workspace.
+- **LSP navigation and refactors** help with definitions, references, symbols, diagnostics, and rename support when a language server is available.
 - **Blame support** helps answer, "Why is this line like this?"
 - **Search + open tabs** makes it easy to move from "I think it is in here somewhere" to "okay, found it."
 - **Split panes** make comparison much easier.

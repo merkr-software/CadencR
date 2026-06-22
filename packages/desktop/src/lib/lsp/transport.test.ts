@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+const applyServerEdit = vi.fn(async () => ({ applied: true }));
+vi.mock("./apply-edit-bridge", () => ({
+  applyServerEdit: (...args: unknown[]) => applyServerEdit(...(args as [])),
+}));
+
 import { WebSocketLspTransport } from "./transport";
 
 class MockWebSocket extends EventTarget {
@@ -45,5 +50,31 @@ describe("WebSocketLspTransport", () => {
       id: 7,
       result: [{}, {}],
     });
+  });
+
+  it("applies workspace/applyEdit asynchronously and replies with the outcome", async () => {
+    applyServerEdit.mockClear();
+    const ws = new MockWebSocket();
+    const transport = new WebSocketLspTransport(ws as unknown as WebSocket);
+    const subscriber = vi.fn();
+    transport.subscribe(subscriber);
+
+    const edit = { changes: { "file:///a.ts": [] } };
+    ws.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 11,
+          method: "workspace/applyEdit",
+          params: { edit },
+        }),
+      }),
+    );
+
+    // Apply runs on a microtask; flush it.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(applyServerEdit).toHaveBeenCalledWith(edit);
+    expect(subscriber).not.toHaveBeenCalled();
+    expect(parseSent(ws)).toEqual({ jsonrpc: "2.0", id: 11, result: { applied: true } });
   });
 });

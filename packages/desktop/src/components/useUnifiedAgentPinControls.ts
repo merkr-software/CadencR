@@ -3,8 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   getGetUnifiedAgentsQueryKey,
-  usePinAgent,
-  useUnpinAgent,
+  useUpdateFeaturePinned,
   type UnifiedAgentEntry,
   type UnifiedAgentsResponse,
 } from "@/api/generated";
@@ -24,27 +23,29 @@ export function useUnifiedAgentPinControls(
   options: UnifiedAgentPinControlOptions = {},
 ): UnifiedAgentPinControls {
   const queryClient = useQueryClient();
-  // Pinning only flips `is_pinned` (and reorders the grid). Patch the cached
+  // Pinning is feature-level (the conversation), so the grid's `is_pinned` is
+  // shared by every card belonging to that feature. Patch the cached
   // unified-agents responses in place rather than invalidating: a refetch
   // re-runs `list_unified_agents`, which serially re-hydrates every active
   // agent's full transcript (an N+1 over `get_feature_agent_state`) — far too
   // expensive for a boolean toggle. Client-side sort/filter
-  // (`UnifiedAgentsViewData`) reorders from the patched `is_pinned`. Applied
-  // on mutation success, so this is a confirmed write, not an optimistic one.
+  // (`UnifiedAgentsViewData`) reorders from the patched `is_pinned`. Applied on
+  // mutation success, so this is a confirmed write, not an optimistic one. The
+  // sidebar refreshes independently via the feature_event broadcast.
   const setPinnedInCache = useCallback(
-    (sessionId: number, isPinned: boolean): void => {
+    (featureId: number, isPinned: boolean): void => {
       const urlKey = getGetUnifiedAgentsQueryKey()[0];
       if (typeof urlKey !== "string") return;
       queryClient.setQueriesData<UnifiedAgentsResponse>(
         { predicate: urlPrefixPredicate(urlKey) },
         (data) => {
-          // Return the same reference when this cached response doesn't hold
-          // the toggled agent — avoids re-rendering its subscribers for nothing.
-          if (!data?.agents.some((agent) => agent.session.sessionDbId === sessionId)) return data;
+          // Return the same reference when this cached response holds no card
+          // for the toggled feature — avoids re-rendering its subscribers.
+          if (!data?.agents.some((agent) => agent.feature.id === featureId)) return data;
           return {
             ...data,
             agents: data.agents.map((agent) =>
-              agent.session.sessionDbId === sessionId ? { ...agent, is_pinned: isPinned } : agent,
+              agent.feature.id === featureId ? { ...agent, is_pinned: isPinned } : agent,
             ),
           };
         },
@@ -56,21 +57,14 @@ export function useUnifiedAgentPinControls(
     const message = error instanceof Error ? error.message : "Failed to update pinned agent.";
     toast.error(message);
   }, []);
-  const pinMutation = usePinAgent({
+  const pinMutation = useUpdateFeaturePinned({
     mutation: {
-      onSuccess: (_data, variables) => setPinnedInCache(variables.sessionId, true),
+      onSuccess: (_data, variables) => setPinnedInCache(variables.id, variables.data.pinned),
       onError,
     },
   });
-  const unpinMutation = useUnpinAgent({
-    mutation: {
-      onSuccess: (_data, variables) => setPinnedInCache(variables.sessionId, false),
-      onError,
-    },
-  });
-  const pinAgent = pinMutation.mutate;
-  const unpinAgent = unpinMutation.mutate;
-  const isPending = pinMutation.isPending || unpinMutation.isPending;
+  const mutate = pinMutation.mutate;
+  const isPending = pinMutation.isPending;
   const toggle = useCallback((): void => {
     if (!entry || isPending) return;
     const toastId = showPinProgress(entry, options.showProgressToast === true);
@@ -79,9 +73,8 @@ export function useUnifiedAgentPinControls(
         if (toastId !== null) toast.dismiss(toastId);
       },
     };
-    if (entry.is_pinned) unpinAgent({ sessionId: entry.session.sessionDbId }, callbacks);
-    else pinAgent({ sessionId: entry.session.sessionDbId }, callbacks);
-  }, [entry, isPending, options.showProgressToast, pinAgent, unpinAgent]);
+    mutate({ id: entry.feature.id, data: { pinned: !entry.is_pinned } }, callbacks);
+  }, [entry, isPending, options.showProgressToast, mutate]);
   return useMemo(() => ({ isPending, toggle }), [isPending, toggle]);
 }
 

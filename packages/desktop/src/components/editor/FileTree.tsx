@@ -5,7 +5,12 @@ import type {
   ContextMenuOpenContext as FileTreeContextMenuOpenContext,
   FileTreeRenameEvent,
 } from "@pierre/trees";
-import { useGetUncommittedFiles, useTreeAll, type FileTreeEntry } from "@/api/generated";
+import {
+  useGetUncommittedFiles,
+  useTreeAll,
+  useTreeCount,
+  type FileTreeEntry,
+} from "@/api/generated";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { useFileTreeMutations } from "@/hooks/useFileTreeMutations";
@@ -22,24 +27,25 @@ import { useActiveFileHighlight } from "@/components/file-tree/useActiveFileHigh
 import { FileTreeContextMenu } from "./FileTreeContextMenu";
 import { copyFilePath } from "./copyFilePath";
 import { mergeFileTreeEntries, useLazyIgnoredFileTreeEntries } from "./lazyIgnoredFileTreeEntries";
+import { useTrackedTreeData } from "./useTrackedTreeData";
+import { useFileTreeEntryActions } from "./useFileTreeEntryActions";
 import { useFileTreeDraft, type DraftKind } from "./useFileTreeDraft";
-import { apiErrorMessage } from "@/lib/api-errors";
-import { validateSimpleName } from "@/lib/validate-name";
 
 interface FileTreeProps {
   projectId: number;
   featureId: number;
 }
 
+// Past this many tracked files, loading the whole tree up front (`tree-all`)
+// is too slow on giant monorepos, so we switch to expand-on-demand for the
+// whole tree. Below it, the instant full-tree behaviour is kept (no
+// regression).
+const TREE_LAZY_THRESHOLD = 5000;
+
 /** Parent dir of an FS-form path; "" for top-level entries. */
 function parentDirOf(fsPath: string): string {
   const idx = fsPath.lastIndexOf("/");
   return idx === -1 ? "" : fsPath.slice(0, idx);
-}
-
-/** Basename of an FS-form path. */
-function basenameOf(fsPath: string): string {
-  return fsPath.slice(fsPath.lastIndexOf("/") + 1);
 }
 
 /**
@@ -55,21 +61,41 @@ export default function FileTree({ projectId, featureId }: FileTreeProps) {
   const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
   const maxTabs = useMemo(() => parseInt(maxTabsSetting ?? "10", 10), [maxTabsSetting]);
 
-  const mutations = useFileTreeMutations(projectId, featureId);
-
-  // Fast recursive fetch for tracked files. Gitignored directories are loaded
-  // lazily one level at a time by `useLazyIgnoredFileTreeEntries` so common
-  // mutations don't trigger a huge `node_modules`/`target` walk.
-  const tracked = useTreeAll({
+  // Hybrid threshold: cheaply count tracked files first; only repos past
+  // `TREE_LAZY_THRESHOLD` switch to expand-on-demand for the whole tree.
+  // While the count is in flight `lazyMode` stays false, so small repos paint
+  // their full tree without waiting on the count.
+  const treeCount = useTreeCount({
     project_id: projectId,
     feature_id: featureId,
     exclude_gitignored: true,
   });
+  const lazyMode = (treeCount.data?.count ?? 0) > TREE_LAZY_THRESHOLD;
+
+  const mutations = useFileTreeMutations(projectId, featureId, lazyMode);
+
+  // ── Full-tree mode (small/medium repos) ───────────────────────────────
+  // Fast recursive fetch for tracked files, disabled in lazy mode. Gitignored
+  // directories are loaded lazily one level at a time by
+  // `useLazyIgnoredFileTreeEntries` so common mutations don't trigger a huge
+  // `node_modules`/`target` walk.
+  const tracked = useTreeAll(
+    { project_id: projectId, feature_id: featureId, exclude_gitignored: true },
+    { query: { enabled: !lazyMode } },
+  );
   const [lazyIgnoredEntries, setLazyIgnoredEntries] = useState<readonly FileTreeEntry[]>([]);
-  const entries = useMemo(
+  const fullEntries = useMemo(
     () => mergeFileTreeEntries(tracked.data, lazyIgnoredEntries),
     [tracked.data, lazyIgnoredEntries],
   );
+
+  // ── Lazy mode (giant repos) ───────────────────────────────────────────
+  // Entries flow through this state (populated by `useTrackedTreeData` below,
+  // after the model exists). Mirrors the gitignored loader's data flow so the
+  // model dependency stays acyclic.
+  const [trackedLazyEntries, setTrackedLazyEntries] = useState<readonly FileTreeEntry[]>([]);
+
+  const entries = lazyMode ? trackedLazyEntries : fullEntries;
   // One pass to produce both the pierre `paths` array and the minimal set
   // of gitignored "roots" feeding `useGitignoredDimming`.
   const { paths, ignoredPathPrefixes } = useMemo(() => {
@@ -121,6 +147,18 @@ export default function FileTree({ projectId, featureId }: FileTreeProps) {
     featureId,
     trackedEntries: tracked.data,
     onEntriesChange: setLazyIgnoredEntries,
+    enabled: !lazyMode,
+  });
+
+  // Lazy-mode tree data (giant repos): loads the top level then expands
+  // on-demand. Inert (no queries) when `enabled` is false. Entries flow into
+  // `trackedLazyEntries` above.
+  const lazyTree = useTrackedTreeData({
+    model,
+    projectId,
+    featureId,
+    enabled: lazyMode,
+    onEntriesChange: setTrackedLazyEntries,
   });
 
   // Sticky `--primary` 28%-mix background on the editor-active file row
@@ -137,16 +175,19 @@ export default function FileTree({ projectId, featureId }: FileTreeProps) {
   // a tree refetch does NOT re-expand folders the user manually collapsed
   // after the initial reveal.
   const lastRevealedRef = useRef<string | null>(null);
+  const ensureDirLoaded = lazyTree.ensureDirLoaded;
   useEffect(() => {
     if (!activeFilePath) {
       lastRevealedRef.current = null;
       return;
     }
     if (lastRevealedRef.current === activeFilePath) return;
-    if (revealInFileTree(model, activeFilePath)) {
+    // In lazy mode the file's ancestors may not be loaded yet; `revealInFileTree`
+    // requests the chain (deduped) and we retry when `paths` next updates.
+    if (revealInFileTree(model, activeFilePath, lazyMode ? ensureDirLoaded : undefined)) {
       lastRevealedRef.current = activeFilePath;
     }
-  }, [model, activeFilePath, paths]);
+  }, [model, activeFilePath, paths, lazyMode, ensureDirLoaded]);
 
   // ── Inline-create draft state (Pierre placeholder + rename) ────────────
   const onFileCreated = useCallback(
@@ -188,109 +229,17 @@ export default function FileTree({ projectId, featureId }: FileTreeProps) {
     [activePaneId, isDraftPath, maxTabs, openFile],
   );
 
-  // Pierre fires `onRename` for both renames and inline-draft commits.
-  // Try create first; otherwise treat as a rename of an existing entry.
-  const handleRename = useCallback(
-    (event: FileTreeRenameEvent) => {
-      if (tryHandleAsCreate(event)) return;
-
-      const pierreSource = event.sourcePath;
-      const pierreDest = event.destinationPath;
-      const fsSource = fromPierrePath(pierreSource);
-      const fsDest = fromPierrePath(pierreDest);
-      const newName = basenameOf(fsDest);
-
-      const validationError = validateSimpleName(newName);
-      if (validationError) {
-        toast.error(validationError);
-        model.move(pierreDest, pierreSource);
-        return;
-      }
-
-      mutations.rename.mutate(
-        {
-          data: {
-            project_id: projectId,
-            feature_id: featureId,
-            old_path: fsSource,
-            new_name: newName,
-          },
-        },
-        {
-          onSuccess: () => {
-            // Keep any open tab for the renamed path (and tabs under a
-            // renamed folder) pointing at the new filesystem path.
-            renameFilePath(fsSource, fsDest);
-          },
-          onError: () => {
-            // Pierre already mutated its local model. Reverse it.
-            model.move(pierreDest, pierreSource);
-          },
-        },
-      );
-    },
-    [featureId, model, mutations.rename, projectId, renameFilePath, tryHandleAsCreate],
-  );
-
-  const handleDropComplete = useCallback(
-    (draggedPaths: readonly string[], pierreTargetDir: string | null) => {
-      const fsParent = pierreTargetDir ? fromPierrePath(pierreTargetDir) : "";
-      for (const pierreSource of draggedPaths) {
-        const fsSource = fromPierrePath(pierreSource);
-        const basename = basenameOf(fsSource);
-        const fsDest = fsParent ? `${fsParent}/${basename}` : basename;
-        mutations.move.mutate(
-          {
-            data: {
-              project_id: projectId,
-              feature_id: featureId,
-              old_path: fsSource,
-              new_parent_path: fsParent,
-            },
-          },
-          {
-            onSuccess: () => {
-              // Update any open tabs whose path is (or sits under) the
-              // moved source so they follow the file/folder.
-              renameFilePath(fsSource, fsDest);
-            },
-            onError: () => {
-              const trailing = pierreSource.endsWith("/") ? "/" : "";
-              const pierreDest = `${fsDest}${trailing}`;
-              model.move(pierreDest, pierreSource);
-            },
-          },
-        );
-      }
-    },
-    [featureId, model, mutations.move, projectId, renameFilePath],
-  );
-
-  // Direct trash, no confirmation: the backend moves to the system trash
-  // (recoverable from Finder/Explorer). We strip the row from pierre's
-  // local model on success so it disappears before the slow refetch
-  // reconciles (`tree-all` can take 100s of ms on monorepos).
-  const trashPath = useCallback(
-    (pierrePath: string) => {
-      const fsPath = fromPierrePath(pierrePath);
-      if (!fsPath) return;
-      const isFolder = pierrePath.endsWith("/");
-      mutations.trash.mutate(
-        {
-          data: { project_id: projectId, feature_id: featureId, path: fsPath },
-        },
-        {
-          onSuccess: () => {
-            if (model.getItem(pierrePath) != null) {
-              model.remove(pierrePath, isFolder ? { recursive: true } : undefined);
-            }
-          },
-          onError: (err) => toast.error(apiErrorMessage(err, "Failed to move to trash")),
-        },
-      );
-    },
-    [featureId, model, mutations.trash, projectId],
-  );
+  // Rename / move / trash handlers (extracted to keep this file under the
+  // size limit). Each issues its mutation and reconciles pierre's optimistic
+  // model on error.
+  const { handleRename, handleDropComplete, trashPath } = useFileTreeEntryActions({
+    model,
+    projectId,
+    featureId,
+    mutations,
+    renameFilePath,
+    tryHandleAsCreate,
+  });
 
   // ── Context-menu actions ───────────────────────────────────────────────
   const handleMenuAction = useCallback(
@@ -392,10 +341,17 @@ export default function FileTree({ projectId, featureId }: FileTreeProps) {
     >
       <CadencrFileTree
         model={model}
-        // Only block on the fast (`tracked`) query — the slow (`all`)
-        // query upgrades the tree in place once it arrives.
-        isLoading={tracked.isLoading && !tracked.data}
-        errorMessage={tracked.isError && !tracked.data ? "Failed to load file tree" : null}
+        // Full mode: block only on the fast (`tracked`) query — gitignored
+        // dirs upgrade the tree in place. Lazy mode: block on the top-level
+        // load. The count query gates the choice but is too cheap to block on.
+        isLoading={lazyMode ? lazyTree.isLoading : tracked.isLoading && !tracked.data}
+        errorMessage={
+          lazyMode
+            ? lazyTree.error
+            : tracked.isError && !tracked.data
+              ? "Failed to load file tree"
+              : null
+        }
         renderContextMenu={renderContextMenu}
         aria-label="Project file tree"
       />

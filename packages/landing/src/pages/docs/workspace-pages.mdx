@@ -16,6 +16,7 @@ Think of the app like this:
 - **Feature workspace** is your main work area for a feature or task.
 - **Session view** is where you focus on one agent conversation in detail.
 - **Unified agent list** is where you manage all sessions in the current workspace.
+- **Browser** is a feature-scoped tab for previewing pages and sending page context to agents.
 - **Settings** helps when a feature needs setup, but it is not where you will spend most of your day.
 
 <DocCallout title="Short version" variant="tip">
@@ -26,13 +27,13 @@ Think of the app like this:
 
 ## Main pages and when to use them
 
-| Page                  | What it is                                                                                                                                                                           | Go here when...                                                                                                   |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| Home / project picker | The starting point for opening or switching projects.                                                                                                                                | You want to open a repo, return to a recent project, or start fresh without wondering where your stuff went.      |
-| Feature workspace     | The main surface for a piece of work. It brings together files, sessions, terminal, and Git context.                                                                                 | You are actively working on a task and want one place to stay oriented.                                           |
-| Session view          | A focused view of one agent session.                                                                                                                                                 | You want to read the full conversation, check progress, or guide a single agent step by step.                     |
-| Unified agent list    | A shared list of sessions across the current workspace.                                                                                                                              | You have more than one session going and need to scan, filter, compare, or jump between them quickly.             |
-| Settings              | App-wide preferences and setup. Sections cover **Appearance**, **Editor**, **Interface & Zoom**, **Notifications**, **Runtime & Models**, **Git**, **CLI Providers**, and **About**. | A feature needs setup, like provider profiles, custom models, or notification rules. Open it with <kbd>⌘ ,</kbd>. |
+| Page                  | What it is                                                                                                                                                                                        | Go here when...                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Home / project picker | The starting point for opening or switching projects.                                                                                                                                             | You want to open a repo, return to a recent project, or start fresh without wondering where your stuff went.                        |
+| Feature workspace     | The main surface for a piece of work. It brings together files, sessions, browser tabs, terminal, and Git context.                                                                                | You are actively working on a task and want one place to stay oriented.                                                             |
+| Session view          | A focused view of one agent session.                                                                                                                                                              | You want to read the full conversation, check progress, or guide a single agent step by step.                                       |
+| Unified agent list    | A shared list of sessions across the current workspace.                                                                                                                                           | You have more than one session going and need to scan, filter, pin, compare, or jump between them quickly.                          |
+| Settings              | App-wide preferences and setup. Sections cover **Appearance**, **Editor**, **Interface & Zoom**, **Notifications**, **Browser**, **Runtime & Models**, **Git**, **CLI Providers**, and **About**. | A feature needs setup, like provider profiles, custom models, browser defaults, or notification rules. Open it with <kbd>⌘ ,</kbd>. |
 
 ## How people typically move between them
 
@@ -41,8 +42,9 @@ Most people follow a simple loop:
 1. Start on **Home** and choose the project you want to work in.
 2. Land in a **Feature workspace** and use it as your home base.
 3. Open a **Session view** when one agent needs your full attention.
-4. Jump to the **Unified agent list** when you want to compare sessions, resume an older one, or find the least chaotic option.
-5. Return to **Home** when you want to switch projects entirely.
+4. Use the **Browser** tab when a task needs a live page, local preview, or visual feedback for the agent.
+5. Jump to the **Unified agent list** when you want to compare sessions, resume an older one, or find the least chaotic option.
+6. Return to **Home** when you want to switch projects entirely.
 
 You usually do **not** bounce into **Settings** during normal work. It is there when something needs enabling, connecting, or adjusting.
 
@@ -58,7 +60,7 @@ If you are new, this path keeps things simple:
 2. Open or create a **Feature workspace** for the thing you want to change.
 3. Start **one** agent session.
 4. Use **Session view** to read what that agent is doing and nudge it when needed.
-5. Go back to the **Feature workspace** to inspect files, diffs, or terminal output.
+5. Go back to the **Feature workspace** to inspect files, browser state, diffs, or terminal output.
 6. Once you have multiple sessions, use the **Unified agent list** to keep them organized.
 
 <DocCallout title="Beginner tip">
@@ -72,5 +74,6 @@ If you are new, this path keeps things simple:
 - [Feature workspace](../feature-workspace/) for the main home base.
 - [Session view](../session-view/) for reading and steering a single agent.
 - [Unified agent list](../unified-agent-list/) for managing multiple sessions.
+- [Browser](../browser/) for previewing pages and sharing page context with agents.
 - [Git in Cadencr](../git/) if you want more confidence around branches, diffs, and worktrees.
 - [Shortcuts](../shortcuts/) if you would like less mouse mileage.

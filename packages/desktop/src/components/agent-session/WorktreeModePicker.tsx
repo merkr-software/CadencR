@@ -29,12 +29,16 @@ interface WorktreeModePickerProps {
   mode: WorktreeMode;
   onModeChange: (mode: WorktreeMode) => void;
   state: BranchWorktreeState;
+  /** Future-tense summary of what the first prompt will do — surfaced as a
+   *  footer so the deferred-until-send behavior is explicit. `null` hides it. */
+  effectHint?: string | null;
 }
 
 export const WorktreeModePicker = memo(function WorktreeModePicker({
   mode,
   onModeChange,
   state,
+  effectHint,
 }: WorktreeModePickerProps): ReactElement {
   const [open, setOpen] = useState(false);
   const active = modeUsesWorktree(mode);
@@ -69,6 +73,11 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
             onPick={handlePick}
           />
         ))}
+        {effectHint && (
+          <p className="mt-1 border-t px-2.5 py-2 text-xs text-muted-foreground" role="note">
+            {effectHint}
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );

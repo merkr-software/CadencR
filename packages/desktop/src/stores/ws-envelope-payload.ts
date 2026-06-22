@@ -1,4 +1,5 @@
 import type { CommandsListPayload } from "@/lib/ws-envelope";
+import type { AgentMessageOrigin } from "@/api/generated";
 import type { McpServerStatus } from "./ws-session-types";
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -198,6 +199,13 @@ export function parseFeatureUpdatedPayload(
   };
 }
 
+export function parseCompactingPayload(payload: unknown): { active: boolean } | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  const active = optionalBoolean(record, "active");
+  return active == null ? null : { active };
+}
+
 export function parseMessageBlocksPayload(payload: unknown): { blocks: unknown[] } | null {
   const record = asRecord(payload);
   if (!record) return null;
@@ -294,14 +302,33 @@ export function parsePromptReceivedPayload(
 
 /**
  * Parse the `session.user_message` envelope — a prompt another device just sent,
- * mirrored here so this (passive) viewer's conversation stays live. Requires a
- * non-empty `text`; anything else is dropped.
+ * mirrored here so this (passive) viewer's conversation stays live.
  */
-export function parseUserMessageMirrorPayload(payload: unknown): { text: string } | null {
+export function parseUserMessageMirrorPayload(
+  payload: unknown,
+): { text: string; origin?: AgentMessageOrigin } | null {
   const record = asRecord(payload);
   if (!record) return null;
   const text = optionalString(record, "text");
-  return typeof text === "string" ? { text } : null;
+  if (typeof text !== "string") return null;
+  const origin = parseMessageOrigin(record.origin);
+  return origin ? { text, origin } : { text };
+}
+
+function parseMessageOrigin(value: unknown): AgentMessageOrigin | undefined {
+  const record = asRecord(value);
+  if (!record) return undefined;
+  const originKind = optionalString(record, "originKind");
+  if (!originKind) return undefined;
+  return {
+    originKind,
+    sourceSessionId: optionalNumber(record, "sourceSessionId"),
+    sourceFeatureId: optionalNumber(record, "sourceFeatureId"),
+    sourceProjectId: optionalNumber(record, "sourceProjectId"),
+    sourceMessageId: optionalNumber(record, "sourceMessageId"),
+    note: optionalString(record, "note"),
+    createdAt: optionalString(record, "createdAt"),
+  };
 }
 
 /**

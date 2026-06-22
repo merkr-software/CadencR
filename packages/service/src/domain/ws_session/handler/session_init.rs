@@ -3,7 +3,7 @@ use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
 use super::{
     default_permission_mode, parse_permission_mode, send_error, send_runtime_session_id,
-    QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender,
+    thinking_effort, QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender,
 };
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimeSpawnConfig};
@@ -12,7 +12,9 @@ use crate::domain::agents::{resolve_effective_provider, runtime_adapter};
 use crate::domain::settings;
 use crate::domain::workflow::worktree;
 use std::sync::Arc;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+#[path = "session_init_effort.rs"]
+mod session_init_effort;
 #[path = "session_init_feature.rs"]
 mod session_init_feature;
 #[path = "session_init_restore.rs"]
@@ -150,48 +152,15 @@ pub(super) async fn handle_init(
         effective_model.as_deref(),
     );
 
-    // Thinking-effort cascade (model-keyed, not agent-type-keyed):
-    //   1. Explicit override from the init payload (frontend just toggled it).
-    //   2. Persisted conversation-level override (column on agent_sessions).
-    //   3. Workspace per-model default (`thinking_effort_model_<provider>_<model>`).
-    //   4. None.
-    // Skip the workspace lookup when an earlier step already resolved a value —
-    // hydrating from the row is the common case and we don't need a DB hit
-    // when no fallback would be consulted.
-    let prior_thinking_effort = payload
-        .thinking_effort
-        .clone()
-        .or_else(|| stored_thinking_effort.clone());
-    let effective_thinking_effort = match prior_thinking_effort {
-        Some(effort) => Some(effort),
-        None => match effective_model.as_ref() {
-            Some(model_id) => {
-                settings::resolve_setting(
-                    &app_state.read_pool,
-                    &settings::thinking_effort_model_key(&effective_provider, model_id),
-                    None,
-                    None,
-                    None,
-                )
-                .await
-            }
-            None => None,
-        },
-    };
-
-    // Anchor the resolved value to the conversation when it didn't already
-    // have one. Future model/effort changes on *other* conversations must not
-    // retroactively change this one.
-    if stored_thinking_effort.is_none() {
-        if let Some(ref effort) = effective_thinking_effort {
-            WsSessionPersistence::update_thinking_effort_static(
-                &app_state.write_pool,
-                db_session_id,
-                Some(effort),
-            )
-            .await;
-        }
-    }
+    let (effective_thinking_effort, cleared_unsupported_effort) = session_init_effort::resolve(
+        app_state,
+        db_session_id,
+        &effective_provider,
+        effective_model.as_deref(),
+        payload.thinking_effort.clone(),
+        stored_thinking_effort,
+    )
+    .await;
     let resume_session_id = row.as_ref().and_then(|r| {
         session_init_resume::resume_session_id_for_provider(
             &effective_provider,
@@ -215,18 +184,29 @@ pub(super) async fn handle_init(
         return;
     };
 
-    if let Err(error) = sqlx::query("UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?")
-        .bind(&effective_provider)
-        .bind(db_session_id)
-        .execute(&app_state.write_pool)
-        .await
+    if let Err(error) = thinking_effort::persist_runtime_provider(
+        &app_state.write_pool,
+        db_session_id,
+        &effective_provider,
+        cleared_unsupported_effort,
+    )
+    .await
     {
-        tracing::warn!(
+        warn!(
             db_session_id,
             runtime_provider = %effective_provider,
             %error,
             "failed to persist session runtime provider"
         );
+        if cleared_unsupported_effort {
+            send_error(
+                sender,
+                &envelope.id,
+                "DB_ERROR",
+                "Failed to clear thinking effort",
+            );
+            return;
+        }
     }
 
     // Build SDK options — prefer the model stored in the DB (last used) over the frontend settings model

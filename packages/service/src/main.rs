@@ -39,13 +39,20 @@ async fn main() -> anyhow::Result<()> {
         Some(Command::McpServe {
             agent_type,
             feature_id,
+            session_id,
         }) => {
             let db_path = config
                 .db_path
                 .clone()
                 .expect("--db-path or CADENCR_DB_PATH env var required for mcp-serve");
+            let settings_dir = domain::settings_store::dir::resolve_from_config(
+                config.settings_dir.as_deref(),
+                &db_path,
+            );
+            domain::settings_store::init(settings_dir);
 
-            domain::mcp::stdio::run_mcp_stdio(&db_path, agent_type, *feature_id).await?;
+            domain::mcp::stdio::run_mcp_stdio(&db_path, agent_type, *feature_id, *session_id)
+                .await?;
         }
         None => {
             if cfg!(debug_assertions) {
@@ -146,6 +153,11 @@ async fn main() -> anyhow::Result<()> {
             // live refresh to connected clients.
             domain::settings_store::watcher::start(&settings_dir, state.settings_events_tx.clone());
 
+            // Background Web Push dispatcher: turns agent finished / needs-input
+            // transitions into native push for backgrounded remote PWAs. Cheap
+            // when no subscriptions exist; runs for the process lifetime.
+            tokio::spawn(domain::push::dispatcher::run(state.clone()));
+
             // Push user-selected CLI binary paths into the SDK overrides
             // BEFORE the warmup runs — the opencode warmup spawns the server
             // process, which needs to honor the override on first launch.
@@ -163,6 +175,10 @@ async fn main() -> anyhow::Result<()> {
 
             // Resume periodic custom-action schedules from a previous launch.
             state.custom_action_scheduler.bootstrap(&state).await;
+
+            // Background dispatcher for user-scheduled messages (one poll loop
+            // for the process lifetime; survives client disconnects).
+            domain::scheduled_messages::scheduler::spawn(state.clone());
 
             // Auto-start remote access if the user left it enabled (persisted
             // setting). Failures are non-fatal — the loopback server must come

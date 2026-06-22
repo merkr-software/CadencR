@@ -25,10 +25,20 @@ import type { FileTree as FileTreeModel, FileTreeDirectoryHandle } from "@pierre
  * `offset: "nearest"` keeps the scrollbar still when the row is already
  * in view, so flipping between visible tabs doesn't jitter.
  */
-export function revealInFileTree(model: FileTreeModel, fsPath: string): boolean {
+export function revealInFileTree(
+  model: FileTreeModel,
+  fsPath: string,
+  ensureDirLoaded?: (dirPath: string) => void,
+): boolean {
   // Pierre encodes files without a trailing slash, so the FS path doubles
   // as the pierre path for files.
-  if (model.getItem(fsPath) == null) return false;
+  if (model.getItem(fsPath) == null) {
+    // Lazy mode: the file's ancestor directories may not be loaded yet. Pull
+    // the ancestor chain in (deduped/cached by the caller's `ensureDirLoaded`)
+    // and return false so the caller retries once `paths` next updates.
+    if (ensureDirLoaded) requestAncestorChain(fsPath, ensureDirLoaded);
+    return false;
+  }
 
   // Walk forward so each parent exists before we look up its child:
   // "src/components/Foo.tsx" → query "src/", then "src/components/".
@@ -51,4 +61,20 @@ export function revealInFileTree(model: FileTreeModel, fsPath: string): boolean 
     model.scrollToPath(fsPath, { focus: true, offset: "nearest" });
   });
   return true;
+}
+
+/**
+ * Request every ancestor directory of `fsPath` be loaded, from the shallowest
+ * down, so a deep file can be revealed in lazy mode. `ensureDirLoaded` is
+ * expected to dedupe already-requested directories, so this is safe to call
+ * repeatedly (e.g. each time the reveal effect re-runs while ancestors stream
+ * in).
+ */
+function requestAncestorChain(fsPath: string, ensureDirLoaded: (dirPath: string) => void): void {
+  const segments = fsPath.split("/");
+  let cursor = "";
+  for (let i = 0; i < segments.length - 1; i++) {
+    cursor = cursor ? `${cursor}/${segments[i]}` : segments[i];
+    ensureDirLoaded(cursor);
+  }
 }

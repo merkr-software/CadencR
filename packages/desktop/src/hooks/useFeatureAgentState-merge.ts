@@ -32,6 +32,7 @@ export function serverBlocksToAgentBlocks(serverBlocks: AgentBlock[]): AgentBloc
       sourceToolName: nullToUndefined(sb.sourceToolName),
       createdAt: nullToUndefined(sb.createdAt),
       model: nullToUndefined(sb.model),
+      origin: sb.origin ?? null,
       truncatedContent: sb.truncatedContent === true,
       // DB-loaded sub-agents are always complete (streaming state handles the active one)
       ...(isSubagent ? { taskComplete: true } : {}),

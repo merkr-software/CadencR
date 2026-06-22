@@ -42,6 +42,7 @@ export function appendLocalUserMessage(
     createdAt: new Date().toISOString(),
     ...(options.clientMessageId ? { clientMessageId: options.clientMessageId } : {}),
     ...(options.promptDeliveryState ? { promptDeliveryState: options.promptDeliveryState } : {}),
+    ...(options.origin ? { origin: options.origin } : {}),
   };
   const nextBlocks = [...session.blocks, block];
   const blocks =

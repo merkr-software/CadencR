@@ -30,6 +30,8 @@ export type AgentBlockIsError = boolean | null;
 
 export type AgentBlockModel = string | null;
 
+export type AgentBlockOrigin = null | AgentMessageOrigin;
+
 export type AgentBlockParentToolUseId = string | null;
 
 export type AgentBlockSourceToolName = string | null;
@@ -56,6 +58,7 @@ export interface AgentBlock {
   id: string;
   isError?: AgentBlockIsError;
   model?: AgentBlockModel;
+  origin?: AgentBlockOrigin;
   parentToolUseId?: AgentBlockParentToolUseId;
   sourceToolName?: AgentBlockSourceToolName;
   toolArgs?: AgentBlockToolArgs;
@@ -74,9 +77,26 @@ export interface AgentCatalogResponse {
   providers: ProviderCatalogEntry[];
 }
 
-export interface AgentPinResponse {
-  is_pinned: boolean;
-  success: boolean;
+export type AgentMessageOriginCreatedAt = string | null;
+
+export type AgentMessageOriginNote = string | null;
+
+export type AgentMessageOriginSourceFeatureId = number | null;
+
+export type AgentMessageOriginSourceMessageId = number | null;
+
+export type AgentMessageOriginSourceProjectId = number | null;
+
+export type AgentMessageOriginSourceSessionId = number | null;
+
+export interface AgentMessageOrigin {
+  createdAt?: AgentMessageOriginCreatedAt;
+  note?: AgentMessageOriginNote;
+  originKind: string;
+  sourceFeatureId?: AgentMessageOriginSourceFeatureId;
+  sourceMessageId?: AgentMessageOriginSourceMessageId;
+  sourceProjectId?: AgentMessageOriginSourceProjectId;
+  sourceSessionId?: AgentMessageOriginSourceSessionId;
 }
 
 export type AgentSessionRowCodexPermissionMode = string | null;
@@ -598,6 +618,8 @@ export type FeatureModelSession = string | null;
 export interface Feature {
   created_at: string;
   id: number;
+  /** Whether the conversation is pinned to the top of the sidebar. */
+  is_pinned: boolean;
   label?: FeatureLabel;
   model_session?: FeatureModelSession;
   project_id: number;
@@ -736,6 +758,26 @@ export interface FileTreeEntry {
   is_gitignored: boolean;
   name: string;
   path: string;
+}
+
+export type FormatRequestFeatureId = number | null;
+
+export interface FormatRequest {
+  /** Current buffer content to format. Sent on the formatter's stdin. */
+  content: string;
+  feature_id?: FormatRequestFeatureId;
+  /** Path (relative to the feature/project root) of the buffer being
+formatted; passed to the formatter so it can infer the parser. */
+  file_path: string;
+  /** Formatter id from `editor_formatter` (e.g. `"prettier"`). Never `"off"`
+— the renderer skips the request when formatting is disabled. */
+  formatter: string;
+  project_id: number;
+}
+
+export interface FormatResponse {
+  /** The formatted document. Identical to the input when already formatted. */
+  content: string;
 }
 
 export type GetFileContentBatchBodyCommitSha = string | null;
@@ -931,6 +973,11 @@ export interface ListServersResponse {
   servers: ServerProbe[];
 }
 
+export interface LspRootResponse {
+  /** Absolute resolved LSP root. The feature root when no marker matched. */
+  root: string;
+}
+
 export interface MarkViewedRequest {
   blob_sha: string;
   feature_id: number;
@@ -987,6 +1034,17 @@ export interface MessageFullContentResponse {
   content: string;
 }
 
+export type MessagePreviewResponsePreview = string | null;
+
+/**
+ * Notification preview: the start of the agent's latest text reply for a
+feature, cleaned to a single line. `null` when the feature has no agent
+reply yet (callers fall back to the feature title).
+ */
+export interface MessagePreviewResponse {
+  preview?: MessagePreviewResponsePreview;
+}
+
 export type ModelCatalogEntryDescription = string | null;
 
 export type ModelCatalogEntrySupportedEffortLevels = string[] | null;
@@ -1030,11 +1088,24 @@ export interface MovePathResponse {
   new_path: string;
 }
 
+/**
+ * Optional concrete server id (e.g. `"tsgo"`, `"biome"`). When present the
+service resolves that specific catalog entry instead of the language's
+default — this is how a project runs multiple servers per file. When
+absent, behavior is unchanged (default server for the language).
+ */
+export type OpenLspSessionRequestLspId = string | null;
+
 export interface OpenLspSessionRequest {
   /** LSP `TextDocumentItem` language id (e.g. `"typescript"`, `"rust"`,
 `"python"`). The renderer derives this from the same catalog the
 service uses; see `domain/lsp/spawn.rs::resolve_server`. */
   language_id: string;
+  /** Optional concrete server id (e.g. `"tsgo"`, `"biome"`). When present the
+service resolves that specific catalog entry instead of the language's
+default — this is how a project runs multiple servers per file. When
+absent, behavior is unchanged (default server for the language). */
+  lsp_id?: OpenLspSessionRequestLspId;
   /** Absolute path to the workspace root the language server should index. */
   workspace_root: string;
 }
@@ -1212,8 +1283,41 @@ export interface PushInputBody {
   text: string;
 }
 
+/**
+ * Body of `POST /api/push/subscribe`. Mirrors `PushSubscription.toJSON()`.
+ */
+export interface PushSubscribeRequest {
+  endpoint: string;
+  keys: PushSubscriptionKeys;
+}
+
+/**
+ * The `keys` object a browser's `PushSubscription` exposes (base64url).
+ */
+export interface PushSubscriptionKeys {
+  auth: string;
+  p256dh: string;
+}
+
+/**
+ * Generic ack for the subscribe/unsubscribe mutations.
+ */
+export interface PushSubscriptionResponse {
+  ok: boolean;
+}
+
+/**
+ * Body of `DELETE /api/push/subscribe`.
+ */
+export interface PushUnsubscribeRequest {
+  endpoint: string;
+}
+
 export interface ReadFileResponse {
   content: string;
+  /** True when the file is at or above `file_size::LARGE_FILE_OPEN_BYTES`.
+The frontend opens these read-only with language features disabled. */
+  large: boolean;
   /** @minimum 0 */
   line_count: number;
 }
@@ -1342,6 +1446,29 @@ export interface SaveDraftResponse {
 }
 
 /**
+ * A user message queued for future delivery to a conversation (feature).
+
+`scheduled_at` and `created_at` are serialised as ISO-8601 UTC (the
+repository formats them with a trailing `Z`) so the frontend can parse them
+unambiguously and render in the viewer's local timezone.
+ */
+export interface ScheduledMessage {
+  /** ISO-8601 UTC. */
+  created_at: string;
+  feature_id: number;
+  id: number;
+  /** ISO-8601 UTC, e.g. `2026-06-21T15:00:00Z`. */
+  scheduled_at: string;
+  /** `pending` | `sent` | `failed`. */
+  status: string;
+  text: string;
+}
+
+export interface ScheduledMessageDeleted {
+  deleted: boolean;
+}
+
+/**
  * Where a custom action is offered to the user. `Global` makes it visible on
 every project; `Project` scopes it to a single project.
  */
@@ -1379,6 +1506,10 @@ in this language would trigger an automatic install. */
   lsp_id: string;
   /** Absolute path on disk when found. `None` otherwise. */
   path?: ServerProbePath;
+  /** The role this server fills (type checker, linter, …). Lets the renderer
+build the per-file active-server set from this catalog data instead of
+duplicating the catalog client-side. */
+  role: ServerRole;
   /** Where the binary was found, or `missing` if not installed. */
   status: ServerProbeStatus;
   /** Version string when reported by the binary itself (or pinned by the
@@ -1393,6 +1524,22 @@ export const ServerProbeStatus = {
   on_path: "on_path",
   managed: "managed",
   missing: "missing",
+} as const;
+
+/**
+ * The job an LSP server does for a file. Lets a project run several servers
+per language (e.g. a type checker plus a linter) without the catalog
+branching on provider identity. `lookup_all` returns every entry for a
+language id; `active-servers` on the frontend then picks one per role.
+ */
+export type ServerRole = (typeof ServerRole)[keyof typeof ServerRole];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ServerRole = {
+  type_checker: "type_checker",
+  linter: "linter",
+  formatter: "formatter",
+  general: "general",
 } as const;
 
 export type SessionStateContextWindow = number | null;
@@ -1505,6 +1652,16 @@ export interface SetProviderSettingRequest {
   provider_id: string;
 }
 
+/**
+ * Create-or-replace payload. There is at most one pending scheduled message per
+conversation, so a PUT replaces any existing pending row for that feature.
+ */
+export interface SetScheduledMessageRequest {
+  /** Target time as ISO-8601 (UTC). Normalised to SQLite UTC on insert. */
+  scheduled_at: string;
+  text: string;
+}
+
 export interface SetSettingRequest {
   value: string;
 }
@@ -1604,6 +1761,11 @@ export interface TrashPathRequest {
 
 export interface TrashPathResponse {
   success: boolean;
+}
+
+export interface TreeCountResponse {
+  /** @minimum 0 */
+  count: number;
 }
 
 export type TriggeredBy = (typeof TriggeredBy)[keyof typeof TriggeredBy];
@@ -1727,6 +1889,10 @@ export interface UpdateLabelRequest {
   label?: UpdateLabelRequestLabel;
 }
 
+export interface UpdatePinnedRequest {
+  pinned: boolean;
+}
+
 export interface UpdateStatusRequest {
   status: FeatureStatus;
 }
@@ -1755,6 +1921,14 @@ export type UpsertProfileRequestEnv = { [key: string]: string };
 
 export interface UpsertProfileRequest {
   env: UpsertProfileRequestEnv;
+}
+
+/**
+ * `GET /api/push/vapid-key` response: the server's VAPID public key, base64url,
+for the browser's `pushManager.subscribe({ applicationServerKey })`.
+ */
+export interface VapidKeyResponse {
+  public_key: string;
 }
 
 export type WorkingDirResponsePath = string | null;
@@ -1901,6 +2075,16 @@ first and then merge in the `exclude_gitignored=false` response.
   exclude_gitignored?: boolean;
 };
 
+export type TreeCountParams = {
+  project_id: number;
+  feature_id?: number | null;
+  /**
+ * When true, gitignored sub-trees (`node_modules`, `target`, …) are not
+counted — matching the fast `tree-all` walk the editor renders.
+ */
+  exclude_gitignored?: boolean;
+};
+
 export type ListFeaturesParams = {
   project_id: number;
   include_archived?: boolean;
@@ -1929,6 +2113,8 @@ export type GetFeatureAgentStateParams = {
 export type UnmarkDiffViewedParams = {
   file_path: string;
 };
+
+export type GetScheduledMessage200 = null | ScheduledMessage;
 
 export type GetFeatureWorkingDirParams = {
   project_id: number;
@@ -2061,6 +2247,28 @@ export type DeleteWorktreeParams = {
 
 export type ListProjectWorktreesParams = {
   project_id: number;
+};
+
+export type LspRootParams = {
+  /**
+   * Absolute feature working dir; the resolved root never escapes this.
+   */
+  workspace_root: string;
+  /**
+   * Absolute path (or path under `workspace_root`) of the opened file.
+   */
+  file_path: string;
+  /**
+ * LSP `TextDocumentItem` language id (e.g. `"typescript"`). Selects which
+catalog `root_markers` to look for when no concrete `lsp_id` is given.
+ */
+  language_id: string;
+  /**
+ * Optional concrete server id (e.g. `"tsgo"`). When present its
+`root_markers` are used, so the resolved root matches the exact server
+the renderer is about to start. Falls back to the language default.
+ */
+  lsp_id?: string | null;
 };
 
 export type KillTerminalSessionsParams = {
@@ -2236,131 +2444,6 @@ export function useGetUnifiedAgents<
 
   return query;
 }
-
-export const pinAgent = (sessionId: number) => {
-  return customInstance<AgentPinResponse>({ url: `/api/agents/${sessionId}/pin`, method: "PUT" });
-};
-
-export const getPinAgentMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof pinAgent>>,
-    TError,
-    { sessionId: number },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof pinAgent>>,
-  TError,
-  { sessionId: number },
-  TContext
-> => {
-  const mutationKey = ["pinAgent"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof pinAgent>>,
-    { sessionId: number }
-  > = (props) => {
-    const { sessionId } = props ?? {};
-
-    return pinAgent(sessionId);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type PinAgentMutationResult = NonNullable<Awaited<ReturnType<typeof pinAgent>>>;
-
-export type PinAgentMutationError = ErrorType<unknown>;
-
-export const usePinAgent = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof pinAgent>>,
-    TError,
-    { sessionId: number },
-    TContext
-  >;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof pinAgent>>,
-  TError,
-  { sessionId: number },
-  TContext
-> => {
-  const mutationOptions = getPinAgentMutationOptions(options);
-
-  return useMutation(mutationOptions);
-};
-
-export const unpinAgent = (sessionId: number) => {
-  return customInstance<AgentPinResponse>({
-    url: `/api/agents/${sessionId}/pin`,
-    method: "DELETE",
-  });
-};
-
-export const getUnpinAgentMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof unpinAgent>>,
-    TError,
-    { sessionId: number },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof unpinAgent>>,
-  TError,
-  { sessionId: number },
-  TContext
-> => {
-  const mutationKey = ["unpinAgent"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof unpinAgent>>,
-    { sessionId: number }
-  > = (props) => {
-    const { sessionId } = props ?? {};
-
-    return unpinAgent(sessionId);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type UnpinAgentMutationResult = NonNullable<Awaited<ReturnType<typeof unpinAgent>>>;
-
-export type UnpinAgentMutationError = ErrorType<unknown>;
-
-export const useUnpinAgent = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof unpinAgent>>,
-    TError,
-    { sessionId: number },
-    TContext
-  >;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof unpinAgent>>,
-  TError,
-  { sessionId: number },
-  TContext
-> => {
-  const mutationOptions = getUnpinAgentMutationOptions(options);
-
-  return useMutation(mutationOptions);
-};
 
 export const listCustomModels = (signal?: AbortSignal) => {
   return customInstance<CustomModelsResponse>({
@@ -3945,6 +4028,70 @@ export const useCreateEditorFolder = <TError = ErrorType<unknown>, TContext = un
   return useMutation(mutationOptions);
 };
 
+export const format = (formatRequest: FormatRequest, signal?: AbortSignal) => {
+  return customInstance<FormatResponse>({
+    url: `/api/editor/format`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: formatRequest,
+    signal,
+  });
+};
+
+export const getFormatMutationOptions = <TError = ErrorType<void>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof format>>,
+    TError,
+    { data: FormatRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof format>>,
+  TError,
+  { data: FormatRequest },
+  TContext
+> => {
+  const mutationKey = ["format"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof format>>,
+    { data: FormatRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return format(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FormatMutationResult = NonNullable<Awaited<ReturnType<typeof format>>>;
+export type FormatMutationBody = FormatRequest;
+export type FormatMutationError = ErrorType<void>;
+
+export const useFormat = <TError = ErrorType<void>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof format>>,
+    TError,
+    { data: FormatRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof format>>,
+  TError,
+  { data: FormatRequest },
+  TContext
+> => {
+  const mutationOptions = getFormatMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
 export const moveEditorPath = (movePathRequest: MovePathRequest, signal?: AbortSignal) => {
   return customInstance<MovePathResponse>({
     url: `/api/editor/move`,
@@ -4405,6 +4552,59 @@ export function useTreeAll<
   options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof treeAll>>, TError, TData> },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getTreeAllQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const treeCount = (params: TreeCountParams, signal?: AbortSignal) => {
+  return customInstance<TreeCountResponse>({
+    url: `/api/editor/tree-count`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getTreeCountQueryKey = (params?: TreeCountParams) => {
+  return [`/api/editor/tree-count`, ...(params ? [params] : [])] as const;
+};
+
+export const getTreeCountQueryOptions = <
+  TData = Awaited<ReturnType<typeof treeCount>>,
+  TError = ErrorType<unknown>,
+>(
+  params: TreeCountParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof treeCount>>, TError, TData> },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getTreeCountQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof treeCount>>> = ({ signal }) =>
+    treeCount(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof treeCount>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type TreeCountQueryResult = NonNullable<Awaited<ReturnType<typeof treeCount>>>;
+export type TreeCountQueryError = ErrorType<unknown>;
+
+export function useTreeCount<
+  TData = Awaited<ReturnType<typeof treeCount>>,
+  TError = ErrorType<unknown>,
+>(
+  params: TreeCountParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof treeCount>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getTreeCountQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -4961,6 +5161,54 @@ export function useListFeatureActivity<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListFeatureActivityQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const listPinnedFeatures = (signal?: AbortSignal) => {
+  return customInstance<Feature[]>({ url: `/api/features/pinned`, method: "GET", signal });
+};
+
+export const getListPinnedFeaturesQueryKey = () => {
+  return [`/api/features/pinned`] as const;
+};
+
+export const getListPinnedFeaturesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPinnedFeatures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listPinnedFeatures>>, TError, TData>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPinnedFeaturesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPinnedFeatures>>> = ({ signal }) =>
+    listPinnedFeatures(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listPinnedFeatures>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListPinnedFeaturesQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPinnedFeatures>>
+>;
+export type ListPinnedFeaturesQueryError = ErrorType<unknown>;
+
+export function useListPinnedFeatures<
+  TData = Awaited<ReturnType<typeof listPinnedFeatures>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof listPinnedFeatures>>, TError, TData>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListPinnedFeaturesQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
@@ -5557,6 +5805,283 @@ export const useClearAllDiffViewed = <TError = ErrorType<unknown>, TContext = un
   return useMutation(mutationOptions);
 };
 
+export const getMessagePreview = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<MessagePreviewResponse>({
+    url: `/api/features/${featureId}/message-preview`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetMessagePreviewQueryKey = (featureId?: number) => {
+  return [`/api/features/${featureId}/message-preview`] as const;
+};
+
+export const getGetMessagePreviewQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMessagePreview>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getMessagePreview>>, TError, TData>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMessagePreviewQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMessagePreview>>> = ({ signal }) =>
+    getMessagePreview(featureId, signal);
+
+  return { queryKey, queryFn, enabled: !!featureId, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMessagePreview>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMessagePreviewQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMessagePreview>>
+>;
+export type GetMessagePreviewQueryError = ErrorType<unknown>;
+
+export function useGetMessagePreview<
+  TData = Awaited<ReturnType<typeof getMessagePreview>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getMessagePreview>>, TError, TData>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMessagePreviewQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+/**
+ * @summary The pending scheduled message for a conversation, or `null` when none is
+queued.
+ */
+export const getScheduledMessage = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<GetScheduledMessage200>({
+    url: `/api/features/${featureId}/scheduled-message`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetScheduledMessageQueryKey = (featureId?: number) => {
+  return [`/api/features/${featureId}/scheduled-message`] as const;
+};
+
+export const getGetScheduledMessageQueryOptions = <
+  TData = Awaited<ReturnType<typeof getScheduledMessage>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getScheduledMessage>>, TError, TData>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScheduledMessageQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScheduledMessage>>> = ({ signal }) =>
+    getScheduledMessage(featureId, signal);
+
+  return { queryKey, queryFn, enabled: !!featureId, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getScheduledMessage>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScheduledMessageQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getScheduledMessage>>
+>;
+export type GetScheduledMessageQueryError = ErrorType<unknown>;
+
+/**
+ * @summary The pending scheduled message for a conversation, or `null` when none is
+queued.
+ */
+
+export function useGetScheduledMessage<
+  TData = Awaited<ReturnType<typeof getScheduledMessage>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getScheduledMessage>>, TError, TData>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScheduledMessageQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+/**
+ * @summary Create or replace the pending scheduled message for a conversation.
+ */
+export const setScheduledMessage = (
+  featureId: number,
+  setScheduledMessageRequest: SetScheduledMessageRequest,
+) => {
+  return customInstance<ScheduledMessage>({
+    url: `/api/features/${featureId}/scheduled-message`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: setScheduledMessageRequest,
+  });
+};
+
+export const getSetScheduledMessageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setScheduledMessage>>,
+    TError,
+    { featureId: number; data: SetScheduledMessageRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setScheduledMessage>>,
+  TError,
+  { featureId: number; data: SetScheduledMessageRequest },
+  TContext
+> => {
+  const mutationKey = ["setScheduledMessage"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setScheduledMessage>>,
+    { featureId: number; data: SetScheduledMessageRequest }
+  > = (props) => {
+    const { featureId, data } = props ?? {};
+
+    return setScheduledMessage(featureId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetScheduledMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setScheduledMessage>>
+>;
+export type SetScheduledMessageMutationBody = SetScheduledMessageRequest;
+export type SetScheduledMessageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Create or replace the pending scheduled message for a conversation.
+ */
+export const useSetScheduledMessage = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setScheduledMessage>>,
+    TError,
+    { featureId: number; data: SetScheduledMessageRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setScheduledMessage>>,
+  TError,
+  { featureId: number; data: SetScheduledMessageRequest },
+  TContext
+> => {
+  const mutationOptions = getSetScheduledMessageMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+/**
+ * @summary Cancel the pending scheduled message for a conversation.
+ */
+export const deleteScheduledMessage = (featureId: number) => {
+  return customInstance<ScheduledMessageDeleted>({
+    url: `/api/features/${featureId}/scheduled-message`,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteScheduledMessageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScheduledMessage>>,
+    TError,
+    { featureId: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteScheduledMessage>>,
+  TError,
+  { featureId: number },
+  TContext
+> => {
+  const mutationKey = ["deleteScheduledMessage"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteScheduledMessage>>,
+    { featureId: number }
+  > = (props) => {
+    const { featureId } = props ?? {};
+
+    return deleteScheduledMessage(featureId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteScheduledMessageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteScheduledMessage>>
+>;
+
+export type DeleteScheduledMessageMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Cancel the pending scheduled message for a conversation.
+ */
+export const useDeleteScheduledMessage = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteScheduledMessage>>,
+    TError,
+    { featureId: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteScheduledMessage>>,
+  TError,
+  { featureId: number },
+  TContext
+> => {
+  const mutationOptions = getDeleteScheduledMessageMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
 export const getSessions = (featureId: number, signal?: AbortSignal) => {
   return customInstance<AgentSessionRow[]>({
     url: `/api/features/${featureId}/sessions`,
@@ -6046,6 +6571,74 @@ export const useSetFeatureModelSetting = <
   TContext
 > => {
   const mutationOptions = getSetFeatureModelSettingMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const updateFeaturePinned = (id: number, updatePinnedRequest: UpdatePinnedRequest) => {
+  return customInstance<FeaturesSuccessResponse>({
+    url: `/api/features/${id}/pin`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: updatePinnedRequest,
+  });
+};
+
+export const getUpdateFeaturePinnedMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateFeaturePinned>>,
+    TError,
+    { id: number; data: UpdatePinnedRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateFeaturePinned>>,
+  TError,
+  { id: number; data: UpdatePinnedRequest },
+  TContext
+> => {
+  const mutationKey = ["updateFeaturePinned"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateFeaturePinned>>,
+    { id: number; data: UpdatePinnedRequest }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateFeaturePinned(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateFeaturePinnedMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateFeaturePinned>>
+>;
+export type UpdateFeaturePinnedMutationBody = UpdatePinnedRequest;
+export type UpdateFeaturePinnedMutationError = ErrorType<unknown>;
+
+export const useUpdateFeaturePinned = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateFeaturePinned>>,
+    TError,
+    { id: number; data: UpdatePinnedRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateFeaturePinned>>,
+  TError,
+  { id: number; data: UpdatePinnedRequest },
+  TContext
+> => {
+  const mutationOptions = getUpdateFeaturePinnedMutationOptions(options);
 
   return useMutation(mutationOptions);
 };
@@ -8725,6 +9318,62 @@ export function useGetImportJob<
 }
 
 /**
+ * @summary Resolve the nearest ancestor root for `file_path`, bounded by
+`workspace_root`. Pure + filesystem-reading, but takes no app state so it's
+unit-testable with a tempdir.
+ */
+export const lspRoot = (params: LspRootParams, signal?: AbortSignal) => {
+  return customInstance<LspRootResponse>({ url: `/api/lsp/root`, method: "GET", params, signal });
+};
+
+export const getLspRootQueryKey = (params?: LspRootParams) => {
+  return [`/api/lsp/root`, ...(params ? [params] : [])] as const;
+};
+
+export const getLspRootQueryOptions = <
+  TData = Awaited<ReturnType<typeof lspRoot>>,
+  TError = ErrorType<void>,
+>(
+  params: LspRootParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof lspRoot>>, TError, TData> },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getLspRootQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof lspRoot>>> = ({ signal }) =>
+    lspRoot(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof lspRoot>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type LspRootQueryResult = NonNullable<Awaited<ReturnType<typeof lspRoot>>>;
+export type LspRootQueryError = ErrorType<void>;
+
+/**
+ * @summary Resolve the nearest ancestor root for `file_path`, bounded by
+`workspace_root`. Pure + filesystem-reading, but takes no app state so it's
+unit-testable with a tempdir.
+ */
+
+export function useLspRoot<TData = Awaited<ReturnType<typeof lspRoot>>, TError = ErrorType<void>>(
+  params: LspRootParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof lspRoot>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getLspRootQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+/**
  * @summary Inspect the LSP catalog and report each entry's installation state.
 Used by Settings → Editor; never triggers a download.
  */
@@ -9861,6 +10510,185 @@ export const usePutProjectSettingsFile = <
 
   return useMutation(mutationOptions);
 };
+
+export const subscribe = (pushSubscribeRequest: PushSubscribeRequest, signal?: AbortSignal) => {
+  return customInstance<PushSubscriptionResponse>({
+    url: `/api/push/subscribe`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: pushSubscribeRequest,
+    signal,
+  });
+};
+
+export const getSubscribeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof subscribe>>,
+    TError,
+    { data: PushSubscribeRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof subscribe>>,
+  TError,
+  { data: PushSubscribeRequest },
+  TContext
+> => {
+  const mutationKey = ["subscribe"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof subscribe>>,
+    { data: PushSubscribeRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return subscribe(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubscribeMutationResult = NonNullable<Awaited<ReturnType<typeof subscribe>>>;
+export type SubscribeMutationBody = PushSubscribeRequest;
+export type SubscribeMutationError = ErrorType<unknown>;
+
+export const useSubscribe = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof subscribe>>,
+    TError,
+    { data: PushSubscribeRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof subscribe>>,
+  TError,
+  { data: PushSubscribeRequest },
+  TContext
+> => {
+  const mutationOptions = getSubscribeMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const unsubscribe = (pushUnsubscribeRequest: PushUnsubscribeRequest) => {
+  return customInstance<PushSubscriptionResponse>({
+    url: `/api/push/subscribe`,
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    data: pushUnsubscribeRequest,
+  });
+};
+
+export const getUnsubscribeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unsubscribe>>,
+    TError,
+    { data: PushUnsubscribeRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof unsubscribe>>,
+  TError,
+  { data: PushUnsubscribeRequest },
+  TContext
+> => {
+  const mutationKey = ["unsubscribe"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof unsubscribe>>,
+    { data: PushUnsubscribeRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return unsubscribe(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UnsubscribeMutationResult = NonNullable<Awaited<ReturnType<typeof unsubscribe>>>;
+export type UnsubscribeMutationBody = PushUnsubscribeRequest;
+export type UnsubscribeMutationError = ErrorType<unknown>;
+
+export const useUnsubscribe = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof unsubscribe>>,
+    TError,
+    { data: PushUnsubscribeRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof unsubscribe>>,
+  TError,
+  { data: PushUnsubscribeRequest },
+  TContext
+> => {
+  const mutationOptions = getUnsubscribeMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const vapidKey = (signal?: AbortSignal) => {
+  return customInstance<VapidKeyResponse>({ url: `/api/push/vapid-key`, method: "GET", signal });
+};
+
+export const getVapidKeyQueryKey = () => {
+  return [`/api/push/vapid-key`] as const;
+};
+
+export const getVapidKeyQueryOptions = <
+  TData = Awaited<ReturnType<typeof vapidKey>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof vapidKey>>, TError, TData>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getVapidKeyQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof vapidKey>>> = ({ signal }) =>
+    vapidKey(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof vapidKey>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type VapidKeyQueryResult = NonNullable<Awaited<ReturnType<typeof vapidKey>>>;
+export type VapidKeyQueryError = ErrorType<unknown>;
+
+export function useVapidKey<
+  TData = Awaited<ReturnType<typeof vapidKey>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof vapidKey>>, TError, TData>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getVapidKeyQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
 
 export const remoteRevokeDevice = (id: number) => {
   return customInstance<RemoteStatus>({ url: `/api/remote/devices/${id}`, method: "DELETE" });

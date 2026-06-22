@@ -10,6 +10,28 @@ use super::permission::RuntimeSlashCommand;
 pub struct RuntimeEvent {
     pub(super) metadata: RuntimeEventMetadata,
     pub(super) kind: RuntimeEventKind,
+    /// Lifecycle signal for an out-of-band background agent (Claude Code's
+    /// `Agent`/`Task` tool with `run_in_background: true`). Populated only by
+    /// adapters that model such agents; `None` for every other event and
+    /// provider. The shared stream reader uses it to keep a session "working"
+    /// while a launched-and-detached agent is still running, instead of going
+    /// idle the moment the launching turn's `Result` arrives (issue #58).
+    pub(super) background_agent: Option<BackgroundAgentSignal>,
+}
+
+/// Provider-neutral lifecycle edge for a background (run-in-background) agent.
+///
+/// `agent_id` is an opaque, per-provider stable handle (Claude Code: the
+/// background task's `task_id`). The same id appears on the matching
+/// `Started` and `Finished` so the reader can pair them; an unmatched
+/// `Finished` (e.g. a sibling task that was never tracked) is a harmless
+/// no-op remove.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackgroundAgentSignal {
+    /// A background agent began running and is now detached from the turn.
+    Started { agent_id: String },
+    /// A background agent reached a terminal state (completed/failed/etc).
+    Finished { agent_id: String },
 }
 
 #[derive(Debug, Clone, Default)]

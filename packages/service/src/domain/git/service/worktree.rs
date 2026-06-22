@@ -5,10 +5,13 @@ use crate::domain::git::commands;
 use crate::domain::git::models::*;
 use crate::domain::git::repository;
 use crate::domain::git::workflow_service;
+use crate::domain::git::worktree_context::{
+    build_worktree_context, resolve_source_git_root, WorktreeContext,
+};
 use crate::error::AppError;
 
 use super::{
-    migrate_provider_config_into_worktree, normalize_git_path, SETTING_WORKTREE_BRANCH,
+    migrate_provider_config_for_context, normalize_git_path, SETTING_WORKTREE_BRANCH,
     SETTING_WORKTREE_PATH,
 };
 
@@ -36,15 +39,15 @@ pub async fn create_worktree(
     let prefix = repository::get_branch_prefix(&state.read_pool, body.project_id).await?;
     let branch_name = commands::build_branch_name(&prefix, &body.feature_title);
 
-    let (worktree_path, branch) =
-        commands::create_worktree(Path::new(&project_path), &branch_name, &project_name).await?;
-    migrate_provider_config_into_worktree(&project_path, &worktree_path).await?;
+    let (context, branch) =
+        create_and_migrate_worktree(&project_path, &project_name, &branch_name).await?;
+    let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
 
     repository::set_feature_setting(
         &state.write_pool,
         body.feature_id,
         SETTING_WORKTREE_PATH,
-        &worktree_path,
+        &session_cwd_str,
     )
     .await?;
     repository::set_feature_setting(
@@ -60,7 +63,7 @@ pub async fn create_worktree(
     // This needs to be implemented here to match the legacy behavior.
 
     Ok(CreateWorktreeResponse {
-        worktree_path,
+        worktree_path: session_cwd_str,
         branch,
     })
 }
@@ -156,15 +159,15 @@ pub async fn retry_worktree_setup(
         }
     };
 
-    let (worktree_path, branch) =
-        commands::create_worktree(Path::new(&project_path), &branch_name, &project_name).await?;
-    migrate_provider_config_into_worktree(&project_path, &worktree_path).await?;
+    let (context, branch) =
+        create_and_migrate_worktree(&project_path, &project_name, &branch_name).await?;
+    let session_cwd_str = context.session_cwd.to_string_lossy().to_string();
 
     repository::set_feature_setting(
         &state.write_pool,
         body.feature_id,
         SETTING_WORKTREE_PATH,
-        &worktree_path,
+        &session_cwd_str,
     )
     .await?;
     repository::set_feature_setting(
@@ -317,6 +320,27 @@ fn default_worktree_blocked() -> SuccessResponse {
 
 fn is_default_worktree_path(project_path: &str, worktree_path: &str) -> bool {
     normalize_git_path(project_path) == normalize_git_path(worktree_path)
+}
+
+async fn create_and_migrate_worktree(
+    project_path: &str,
+    project_name: &str,
+    branch_name: &str,
+) -> Result<(WorktreeContext, String), AppError> {
+    let selected_project_path = Path::new(project_path);
+    let source_root = resolve_source_git_root(selected_project_path)
+        .await
+        .map_err(AppError::Internal)?;
+    let (worktree_root, branch) =
+        commands::create_worktree(&source_root, branch_name, project_name).await?;
+    let context = build_worktree_context(
+        &source_root,
+        selected_project_path,
+        Path::new(&worktree_root),
+    )
+    .map_err(AppError::Internal)?;
+    migrate_provider_config_for_context(&context).await?;
+    Ok((context, branch))
 }
 
 pub(super) fn dirty_worktree_response() -> SuccessResponse {

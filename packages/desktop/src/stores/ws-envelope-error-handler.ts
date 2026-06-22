@@ -56,6 +56,7 @@ export function handleError(ctx: StoreAccessors, sessionId: string, payload: unk
     }),
     compactRequestPending: false,
     pendingManualCompact: false,
+    runtimeCompacting: false,
   };
   // A manual compaction holds the prompt turn — a follow-up `prompt.send` while
   // compacting fails the steering RPC and the backend emits `session.error`,

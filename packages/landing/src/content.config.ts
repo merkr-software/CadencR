@@ -12,15 +12,4 @@ const news = defineCollection({
   }),
 });
 
-const roadmap = defineCollection({
-  loader: glob({ base: "./src/content/roadmap", pattern: "**/*.{md,mdx}" }),
-  schema: z.object({
-    title: z.string(),
-    date: z.date(),
-    status: z.enum(["done", "in-progress", "planned"]),
-    category: z.string(),
-    order: z.number().default(0),
-  }),
-});
-
-export const collections = { news, roadmap };
+export const collections = { news };

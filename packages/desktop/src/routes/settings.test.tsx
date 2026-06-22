@@ -70,8 +70,17 @@ describe("SettingsPage route", () => {
     render(<SettingsPage />);
     // sidebar nav buttons (the visible ones, not the section headings)
     expect(screen.getAllByRole("button", { name: /Appearance/ }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /^MCP$/ }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /CLI Providers/ }).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: /Session Defaults/ })).not.toBeInTheDocument();
+  });
+
+  it("renders MCP as its own settings section", () => {
+    render(<SettingsPage />);
+    expect(screen.getByRole("heading", { name: "MCP" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("switch", { name: /workspace memory for agents/i }),
+    ).toBeInTheDocument();
   });
 
   it("renders runtime & models section with the model selector", () => {

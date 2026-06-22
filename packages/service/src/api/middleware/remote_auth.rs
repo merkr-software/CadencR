@@ -25,10 +25,18 @@ use crate::app_state::AppState;
 use crate::domain::remote::tokens;
 use crate::remote::RemoteContext;
 
+/// The authenticated device id, injected as a request extension by
+/// [`remote_auth_middleware`] once a device token verifies. Handlers on the
+/// remote router (e.g. push-subscription endpoints) read it via
+/// `Extension<DeviceId>` to key per-device state. Absent on bearer-exempt paths
+/// (pairing, static SPA assets, WS upgrades).
+#[derive(Clone, Copy, Debug)]
+pub struct DeviceId(pub i64);
+
 pub async fn remote_auth_middleware(
     State(state): State<AppState>,
     Extension(ctx): Extension<RemoteContext>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     if !host_allowed(&request, &ctx.allowed_hosts) {
@@ -55,13 +63,14 @@ pub async fn remote_auth_middleware(
     let Some(token) = presented else {
         return unauthorized();
     };
-    if tokens::verify_device_token(&state.read_pool, &ctx.pepper, token)
-        .await
-        .is_none()
-    {
+    let Some(device_id) = tokens::verify_device_token(&state.read_pool, &ctx.pepper, token).await
+    else {
         return unauthorized();
-    }
+    };
 
+    // Expose the verified device id so downstream handlers (push subscription)
+    // can key per-device state without re-hashing the token.
+    request.extensions_mut().insert(DeviceId(device_id));
     next.run(request).await
 }
 

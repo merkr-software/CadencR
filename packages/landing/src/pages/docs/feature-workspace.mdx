@@ -22,6 +22,7 @@ It gives you a single, focused space for:
 
 - the agent session doing the work,
 - the files you want to inspect or edit,
+- the browser for live previews, docs, or visual feedback,
 - the terminal for commands that need a human touch, and
 - the Git view for checking what changed before you call it done.
 
@@ -40,17 +41,17 @@ The exact layout can change a bit, but these are the usual suspects:
 
 You may see these as tabs, panes, or both. That is normal. The workspace is meant to help you move between thinking, checking, editing, and verifying without losing the thread.
 
-The four panes have one-stroke keyboard switches: <kbd>⌘ <ShiftIcon /> A</kbd> for Agent, <kbd>⌘ <ShiftIcon /> E</kbd> for Editor, <kbd>⌘ <ShiftIcon /> T</kbd> for Terminal, and <kbd>⌘ <ShiftIcon /> G</kbd> for Git.
+The main panes have one-stroke keyboard switches: <kbd>⌘ <ShiftIcon /> A</kbd> for Agent, <kbd>⌘ <ShiftIcon /> E</kbd> for Editor, <kbd>⌘ <ShiftIcon /> T</kbd> for Terminal, and <kbd>⌘ <ShiftIcon /> G</kbd> for Git. Open the Browser tab when you need a live page or want to send page context back to the agent.
 
 ### The feature header
 
 Above the panes you get a handful of header controls that are easy to miss:
 
 - **Feature label** — <kbd>⌘ <ShiftIcon /> L</kbd> to rename inline.
-- **Feature settings popover** — <kbd>⌘ <ShiftIcon /> P</kbd> (or <kbd>⌥ P</kbd>) for the per-feature options (provider, model defaults, working directory, …).
+- **Feature settings popover** — <kbd>⌘ <ShiftIcon /> P</kbd> (or <kbd>⌥ P</kbd>) for the per-feature options (provider profile, model defaults, working directory, …).
 - **Custom actions bar** — your saved actions live here; the `+` opens the action menu. See [Custom actions](../custom-actions/).
 - **Git actions** — <kbd>⌘ G</kbd> opens the popover with commit / push / compare; the branch picker is <kbd>⌘ B</kbd>.
-- **Archive** — <kbd>⌘ <ShiftIcon /> X</kbd> archives the feature (or permanently deletes it when run on an already-archived one). Archived features stay searchable from the sidebar; they are not destroyed on first press.
+- **Archive** — <kbd>⌘ <ShiftIcon /> X</kbd> archives the feature (or permanently deletes it when run on an already-archived one). Archived features stay searchable from the sidebar; they are not destroyed on first press. When terminals are still running, the archive / delete dialogs can also kill those terminals.
 
 ## A good way to work inside it
 
@@ -83,5 +84,6 @@ If you want the guided tour version, these pages are good next stops:
 - [Workspace pages](../workspace-pages/) for the big-picture tour of the app
 - [Session view](../session-view/) for reading and steering agent work
 - [Editor](../editor/) for file browsing, diffs, and manual changes
+- [Browser](../browser/) for live previews and page comments
 - [Terminal](../terminal/) for command-line tasks inside Cadencr
 - [Git in Cadencr](../git/) for reviewing changes with more confidence

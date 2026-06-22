@@ -4,48 +4,55 @@
  *
  * 1. Maps the file extension to an LSP `languageId` (returns no extensions
  *    for unsupported files — cmd-click is a no-op there).
- * 2. Lazily ensures an `LSPClient` exists for `(workspaceRoot, languageId)`.
- * 3. Registers a `displayFile` handler so cross-file LSP navigation lands
- *    in the same `(featureId, paneId)` the user clicked from.
- * 4. Returns the CodeMirror extensions the editor should mount + an
- *    observable `status` for the status-bar indicator.
+ * 2. Resolves the SET of language servers to run for the file from the
+ *    project's editor-tooling settings (type checker + optional linter) via
+ *    `resolveActiveServers`. For non-JS/TS languages this is the single
+ *    default server, keyed by the language id.
+ * 3. Acquires one refcounted client per server id (`useLspClients`), each
+ *    rooted at its own markers.
+ * 4. Registers a `displayFile` handler on the TYPE CHECKER's workspace so
+ *    cross-file LSP navigation lands in the same `(featureId, paneId)`.
+ * 5. Returns the COMBINED CodeMirror extension: one merged-diagnostics field
+ *    (so several servers' diagnostics union instead of clobbering), the type
+ *    checker's plugin FIRST (so go-to-definition / hover / completion target
+ *    it), then each linter's plugin, plus the shared cmd-click/hover/keymaps.
  *
- * The extension array is `[]` while the client is being created, then a
- * stable array once ready, so callers can feed the result into a
- * `Compartment` and reconfigure without remount.
+ * The extension array is `[]` while clients are being created, then a stable
+ * array once ready; callers feed it into a `Compartment`. When a socket dies
+ * and reconnects, the client identity changes and the extension gets a fresh
+ * identity so the editor re-mounts onto the new client.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { keymap, type EditorView } from "@codemirror/view";
 import { type Extension } from "@codemirror/state";
-import { renameKeymap, serverCompletion, type LSPClient } from "@codemirror/lsp-client";
-import { toast } from "sonner";
+import { serverCompletion } from "@codemirror/lsp-client";
 import { useEditorStore } from "@/stores/editor-store";
 import { getLspLanguageId } from "./language-id";
 import { pathToFileUri } from "./file-uri";
-import { acquireLspClient, releaseLspClient } from "./client-manager";
+import { resolveActiveServers } from "./active-servers";
+import { useProjectEditorTooling } from "./useProjectEditorTooling";
+import { useLspClients, type ReadyLspClient } from "./useLspClients";
+import { mergedDiagnostics } from "./merged-diagnostics";
 import { lspModClickExtension } from "./mod-click";
 import { lspModHoverExtension } from "./mod-hover";
 import { jumpToDefinitionKeymap } from "./definition";
-import { type CadencrWorkspace } from "./cadencr-workspace";
+import { lspLanguageFeatures } from "./language-features";
+import type { LspStatus } from "./lsp-status";
+
+export type { LspStatus } from "./lsp-status";
 
 interface UseLspArgs {
   workspaceRoot: string | undefined;
   filePath: string;
+  projectId: number;
   featureId: number;
   paneId: string;
+  /**
+   * When false, acquire no client and return an empty extension array + an
+   * idle status. Used by large-file read-only mode. Defaults to true.
+   */
+  enabled?: boolean;
 }
-
-/**
- * Coarse LSP state for the editor status bar.
- *
- * - `unsupported`: no language server is registered for this file's
- *   extension — cmd-click and hover are no-ops.
- * - `starting`: session reserved / WebSocket negotiating / server booting.
- * - `ready`: client + workspace are live; LSP requests succeed.
- * - `error`: session-open or transport failure; `errorMessage` carries the
- *   backend-supplied install hint or transport error verbatim.
- */
-export type LspStatus = "unsupported" | "starting" | "ready" | "error";
 
 export interface UseLspResult {
   /** CodeMirror extension to mount inside a Compartment. `[]` until ready. */
@@ -56,113 +63,90 @@ export interface UseLspResult {
   errorMessage?: string;
   /** Resolved LSP language id (e.g. `"typescript"`), or `null` if unsupported. */
   languageId: string | null;
+  /** Type checker's resolved LSP root, or `null` while resolving. */
+  resolvedRoot: string | null;
+  /** Force a fresh connection attempt on every active client. */
+  onRetry: () => void;
 }
 
 /** @public */
-export function useLsp({ workspaceRoot, filePath, featureId, paneId }: UseLspArgs): UseLspResult {
-  const [ready, setReady] = useState<{ client: LSPClient; workspace: CadencrWorkspace } | null>(
-    null,
+export function useLsp({
+  workspaceRoot,
+  filePath,
+  projectId,
+  featureId,
+  paneId,
+  enabled = true,
+}: UseLspArgs): UseLspResult {
+  const tooling = useProjectEditorTooling(projectId);
+
+  const languageId = useMemo(
+    () => (enabled ? getLspLanguageId(filePath) : null),
+    [enabled, filePath],
   );
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const languageId = useMemo(() => getLspLanguageId(filePath), [filePath]);
 
-  // Step 1: acquire a refcounted client. Re-run when the workspace root or
-  // language changes (i.e. the user opened a file in a different language).
-  // We always release on cleanup, even on error / unmount-before-resolve,
-  // so the refcount stays balanced — the client-manager's grace timer
-  // keeps the WS warm if the user re-mounts quickly.
-  useEffect(() => {
-    setErrorMessage(null);
-    if (!workspaceRoot || !languageId) {
-      setReady(null);
-      return;
-    }
-    let cancelled = false;
-    let acquiredKey: { workspaceRoot: string; languageId: string } | null = null;
-    acquireLspClient(workspaceRoot, languageId)
-      .then((entry) => {
-        acquiredKey = { workspaceRoot, languageId };
-        if (cancelled) {
-          // Lost the race against unmount; release immediately so the
-          // grace timer can run instead of leaking a refcount.
-          releaseLspClient(workspaceRoot, languageId);
-          return;
-        }
-        setReady(entry);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        const msg = err instanceof Error ? err.message : "Failed to start language server";
-        // Toast for one-shot feedback; status-bar indicator keeps the error
-        // visible until the next acquire attempt so the user can retry by
-        // closing & reopening the file.
-        toast.error(msg);
-        setErrorMessage(msg);
-      });
-    return () => {
-      cancelled = true;
-      if (acquiredKey) {
-        releaseLspClient(acquiredKey.workspaceRoot, acquiredKey.languageId);
-      }
-    };
-  }, [workspaceRoot, languageId]);
+  const absPath = useMemo(() => {
+    if (!workspaceRoot) return null;
+    return filePath.startsWith("/") ? filePath : `${workspaceRoot.replace(/\/$/, "")}/${filePath}`;
+  }, [workspaceRoot, filePath]);
 
-  // Step 2: register the displayFile handler so jumpToDefinition lands in
-  // the same pane the click came from. The workspace is shared across
-  // editors of the same language, so the handler points at *this* pane only
-  // while this editor is mounted.
+  // The set of server ids to run. `resolveActiveServers` returns null for
+  // non-JS/TS languages — those use the single default server keyed by the
+  // language id (preserving the original single-client behavior).
+  const lspIds = useMemo<string[]>(() => {
+    if (!languageId) return [];
+    const active = resolveActiveServers(languageId, {
+      typescriptServer: tooling.typescriptServer,
+      linter: tooling.linter,
+    });
+    return active ?? [languageId];
+  }, [languageId, tooling.typescriptServer, tooling.linter]);
+
+  const { clients, status, errorMessage, onRetry } = useLspClients({
+    workspaceRoot,
+    absPath,
+    languageId,
+    lspIds,
+  });
+
+  const typeChecker: ReadyLspClient | undefined = clients[0];
+
+  // Register the displayFile handler on the type checker's workspace so
+  // jumpToDefinition lands in the same pane the click came from.
   useEffect(() => {
-    if (!ready) return;
-    const handler = async (absPath: string): Promise<EditorView | null> => {
-      // The store mutation is synchronous; the new editor for this tab will
-      // mount asynchronously (Suspense). The workspace's `openFile` callback
-      // will resolve the pending wait once that view appears.
-      useEditorStore.getState().openFile(featureId, paneId, absPath);
+    if (!typeChecker) return;
+    const handler = async (absTarget: string): Promise<EditorView | null> => {
+      useEditorStore.getState().openFile(featureId, paneId, absTarget);
       return null;
     };
-    ready.workspace.setDisplayFileHandler(handler);
+    typeChecker.workspace.setDisplayFileHandler(handler);
     return () => {
-      // Only clear if we're still the active handler — another editor may
-      // have replaced us already (e.g. user switched panes mid-navigation).
-      ready.workspace.setDisplayFileHandler(null);
+      typeChecker.workspace.setDisplayFileHandler(null);
     };
-  }, [ready, featureId, paneId]);
+  }, [typeChecker, featureId, paneId]);
 
-  // Step 3: derive status from the inputs + acquire state.
-  const status: LspStatus = !languageId
-    ? "unsupported"
-    : errorMessage
-      ? "error"
-      : ready
-        ? "ready"
-        : "starting";
+  const resolvedRoot = typeChecker?.root ?? null;
 
-  // Step 4: build the extension list. Stable reference for the "not ready"
-  // case so React.memo'd parents don't re-render every tick.
+  // Build the combined extension. Order matters: the merged-diagnostics field
+  // is mounted once; the type checker's plugin is FIRST so `LSPPlugin.get`
+  // (used by go-to-definition / hover / completion) resolves to it; linter
+  // plugins follow (they only contribute diagnostics via their own bucket).
   const extension = useMemo<Extension>(() => {
-    if (!ready || !workspaceRoot || !languageId) return [];
-    const absPath = filePath.startsWith("/")
-      ? filePath
-      : `${workspaceRoot.replace(/\/$/, "")}/${filePath}`;
+    if (clients.length === 0 || !languageId || !absPath) return [];
     const uri = pathToFileUri(absPath);
+    const plugins = clients.map((c) => c.client.plugin(uri, languageId));
     return [
-      ready.client.plugin(uri, languageId),
-      // LSP-driven completion source. `editor-buffer-keymap` already mounts
-      // `autocompletion()` + `completionKeymap` (Ctrl-Space etc.), so this
-      // just plugs the server into the existing completion stack.
+      mergedDiagnostics(),
+      ...plugins,
       serverCompletion(),
-      keymap.of([
-        ...jumpToDefinitionKeymap,
-        // F2 → textDocument/rename. Opens an inline rename panel.
-        // (⇧⌥F formatting was removed: on macOS the chord types "Ï"
-        // into the buffer because the OS swallows ⌥F to produce a dead
-        // key. Reintroduce via a toast-driven command if needed.)
-        ...renameKeymap,
-      ]),
-      lspModClickExtension(),
+      lspLanguageFeatures,
+      keymap.of([...jumpToDefinitionKeymap]),
+      lspModClickExtension({ resolvedRoot, languageId: typeChecker?.lspId ?? languageId }),
       lspModHoverExtension(),
     ];
-  }, [ready, workspaceRoot, languageId, filePath]);
+  }, [clients, languageId, absPath, resolvedRoot, typeChecker]);
+
+  const handleRetry = useCallback(() => onRetry(), [onRetry]);
 
   return useMemo<UseLspResult>(
     () => ({
@@ -170,7 +154,9 @@ export function useLsp({ workspaceRoot, filePath, featureId, paneId }: UseLspArg
       status,
       errorMessage: errorMessage ?? undefined,
       languageId,
+      resolvedRoot,
+      onRetry: handleRetry,
     }),
-    [extension, status, errorMessage, languageId],
+    [extension, status, errorMessage, languageId, resolvedRoot, handleRetry],
   );
 }

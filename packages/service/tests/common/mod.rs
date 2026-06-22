@@ -132,6 +132,7 @@ async fn create_schema(pool: &SqlitePool) {
         label TEXT,
         model_session TEXT,
         agent_runtime_session TEXT,
+        is_pinned INTEGER NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now'))
     )"#,
     )

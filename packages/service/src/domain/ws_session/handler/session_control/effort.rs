@@ -7,6 +7,11 @@ use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 
+pub(super) enum EffortChangeError {
+    SessionNotFound,
+    Sdk(String),
+}
+
 /// Handle session.effort.set: change the thinking effort for subsequent turns.
 pub(crate) async fn handle_effort_set(
     envelope: WsEnvelope,
@@ -35,9 +40,48 @@ pub(crate) async fn handle_effort_set(
         }
     };
 
-    // The live turn may be owned by another connection (e.g. the host changing
-    // effort on a conversation started on a remote device). Operate on the
-    // owning map so the change reaches the running CLI, not just our viewer.
+    let feature_id = match apply_effort_change(
+        sdk_sessions,
+        app_state,
+        db_session_id,
+        payload.thinking_effort.clone(),
+    )
+    .await
+    {
+        Ok(feature_id) => feature_id,
+        Err(EffortChangeError::SessionNotFound) => {
+            send_error(
+                sender,
+                &envelope.id,
+                "SESSION_NOT_FOUND",
+                "Session not found",
+            );
+            return;
+        }
+        Err(EffortChangeError::Sdk(error)) => {
+            error!(db_session_id, %error, "failed to set thinking effort on active query");
+            send_error(sender, &envelope.id, "SDK_ERROR", &error);
+            return;
+        }
+    };
+
+    send_effort_set_ok(
+        app_state,
+        sender,
+        &envelope.id,
+        feature_id,
+        payload.thinking_effort,
+    )
+    .await;
+}
+
+pub(super) async fn apply_effort_change(
+    sdk_sessions: &SdkSessions,
+    app_state: &AppState,
+    db_session_id: i64,
+    thinking_effort: Option<String>,
+) -> Result<i64, EffortChangeError> {
+    // Reach the map that owns the live runtime, not just this viewer.
     let effective_sessions =
         super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
     let sdk_sessions = &effective_sessions;
@@ -55,24 +99,16 @@ pub(crate) async fn handle_effort_set(
         let mut sessions = sdk_sessions.lock().await;
         let handle = match sessions.get_mut(&db_session_id) {
             Some(h) => h,
-            None => {
-                send_error(
-                    sender,
-                    &envelope.id,
-                    "SESSION_NOT_FOUND",
-                    "Session not found",
-                );
-                return;
-            }
+            None => return Err(EffortChangeError::SessionNotFound),
         };
 
         info!(
             db_session_id,
-            thinking_effort = ?payload.thinking_effort,
+            thinking_effort = ?thinking_effort,
             "updating desired thinking effort"
         );
-        handle.desired_thinking_effort = payload.thinking_effort.clone();
-        handle.config.thinking_effort = payload.thinking_effort.clone();
+        handle.desired_thinking_effort = thinking_effort.clone();
+        handle.config.thinking_effort = thinking_effort.clone();
 
         let provider = handle.runtime_provider.clone();
         let model = handle
@@ -83,7 +119,7 @@ pub(crate) async fn handle_effort_set(
 
         let active = match &mut handle.state {
             QueryState::Pending(options) => {
-                options.thinking_effort = payload.thinking_effort.clone();
+                options.thinking_effort = thinking_effort.clone();
                 None
             }
             QueryState::Active { query, .. } => Some(query.clone()),
@@ -94,16 +130,14 @@ pub(crate) async fn handle_effort_set(
     if let Some(query) = active_query {
         let q = query.read().await;
         let applies_in_place = q.applies_thinking_effort_in_place();
-        if let Err(error) = q.set_thinking_effort(payload.thinking_effort.clone()).await {
-            error!(db_session_id, %error, "failed to set thinking effort on active query");
-            send_error(sender, &envelope.id, "SDK_ERROR", &error.to_string());
-            return;
-        }
+        q.set_thinking_effort(thinking_effort.clone())
+            .await
+            .map_err(|error| EffortChangeError::Sdk(error.to_string()))?;
 
         if applies_in_place {
             let mut sessions = sdk_sessions.lock().await;
             if let Some(handle) = sessions.get_mut(&db_session_id) {
-                handle.spawned_thinking_effort = payload.thinking_effort.clone();
+                handle.spawned_thinking_effort = thinking_effort.clone();
             }
         }
     }
@@ -114,7 +148,7 @@ pub(crate) async fn handle_effort_set(
     WsSessionPersistence::update_thinking_effort_static(
         &app_state.write_pool,
         db_session_id,
-        payload.thinking_effort.as_deref(),
+        thinking_effort.as_deref(),
     )
     .await;
 
@@ -122,7 +156,7 @@ pub(crate) async fn handle_effort_set(
     // the same model start at the level the user just chose. Resets (None)
     // intentionally do not erase the default — clearing for one conversation
     // shouldn't surprise the next new one.
-    if let (Some(ref effort), Some(ref model_id)) = (&payload.thinking_effort, &current_model) {
+    if let (Some(ref effort), Some(ref model_id)) = (&thinking_effort, &current_model) {
         let key = crate::domain::settings::thinking_effort_model_key(&runtime_provider, model_id);
         if let Err(error) =
             crate::domain::workspace::repository::set_setting(&app_state.write_pool, &key, effort)
@@ -137,14 +171,24 @@ pub(crate) async fn handle_effort_set(
         }
     }
 
+    Ok(feature_id)
+}
+
+pub(super) async fn send_effort_set_ok(
+    app_state: &AppState,
+    sender: &WsSender,
+    envelope_id: &str,
+    feature_id: i64,
+    thinking_effort: Option<String>,
+) {
     // Reply to the caller and mirror to other devices so their effort chip updates.
     super::reply_and_broadcast(
         app_state,
         sender,
-        &envelope.id,
+        envelope_id,
         feature_id,
         "effort.set.ok",
-        serde_json::json!({ "thinking_effort": payload.thinking_effort }),
+        serde_json::json!({ "thinking_effort": thinking_effort }),
     )
     .await;
 }

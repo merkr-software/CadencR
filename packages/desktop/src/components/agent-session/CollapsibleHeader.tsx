@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { SlidingText } from "@/components/SlidingText";
 
-interface BadgeConfig {
+export interface BadgeConfig {
   label: React.ReactNode;
   className: string;
   icon?: React.ReactNode;

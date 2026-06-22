@@ -4,8 +4,10 @@ use axum::Router;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::file_size;
 use super::service;
 use super::tree_all;
+use super::tree_count;
 use crate::app_state::AppState;
 use crate::domain::projects::service::resolve_feature_editor_root;
 use crate::error::AppError;
@@ -28,6 +30,9 @@ pub struct ReadFileParams {
 pub struct ReadFileResponse {
     pub content: String,
     pub line_count: u64,
+    /// True when the file is at or above `file_size::LARGE_FILE_OPEN_BYTES`.
+    /// The frontend opens these read-only with language features disabled.
+    pub large: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -80,6 +85,22 @@ pub struct FileTreeEntry {
     pub is_gitignored: bool,
 }
 
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct TreeCountParams {
+    pub project_id: i64,
+    #[serde(default)]
+    pub feature_id: Option<i64>,
+    /// When true, gitignored sub-trees (`node_modules`, `target`, …) are not
+    /// counted — matching the fast `tree-all` walk the editor renders.
+    #[serde(default)]
+    pub exclude_gitignored: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TreeCountResponse {
+    pub count: u64,
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -102,7 +123,9 @@ pub async fn read_file_handler(
             ));
         }
 
-        const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
+        // High OOM guard only — text files of any reasonable size open; very
+        // large ones open read-only on the frontend via the `large` flag.
+        const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
         let metadata = std::fs::metadata(&path).map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => {
                 AppError::NotFound(format!("File not found: {}", path.display()))
@@ -111,7 +134,7 @@ pub async fn read_file_handler(
         })?;
         if metadata.len() > MAX_FILE_SIZE {
             return Err(AppError::BadRequest(
-                "File exceeds 5MB size limit".to_string(),
+                "File exceeds 100MB size limit".to_string(),
             ));
         }
 
@@ -126,15 +149,12 @@ pub async fn read_file_handler(
         })?;
 
         let line_count = content.lines().count() as u64;
-        if line_count > 10_000 {
-            return Err(AppError::BadRequest(
-                "File exceeds 10,000 line limit".to_string(),
-            ));
-        }
+        let large = metadata.len() >= file_size::LARGE_FILE_OPEN_BYTES;
 
         Ok(ReadFileResponse {
             content,
             line_count,
+            large,
         })
     })
     .await
@@ -253,6 +273,26 @@ pub async fn tree_all_handler(
     .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
 
     Ok(axum::Json(entries))
+}
+
+#[utoipa::path(get, path = "/api/editor/tree-count",
+    params(TreeCountParams),
+    responses((status = 200, body = TreeCountResponse)))]
+pub async fn tree_count_handler(
+    State(state): State<AppState>,
+    Query(params): Query<TreeCountParams>,
+) -> Result<axum::Json<TreeCountResponse>, AppError> {
+    let project_root =
+        resolve_feature_editor_root(&state.read_pool, params.project_id, params.feature_id).await?;
+    let exclude_gitignored = params.exclude_gitignored;
+
+    let count = tokio::task::spawn_blocking(move || {
+        tree_count::count_entries(&project_root, exclude_gitignored)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;
+
+    Ok(axum::Json(TreeCountResponse { count }))
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +433,7 @@ pub fn editor_router() -> Router<AppState> {
         .route("/api/editor/write", post(write_file_handler))
         .route("/api/editor/tree", get(tree_handler))
         .route("/api/editor/tree-all", get(tree_all_handler))
+        .route("/api/editor/tree-count", get(tree_count_handler))
         .route("/api/editor/search", get(search_handler))
         .route("/api/editor/content-search", get(content_search_handler))
 }

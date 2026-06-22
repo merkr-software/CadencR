@@ -45,6 +45,7 @@ vi.mock("@/api/generated", () => ({
       opts?.mutation?.onSuccess?.();
     },
   })),
+  useUpdateFeaturePinned: vi.fn(() => ({ mutate: vi.fn() })),
   useDeleteFeature: vi.fn(
     (opts?: { mutation?: { onSuccess?: (data: unknown, variables: { id: number }) => void } }) => ({
       mutate: (data: { id: number }) => {

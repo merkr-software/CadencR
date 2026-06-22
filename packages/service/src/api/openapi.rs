@@ -24,8 +24,12 @@ use crate::domain::imports::routes as imports_routes;
 use crate::domain::lsp::routes as lsp_routes;
 use crate::domain::projects::models as projects_models;
 use crate::domain::projects::routes as projects_routes;
+use crate::domain::push::models as push_models;
+use crate::domain::push::routes as push_routes;
 use crate::domain::remote::models as remote_models;
 use crate::domain::remote::routes as remote_routes;
+use crate::domain::scheduled_messages::models as scheduled_messages_models;
+use crate::domain::scheduled_messages::routes as scheduled_messages_routes;
 use crate::domain::sessions::models as sessions_models;
 use crate::domain::sessions::routes as sessions_routes;
 use crate::domain::terminal::routes as terminal_routes;
@@ -80,8 +84,10 @@ use crate::domain::workspace::routes as workspace_routes;
         // so the generated react-query hook would just take a `customInstance<unknown>`
         // round-trip. The frontend calls the endpoint directly via Axios instead.
         editor_routes::write_file_handler,
+        crate::domain::editor::format::format_handler,
         editor_routes::tree_handler,
         editor_routes::tree_all_handler,
+        editor_routes::tree_count_handler,
         editor_routes::content_search_handler,
         editor_routes::search_handler,
         editor_mutation_routes::create_editor_file_handler,
@@ -112,12 +118,14 @@ use crate::domain::workspace::routes as workspace_routes;
         projects_routes::set_project_provider_setting_handler,
         features_routes::list_features_handler,
         features_routes::list_feature_activity_handler,
+        features_routes::list_pinned_features_handler,
         features_routes::create_feature_handler,
         features_routes::get_feature_handler,
         features_routes::delete_feature_handler,
         features_routes::update_feature_title_handler,
         features_routes::update_feature_status_handler,
         features_routes::update_feature_label_handler,
+        features_routes::update_feature_pinned_handler,
         features_routes::is_empty_handler,
         features_routes::get_feature_settings_handler,
         features_routes::set_feature_setting_handler,
@@ -139,6 +147,9 @@ use crate::domain::workspace::routes as workspace_routes;
         custom_actions_routes::cancel_run_handler,
         custom_actions_routes::get_schedule_handler,
         custom_actions_routes::set_schedule_handler,
+        scheduled_messages_routes::get_scheduled_message_handler,
+        scheduled_messages_routes::set_scheduled_message_handler,
+        scheduled_messages_routes::delete_scheduled_message_handler,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
         feature_layouts_routes::update_layout_handler,
@@ -157,11 +168,10 @@ use crate::domain::workspace::routes as workspace_routes;
         sessions_routes::get_sessions_handler,
         sessions_routes::get_feature_agent_state_handler,
         sessions_routes::get_unified_agents_handler,
-        sessions_routes::pin_agent_handler,
-        sessions_routes::unpin_agent_handler,
         sessions_routes::get_draft_handler,
         sessions_routes::save_draft_handler,
         sessions_routes::get_message_full_content_handler,
+        sessions_routes::get_message_preview_handler,
         terminal_routes::list_terminal_sessions_handler,
         terminal_routes::kill_terminal_sessions_handler,
         super::get_agent_catalog,
@@ -175,6 +185,7 @@ use crate::domain::workspace::routes as workspace_routes;
         claude_code_routes::delete_custom_model_handler,
         lsp_routes::open_session_handler,
         lsp_routes::list_servers_handler,
+        crate::domain::lsp::root::lsp_root_handler,
         imports_routes::list_claude_code_conversations_handler,
         imports_routes::list_provider_conversations_handler,
         imports_routes::start_claude_code_import_handler,
@@ -187,6 +198,9 @@ use crate::domain::workspace::routes as workspace_routes;
         remote_routes::revoke_handler,
         remote_routes::set_tunnel_host_handler,
         remote_routes::pair_handler,
+        push_routes::vapid_key_handler,
+        push_routes::subscribe_handler,
+        push_routes::unsubscribe_handler,
     ),
     components(schemas(
         HealthResponse,
@@ -243,7 +257,10 @@ use crate::domain::workspace::routes as workspace_routes;
         editor_routes::ReadFileResponse,
         editor_routes::WriteFileRequest,
         editor_routes::WriteFileResponse,
+        crate::domain::editor::format::FormatRequest,
+        crate::domain::editor::format::FormatResponse,
         editor_routes::FileTreeEntry,
+        editor_routes::TreeCountResponse,
         editor_routes::ContentMatch,
         editor_routes::ContentSearchResponse,
         editor_routes::FileMatchResult,
@@ -286,6 +303,7 @@ use crate::domain::workspace::routes as workspace_routes;
         features_models::UpdateTitleRequest,
         features_models::UpdateStatusRequest,
         features_models::UpdateLabelRequest,
+        features_models::UpdatePinnedRequest,
         features_models::IsEmptyResponse,
         features_models::WorkingDirResponse,
         features_models::FeatureSetting,
@@ -309,6 +327,9 @@ use crate::domain::workspace::routes as workspace_routes;
         custom_actions_models::Scope,
         custom_actions_models::TriggeredBy,
         custom_actions_models::SuccessResponse,
+        scheduled_messages_models::ScheduledMessage,
+        scheduled_messages_models::SetScheduledMessageRequest,
+        scheduled_messages_models::ScheduledMessageDeleted,
         feature_layouts_models::FeatureLayout,
         feature_layouts_models::CreateFeatureLayoutRequest,
         feature_layouts_models::UpdateFeatureLayoutRequest,
@@ -330,11 +351,11 @@ use crate::domain::workspace::routes as workspace_routes;
         sessions_models::UnifiedAgentFeature,
         sessions_models::UnifiedAgentEntry,
         sessions_models::UnifiedAgentsResponse,
-        sessions_models::AgentPinResponse,
         sessions_models::DraftResponse,
         sessions_models::SaveDraftRequest,
         sessions_models::SaveDraftResponse,
         sessions_models::MessageFullContentResponse,
+        sessions_models::MessagePreviewResponse,
         terminal_routes::TerminalSessionInfo,
         terminal_routes::KillTerminalsResponse,
         claude_code_routes::ProfileView,
@@ -347,8 +368,10 @@ use crate::domain::workspace::routes as workspace_routes;
         lsp_routes::OpenLspSessionRequest,
         lsp_routes::OpenLspSessionResponse,
         lsp_routes::ListServersResponse,
+        crate::domain::lsp::root::LspRootResponse,
         crate::domain::lsp::probe::ServerProbe,
         crate::domain::lsp::probe::ServerProbeStatus,
+        crate::domain::lsp::catalog::ServerRole,
         imports_models::ImportConversationSummary,
         imports_models::ListImportConversationsResponse,
         imports_models::StartImportRequest,
@@ -366,6 +389,11 @@ use crate::domain::workspace::routes as workspace_routes;
         remote_models::PairRequest,
         remote_models::PairResponse,
         remote_models::TunnelHostRequest,
+        push_models::VapidKeyResponse,
+        push_models::PushSubscribeRequest,
+        push_models::PushUnsubscribeRequest,
+        push_models::PushSubscriptionKeys,
+        push_models::PushSubscriptionResponse,
     ))
 )]
 struct ApiDoc;

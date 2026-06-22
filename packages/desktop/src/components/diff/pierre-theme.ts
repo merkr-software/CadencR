@@ -9,6 +9,8 @@ const CADENCR_MONOKAI_DIFF_THEME = "cadencr-monokai-diff";
 const CADENCR_MONOKAI_LIGHT_DIFF_THEME = "cadencr-monokai-light-diff";
 const CADENCR_FROST_DARK_DIFF_THEME = "cadencr-frost-dark-diff";
 const CADENCR_FROST_LIGHT_DIFF_THEME = "cadencr-frost-light-diff";
+const CADENCR_CARBON_OWL_DIFF_THEME = "cadencr-carbon-owl-diff";
+const CADENCR_PAPER_OWL_DIFF_THEME = "cadencr-paper-owl-diff";
 
 type PierreThemeName =
   | typeof CADENCR_DRACULA_DIFF_THEME
@@ -18,7 +20,9 @@ type PierreThemeName =
   | typeof CADENCR_MONOKAI_DIFF_THEME
   | typeof CADENCR_MONOKAI_LIGHT_DIFF_THEME
   | typeof CADENCR_FROST_DARK_DIFF_THEME
-  | typeof CADENCR_FROST_LIGHT_DIFF_THEME;
+  | typeof CADENCR_FROST_LIGHT_DIFF_THEME
+  | typeof CADENCR_CARBON_OWL_DIFF_THEME
+  | typeof CADENCR_PAPER_OWL_DIFF_THEME;
 type PierreThemeRegistration = Parameters<typeof registerCustomTheme>[1] extends () => Promise<
   infer Theme
 >
@@ -260,6 +264,50 @@ const FROST_LIGHT_THEME = buildPierreTheme(
   },
 );
 
+const CARBON_OWL_THEME = buildPierreTheme(
+  CADENCR_CARBON_OWL_DIFF_THEME,
+  "dark",
+  {
+    background: "#1b1d22",
+    foreground: "#bbbbbb",
+    lineHighlight: "#22262d",
+    selection: "#353d49",
+  },
+  {
+    comment: "#6c7689",
+    keyword: "#d39e17",
+    string: "#37ae6f",
+    number: "#c13838",
+    function: "#3398db",
+    type: "#a15def",
+    tag: "#de456b",
+    deleted: "#c13838",
+    inserted: "#37ae6f",
+  },
+);
+
+const PAPER_OWL_THEME = buildPierreTheme(
+  CADENCR_PAPER_OWL_DIFF_THEME,
+  "light",
+  {
+    background: "#f7f4ec",
+    foreground: "#403f53",
+    lineHighlight: "#ece7db",
+    selection: "#d3e8f8",
+  },
+  {
+    comment: "#7e8595",
+    keyword: "#994cc3",
+    string: "#08916a",
+    number: "#aa0982",
+    function: "#4876d6",
+    type: "#0c969b",
+    tag: "#d3423e",
+    deleted: "#d3423e",
+    inserted: "#08916a",
+  },
+);
+
 let registered = false;
 
 export function ensurePierreThemesRegistered(): void {
@@ -272,6 +320,8 @@ export function ensurePierreThemesRegistered(): void {
   registerCustomTheme(CADENCR_MONOKAI_LIGHT_DIFF_THEME, () => Promise.resolve(MONOKAI_LIGHT_THEME));
   registerCustomTheme(CADENCR_FROST_DARK_DIFF_THEME, () => Promise.resolve(FROST_DARK_THEME));
   registerCustomTheme(CADENCR_FROST_LIGHT_DIFF_THEME, () => Promise.resolve(FROST_LIGHT_THEME));
+  registerCustomTheme(CADENCR_CARBON_OWL_DIFF_THEME, () => Promise.resolve(CARBON_OWL_THEME));
+  registerCustomTheme(CADENCR_PAPER_OWL_DIFF_THEME, () => Promise.resolve(PAPER_OWL_THEME));
   registered = true;
 }
 
@@ -293,5 +343,9 @@ export function getPierreThemeName(themeId: ThemeId): PierreThemeName {
       return CADENCR_FROST_DARK_DIFF_THEME;
     case "frost-light":
       return CADENCR_FROST_LIGHT_DIFF_THEME;
+    case "carbon-owl":
+      return CADENCR_CARBON_OWL_DIFF_THEME;
+    case "paper-owl":
+      return CADENCR_PAPER_OWL_DIFF_THEME;
   }
 }

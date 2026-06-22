@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, type Ref } from "react";
+import { memo, useCallback, useMemo, useRef, type MutableRefObject, type Ref } from "react";
 import { Loader2Icon } from "lucide-react";
 import {
   Virtuoso,
@@ -10,6 +10,7 @@ import {
 import { type AgentBlockData, buildToolResultMap } from "./AgentBlock";
 import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
+import { ConversationSearch } from "./agent-session/ConversationSearch";
 import { buildDisplayItems, filterRenderableBlocks, type DisplayItem } from "./agentStreamDisplay";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { isTurnInProgress } from "@/components/TurnWorkingLabel";
@@ -80,6 +81,11 @@ interface AgentStreamProps {
   /** Number of rendered Virtuoso rows prepended by older-history pagination. */
   historyPrependDisplayOffset?: number;
   verbosityMode?: AgentVerbosityMode;
+  /**
+   * Enables the ⌘F find-in-conversation bar. Passed down as the agent-tab
+   * focus gate so search only binds/opens for the visible feature workspace.
+   */
+  searchEnabled?: boolean;
 }
 
 const StreamingCursor = memo(function StreamingCursor({ label }: { label: string }) {
@@ -159,6 +165,7 @@ export const AgentStream = memo(function AgentStream({
   isLoadingOlder = false,
   historyPrependDisplayOffset = 0,
   verbosityMode = "maximal",
+  searchEnabled = false,
 }: AgentStreamProps) {
   const rootBlocks = useRootBlocks(blocks, rootBlocksProp);
   const displayBlocks = useMemo(() => filterRenderableBlocks(rootBlocks), [rootBlocks]);
@@ -185,9 +192,24 @@ export const AgentStream = memo(function AgentStream({
     }),
     [isStreaming, lastBlockId, lifecycle, showStreamingIndicator, workingLabel],
   );
+  // Local handles so the search overlay can drive scroll-to-match and walk the
+  // scroller for highlighting, while still forwarding both refs to the owner.
+  const localVirtuosoRef = useRef<VirtuosoHandle | null>(null);
+  const scrollerElRef = useRef<HTMLElement | null>(null);
+  const setVirtuoso = useCallback(
+    (handle: VirtuosoHandle | null): void => {
+      localVirtuosoRef.current = handle;
+      if (typeof virtuosoRef === "function") virtuosoRef(handle);
+      else if (virtuosoRef)
+        (virtuosoRef as MutableRefObject<VirtuosoHandle | null>).current = handle;
+    },
+    [virtuosoRef],
+  );
   const onScroller = useCallback(
     (el: HTMLElement | Window | null): void => {
-      scrollContainerRef?.(el instanceof HTMLElement ? el : null);
+      const element = el instanceof HTMLElement ? el : null;
+      scrollerElRef.current = element;
+      scrollContainerRef?.(element);
     },
     [scrollContainerRef],
   );
@@ -239,11 +261,19 @@ export const AgentStream = memo(function AgentStream({
   return (
     <div className="relative h-full">
       {isLoadingOlder && <LoadingOlderOverlay />}
+      {searchEnabled && (
+        <ConversationSearch
+          enabled={searchEnabled}
+          items={displayItems}
+          virtuosoRef={localVirtuosoRef}
+          scrollerRef={scrollerElRef}
+        />
+      )}
       <Virtuoso
         data-testid="agent-stream-scroller"
         className="h-full overflow-x-hidden"
         style={{ height: "100%" }}
-        ref={virtuosoRef}
+        ref={setVirtuoso}
         scrollerRef={onScroller}
         data={displayItems}
         firstItemIndex={firstItemIndex}

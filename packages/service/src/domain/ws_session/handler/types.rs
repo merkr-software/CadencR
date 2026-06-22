@@ -87,5 +87,9 @@ pub struct SdkHandle {
     pub(super) manual_compact_spawn_pending: Arc<AtomicBool>,
 }
 
-pub(super) type SdkSessions = Arc<Mutex<HashMap<i64, SdkHandle>>>;
+pub(crate) type SdkSessions = Arc<Mutex<HashMap<i64, SdkHandle>>>;
 pub(super) type WsSender = mpsc::UnboundedSender<Message>;
+
+pub(crate) fn new_sdk_sessions() -> SdkSessions {
+    Arc::new(Mutex::new(HashMap::new()))
+}

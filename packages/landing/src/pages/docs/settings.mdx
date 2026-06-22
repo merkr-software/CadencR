@@ -6,7 +6,7 @@ description: "A quick tour of every Settings section, what lives there, and when
 
 import DocCallout from "@/components/docs/DocCallout.astro";
 
-Settings is the app-wide preferences page. You probably will not spend much time here, but most of the “how do I change…?” answers live in one of its sections. Open it any time with <kbd>⌘ ,</kbd>; close it with <kbd>Esc</kbd>.
+Settings is the app-wide preferences page. You probably will not spend much time here, but most of the “how do I change…?” answers live in one of its sections. Open it any time with <kbd>⌘ ,</kbd>; close it with <kbd>Esc</kbd>. Settings are saved as JSON files, so global and project preferences can travel with the project instead of being hidden only in the app database.
 
 ## Sections at a glance
 
@@ -16,10 +16,28 @@ Settings is the app-wide preferences page. You probably will not spend much time
 | **Editor**           | Editor preferences for the built-in CodeMirror surface                                  |
 | **Interface & Zoom** | Density and zoom-level preferences for the whole app                                    |
 | **Notifications**    | When (and how loudly) Cadencr pings you about agent activity                            |
+| **Browser**          | Default cookie mode for new Browser tabs                                                |
+| **MCP**              | Cadencr-owned agent tool servers for Browser, project, and workspace context            |
 | **Runtime & Models** | Provider runtime toggles — bypass permissions, full-access modes, and **Custom models** |
 | **Git**              | Default merge strategy and Git-related behaviour                                        |
 | **CLI Providers**    | Per-provider profiles, binary discovery, and which agent CLI Cadencr should use         |
 | **About**            | Build info and a button to replay the onboarding tour                                   |
+
+## Browser and notifications
+
+The **Browser** section controls the default cookie mode for new Browser tabs: normal for reused cookies and logins, or private for an in-memory session that clears when the tab closes.
+
+The **Notifications** section covers local notifications and remote Web Push. Remote push is useful when you want Cadencr to notify another device about agent progress, but it still depends on Cadencr running where the work is happening.
+
+## MCP tool servers
+
+The **MCP** section controls Cadencr-owned tool servers that can be exposed to agents on the next turn:
+
+- **Browser MCP** lets agents open local pages, inspect browser state, and drive the Browser tab.
+- **Project MCP** lets agents inspect, compare, spawn, and message sessions in the current project.
+- **Workspace MCP** lets agents search and read conversation history across Cadencr projects.
+
+Leave these off unless you want agents to have that extra context or orchestration ability for the work you are doing.
 
 ## Provider profiles & custom models
 
@@ -43,5 +61,6 @@ These pair best with [worktrees](../worktrees/), so a runaway agent only ever to
 ## Related docs
 
 - [Approvals & permissions](../approvals/) — the prompts these settings tune
+- [Browser](../browser/) — default Browser mode
 - [Prompt](../prompting/) — model picker and permission-mode cycle from the prompt bar
 - [Shortcuts](../shortcuts/) — <kbd>⌘ ,</kbd> and friends

@@ -13,9 +13,10 @@ pub use config::{
 };
 pub use error::RuntimeError;
 pub use event_types::{
-    RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeContentBlock, RuntimeContentDelta,
-    RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeStreamEvent,
-    RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserContentBlock, RuntimeUserMessage,
+    BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeContentBlock,
+    RuntimeContentDelta, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent,
+    RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserContentBlock,
+    RuntimeUserMessage,
 };
 pub use permission::{
     RuntimeCompactionStrategy, RuntimePermissionDecision, RuntimePermissionOption,

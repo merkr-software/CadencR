@@ -26,6 +26,7 @@ import { useListBranches, type BranchInfo } from "@/api/generated";
 import { useBranchList, type BranchListRowContext } from "@/components/branch-chip/BranchList";
 import {
   branchWorktreeState,
+  firstPromptBranchEffect,
   isWorktreeModeDisabled,
   type WorktreeMode,
 } from "@/lib/worktree-mode";
@@ -126,6 +127,10 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
   });
 
   const branchLabel = state.effectiveBranch ?? "branch";
+  // What the *first prompt* will actually do — the checkout/provisioning is
+  // deferred until send, so surface that here rather than letting the chip
+  // imply the branch already switched.
+  const effectHint = firstPromptBranchEffect({ mode, selectedBranch, defaultBranch });
 
   return (
     <div className={WORKTREE_GROUP}>
@@ -133,7 +138,11 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
           (project default when nothing is picked). */}
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
-          <button type="button" className={cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")}>
+          <button
+            type="button"
+            className={cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")}
+            title={effectHint ?? undefined}
+          >
             <GitBranchIcon className="size-3" />
             <span className="truncate max-w-[160px]">{branchLabel}</span>
             <ChevronDownIcon className="size-3 opacity-70" />
@@ -187,7 +196,12 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
       <div className="w-px bg-border" aria-hidden="true" />
 
       {/* Mode segment. */}
-      <WorktreeModePicker mode={mode} onModeChange={onModeChange} state={state} />
+      <WorktreeModePicker
+        mode={mode}
+        onModeChange={onModeChange}
+        state={state}
+        effectHint={effectHint}
+      />
     </div>
   );
 });

@@ -14,6 +14,7 @@ import {
   useIsFeatureEmpty,
   useUpdateFeatureStatus,
   useUpdateFeatureLabel,
+  useUpdateFeaturePinned,
   useDeleteFeature,
   useListFeatureWorktrees,
   type Feature,
@@ -27,7 +28,7 @@ import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
-import { getFileName } from "@/lib/file-language";
+import { partitionActiveFeatures } from "@/lib/feature-grouping";
 import { useFeatureActivityCounts } from "@/hooks/useFeatureActivityCounts";
 import {
   deleteFeatureDialogTitle,
@@ -88,42 +89,13 @@ export function ProjectFeatures({
     return map;
   }, [featureWorktrees]);
 
-  const { worktreeGroups, flatActiveFeatures } = useMemo(() => {
-    // First pass: count features per non-main worktree path so we know which
-    // paths qualify as groups (>= 2 features).
-    const counts = new Map<string, number>();
-    for (const f of activeFeatures) {
-      const wt = worktreeByFeatureId.get(f.id);
-      if (wt && wt.worktree_path !== projectPath) {
-        counts.set(wt.worktree_path, (counts.get(wt.worktree_path) ?? 0) + 1);
-      }
-    }
-    // Second pass: place each feature in flat or its group bucket. Group order
-    // and intra-group order both follow activeFeatures iteration order.
-    const flat: Feature[] = [];
-    const groups: { key: string; label: string; features: Feature[] }[] = [];
-    const groupByPath = new Map<string, Feature[]>();
-    for (const f of activeFeatures) {
-      const wt = worktreeByFeatureId.get(f.id);
-      const path = wt?.worktree_path;
-      if (!wt || path === projectPath || (counts.get(path!) ?? 0) < 2) {
-        flat.push(f);
-        continue;
-      }
-      let features = groupByPath.get(path!);
-      if (!features) {
-        features = [];
-        groupByPath.set(path!, features);
-        groups.push({
-          key: path!,
-          label: wt.worktree_branch ?? (getFileName(path!) || path!),
-          features,
-        });
-      }
-      features.push(f);
-    }
-    return { worktreeGroups: groups, flatActiveFeatures: flat };
-  }, [activeFeatures, worktreeByFeatureId, projectPath]);
+  // Pinned features are pulled out here so they don't appear in this project's
+  // flat list or worktree groups — they render in the global "Pinned" section
+  // above the project list (`SidebarPinnedConversations`).
+  const { worktreeGroups, flatActiveFeatures } = useMemo(
+    () => partitionActiveFeatures(activeFeatures, worktreeByFeatureId, projectPath),
+    [activeFeatures, worktreeByFeatureId, projectPath],
+  );
 
   // Live WS-pushed titles from auto-naming. Read raw store slices; derive per-feature inline.
   const wsSessions = useWsSessionStore((s) => s.sessions);
@@ -188,6 +160,22 @@ export function ProjectFeatures({
       },
     },
   });
+
+  const { mutate: updateFeaturePinned } = useUpdateFeaturePinned({
+    mutation: {
+      onSuccess: invalidateFeatures,
+      onError: (error) => {
+        toast.error(apiErrorMessage(error, "Failed to update pinned state"));
+      },
+    },
+  });
+
+  const handleTogglePin = useCallback(
+    (featureId: number, pinned: boolean): void => {
+      updateFeaturePinned({ id: featureId, data: { pinned } });
+    },
+    [updateFeaturePinned],
+  );
 
   const updateLabelMutation = useUpdateFeatureLabel({
     mutation: {
@@ -291,6 +279,7 @@ export function ProjectFeatures({
       onCancelLabelEdit={() => setEditingLabelFeatureId(null)}
       onArchiveOrDelete={setConfirmFeatureId}
       onUnarchive={handleUnarchiveFeature}
+      onTogglePin={handleTogglePin}
     />
   );
 

@@ -10,3 +10,4 @@ pub mod routes;
 pub mod service;
 pub mod watcher;
 pub mod workflow_service;
+pub mod worktree_context;

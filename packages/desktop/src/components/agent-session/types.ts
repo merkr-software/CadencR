@@ -42,6 +42,8 @@ export interface AgentSessionProps {
   historyPrependDisplayOffset?: number;
   /** Current status of the agent */
   status: AgentStatus;
+  /** True while backend-confirmed context compaction is running. */
+  isCompacting?: boolean;
   /** Provider-neutral lifecycle for active/paused/terminal turn state. */
   lifecycle?: TurnLifecycle;
   /** Provider-neutral timing accumulator for the current or latest turn. */

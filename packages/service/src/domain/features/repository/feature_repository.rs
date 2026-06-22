@@ -1,4 +1,4 @@
-use sqlx::{Row, SqlitePool};
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::{Feature, FeatureStatus};
 use crate::error::AppError;
@@ -6,7 +6,8 @@ use crate::error::AppError;
 const FEATURE_COLUMNS: &str = r#"id, project_id, title, status,
            COALESCE(type, 'ws-session') as type_, label,
            model_session,
-           COALESCE(created_at, datetime('now')) as created_at"#;
+           COALESCE(created_at, datetime('now')) as created_at,
+           is_pinned"#;
 
 pub async fn list_by_project(
     pool: &SqlitePool,
@@ -32,8 +33,33 @@ pub async fn list_by_project(
          WHERE f.project_id = ?{status_filter} \
          ORDER BY datetime(COALESCE(ua.last_user_at, f.created_at)) DESC, f.id DESC"
     );
-    let rows = sqlx::query_as::<_, Feature>(&sql)
+    let rows = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .bind(project_id)
+        .fetch_all(pool)
+        .await?;
+    Ok(rows)
+}
+
+pub async fn list_pinned(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
+    // Every pinned conversation across all projects, for the global sidebar
+    // "Pinned" section. Mirrors `list_by_project`'s recency ordering (most
+    // recent user message, falling back to creation time) so pinned rows sort
+    // the same way as the per-project lists. Pinning is only offered on active
+    // features, but the status filter guards against a stale pin on an archived
+    // row.
+    let sql = format!(
+        "SELECT {FEATURE_COLUMNS} \
+         FROM features f \
+         LEFT JOIN ( \
+             SELECT s.feature_id AS feature_id, MAX(m.created_at) AS last_user_at \
+             FROM agent_sessions s \
+             JOIN agent_messages m ON m.session_id = s.id AND m.role = 'user' \
+             GROUP BY s.feature_id \
+         ) ua ON ua.feature_id = f.id \
+         WHERE f.is_pinned != 0 AND f.status = 'active' \
+         ORDER BY datetime(COALESCE(ua.last_user_at, f.created_at)) DESC, f.id DESC"
+    );
+    let rows = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .fetch_all(pool)
         .await?;
     Ok(rows)
@@ -41,7 +67,7 @@ pub async fn list_by_project(
 
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Feature>, AppError> {
     let sql = format!("SELECT {FEATURE_COLUMNS} FROM features WHERE id = ?");
-    let row = sqlx::query_as::<_, Feature>(&sql)
+    let row = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(pool)
         .await?;
@@ -76,36 +102,6 @@ pub async fn get_max_session_num(pool: &SqlitePool, project_id: i64) -> Result<i
     Ok(row.and_then(|r| r.0).unwrap_or(0))
 }
 
-async fn clear_agent_session_pins(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    feature_id: i64,
-) -> Result<(), AppError> {
-    if !agent_sessions_has_pin_column(&mut **tx).await? {
-        return Ok(());
-    }
-
-    sqlx::query("UPDATE agent_sessions SET is_pinned = 0 WHERE feature_id = ?")
-        .bind(feature_id)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
-}
-
-async fn agent_sessions_has_pin_column(
-    executor: &mut sqlx::SqliteConnection,
-) -> Result<bool, AppError> {
-    let rows = sqlx::query(r#"PRAGMA table_info("agent_sessions")"#)
-        .fetch_all(executor)
-        .await?;
-    for row in rows {
-        let name: String = row.try_get("name")?;
-        if name == "is_pinned" {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 pub async fn update_title(pool: &SqlitePool, id: i64, title: &str) -> Result<(), AppError> {
     sqlx::query("UPDATE features SET title = ? WHERE id = ?")
         .bind(title)
@@ -122,6 +118,18 @@ pub async fn update_status(
 ) -> Result<(), AppError> {
     let result = sqlx::query("UPDATE features SET status = ? WHERE id = ?")
         .bind(status.as_str())
+        .bind(id)
+        .execute(pool)
+        .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("feature {id} not found")));
+    }
+    Ok(())
+}
+
+pub async fn set_pinned(pool: &SqlitePool, id: i64, is_pinned: bool) -> Result<(), AppError> {
+    let result = sqlx::query("UPDATE features SET is_pinned = ? WHERE id = ?")
+        .bind(if is_pinned { 1 } else { 0 })
         .bind(id)
         .execute(pool)
         .await?;
@@ -196,9 +204,6 @@ pub async fn resolve_working_dir(
 pub async fn delete_feature(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
 
-    // Clear pinned-session bookkeeping (no-op when the column doesn't exist).
-    clear_agent_session_pins(&mut tx, id).await?;
-
     // Delete session children, then sessions.
     sqlx::query(
         "DELETE FROM session_runtime_ids WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
@@ -259,7 +264,8 @@ mod tests {
                 label TEXT,
                 type TEXT NOT NULL DEFAULT 'ws-session',
                 model_session TEXT,
-                created_at TEXT
+                created_at TEXT,
+                is_pinned INTEGER NOT NULL DEFAULT 0
             )"#,
         )
         .execute(&pool)
@@ -377,6 +383,52 @@ mod tests {
         let features = list_by_project(&pool, 1, false).await.unwrap();
         let ids: Vec<i64> = features.iter().map(|f| f.id).collect();
         assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[tokio::test]
+    async fn list_pinned_returns_only_active_pinned_across_projects() {
+        let pool = setup_pool().await;
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, type, is_pinned, created_at) VALUES \
+             (1, 1, 'pinned-a', 'active', 'ws-session', 1, '2026-01-01T00:00:00Z'), \
+             (2, 2, 'pinned-b', 'active', 'ws-session', 1, '2026-01-03T00:00:00Z'), \
+             (3, 1, 'unpinned', 'active', 'ws-session', 0, '2026-01-02T00:00:00Z'), \
+             (4, 2, 'pinned-archived', 'archived', 'ws-session', 1, '2026-01-04T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let pinned = list_pinned(&pool).await.unwrap();
+        let ids: Vec<i64> = pinned.iter().map(|f| f.id).collect();
+        // Pinned active features from both projects, newest creation first; the
+        // unpinned and the archived-but-pinned rows are excluded.
+        assert_eq!(ids, vec![2, 1]);
+    }
+
+    #[tokio::test]
+    async fn set_pinned_persists_and_surfaces_in_get_by_id() {
+        let pool = setup_pool().await;
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, type) VALUES (1, 1, 'f', 'active', 'ws-session')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(!get_by_id(&pool, 1).await.unwrap().unwrap().is_pinned);
+
+        set_pinned(&pool, 1, true).await.unwrap();
+        assert!(get_by_id(&pool, 1).await.unwrap().unwrap().is_pinned);
+
+        set_pinned(&pool, 1, false).await.unwrap();
+        assert!(!get_by_id(&pool, 1).await.unwrap().unwrap().is_pinned);
+    }
+
+    #[tokio::test]
+    async fn set_pinned_missing_feature_errors() {
+        let pool = setup_pool().await;
+        assert!(set_pinned(&pool, 99, true).await.is_err());
     }
 
     #[tokio::test]

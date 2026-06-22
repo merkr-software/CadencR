@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::git::repository;
+use crate::domain::git::worktree_context::WorktreeContext;
 use crate::error::AppError;
 
 mod blame;
@@ -28,13 +29,19 @@ pub(super) const SETTING_TARGET_BRANCH: &str = "target_branch";
 // Helpers
 // ---------------------------------------------------------------------------
 
-pub(super) async fn migrate_provider_config_into_worktree(
-    project_path: &str,
-    worktree_path: &str,
+pub(super) async fn migrate_provider_config_for_context(
+    context: &WorktreeContext,
+) -> Result<(), AppError> {
+    notify_provider_config_created(&context.source_root, &context.worktree_root).await
+}
+
+async fn notify_provider_config_created(
+    source_root: &Path,
+    worktree_root: &Path,
 ) -> Result<(), AppError> {
     crate::domain::agents::providers::notify_worktree_created_for_all_providers(
-        Path::new(project_path),
-        Path::new(worktree_path),
+        source_root,
+        worktree_root,
     )
     .await
     .map_err(|e| AppError::Internal(e.to_string()))

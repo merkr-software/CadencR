@@ -10,6 +10,7 @@ import {
   branchWorktreeState,
   describeWorktreeMode,
   defaultWorktreeMode,
+  firstPromptBranchEffect,
   isWorktreeModeDisabled,
   resolveWorktreeChoice,
 } from "./worktree-mode";
@@ -131,6 +132,48 @@ describe("defaultWorktreeMode", () => {
   it("maps project defaults onto the richer mode set", () => {
     expect(defaultWorktreeMode("new")).toBe("from_branch_worktree");
     expect(defaultWorktreeMode("skip")).toBe("on_branch");
+  });
+});
+
+describe("firstPromptBranchEffect", () => {
+  it("announces the deferred project switch for on_branch with a different pick", () => {
+    expect(
+      firstPromptBranchEffect({
+        mode: "on_branch",
+        selectedBranch: "develop",
+        defaultBranch: "main",
+      }),
+    ).toBe("Switches the project to develop when you send your first message.");
+  });
+
+  it("says nothing for on_branch on the current branch (no deferred action)", () => {
+    expect(
+      firstPromptBranchEffect({ mode: "on_branch", selectedBranch: null, defaultBranch: "main" }),
+    ).toBeNull();
+    // Picking the current branch explicitly is still a no-op switch.
+    expect(
+      firstPromptBranchEffect({ mode: "on_branch", selectedBranch: "main", defaultBranch: "main" }),
+    ).toBeNull();
+  });
+
+  it("describes deferred provisioning for the worktree/new-branch modes", () => {
+    expect(
+      firstPromptBranchEffect({ mode: "from_branch", selectedBranch: null, defaultBranch: "main" }),
+    ).toBe("Creates a new branch from main when you send your first message.");
+    expect(
+      firstPromptBranchEffect({
+        mode: "branch_worktree",
+        selectedBranch: "feat/foo",
+        defaultBranch: "main",
+      }),
+    ).toBe("Sets up a worktree on feat/foo when you send your first message.");
+    expect(
+      firstPromptBranchEffect({
+        mode: "from_branch_worktree",
+        selectedBranch: "feat/foo",
+        defaultBranch: "main",
+      }),
+    ).toBe("Creates a new branch from feat/foo in a worktree when you send your first message.");
   });
 });
 

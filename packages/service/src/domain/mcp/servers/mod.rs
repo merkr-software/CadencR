@@ -1,10 +1,12 @@
 pub mod browser;
+pub mod project;
+pub mod workspace;
 
 use std::sync::Arc;
 
 use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
 
-use self::browser::BrowserServer;
+use self::{browser::BrowserServer, project::ProjectServer, workspace::WorkspaceServer};
 use super::context::McpContext;
 
 /// MCP server families that can be served.
@@ -12,18 +14,23 @@ use super::context::McpContext;
 /// `cadencr-browser` owns in-app Browser automation. Workspace/session tools
 /// are intentionally not exposed here because they will move to a future
 /// `cadencr-workspace` MCP server.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentType {
     Browser,
+    Project,
+    Workspace,
 }
 
 impl AgentType {
-    pub const ALL: &'static [AgentType] = &[AgentType::Browser];
+    pub const ALL: &'static [AgentType] =
+        &[AgentType::Browser, AgentType::Project, AgentType::Workspace];
 
     /// Short identifier used in MCP server names (`cadencr-<short>`).
     pub fn short_name(self) -> &'static str {
         match self {
             Self::Browser => "browser",
+            Self::Project => "project",
+            Self::Workspace => "workspace",
         }
     }
 }
@@ -67,12 +74,16 @@ pub fn cadencr_mcp_tool_requires_approval_elicitation(
 /// A type-erased MCP server wrapper.
 pub enum McpServer {
     Browser(BrowserServer),
+    Project(ProjectServer),
+    Workspace(WorkspaceServer),
 }
 
 /// Create the MCP server for the given agent type.
 pub fn create_mcp_server(agent_type: AgentType, ctx: Arc<McpContext>) -> McpServer {
     match agent_type {
         AgentType::Browser => McpServer::Browser(BrowserServer::new(ctx)),
+        AgentType::Project => McpServer::Project(ProjectServer::new(ctx)),
+        AgentType::Workspace => McpServer::Workspace(WorkspaceServer::new(ctx)),
     }
 }
 
@@ -94,6 +105,8 @@ mod tests {
     #[test]
     fn mcp_server_name_uses_current_cadencr_prefix() {
         assert_eq!(mcp_server_name(AgentType::Browser), "cadencr-browser");
+        assert_eq!(mcp_server_name(AgentType::Project), "cadencr-project");
+        assert_eq!(mcp_server_name(AgentType::Workspace), "cadencr-workspace");
     }
 
     #[test]

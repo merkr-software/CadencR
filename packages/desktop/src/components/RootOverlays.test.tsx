@@ -11,6 +11,7 @@ const features: Feature[] = [
     status: "active",
     type: "ws-session",
     project_id: 1,
+    is_pinned: false,
     created_at: "2026-01-01T00:00:00Z",
   },
   {
@@ -19,6 +20,7 @@ const features: Feature[] = [
     status: "active",
     type: "ws-session",
     project_id: 1,
+    is_pinned: false,
     created_at: "2026-01-02T00:00:00Z",
   },
 ];
@@ -74,8 +76,6 @@ function renderRootOverlays(confirmAction: ConfirmFeatureAction, onArchiveFeatur
       setCommandPaletteOpen={vi.fn()}
       activeProjectId={1}
       activeFeatureId={2}
-      shortcutsHelpOpen={false}
-      setShortcutsHelpOpen={vi.fn()}
       confirmAction={confirmAction}
       setConfirmAction={vi.fn()}
       onArchiveFeature={onArchiveFeature}

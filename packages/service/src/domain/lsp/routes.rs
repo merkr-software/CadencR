@@ -10,7 +10,7 @@
 use std::path::PathBuf;
 
 use axum::extract::{Path, State, WebSocketUpgrade};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
@@ -26,7 +26,8 @@ use super::lifecycle::CrashKey;
 use super::probe::{probe_servers, ServerProbe};
 use super::proxy::run_proxy;
 use super::registry::SessionSpec;
-use super::spawn::{resolve_server, spawn_server};
+use super::root::lsp_root_handler;
+use super::spawn::{resolve_server, resolve_server_by_id, spawn_server};
 
 pub fn lsp_router() -> Router<AppState> {
     Router::new()
@@ -36,6 +37,7 @@ pub fn lsp_router() -> Router<AppState> {
             get(connect_handler),
         )
         .route("/api/lsp/servers", get(list_servers_handler))
+        .route("/api/lsp/root", get(lsp_root_handler))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -66,6 +68,12 @@ pub struct OpenLspSessionRequest {
     /// `"python"`). The renderer derives this from the same catalog the
     /// service uses; see `domain/lsp/spawn.rs::resolve_server`.
     pub language_id: String,
+    /// Optional concrete server id (e.g. `"tsgo"`, `"biome"`). When present the
+    /// service resolves that specific catalog entry instead of the language's
+    /// default — this is how a project runs multiple servers per file. When
+    /// absent, behavior is unchanged (default server for the language).
+    #[serde(default)]
+    pub lsp_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -82,12 +90,13 @@ pub struct OpenLspSessionResponse {
     responses(
         (status = 200, body = OpenLspSessionResponse),
         (status = 400, description = "Unknown language id or invalid workspace path"),
+        (status = 503, description = "Language server crashing; Retry-After header set"),
     )
 )]
 pub async fn open_session_handler(
     State(state): State<AppState>,
     Json(req): Json<OpenLspSessionRequest>,
-) -> Result<Json<OpenLspSessionResponse>, AppError> {
+) -> Result<Response, AppError> {
     if req.language_id.is_empty() {
         return Err(AppError::BadRequest("language_id is required".into()));
     }
@@ -98,21 +107,64 @@ pub async fn open_session_handler(
             req.workspace_root
         )));
     }
+
+    // Crash backoff at reservation time, not just at WS upgrade: a non-101 WS
+    // status is invisible to the browser (bare `error` event, no body), so we
+    // surface "unhealthy, retry in N s" here where we can both return JSON AND
+    // set a machine-readable `Retry-After`. The renderer's auto-reconnect loop
+    // reads that header to pace its backoff instead of hammering a dead server.
+    //
+    // The crash key's `language_id` field doubles as the per-server backoff
+    // discriminator: when a concrete `lsp_id` was requested we key on it so a
+    // crashing linter doesn't lock out the type checker for the same file.
+    let crash_discriminator = req
+        .lsp_id
+        .clone()
+        .unwrap_or_else(|| req.language_id.clone());
+    let crash_key = CrashKey {
+        workspace_root: workspace_root.clone(),
+        language_id: crash_discriminator,
+    };
+    if let Err(remaining) = state.lsp_crashes.check(&crash_key).await {
+        let secs = remaining.as_secs().max(1);
+        return Ok(retry_after_response(secs, &req.language_id));
+    }
+
     // Do the full binary discovery (and, if necessary, the on-demand
     // download) at reservation time. The WS upgrade later can't surface
     // an informative error to the browser — a non-101 status appears as a
     // bare `error` event with no body — so we have to fail visibly here
     // while we can still return JSON. Renderer reads `.error` and toasts.
-    let server = resolve_server(&req.language_id).await?;
+    let server = match &req.lsp_id {
+        Some(lsp_id) => resolve_server_by_id(lsp_id).await?,
+        None => resolve_server(&req.language_id).await?,
+    };
     let session_id = state
         .lsp_sessions
         .reserve(SessionSpec {
             workspace_root,
-            language_id: req.language_id,
+            // Keep the crash discriminator consistent between reserve and
+            // connect so the WS-side backoff check matches the POST-side one.
+            language_id: crash_key.language_id.clone(),
             server,
         })
         .await;
-    Ok(Json(OpenLspSessionResponse { session_id }))
+    Ok(Json(OpenLspSessionResponse { session_id }).into_response())
+}
+
+/// Build a 503 carrying both a JSON error (for the toast) and a `Retry-After`
+/// header in seconds (for the reconnect loop's backoff pacing).
+fn retry_after_response(secs: u64, language_id: &str) -> Response {
+    let body = serde_json::json!({
+        "error": format!("language server for {language_id:?} crashed recently; retry in {secs}s"),
+        "code": "SERVICE_UNAVAILABLE",
+    });
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(axum::http::header::RETRY_AFTER, secs.to_string())],
+        Json(body),
+    )
+        .into_response()
 }
 
 pub async fn connect_handler(

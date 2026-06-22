@@ -11,6 +11,7 @@ use crate::app_state::AppState;
 /// Non-CORS-safelisted header name, so any cross-origin `fetch` must trigger
 /// a preflight — which our CORS layer denies.
 pub const AUTH_HEADER: &str = "x-cadencr-token";
+pub const MCP_CONTROL_HEADER: &str = "x-cadencr-mcp-token";
 
 pub async fn auth_middleware(
     State(state): State<AppState>,
@@ -24,6 +25,17 @@ pub async fn auth_middleware(
     // Browser WebSocket clients can't set custom headers; they authenticate
     // via Sec-WebSocket-Protocol, validated inside the upgrade handler.
     if is_websocket_upgrade(&request) {
+        return next.run(request).await;
+    }
+
+    if request.uri().path().starts_with("/internal/mcp/") {
+        let presented = request
+            .headers()
+            .get(MCP_CONTROL_HEADER)
+            .and_then(|v| v.to_str().ok());
+        if presented != Some(state.mcp_control_token.as_str()) {
+            return unauthorized();
+        }
         return next.run(request).await;
     }
 
@@ -131,6 +143,19 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn internal_mcp_accepts_control_token() {
+        let app = app_with_token("ui-secret").await;
+        let req = HttpRequest::builder()
+            .uri("/internal/mcp/project/context")
+            .header(header::HOST, format!("127.0.0.1:{TEST_PORT}"))
+            .header(MCP_CONTROL_HEADER, "test-mcp-token")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
     async fn accepts_matching_token() {
         let req = req_builder()
             .header(AUTH_HEADER, "secret")
@@ -147,6 +172,19 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let resp = app_with_token("secret").await.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn internal_mcp_requires_control_token_not_ui_token() {
+        let app = app_with_token("ui-secret").await;
+        let req = HttpRequest::builder()
+            .uri("/internal/mcp/project/context")
+            .header(header::HOST, format!("127.0.0.1:{TEST_PORT}"))
+            .header(AUTH_HEADER, "ui-secret")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 

@@ -138,6 +138,7 @@ pub(super) fn make_message(
         parent_tool_use_id: None,
         created_at: None,
         model: None,
+        origin: None,
     }
 }
 
@@ -160,6 +161,7 @@ pub(super) fn make_message_full(
         parent_tool_use_id: parent_tool_use_id.map(|s| s.to_string()),
         created_at: None,
         model: None,
+        origin: None,
     }
 }
 
@@ -178,5 +180,6 @@ pub(super) fn make_root_block(id_num: i64) -> AgentBlock {
         created_at: None,
         model: None,
         truncated_content: None,
+        origin: None,
     }
 }

@@ -50,6 +50,22 @@ describe("CompactToolTile", () => {
     expect(screen.getByText("Grep")).toBeInTheDocument();
   });
 
+  it("gives file-change tools a distinct accent from generic tools", () => {
+    const { rerender } = render(
+      <CompactToolTile
+        block={toolCall({
+          toolName: "Edit",
+          toolArgs: JSON.stringify({ file_path: "a.ts", old_string: "x", new_string: "y" }),
+        })}
+      />,
+    );
+    // File-patch tools use the green "lines changed" accent so they stand apart.
+    expect(screen.getByText("Edit").className).toContain("--numstat-add-fg");
+
+    rerender(<CompactToolTile block={toolCall({ toolName: "Grep" })} />);
+    expect(screen.getByText("Grep").className).toContain("--block-tool-accent");
+  });
+
   it("renders nothing for unsupported block types", () => {
     const { container } = render(
       <CompactToolTile block={{ id: "x", type: "text", content: "hello" }} />,

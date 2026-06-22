@@ -93,19 +93,13 @@ const APP_SHORTCUTS = [
     // ⌘⇧? — distinct from plain ⌘/ which is the CodeMirror "Toggle Line
     // Comment" binding inside the editor.
     //
-    // We register TWO chord variants so the registration is robust across
-    // layouts and across the various ways browsers report the event:
-    //   • `mod+shift+?` — the canonical "question mark" combo. Matches when
-    //     `event.key === "?"` (AZERTY-FR labels this on the comma key with
-    //     Shift; QWERTY produces it via Shift+/).
-    //   • `mod+shift+/` — the physical-position fallback. Some Electron /
-    //     Chromium builds on macOS QWERTY report `event.key === "/"` when
-    //     Shift+/ is pressed (Chromium does not always re-resolve `key`
-    //     under the Shift modifier on Mac). Binding the literal slash key
-    //     with Shift catches those cases.
+    // The `question` token is expanded by the binding layer
+    // (`lib/shortcuts/character-hotkeys.ts`) into a layout-robust set of
+    // `event.key` matches: `?`, plus the `/` (QWERTY) and `,` (AZERTY) base
+    // chars that macOS reports for the `?` key while Cmd is held. That keeps
+    // the help modal reachable across layouts without any `altKeys` here.
     id: "shortcuts-help",
     keys: ["mod", "shift", "question"],
-    altKeys: ["mod", "shift", "slash"],
     description: "Show keyboard shortcuts",
     scope: "global",
     aliases: ["help", "cheatsheet"],
@@ -269,6 +263,16 @@ const APP_SHORTCUTS = [
     keys: ["mod", "t"],
     description: "Cycle thinking effort",
     scope: "agent",
+  },
+  {
+    // ⌘F / Ctrl+F — find-in-conversation. Bound capture-phase in the `agent`
+    // scope so it intercepts before the prompt editor; the editor tab keeps
+    // its own ⌘F ("Find in current file") because that's a different scope.
+    id: "conversation-search",
+    keys: ["mod", "f"],
+    description: "Find in conversation",
+    scope: "agent",
+    aliases: ["search", "find"],
   },
   { id: "agent-send", keys: ["mod", "enter"], description: "Send message", scope: "agent" },
   { id: "agent-maximize", keys: ["mod", "enter"], description: "Maximize agent", scope: "agent" },

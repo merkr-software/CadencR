@@ -255,6 +255,7 @@ mod tests {
             parent_tool_use_id: None,
             created_at: None,
             model: None,
+            origin: None,
         }
     }
 

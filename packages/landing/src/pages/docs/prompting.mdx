@@ -38,28 +38,29 @@ In other words, this is not just input. It is the main handoff point between you
 
 Here are the main capabilities around the prompt bar:
 
-| Feature               | How to reach it                                                                | Why it is useful                                                                    |
-| --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------- |
-| **Draft saving**      | Automatic — drafts persist per session                                         | Helpful when you switch context or come back later                                  |
-| **Prompt history**    | Up / down arrow from an empty prompt                                           | Useful when you repeat similar actions or want to resend a previous request         |
-| **File mentions**     | Type `@` and start typing a path                                               | Makes it easier to point the agent at the right place                               |
-| **Slash commands**    | Type `/` at the start of the prompt                                            | Speeds up common workflows without leaving the keyboard                             |
-| **Image attachments** | Paste an image, drag and drop, or use the attach button                        | Helpful when the task involves UI, design, or anything easier to show than describe |
-| **Send**              | <kbd>⌘ Enter</kbd>                                                             | Plain <kbd>Enter</kbd> inserts a newline so you can write multi-line prompts        |
-| **Stop**              | <kbd>Esc</kbd> inside the session, or <kbd>⌘ Esc</kbd> for every running agent | Keeps you in control when the agent is moving in the wrong direction                |
-| **Model picker**      | <kbd>⌘ P</kbd>                                                                 | Switch model per-message without leaving the prompt bar                             |
-| **Thinking effort**   | <kbd>⌘ T</kbd>                                                                 | Cycle reasoning effort when the task is harder (or easier) than usual               |
-| **Permission mode**   | <Kbd><ShiftIcon /></Kbd> <Kbd>Tab</Kbd>                                        | Cycle between ask / accept-edits / bypass — pick the right amount of guardrails     |
+| Feature             | How to reach it                                                                | Why it is useful                                                                |
+| ------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| **Draft saving**    | Automatic — drafts persist per session                                         | Helpful when you switch context or come back later                              |
+| **Prompt history**  | Up / down arrow from an empty prompt                                           | Useful when you repeat similar actions or want to resend a previous request     |
+| **File mentions**   | Type `@` and start typing a path                                               | Makes it easier to point the agent at the right place                           |
+| **Slash commands**  | Type `/` at the start of the prompt                                            | Speeds up common workflows without leaving the keyboard                         |
+| **Attachments**     | Paste, drag and drop, or use the attach button                                 | Add images, PDFs, and provider-supported files without leaving the prompt       |
+| **Send**            | <kbd>⌘ Enter</kbd>                                                             | Plain <kbd>Enter</kbd> inserts a newline so you can write multi-line prompts    |
+| **Schedule send**   | Use the send split-button when a feature can schedule messages                 | Queue a message for later; it is sent while Cadencr is running                  |
+| **Stop**            | <kbd>Esc</kbd> inside the session, or <kbd>⌘ Esc</kbd> for every running agent | Keeps you in control when the agent is moving in the wrong direction            |
+| **Model picker**    | <kbd>⌘ P</kbd>                                                                 | Switch model per-message without leaving the prompt bar                         |
+| **Thinking effort** | <kbd>⌘ T</kbd>                                                                 | Cycle reasoning effort when the task is harder (or easier) than usual           |
+| **Permission mode** | <Kbd><ShiftIcon /></Kbd> <Kbd>Tab</Kbd>                                        | Cycle between ask / accept-edits / bypass — pick the right amount of guardrails |
 
 ### Mentions and slash commands in detail
 
 - **`@` mentions** open a file picker as you type. Pick a file (or a folder) and Cadencr inlines the reference so the agent knows exactly what to read.
 - **`/` slash commands** at the start of the prompt expose project-specific and built-in commands — pre-baked prompts your agent provider exposes. Arrow keys to pick, <kbd>Enter</kbd> or <kbd>Tab</kbd> to insert.
-- **Image attachments** support paste, drag-and-drop, and the attach button. Previews show in a strip above the prompt and stay attached until you remove them or send.
+- **Attachments** support paste, drag-and-drop, and the attach button. Images show previews; non-image files show as removable file chips. Cadencr filters accepted file types by the active provider and sends provider-aware payloads — for example, Codex receives PDFs as file references.
 
-### Picking model and effort per message
+### Picking model, profile, and effort per message
 
-Cadencr stays provider-neutral: the model picker (<kbd>⌘ P</kbd>) lists whatever models your active provider profile exposes — Claude, Codex, OpenCode, or a custom model you added in **Settings → Runtime & Models**. The thinking-effort cycle (<kbd>⌘ T</kbd>) toggles among the levels that model supports.
+Cadencr stays provider-neutral: the model picker (<kbd>⌘ P</kbd>) lists whatever models your active provider profile exposes — Claude, Codex, OpenCode, or a custom model you added in **Settings → Runtime & Models**. When a provider supports multiple profiles, the session controls let you pick the profile for the next prompt without rebuilding the whole session. The thinking-effort cycle (<kbd>⌘ T</kbd>) toggles among the levels that model supports; unsupported effort settings are cleared instead of being sent to a model that cannot use them.
 
 ## What happens around the prompt while you work
 
@@ -67,6 +68,7 @@ The prompt feature also supports the back-and-forth that happens after you send 
 
 For example, the prompt area may become the place where you:
 
+- send a message now or schedule it for later
 - answer a question from the agent
 - approve or reject a plan
 - respond to a permission request
@@ -84,7 +86,7 @@ That matters because the prompt feature is built for ongoing work, not just one-
 The prompt feature becomes especially helpful when:
 
 - you are working across several sessions and want a consistent control surface
-- you need to attach extra context, like files or screenshots
+- you need to attach extra context, like files, PDFs, screenshots, or Browser page comments
 - the agent needs follow-up input instead of a full restart
 - you want the app to remember your draft or recent prompt flow
 - you prefer to stay inside the same workspace instead of switching tools
@@ -94,5 +96,6 @@ The prompt feature becomes especially helpful when:
 - [Session view](../session-view/) — see how prompting fits into a focused agent conversation
 - [Feature workspace](../feature-workspace/) — understand the bigger home base around the prompt bar
 - [Unified agent list](../unified-agent-list/) — find the session you want to continue
+- [Browser](../browser/) — page comments and browser context for agents
 - [Custom actions](../custom-actions/) — related shortcuts for repeatable actions
 - [Shortcuts](../shortcuts/) — keyboard help for moving quickly around the app

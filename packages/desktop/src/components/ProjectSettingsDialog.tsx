@@ -18,6 +18,7 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import { IconTile } from "@/components/settings/IconTile";
 import { ProjectColorPicker } from "@/components/settings/ProjectColorPicker";
 import { ProjectJsonSettings } from "@/components/settings/SettingsJsonControls";
+import { ProjectEditorToolingSettings } from "@/components/settings/ProjectEditorToolingSettings";
 import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
 
 export function ProjectSettingsDialog({
@@ -118,6 +119,17 @@ export function ProjectSettingsDialog({
                 </p>
                 <ProjectColorPicker value={colorInput} onChange={commitColor} />
               </div>
+            </SettingsCard>
+          </SettingsSection>
+
+          <SettingsSection
+            size="sm"
+            title="Editor Tooling"
+            subtitle="Language servers · Formatter"
+            description="Type checker, linter, and formatter for this project's editor. Each falls back to the global default when unset."
+          >
+            <SettingsCard padded>
+              <ProjectEditorToolingSettings projectId={projectId} enabled={open} />
             </SettingsCard>
           </SettingsSection>
 

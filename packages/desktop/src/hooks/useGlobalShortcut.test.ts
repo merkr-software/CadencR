@@ -166,6 +166,17 @@ describe("useGlobalShortcut", () => {
         shift: true,
         shouldFire: true,
       },
+      // Find-in-conversation (⌘F): Dvorak puts the labelled "F" key where
+      // QWERTY's "Y" is, so e.code === "KeyY" while e.key === "f". The bar
+      // must still open from the labelled F.
+      {
+        name: "Dvorak cmd+f fires find-in-conversation on labelled F",
+        binding: "meta+f",
+        key: "f",
+        code: "KeyY",
+        shift: false,
+        shouldFire: true,
+      },
     ])("$name", ({ binding, key, code, shift, shouldFire }) => {
       renderHook(() => useGlobalShortcut(binding, callback));
       fireKey(key, { metaKey: true, shiftKey: shift, code });

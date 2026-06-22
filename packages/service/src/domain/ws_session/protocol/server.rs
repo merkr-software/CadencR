@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionOption};
+use crate::domain::sessions::models::AgentMessageOrigin;
 
 use super::PermissionDecision;
 
@@ -112,6 +113,8 @@ pub struct SessionEndedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserMessageMirrorPayload {
     pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub origin: Option<AgentMessageOrigin>,
 }
 
 /// Discriminant for `SessionLifecyclePayload`.

@@ -1,7 +1,9 @@
-import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
-import { LSPPlugin, type LSPClientExtension } from "@codemirror/lsp-client";
+import { type Diagnostic } from "@codemirror/lint";
+import { LSPPlugin, type LSPClient, type LSPClientExtension } from "@codemirror/lsp-client";
 import { ViewPlugin, type ViewUpdate } from "@codemirror/view";
+import type { Extension } from "@codemirror/state";
 import type * as lsp from "vscode-languageserver-protocol";
+import { setServerDiagnostics } from "./merged-diagnostics";
 
 function toSeverity(severity: lsp.DiagnosticSeverity | undefined): Diagnostic["severity"] {
   switch (severity) {
@@ -35,25 +37,39 @@ function toDiagnostic(plugin: LSPPlugin, item: lsp.Diagnostic): Diagnostic {
 
 const AUTO_SYNC_DELAY_MS = 500;
 
-const autoSync = ViewPlugin.fromClass(
-  class {
-    private pending: ReturnType<typeof setTimeout> | null = null;
+/** Deferred handle to a client — filled in once `new LSPClient(...)` returns,
+ * since the extension is a constructor argument and can't reference the client
+ * before it exists. */
+export interface ClientRef {
+  current: LSPClient | null;
+}
 
-    update(update: ViewUpdate): void {
-      if (!update.docChanged) return;
-      if (this.pending) clearTimeout(this.pending);
-      this.pending = setTimeout(() => {
-        this.pending = null;
-        const plugin = LSPPlugin.get(update.view);
-        plugin?.client.sync();
-      }, AUTO_SYNC_DELAY_MS);
-    }
+/**
+ * Per-client doc-change sync. Each mounted client gets its own autoSync that
+ * syncs ITS client (via `ref`) — `LSPPlugin.get(view)` would only ever return
+ * the first plugin (the type checker), so with multiple clients a shared
+ * autoSync would never push edits to the linters.
+ */
+function buildAutoSync(ref: ClientRef): Extension {
+  return ViewPlugin.fromClass(
+    class {
+      private pending: ReturnType<typeof setTimeout> | null = null;
 
-    destroy(): void {
-      if (this.pending) clearTimeout(this.pending);
-    }
-  },
-);
+      update(update: ViewUpdate): void {
+        if (!update.docChanged) return;
+        if (this.pending) clearTimeout(this.pending);
+        this.pending = setTimeout(() => {
+          this.pending = null;
+          ref.current?.sync();
+        }, AUTO_SYNC_DELAY_MS);
+      }
+
+      destroy(): void {
+        if (this.pending) clearTimeout(this.pending);
+      }
+    },
+  );
+}
 
 /**
  * CodeMirror's stock `serverDiagnostics()` advertises version support and then
@@ -62,21 +78,26 @@ const autoSync = ViewPlugin.fromClass(
  * do not line up with our lightweight editor workspace, which made all non-TS
  * diagnostics appear to be missing. We don't advertise version support and map
  * diagnostics onto the current document instead.
+ *
+ * Phase 4: instead of REPLACING the whole lint set (which would clobber other
+ * servers running on the same file), each client writes into its own bucket
+ * keyed by `lspId` via `setServerDiagnostics`; `merged-diagnostics` flattens
+ * the union. `autoSync` is per-client so every mounted server receives edits.
  */
-export function cadencrServerDiagnostics(): LSPClientExtension {
+export function cadencrServerDiagnostics(lspId: string, ref: ClientRef): LSPClientExtension {
   return {
     clientCapabilities: { textDocument: { publishDiagnostics: {} } },
     notificationHandlers: {
-      "textDocument/publishDiagnostics": (client, params: lsp.PublishDiagnosticsParams) => {
-        const file = client.workspace.getFile(params.uri);
+      "textDocument/publishDiagnostics": (c, params: lsp.PublishDiagnosticsParams) => {
+        const file = c.workspace.getFile(params.uri);
         const view = file?.getView();
         const plugin = view ? LSPPlugin.get(view) : null;
         if (!view || !plugin) return false;
         const diagnostics = params.diagnostics.map((item) => toDiagnostic(plugin, item));
-        view.dispatch(setDiagnostics(view.state, diagnostics));
+        view.dispatch({ effects: setServerDiagnostics.of({ lspId, diagnostics }) });
         return true;
       },
     },
-    editorExtension: autoSync,
+    editorExtension: buildAutoSync(ref),
   };
 }

@@ -15,6 +15,7 @@ pub async fn run_mcp_stdio(
     db_path: &str,
     agent_type_str: &str,
     feature_id: i64,
+    source_session_id: Option<i64>,
 ) -> anyhow::Result<()> {
     let agent_type: super::servers::AgentType = agent_type_str
         .parse()
@@ -27,13 +28,20 @@ pub async fn run_mcp_stdio(
 
     let write_pool = db::create_write_pool(db_path).await?;
     let read_pool = db::create_read_pool(db_path).await?;
-    let ctx = McpContext::new(read_pool, write_pool, feature_id);
+    let ctx = match source_session_id {
+        Some(session_id) => {
+            McpContext::new_with_source_session(read_pool, write_pool, feature_id, Some(session_id))
+        }
+        None => McpContext::new(read_pool, write_pool, feature_id),
+    };
 
     let server = super::servers::create_mcp_server(agent_type, ctx);
     let stdio = rmcp::transport::io::stdio();
 
     let quit_reason = match server {
         McpServer::Browser(s) => s.serve(stdio).await?.waiting().await,
+        McpServer::Project(s) => s.serve(stdio).await?.waiting().await,
+        McpServer::Workspace(s) => s.serve(stdio).await?.waiting().await,
     };
 
     info!(?quit_reason, "MCP stdio server shutting down");

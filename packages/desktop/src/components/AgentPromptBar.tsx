@@ -1,13 +1,11 @@
 import { useState, useCallback, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
-import { useScopedShortcut, useShortcut } from "@/hooks/useShortcut";
-import { Loader2, Send, Pause } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AgentQuestionDrawer } from "./AgentQuestionDrawer";
 import { PlanApprovalBar } from "./PlanApprovalBar";
 import { ToolPermissionPrompt } from "./ToolPermissionPrompt";
 import { AgentPromptPendingIndicator } from "./AgentPromptPendingIndicator";
 import { ImageAttachmentPreview } from "./ImageAttachmentPreview";
-import { ImageAttachmentButton } from "./ImageAttachmentButton";
+import { PromptBarActions } from "./PromptBarActions";
 import { SplitSendActions } from "./SplitSendActions";
 import { PromptEditor } from "./prompt-editor/PromptEditor";
 import type { PromptEditorHandle } from "./prompt-editor/PromptEditor";
@@ -16,6 +14,8 @@ import { usePromptAttachments } from "@/hooks/usePromptAttachments";
 import { usePromptDraft } from "@/hooks/usePromptDraft";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
+import { usePromptScheduleControl } from "@/hooks/usePromptScheduleControl";
+import { useAgentPromptShortcuts } from "@/hooks/useAgentPromptShortcuts";
 import { useListFiles } from "@/api/generated";
 import { useAgentPromptSend } from "./agent-prompt-send";
 import { useFeaturePromptDraftRestore } from "./agent-prompt-draft-restore";
@@ -30,6 +30,7 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
   function AgentPromptBar(
     {
       onSend,
+      onSchedule,
       onStop,
       status,
       splitSendActions,
@@ -180,6 +181,17 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       },
       [attachments, permissionDeferred, runSend],
     );
+    const scheduleControl = usePromptScheduleControl({
+      onSchedule,
+      featureId,
+      enabled: canSend && text.trim().length > 0,
+      textRef,
+      editorRef,
+      setText,
+      saveDraft,
+      addHistoryEntry,
+      interactedRef,
+    });
     const handleEnterSend = useCallback(() => {
       if (permissionDeferred) return true;
       const trimmed = textRef.current.trim();
@@ -227,58 +239,16 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       },
       [],
     );
-    const hotkeyOpts = { enabled: agentTabActive };
-    useScopedShortcut(
-      "agent-model-picker",
-      (e) => {
-        if (!onOpenModelPicker) return;
-        e.preventDefault();
-        onOpenModelPicker();
-      },
-      "agent",
-      hotkeyOpts,
-    );
-    useScopedShortcut(
-      "agent-maximize",
-      (e) => {
-        if (!onToggleMaximize) return;
-        e.preventDefault();
-        onToggleMaximize();
-      },
-      "agent",
-      hotkeyOpts,
-    );
-    useScopedShortcut(
-      "agent-permission-mode",
-      (e) => {
-        if (!onPermissionModeToggle) return;
-        e.preventDefault();
-        onPermissionModeToggle();
-      },
-      "agent",
-      hotkeyOpts,
-    );
-    useScopedShortcut(
-      "agent-collapse",
-      (e) => {
-        if (isRunning || !onCollapse) return;
-        e.preventDefault();
-        onCollapse();
-      },
-      "agent",
-      hotkeyOpts,
-    );
-    useShortcut(
-      "agent-stop",
-      (e) => {
-        if (!isRunning) return;
-        if (!wrapperRef.current?.contains(document.activeElement)) return;
-        e.preventDefault();
-        onStop();
-      },
-      { enableOnFormTags: true, enableOnContentEditable: true },
-      [isRunning, onStop],
-    );
+    useAgentPromptShortcuts({
+      agentTabActive,
+      isRunning,
+      wrapperRef,
+      onOpenModelPicker,
+      onToggleMaximize,
+      onPermissionModeToggle,
+      onCollapse,
+      onStop,
+    });
     const specialPrompt =
       visiblePermission && onPermissionDecision ? (
         <ToolPermissionPrompt
@@ -365,38 +335,18 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
               slashCommandsLoading={slashCommandsLoading}
               onPasteImages={addFiles}
             />
-            <div className="flex shrink-0 items-center gap-1.5 self-end">
-              <ImageAttachmentButton
-                onFilesSelected={addFiles}
-                disabled={disabled || sending}
-                providerId={providerId}
-              />
-              {isRunning ? (
-                <button
-                  type="button"
-                  onClick={onStop}
-                  aria-label="Stop agent"
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md bg-destructive/15 text-destructive transition-colors hover:bg-destructive/25"
-                >
-                  <Pause className="size-3.5" />
-                </button>
-              ) : !splitSendActions ? (
-                <button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!canSend}
-                  aria-label="Send message"
-                  aria-busy={sending}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground transition-opacity disabled:opacity-30"
-                >
-                  {sending ? (
-                    <Loader2 className="size-3.5 animate-spin" />
-                  ) : (
-                    <Send className="size-3.5" />
-                  )}
-                </button>
-              ) : null}
-            </div>
+            <PromptBarActions
+              onAddFiles={addFiles}
+              providerId={providerId}
+              inputsDisabled={!!disabled || sending}
+              isRunning={isRunning}
+              onStop={onStop}
+              onSend={handleSend}
+              canSend={canSend}
+              sending={sending}
+              showSendButton={!splitSendActions}
+              schedule={scheduleControl}
+            />
           </div>
           {splitSendActions && !isRunning && (
             <SplitSendActions

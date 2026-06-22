@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { fireEvent, render, screen } from "@/test-utils";
+import { fireEvent, render, screen, within } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
+import { useListFeatures } from "@/api/generated";
 import { ProjectFeatures } from "./ProjectFeatures";
 import { shouldIgnoreFeatureRowKeyDown } from "./ProjectFeatureRow";
 import { resetMockIds } from "@/test-fixtures";
@@ -22,6 +23,7 @@ const mockNavigate = vi.fn();
 const _mockInvalidate = vi.fn();
 const mockUpdateLabel = vi.fn();
 const mockUpdateStatus = vi.fn();
+const mockUpdatePinned = vi.fn();
 const mockDelete = vi.fn();
 const mockDeleteWorktree = vi.fn();
 const mockDeleteBranch = vi.fn();
@@ -124,6 +126,12 @@ vi.mock("@/api/generated", () => ({
       opts?.mutation?.onSuccess?.();
     },
   })),
+  useUpdateFeaturePinned: vi.fn((opts?: { mutation?: { onSuccess?: () => void } }) => ({
+    mutate: (data: unknown) => {
+      mockUpdatePinned(data);
+      opts?.mutation?.onSuccess?.();
+    },
+  })),
   useDeleteFeature: vi.fn(
     (opts?: { mutation?: { onSuccess?: (data: unknown, variables: unknown) => void } }) => ({
       mutate: (data: unknown) => {
@@ -171,6 +179,7 @@ describe("ProjectFeatures", () => {
     mockNavigate.mockClear();
     mockUpdateLabel.mockClear();
     mockUpdateStatus.mockClear();
+    mockUpdatePinned.mockClear();
     mockDelete.mockClear();
     mockDeleteWorktree.mockClear();
     mockDeleteBranch.mockClear();
@@ -194,6 +203,42 @@ describe("ProjectFeatures", () => {
     expect(screen.getByText("Feature Two")).toBeInTheDocument();
     expect(screen.getByText("Session One")).toBeInTheDocument();
     expect(screen.queryByText("Archived Session")).not.toBeInTheDocument();
+  });
+
+  it("excludes pinned features from the project list (they render in the global Pinned section)", () => {
+    vi.mocked(useListFeatures).mockReturnValueOnce({
+      data: [{ ...mockFeatures[0], is_pinned: true }, mockFeatures[1], mockFeatures[2]],
+    } as ReturnType<typeof useListFeatures>);
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    // No per-project "Pinned" header anymore, and the pinned row is pulled out
+    // of this project's list — it surfaces in `SidebarPinnedConversations`.
+    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+    expect(screen.getByText("Feature Two")).toBeInTheDocument();
+    expect(screen.getByText("Session One")).toBeInTheDocument();
+  });
+
+  it("pins a feature when its pin button is clicked", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+    const row = screen.getByText("Feature One").closest("[role=button]");
+    if (!row) throw new Error("row not found");
+    await user.click(within(row as HTMLElement).getByRole("button", { name: "Pin" }));
+    expect(mockUpdatePinned).toHaveBeenCalledWith({ id: 1, data: { pinned: true } });
   });
 
   it("highlights active feature", () => {

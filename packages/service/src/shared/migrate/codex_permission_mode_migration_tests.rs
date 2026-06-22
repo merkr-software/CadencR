@@ -14,13 +14,18 @@ async fn codex_permission_mode_migration_adds_session_column() {
 
     sqlx::raw_sql(
         r#"PRAGMA foreign_keys = ON;
+        -- is_pinned is dropped by migration 20260621130000 but existed at this
+        -- baseline (added by 20260504001317), so the fixture must provide it.
+        -- Keep it comment-free inside the parens: SQLite's DROP COLUMN re-parses
+        -- the stored CREATE TABLE and chokes on inline comments.
         CREATE TABLE agent_sessions (
             id INTEGER PRIMARY KEY,
             feature_id INTEGER NOT NULL,
             agent_type TEXT,
             status TEXT,
             model TEXT,
-            permission_mode TEXT
+            permission_mode TEXT,
+            is_pinned INTEGER NOT NULL DEFAULT 0
         );
         -- Later migrations (e.g. the user-message sort indexes) reference
         -- agent_messages(role, created_at), so the fixture must provide them.
@@ -30,6 +35,9 @@ async fn codex_permission_mode_migration_adds_session_column() {
             role TEXT NOT NULL DEFAULT 'assistant',
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
+        -- The pin_features migration (20260621120000) alters features, which
+        -- already existed at this baseline, so the fixture must provide it.
+        CREATE TABLE features (id INTEGER PRIMARY KEY AUTOINCREMENT);
         -- The run_in_terminal migration (20260609120000) alters custom_actions,
         -- which already existed at this baseline, so the fixture must provide it.
         CREATE TABLE custom_actions (

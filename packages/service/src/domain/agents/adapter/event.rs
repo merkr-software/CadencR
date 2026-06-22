@@ -2,15 +2,31 @@ use serde_json::Value;
 
 use super::config::RuntimeUsage;
 use super::event_types::{
-    RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEvent, RuntimeEventKind,
-    RuntimeEventMetadata, RuntimeInitEvent, RuntimeProviderError, RuntimeStreamEvent,
-    RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserMessage,
+    BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEvent,
+    RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeProviderError,
+    RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserMessage,
 };
 use super::permission::RuntimeSlashCommand;
 
 impl RuntimeEvent {
     pub fn new(metadata: RuntimeEventMetadata, kind: RuntimeEventKind) -> Self {
-        Self { metadata, kind }
+        Self {
+            metadata,
+            kind,
+            background_agent: None,
+        }
+    }
+
+    /// Attach a [`BackgroundAgentSignal`] to this event. Used by adapters that
+    /// model run-in-background agents (today only Claude Code) so the shared
+    /// stream reader can track which agents are still alive.
+    pub fn with_background_agent(mut self, signal: Option<BackgroundAgentSignal>) -> Self {
+        self.background_agent = signal;
+        self
+    }
+
+    pub fn background_agent_signal(&self) -> Option<&BackgroundAgentSignal> {
+        self.background_agent.as_ref()
     }
 
     pub fn session_id(&self) -> Option<&str> {

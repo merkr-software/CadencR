@@ -1,0 +1,339 @@
+/* -------------------------------------------------------------------------
+ * Square themes — Carbon Owl (dark) & Paper Owl (light)
+ *
+ * These two themes share a *geometry* identity, not just a palette: they pull
+ * `--radius` down to a tight 4px (vs. the 10px the other themes use) so the UI
+ * reads as crisp, lightly-rounded blocks rather than soft cards — squared-off,
+ * but not hard-cornered. They keep the default 1px `--border-width`; the framed
+ * feel comes from a more *defined* border color, not a thicker line. The
+ * geometry tokens are declared in `theme.css`'s unscoped `:root`; the blocks
+ * below override `--radius` alongside the full color token set (mirrors the One
+ * Dark / One Light token lists so nothing falls through to the Dracula defaults).
+ *
+ * Carbon Owl is the authentic IBM-Carbon-inspired theme by pXius: graphite
+ * chrome (#141519 / #1b1d22) with gold/blue/green/purple syntax, all on one
+ * coherent graphite surface (the source theme's purple terminal is dropped — it
+ * clashes with the graphite shell). Paper Owl pairs warm editorial paper with
+ * Night Owl Light ink. The xterm palettes (canvas-rendered) live in
+ * `lib/themes/carbon-owl.ts` and `lib/themes/paper-owl.ts`.
+ * ------------------------------------------------------------------------- */
+
+/* Tightening `--radius` to 4px squares everything that derives from it. But
+ * Tailwind's radius scale is *inlined* (`@theme inline` in index.css), so only
+ * `--radius` is live: `rounded-sm/md/lg/xl` and bare `rounded` (0.25rem) now
+ * track it, but `rounded-2xl` (fixed 1rem) and arbitrary `rounded-[Npx]` ignore
+ * the token entirely and stay large. Clamp those remaining utilities to
+ * `--radius` here so the square themes are corner-consistent. This `rounded-[…]`
+ * match also catches the pill buttons (sidebar Settings, remote toggle) that use
+ * `rounded-[var(--radius-pill)]`, squaring them too. A literal `rounded-full`
+ * (status dots, avatars) is deliberately excluded — those stay circular. Scoped
+ * to these themes and unlayered to beat the utility layer. */
+:root[data-theme="carbon-owl"] :is(.rounded-2xl, [class*="rounded-["]):not(.rounded-full),
+:root[data-theme="paper-owl"] :is(.rounded-2xl, [class*="rounded-["]):not(.rounded-full) {
+  border-radius: var(--radius);
+}
+
+/* Carbon Owl — the authentic pXius theme: graphite IBM-Carbon chrome (#141519
+ * panels / #1b1d22 editor) with gold/blue/green/purple syntax and a signature
+ * dark-purple terminal (#261b37). Square geometry: 4px radius, defined borders.
+ * Neutral ramp (hex, sampled from the source theme): #0b0c0e seam · #141519
+ * chrome · #1b1d22 editor · #282c33 widget · #33383f border · #4c5767 gutter ·
+ * #9aa1ac mid-gray · #bbbbbb text. */
+:root[data-theme="carbon-owl"] {
+  color-scheme: dark;
+
+  /* Square geometry — tight 4px radius (vs. 10px elsewhere). Keeps the default
+   * 1px --border-width; the framed look comes from the defined border below. */
+  --radius: 0.25rem;
+
+  /* Tailwind semantic tokens — Carbon graphite ramp. */
+  --background: #1b1d22;
+  --foreground: #bbbbbb;
+  --card: #141519;
+  --card-foreground: #bbbbbb;
+  --surface-sunken: #141519;
+  --popover: #282c33;
+  --popover-foreground: #bbbbbb;
+  --primary: #3398db;
+  --primary-foreground: #0c1116;
+  --secondary: #282c33;
+  --secondary-foreground: #bbbbbb;
+  --muted: #282c33;
+  --muted-foreground: #9aa1ac;
+  --accent: #2a2e35;
+  --accent-foreground: #bbbbbb;
+  --destructive: #c13838;
+  --destructive-foreground: #f5e6e6;
+  /* Defined graphite border (#33383f) — lifted off the chrome so the square
+   * 1px frames read as deliberate edges, not hairlines. */
+  --border: #33383f;
+  --input: #3a3f47;
+  --ring: #3398db;
+  --chart-1: #3398db;
+  --chart-2: #a15def;
+  --chart-3: #37ae6f;
+  --chart-4: #d39e17;
+  --chart-5: #24b5a8;
+  --sidebar: #141519;
+  --sidebar-foreground: #bbbbbb;
+  --sidebar-primary: #3398db;
+  --sidebar-primary-foreground: #0c1116;
+  --sidebar-accent: #1b1d22;
+  --sidebar-accent-foreground: #bbbbbb;
+  --sidebar-border: #26292f;
+  --sidebar-ring: #3398db;
+
+  /* Vibrant accent palette — Carbon Owl syntax colors. */
+  --acc-cyan: #24b5a8;
+  --acc-green: #37ae6f;
+  --acc-orange: #d26d32;
+  --acc-pink: #de456b;
+  --acc-purple: #a15def;
+  --acc-red: #c13838;
+  --acc-yellow: #d39e17;
+  --acc-comment: #6c7689;
+
+  /* Code surface — matches the graphite editor so code-bearing surfaces read as
+   * one family with the chrome. */
+  --code-bg: #1b1d22;
+  --code-fg: #bbbbbb;
+
+  /* Agent-stream block surfaces — graphite washes. Tool/Plan take Carbon blue;
+   * Thinking uses Carbon purple (DESIGN.md rule 5, thinking = accent_violet).
+   * Bash mirrors the dark-theme pattern. */
+  --block-tool-bg: #18222b;
+  --block-tool-accent: #3398db;
+  --block-thinking-bg: #221b2e;
+  --block-thinking-accent: #a15def;
+  --block-plan-bg: #18222b;
+  --block-plan-accent: #3398db;
+  --block-bash-header-bg: #1b1d22;
+  --block-bash-body-bg: #101216;
+  --block-bash-fg: #bbbbbb;
+  --block-bash-muted-fg: #6c7689;
+  --block-task-bg: #16181d;
+
+  /* App-level semantic accents. */
+  --numstat-add-fg: #37ae6f;
+  --numstat-del-fg: #c13838;
+  --chip-worktree-bg: rgba(36, 181, 168, 0.16);
+  --chip-worktree-bg-hover: rgba(36, 181, 168, 0.26);
+  --chip-worktree-fg: #24b5a8;
+  --chip-shared-worktree-bg: rgba(210, 109, 50, 0.18);
+  --chip-shared-worktree-fg: #d26d32;
+
+  /* Prompt chip palette — Tailwind violet/fuchsia/blue identities (same as the
+   * other dark themes). UI-conventional, not theme-specific syntax. */
+  --chip-violet-bg: #8b5cf6;
+  --chip-violet-fg: #a78bfa;
+  --chip-violet-soft: #c4b5fd;
+  --chip-fuchsia-bg: #d946ef;
+  --chip-fuchsia-fg: #e879f9;
+  --chip-blue-bg: #3b82f6;
+  --chip-blue-fg: #60a5fa;
+
+  /* CodeMirror editor — graphite surface + Carbon Owl syntax. Slot names are
+   * semantic (see editor-theme.ts): pink=keyword, green=function, yellow=string,
+   * cyan=type/number, purple=constant, orange=atom. */
+  --editor-bg: #1b1d22;
+  --editor-fg: #bbbbbb;
+  --editor-comment: #6c7689;
+  --editor-cyan: #a15def;
+  --editor-green: #3398db;
+  --editor-orange: #d26d32;
+  --editor-pink: #d39e17;
+  --editor-purple: #c13838;
+  --editor-red: #e62c2c;
+  --editor-yellow: #37ae6f;
+  --editor-border: #0b0c0e;
+  --editor-cursor: #d39e17;
+  --editor-line-highlight: rgba(154, 161, 172, 0.05);
+  --editor-gutter-bg: #1b1d22;
+  --editor-gutter-fg: #4c5767;
+  --editor-selection-bg: rgba(154, 161, 172, 0.27);
+  --editor-selection-bg-soft: rgba(154, 161, 172, 0.16);
+  --editor-search-match-bg: rgba(211, 158, 23, 0.25);
+
+  /* Diff decorations. */
+  --diff-add-bg: rgba(55, 174, 111, 0.1);
+  --diff-add-bg-strong: rgba(55, 174, 111, 0.22);
+  --diff-del-bg: rgba(193, 56, 56, 0.1);
+  --diff-del-bg-strong: rgba(193, 56, 56, 0.22);
+
+  /* Terminal chrome — graphite, matching the editor/panels so the terminal
+   * reads as one family with the rest of the shell (Carbon Owl's source theme
+   * uses a purple terminal, but it clashes here). Match xterm.background in
+   * `lib/themes/carbon-owl.ts`. */
+  --terminal-bg: #1b1d22;
+  --terminal-panel-icon: #6c7689;
+  --terminal-panel-icon-hover: #bbbbbb;
+  --terminal-panel-icon-bg-hover: #282c33;
+  --terminal-panel-handle-bg: #282c33;
+  --terminal-panel-handle-bg-hover: #33383f;
+  --terminal-warning-bg: #22262d;
+  --terminal-warning-border: #33383f;
+  --terminal-warning-fg: #bbbbbb;
+  --terminal-warning-fg-secondary: #9aa1ac;
+  --terminal-warning-accent: #d39e17;
+  --terminal-warning-link: #3398db;
+  --terminal-warning-button-bg: #33383f;
+  --terminal-warning-button-bg-hover: #3f444d;
+}
+
+/* Paper Owl — warm editorial paper (#f7f4ec) framed by defined #d8cfbd borders,
+ * with Night Owl Light's cool slate ink. Square geometry: tight 4px radius and
+ * a defined border for a crisp letterpress-frame feel. */
+:root[data-theme="paper-owl"] {
+  color-scheme: light;
+
+  /* Square geometry — tight 4px radius (vs. 10px elsewhere); default 1px border,
+   * the frame reads through the defined border color below. */
+  --radius: 0.25rem;
+
+  /* Tailwind semantic tokens — warm paper (hue 85, low chroma). */
+  --background: oklch(0.96 0.012 85);
+  --foreground: oklch(0.4 0.03 280);
+  --card: oklch(0.985 0.008 85);
+  --card-foreground: oklch(0.4 0.03 280);
+  --surface-sunken: oklch(0.93 0.014 85);
+  --popover: oklch(0.985 0.008 85);
+  --popover-foreground: oklch(0.4 0.03 280);
+  --primary: oklch(0.55 0.16 262);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.93 0.012 85);
+  --secondary-foreground: oklch(0.4 0.03 280);
+  --muted: oklch(0.93 0.012 85);
+  --muted-foreground: oklch(0.47 0.02 280);
+  --accent: oklch(0.91 0.014 85);
+  --accent-foreground: oklch(0.4 0.03 280);
+  --destructive: oklch(0.55 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  /* Defined warm border (#d8cfbd) — stronger than a typical light hairline so
+   * the 2px square frames read as deliberate letterpress edges. */
+  --border: oklch(0.85 0.022 85);
+  --input: oklch(0.89 0.016 85);
+  --ring: oklch(0.6 0.16 262);
+  --chart-1: oklch(0.55 0.16 262);
+  --chart-2: oklch(0.5 0.2 320);
+  --chart-3: oklch(0.55 0.13 160);
+  --chart-4: oklch(0.62 0.11 85);
+  --chart-5: oklch(0.55 0.1 200);
+  --sidebar: oklch(0.94 0.014 85);
+  --sidebar-foreground: oklch(0.4 0.03 280);
+  --sidebar-primary: oklch(0.55 0.16 262);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.91 0.014 85);
+  --sidebar-accent-foreground: oklch(0.4 0.03 280);
+  --sidebar-border: oklch(0.86 0.02 85);
+  --sidebar-ring: oklch(0.55 0.16 262);
+
+  /* Vibrant accents — Night Owl Light syntax, deepened for paper legibility. */
+  --acc-cyan: #0c969b;
+  --acc-green: #08916a;
+  --acc-orange: #b35900;
+  --acc-pink: #aa0982;
+  --acc-purple: #994cc3;
+  --acc-red: #d3423e;
+  --acc-yellow: #a07e00;
+  --acc-comment: #7e8595;
+
+  /* Code surface — a slightly deeper warm paper so code blocks separate. */
+  --code-bg: oklch(0.93 0.013 85);
+  --code-fg: oklch(0.4 0.03 280);
+
+  /* Agent-stream block surfaces — muted, warm-leaning tints so the blocks sit
+   * *in* the warm paper instead of glowing as cool islands. Tool/Plan = soft
+   * steel-blue; Thinking = warm dusty peach (a deliberate, Paper-Owl-only
+   * departure from the usual violet=thinking — the violet read as a cool glowing
+   * "light" on this cream paper). Tool/Thinking borders are re-tinted to their
+   * own hue below (the generic warm `--border` clashed with the fills). */
+  --block-tool-bg: oklch(0.935 0.016 235);
+  --block-tool-accent: oklch(0.46 0.14 248);
+  --block-thinking-bg: oklch(0.94 0.022 50);
+  --block-thinking-accent: oklch(0.47 0.13 40);
+  --block-plan-bg: oklch(0.935 0.016 235);
+  --block-plan-accent: oklch(0.46 0.14 248);
+  /* Bash variant — follow the light-theme pattern: header takes the accent
+   * gray, body the soft code surface. Live xterm still stays its own surface. */
+  --block-bash-header-bg: var(--accent);
+  --block-bash-body-bg: var(--code-bg);
+  --block-bash-fg: var(--foreground);
+  --block-bash-muted-fg: var(--muted-foreground);
+  --block-task-bg: oklch(0.94 0.012 85);
+
+  /* App-level semantic accents — tuned for contrast on paper. */
+  --numstat-add-fg: oklch(0.46 0.12 160);
+  --numstat-del-fg: oklch(0.5 0.2 25);
+  --chip-worktree-bg: oklch(0.9 0.05 200);
+  --chip-worktree-bg-hover: oklch(0.86 0.06 200);
+  --chip-worktree-fg: oklch(0.4 0.1 210);
+  --chip-shared-worktree-bg: oklch(0.9 0.07 65);
+  --chip-shared-worktree-fg: oklch(0.45 0.13 55);
+
+  /* Prompt chip palette — light pattern: bg/fg pull the saturated identity,
+   * `*-soft` flips to the darkest shade for text on the tinted chip bg. */
+  --chip-violet-bg: oklch(0.55 0.22 295);
+  --chip-violet-fg: oklch(0.45 0.2 295);
+  --chip-violet-soft: oklch(0.35 0.18 295);
+  --chip-fuchsia-bg: oklch(0.55 0.22 325);
+  --chip-fuchsia-fg: oklch(0.45 0.2 325);
+  --chip-blue-bg: oklch(0.55 0.2 245);
+  --chip-blue-fg: oklch(0.45 0.18 245);
+
+  /* CodeMirror editor — Night Owl Light syntax on paper. */
+  --editor-bg: oklch(0.97 0.01 85);
+  --editor-fg: oklch(0.4 0.03 280);
+  --editor-comment: oklch(0.62 0.02 280);
+  --editor-cyan: #0c969b;
+  --editor-green: #08916a;
+  --editor-orange: #b35900;
+  --editor-pink: #aa0982;
+  --editor-purple: #994cc3;
+  --editor-red: #d3423e;
+  --editor-yellow: #a07e00;
+  --editor-border: oklch(0.85 0.022 85);
+  --editor-cursor: #4876d6;
+  --editor-line-highlight: rgba(0, 0, 0, 0.04);
+  --editor-gutter-bg: oklch(0.97 0.01 85);
+  --editor-gutter-fg: oklch(0.66 0.02 85);
+  --editor-selection-bg: oklch(0.88 0.04 235);
+  --editor-selection-bg-soft: oklch(0.93 0.02 235);
+  --editor-search-match-bg: rgba(72, 118, 214, 0.18);
+
+  /* Diff decorations. */
+  --diff-add-bg: rgba(8, 145, 106, 0.12);
+  --diff-add-bg-strong: rgba(8, 145, 106, 0.22);
+  --diff-del-bg: rgba(211, 66, 62, 0.12);
+  --diff-del-bg-strong: rgba(211, 66, 62, 0.22);
+
+  /* Terminal chrome — match xterm.background in `lib/themes/paper-owl.ts`. */
+  --terminal-bg: #f7f4ec;
+  --terminal-panel-icon: oklch(0.55 0.02 85);
+  --terminal-panel-icon-hover: oklch(0.4 0.03 280);
+  --terminal-panel-icon-bg-hover: oklch(0.91 0.014 85);
+  --terminal-panel-handle-bg: oklch(0.91 0.014 85);
+  --terminal-panel-handle-bg-hover: oklch(0.87 0.018 85);
+  --terminal-warning-bg: oklch(0.94 0.014 85);
+  --terminal-warning-border: oklch(0.85 0.022 85);
+  --terminal-warning-fg: oklch(0.4 0.03 280);
+  --terminal-warning-fg-secondary: oklch(0.47 0.02 280);
+  --terminal-warning-accent: #b35900;
+  --terminal-warning-link: #4876d6;
+  --terminal-warning-button-bg: oklch(0.91 0.014 85);
+  --terminal-warning-button-bg-hover: oklch(0.87 0.018 85);
+}
+
+/* Paper Owl only: the Tool and Thinking agent-stream blocks hardcode the generic
+ * `border-border` (warm tan, #d8cfbd), which clashed with their cool blue/purple
+ * fills on the warm paper — the frame read as dirty. Re-tint just those two
+ * blocks' borders to their own hue so each reads as one coherent colored card
+ * (the Plan block already uses an accent-tinted border in its component). Match
+ * the Tailwind-generated `bg-[var(--block-*-bg)]` class, unlayered to beat the
+ * utility's `border-color`. Dark/graphite themes don't have this clash, so this
+ * is scoped to paper-owl. */
+:root[data-theme="paper-owl"] [class~="bg-[var(--block-tool-bg)]"] {
+  border-color: oklch(0.83 0.03 240 / 0.55);
+}
+:root[data-theme="paper-owl"] [class~="bg-[var(--block-thinking-bg)]"] {
+  border-color: oklch(0.83 0.04 50 / 0.55);
+}

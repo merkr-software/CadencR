@@ -107,6 +107,29 @@ describe("WorktreeButtonGroup", () => {
     expect(onModeChange).toHaveBeenCalledWith("from_branch_worktree");
   });
 
+  it("spells out that an on_branch switch is deferred until the first message", async () => {
+    // Regression for #61: picking a different branch in the pre-prompt chip
+    // must not imply the switch already happened — the checkout is deferred to
+    // send, so the chip surfaces a future-tense hint in both popovers.
+    const { user } = renderGroup({
+      branches: [branch("develop")],
+      selectedBranch: "develop",
+      mode: "on_branch",
+    });
+    // Mode popover (stays open while reading behaviors).
+    await user.click(screen.getByRole("button", { name: /branch \/ worktree behavior/i }));
+    expect(
+      await screen.findByText("Switches the project to develop when you send your first message."),
+    ).toBeInTheDocument();
+  });
+
+  it("does not show a deferral hint when staying on the current branch", async () => {
+    const { user } = renderGroup({ branches: [], selectedBranch: null, mode: "on_branch" });
+    await user.click(screen.getByRole("button", { name: /branch \/ worktree behavior/i }));
+    expect(await screen.findByText("From branch")).toBeInTheDocument();
+    expect(screen.queryByText(/when you send your first message/i)).not.toBeInTheDocument();
+  });
+
   it("steers the mode to reuse when picking a branch that has a worktree", async () => {
     const onModeChange = vi.fn();
     const { user } = renderGroup({

@@ -147,6 +147,16 @@ fn opencode_supported_effort_levels(provider_id: &str, model_id: &str) -> Option
     })
 }
 
+pub(crate) fn supports_effort_level_for_model_ref(model_ref: &str, effort: &str) -> bool {
+    let Some((provider_id, model_id)) =
+        crate::domain::agents::model_refs::parse_opencode_model_ref(model_ref)
+    else {
+        return false;
+    };
+    opencode_supported_effort_levels(provider_id, model_id)
+        .is_some_and(|levels| levels.iter().any(|level| level == effort))
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -257,6 +267,18 @@ mod tests {
             model.supported_effort_levels.as_deref(),
             Some(expected_levels.as_slice())
         );
+    }
+
+    #[test]
+    fn supports_effort_level_for_model_ref_rejects_non_reasoning_models() {
+        assert!(super::supports_effort_level_for_model_ref(
+            "openai/gpt-5.5",
+            "high"
+        ));
+        assert!(!super::supports_effort_level_for_model_ref(
+            "openrouter/z-ai/glm-5.2",
+            "high"
+        ));
     }
 
     #[test]

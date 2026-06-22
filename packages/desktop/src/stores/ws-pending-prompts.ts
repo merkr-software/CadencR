@@ -4,6 +4,7 @@ import type { PromptDeliveryState } from "@/types/agent";
 export interface LocalUserMessageOptions {
   clientMessageId?: string;
   promptDeliveryState?: PromptDeliveryState;
+  origin?: AgentBlockData["origin"];
 }
 
 export interface TailPromptTurnBoundary {
