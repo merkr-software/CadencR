@@ -10,6 +10,7 @@
     "dev": "turbo run dev",
     "test": "turbo run test",
     "lint": "turbo run lint",
+    "test:release-scripts": "env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh",
     "format": "turbo run format",
     "format:check": "turbo run format:check",
     "start": "turbo run dev --filter=@cadencr/desktop",
