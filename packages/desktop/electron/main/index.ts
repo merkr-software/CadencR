@@ -10,6 +10,7 @@ import { setRuntimeConfig } from "./runtime-config";
 import { initAutoUpdater, registerAutoUpdaterIpc, shutdownAutoUpdater } from "./updater";
 import {
   createDevSidecarHandle,
+  productionDbPath,
   spawnProductionSidecar,
   type SidecarHandle,
   type SidecarStatusUpdate,
@@ -22,6 +23,8 @@ import { registerBrowserIpc } from "./browser-ipc";
 import { startBrowserBridgeServer, type BrowserBridgeHandle } from "./browser-bridge-server";
 import { dispatchBrowserMcpTool } from "./browser-mcp-dispatch";
 import type { BrowserManager } from "./browser-manager";
+import { handleStartupRecoveryAction } from "./startup-recovery-actions";
+import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
 
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
@@ -36,6 +39,12 @@ let sidecarStopPromise: Promise<void> | null = null;
 let browserIpcRegistered = false;
 let browserManager: BrowserManager | null = null;
 let browserBridge: BrowserBridgeHandle | null = null;
+let startupRecovery: StartupRecoveryState | null = null;
+
+function startupRecoveryDbPath(): string {
+  if (app.isPackaged) return productionDbPath();
+  return process.env.CADENCR_DB_PATH || productionDbPath();
+}
 
 function installCsp(): void {
   const csp = rendererCsp(app.isPackaged);
@@ -246,6 +255,17 @@ async function bootstrap(): Promise<void> {
     splash = null;
     app.quit();
   });
+  splash.onAction((action) => {
+    void handleStartupRecoveryAction({
+      action,
+      recovery: startupRecovery,
+      splash,
+      quit: () => {
+        allowClose = true;
+        app.quit();
+      },
+    });
+  });
   await prepareRuntime();
   mainWindow = createWindow();
   mainWindow.webContents.once("did-finish-load", closeSplash);
@@ -258,15 +278,8 @@ function closeSplash(): void {
   splash = null;
 }
 
-// Pin AUMID so Windows attributes notifications/taskbar to Cadencr (no-op on
-// macOS). Must run before any window or notification is shown.
 app.setAppUserModelId(app.isPackaged ? "com.cadencr.desktop" : "com.cadencr.desktop.dev");
 
-// Give the dev build its own identity so it can run side-by-side with the
-// installed production Cadencr without colliding on Electron's
-// single-instance lock (the lock is keyed on `userData`). Without this,
-// `pnpm dev` exits with `second instance — exiting` whenever the released
-// app is also open. Must run before `requestSingleInstanceLock()`.
 if (!app.isPackaged) {
   app.setName("Cadencr Dev");
   const devUserData = devUserDataPath(
@@ -276,10 +289,6 @@ if (!app.isPackaged) {
   app.setPath("userData", devUserData);
 }
 
-// Refuse a second launch instead of racing port 5004 and stranding a
-// second splash window the user can't dismiss. Returning short-circuits
-// the rest of this module so the second process doesn't register handlers
-// or schedule bootstrap before Electron tears it down.
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   throw new Error("second instance — exiting");
@@ -298,10 +307,17 @@ app
   .then(() => bootstrap())
   .catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
+    startupRecovery = buildStartupRecovery({
+      appVersion: app.getVersion(),
+      getDbPath: startupRecoveryDbPath,
+      message,
+      now: new Date(),
+      platform: process.platform,
+    });
     if (splash) {
-      splash.setError("Cadencr couldn't start", message);
+      splash.setError(startupRecovery.title, startupRecovery.detail, startupRecovery.actions);
     } else {
-      dialog.showErrorBox("Cadencr failed to start", message);
+      dialog.showErrorBox(startupRecovery.title, startupRecovery.detail);
       app.quit();
     }
   });

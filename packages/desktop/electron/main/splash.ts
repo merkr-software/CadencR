@@ -1,5 +1,10 @@
 import { BrowserWindow } from "electron";
 import { readFileSync } from "node:fs";
+import {
+  parseStartupRecoveryActionUrl,
+  type StartupRecoveryAction,
+  type StartupRecoveryActionId,
+} from "./startup-recovery";
 
 // The splash loads from a data: URL before the renderer exists, so the brand
 // font (Figtree — the "CADENCR" wordmark face) must be embedded inline rather
@@ -21,6 +26,8 @@ const FIGTREE_WOFF2_BASE64: string = loadFigtreeBase64();
 
 const SPLASH_WIDTH = 520;
 const SPLASH_HEIGHT = 400;
+const ERROR_SPLASH_WIDTH = 640;
+const ERROR_SPLASH_HEIGHT = 500;
 const BACKGROUND = "#1e1e28";
 
 export type SplashPhase =
@@ -34,6 +41,21 @@ export type SplashPhase =
 interface PhaseCopy {
   title: string;
   detail: string;
+}
+
+type SplashUpdateKind = "phase" | "error";
+
+interface PendingSplashUpdate {
+  kind: SplashUpdateKind;
+  title: string;
+  detail: string;
+  actions?: StartupRecoveryAction[];
+}
+
+export interface SplashErrorState {
+  title: string;
+  detail: string;
+  actions?: StartupRecoveryAction[];
 }
 
 const PHASE_COPY: Record<SplashPhase, PhaseCopy> = {
@@ -57,15 +79,17 @@ const PHASE_COPY: Record<SplashPhase, PhaseCopy> = {
 export interface SplashHandle {
   window: BrowserWindow;
   setPhase: (phase: SplashPhase, detail?: string) => void;
-  setError: (title: string, detail: string) => void;
+  setError: (title: string, detail: string, actions?: StartupRecoveryAction[]) => void;
   /** Programmatic close (e.g. handing off to the main window). */
   close: () => void;
   /** Fired when the splash is dismissed by the user before main loaded. */
   onUserClose: (handler: () => void) => void;
+  /** Fired when the user clicks an explicit recovery action. */
+  onAction: (handler: (action: StartupRecoveryActionId) => void) => void;
 }
 
-export function createSplashWindow(version: string): SplashHandle {
-  const win = new BrowserWindow({
+function createSplashBrowserWindow(): BrowserWindow {
+  return new BrowserWindow({
     width: SPLASH_WIDTH,
     height: SPLASH_HEIGHT,
     frame: false,
@@ -84,8 +108,12 @@ export function createSplashWindow(version: string): SplashHandle {
       sandbox: true,
     },
   });
+}
 
-  const html = renderHtml(version);
+export function createSplashWindow(version: string): SplashHandle {
+  const win = createSplashBrowserWindow();
+
+  const html = renderSplashHtml(version);
   void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   win.once("ready-to-show", () => win.show());
 
@@ -93,63 +121,55 @@ export function createSplashWindow(version: string): SplashHandle {
   let domReady = false;
   let programmaticClose = false;
   let userCloseHandler: (() => void) | null = null;
-  let pending: { kind: "phase" | "error"; title: string; detail: string } | null = null;
+  let actionHandler: ((action: StartupRecoveryActionId) => void) | null = null;
+  let pending: PendingSplashUpdate | null = null;
 
   win.on("closed", () => {
     closed = true;
     if (!programmaticClose) userCloseHandler?.();
   });
+  win.webContents.on("will-navigate", (event, url) => {
+    const action = parseStartupRecoveryActionUrl(url);
+    if (!action) return;
+    event.preventDefault();
+    actionHandler?.(action);
+  });
   win.webContents.once("did-finish-load", () => {
     domReady = true;
     if (pending) {
-      void runUpdate(pending.kind, pending.title, pending.detail);
+      runUpdate(pending);
       pending = null;
     }
   });
 
-  const runUpdate = async (
-    kind: "phase" | "error",
-    title: string,
-    detail: string,
-  ): Promise<void> => {
+  const runUpdate = (update: PendingSplashUpdate): void => {
     if (closed || win.isDestroyed()) return;
-    const titleLit = JSON.stringify(title);
-    const detailLit = JSON.stringify(detail);
-    const errorClass = kind === "error" ? "add" : "remove";
-    const script = `(function(){
-      try {
-        var t = document.getElementById("title");
-        if (t) t.textContent = ${titleLit};
-        var d = document.getElementById("detail");
-        if (d) d.textContent = ${detailLit};
-        document.body.classList.${errorClass}("error");
-      } catch (_e) {}
-    })();`;
-    try {
-      await win.webContents.executeJavaScript(script, true);
-    } catch (error) {
-      // Window can race with close; swallow to avoid crashing the main process.
-      if (!closed) console.warn("splash update failed", error);
-    }
+    void executeSplashUpdate(win, update, () => closed);
   };
 
-  const update = (kind: "phase" | "error", title: string, detail: string): void => {
+  const update = (
+    kind: SplashUpdateKind,
+    title: string,
+    detail: string,
+    actions?: StartupRecoveryAction[],
+  ): void => {
     if (closed) return;
+    const next = { kind, title, detail, actions };
     if (!domReady) {
-      pending = { kind, title, detail };
+      pending = next;
       return;
     }
-    void runUpdate(kind, title, detail);
+    runUpdate(next);
   };
 
   return {
     window: win,
     setPhase(phase, detail) {
       const copy = PHASE_COPY[phase];
-      update("phase", copy.title, detail ?? copy.detail);
+      update("phase", copy.title, detail ?? copy.detail, []);
     },
-    setError(title, detail) {
-      update("error", title, detail);
+    setError(title, detail, actions) {
+      update("error", title, detail, actions);
     },
     close() {
       programmaticClose = true;
@@ -158,10 +178,50 @@ export function createSplashWindow(version: string): SplashHandle {
     onUserClose(handler) {
       userCloseHandler = handler;
     },
+    onAction(handler) {
+      actionHandler = handler;
+    },
   };
 }
 
-function renderHtml(version: string): string {
+async function executeSplashUpdate(
+  win: BrowserWindow,
+  update: PendingSplashUpdate,
+  isClosed: () => boolean,
+): Promise<void> {
+  resizeSplashForKind(win, update.kind);
+  const titleLit = JSON.stringify(update.title);
+  const detailLit = JSON.stringify(update.detail);
+  const actionsLit = JSON.stringify(renderActionHtml(update.actions ?? []));
+  const errorClass = update.kind === "error" ? "add" : "remove";
+  const script = `(function(){
+    var t = document.getElementById("title");
+    if (t) t.textContent = ${titleLit};
+    var d = document.getElementById("detail");
+    if (d) d.textContent = ${detailLit};
+    var a = document.getElementById("actions");
+    if (a) a.innerHTML = ${actionsLit};
+    document.body.classList.${errorClass}("error");
+  })();`;
+  try {
+    await win.webContents.executeJavaScript(script, true);
+  } catch (error) {
+    // Window can race with close; avoid crashing the main process.
+    if (!isClosed()) console.warn("splash update failed", error);
+  }
+}
+
+function resizeSplashForKind(win: BrowserWindow, kind: SplashUpdateKind): void {
+  const width = kind === "error" ? ERROR_SPLASH_WIDTH : SPLASH_WIDTH;
+  const height = kind === "error" ? ERROR_SPLASH_HEIGHT : SPLASH_HEIGHT;
+  const [currentWidth, currentHeight] = win.getSize();
+  if (currentWidth === width && currentHeight === height) return;
+
+  win.setSize(width, height);
+  win.center();
+}
+
+function renderSplashStyles(): string {
   const figtreeFace = FIGTREE_WOFF2_BASE64
     ? `@font-face {
     font-family: "Figtree Variable";
@@ -170,12 +230,7 @@ function renderHtml(version: string): string {
     src: url("data:font/woff2;base64,${FIGTREE_WOFF2_BASE64}") format("woff2");
   }`
     : "";
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<title>Cadencr</title>
-<style>
+  return `
   ${figtreeFace}
   * { box-sizing: border-box; }
   html, body {
@@ -205,13 +260,31 @@ function renderHtml(version: string): string {
   .detail {
     font-size: 12px; color: #a59fc4;
     text-align: center; min-height: 32px; line-height: 1.4;
-    max-width: 100%;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
+    max-width: 100%; max-height: 96px;
+    overflow-y: auto; overflow-x: hidden;
     word-break: break-word;
+    padding: 0 6px;
   }
+  body.error { padding: 30px 36px; }
+  body.error .logo { width: 96px; height: 96px; margin-bottom: 12px; }
+  body.error .version { margin-bottom: 18px; }
+  body.error .detail { max-height: 150px; }
+  .detail::-webkit-scrollbar { width: 6px; }
+  .detail::-webkit-scrollbar-thumb { background: #3a3754; border-radius: 9999px; }
+  .actions {
+    display: none; gap: 8px; justify-content: center; flex-wrap: wrap;
+    margin-top: 18px; max-width: 100%;
+  }
+  body.error .actions { display: flex; }
+  .action {
+    appearance: none; border: 1px solid #3a3754; border-radius: 10px;
+    padding: 8px 12px; color: #e8e6f3; background: #28263a;
+    text-decoration: none; font-size: 12px; font-weight: 600;
+    transition: background 120ms ease, border-color 120ms ease;
+  }
+  .action:hover { background: #332f48; border-color: #5b5374; }
+  .action.primary { background: #bd93f9; border-color: #bd93f9; color: #1e1e28; }
+  .action.danger { border-color: #ff5555; color: #ffb3b3; }
   .spinner {
     width: 28px; height: 28px; border-radius: 50%;
     border: 2px solid #3a3754; border-top-color: #bd93f9;
@@ -222,9 +295,20 @@ function renderHtml(version: string): string {
   body.error .title { color: #ff5555; }
   body.error .detail { color: #ffb3b3; }
   @keyframes spin { to { transform: rotate(360deg); } }
+`;
+}
+
+export function renderSplashHtml(version: string, initialError?: SplashErrorState): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Cadencr</title>
+<style>
+${renderSplashStyles()}
 </style>
 </head>
-<body>
+<body${initialError ? ' class="error"' : ""}>
   <svg class="logo" viewBox="0 0 1024 1024" aria-hidden="true">
     <g transform="translate(512 512) scale(8.24) translate(-50 -50)">
       <circle cx="50" cy="50" r="16" fill="#b388ff"/>
@@ -237,11 +321,24 @@ function renderHtml(version: string): string {
   </svg>
   <div class="name">Cadencr</div>
   <div class="version">v${escapeHtml(version)}</div>
-  <div class="title" id="title">Starting Cadencr</div>
-  <div class="detail" id="detail">Preparing the workspace…</div>
+  <div class="title" id="title">${escapeHtml(initialError?.title ?? "Starting Cadencr")}</div>
+  <div class="detail" id="detail">${escapeHtml(initialError?.detail ?? "Preparing the workspace…")}</div>
+  <div class="actions" id="actions">${renderActionHtml(initialError?.actions ?? [])}</div>
   <div class="spinner" id="spinner"></div>
 </body>
 </html>`;
+}
+
+function renderActionHtml(actions: StartupRecoveryAction[]): string {
+  return actions
+    .map((action) => {
+      const classes = ["action", action.primary ? "primary" : "", action.danger ? "danger" : ""]
+        .filter(Boolean)
+        .join(" ");
+      const href = `cadencr-splash://action/${encodeURIComponent(action.id)}`;
+      return `<a class="${classes}" href="${href}">${escapeHtml(action.label)}</a>`;
+    })
+    .join("");
 }
 
 function escapeHtml(value: string): string {
