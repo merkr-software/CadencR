@@ -164,7 +164,7 @@ fn cursor_before_message_id(args: &serde_json::Value) -> Option<i64> {
         .and_then(serde_json::Value::as_i64)
 }
 
-fn push_i64_filter(builder: &mut QueryBuilder<'_, Sqlite>, column: &str, values: &[i64]) {
+fn push_i64_filter(builder: &mut QueryBuilder<Sqlite>, column: &str, values: &[i64]) {
     if values.is_empty() {
         return;
     }
@@ -178,7 +178,7 @@ fn push_i64_filter(builder: &mut QueryBuilder<'_, Sqlite>, column: &str, values:
     builder.push(")");
 }
 
-fn push_string_filter(builder: &mut QueryBuilder<'_, Sqlite>, column: &str, values: &[String]) {
+fn push_string_filter(builder: &mut QueryBuilder<Sqlite>, column: &str, values: &[String]) {
     if values.is_empty() {
         return;
     }

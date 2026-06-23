@@ -141,7 +141,6 @@ async fn project_spawn_session_inherits_configured_codex_permission_without_over
             "initial_message": "Please investigate.",
             "branch": { "mode": "none" },
             "provider": "codex_cli",
-            "model": "gpt-5.4",
             "permission_mode": "default",
             "source_note": "delegated by project MCP"
         })))
@@ -168,7 +167,6 @@ async fn project_spawn_session_explicit_codex_permission_override_wins() {
             "title": "Codex child",
             "branch": { "mode": "none" },
             "provider": "codex_cli",
-            "model": "gpt-5.4",
             "permission_mode": "default",
             "codex_permission_mode": "fullAccess",
             "source_note": "delegated by project MCP"

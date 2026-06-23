@@ -275,30 +275,37 @@ describe("AgentPromptBar", () => {
   });
 
   it("restores unsent text after plan approval closes", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers();
     const { rerender } = render(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
 
-    await user.type(screen.getByRole("textbox"), "Need a smaller plan");
+    try {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Need a smaller plan" } });
 
-    rerender(
-      <AgentPromptBar
-        onSend={onSend}
-        onStop={onStop}
-        status="question"
-        pendingPlanApproval={{ allowedPrompts: [] }}
-        onPlanApprove={vi.fn()}
-        onPlanRequestChanges={vi.fn()}
-      />,
-    );
+      rerender(
+        <AgentPromptBar
+          onSend={onSend}
+          onStop={onStop}
+          status="question"
+          pendingPlanApproval={{ allowedPrompts: [] }}
+          onPlanApprove={vi.fn()}
+          onPlanRequestChanges={vi.fn()}
+        />,
+      );
 
-    // Plan approval is deferred while the user has just been typing — the
-    // prompt bar stays visible until the typing-idle debounce elapses.
-    await screen.findByText(/Plan ready for review/i);
-    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+      // Plan approval is deferred while the user has just been typing — the
+      // prompt bar stays visible until the typing-idle debounce elapses.
+      expect(screen.getByText(/Plan approval pending/i)).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("Need a smaller plan");
+      await act(async () => vi.advanceTimersByTime(1000));
+      expect(screen.getByText(/Plan ready for review/i)).toBeInTheDocument();
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    rerender(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
+      rerender(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
 
-    expect(screen.getByRole("textbox")).toHaveTextContent("Need a smaller plan");
+      expect(screen.getByRole("textbox")).toHaveValue("Need a smaller plan");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("restores unsent text after question drawer closes", async () => {

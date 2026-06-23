@@ -19,6 +19,7 @@ import type {
   useSessionFeatureData,
   useSessionRefs,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
+import type { NonAgentTabReadiness } from "@/components/useAgentFirstNonAgentWork";
 const FeatureEditorTab = lazy(() => import("@/components/editor/FeatureEditorTab"));
 const BrowserWorkspaceTab = lazy(() =>
   import("@/components/BrowserWorkspaceTab").then((module) => ({
@@ -38,7 +39,8 @@ interface UseSessionTabsArgs {
   controls: ReturnType<typeof useSessionControls>;
   refs: ReturnType<typeof useSessionRefs>;
   agentVisible: boolean;
-  nonAgentTabsEnabled: boolean;
+  /** Per-kind readiness; tabs reveal in priority order after the agent paints. */
+  tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
 }
@@ -166,37 +168,39 @@ function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
 }
 
 function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
-  const { featureId, projectId, refs, nonAgentTabsEnabled } = args;
+  const { featureId, projectId, refs } = args;
+  const terminalReady = args.tabReady.terminal;
   return useMemo(
     () => ({
       label: "Terminal",
       Icon: TerminalIcon,
       shortcut: ["cmd", "shift", "T"],
-      content: nonAgentTabsEnabled ? (
+      content: terminalReady ? (
         <FeatureTerminalTab ref={refs.terminal} featureId={featureId} projectId={projectId} />
       ) : (
         <DeferredTabContent label="Terminal" />
       ),
     }),
-    [featureId, nonAgentTabsEnabled, projectId, refs.terminal],
+    [featureId, terminalReady, projectId, refs.terminal],
   );
 }
 
 function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
-  const { featureId, data, nonAgentTabsEnabled, sendFromGitTab } = args;
+  const { featureId, data, sendFromGitTab } = args;
+  const gitReady = args.tabReady.git;
   return useMemo(
     () => ({
       label: "Git",
       Icon: GitCompareArrowsIcon,
       shortcut: ["cmd", "shift", "G"],
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
-      content: nonAgentTabsEnabled ? (
+      content: gitReady ? (
         <FeatureGitTab featureId={featureId} diffMode="worktree" onSendComments={sendFromGitTab} />
       ) : (
         <DeferredTabContent label="Git" />
       ),
     }),
-    [data.gitBranch, featureId, nonAgentTabsEnabled, sendFromGitTab],
+    [data.gitBranch, featureId, gitReady, sendFromGitTab],
   );
 }
 
@@ -204,7 +208,8 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
   // Scope the Browser by the real featureId (not layoutFeatureId): the agent's
   // MCP is pinned to featureId, so its tabs are created in that scope. Using the
   // same id here is what makes agent-opened tabs appear in this panel.
-  const { controls, nonAgentTabsEnabled, featureId } = args;
+  const { controls, featureId } = args;
+  const browserReady = args.tabReady.browser;
   const sendContext = useCallback(
     (message: string, images?: Array<{ base64: string; mimeType: string }>): void =>
       controls.ws.sendPrompt(message, {
@@ -223,7 +228,7 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       label: "Browser",
       Icon: GlobeIcon,
       shortcut: ["cmd", "shift", "B"],
-      content: nonAgentTabsEnabled ? (
+      content: browserReady ? (
         <Suspense fallback={null}>
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />
         </Suspense>
@@ -231,19 +236,20 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
         <DeferredTabContent label="Browser" />
       ),
     }),
-    [featureId, nonAgentTabsEnabled, sendContext],
+    [featureId, browserReady, sendContext],
   );
 }
 
 function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
-  const { featureId, projectId, data, refs, nonAgentTabsEnabled } = args;
+  const { featureId, projectId, data, refs } = args;
+  const editorReady = args.tabReady.editor;
   const projectPathOrCwd = data.effectiveCwd ?? data.projectPath;
   return useMemo(
     () => ({
       label: "Editor",
       Icon: CodeIcon,
       shortcut: ["cmd", "shift", "E"],
-      content: !nonAgentTabsEnabled ? (
+      content: !editorReady ? (
         <DeferredTabContent label="Editor" />
       ) : projectPathOrCwd ? (
         <Suspense fallback={null}>
@@ -256,7 +262,7 @@ function useEditorTab(args: UseSessionTabsArgs): FeatureTabDef {
         </Suspense>
       ) : null,
     }),
-    [featureId, nonAgentTabsEnabled, projectId, projectPathOrCwd, refs.editor],
+    [featureId, editorReady, projectId, projectPathOrCwd, refs.editor],
   );
 }
 

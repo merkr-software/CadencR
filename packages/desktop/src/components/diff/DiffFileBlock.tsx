@@ -1,13 +1,8 @@
-import { memo, useCallback, type ReactNode } from "react";
+import { memo, useCallback } from "react";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import { firstChangedNewLine } from "@/lib/diff-line";
 import { type FileDiffSection, hasTextHunks } from "@/lib/parse-unified-diff";
-import {
-  DiffFileHeader,
-  DiffFileHeaderOpenInEditor,
-  DiffFileHeaderPrefix,
-  DiffFileHeaderViewed,
-} from "./DiffFileHeader";
+import { DiffFileHeader } from "./DiffFileHeader";
 import {
   type CommentLineData,
   type ActiveWidget,
@@ -15,6 +10,7 @@ import {
 } from "./diff-comment-decorations";
 import { LargeDiffPlaceholder } from "./LargeDiffPlaceholder";
 import { PatchDiffView, type CommentSide } from "./PatchDiffView";
+import { DiffStatusIcon, deriveChangeType } from "./DiffStatusIcon";
 
 export interface DiffFileBlockProps {
   section: FileDiffSection;
@@ -87,67 +83,32 @@ function DiffFileBlockImpl({
     [displayName, onOpenFileInEditor, section.hunks],
   );
 
-  const renderHeaderPrefix = useCallback(
-    (): ReactNode => (
-      <div className="group/header flex min-w-0 items-center gap-2 pl-2">
-        <DiffFileHeaderPrefix
-          displayName={displayName}
-          isCollapsed={isCollapsed}
-          showName={false}
-          onToggle={onToggle}
-        />
-      </div>
-    ),
-    [displayName, isCollapsed, onToggle],
+  // One header for both states: collapsed renders it alone (cheap — no Pierre);
+  // expanded renders it above a Pierre body whose own header is disabled, so the
+  // row looks identical either way (font, status icon, counts, edit, viewed).
+  const header = (
+    <DiffFileHeader
+      displayName={displayName}
+      additions={additions}
+      deletions={deletions}
+      isCollapsed={isCollapsed}
+      isFocused={isFocused}
+      isFileViewed={isFileViewed}
+      showViewedCheckbox={showViewedCheckbox}
+      statusIcon={<DiffStatusIcon type={deriveChangeType(section)} appearance={themeAppearance} />}
+      themeAppearance={themeAppearance}
+      onToggle={onToggle}
+      onOpenFileInEditor={onOpenFileInEditor ? onOpenFile : undefined}
+      onMarkViewed={onMarkViewed}
+      onUnmarkViewed={onUnmarkViewed}
+    />
   );
 
-  const renderHeaderMetadata = useCallback((): ReactNode => {
-    if (!onOpenFileInEditor && !showViewedCheckbox) return null;
-    return (
-      <div className="group/header flex items-center gap-2 pr-3">
-        <DiffFileHeaderOpenInEditor
-          displayName={displayName}
-          onOpenFileInEditor={onOpenFileInEditor ? onOpenFile : undefined}
-        />
-        {showViewedCheckbox && (
-          <DiffFileHeaderViewed
-            isFileViewed={isFileViewed}
-            onMarkViewed={onMarkViewed}
-            onUnmarkViewed={onUnmarkViewed}
-          />
-        )}
-      </div>
-    );
-  }, [
-    displayName,
-    isFileViewed,
-    onMarkViewed,
-    onOpenFile,
-    onOpenFileInEditor,
-    onUnmarkViewed,
-    showViewedCheckbox,
-  ]);
-
-  if (isCollapsed) {
-    return (
-      <DiffFileHeader
-        displayName={displayName}
-        additions={additions}
-        deletions={deletions}
-        isCollapsed={isCollapsed}
-        isFocused={isFocused}
-        isFileViewed={isFileViewed}
-        showViewedCheckbox={showViewedCheckbox}
-        onToggle={onToggle}
-        onOpenFileInEditor={onOpenFileInEditor ? onOpenFile : undefined}
-        onMarkViewed={onMarkViewed}
-        onUnmarkViewed={onUnmarkViewed}
-      />
-    );
-  }
+  if (isCollapsed) return header;
 
   return (
     <>
+      {header}
       <PatchDiffView
         patch={patch}
         mode={diffMode}
@@ -156,13 +117,11 @@ function DiffFileBlockImpl({
         commentCallbacks={commentCallbacks}
         themeAppearance={themeAppearance}
         themeId={themeId}
-        collapsed={isCollapsed}
         focused={isFocused}
-        renderHeaderPrefix={renderHeaderPrefix}
-        renderHeaderMetadata={renderHeaderMetadata}
+        disableFileHeader
         onAddComment={onAddComment ? onAddLineComment : undefined}
       />
-      {!isCollapsed && isBinary && (
+      {isBinary && (
         <LargeDiffPlaceholder
           variant="binary"
           sizeBytes={0}

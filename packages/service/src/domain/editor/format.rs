@@ -8,6 +8,7 @@
 //! handling the LSP host relies on); the recipe comes from the provider-neutral
 //! `format_catalog`.
 
+use std::io::ErrorKind;
 use std::process::Stdio;
 
 use axum::extract::{Json, State};
@@ -116,10 +117,13 @@ async fn run_formatter(
         .stdin
         .take()
         .ok_or_else(|| AppError::Internal("formatter stdin unavailable".into()))?;
-    stdin
-        .write_all(content.as_bytes())
-        .await
-        .map_err(|e| AppError::Internal(format!("failed writing to {formatter_id}: {e}")))?;
+    if let Err(error) = stdin.write_all(content.as_bytes()).await {
+        if error.kind() != ErrorKind::BrokenPipe {
+            return Err(AppError::Internal(format!(
+                "failed writing to {formatter_id}: {error}"
+            )));
+        }
+    }
     drop(stdin); // close stdin so the formatter sees EOF
 
     let output = child

@@ -19,7 +19,8 @@ import {
   getListDiffViewedQueryKey,
   getListDiffCommentsQueryKey,
 } from "@/api/generated";
-import { parseUnifiedDiff, countHunkStats } from "@/lib/parse-unified-diff";
+import type { ParsedFileMeta } from "@/lib/parse-unified-diff";
+import { useParsedDiff } from "./useParsedDiff";
 import { findStalePendingCommentIds } from "@/lib/diff-comment-validity";
 
 // Module-scoped dedupe state for the auto-invalidation effect below. Multiple
@@ -85,12 +86,7 @@ export function seedBatchFileContentCache(
   }
 }
 
-export interface FileMeta {
-  section: import("@/lib/parse-unified-diff").FileDiffSection;
-  displayName: string;
-  additions: number;
-  deletions: number;
-}
+export type FileMeta = ParsedFileMeta;
 
 /**
  * Diff endpoint mode values. `"uncommitted"` is the new Git-tab segmented
@@ -117,30 +113,27 @@ export function useDiffData(
   const selectedCommit = commitSha ?? null;
 
   // ---- Diff & file content ----
-  const { data: diffResponse, isLoading } = useGetDiff({
-    feature_id: featureId,
-    mode,
-    target_branch: targetBranch,
-    commit_sha: selectedCommit ?? undefined,
-  });
+  // In branch mode the target branch resolves asynchronously (the Git tab
+  // reads it from a snapshot query). Firing before it's known triggers a
+  // throwaway fetch of the default-branch diff — potentially huge — that is
+  // immediately refetched once the real target arrives, doubling the network +
+  // parse + render cost on open. Gate the query until the target (or a pinned
+  // commit) is known.
+  const diffParamsReady = mode !== "branch" || !!targetBranch || !!selectedCommit;
+  const { data: diffResponse, isLoading } = useGetDiff(
+    {
+      feature_id: featureId,
+      mode,
+      target_branch: targetBranch,
+      commit_sha: selectedCommit ?? undefined,
+    },
+    { query: { enabled: diffParamsReady } },
+  );
   const rawDiff = diffResponse?.diff;
 
-  const fileSections = useMemo(() => parseUnifiedDiff(rawDiff ?? ""), [rawDiff]);
-  const fileNames = useMemo(
-    () => fileSections.map((s) => (s.newFileName !== "/dev/null" ? s.newFileName : s.oldFileName)),
-    [fileSections],
-  );
-
-  const fileMeta: FileMeta[] = useMemo(
-    () =>
-      fileSections.map((section) => {
-        const displayName =
-          section.newFileName !== "/dev/null" ? section.newFileName : section.oldFileName;
-        const { additions, deletions } = countHunkStats(section.hunks);
-        return { section, displayName, additions, deletions };
-      }),
-    [fileSections],
-  );
+  // Parsing + line-stat'ing the whole diff is O(diff size); for large diffs it
+  // runs off the main thread so the Git tab doesn't jank on open.
+  const { fileMeta, fileNames, isParsing } = useParsedDiff(rawDiff);
 
   // Per-file staging state. Only meaningful in the working-tree views; in
   // `branch` mode the set stays empty so the badge never renders.
@@ -259,7 +252,10 @@ export function useDiffData(
   const hasInitializedCollapse = useRef(false);
 
   return {
-    isLoading,
+    // Surface off-thread parsing — and the branch-mode target-resolution gate —
+    // as loading so the diff view shows its loader (and never a momentary empty
+    // body) while a large diff is fetched or parsed.
+    isLoading: isLoading || isParsing || !diffParamsReady,
     rawDiff,
     fileMeta,
     fileNames,

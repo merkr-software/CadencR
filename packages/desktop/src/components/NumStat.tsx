@@ -14,6 +14,10 @@ export interface NumStatProps {
   hideZero?: boolean;
   /** Optional visible separator rendered between both values. */
   separator?: string;
+  /** Override the additions color (defaults to `--numstat-add-fg`). */
+  addColor?: string;
+  /** Override the deletions color (defaults to `--numstat-del-fg`). */
+  delColor?: string;
   className?: string;
 }
 
@@ -22,6 +26,8 @@ export function NumStat({
   deletions,
   hideZero = true,
   separator,
+  addColor,
+  delColor,
   className,
 }: NumStatProps): ReactElement | null {
   const adds = additions ?? 0;
@@ -32,11 +38,11 @@ export function NumStat({
   const showDels = !hideZero || dels > 0;
   return (
     <span className={cn("inline-flex items-center gap-1.5 font-mono tabular-nums", className)}>
-      {showAdds && <span className="text-[var(--numstat-add-fg)]">+{adds}</span>}
+      {showAdds && <span style={{ color: addColor ?? "var(--numstat-add-fg)" }}>+{adds}</span>}
       {showAdds && showDels && separator != null && (
         <span className="text-muted-foreground">{separator}</span>
       )}
-      {showDels && <span className="text-[var(--numstat-del-fg)]">-{dels}</span>}
+      {showDels && <span style={{ color: delColor ?? "var(--numstat-del-fg)" }}>-{dels}</span>}
     </span>
   );
 }

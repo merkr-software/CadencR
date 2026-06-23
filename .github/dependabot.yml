@@ -1,0 +1,24 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-and-yarn:
+        patterns:
+          - '*'
+
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: reqwest
+        versions:
+          - "0.13.x"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

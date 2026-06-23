@@ -1,4 +1,4 @@
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 
 use super::super::models::{FeatureModelSettings, FeatureProviderSettings, FeatureSetting};
 use crate::domain::agents::runtime::{runtime_setting_key, validate_agent_type};
@@ -67,7 +67,7 @@ pub async fn set_feature_setting(
 
     if real_columns.contains(&key) {
         let sql = format!(r#"UPDATE features SET "{}" = ? WHERE id = ?"#, key);
-        sqlx::query(&sql)
+        sqlx::query(AssertSqlSafe(sql))
             .bind(value)
             .bind(feature_id)
             .execute(pool)
@@ -117,7 +117,7 @@ pub async fn set_feature_model_setting(
     crate::domain::agents::runtime::reject_workspace_only(model_type, "feature")?;
     let col = format!("model_{}", model_type);
     let sql = format!(r#"UPDATE features SET "{}" = ? WHERE id = ?"#, col);
-    sqlx::query(&sql)
+    sqlx::query(AssertSqlSafe(sql))
         .bind(model)
         .bind(feature_id)
         .execute(pool)
@@ -163,7 +163,7 @@ pub async fn set_feature_provider_setting(
     crate::domain::agents::runtime::reject_workspace_only(provider_type, "feature")?;
     let col = runtime_setting_key(provider_type);
     let sql = format!(r#"UPDATE features SET "{}" = ? WHERE id = ?"#, col);
-    sqlx::query(&sql)
+    sqlx::query(AssertSqlSafe(sql))
         .bind(provider)
         .bind(feature_id)
         .execute(pool)

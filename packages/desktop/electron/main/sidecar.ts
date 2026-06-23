@@ -5,6 +5,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import type { Readable } from "node:stream";
+import { NEWER_DATABASE_RECOVERY_DETAIL, isNewerDatabaseStartupFailure } from "./startup-recovery";
 
 const SIDECAR_PORT = 5004;
 const HEALTH_RETRIES = 60;
@@ -71,7 +72,7 @@ export function createDevSidecarHandle(): SidecarHandle {
   };
 }
 
-function productionDbPath(): string {
+export function productionDbPath(): string {
   const dbPath = path.join(os.homedir(), ".cadencr", "database", "cadencr.db");
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   return dbPath;
@@ -131,9 +132,8 @@ export async function spawnProductionSidecar(
   try {
     await waitForHealthy(baseUrl, authToken, () => exited);
   } catch (error) {
-    const detail = describeServiceFailure(stderrTail, exitCode, exitSignal);
     const baseMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(detail ? `${baseMessage}\n\n${detail}` : baseMessage);
+    throw new Error(describeStartupFailure(baseMessage, stderrTail, exitCode, exitSignal));
   }
   onStatus({ phase: "loading_app" });
   return {
@@ -190,6 +190,20 @@ export function serviceArgs(
   // network path.
   if (rendererDir) args.push("--renderer-dir", rendererDir);
   return args;
+}
+
+export function describeStartupFailure(
+  baseMessage: string,
+  stderrTail: string[],
+  exitCode: number | null,
+  exitSignal: NodeJS.Signals | null,
+): string {
+  if (stderrTail.some(isNewerDatabaseStartupFailure)) {
+    return NEWER_DATABASE_RECOVERY_DETAIL;
+  }
+
+  const detail = describeServiceFailure(stderrTail, exitCode, exitSignal);
+  return detail ? [baseMessage, detail].join("\n\n") : baseMessage;
 }
 
 function describeServiceFailure(

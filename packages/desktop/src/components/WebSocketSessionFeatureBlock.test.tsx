@@ -71,6 +71,21 @@ vi.mock("@/components/WebSocketSessionFeatureBlockTabs", () => ({
   useSessionTabs: mocks.useSessionTabs,
 }));
 
+const NO_TABS_READY = { editor: false, git: false, terminal: false, browser: false };
+const ALL_TABS_READY = { editor: true, git: true, terminal: true, browser: true };
+
+// Two timer rounds drive the full reveal: round one fires the agent-first gate
+// timer, round two fires the per-tab stagger timers scheduled once the gate
+// opens.
+function flushTabReadiness(): void {
+  act(() => {
+    vi.runOnlyPendingTimers();
+  });
+  act(() => {
+    vi.runOnlyPendingTimers();
+  });
+}
+
 describe("WebSocketSessionFeatureBlock", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -180,7 +195,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       }),
     );
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: false }),
+      expect.objectContaining({ tabReady: NO_TABS_READY }),
     );
   });
 
@@ -196,9 +211,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       />,
     );
 
-    act(() => {
-      vi.runOnlyPendingTimers();
-    });
+    flushTabReadiness();
 
     expect(mocks.useSessionControls).toHaveBeenLastCalledWith(
       "ws-feature-1",
@@ -208,7 +221,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       expect.objectContaining({ agentCatalogEnabled: true }),
     );
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: ALL_TABS_READY }),
     );
   });
 
@@ -223,23 +236,23 @@ describe("WebSocketSessionFeatureBlock", () => {
     };
     const { rerender } = render(<WebSocketSessionFeatureBlock {...props} />);
 
-    act(() => {
-      vi.runOnlyPendingTimers();
-    });
+    flushTabReadiness();
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: ALL_TABS_READY }),
     );
 
+    // Once fully revealed, tabs stay ready across focus changes — the gate and
+    // stagger don't reset within the same conversation.
     mocks.focusedTabId = "editor";
     rerender(<WebSocketSessionFeatureBlock {...props} />);
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: ALL_TABS_READY }),
     );
 
     mocks.focusedTabId = "agent";
     rerender(<WebSocketSessionFeatureBlock {...props} />);
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: ALL_TABS_READY }),
     );
   });
 
@@ -254,19 +267,23 @@ describe("WebSocketSessionFeatureBlock", () => {
     };
     const { rerender } = render(<WebSocketSessionFeatureBlock {...props} />);
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: false }),
+      expect.objectContaining({ tabReady: NO_TABS_READY }),
     );
 
+    // The focused non-agent tab opens immediately — no waiting on the gate.
     mocks.focusedTabId = "editor";
     rerender(<WebSocketSessionFeatureBlock {...props} />);
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: expect.objectContaining({ editor: true }) }),
     );
 
+    // The gate stays latched after returning to agent, so the stagger still
+    // finishes revealing every tab.
     mocks.focusedTabId = "agent";
     rerender(<WebSocketSessionFeatureBlock {...props} />);
+    flushTabReadiness();
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: ALL_TABS_READY }),
     );
   });
 
@@ -289,7 +306,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       expect.objectContaining({ agentCatalogEnabled: true }),
     );
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: expect.objectContaining({ git: true }) }),
     );
   });
 
@@ -313,7 +330,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       expect.objectContaining({ agentCatalogEnabled: true }),
     );
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: expect.objectContaining({ editor: true }) }),
     );
   });
 
@@ -375,7 +392,7 @@ describe("WebSocketSessionFeatureBlock", () => {
       }),
     );
     expect(mocks.useSessionTabs).toHaveBeenLastCalledWith(
-      expect.objectContaining({ nonAgentTabsEnabled: true }),
+      expect.objectContaining({ tabReady: expect.objectContaining({ terminal: true }) }),
     );
   });
 });

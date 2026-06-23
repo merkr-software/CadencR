@@ -1,3 +1,5 @@
+#[cfg(test)]
+use sqlx::AssertSqlSafe;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::{info, warn};
@@ -11,6 +13,7 @@ mod seed;
 mod support;
 #[cfg(test)]
 mod test_fixtures;
+mod version_guard;
 use support::{backup_database, emit_phase, has_pending_migrations, table_exists};
 /// Inputs for a single startup migration pass.
 pub struct MigrationContext<'a> {
@@ -44,6 +47,7 @@ pub async fn run_migrations(ctx: &MigrationContext<'_>) -> anyhow::Result<()> {
     if table_exists(ctx.pool, "migrations").await? {
         seed::seed_sqlx_migrations(ctx.pool, &migrator).await?;
     }
+    version_guard::ensure_database_not_newer(ctx.pool, &migrator).await?;
 
     if has_pending_migrations(ctx.pool, &migrator).await? {
         if let Some(db_path) = ctx.db_path {
@@ -255,9 +259,9 @@ mod tests {
             );
         }
         for table in ["settings", "project_settings", "feature_settings"] {
-            let count: i64 = sqlx::query_scalar(&format!(
+            let count: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
                 "SELECT COUNT(*) FROM {table} WHERE key IN ('model_qa', 'agent_autonomy', 'parallel_execution')"
-            ))
+            )))
             .fetch_one(&pool)
             .await
             .unwrap();

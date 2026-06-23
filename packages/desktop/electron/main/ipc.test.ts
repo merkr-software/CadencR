@@ -2,10 +2,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { BrowserWindow, IpcMainInvokeEvent } from "electron";
+import { ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 
 const electronState = vi.hoisted(() => ({
   isPackaged: false,
+  logsPath: "",
   openExternal: vi.fn<(_url: string) => Promise<void>>(() => Promise.resolve()),
 }));
 
@@ -14,6 +15,8 @@ vi.mock("electron", () => ({
     get isPackaged() {
       return electronState.isPackaged;
     },
+    getPath: vi.fn(() => electronState.logsPath),
+    getVersion: vi.fn(() => "0.6.1"),
   },
   dialog: { showOpenDialog: vi.fn() },
   ipcMain: { handle: vi.fn() },
@@ -29,6 +32,7 @@ import {
   parseNotifyOptions,
   parseZoomFactor,
   readFileBase64,
+  registerIpc,
   registerFilePaths,
 } from "./ipc";
 
@@ -55,7 +59,9 @@ function mainWindow(): BrowserWindow {
 describe("ipc validators", () => {
   beforeEach(() => {
     electronState.isPackaged = false;
+    electronState.logsPath = "";
     electronState.openExternal.mockClear();
+    vi.mocked(ipcMain.handle).mockClear();
     clearRegisteredFilePaths();
   });
 
@@ -137,5 +143,31 @@ describe("ipc validators", () => {
     expect(() =>
       assertTrustedSender(trustedEvent("https://evil.example"), () => mainWindow()),
     ).toThrow(/untrusted renderer/);
+  });
+
+  it("registers trusted renderer error reports to the app log directory", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cadencr-renderer-error-ipc-"));
+    electronState.logsPath = dir;
+
+    registerIpc({
+      getMainWindow: () => mainWindow(),
+      confirmClose: vi.fn(),
+      requestQuit: vi.fn(),
+    });
+
+    const handlerCall = vi.mocked(ipcMain.handle).mock.calls.find(([channel]) => {
+      return channel === "app:renderer-error";
+    });
+    expect(handlerCall).toBeDefined();
+    const handler = handlerCall?.[1] as (event: IpcMainInvokeEvent, payload: unknown) => void;
+
+    handler(trustedEvent(), {
+      source: "error",
+      message: "global crash",
+      stack: "Error: global crash",
+    });
+
+    const log = await fs.readFile(path.join(dir, "renderer-errors.log"), "utf8");
+    expect(log).toContain("message: global crash");
   });
 });

@@ -266,7 +266,7 @@ async fn effective_spawn_provider(
     body: &SpawnSessionRequest,
 ) -> String {
     if let Some(provider) = trimmed_optional(body.provider.as_deref()) {
-        return resolve_effective_provider(provider, body.model.as_deref());
+        return provider;
     }
     let configured = settings::resolve_setting(
         &state.read_pool,

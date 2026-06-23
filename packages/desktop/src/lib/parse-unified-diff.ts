@@ -71,6 +71,30 @@ export function parseUnifiedDiff(rawDiff: string): FileDiffSection[] {
 }
 
 /**
+ * Per-file diff metadata: the parsed section plus its display name and line
+ * stats. This is the shape the diff file list / tree renders from. Building it
+ * walks every line of the diff (parse + stat), so for large diffs it runs in a
+ * Web Worker — keep this function pure and free of DOM/React references so it
+ * stays worker-safe. Shared between `useParsedDiff` (sync path) and
+ * `diff-parse.worker.ts` (off-thread path).
+ */
+export interface ParsedFileMeta {
+  section: FileDiffSection;
+  displayName: string;
+  additions: number;
+  deletions: number;
+}
+
+export function buildParsedFileMeta(rawDiff: string): ParsedFileMeta[] {
+  return parseUnifiedDiff(rawDiff).map((section) => {
+    const displayName =
+      section.newFileName !== "/dev/null" ? section.newFileName : section.oldFileName;
+    const { additions, deletions } = countHunkStats(section.hunks);
+    return { section, displayName, additions, deletions };
+  });
+}
+
+/**
  * Count addition and deletion lines in raw hunk text.
  * Lines starting with '+' (but not '+++') are additions.
  * Lines starting with '-' (but not '---') are deletions.

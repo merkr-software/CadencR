@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.6.2 - 2026-06-23
+
+Previous release: v0.6.1 - 2026-06-22
+
+### 🔧 Changed
+
+- [**Desktop**] Improved large-conversation opening performance by loading a smaller initial agent stream window, backfilling older history only as needed, staggering non-agent tab hydration, parsing large diffs off the main thread, and auto-collapsing very large changed files in the Git tab.
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed startup dead-ends by detecting databases that were already opened by a newer Cadencr version before applying migrations, showing clear splash-screen recovery actions, supporting pre-migration backup restore, and smoke-testing the packaged service sidecar in the release workflow.
+- [**Desktop**] Fixed production white screens by capturing renderer crashes and unhandled React errors in local diagnostics, showing copyable error details, and offering a UI reload path while background agents can keep running.
+- [**Desktop**] Fixed Git diff readability by using the same file header for collapsed and expanded rows, matching status icons and count colors consistently, and keeping Edit/Write inline diffs in the green file-change style after they load.
+- [**github_actions**] Fixed Homebrew cask publishing by testing the release cask update script before building assets and hardening its tap update flow so Homebrew installs can be updated reliably after a release.
+
+### 🔒 Security
+
+- [**dependencies**] Updated release, desktop, landing, and backend dependencies, including Vite/Astro hardening for development tooling and landing builds, SQLx, sha2, serde_json, CodeQL Action, and actions/checkout.
+
+## v0.6.1 - 2026-06-22
+
+Previous release: v0.6.0 - 2026-06-22
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed the macOS packaged app failing to start the bundled service on machines without Homebrew OpenSSL installed by building the service sidecar with vendored OpenSSL and adding a release guard that rejects Homebrew-linked sidecars before assets are published.
+- [**Backend**] Fixed MCP-spawned sessions so an explicitly requested provider is preserved during model validation instead of being overridden by model-based auto-routing.
+- [**Backend**] Fixed formatter execution when a formatter exits before reading stdin, returning a user-visible formatting error instead of surfacing an internal broken-pipe failure.
+
 ## v0.6.0 - 2026-06-22
 
 Previous release: v0.5.1 - 2026-06-16
