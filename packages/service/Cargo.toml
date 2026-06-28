@@ -51,7 +51,7 @@ sha2 = "0.11"
 openssl = { version = "0.10", features = ["vendored"] }
 # Remote access: self-signed TLS listener + device-token auth.
 rcgen = "0.13"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 # Pin the `ring` crypto provider explicitly (installed at remote startup) so TLS
 # is deterministic regardless of what else pulls rustls into the tree.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
