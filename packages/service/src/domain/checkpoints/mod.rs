@@ -119,6 +119,12 @@ mod tests {
         crate::shared::git_cli::run_git(&["config", "user.name", "Test"], p)
             .await
             .unwrap();
+        crate::shared::git_cli::run_git(&["config", "commit.gpgsign", "false"], p)
+            .await
+            .unwrap();
+        crate::shared::git_cli::run_git(&["config", "tag.gpgsign", "false"], p)
+            .await
+            .unwrap();
         fs::write(p.join("a.txt"), "v1").unwrap();
         crate::shared::git_cli::run_git(&["add", "-A"], p)
             .await

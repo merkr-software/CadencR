@@ -292,8 +292,6 @@ describe("AgentPromptBar", () => {
         />,
       );
 
-      // Plan approval is deferred while the user has just been typing — the
-      // prompt bar stays visible until the typing-idle debounce elapses.
       expect(screen.getByText(/Plan approval pending/i)).toBeInTheDocument();
       expect(screen.getByRole("textbox")).toHaveValue("Need a smaller plan");
       await act(async () => vi.advanceTimersByTime(1000));
@@ -309,12 +307,11 @@ describe("AgentPromptBar", () => {
   });
 
   it("restores unsent text after question drawer closes", async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers();
     const { rerender } = render(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
 
-    await user.type(screen.getByRole("textbox"), "Answer later");
-
-    await act(async () => {
+    try {
+      fireEvent.change(screen.getByRole("textbox"), { target: { value: "Answer later" } });
       rerender(
         <AgentPromptBar
           onSend={onSend}
@@ -324,15 +321,19 @@ describe("AgentPromptBar", () => {
           onQuestionResponse={vi.fn()}
         />,
       );
-    });
 
-    expect(await screen.findByText(/What do you need/i)).toBeInTheDocument();
+      expect(screen.getByText(/Question pending/i)).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toHaveValue("Answer later");
+      await act(async () => vi.advanceTimersByTime(1000));
+      expect(screen.getByText(/What do you need/i)).toBeInTheDocument();
+      expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
 
-    await act(async () => {
       rerender(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
-    });
 
-    expect(screen.getByRole("textbox")).toHaveTextContent("Answer later");
+      expect(screen.getByRole("textbox")).toHaveValue("Answer later");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("escape calls onStop when focus is inside the prompt bar", () => {

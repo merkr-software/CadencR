@@ -139,6 +139,8 @@ mod tests {
             vec!["init", "-q"],
             vec!["config", "user.email", "t@example.com"],
             vec!["config", "user.name", "T"],
+            vec!["config", "commit.gpgsign", "false"],
+            vec!["config", "tag.gpgsign", "false"],
         ] {
             let status = Command::new("git")
                 .args(&args)

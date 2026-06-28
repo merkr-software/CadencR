@@ -151,6 +151,8 @@ mod tests {
         git(&["init", "-q", "-b", "main"], root);
         git(&["config", "user.email", "test@example.com"], root);
         git(&["config", "user.name", "Test"], root);
+        git(&["config", "commit.gpgsign", "false"], root);
+        git(&["config", "tag.gpgsign", "false"], root);
         std::fs::write(root.join(".gitignore"), ".env*\n").unwrap();
         std::fs::write(root.join("README.md"), "# hi").unwrap();
         std::fs::write(root.join("src.rs"), "fn main() {}").unwrap();

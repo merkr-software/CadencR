@@ -69,6 +69,8 @@ Use this path if you want to try the latest code or contribute.
 
 On Linux, follow the [Linux development setup](./docs/LINUX_SETUP.md).
 
+On Windows, use WSL2/WSLg and follow the [Windows / WSL development setup](./docs/WINDOWS_WSL_SETUP.md).
+
 #### Requirements
 
 - **Node.js 22.x** — the repo enforces `>=22.18.0 <23.0.0`.
