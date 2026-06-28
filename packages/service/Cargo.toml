@@ -25,7 +25,7 @@ anyhow = "1"
 agent-client-protocol = "0.11.1"
 regex-lite = "0.1"
 dirs = "6"
-rand = "0.8"
+rand = "0.10"
 futures = "0.3"
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"

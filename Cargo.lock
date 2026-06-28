@@ -564,7 +564,7 @@ dependencies = [
  "opencode-sdk-rs",
  "openssl",
  "portable-pty",
- "rand 0.8.6",
+ "rand 0.10.1",
  "rcgen",
  "regex-lite",
  "reqwest",
