@@ -25,6 +25,9 @@ function bridge(): CadencrBrowserBridge {
     onFileDrop: vi.fn(() => () => undefined),
     revealInFinder: vi.fn(),
     openExternal: vi.fn(),
+    openExternalLink: vi.fn(),
+    setLinkHoverContext: vi.fn(),
+    onOpenLinkFromMenu: vi.fn(),
     pickDirectory: vi.fn(),
     showSaveDialog: vi.fn(),
     notifyPermission: vi.fn(),
@@ -50,6 +53,7 @@ function bridge(): CadencrBrowserBridge {
     navigateBrowserTab: vi.fn(),
     activateBrowserTab: vi.fn(),
     closeBrowserTab: vi.fn(),
+    closeBrowserTabsForScope: vi.fn(),
     setBrowserBounds: vi.fn(() =>
       Promise.resolve({
         tabs: [],

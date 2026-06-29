@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { handleInitialized, handleMcpServers } from "./ws-envelope-session-handlers";
+import {
+  handleInitialized,
+  handleMcpServers,
+  handlePromptPersisted,
+} from "./ws-envelope-session-handlers";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-types";
 
@@ -27,6 +31,34 @@ describe("handleInitialized", () => {
 
     expect(ctx.getSession("s1").serverSessionId).toBe("123");
     expect(ctx.getSession("s1").sessionDbId).toBe(123);
+  });
+});
+
+describe("handlePromptPersisted", () => {
+  it("stamps the persisted DB id on the live block matched by client id", () => {
+    const session: SessionEntry = {
+      ...createSessionEntry(),
+      blocks: [
+        {
+          id: "ws-user-1",
+          type: "user_message",
+          content: "hello",
+          clientMessageId: "ref-1",
+        },
+      ],
+    };
+    const ctx = createTestContext(session);
+
+    handlePromptPersisted(ctx, "s1", { user_message_ref: "ref-1", message_id: 99 });
+
+    expect(ctx.getSession("s1").blocks[0].messageDbId).toBe(99);
+    expect(ctx.getSession("s1").blocks[0].id).toBe("ws-user-1");
+  });
+
+  it("ignores a payload with no message id", () => {
+    const ctx = createTestContext(createSessionEntry());
+    handlePromptPersisted(ctx, "s1", { user_message_ref: "ref-1" });
+    expect(ctx.getSession("s1").blocks).toEqual([]);
   });
 });
 

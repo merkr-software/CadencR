@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
 import { useTheme } from "@/hooks/useTheme";
 import { DiffFileTree, type ChangedFileEntry } from "./DiffFileTree";
 import { DiffContent } from "./DiffContent";
@@ -8,7 +9,10 @@ import type { CommentSide } from "./PatchDiffView";
 import { DiffViewerBottomBar } from "./DiffViewerBottomBar";
 import { useDiffData, type DiffMode } from "./useDiffData";
 import { useDiffKeyboard } from "./useDiffKeyboard";
-import { useExpandFilesWhenViewedReset } from "./useViewedFileCollapseSync";
+import {
+  useCollapseLargeFilesOnLoad,
+  useExpandFilesWhenViewedReset,
+} from "./useViewedFileCollapseSync";
 import { scrollFileToTop } from "./scroll-to-file";
 import type { ActiveWidget, CommentCallbacks, CommentLineData } from "./diff-comment-decorations";
 import type { DiffComment } from "./DiffCommentWidget";
@@ -43,7 +47,11 @@ export function DiffViewer({
 }: DiffViewerProps) {
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
-  const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
+  const { value: persistedDiffMode, setValue: setDiffMode } = useDebouncedSetting(
+    GIT_DIFF_VIEW_MODE_KEY,
+    0,
+  );
+  const diffMode = parseGitDiffViewMode(persistedDiffMode);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusedFileIndex, setFocusedFileIndex] = useState(-1);
@@ -148,6 +156,7 @@ export function DiffViewer({
   }, [data.viewedFilesSet, data.hasInitializedCollapse]);
 
   useExpandFilesWhenViewedReset(data.viewedFilesSet, setCollapsedFiles);
+  useCollapseLargeFilesOnLoad(data.fileMeta, data.fileNames, setCollapsedFiles);
 
   const scrollToFileIndex = useCallback(
     (index: number) => {

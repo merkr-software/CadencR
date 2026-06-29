@@ -1,6 +1,7 @@
 import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { useFeatureAgentState } from "./useFeatureAgentState";
+import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 
 const mockRefetch = vi.fn();
 const mockUseQuery = vi.fn();
@@ -342,7 +343,10 @@ describe("useFeatureAgentState incremental merge", () => {
     // The first query call after the feature change should be a full fetch
     const callAfterChange = mockUseQuery.mock.calls[callCountBefore];
     expect(callAfterChange[0]).toBe(2); // featureId
-    expect(callAfterChange[1]).toEqual({ after: undefined, limit: 100 }); // full fetch params
+    expect(callAfterChange[1]).toEqual({
+      after: undefined,
+      limit: AGENT_STATE_INITIAL_MESSAGE_LIMIT,
+    }); // full fetch params
     expect(result.current.sessions[0].blocks[0].content).toBe("feature 2 text");
   });
 });

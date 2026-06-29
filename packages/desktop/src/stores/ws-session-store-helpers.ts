@@ -64,6 +64,7 @@ export function buildQueuedPromptPatch(
     queuedPrompt.attachments = options.attachments;
   if (options.branchSetup) queuedPrompt.branchSetup = options.branchSetup;
   if (options.claudeProfile) queuedPrompt.claudeProfile = options.claudeProfile;
+  if (options.userMessageRef) queuedPrompt.userMessageRef = options.userMessageRef;
   return {
     queuedPrompts: [...session.queuedPrompts, queuedPrompt],
   };
@@ -91,6 +92,7 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
         attachments: prompt.attachments,
         branchSetup: prompt.branchSetup,
         claudeProfile: prompt.claudeProfile,
+        userMessageRef: prompt.userMessageRef,
       }),
     );
   }

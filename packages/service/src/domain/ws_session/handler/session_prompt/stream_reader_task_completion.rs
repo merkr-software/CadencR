@@ -123,13 +123,14 @@ impl StreamReaderTask {
         };
         let message = error.to_string();
         error!(self.db_session_id, error = %message, "SDK stream error");
-        WsSessionPersistence::persist_error_message_static(
-            &self.write_pool,
-            self.db_session_id,
-            &message,
-            None,
-        )
-        .await;
+        self.surface_session_error(code, message).await;
+    }
+
+    /// Persist an error message, pause the session, announce idle, and emit a
+    /// live `session.error` — the one proven path the frontend already renders.
+    /// Shared by [`Self::handle_stream_error`] and the mid-turn stream-close
+    /// path so a surfaced error always looks the same to the client.
+    async fn surface_session_error(&self, code: &str, message: String) {
         WsSessionPersistence::mark_paused_static(&self.write_pool, self.db_session_id).await;
         WsSessionPersistence::broadcast_session_status(
             &self.session_status_tx,
@@ -138,6 +139,28 @@ impl StreamReaderTask {
             AgentStatus::Idle,
             None,
         );
+        self.persist_and_emit_error(code, message, None).await;
+    }
+
+    /// Persist an `error` message and emit a live, mirrored `session.error` —
+    /// the one path the frontend already renders. Does NOT change session
+    /// status; callers that must pause the session (e.g.
+    /// [`Self::surface_session_error`]) do so themselves first. Shared with the
+    /// keep-the-turn-alive provider-error / unrecognized-message paths in
+    /// `stream_reader_task_event`.
+    pub(super) async fn persist_and_emit_error(
+        &self,
+        code: &str,
+        message: String,
+        parent_tool_use_id: Option<&str>,
+    ) {
+        WsSessionPersistence::persist_error_message_static(
+            &self.write_pool,
+            self.db_session_id,
+            &message,
+            parent_tool_use_id,
+        )
+        .await;
         let err_env = WsEnvelope::new(
             "session",
             "error",
@@ -151,6 +174,24 @@ impl StreamReaderTask {
         let _ = self
             .send_and_mirror(Message::Text(String::from(err_env).into()))
             .await;
+    }
+
+    /// The SDK stream closed cleanly (no error) while a turn was still in
+    /// progress — i.e. the `claude` process went away before emitting its
+    /// `Result`. The SDK already surfaces a non-zero/`stderr` exit as an error
+    /// (handled via [`Self::handle_stream_error`]); this covers the genuinely
+    /// silent case (clean code-0 exit, empty stderr) so the user sees an error
+    /// instead of an agent that simply froze.
+    pub(super) async fn handle_unexpected_stop(&self) {
+        error!(
+            self.db_session_id,
+            "SDK stream closed mid-turn without a result"
+        );
+        self.surface_session_error(
+            "AGENT_STOPPED",
+            "The agent stopped unexpectedly before finishing its turn.".to_string(),
+        )
+        .await;
     }
 
     pub(super) async fn send_stream_closed(&self) {

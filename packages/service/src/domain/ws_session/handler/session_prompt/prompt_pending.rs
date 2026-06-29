@@ -6,7 +6,8 @@ use super::content::{
 };
 use super::errors::persist_pause_and_send_session_error;
 use super::mcp_servers::send_mcp_servers_for_runtime;
-use super::prompt_status::{mark_agent_running, mirror_user_message};
+use super::prompt_resume_resolution::refresh_resume_session_id_from_db;
+use super::prompt_status::{ack_persisted_user_message, mark_agent_running, mirror_user_message};
 use super::prompt_worktree::{prepare_branch_provisioning, spawn_auto_name_if_needed};
 use super::runtime_mcp::{
     attach_current_cadencr_browser_mcp, attach_current_cadencr_orchestration_mcps,
@@ -41,7 +42,7 @@ pub(super) struct PendingPromptContext {
     pub(super) permission_tx: Option<mpsc::Sender<PermissionResponse>>,
 }
 pub(super) async fn handle_pending_prompt(mut context: PendingPromptContext) {
-    persist_initial_user_message(&context).await;
+    let user_message_id = persist_initial_user_message(&context).await;
     let Some(adapter) = resolve_adapter_or_report(&context).await else {
         return;
     };
@@ -62,6 +63,7 @@ pub(super) async fn handle_pending_prompt(mut context: PendingPromptContext) {
         }
     };
     reresolve_worktree_and_resume(&mut context).await;
+    super::prompt_checkpoint::capture_pre_turn_pending(&context, user_message_id).await;
     attach_permission_bridge(&mut context);
     if let Err(error) = attach_cadencr_mcp(&mut context).await {
         report_spawn_error(context, error).await;
@@ -144,28 +146,20 @@ async fn reresolve_worktree_and_resume(context: &mut PendingPromptContext) {
             context.options.cwd = cwd;
         }
     }
-    if context.options.resume_session_id.is_some() {
-        return;
-    }
-    let Some(row) =
-        WsSessionPersistence::get_session_row(&context.app_state.read_pool, context.db_session_id)
-            .await
-    else {
-        return;
-    };
-    // Only adopt the persisted id when it belongs to the provider we're about
-    // to spawn; `validate_resume_id` still format-checks it afterwards.
-    if row.runtime_provider.as_deref() != Some(context.provider_id.as_str()) {
-        return;
-    }
-    if let Some(sid) = row.runtime_session_id.filter(|s| !s.is_empty()) {
+    if let Some(sid) = refresh_resume_session_id_from_db(
+        &mut context.options,
+        &context.app_state.read_pool,
+        context.db_session_id,
+        &context.provider_id,
+    )
+    .await
+    {
         info!(context.db_session_id, runtime_session_id = %sid, "re-resolved resume id from DB before spawn");
-        context.options.resume_session_id = Some(sid);
     }
 }
-async fn persist_initial_user_message(context: &PendingPromptContext) {
+async fn persist_initial_user_message(context: &PendingPromptContext) -> Option<i64> {
     if context.payload.replay {
-        return;
+        return None;
     }
     let attachments = payload_attachments(&context.payload);
     let persist_content = build_persist_content(&context.payload.text, &attachments);
@@ -174,7 +168,12 @@ async fn persist_initial_user_message(context: &PendingPromptContext) {
         context.feature_id,
         Some(context.db_session_id),
     );
-    persistence.persist_user_message(&persist_content).await;
+    let user_message_id = persistence.persist_user_message(&persist_content).await;
+    if let (Some(user_message_ref), Some(message_id)) =
+        (context.payload.user_message_ref.as_deref(), user_message_id)
+    {
+        ack_persisted_user_message(&context.sender, user_message_ref, message_id).await;
+    }
     mirror_user_message(
         &context.app_state.ws_feature_senders,
         &context.sender,
@@ -190,6 +189,7 @@ async fn persist_initial_user_message(context: &PendingPromptContext) {
         None,
         FeatureEventAction::Reordered,
     );
+    user_message_id
 }
 async fn resolve_adapter_or_report(
     context: &PendingPromptContext,

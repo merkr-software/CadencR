@@ -1,4 +1,5 @@
 mod adapter_trait;
+mod branching;
 mod config;
 mod error;
 mod event;
@@ -7,6 +8,7 @@ mod permission;
 mod session;
 
 pub use adapter_trait::AgentRuntimeAdapter;
+pub use branching::{BranchContext, BranchError, BranchResult, SessionBranching};
 pub use config::{
     RuntimeAccessMode, RuntimeMcpServerConfig, RuntimeMcpServerStatus, RuntimePermissionMode,
     RuntimeSpawnConfig, RuntimeUsage,
@@ -15,8 +17,8 @@ pub use error::RuntimeError;
 pub use event_types::{
     BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeContentBlock,
     RuntimeContentDelta, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent,
-    RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserContentBlock,
-    RuntimeUserMessage,
+    RuntimeResultError, RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource,
+    RuntimeUserContentBlock, RuntimeUserMessage,
 };
 pub use permission::{
     RuntimeCompactionStrategy, RuntimePermissionDecision, RuntimePermissionOption,

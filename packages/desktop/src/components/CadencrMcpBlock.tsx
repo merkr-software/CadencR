@@ -1,15 +1,7 @@
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatJson } from "@/lib/utils";
 import { ChevronRightIcon } from "lucide-react";
 import type { CadencrMcpTool } from "@/lib/tool-call-parser";
-
-function formatJson(str: string): string {
-  try {
-    return JSON.stringify(JSON.parse(str), null, 2);
-  } catch {
-    return str;
-  }
-}
 
 /** Full-size Cadencr MCP tool call block with primary purple color scheme and server badge. */
 export function CadencrMcpBlock({ mcp, args }: { mcp: CadencrMcpTool; args?: string }) {

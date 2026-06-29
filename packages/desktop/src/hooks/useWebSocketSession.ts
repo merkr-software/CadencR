@@ -82,12 +82,14 @@ export interface UseWebSocketSessionReturn {
   currentProviderId: string;
   currentModelId: string;
   currentThinkingEffort?: string;
+  currentProfile?: string;
   runtimeProvider: string;
   runtimeSessionId: string;
   mcpServers: McpServerStatus[] | null;
   hasFileChanges: boolean;
   setModel: (modelId: string) => void;
   setThinkingEffort: (thinkingEffort?: string) => void;
+  setProfile: (profile: string) => void;
   setProvider: (providerId: string) => void;
   sendPrompt: (text: string, options?: PromptDispatchOptions) => void;
   respondToPermission: (
@@ -121,6 +123,7 @@ type SessionActions = Pick<
   | "setProvider"
   | "setModel"
   | "setThinkingEffort"
+  | "setProfile"
   | "setPermissionMode"
   | "setCodexPermissionMode"
   | "approvePlan"
@@ -217,6 +220,7 @@ function usePersistedSessionLoader(
       sessionDbId: lastSession.sessionDbId,
       currentProviderId: lastSession.runtimeProvider ?? undefined,
       currentModelId: lastSession.model ?? undefined,
+      currentProfile: lastSession.profile ?? undefined,
       permissionMode: parsePermissionMode(lastSession.permissionMode) ?? undefined,
       codexPermissionMode: parseCodexPermissionMode(lastSession.codexPermissionMode),
       runtimeProvider: lastSession.runtimeProvider ?? undefined,
@@ -253,6 +257,7 @@ function useSessionActions(sessionId: string): SessionActions {
       setModel: (modelId: string): void => s.setModel(sessionId, modelId),
       setThinkingEffort: (thinkingEffort?: string): void =>
         s.setThinkingEffort(sessionId, thinkingEffort),
+      setProfile: (profile: string): void => s.setProfile(sessionId, profile),
       setPermissionMode: (mode: PermissionMode): void => s.setPermissionMode(sessionId, mode),
       setCodexPermissionMode: (mode: CodexPermissionMode): void =>
         s.setCodexPermissionMode(sessionId, mode),
@@ -308,6 +313,7 @@ function useSessionSnapshot(
       currentProviderId: session?.currentProviderId ?? DEFAULT_PROVIDER,
       currentModelId: session?.currentModelId ?? FALLBACK_MODEL_ID,
       currentThinkingEffort: session?.currentThinkingEffort,
+      currentProfile: session?.currentProfile,
       runtimeProvider: session?.runtimeProvider ?? DEFAULT_PROVIDER,
       runtimeSessionId: session?.runtimeSessionId ?? "",
       mcpServers: session?.mcpServers ?? null,

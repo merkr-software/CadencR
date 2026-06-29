@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { UnifiedAgentsMode } from "@/api/generated";
 import { dedupeTitles } from "@/components/unified-agents-filter-values";
 import type { UnifiedAgentsFilterMode } from "@/components/UnifiedAgentsFilters";
-import { intArraysEqual } from "@/lib/utils";
+import { intArraysEqual, stringArraysEqual } from "@/lib/utils";
 
 const FILTER_EVENT = "cadencr:unified-agents-filters-changed";
 
@@ -12,6 +12,7 @@ const FILTER_KEYS = {
   projectId: "unified_agents_project_id",
   projectIds: "unified_agents_project_ids",
   excludedTitles: "unified_agents_excluded_titles",
+  pinnedOnly: "unified_agents_pinned_only",
   query: "unified_agents_query",
   sortOrder: "unified_agents_sort_order",
 } as const;
@@ -31,6 +32,7 @@ export interface PersistedUnifiedAgentsFilters {
   freshMinutes: number;
   projectIds: number[];
   excludedTitles: string[];
+  pinnedOnly: boolean;
   query: string;
   sortOrder: UnifiedAgentsSortOrder;
 }
@@ -48,6 +50,7 @@ export function readUnifiedAgentsFilters(): PersistedUnifiedAgentsFilters {
     ),
     projectIds: readProjectIds(),
     excludedTitles: readExcludedTitles(),
+    pinnedOnly: window.localStorage.getItem(FILTER_KEYS.pinnedOnly) === "1",
     query: window.localStorage.getItem(FILTER_KEYS.query) ?? "",
     sortOrder: readSortOrder(),
   };
@@ -76,11 +79,6 @@ export function useUnifiedAgentsFilters(): readonly [
   return useMemo(() => [filters, setFilters] as const, [filters, setFilters]);
 }
 
-export function usePersistedUnifiedAgentsFilters(): PersistedUnifiedAgentsFilters {
-  const [filters] = useUnifiedAgentsFilters();
-  return filters;
-}
-
 export function toUnifiedAgentsQueryParams(
   filters: Pick<PersistedUnifiedAgentsFilters, "mode" | "freshMinutes">,
   messageLimit: number,
@@ -107,6 +105,7 @@ function normalizeFilters(filters: PersistedUnifiedAgentsFilters): PersistedUnif
     ),
     projectIds: uniquePositiveInts(filters.projectIds),
     excludedTitles: dedupeTitles(filters.excludedTitles),
+    pinnedOnly: filters.pinnedOnly === true,
     query: filters.query,
     sortOrder: normalizeSortOrder(filters.sortOrder),
   };
@@ -119,16 +118,11 @@ function areUnifiedAgentsFiltersEqual(
   return (
     a.mode === b.mode &&
     a.freshMinutes === b.freshMinutes &&
+    a.pinnedOnly === b.pinnedOnly &&
     a.query === b.query &&
     a.sortOrder === b.sortOrder &&
     intArraysEqual(a.projectIds, b.projectIds) &&
     stringArraysEqual(a.excludedTitles, b.excludedTitles)
-  );
-}
-
-function stringArraysEqual(a: string[], b: string[]): boolean {
-  return (
-    a.length === b.length && a.every((value: string, index: number): boolean => value === b[index])
   );
 }
 
@@ -138,12 +132,18 @@ function writeFiltersToStorage(filters: PersistedUnifiedAgentsFilters): void {
   writeOptionalString(FILTER_KEYS.query, filters.query);
   writeProjectIds(filters.projectIds);
   writeExcludedTitles(filters.excludedTitles);
+  writePinnedOnly(filters.pinnedOnly);
   window.localStorage.setItem(FILTER_KEYS.sortOrder, filters.sortOrder);
 }
 
 function writeExcludedTitles(excludedTitles: string[]): void {
   if (excludedTitles.length === 0) window.localStorage.removeItem(FILTER_KEYS.excludedTitles);
   else window.localStorage.setItem(FILTER_KEYS.excludedTitles, JSON.stringify(excludedTitles));
+}
+
+function writePinnedOnly(pinnedOnly: boolean): void {
+  if (pinnedOnly) window.localStorage.setItem(FILTER_KEYS.pinnedOnly, "1");
+  else window.localStorage.removeItem(FILTER_KEYS.pinnedOnly);
 }
 
 function writeOptionalString(key: string, value: string): void {

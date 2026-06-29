@@ -1,5 +1,5 @@
 import { PaperclipIcon } from "lucide-react";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { Markdown } from "@/components/Markdown";
 import { cn } from "@/lib/utils";
 import { parseUserMessageContent, type ParsedPromptAttachment } from "@/types/agent-types";
@@ -9,19 +9,22 @@ interface UserMessageBlockProps {
   content: string;
   deliveryState?: "pending_agent";
   origin?: AgentMessageOrigin | null;
+  /** On-hover action row (Copy / Fork / Rewind) rendered under the bubble. */
+  actions?: ReactNode;
 }
 
 export function UserMessageBlock({
   content,
   deliveryState,
   origin,
+  actions,
 }: UserMessageBlockProps): ReactElement {
   const { text: textContent, images, attachments } = parseUserMessageContent(content);
   const isPendingDelivery = deliveryState === "pending_agent";
   const isGenerated = origin?.originKind === "session_generated";
 
   return (
-    <div className="my-1 flex flex-col items-end">
+    <div className="group/usermsg my-1 flex flex-col items-end">
       <div
         data-testid="user-message-bubble"
         data-prompt-delivery-state={deliveryState}
@@ -57,6 +60,7 @@ export function UserMessageBlock({
           <span className="text-amber-300">Not received by agent yet…</span>
         </div>
       )}
+      {actions}
     </div>
   );
 }

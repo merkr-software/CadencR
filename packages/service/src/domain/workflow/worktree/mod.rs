@@ -24,7 +24,10 @@ mod replay;
 mod reuse;
 mod setup;
 
-pub use db::{get_project_directory, get_project_id_for_feature, get_setting, set_setting};
+pub use db::{
+    get_project_directory, get_project_id_for_feature, get_setting, resolve_feature_cwd,
+    set_setting,
+};
 pub use replay::replay_persisted_state;
 pub use reuse::attach_to_existing_branch;
 pub use setup::run_setup_commands;

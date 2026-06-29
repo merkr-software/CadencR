@@ -17,6 +17,23 @@ pub struct RuntimeEvent {
     /// while a launched-and-detached agent is still running, instead of going
     /// idle the moment the launching turn's `Result` arrives (issue #58).
     pub(super) background_agent: Option<BackgroundAgentSignal>,
+    /// Set when this event is a turn-ending `Result` that itself reports
+    /// failure (Claude Code: `is_error: true`, e.g. a Bedrock
+    /// `error_during_execution`). The turn still ends normally; this carries
+    /// the provider's failure detail so the reader can surface it instead of
+    /// the turn looking like a clean stop with no output (issue #78). `None`
+    /// for a successful result and for every non-result event.
+    pub(super) result_error: Option<RuntimeResultError>,
+}
+
+/// Provider-neutral detail of a turn-ending result that reported failure.
+/// `code` is a stable-ish identifier (Claude Code: the upper-cased result
+/// subtype, e.g. `ERROR_DURING_EXECUTION`); `message` is the human-readable
+/// failure assembled from the provider's `result`/`errors`/`stop_reason`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeResultError {
+    pub code: String,
+    pub message: String,
 }
 
 /// Provider-neutral lifecycle edge for a background (run-in-background) agent.
@@ -101,6 +118,15 @@ pub enum RuntimeEventKind {
     /// frontend uses this to clear "not received yet" UI.
     PromptReceived {
         client_message_id: String,
+    },
+    /// The provider emitted a message the adapter could not map to any known
+    /// shape (Claude Code: `SdkMessage::Unknown` — a `type` the SDK has never
+    /// seen). Rather than let it degrade to [`RuntimeEventKind::Other`] and
+    /// vanish, the stream reader surfaces it to the conversation so no agent
+    /// output disappears without trace. Carries the raw JSON for display and
+    /// diagnosis.
+    Unknown {
+        raw: Value,
     },
     Other,
 }

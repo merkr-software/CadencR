@@ -41,6 +41,28 @@ export function markPromptReceived(
   return changed ? next : blocks;
 }
 
+/**
+ * Stamp the persisted DB message id onto the locally-appended user block
+ * (matched by its `userMessageRef`, stored in `clientMessageId`). The optimistic
+ * block carries a `ws-user-*` id with no DB id, so rewind/fork — which cut at a
+ * persisted message id — stay hidden on it until reload; the id lets those
+ * actions light up immediately. The block id is left untouched so the Virtuoso
+ * row key is stable (no remount).
+ */
+export function stampPersistedMessageId(
+  blocks: AgentBlockData[],
+  userMessageRef: string,
+  messageId: number,
+): AgentBlockData[] {
+  let changed = false;
+  const next = blocks.map((block) => {
+    if (block.clientMessageId !== userMessageRef || block.messageDbId === messageId) return block;
+    changed = true;
+    return { ...block, messageDbId: messageId };
+  });
+  return changed ? next : blocks;
+}
+
 export function trimTailPromptTurnBoundary(blocks: AgentBlockData[]): TailPromptTurnBoundary {
   const promptIndex = lastPromptDeliveryBlockIndex(blocks);
   if (promptIndex === -1) {

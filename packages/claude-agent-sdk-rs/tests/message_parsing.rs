@@ -1,5 +1,5 @@
 use claude_agent_sdk_rs::messages::{SdkMessage, StreamEventData, SystemMessage};
-use claude_agent_sdk_rs::types::ContentDelta;
+use claude_agent_sdk_rs::types::{ContentBlock, ContentDelta};
 use serde_json::json;
 
 // ── StreamEvent: content_block_delta ────────────────────────────────────────
@@ -628,4 +628,118 @@ fn roundtrip_user() {
     let serialized = serde_json::to_string(&msg).unwrap();
     let back: SdkMessage = serde_json::from_str(&serialized).unwrap();
     assert_eq!(back.session_id(), Some("s1"));
+}
+
+// ── Schema-drift resilience ─────────────────────────────────────────────────
+// The CLI ships frequently; a new content-block / delta / stream-event /
+// system-subtype must NOT sink the whole message into `Unknown` (which drops it
+// silently from the conversation). Unknown *siblings* degrade to `Other` while
+// known data beside them survives.
+
+#[test]
+fn assistant_with_unknown_content_block_keeps_known_text() {
+    let raw = json!({
+        "type": "assistant",
+        "uuid": "a1",
+        "session_id": "s1",
+        "message": {
+            "id": "m1",
+            "model": "claude-opus-4-8",
+            "content": [
+                { "type": "text", "text": "hello" },
+                { "type": "server_tool_use", "id": "srv1", "name": "web_search", "input": {} }
+            ]
+        }
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    match msg {
+        SdkMessage::Assistant { message, .. } => {
+            assert_eq!(message.content.len(), 2);
+            assert!(matches!(&message.content[0], ContentBlock::Text { text } if text == "hello"));
+            assert!(matches!(&message.content[1], ContentBlock::Other));
+        }
+        other => panic!("unknown block must not sink the assistant message: {other:?}"),
+    }
+}
+
+#[test]
+fn stream_event_with_unknown_delta_stays_stream_event() {
+    // e.g. a `signature_delta` for thinking blocks.
+    let raw = json!({
+        "type": "stream_event",
+        "uuid": "u1",
+        "session_id": "s1",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": { "type": "signature_delta", "signature": "abc" }
+        }
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    match msg {
+        SdkMessage::StreamEvent {
+            event: StreamEventData::ContentBlockDelta { delta, .. },
+            ..
+        } => assert!(matches!(delta, ContentDelta::Other)),
+        other => panic!("unknown delta must not sink the stream event: {other:?}"),
+    }
+}
+
+#[test]
+fn unknown_stream_event_type_stays_stream_event() {
+    let raw = json!({
+        "type": "stream_event",
+        "uuid": "u1",
+        "session_id": "s1",
+        "event": { "type": "some_future_event", "foo": 1 }
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    match msg {
+        SdkMessage::StreamEvent { event, .. } => assert!(matches!(event, StreamEventData::Other)),
+        other => panic!("unknown stream event must not become Unknown: {other:?}"),
+    }
+}
+
+#[test]
+fn system_init_survives_missing_noncritical_fields() {
+    // A future CLI that drops/renames any field except session_id+model must
+    // still yield `Init` so the critical session_id capture never fails.
+    let raw = json!({
+        "type": "system",
+        "subtype": "init",
+        "session_id": "sess_min",
+        "model": "claude-opus-4-8"
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    assert_eq!(msg.session_id(), Some("sess_min"));
+    assert!(
+        matches!(msg, SdkMessage::System(SystemMessage::Init { .. })),
+        "init with only session_id+model must not fall back to Unknown"
+    );
+}
+
+#[test]
+fn unknown_system_subtype_falls_back_to_unknown_for_background_agent_protocol() {
+    // Intentional: `system/task_started` & `task_notification` MUST stay
+    // `Unknown(raw)` so the run-in-background agent protocol can read their raw
+    // fields (issue #58). So a system message with an untyped subtype is the
+    // one place we deliberately do NOT add a catch-all.
+    let raw = json!({
+        "type": "system",
+        "subtype": "task_started",
+        "session_id": "s1",
+        "uuid": "u1",
+        "task_id": "t1"
+    });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    assert!(matches!(msg, SdkMessage::Unknown(_)), "got {msg:?}");
+}
+
+#[test]
+fn genuinely_unknown_top_level_type_still_falls_back_to_unknown() {
+    // The catch-alls are scoped to *known* containers; a wholly unknown
+    // top-level message type still becomes `Unknown` (and is logged).
+    let raw = json!({ "type": "some_future_top_level", "session_id": "s1" });
+    let msg: SdkMessage = serde_json::from_value(raw).unwrap();
+    assert!(matches!(msg, SdkMessage::Unknown(_)), "got {msg:?}");
 }

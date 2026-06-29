@@ -184,6 +184,7 @@ mod tests {
                 ended_at TEXT,
                 subprocess_id TEXT,
                 model TEXT,
+                profile TEXT,
                 pending_questions TEXT,
                 has_file_changes INTEGER DEFAULT 0,
                 permission_mode TEXT,

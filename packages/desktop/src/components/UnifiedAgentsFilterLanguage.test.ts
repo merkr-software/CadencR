@@ -26,6 +26,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
       freshMinutes: 20,
       projectIds: [1],
       excludedTitles: [],
+      pinnedOnly: false,
       query: "auth bug",
       sortOrder: "activity_asc",
     });
@@ -54,6 +55,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
       freshMinutes: 5,
       projectIds: [1, 2],
       excludedTitles: [],
+      pinnedOnly: false,
       query: "",
       sortOrder: "created_desc",
     });
@@ -67,6 +69,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
           freshMinutes: 60,
           projectIds: [1, 3],
           excludedTitles: [],
+          pinnedOnly: false,
           query: "review ui",
           sortOrder: "created_asc",
         },
@@ -83,6 +86,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
           freshMinutes: 5,
           projectIds: [],
           excludedTitles: [],
+          pinnedOnly: false,
           query: "review ui",
           sortOrder: "created_desc",
         },
@@ -99,6 +103,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
           freshMinutes: 5,
           projectIds: [],
           excludedTitles: [],
+          pinnedOnly: false,
           query: "",
           sortOrder: "activity_desc",
         },
@@ -124,6 +129,7 @@ describe("UnifiedAgentsFilterLanguage", () => {
           freshMinutes: 5,
           projectIds: [],
           excludedTitles: ["auth", "Docs site"],
+          pinnedOnly: false,
           query: "",
           sortOrder: "created_desc",
         },
@@ -137,6 +143,44 @@ describe("UnifiedAgentsFilterLanguage", () => {
     expect(
       serializeUnifiedAgentsFilterText(parseUnifiedAgentsFilterText(text, PROJECTS), PROJECTS),
     ).toBe(text);
+  });
+
+  it("parses /pin into a pinnedOnly flag", () => {
+    expect(parseUnifiedAgentsFilterText("/pin:true review", PROJECTS)).toMatchObject({
+      pinnedOnly: true,
+      query: "review",
+    });
+    expect(parseUnifiedAgentsFilterText("/pin:false review", PROJECTS)).toMatchObject({
+      pinnedOnly: false,
+    });
+  });
+
+  it("serializes pinnedOnly back to /pin:true and round-trips", () => {
+    const text = serializeUnifiedAgentsFilterText(
+      {
+        mode: "recent",
+        freshMinutes: 5,
+        projectIds: [],
+        excludedTitles: [],
+        pinnedOnly: true,
+        query: "",
+        sortOrder: "created_desc",
+      },
+      PROJECTS,
+    );
+    expect(text).toBe("/pin:true");
+    expect(parseUnifiedAgentsFilterText(text, PROJECTS)).toMatchObject({ pinnedOnly: true });
+  });
+
+  it("suggests the pin key and value after a slash trigger", () => {
+    expect(getUnifiedAgentsFilterSuggestions("/pi", PROJECTS)[0]).toMatchObject({
+      replacement: "/pin:",
+      key: "pin",
+    });
+    expect(getUnifiedAgentsFilterSuggestions("/pin:", PROJECTS)[0]).toMatchObject({
+      replacement: "/pin:true",
+      key: "pin",
+    });
   });
 
   it("suggests the exclude key after a slash trigger", () => {

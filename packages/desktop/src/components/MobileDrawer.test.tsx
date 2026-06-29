@@ -37,20 +37,4 @@ describe("MobileDrawer", () => {
     expect(panel.className).toContain("-translate-x-full");
     expect(backdrop.className).toContain("pointer-events-none");
   });
-
-  it("applies extra panel classes (e.g. safe-area insets)", () => {
-    render(
-      <MobileDrawer
-        collapsed={false}
-        onClose={vi.fn()}
-        closeLabel="Close menu"
-        panelClassName="pt-[env(safe-area-inset-top)]"
-      >
-        <div data-testid="body">drawer body</div>
-      </MobileDrawer>,
-    );
-
-    const panel = screen.getByTestId("body").parentElement as HTMLElement;
-    expect(panel.className).toContain("pt-[env(safe-area-inset-top)]");
-  });
 });

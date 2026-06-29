@@ -30,7 +30,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpSpawnOptions};
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSpawnConfig};
 
 use self::adapter::OpenCodeAcpAdapter;
@@ -70,6 +70,26 @@ pub(in crate::domain::agents::opencode) fn acp_command(
             OsString::from(port.to_string()),
         ],
     )
+}
+
+pub(in crate::domain::agents::opencode) async fn spawn_headless_acp(
+    cwd: &OsStr,
+) -> Result<(AcpClient, u16), RuntimeError> {
+    let port_reservation = reserve_local_port()?;
+    let port = port_reservation.port();
+    let binary = opencode_sdk_rs::process::resolve_binary().await?;
+    let mut command = acp_command(&binary, cwd, port);
+    command.env("OPENCODE_ENABLE_QUESTION_TOOL", "0");
+
+    let client = AcpClient::spawn(AcpSpawnOptions {
+        command,
+        client_info: AcpClientInfo::default(),
+        max_line_bytes: None,
+        spawn_guard: Some(Box::new(port_reservation)),
+    })
+    .await
+    .map_err(|error| RuntimeError::new(error.to_string()))?;
+    Ok((client, port))
 }
 
 /// Entry point invoked by `OpenCodeAdapter::spawn`. ACP is the only

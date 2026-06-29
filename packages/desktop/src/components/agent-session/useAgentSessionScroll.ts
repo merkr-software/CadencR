@@ -51,6 +51,13 @@ interface UseAgentSessionScrollOptions {
 type ScrollRef = (el: HTMLElement | null) => void;
 const HISTORY_SCROLL_TOP_PX = 160;
 const SCROLLBAR_HIT_TARGET_PX = 20;
+// The initial agent-state window is intentionally small (see
+// `AGENT_STATE_INITIAL_MESSAGE_LIMIT`) so latest-message + status paint
+// instantly. If that window doesn't fill the viewport there's no scrollbar, so
+// the user can't scroll up to reach older history. This caps how many pages we
+// auto-prepend to produce a scrollbar before giving up (a pathological run of
+// tiny collapsed rows).
+const MAX_VIEWPORT_FILL_PAGES = 6;
 
 function canScroll(el: HTMLElement): boolean {
   return el.scrollHeight > el.clientHeight;
@@ -100,6 +107,8 @@ export function useAgentSessionScroll({
   const prevConversationKeyRef = useRef<string | null>(conversationKey);
   // One-shot first-paint bottom pin; subsequent appends use `followOutput`.
   const didFirstPaintScrollRef = useRef(false);
+  // Pages auto-prepended this conversation to fill an under-filled viewport.
+  const viewportFillPagesRef = useRef(0);
   const [autoScrollEnabled, setAutoScrollEnabledState] = useState(true);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
 
@@ -205,6 +214,24 @@ export function useAgentSessionScroll({
       });
   }, [captureHistoryAnchor, scheduleHistoryAnchorRestore]);
 
+  // Backfill older history when the initial (small) window doesn't fill the
+  // viewport. Runs only while pinned to the bottom (stick engaged), so it
+  // never competes with the user's own scroll-up history loads, and reuses the
+  // same `requestOlderHistory` path — whose anchor-restore is a no-op while
+  // stuck, leaving us pinned to the latest message as older blocks fill in
+  // above. Driven by Virtuoso's measurement-aware height signal so we test the
+  // real post-layout height, never a premature one. Self-terminates when a
+  // scrollbar appears, history runs out, or the page cap is hit.
+  const maybeFillViewport = useCallback((): void => {
+    if (!stickRef.current || loadingOlderRef.current) return;
+    if (!hasMoreRef.current || !onLoadOlderRef.current) return;
+    if (viewportFillPagesRef.current >= MAX_VIEWPORT_FILL_PAGES) return;
+    const el = scrollerElRef.current;
+    if (!el || canScroll(el)) return;
+    viewportFillPagesRef.current += 1;
+    requestOlderHistory();
+  }, [requestOlderHistory]);
+
   const resetHistoryLoadIntent = useCallback((): void => {
     historyLoadArmedRef.current = false;
     userScrollIntentRef.current = false;
@@ -256,8 +283,9 @@ export function useAgentSessionScroll({
       restoreHistoryAnchor();
       if (!stickRef.current) return;
       pinToEnd();
+      maybeFillViewport();
     },
-    [restoreHistoryAnchor, pinToEnd],
+    [restoreHistoryAnchor, pinToEnd, maybeFillViewport],
   );
 
   // Conversation switch: parent reuses this hook instance across sessionId
@@ -275,6 +303,7 @@ export function useAgentSessionScroll({
     setIsLoadingOlder(false);
     setAutoScrollEnabledState(true);
     didFirstPaintScrollRef.current = false;
+    viewportFillPagesRef.current = 0;
     suppressProgrammaticScrollIntent();
     pinToEnd();
   }, [conversationKey, resetHistoryLoadIntent, suppressProgrammaticScrollIntent, pinToEnd]);

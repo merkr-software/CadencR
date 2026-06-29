@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { cn } from "@/lib/utils";
 
 export interface SettingsNavItem {
@@ -37,6 +37,11 @@ function SettingsNavSidebarImpl({
     [groups],
   );
   const [activeId, setActiveId] = useState<string>(() => sectionIds[0] ?? "");
+  // While a click-to-scroll is animating we hold the clicked item active and
+  // ignore observer churn — see `scrollTo`. `releaseClickScroll` clears the
+  // pending hold (pointer to its own teardown so a second click can cancel it).
+  const clickScrolling = useRef(false);
+  const releaseClickScroll = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const root = scrollRef.current;
@@ -47,26 +52,36 @@ function SettingsNavSidebarImpl({
       .filter((el): el is HTMLElement => el !== null);
     if (elements.length === 0) return;
 
-    // The "active" section is the topmost one whose top has crossed the
-    // observation line. Track entries in document order and pick the
-    // last one that's intersected (or the first when nothing is yet).
+    // The observed region is everything below a "reading line" ~80px from the
+    // root's top. A section keeps intersecting until it scrolls fully above
+    // that line, so the active section is the FIRST (topmost) one still under
+    // it — the section currently occupying the reading line. Picking the *last*
+    // intersecting instead made a short section hand off to the next one the
+    // moment its heading peeked into view (e.g. Runtime → Git).
     const visibility = new Map<string, number>();
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
           visibility.set(entry.target.id, entry.intersectionRatio);
         }
+        // A click-to-scroll already set the target active; don't let the
+        // sections it flies past flicker the highlight mid-animation.
+        if (clickScrolling.current) return;
         let next = sectionIds[0];
         for (const id of sectionIds) {
-          if ((visibility.get(id) ?? 0) > 0) next = id;
+          if ((visibility.get(id) ?? 0) > 0) {
+            next = id;
+            break;
+          }
         }
         setActiveId((prev) => (prev === next ? prev : next));
       },
       {
         root,
-        // Trip when the top of a section crosses ~80px below the root's top —
-        // matches the visual offset used by `scrollTo` below.
-        rootMargin: "-80px 0px -60% 0px",
+        // Reading line ~80px below the root's top (matching `scrollTo`'s offset);
+        // the region runs to the bottom so a section stays active until its
+        // whole body has scrolled past the line.
+        rootMargin: "-80px 0px 0px 0px",
         threshold: [0, 1],
       },
     );
@@ -75,10 +90,34 @@ function SettingsNavSidebarImpl({
     return () => observer.disconnect();
   }, [sectionIds, scrollRef]);
 
+  // Drop any pending click-scroll hold when the component unmounts.
+  useEffect(() => () => releaseClickScroll.current?.(), []);
+
   function scrollTo(id: string): void {
     const root = scrollRef.current;
     const target = document.getElementById(id);
     if (!root || !target) return;
+
+    // Honor the click immediately and keep it active until the smooth scroll
+    // settles. The target can sit below the fold (e.g. the last, short section
+    // can't reach the top), so scroll position alone can't always re-derive it.
+    setActiveId(id);
+    clickScrolling.current = true;
+    releaseClickScroll.current?.();
+
+    let timer = 0;
+    const release = (): void => {
+      clickScrolling.current = false;
+      root.removeEventListener("scrollend", release);
+      window.clearTimeout(timer);
+      releaseClickScroll.current = null;
+    };
+    // Arm the release before scrolling so a `scrollend` can't slip past us.
+    // `scrollend` fires once the animation finishes; the timer is a fallback.
+    timer = window.setTimeout(release, 1000);
+    root.addEventListener("scrollend", release);
+    releaseClickScroll.current = release;
+
     root.scrollTo({ top: target.offsetTop - 16, behavior: "smooth" });
   }
 

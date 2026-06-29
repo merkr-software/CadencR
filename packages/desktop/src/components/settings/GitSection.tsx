@@ -1,3 +1,4 @@
+import { GitDiffViewSettings } from "./GitDiffViewSettings";
 import { GitSettings } from "./GitSettings";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsSection } from "./SettingsSection";
@@ -17,6 +18,13 @@ export function GitSection(): React.JSX.Element {
         }
       >
         <GitSettings />
+      </SettingsCard>
+      <SettingsCard
+        padded
+        title="Diff layout"
+        description="How git diffs are displayed. The Split/Unified toggle in the diff view writes back to this preference."
+      >
+        <GitDiffViewSettings />
       </SettingsCard>
     </SettingsSection>
   );

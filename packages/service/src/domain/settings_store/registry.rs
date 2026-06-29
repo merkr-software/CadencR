@@ -104,6 +104,9 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
             ValueKind::Enum(&["minimal", "standard", "complete"]),
             Some("standard"),
         ),
+        "git_diff_view_mode" => {
+            SettingSpec::new(ValueKind::Enum(&["unified", "split"]), Some("unified"))
+        }
         "agent_stream_verbosity_mode" => SettingSpec::new(
             ValueKind::Enum(&["maximal", "auto_collapse", "collapsed", "compact"]),
             None,
@@ -171,6 +174,15 @@ mod tests {
         let spec = workspace_spec("notification_mode").unwrap();
         assert!(spec.is_valid("native"));
         assert!(!spec.is_valid("loud"));
+    }
+
+    #[test]
+    fn git_diff_view_mode_spec_validates_and_defaults() {
+        let spec = workspace_spec("git_diff_view_mode").unwrap();
+        assert!(spec.is_valid("unified"));
+        assert!(spec.is_valid("split"));
+        assert!(!spec.is_valid("inline"));
+        assert_eq!(spec.default, Some("unified"));
     }
 
     #[test]

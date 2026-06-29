@@ -31,10 +31,10 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio::sync::{broadcast, RwLock};
 
-use super::acp::{acp_command, port::reserve_local_port};
+use super::acp::spawn_headless_acp;
 use crate::domain::agents::acp::incoming::AcpNotification;
 use crate::domain::agents::acp::runtime::events::parse_available_commands;
-use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpEvent, AcpSpawnOptions};
+use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeSlashCommand};
 
 /// Upper bound on the time we'll wait for opencode to spawn,
@@ -168,23 +168,9 @@ async fn run_probe(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> 
 /// pushes `available_commands_update`. The client's `Drop` impl reaps
 /// the subprocess.
 async fn probe_inner(cwd: &str) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-    let port_reservation = reserve_local_port()?;
-    let port = port_reservation.port();
-    let binary = opencode_sdk_rs::process::resolve_binary().await?;
-    let mut command = acp_command(&binary, std::ffi::OsStr::new(cwd), port);
-    command
-        // Sidecar isn't wired for a probe; disable the question tool so
-        // opencode doesn't surface anything that depends on it.
-        .env("OPENCODE_ENABLE_QUESTION_TOOL", "0");
-
-    let client = AcpClient::spawn(AcpSpawnOptions {
-        command,
-        client_info: AcpClientInfo::default(),
-        max_line_bytes: None,
-        spawn_guard: Some(Box::new(port_reservation)),
-    })
-    .await
-    .map_err(|e| RuntimeError::new(format!("{PROBE_LOG_PREFIX}: spawn failed: {e}")))?;
+    let (client, _) = spawn_headless_acp(std::ffi::OsStr::new(cwd))
+        .await
+        .map_err(|e| RuntimeError::new(format!("{PROBE_LOG_PREFIX}: spawn failed: {e}")))?;
 
     // Subscribe BEFORE the handshake so the broadcast doesn't lose the
     // first `available_commands_update` that arrives during/right after

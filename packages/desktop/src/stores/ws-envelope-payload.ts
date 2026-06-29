@@ -116,6 +116,7 @@ export function parseInitializedPayload(payload: unknown): {
   provider?: string;
   model?: string;
   thinking_effort?: string;
+  profile?: string;
   codex_permission_mode?: string;
   input_tokens?: number;
   output_tokens?: number;
@@ -132,6 +133,7 @@ export function parseInitializedPayload(payload: unknown): {
     provider: optionalString(record, "provider"),
     model: optionalString(record, "model"),
     thinking_effort: optionalString(record, "thinking_effort"),
+    profile: optionalString(record, "profile"),
     codex_permission_mode: optionalString(record, "codex_permission_mode"),
     input_tokens: optionalNumber(record, "input_tokens"),
     output_tokens: optionalNumber(record, "output_tokens"),
@@ -177,6 +179,12 @@ export function parseModePayload(payload: unknown): { mode?: string } | null {
   const record = asRecord(payload);
   if (!record) return null;
   return { mode: optionalString(record, "mode") };
+}
+
+export function parseProfilePayload(payload: unknown): { profile?: string } | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  return { profile: optionalString(record, "profile") };
 }
 
 export function parseEffortPayload(payload: unknown): { thinking_effort?: string } | null {
@@ -298,6 +306,22 @@ export function parsePromptReceivedPayload(
   const record = asRecord(payload);
   if (!record) return null;
   return { client_message_id: optionalString(record, "client_message_id") };
+}
+
+/**
+ * Parse the `session.prompt_persisted` envelope — the persisted DB id for a
+ * user message this device sent optimistically. Stamping it onto the live block
+ * (matched by `user_message_ref`) lets rewind/fork target it without a reload.
+ */
+export function parsePromptPersistedPayload(
+  payload: unknown,
+): { user_message_ref: string; message_id: number } | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  const user_message_ref = optionalString(record, "user_message_ref");
+  const message_id = optionalNumber(record, "message_id");
+  if (!user_message_ref || message_id === undefined) return null;
+  return { user_message_ref, message_id };
 }
 
 /**

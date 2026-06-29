@@ -1,6 +1,7 @@
 pub mod client;
 mod client_io;
 mod client_state;
+mod client_threads;
 mod commands;
 pub mod discovery;
 pub mod error;
@@ -13,5 +14,6 @@ pub use discovery::{codex_discovery_spec, set_binary_override};
 pub use error::SdkError;
 pub use types::{
     AppServerClientInfo, AppServerEvent, CodexCommand, CodexCommandKind, CodexMcpServerStatus,
-    CodexModel, ThreadHandle, TurnHandle, CONTEXT_USAGE_BASELINE_TOKENS,
+    CodexModel, ThreadHandle, ThreadSnapshot, ThreadTurn, TurnHandle,
+    CONTEXT_USAGE_BASELINE_TOKENS,
 };

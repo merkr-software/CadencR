@@ -30,10 +30,19 @@ import { invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
 import { partitionActiveFeatures } from "@/lib/feature-grouping";
 import { useFeatureActivityCounts } from "@/hooks/useFeatureActivityCounts";
+import { useCloseFeatureActivity } from "@/hooks/useCloseFeatureActivity";
+import { normalizeLabel, uniqueLabels } from "@/lib/feature-labels";
 import {
   deleteFeatureDialogTitle,
   getPendingFeatureArchiveAction,
 } from "@/lib/feature-archive-decision";
+import {
+  adjacentFeature,
+  archiveFeatureInCachedLists,
+  closeFeatureSession,
+  navigateToFeatureOrHome,
+  removeFeatureFromCachedLists,
+} from "@/components/project-feature-navigation";
 
 const ACTIVE_FEATURE_STATUS: FeatureStatus = "active";
 const ARCHIVED_FEATURE_STATUS: FeatureStatus = "archived";
@@ -129,7 +138,18 @@ export function ProjectFeatures({
 
   const updateStatusMutation = useUpdateFeatureStatus({
     mutation: {
-      onSuccess: invalidateFeatures,
+      onSuccess: (_data, variables) => {
+        if (variables.id === activeFeatureId && variables.data.status === ARCHIVED_FEATURE_STATUS) {
+          archiveFeatureInCachedLists(queryClient, variables.id);
+          closeFeatureSession(variables.id);
+          navigateToFeatureOrHome(
+            navigate,
+            projectId,
+            adjacentFeature(activeFeatures, variables.id),
+          );
+        }
+        invalidateFeatures();
+      },
       onError: (error) => {
         toast.error(apiErrorMessage(error, "Failed to update feature status"));
       },
@@ -141,20 +161,10 @@ export function ProjectFeatures({
     mutation: {
       onSuccess: (_data, variables) => {
         const deletedId = variables.id;
+        removeFeatureFromCachedLists(queryClient, deletedId);
+        closeFeatureSession(deletedId);
         if (deletedId === activeFeatureId) {
-          const idx = activeFeatures.findIndex((f) => f.id === deletedId);
-          const next = activeFeatures[idx + 1] ?? activeFeatures[idx - 1];
-          if (next) {
-            void navigate({
-              to: "/projects/$projectId/features/$featureId",
-              params: {
-                projectId: String(projectId),
-                featureId: String(next.id),
-              },
-            });
-          } else {
-            void navigate({ to: "/" });
-          }
+          navigateToFeatureOrHome(navigate, projectId, adjacentFeature(activeFeatures, deletedId));
         }
         invalidateFeatures();
       },
@@ -256,6 +266,16 @@ export function ProjectFeatures({
     [handleUpdateFeatureStatus],
   );
 
+  // Counts come in from the row (which already has them) so this callback stays
+  // referentially stable across the sidebar's 2s activity polling.
+  const closeFeatureActivity = useCloseFeatureActivity();
+  const handleCloseActivity = useCallback(
+    (featureId: number, shellCount: number, browserCount: number): void => {
+      closeFeatureActivity({ featureId, shellCount, browserCount });
+    },
+    [closeFeatureActivity],
+  );
+
   const renderFeature = (feature: Feature) => (
     <ProjectFeatureRow
       key={feature.id}
@@ -280,6 +300,7 @@ export function ProjectFeatures({
       onArchiveOrDelete={setConfirmFeatureId}
       onUnarchive={handleUnarchiveFeature}
       onTogglePin={handleTogglePin}
+      onCloseActivity={handleCloseActivity}
     />
   );
 
@@ -368,18 +389,4 @@ export function ProjectFeatures({
       )}
     </div>
   );
-}
-
-function uniqueLabels(features: readonly Feature[]): string[] {
-  const labels = new Set<string>();
-  for (const feature of features) {
-    const label = normalizeLabel(feature.label ?? "");
-    if (label) labels.add(label);
-  }
-  return [...labels].sort((a, b) => a.localeCompare(b));
-}
-
-function normalizeLabel(value: string): string | null {
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }

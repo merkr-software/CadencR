@@ -226,12 +226,14 @@ mod tests {
         let p = PromptSendPayload {
             session_id: "s1".into(),
             text: "hello".into(),
+            profile: None,
             claude_profile: None,
             images: vec![],
             attachments: vec![],
             use_worktree: None,
             new_project_branch: None,
             client_message_id: None,
+            user_message_ref: None,
             replay: false,
         };
         let v = serde_json::to_value(&p).unwrap();
@@ -263,6 +265,7 @@ mod tests {
             provider: None,
             model: None,
             thinking_effort: None,
+            profile: None,
             codex_permission_mode: None,
             input_tokens: None,
             output_tokens: None,

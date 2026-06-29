@@ -1,17 +1,20 @@
-//! Read/write API over the settings files. Dir-based core functions are pure
-//! (testable with temp dirs); the `global_*`/`project_*` wrappers resolve the
-//! active settings dir from `dir::global_dir()`.
+//! Read/write API over the settings files. This module holds the pure,
+//! dir-based core functions (testable with temp dirs); the `global` and
+//! `project` submodules wrap them, resolving the active settings dir from
+//! `dir::global_dir()`.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use sqlx::SqlitePool;
-
-use crate::domain::projects::models::ProjectSetting;
-use crate::domain::workspace::models::Setting;
 use crate::error::AppError;
 
-use super::{dir, file, lock, paths, validate, Scope, SettingWarning};
+use super::{file, lock, validate, Scope, SettingWarning};
+
+mod global;
+mod project;
+
+pub use global::*;
+pub use project::*;
 
 /// Read + parse + validate a settings file. Never errors: a missing file is an
 /// empty map, and a malformed file degrades to an empty map plus a warning so a
@@ -39,45 +42,50 @@ fn load_text(scope: Scope, text: &str) -> (BTreeMap<String, String>, Vec<Setting
     (clean, warnings)
 }
 
-/// Read the raw stored map (all keys preserved, no default substitution) for a
-/// read-modify-write. Errors if the existing file isn't valid JSON so a single
+/// Read the full stored document (all keys preserved, nested sections intact) for
+/// a read-modify-write. Errors if the existing file isn't valid JSON so a single
 /// key write never silently clobbers a file a user is mid-edit on.
-fn load_raw_for_write(path: &Path) -> Result<BTreeMap<String, String>, AppError> {
+pub(super) fn load_document_for_write(
+    path: &Path,
+) -> Result<serde_json::Map<String, serde_json::Value>, AppError> {
     match file::read_file(path)? {
-        Some(text) => {
-            let (map, _warnings) = file::parse_object(&text).map_err(|message| {
-                AppError::BadRequest(format!(
-                    "{} is not valid JSON ({message}); fix it via \"Edit JSON\" before changing settings",
-                    path.display()
-                ))
-            })?;
-            Ok(map)
-        }
-        None => Ok(BTreeMap::new()),
+        Some(text) => file::parse_document(&text).map_err(|message| {
+            AppError::BadRequest(format!(
+                "{} is not valid JSON ({message}); fix it via \"Edit JSON\" before changing settings",
+                path.display()
+            ))
+        }),
+        None => Ok(serde_json::Map::new()),
     }
 }
 
-/// Set a single key, preserving every other key (including unknown ones).
-async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
+/// Set a single scalar key, preserving every other key (unknown scalars and
+/// nested sections like `profiles` alike).
+pub(super) async fn set_value(path: &Path, key: &str, value: &str) -> Result<(), AppError> {
     let _guard = lock::write_lock().lock().await;
-    let mut map = load_raw_for_write(path)?;
-    map.insert(key.to_string(), value.to_string());
-    file::write_atomic(path, &file::serialize_map(&map))
+    let mut doc = load_document_for_write(path)?;
+    doc.insert(
+        key.to_string(),
+        serde_json::Value::String(value.to_string()),
+    );
+    file::write_atomic(path, &file::serialize_document(&doc))
 }
 
 /// Validate and atomically write a full settings document (the "Edit JSON" save
-/// path). Returns warnings; errors only on invalid JSON.
-async fn write_content(
+/// path). The document is written verbatim (nested sections preserved); only the
+/// flat scalar projection is validated for warnings. Errors only on invalid JSON.
+pub(super) async fn write_content(
     path: &Path,
     scope: Scope,
     content: &str,
 ) -> Result<Vec<SettingWarning>, AppError> {
-    let (map, mut warnings) = file::parse_object(content).map_err(AppError::BadRequest)?;
-    let (_clean, mut validation_warnings) = validate::validate(scope, map.clone());
+    let doc = file::parse_document(content).map_err(AppError::BadRequest)?;
+    let (scalars, mut warnings) = file::parse_object(content).map_err(AppError::BadRequest)?;
+    let (_clean, mut validation_warnings) = validate::validate(scope, scalars);
     warnings.append(&mut validation_warnings);
 
     let _guard = lock::write_lock().lock().await;
-    file::write_atomic(path, &file::serialize_map(&map))?;
+    file::write_atomic(path, &file::serialize_document(&doc))?;
     Ok(warnings)
 }
 
@@ -94,114 +102,6 @@ pub fn read_for_edit(path: &Path, scope: Scope) -> (String, Vec<SettingWarning>)
             vec![SettingWarning::new("", e.to_string())],
         ),
     }
-}
-
-// ---------------------------------------------------------------------------
-// Global (workspace) wrappers
-// ---------------------------------------------------------------------------
-
-fn global_path() -> PathBuf {
-    paths::global_file(&dir::global_dir())
-}
-
-pub fn global_get(key: &str) -> Option<String> {
-    load(&global_path(), Scope::Workspace).0.remove(key)
-}
-
-/// Like `global_get` but treats empty/whitespace-only as unset.
-pub fn global_get_nonempty(key: &str) -> Option<String> {
-    global_get(key).filter(|v| !v.trim().is_empty())
-}
-
-pub fn global_list() -> Vec<Setting> {
-    load(&global_path(), Scope::Workspace)
-        .0
-        .into_iter()
-        .map(|(key, value)| Setting {
-            key,
-            value: Some(value),
-        })
-        .collect()
-}
-
-pub async fn global_set(key: &str, value: &str) -> Result<(), AppError> {
-    set_value(&global_path(), key, value).await
-}
-
-pub async fn global_write_content(content: &str) -> Result<Vec<SettingWarning>, AppError> {
-    write_content(&global_path(), Scope::Workspace, content).await
-}
-
-pub fn global_read_for_edit() -> (PathBuf, String, Vec<SettingWarning>) {
-    let path = global_path();
-    let (content, warnings) = read_for_edit(&path, Scope::Workspace);
-    (path, content, warnings)
-}
-
-// ---------------------------------------------------------------------------
-// Project wrappers
-// ---------------------------------------------------------------------------
-
-pub async fn project_path(pool: &SqlitePool, project_id: i64) -> Result<PathBuf, AppError> {
-    paths::project_file(&dir::global_dir(), pool, project_id).await
-}
-
-pub async fn project_map(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<(BTreeMap<String, String>, Vec<SettingWarning>), AppError> {
-    let path = project_path(pool, project_id).await?;
-    Ok(load(&path, Scope::Project))
-}
-
-pub async fn project_get(
-    pool: &SqlitePool,
-    project_id: i64,
-    key: &str,
-) -> Result<Option<String>, AppError> {
-    Ok(project_map(pool, project_id).await?.0.remove(key))
-}
-
-pub async fn project_list(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<Vec<ProjectSetting>, AppError> {
-    let (map, _warnings) = project_map(pool, project_id).await?;
-    Ok(map
-        .into_iter()
-        .map(|(key, value)| ProjectSetting {
-            key,
-            value: Some(value),
-        })
-        .collect())
-}
-
-pub async fn project_set(
-    pool: &SqlitePool,
-    project_id: i64,
-    key: &str,
-    value: &str,
-) -> Result<(), AppError> {
-    let path = project_path(pool, project_id).await?;
-    set_value(&path, key, value).await
-}
-
-pub async fn project_write_content(
-    pool: &SqlitePool,
-    project_id: i64,
-    content: &str,
-) -> Result<Vec<SettingWarning>, AppError> {
-    let path = project_path(pool, project_id).await?;
-    write_content(&path, Scope::Project, content).await
-}
-
-pub async fn project_read_for_edit(
-    pool: &SqlitePool,
-    project_id: i64,
-) -> Result<(PathBuf, String, Vec<SettingWarning>), AppError> {
-    let path = project_path(pool, project_id).await?;
-    let (content, warnings) = read_for_edit(&path, Scope::Project);
-    Ok((path, content, warnings))
 }
 
 #[cfg(test)]
@@ -372,5 +272,43 @@ mod tests {
         let (content, warnings) = read_for_edit(&path, Scope::Workspace);
         assert_eq!(content, "{}\n");
         assert!(warnings.is_empty());
+    }
+
+    #[tokio::test]
+    async fn scalar_write_preserves_nested_section() {
+        // A scalar write must not clobber a hand-written nested `profiles` section.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"profiles":{"bedrock":{"AWS_REGION":"us-east-1"}}}"#,
+        )
+        .unwrap();
+
+        set_value(&path, "theme_current", "aurora").await.unwrap();
+
+        let doc = file::parse_document(&file::read_file(&path).unwrap().unwrap()).unwrap();
+        assert_eq!(doc["theme_current"], serde_json::json!("aurora"));
+        assert_eq!(
+            doc["profiles"]["bedrock"]["AWS_REGION"],
+            serde_json::json!("us-east-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_json_save_preserves_nested_section() {
+        // The "Edit JSON" full-document save must round-trip nested sections.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        write_content(
+            &path,
+            Scope::Workspace,
+            r#"{"theme_current":"aurora","profiles":{"vertex":{"REGION":"eu"}}}"#,
+        )
+        .await
+        .unwrap();
+
+        let doc = file::parse_document(&file::read_file(&path).unwrap().unwrap()).unwrap();
+        assert_eq!(doc["profiles"]["vertex"]["REGION"], serde_json::json!("eu"));
     }
 }

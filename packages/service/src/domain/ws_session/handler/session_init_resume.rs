@@ -36,6 +36,13 @@ mod tests {
     }
 
     #[test]
+    fn resume_session_for_unknown_persisted_provider_accepts_adapter_valid_id() {
+        let sid = "11111111-1111-4111-8111-111111111111";
+        let resume = resume_session_id_for_provider(DEFAULT_PROVIDER, None, Some(sid));
+        assert_eq!(resume, Some(sid.to_string()));
+    }
+
+    #[test]
     fn resume_session_for_opencode_acp_accepts_matching_runtime_id() {
         let opencode_sid = "ses_27f586910ffeUNaKL2l5UARerl";
         let matching =

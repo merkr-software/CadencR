@@ -69,6 +69,31 @@ pub struct ThreadHandle {
     pub id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadSnapshot {
+    pub id: String,
+    pub turns: Vec<ThreadTurn>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ThreadTurn {
+    pub id: String,
+    user_message_count: usize,
+}
+
+impl ThreadTurn {
+    pub fn new(id: String, user_message_count: usize) -> Self {
+        Self {
+            id,
+            user_message_count,
+        }
+    }
+
+    pub fn user_message_count(&self) -> usize {
+        self.user_message_count
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TurnHandle {
     pub id: String,

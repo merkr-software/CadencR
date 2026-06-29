@@ -206,6 +206,7 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 runtime_provider TEXT,
                 runtime_session_id TEXT,
                 model TEXT,
+                profile TEXT,
                 permission_mode TEXT,
                 codex_permission_mode TEXT DEFAULT 'default',
                 has_file_changes INTEGER NOT NULL DEFAULT 0,

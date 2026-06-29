@@ -1,9 +1,10 @@
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import { createElement, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createTestQueryClient } from "@/test-utils";
 import {
+  useAgentCatalog,
   useSetActiveClaudeCodeProfile,
   useUpsertClaudeCodeProfile,
   useDeleteClaudeCodeProfile,
@@ -61,5 +62,37 @@ describe("Claude Code profile mutations", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "profiles"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
     expect(invalidateSpy).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("useAgentCatalog profile scoping", () => {
+  beforeEach(() => {
+    mockCustomInstance.mockReset();
+    mockCustomInstance.mockResolvedValue({ default_provider: "claude_code", providers: [] });
+  });
+
+  // Issue #76: switching the prompt-area Claude profile must refetch the model
+  // list for that profile. A distinct `profile` makes a distinct cache key and
+  // request, so the picker shows the chosen profile's models, not stale ones.
+  it("sends the selected profile and keys the cache by it", async () => {
+    const { result } = renderWithSpiedClient(() =>
+      useAgentCatalog({ cwd: "/work", profile: "bedrock" }),
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockCustomInstance).toHaveBeenCalledWith({
+      method: "GET",
+      url: "/api/agent-catalog",
+      params: { cwd: "/work", profile: "bedrock" },
+    });
+  });
+
+  it("omits the profile param when none is selected so the backend uses the active profile", async () => {
+    const { result } = renderWithSpiedClient(() => useAgentCatalog({ cwd: "/work" }));
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(mockCustomInstance).toHaveBeenCalledWith({
+      method: "GET",
+      url: "/api/agent-catalog",
+      params: { cwd: "/work" },
+    });
   });
 });

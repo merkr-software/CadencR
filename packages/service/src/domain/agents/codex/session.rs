@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use codex_app_server_sdk_rs::{AppServerEvent, CodexAppServerClient};
+use codex_app_server_sdk_rs::{AppServerEvent, CodexAppServerClient, SdkError};
 use serde_json::Value;
 use tempfile::TempPath;
 use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
@@ -22,6 +22,7 @@ use super::session_permissions::{
     is_plan_approval_request_id, permission_kind_for_request_id, plan_approval_prompt, take_pending,
 };
 use super::turn_start::turn_start_params;
+use super::turn_steer_recovery::{steer_failure_recovery, SteerFailureRecovery};
 use super::{with_timeout, with_timeout_sdk};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeAccessMode, RuntimeError, RuntimeEvent, RuntimeMcpServerStatus,
@@ -314,6 +315,7 @@ fn error_receiver(message: &'static str) -> RuntimeMessageRx {
 
 impl CodexSession {
     async fn stream_converted_input(&self, input: Vec<Value>) -> Result<(), RuntimeError> {
+        let mut recovered_steer_failure = false;
         loop {
             let Some(turn_id) = self.active_turn_id.read().await.clone() else {
                 return self.start_turn(input).await;
@@ -324,36 +326,54 @@ impl CodexSession {
                 self.client.turn_steer(&self.thread_id, &turn_id, &input),
             )
             .await;
-            match result {
-                Ok(()) => return Ok(()),
-                Err(error) if error.is_no_active_turn_to_steer() => {
-                    if self.clear_stale_active_turn(&turn_id).await {
-                        continue;
-                    }
-                    warn!(
-                        thread_id = %self.thread_id,
-                        turn_id = %turn_id,
-                        "Codex turn/steer stale failure ignored because active turn changed"
-                    );
-                    continue;
-                }
-                Err(error) => return Err(RuntimeError::from(error)),
+            let Err(error) = result else {
+                return Ok(());
+            };
+            if recovered_steer_failure {
+                return Err(RuntimeError::from(error));
             }
+            if self.recover_steer_failure(&turn_id, &error).await {
+                recovered_steer_failure = true;
+                continue;
+            }
+            return Err(RuntimeError::from(error));
         }
     }
 
-    async fn clear_stale_active_turn(&self, turn_id: &str) -> bool {
-        let mut active_turn_id = self.active_turn_id.write().await;
-        if active_turn_id.as_deref() != Some(turn_id) {
+    async fn recover_steer_failure(&self, attempted_turn_id: &str, error: &SdkError) -> bool {
+        let Some(recovery) = steer_failure_recovery(error) else {
             return false;
+        };
+        let mut active_turn_id = self.active_turn_id.write().await;
+        if active_turn_id.as_deref() != Some(attempted_turn_id) {
+            warn!(
+                thread_id = %self.thread_id,
+                attempted_turn_id = %attempted_turn_id,
+                "Codex turn/steer stale failure ignored because active turn changed"
+            );
+            return true;
         }
-        warn!(
-            thread_id = %self.thread_id,
-            turn_id = %turn_id,
-            "Codex turn/steer found no active turn; starting a new turn"
-        );
-        *active_turn_id = None;
-        true
+        match recovery {
+            SteerFailureRecovery::StartNewTurn => {
+                warn!(
+                    thread_id = %self.thread_id,
+                    turn_id = %attempted_turn_id,
+                    "Codex turn/steer found no active turn; starting a new turn"
+                );
+                *active_turn_id = None;
+                true
+            }
+            SteerFailureRecovery::RetryWithTurn(found_turn_id) => {
+                warn!(
+                    thread_id = %self.thread_id,
+                    attempted_turn_id = %attempted_turn_id,
+                    found_turn_id = %found_turn_id,
+                    "Codex turn/steer active turn mismatch; retrying with server turn"
+                );
+                *active_turn_id = Some(found_turn_id);
+                true
+            }
+        }
     }
 
     async fn respond_plan_approval(

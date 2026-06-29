@@ -50,6 +50,8 @@ pub struct PromptSendPayload {
     pub session_id: String,
     pub text: String,
     #[serde(default)]
+    pub profile: Option<String>,
+    #[serde(default)]
     pub claude_profile: Option<String>,
     #[serde(default)]
     pub images: Vec<ImagePayload>,
@@ -60,6 +62,12 @@ pub struct PromptSendPayload {
     pub new_project_branch: Option<NewProjectBranchPayload>,
     #[serde(default)]
     pub client_message_id: Option<String>,
+    /// Client-generated reference echoed back in `prompt_persisted` with the
+    /// persisted DB id, so the sender can stamp its live block and enable
+    /// rewind/fork without a reload. Sent for every prompt (unlike
+    /// `client_message_id`, which is receipt/steering-only).
+    #[serde(default)]
+    pub user_message_ref: Option<String>,
     #[serde(default)]
     pub replay: bool,
 }
@@ -121,4 +129,10 @@ pub struct CodexPermissionModeSetPayload {
 pub struct EffortSetPayload {
     pub session_id: String,
     pub thinking_effort: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileSetPayload {
+    pub session_id: String,
+    pub profile: String,
 }

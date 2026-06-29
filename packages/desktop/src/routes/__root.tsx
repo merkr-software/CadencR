@@ -6,7 +6,12 @@ import { useOperationToasts } from "@/hooks/useOperationToasts";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useVisualViewportHeight } from "@/hooks/useVisualViewportHeight";
-import { AppShell } from "@/components/AppShell";
+import {
+  AppShell,
+  SIDEBAR_DEFAULT_WIDTH,
+  SIDEBAR_MAX_WIDTH,
+  SIDEBAR_MIN_WIDTH,
+} from "@/components/AppShell";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -46,6 +51,12 @@ import { RootOverlays, type ConfirmFeatureAction } from "@/components/RootOverla
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
 import { isMeaningfulScreenPath, useLastScreenStore } from "@/stores/last-screen-store";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
+import {
+  archiveFeatureInCachedLists,
+  closeFeatureSession,
+  navigateToFeatureIdOrHome,
+  removeFeatureFromCachedLists,
+} from "@/components/project-feature-navigation";
 
 /**
  * Root-level search validator. The global theme drawer's open state lives in
@@ -185,6 +196,7 @@ function RootLayout() {
     },
   });
 
+  const [confirmAction, setConfirmAction] = useState<ConfirmFeatureAction | null>(null);
   // Track which feature to navigate to after deletion
   const deleteNavTargetRef = useRef<number | null>(null);
   const deleteFeatureMutation = useDeleteFeature({
@@ -192,48 +204,31 @@ function RootLayout() {
       onError: () => {
         toast.error("Failed to delete feature");
       },
-      onSuccess: () => {
+      onSuccess: (_data, variables) => {
+        removeFeatureFromCachedLists(queryClient, variables.id);
+        closeFeatureSession(variables.id);
         invalidateFeatures();
         if (activeProjectId == null) return;
         const targetId = deleteNavTargetRef.current;
         deleteNavTargetRef.current = null;
-        if (targetId != null) {
-          void navigate({
-            to: "/projects/$projectId/features/$featureId",
-            params: {
-              projectId: String(activeProjectId),
-              featureId: String(targetId),
-            },
-          });
-        } else {
-          void navigate({ to: "/" });
-        }
+        navigateToFeatureIdOrHome(navigate, activeProjectId, targetId);
       },
     },
   });
 
-  const [confirmAction, setConfirmAction] = useState<ConfirmFeatureAction | null>(null);
   const archiveFeatureMutation = useUpdateFeatureStatus({
     mutation: {
       onError: () => {
         toast.error("Failed to archive session");
       },
-      onSuccess: () => {
+      onSuccess: (_data, variables) => {
+        archiveFeatureInCachedLists(queryClient, variables.id);
+        closeFeatureSession(variables.id);
         invalidateFeatures();
         if (activeProjectId == null) return;
         const targetId = deleteNavTargetRef.current;
         deleteNavTargetRef.current = null;
-        if (targetId != null) {
-          void navigate({
-            to: "/projects/$projectId/features/$featureId",
-            params: {
-              projectId: String(activeProjectId),
-              featureId: String(targetId),
-            },
-          });
-        } else {
-          void navigate({ to: "/" });
-        }
+        navigateToFeatureIdOrHome(navigate, activeProjectId, targetId);
       },
     },
   });
@@ -343,7 +338,14 @@ function RootLayout() {
     leftWidth.setValue(String(Math.round(size.inPixels)));
   }, [leftWidth]);
 
-  const defaultLeftSize = leftWidth.value ? `${leftWidth.value}px` : "256px";
+  // Clamp the persisted width into the current resize bounds so a value saved
+  // under an older, smaller minimum doesn't reopen the sidebar too narrow.
+  const savedWidth = leftWidth.value ? Number(leftWidth.value) : null;
+  const clampedWidth =
+    savedWidth != null && Number.isFinite(savedWidth)
+      ? Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, savedWidth))
+      : SIDEBAR_DEFAULT_WIDTH;
+  const defaultLeftSize = `${clampedWidth}px`;
 
   return (
     <SidebarContext.Provider

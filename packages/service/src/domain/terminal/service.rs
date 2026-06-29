@@ -226,8 +226,17 @@ impl PtyManager {
     }
 
     /// Kill every live PTY belonging to `feature_id`, returning how many shells
-    /// were signalled. Used when a feature is archived/deleted so its lingering
-    /// shells don't keep running in a worktree that may be about to be removed.
+    /// were signalled. Used when a feature is archived/deleted, or when the user
+    /// closes a feature's terminals from the sidebar, so its lingering shells
+    /// don't keep running in a worktree that may be about to be removed.
+    ///
+    /// Each killed PTY is also dropped from the map immediately. The 300s grace
+    /// window only exists to let a *disconnected* client reattach to its still-
+    /// running shell; a shell the user explicitly killed must not be re-listed
+    /// or reattachable — otherwise a still-open terminal pane would re-adopt the
+    /// dying shell and end up stuck on its hangup output. The connected WS loop
+    /// keeps the handle alive through its own `Arc`, so the exit message still
+    /// reaches any attached client before its socket closes.
     pub fn kill_feature_ptys(&self, feature_id: i64) -> usize {
         let pty_ids = self
             .terminals
@@ -240,7 +249,10 @@ impl PtyManager {
         let mut killed = 0;
         for pty_id in pty_ids {
             match self.kill_pty(&pty_id) {
-                Ok(()) => killed += 1,
+                Ok(()) => {
+                    killed += 1;
+                    self.terminals.remove(&pty_id);
+                }
                 Err(error) => warn!(pty_id = %pty_id, error = %error, "Failed to kill feature PTY"),
             }
         }
@@ -364,6 +376,13 @@ mod tests {
         let killed = manager.kill_feature_ptys(7);
         assert_eq!(killed, 2, "both feature-7 shells are killed");
         assert_eq!(manager.kill_feature_ptys(123), 0, "unknown feature => none");
+
+        // Killed shells are dropped from the map so a still-open terminal pane
+        // can't re-list or reattach to them while they hang up.
+        assert!(
+            manager.feature_ptys(7).is_empty(),
+            "killed shells removed from the map"
+        );
 
         // The other feature's shell is untouched, so its child is still running.
         assert_eq!(manager.feature_ptys(99).len(), 1, "other feature untouched");

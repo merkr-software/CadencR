@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use tracing::{debug, info};
 
 use crate::app_state::AppState;
@@ -8,17 +6,16 @@ use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 
+use super::super::session_profile::{
+    apply_profile_update, desired_profile_name, prompt_profile, resolve_provider_profile,
+    SessionProfileUpdate,
+};
 use super::super::{parse_session_id, send_error, QueryState, SdkHandle, SdkSessions, WsSender};
 use super::prompt_followup::{handle_followup_prompt, FollowupPromptContext};
 use super::prompt_pending::{handle_pending_prompt, PendingPromptContext};
 use super::prompt_runtime_config::{
     apply_respawn_if_needed, dispatch_changes, log_dispatch_decision,
 };
-
-struct PromptProfileUpdate {
-    name: String,
-    env: Option<HashMap<String, String>>,
-}
 
 /// Handle session.prompt.send: send prompt to runtime or spawn new query.
 pub(crate) async fn handle_prompt_send(
@@ -34,13 +31,26 @@ pub(crate) async fn handle_prompt_send(
         return;
     };
 
-    let profile_update = match resolve_prompt_profile_update(app_state, &payload).await {
+    let has_profile_update = prompt_profile(&payload).is_some();
+    let profile_update = match resolve_prompt_profile_update(
+        app_state,
+        sdk_sessions,
+        db_session_id,
+        &payload,
+        sender,
+        &envelope,
+    )
+    .await
+    {
         Ok(update) => update,
         Err(error) => {
             send_error(sender, &envelope.id, "PROFILE_ERROR", &error);
             return;
         }
     };
+    if has_profile_update && profile_update.is_none() {
+        return;
+    }
 
     // Phase 1 — this connection's own map. Apply any respawn-on-config-change,
     // then if we own the live turn, steer it directly (fast path).
@@ -170,7 +180,7 @@ async fn owner_prompt_target(
     sender: &WsSender,
     app_state: &AppState,
     envelope_id: &str,
-    profile_update: Option<&PromptProfileUpdate>,
+    profile_update: Option<&SessionProfileUpdate>,
 ) -> Option<OwnerPromptTarget> {
     let (query, feature_id, provider_id) = {
         let mut sessions = owner.lock().await;
@@ -277,33 +287,48 @@ async fn spawn_pending_prompt(
 
 async fn resolve_prompt_profile_update(
     app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
     payload: &PromptSendPayload,
-) -> Result<Option<PromptProfileUpdate>, String> {
-    let Some(profile_name) = payload.claude_profile.as_deref() else {
+    sender: &WsSender,
+    envelope: &WsEnvelope,
+) -> Result<Option<SessionProfileUpdate>, String> {
+    let Some(profile_name) = prompt_profile(payload) else {
         return Ok(None);
     };
-    let (name, env) = crate::domain::agents::claude_code::profiles::resolve_profile_env_by_name(
-        &app_state.read_pool,
-        Some(profile_name),
-    )
-    .await
-    .map_err(|error| error.to_string())?;
-    Ok(Some(PromptProfileUpdate { name, env }))
+    let (provider, current_profile) = {
+        let sessions = sdk_sessions.lock().await;
+        let Some(handle) = sessions.get(&db_session_id) else {
+            send_error(
+                sender,
+                &envelope.id,
+                "SESSION_NOT_FOUND",
+                &format!("Session {db_session_id} not found. Send session.init first."),
+            );
+            return Ok(None);
+        };
+        (
+            handle.runtime_provider.clone(),
+            desired_profile_name(handle).map(str::to_string),
+        )
+    };
+    let update = resolve_provider_profile(app_state, &provider, profile_name).await?;
+    if current_profile.as_deref() != Some(update.name.as_str()) {
+        crate::domain::ws_session::persistence::WsSessionPersistence::update_profile_static(
+            &app_state.write_pool,
+            db_session_id,
+            &update.name,
+        )
+        .await;
+    }
+    Ok(Some(update))
 }
 
-fn apply_prompt_profile_update(handle: &mut SdkHandle, update: Option<&PromptProfileUpdate>) {
-    if handle.runtime_provider != crate::domain::agents::claude_code::PROVIDER_ID {
-        return;
-    }
+fn apply_prompt_profile_update(handle: &mut SdkHandle, update: Option<&SessionProfileUpdate>) {
     let Some(update) = update else {
         return;
     };
-    handle.desired_claude_profile = Some(update.name.clone());
-    handle.config.claude_profile = Some(update.name.clone());
-    handle.config.env = update.env.clone();
-    if let QueryState::Pending(options) = &mut handle.state {
-        options.env = update.env.clone();
-    }
+    apply_profile_update(handle, update);
 }
 
 fn parse_prompt_payload(envelope: &WsEnvelope, sender: &WsSender) -> Option<PromptSendPayload> {

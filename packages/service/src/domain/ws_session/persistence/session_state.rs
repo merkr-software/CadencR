@@ -63,6 +63,17 @@ impl WsSessionPersistence {
         }
     }
 
+    pub async fn update_profile_static(pool: &SqlitePool, session_id: i64, profile: &str) {
+        if let Err(e) = sqlx::query("UPDATE agent_sessions SET profile = ? WHERE id = ?")
+            .bind(profile)
+            .bind(session_id)
+            .execute(pool)
+            .await
+        {
+            error!(error = %e, session_db_id = session_id, "failed to update profile");
+        }
+    }
+
     pub async fn update_permission_mode_static(pool: &SqlitePool, session_id: i64, mode: &str) {
         if let Err(e) = sqlx::query("UPDATE agent_sessions SET permission_mode = ? WHERE id = ?")
             .bind(mode)
@@ -196,6 +207,7 @@ mod session_state_tests {
                 runtime_session_id TEXT,
 
                 model TEXT,
+                profile TEXT,
                 permission_mode TEXT,
                 codex_permission_mode TEXT DEFAULT 'default',
                 has_file_changes INTEGER NOT NULL DEFAULT 0,

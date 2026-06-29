@@ -11,6 +11,7 @@ pub mod jobs;
 pub mod models;
 mod opencode_sqlite;
 mod persistence;
+pub mod refresh;
 pub mod routes;
 pub mod service;
 pub mod types;

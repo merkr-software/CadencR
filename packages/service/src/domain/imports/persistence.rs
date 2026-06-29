@@ -66,20 +66,7 @@ pub async fn persist_imported_conversation(
     let session_id = session_result.last_insert_rowid();
 
     for msg in conv.messages.iter() {
-        sqlx::query(
-            "INSERT INTO agent_messages (session_id, role, content, message_type, tool_name, tool_use_id, parent_tool_use_id, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
-        )
-        .bind(session_id)
-        .bind(&msg.role)
-        .bind(&msg.content)
-        .bind(persisted_message_type(msg))
-        .bind(msg.tool_name.as_deref())
-        .bind(msg.tool_use_id.as_deref())
-        .bind(None::<&str>)
-        .bind(msg.model.as_deref().or_else(|| fallback_message_model(msg, &conv)))
-        .bind(msg.created_at.as_deref())
-        .execute(&mut *tx)
-        .await?;
+        insert_message(&mut tx, session_id, msg, &conv).await?;
     }
 
     tx.commit().await?;
@@ -87,6 +74,34 @@ pub async fn persist_imported_conversation(
         source_session_id: conv.source_session_id,
         feature_id,
     }))
+}
+
+/// Insert one neutralized message into `agent_messages` for `session_id`,
+/// applying the same role/type and model-fallback mapping the importer uses.
+/// Shared by full-conversation import and the session-refresh append path so
+/// both produce identical rows. Accepts a connection so callers can run it
+/// inside their own transaction.
+pub(crate) async fn insert_message(
+    conn: &mut sqlx::SqliteConnection,
+    session_id: i64,
+    msg: &super::types::ImportedMessage,
+    conv: &ImportedConversation,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "INSERT INTO agent_messages (session_id, role, content, message_type, tool_name, tool_use_id, parent_tool_use_id, model, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))",
+    )
+    .bind(session_id)
+    .bind(&msg.role)
+    .bind(&msg.content)
+    .bind(persisted_message_type(msg))
+    .bind(msg.tool_name.as_deref())
+    .bind(msg.tool_use_id.as_deref())
+    .bind(None::<&str>)
+    .bind(msg.model.as_deref().or_else(|| fallback_message_model(msg, conv)))
+    .bind(msg.created_at.as_deref())
+    .execute(conn)
+    .await?;
+    Ok(())
 }
 
 fn persisted_message_type(msg: &super::types::ImportedMessage) -> &str {
@@ -124,7 +139,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL, agent_type TEXT NOT NULL, runtime_provider TEXT, runtime_session_id TEXT, status TEXT NOT NULL DEFAULT 'pending', started_at TEXT, ended_at TEXT, model TEXT)")
+        sqlx::query("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL, agent_type TEXT NOT NULL, runtime_provider TEXT, runtime_session_id TEXT, status TEXT NOT NULL DEFAULT 'pending', started_at TEXT, ended_at TEXT, model TEXT, profile TEXT)")
             .execute(&pool)
             .await
             .unwrap();

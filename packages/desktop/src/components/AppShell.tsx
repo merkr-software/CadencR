@@ -3,7 +3,18 @@ import type { PanelImperativeHandle } from "react-resizable-panels";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileDrawer } from "@/components/MobileDrawer";
+import { useIsResizing } from "@/hooks/useIsResizing";
 import { cn } from "@/lib/utils";
+
+/**
+ * Resize bounds for the global left sidebar, shared with `__root.tsx` so the
+ * persisted width can be clamped to the same range on load. The minimum is kept
+ * close to DESIGN.md's 268px sidebar width — dragging much narrower leaves the
+ * project/feature rows cramped and unreadable.
+ */
+export const SIDEBAR_MIN_WIDTH = 220;
+export const SIDEBAR_MAX_WIDTH = 400;
+export const SIDEBAR_DEFAULT_WIDTH = 256;
 
 interface AppShellProps {
   isMobile: boolean;
@@ -41,6 +52,13 @@ export function AppShell({
   onLayoutChanged,
   children,
 }: AppShellProps): ReactNode {
+  // `collapsible` is what powers the toggle-button collapse (it lets the panel
+  // shrink to `collapsedSize={0}` and restores the prior width on expand). But
+  // it also makes a *drag* past the minimum snap the panel shut, so the sidebar
+  // vanishes when the user keeps dragging inward. Disable it for the duration
+  // of a handle drag so resizing hard-clamps to `[minSize, maxSize]`; the
+  // toggle button never fires mid-drag, so it keeps working as before.
+  const isDragging = useIsResizing();
   if (isMobile) {
     return (
       <div className="relative flex h-[var(--app-vh)] w-full overflow-hidden">
@@ -57,11 +75,18 @@ export function AppShell({
         >
           {children}
         </main>
+        {/*
+         * Safe-area insets live INSIDE the sidebar (on its `<aside>`), not as
+         * padding here: padding the drawer panel would inset the sidebar's
+         * `bg-sidebar` surface from the screen edges, leaving dead gaps at the
+         * top/bottom in standalone/fullscreen mode (where the insets are
+         * non-zero). Letting the surface reach the edges and padding the content
+         * keeps the rail edge-to-edge while clearing the notch/home indicator.
+         */}
         <MobileDrawer
           collapsed={collapsed}
           onClose={() => setCollapsed(true)}
           closeLabel="Close menu"
-          panelClassName="pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
         >
           <Sidebar onSearch={onSearch} />
         </MobileDrawer>
@@ -74,11 +99,11 @@ export function AppShell({
       <ResizablePanel
         id="sidebar"
         panelRef={sidebarPanelRef}
-        collapsible
+        collapsible={!isDragging}
         collapsedSize={0}
         defaultSize={defaultLeftSize}
-        minSize="200px"
-        maxSize="400px"
+        minSize={`${SIDEBAR_MIN_WIDTH}px`}
+        maxSize={`${SIDEBAR_MAX_WIDTH}px`}
       >
         <div
           ref={leftSidebarRef}

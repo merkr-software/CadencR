@@ -236,6 +236,27 @@ describe("BrowserManager", () => {
     expect(manager.state(1).activeTabId).toBe(a1.id);
   });
 
+  it("closes every tab in a scope in one pass, emitting state once", () => {
+    const win = mainWindow();
+    const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+    manager.createTab(undefined, "fresh", 1);
+    manager.createTab(undefined, "fresh", 1);
+    const other = manager.createTab(undefined, "fresh", 2);
+    win.webContents.send.mockClear();
+
+    const snapshot = manager.closeTabsForScope(1);
+
+    // The whole scope is torn down; the other feature is untouched.
+    expect(snapshot.tabs).toEqual([]);
+    expect(manager.state(1).tabs).toEqual([]);
+    expect(manager.state(2).tabs.map((t) => t.id)).toEqual([other.id]);
+    // A single batched state push for the scope, not one per closed tab.
+    const stateEmits = win.webContents.send.mock.calls.filter(
+      ([channel]) => channel === "browser:state",
+    );
+    expect(stateEmits).toHaveLength(1);
+  });
+
   it("keeps the unscoped (agent/MCP) view active after a scope's last tab closes", () => {
     const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
     const a = manager.createTab(undefined, "fresh", 1);

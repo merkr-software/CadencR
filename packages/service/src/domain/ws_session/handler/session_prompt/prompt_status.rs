@@ -2,7 +2,7 @@ use axum::extract::ws::Message;
 
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{
-    PromptReceivedPayload, UserMessageMirrorPayload, WsEnvelope,
+    PromptPersistedPayload, PromptReceivedPayload, UserMessageMirrorPayload, WsEnvelope,
 };
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
@@ -44,6 +44,34 @@ pub(super) fn prompt_received_envelope(client_message_id: String) -> WsEnvelope 
     )
 }
 
+/// Tell the *sending* device the persisted DB id of the user message it just
+/// rendered optimistically, so rewind/fork can target it without a reload. Sent
+/// to the sender only — other viewers receive the message via the mirror and
+/// hydrate its id when they reload. Best-effort: a closed sender socket means
+/// the device is gone, so there is nothing to surface.
+pub(super) async fn ack_persisted_user_message(
+    sender: &WsSender,
+    user_message_ref: &str,
+    message_id: i64,
+) {
+    let env = prompt_persisted_envelope(user_message_ref.to_string(), message_id);
+    let _ = sender.send(Message::Text(String::from(env).into()));
+}
+
+/// Wire shape for the `prompt_persisted` ack — split out so the sender helper
+/// and the unit test share one definition.
+pub(super) fn prompt_persisted_envelope(user_message_ref: String, message_id: i64) -> WsEnvelope {
+    WsEnvelope::new(
+        "session",
+        "prompt_persisted",
+        serde_json::to_value(PromptPersistedPayload {
+            user_message_ref,
+            message_id,
+        })
+        .unwrap(),
+    )
+}
+
 /// Ack a tracked prompt the agent never received because the stream send
 /// failed. The backend receipt is already discarded; this only tells the
 /// client to stop the spinner (the accompanying `SDK_ERROR` envelope says why).
@@ -79,4 +107,20 @@ pub(super) async fn mark_agent_running(
         .await;
     WsSessionPersistence::mark_running_static(write_pool, db_session_id).await;
     session_status_tx.broadcast_running_with_start(db_session_id, feature_id, started_at_ms);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prompt_persisted_envelope_carries_client_id_and_message_id() {
+        let env = prompt_persisted_envelope("ref-1".to_string(), 42);
+        let json: serde_json::Value =
+            serde_json::from_str(&String::from(env)).expect("envelope serializes to JSON");
+        assert_eq!(json["domain"], "session");
+        assert_eq!(json["action"], "prompt_persisted");
+        assert_eq!(json["payload"]["user_message_ref"], "ref-1");
+        assert_eq!(json["payload"]["message_id"], 42);
+    }
 }

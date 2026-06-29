@@ -17,7 +17,7 @@ import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import type { AgentBlockData } from "@/components/AgentBlock";
 import { blocksPatchWithDerived } from "./ws-message-processing";
-import { updateSession } from "./ws-session-types";
+import { updateSession, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
 
 const MSG_ID_RE = /^msg-(\d+)$/;
@@ -38,42 +38,59 @@ function maxMessageIdInBlocks(blocks: AgentBlockData[]): number {
 export async function resyncMessagesOnReconnect(
   ctx: StoreAccessors,
   sessionId: string,
+  target?: ResyncTarget,
 ): Promise<void> {
   const session = ctx.get().sessions[sessionId];
-  if (!session || !session.featureId || !session.sessionDbId) return;
+  if (!session) return;
+
+  // Reconnect derives the conversation key, session id, and cursor from the
+  // store. The manual "Sync from CLI" action passes them explicitly: a session
+  // born live this run never hydrated from REST, so its store `sessionDbId` is
+  // a stale fallback and its blocks may lack persisted ids — the backend hands
+  // back the authoritative `sessionDbId` plus the pre-append `cursor` so we
+  // fetch *only* the rows it just appended.
+  const featureId = target?.featureId ?? session.featureId;
+  const sessionDbId = target?.sessionDbId ?? session.sessionDbId;
+  if (!featureId || !sessionDbId) return;
 
   // Anchor at the newest message we hold — from the cursor seeded by the
   // initial load OR from blocks received live since (whichever is higher).
-  const cursor = Math.max(session.lastAppliedMessageId ?? 0, maxMessageIdInBlocks(session.blocks));
-  if (cursor <= 0) return;
+  const cursor =
+    target?.cursor ??
+    Math.max(session.lastAppliedMessageId ?? 0, maxMessageIdInBlocks(session.blocks));
+  // Reconnect with no prior anchor has nothing to fetch after.
+  if (!target && cursor <= 0) return;
 
-  const afterParam = JSON.stringify({ [session.sessionDbId]: cursor });
-  const data = await getFeatureAgentState(session.featureId, { after: afterParam });
-  const serverSession = data.sessions.find((s) => s.sessionDbId === session.sessionDbId);
+  const afterParam = JSON.stringify({ [sessionDbId]: cursor });
+  const data = await getFeatureAgentState(featureId, { after: afterParam });
+  const serverSession = data.sessions.find((s) => s.sessionDbId === sessionDbId);
   if (!serverSession) return;
 
   const newBlocks = serverBlocksToAgentBlocks(serverSession.blocks as never[]);
   const current = ctx.get().sessions[sessionId];
   if (!current) return;
 
+  // Persist the authoritative session id so future resyncs/status lookups key
+  // correctly when the stored one was a stale live fallback.
+  const idPatch = current.sessionDbId === sessionDbId ? {} : { sessionDbId };
   const nextCursor = Math.max(cursor, serverSession.maxMessageId ?? 0);
+
   if (newBlocks.length === 0) {
-    if (nextCursor !== current.lastAppliedMessageId) {
-      ctx.set(updateSession(ctx.get(), sessionId, { lastAppliedMessageId: nextCursor }));
-    }
+    ctx.set(updateSession(ctx.get(), sessionId, { ...idPatch, lastAppliedMessageId: nextCursor }));
     return;
   }
 
   const existingIds = new Set(current.blocks.map((b) => b.id));
   const appended = newBlocks.filter((b) => !existingIds.has(b.id));
   if (appended.length === 0) {
-    ctx.set(updateSession(ctx.get(), sessionId, { lastAppliedMessageId: nextCursor }));
+    ctx.set(updateSession(ctx.get(), sessionId, { ...idPatch, lastAppliedMessageId: nextCursor }));
     return;
   }
 
   const merged = [...current.blocks, ...appended];
   ctx.set(
     updateSession(ctx.get(), sessionId, {
+      ...idPatch,
       ...blocksPatchWithDerived(current.streamingState, merged),
       lastAppliedMessageId: nextCursor,
     }),

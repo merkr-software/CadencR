@@ -33,6 +33,13 @@ export function quoteFilterValue(value: string): string {
   return /[\s|:"]/.test(value) ? `"${value.replaceAll('"', '\\"')}"` : value;
 }
 
+/** Treat a filter value as the affirmative side of a boolean toggle (`/pin:`).
+ *  An empty value (bare `/pin:`) counts as `true` so the filter is easy to type. */
+export function isTruthyFilterValue(value: string): boolean {
+  const normalized = normalizeFilterValue(value).toLowerCase();
+  return ["", "true", "1"].includes(normalized);
+}
+
 /** Normalize each value and dedupe case-insensitively, keeping first-seen
  *  casing and dropping empties. Shared by the parser, persistence, and the
  *  per-card exclude action so the "excluded titles" invariant lives once. */

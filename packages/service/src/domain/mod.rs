@@ -25,6 +25,7 @@
 )]
 
 pub mod agents;
+pub mod checkpoints;
 pub mod custom_actions;
 pub mod diff_comments;
 pub mod editor;

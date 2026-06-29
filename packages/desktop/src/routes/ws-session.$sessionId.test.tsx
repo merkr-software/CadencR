@@ -362,8 +362,14 @@ describe("WsSessionPage route", () => {
       expect(screen.queryByTestId("editor-tab")).not.toBeInTheDocument();
       expect(screen.getByText(/Loading Terminal after the conversation/)).toBeInTheDocument();
 
+      // Gate opens at the agent-first delay, then tabs reveal one at a time in
+      // priority order (editor → git → terminal → browser); advance past the
+      // stagger so all visible bodies have hydrated.
       act(() => {
         vi.advanceTimersByTime(1200);
+      });
+      act(() => {
+        vi.advanceTimersByTime(600);
       });
       vi.useRealTimers();
 

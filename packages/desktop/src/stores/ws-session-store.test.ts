@@ -215,7 +215,7 @@ describe("ws-session-store", () => {
     expect(session.blocks[0].content).toBe("hello");
   });
 
-  it("sendPrompt includes selected Claude profile in prompt payload", async () => {
+  it("sendPrompt includes selected profile in prompt payload", async () => {
     const { store, ws } = await connectInitializedSession();
 
     store.sendPrompt("s1", "hello", { claudeProfile: "bedrock" });
@@ -227,7 +227,44 @@ describe("ws-session-store", () => {
       payload: {
         session_id: "srv-1",
         text: "hello",
-        claude_profile: "bedrock",
+        profile: "bedrock",
+      },
+    });
+  });
+
+  it("sendPrompt always carries a user_message_ref and stamps the live block on prompt_persisted", async () => {
+    const { store, ws } = await connectInitializedSession();
+
+    store.sendPrompt("s1", "hello");
+
+    const sent = ws.sent.map((raw) => JSON.parse(raw));
+    const ref = sent.at(-1).payload.user_message_ref;
+    expect(ref).toEqual(expect.any(String));
+    const block = useWsSessionStore.getState().sessions["s1"].blocks.at(-1);
+    expect(block?.clientMessageId).toBe(ref);
+    expect(block?.messageDbId).toBeUndefined();
+
+    // The persisted ack arrives and stamps the DB id (enables rewind/fork).
+    ws.simulateMessage({
+      domain: "session",
+      action: "prompt_persisted",
+      payload: { user_message_ref: ref, message_id: 4242 },
+    });
+    expect(useWsSessionStore.getState().sessions["s1"].blocks.at(-1)?.messageDbId).toBe(4242);
+  });
+
+  it("setProfile sends a session-scoped profile.set envelope", async () => {
+    const { store, ws } = await connectInitializedSession();
+
+    store.setProfile("s1", "bedrock");
+
+    const sent = ws.sent.map((raw) => JSON.parse(raw));
+    expect(sent.at(-1)).toMatchObject({
+      domain: "session",
+      action: "profile.set",
+      payload: {
+        session_id: "srv-1",
+        profile: "bedrock",
       },
     });
   });
@@ -1021,6 +1058,59 @@ describe("ws-session-store", () => {
 
     const session = useWsSessionStore.getState().sessions["s1"];
     expect(session.codexPermissionMode).toBe("fullAccess");
+  });
+
+  it("session.initialized with profile updates the stored session profile", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+
+    getWs().simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "42",
+        provider: "claude_code",
+        model: "claude-sonnet-4-5",
+        profile: "bedrock",
+      },
+    });
+
+    const session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.currentProviderId).toBe("claude_code");
+    expect(session.currentModelId).toBe("claude-sonnet-4-5");
+    expect(session.currentProfile).toBe("bedrock");
+  });
+
+  it("session.profile.changed updates profile without changing provider or model", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    getWs().simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: {
+        session_id: "42",
+        provider: "claude_code",
+        model: "claude-sonnet-4-5",
+        profile: "default",
+      },
+    });
+
+    getWs().simulateMessage({
+      domain: "session",
+      action: "profile.changed",
+      payload: {
+        provider: "claude_code",
+        model: "claude-opus-4-5",
+        profile: "bedrock",
+      },
+    });
+
+    const session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.currentProviderId).toBe("claude_code");
+    expect(session.currentModelId).toBe("claude-sonnet-4-5");
+    expect(session.currentProfile).toBe("bedrock");
   });
 
   it("session.codex_permission_mode.changed updates the stored access chip", async () => {

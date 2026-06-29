@@ -1,6 +1,7 @@
 import Axios, {
   type AxiosError,
   type AxiosRequestConfig,
+  type AxiosResponse,
   type InternalAxiosRequestConfig,
 } from "axios";
 import { desktopBridge } from "@/lib/desktop-bridge";
@@ -305,7 +306,9 @@ function stableStringify(value: unknown): string {
  * The 5 s timeout is shorter than the default 30 s on purpose: a hung backend
  * should flip the indicator within a few seconds, not half a minute.
  */
-export async function pingHealth(): Promise<{ ok: true } | { ok: false; reason: string }> {
+export async function pingHealth(): Promise<
+  { ok: true } | { ok: false; reason: string; retryAfterMs?: number }
+> {
   try {
     await axiosInstance.get("/api/health", { timeout: 5000 });
     return { ok: true };
@@ -318,6 +321,15 @@ export async function pingHealth(): Promise<{ ok: true } | { ok: false; reason: 
       return { ok: false, reason: "Backend unreachable" };
     }
     if (axiosErr.response) {
+      // A 429 means the per-IP rate limit tripped (remote access). Surface the
+      // Retry-After so reconnect logic can back off instead of hammering it.
+      if (axiosErr.response.status === 429) {
+        return {
+          ok: false,
+          reason: "Backend rate limit reached; backing off",
+          retryAfterMs: parseRetryAfterMs(axiosErr.response.headers),
+        };
+      }
       return {
         ok: false,
         reason: `Backend returned ${axiosErr.response.status} ${axiosErr.response.statusText}`,
@@ -325,6 +337,13 @@ export async function pingHealth(): Promise<{ ok: true } | { ok: false; reason: 
     }
     return { ok: false, reason: axiosErr.message ?? "Backend unreachable" };
   }
+}
+
+/** Parse a `Retry-After` (seconds) header into millis; defaults to one window. */
+function parseRetryAfterMs(headers: AxiosResponse["headers"]): number {
+  const secs = Number(headers["retry-after"]);
+  if (Number.isFinite(secs) && secs > 0) return Math.min(secs * 1000, 120_000);
+  return 60_000;
 }
 
 export type ErrorType<T> = AxiosError<T>;

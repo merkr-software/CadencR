@@ -12,11 +12,11 @@ use crate::client_io::{spawn_reader, spawn_reaper, spawn_stderr_reader, ReaderSt
 use crate::client_state::{Inner, PendingRequestGuard};
 use crate::discovery::resolved_codex_command;
 use crate::error::SdkError;
-use crate::parse::{parse_model, parse_thread_handle, parse_turn_handle};
+use crate::parse::{parse_model, parse_turn_handle};
 use crate::protocol::{app_server_args, mcp_server_status_list_params};
 use crate::types::{
     parse_mcp_server_status_list, AppServerClientInfo, AppServerEvent, CodexMcpServerStatus,
-    CodexModel, ThreadHandle, TurnHandle,
+    CodexModel, TurnHandle,
 };
 
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -177,28 +177,6 @@ impl CodexAppServerClient {
             }
         }
         Ok(models)
-    }
-
-    pub async fn thread_start(&self, params: Value) -> Result<ThreadHandle, SdkError> {
-        let result = self.request("thread/start", params).await?;
-        parse_thread_handle(&result)
-    }
-
-    pub async fn thread_resume(&self, params: Value) -> Result<ThreadHandle, SdkError> {
-        let result = self.request("thread/resume", params).await?;
-        parse_thread_handle(&result)
-    }
-
-    pub async fn thread_unsubscribe(&self, thread_id: &str) -> Result<(), SdkError> {
-        self.request("thread/unsubscribe", json!({ "threadId": thread_id }))
-            .await
-            .map(|_| ())
-    }
-
-    pub async fn thread_compact_start(&self, thread_id: &str) -> Result<(), SdkError> {
-        self.request("thread/compact/start", json!({ "threadId": thread_id }))
-            .await
-            .map(|_| ())
     }
 
     pub async fn turn_start(&self, params: Value) -> Result<TurnHandle, SdkError> {

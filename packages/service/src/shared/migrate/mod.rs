@@ -3,18 +3,23 @@ use sqlx::AssertSqlSafe;
 use sqlx::SqlitePool;
 use std::path::Path;
 use tracing::{info, warn};
+#[cfg(test)]
+mod agent_session_profiles_migration_tests;
 mod checksum_repair;
 mod checksum_repair_data;
 #[cfg(test)]
 mod codex_permission_mode_migration_tests;
 #[cfg(test)]
 mod mcp_orchestration_migration_tests;
+#[cfg(test)]
+mod rewind_fork_migration_tests;
 mod seed;
 mod support;
 #[cfg(test)]
 mod test_fixtures;
 mod version_guard;
-use support::{backup_database, emit_phase, has_pending_migrations, table_exists};
+pub(crate) use support::table_exists;
+use support::{backup_database, emit_phase, has_pending_migrations};
 /// Inputs for a single startup migration pass.
 pub struct MigrationContext<'a> {
     pub pool: &'a SqlitePool,
@@ -332,6 +337,12 @@ mod tests {
                 is_pinned INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX idx_agent_sessions_is_pinned ON agent_sessions(is_pinned);
+            -- The rewind/fork migration (20260627120000) alters agent_messages
+            -- and adds turn_checkpoints FK'd to it, so the fixture must provide it.
+            CREATE TABLE agent_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL
+            );
             INSERT INTO agent_sessions (id, feature_id, status, is_pinned)
                 VALUES (1, 7, 'running', 1);"#,
         )

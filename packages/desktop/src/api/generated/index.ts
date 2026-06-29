@@ -119,6 +119,8 @@ export type AgentSessionRowPendingQuestions = string | null;
 
 export type AgentSessionRowPermissionMode = string | null;
 
+export type AgentSessionRowProfile = string | null;
+
 export type AgentSessionRowRuntimeProvider = string | null;
 
 export type AgentSessionRowRuntimeSessionId = string | null;
@@ -142,6 +144,7 @@ export interface AgentSessionRow {
   pending_permission?: AgentSessionRowPendingPermission;
   pending_questions?: AgentSessionRowPendingQuestions;
   permission_mode?: AgentSessionRowPermissionMode;
+  profile?: AgentSessionRowProfile;
   runtime_provider?: AgentSessionRowRuntimeProvider;
   runtime_session_id?: AgentSessionRowRuntimeSessionId;
   started_at?: AgentSessionRowStartedAt;
@@ -1322,6 +1325,23 @@ The frontend opens these read-only with language features disabled. */
   line_count: number;
 }
 
+/**
+ * Result of syncing a session from the provider's on-disk CLI conversation.
+ */
+export interface RefreshSessionResponse {
+  /**
+   * How many newer events were appended (`0` when already up to date).
+   * @minimum 0
+   */
+  added: number;
+  /** Highest `agent_messages.id` present *before* the append. The new rows are
+exactly those with `id > cursor`, so the client fetches `after` this. */
+  cursor: number;
+  /** The `agent_sessions.id` the events were appended to — lets the client
+fetch exactly the new rows even when its own session id is stale. */
+  session_db_id: number;
+}
+
 export type RemoteAuditEntryDetail = string | null;
 
 export type RemoteAuditEntryDeviceId = number | null;
@@ -1550,6 +1570,8 @@ export type SessionStateModel = string | null;
 
 export type SessionStateOldestMessageId = number | null;
 
+export type SessionStateProfile = string | null;
+
 export type SessionStateRuntimeProvider = string | null;
 
 export type SessionStateRuntimeSessionId = string | null;
@@ -1579,6 +1601,7 @@ export interface SessionState {
   pendingPermission?: unknown;
   pendingQuestions?: unknown;
   permissionMode: string;
+  profile?: SessionStateProfile;
   resumable: boolean;
   runtimeProvider?: SessionStateRuntimeProvider;
   runtimeSessionId?: SessionStateRuntimeSessionId;
@@ -1970,6 +1993,10 @@ export type GetAgentCatalogParams = {
    * Workspace path used to discover project-local provider modes
    */
   cwd?: string;
+  /**
+   * Claude Code profile to scope the model probe to; defaults to the active profile
+   */
+  profile?: string;
 };
 
 export type GetUnifiedAgentsParams = {
@@ -5862,6 +5889,71 @@ export function useGetMessagePreview<
 
   return query;
 }
+
+export const refreshSession = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<RefreshSessionResponse>({
+    url: `/api/features/${featureId}/refresh`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRefreshSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshSession>>,
+    TError,
+    { featureId: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshSession>>,
+  TError,
+  { featureId: number },
+  TContext
+> => {
+  const mutationKey = ["refreshSession"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshSession>>,
+    { featureId: number }
+  > = (props) => {
+    const { featureId } = props ?? {};
+
+    return refreshSession(featureId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshSessionMutationResult = NonNullable<Awaited<ReturnType<typeof refreshSession>>>;
+
+export type RefreshSessionMutationError = ErrorType<void>;
+
+export const useRefreshSession = <TError = ErrorType<void>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshSession>>,
+    TError,
+    { featureId: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof refreshSession>>,
+  TError,
+  { featureId: number },
+  TContext
+> => {
+  const mutationOptions = getRefreshSessionMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
 
 /**
  * @summary The pending scheduled message for a conversation, or `null` when none is

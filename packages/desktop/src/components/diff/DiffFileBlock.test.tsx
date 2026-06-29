@@ -68,6 +68,12 @@ describe("DiffFileBlock", () => {
     expect(queryByTestId("patch-diff-view")).not.toBeInTheDocument();
   });
 
+  it("shows the file-change status icon in the collapsed header", () => {
+    const { container } = render(<DiffFileBlock {...baseProps} isCollapsed />);
+    // src/foo.ts → src/foo.ts (no /dev/null) resolves to a "modified" glyph.
+    expect(container.querySelector('use[href="#diffs-icon-symbol-modified"]')).toBeInTheDocument();
+  });
+
   it("renders the authoritative patch hunk instead of fetching full file contents", () => {
     const { getByTestId } = render(<DiffFileBlock {...baseProps} isCollapsed={false} />);
     expect(getByTestId("patch-diff-view")).toHaveAttribute("data-patch", patch);

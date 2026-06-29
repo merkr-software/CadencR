@@ -133,6 +133,8 @@ function AgentSessionMeta(
       todos={session.todos}
       runtimeProvider={session.runtimeProvider}
       runtimeSessionId={session.runtimeSessionId}
+      featureId={session.featureId}
+      wsSessionId={session.wsSessionId}
       projectPath={props.projectPath}
       isRunning={session.status === "agent"}
       onPause={session.onStop}
@@ -206,6 +208,8 @@ function AgentSessionSecondary(props: AgentSessionComposerProps): ReactElement {
       todos={session.todos}
       runtimeProvider={session.runtimeProvider}
       runtimeSessionId={session.runtimeSessionId}
+      featureId={session.featureId}
+      wsSessionId={session.wsSessionId}
       projectPath={props.projectPath}
       isRunning={session.status === "agent"}
       onPause={session.onStop}

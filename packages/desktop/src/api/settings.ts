@@ -19,5 +19,8 @@ export function useGetWorkspaceSettings() {
 }
 
 export function settingsArrayToMap(settings: SettingEntry[] | undefined): Record<string, string> {
-  return Object.fromEntries((settings ?? []).map((entry) => [entry.key, entry.value ?? ""]));
+  // Tolerate a not-yet-resolved / unexpected query shape (data is only an array
+  // once the request settles) instead of throwing during render.
+  if (!Array.isArray(settings)) return {};
+  return Object.fromEntries(settings.map((entry) => [entry.key, entry.value ?? ""]));
 }

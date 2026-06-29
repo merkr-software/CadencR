@@ -220,5 +220,8 @@ function filterTokenPalette(filterKey: UnifiedAgentsFilterKey): {
   if (filterKey === "project") {
     return { border: "#34d39955", background: "#10b9811f", foreground: "#34d399" };
   }
+  if (filterKey === "pin") {
+    return { border: "#fbbf2455", background: "#f59e0b1f", foreground: "#fbbf24" };
+  }
   return { border: "#a78bfa55", background: "#8b5cf61f", foreground: "#a78bfa" };
 }

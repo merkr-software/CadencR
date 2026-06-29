@@ -74,4 +74,9 @@ export interface AgentPromptBarProps {
 
 export interface AgentPromptBarHandle {
   focusInput: () => void;
+  /**
+   * Imperatively replace the composer text (e.g. a rewound/forked message
+   * restored as an editable draft) and persist it, without sending.
+   */
+  setDraft: (text: string) => void;
 }

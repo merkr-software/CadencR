@@ -71,6 +71,13 @@ export interface PromptDispatchOptions {
   attachments?: PromptAttachmentPayload[];
   branchSetup?: FirstPromptBranchSetup;
   claudeProfile?: string;
+  /**
+   * Client-generated reference for this user message, echoed back by the
+   * backend in `prompt_persisted` with the persisted DB id so the live block
+   * can be stamped (enables rewind/fork without a reload). Independent of
+   * `clientMessageId` (which is receipt/steering-only) — always sent.
+   */
+  userMessageRef?: string;
 }
 
 export interface PromptSendOptions extends PromptDispatchOptions {
@@ -95,8 +102,9 @@ export function createPromptSend(
       ? { new_project_branch: { base: branchSetup.base } }
       : {}),
     ...(options.clientMessageId ? { client_message_id: options.clientMessageId } : {}),
+    ...(options.userMessageRef ? { user_message_ref: options.userMessageRef } : {}),
     ...(options.replay ? { replay: true } : {}),
-    ...(options.claudeProfile ? { claude_profile: options.claudeProfile } : {}),
+    ...(options.claudeProfile ? { profile: options.claudeProfile } : {}),
   });
 }
 
@@ -124,6 +132,36 @@ export function createPermissionRespond(
 
 export function createInterrupt(sessionId: string): WsEnvelope {
   return createEnvelope("session", "interrupt", { session_id: sessionId });
+}
+
+/**
+ * Rewind the conversation **and** code back to the state before `messageId`,
+ * in place. `confirmDiscard` acknowledges a dirty worktree (the backend asks
+ * first and replies `branch.needs_confirm` until it is set). The chosen
+ * message's text comes back as a draft — it is NOT re-sent.
+ */
+export function createRewind(
+  sessionId: string,
+  messageId: number,
+  options: { confirmDiscard?: boolean } = {},
+): WsEnvelope {
+  return createEnvelope("session", "branch.rewind", {
+    session_id: sessionId,
+    message_id: messageId,
+    confirm_discard: options.confirmDiscard ?? false,
+  });
+}
+
+/**
+ * Fork the conversation into a new session in the same worktree, keeping only
+ * the context before `messageId` (no code rollback). The chosen message's text
+ * becomes the new session's draft.
+ */
+export function createFork(sessionId: string, messageId: number): WsEnvelope {
+  return createEnvelope("session", "branch.fork", {
+    session_id: sessionId,
+    message_id: messageId,
+  });
 }
 
 /**
@@ -181,6 +219,13 @@ export function createEffortSet(sessionId: string, thinkingEffort?: string): WsE
   return createEnvelope("session", "effort.set", {
     session_id: sessionId,
     thinking_effort: thinkingEffort ?? null,
+  });
+}
+
+export function createProfileSet(sessionId: string, profile: string): WsEnvelope {
+  return createEnvelope("session", "profile.set", {
+    session_id: sessionId,
+    profile,
   });
 }
 

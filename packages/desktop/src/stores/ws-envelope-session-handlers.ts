@@ -8,6 +8,7 @@ import {
   parseMcpServersPayload,
   parseMessageBlocksPayload,
   parsePermissionPayload,
+  parsePromptPersistedPayload,
   parsePromptReceivedPayload,
   parseUserMessageMirrorPayload,
 } from "./ws-envelope-payload";
@@ -28,7 +29,11 @@ import type { SessionEntry } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
-import { markPromptReceived, movePendingPromptBlocksToTail } from "./ws-pending-prompts";
+import {
+  markPromptReceived,
+  movePendingPromptBlocksToTail,
+  stampPersistedMessageId,
+} from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { queryClient } from "@/lib/queryClient";
 import { getGetScheduledMessageQueryKey } from "@/api/generated";
@@ -76,6 +81,7 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     updates.runtimeProvider = ctx.getSession(sessionId).currentProviderId;
   }
   if (p.model) updates.currentModelId = p.model;
+  if (p.profile) updates.currentProfile = p.profile;
   if (p.codex_permission_mode) {
     updates.codexPermissionMode = parseCodexPermissionMode(p.codex_permission_mode);
   }
@@ -291,6 +297,28 @@ export function handlePromptReceived(
   if (!p?.client_message_id) return;
   const session = ctx.getSession(sessionId);
   const blocks = markPromptReceived(session.blocks, p.client_message_id);
+  if (blocks === session.blocks) return;
+  ctx.set(
+    updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),
+  );
+}
+
+/**
+ * Stamp the persisted DB id onto the live user block so rewind/fork light up on
+ * it without a reload. Every prompt carries a `user_message_ref` (stored on the
+ * block as `clientMessageId`), so this works for the first, idle, and steering
+ * sends alike. Arrives before any `prompt_received` (emitted at persist time,
+ * before the agent acks), so the ref is still on the block to match.
+ */
+export function handlePromptPersisted(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const p = parsePromptPersistedPayload(payload);
+  if (!p) return;
+  const session = ctx.getSession(sessionId);
+  const blocks = stampPersistedMessageId(session.blocks, p.user_message_ref, p.message_id);
   if (blocks === session.blocks) return;
   ctx.set(
     updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),

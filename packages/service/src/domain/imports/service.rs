@@ -128,10 +128,36 @@ fn scan_claude_code_dir(project_path: &str) -> Result<Vec<ImportedConversation>,
     Ok(out)
 }
 
-enum LoadedSession {
+pub(crate) enum LoadedSession {
     Found(ImportedConversation),
     NotFound,
     Empty,
+}
+
+/// Load a single provider conversation from disk by `(project_path, session_id)`
+/// without persisting it. Shared by the importer (which turns it into a new
+/// feature) and the session-refresh path (which appends newer events to an
+/// existing session). Parse / IO errors bubble as `AppError` so callers can
+/// decide whether to skip the record or surface the failure to the user.
+pub(crate) async fn load_provider_session(
+    provider: ImportProvider,
+    project_path: &str,
+    source_session_id: &str,
+) -> Result<LoadedSession, AppError> {
+    if provider == ImportProvider::Opencode {
+        let loaded =
+            opencode_sqlite::load_project_conversation_by_id(project_path, source_session_id)
+                .await?;
+        return Ok(loaded.map_or(LoadedSession::NotFound, LoadedSession::Found));
+    }
+    let project_path = project_path.to_string();
+    let session_id = source_session_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        load_provider_conversation(provider, &project_path, &session_id)
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("load task panicked: {e}")))?
+    .map_err(|e| AppError::Internal(format!("parse provider session: {e}")))
 }
 
 pub async fn import_provider_session_by_id(
@@ -141,25 +167,10 @@ pub async fn import_provider_session_by_id(
     project_path: &str,
     source_session_id: &str,
 ) -> Result<ImportOutcome, AppError> {
-    if provider == ImportProvider::Opencode {
-        let loaded =
-            opencode_sqlite::load_project_conversation_by_id(project_path, source_session_id)
-                .await?;
-        let loaded = loaded.map_or(LoadedSession::NotFound, LoadedSession::Found);
-        return import_loaded_session(write_pool, project_id, provider, source_session_id, loaded)
-            .await;
-    }
-    let project_path = project_path.to_string();
-    let session_id = source_session_id.to_string();
-    let loaded = tokio::task::spawn_blocking(move || {
-        load_provider_conversation(provider, &project_path, &session_id)
-    })
-    .await
-    .map_err(|e| AppError::Internal(format!("load task panicked: {e}")))?;
-    let loaded = match loaded {
+    let loaded = match load_provider_session(provider, project_path, source_session_id).await {
         Ok(loaded) => loaded,
         Err(err) => {
-            tracing::warn!(error = %err, provider = provider.as_str(), "failed to parse session for import");
+            tracing::warn!(error = %err, provider = provider.as_str(), "failed to load session for import");
             return Ok(ImportOutcome::Skipped(SkippedRecord {
                 source_session_id: source_session_id.to_string(),
                 reason: SkipReason::ParseError,
@@ -264,7 +275,7 @@ mod tests {
         for sql in [
             "CREATE TABLE projects (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, path TEXT NOT NULL)",
             "CREATE TABLE features (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', type TEXT NOT NULL DEFAULT 'ws-session', model_session TEXT, agent_runtime_session TEXT)",
-            "CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL, agent_type TEXT NOT NULL, runtime_provider TEXT, runtime_session_id TEXT, status TEXT NOT NULL DEFAULT 'pending', started_at TEXT, ended_at TEXT, model TEXT)",
+            "CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL, agent_type TEXT NOT NULL, runtime_provider TEXT, runtime_session_id TEXT, status TEXT NOT NULL DEFAULT 'pending', started_at TEXT, ended_at TEXT, model TEXT, profile TEXT)",
             "CREATE TABLE agent_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, message_type TEXT NOT NULL DEFAULT 'text', tool_name TEXT, tool_use_id TEXT, parent_tool_use_id TEXT, model TEXT, created_at TEXT NOT NULL DEFAULT (datetime('now')))",
         ] {
             sqlx::query(sql).execute(&pool).await.unwrap();

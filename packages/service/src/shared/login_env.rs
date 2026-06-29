@@ -1,28 +1,7 @@
-//! Hydrate the process env from the user's login shell.
-//!
-//! When Cadencr is launched from a GUI (Finder, Spotlight, dock icon, Electron
-//! sidecar), it inherits the **launchd** environment — a minimal `PATH` of
-//! `/usr/bin:/bin:/usr/sbin:/sbin`, no `GPG_TTY`, no `SSH_AUTH_SOCK`, no
-//! `GNUPGHOME`, no Homebrew prefix on `PATH`. The same `git commit` that
-//! signs cleanly in Terminal then fails inside the app: `gpg` isn't on the
-//! `PATH`, or it is but can't reach the agent socket the user's login shell
-//! exported.
-//!
-//! The fix is the same trick GitHub Desktop, VS Code, Atom, and the npm
-//! `shell-env` package all use: spawn the user's login shell once at
-//! startup, ask it for its env, and merge the result into our process env.
-//! Subsequent `Command::new("git")` calls (and the portable-pty PTY commands
-//! we explicitly inherit env for) then see the same `PATH`/`GPG_*`/`SSH_*`
-//! the user sees in Terminal.
-//!
-//! Scope:
-//! - macOS only by default (the Linux/Windows GUI launcher problem is
-//!   different and rarely shows up in practice).
-//! - Skipped if `CADENCR_SKIP_LOGIN_ENV=1` (escape hatch for tests / CI /
-//!   users who want the launchd env verbatim).
-//! - Best-effort: any failure (missing `$SHELL`, non-zero exit, parse
-//!   error, 2-second timeout) logs a warning and returns. We never block
-//!   startup on this.
+//! Hydrate the service process env from the user's login shell so GUI launches
+//! get the same `PATH`, signing, and SSH variables the user sees in Terminal.
+//! All later service-spawned Git and agent subprocesses inherit this env.
+//! Scope: macOS-only by default, best-effort, and bounded by a timeout.
 
 use std::collections::HashSet;
 use std::process::Stdio;
@@ -31,6 +10,9 @@ use std::time::Duration;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::time::timeout;
+
+const LOGIN_ENV_TIMEOUT: Duration = Duration::from_secs(8);
+const LOGIN_ENV_SENTINEL: &str = "__CADENCR_LOGIN_ENV_START__";
 
 /// Vars whose values must come from the login shell, even if launchd
 /// already exported a (worse) value. `PATH` is the canonical case: launchd
@@ -54,22 +36,8 @@ const ALWAYS_OVERRIDE: &[&str] = &[
     "LC_CTYPE",
 ];
 
-/// Vars we never copy from the login shell. Three reasons something lands
-/// here:
-///   1. Cadencr-owned state set by the launcher / dotenv before we run
-///      (`CADENCR_*`).
-///   2. Shell bookkeeping that's wrong for a long-running daemon (`PWD`,
-///      `OLDPWD`, `SHLVL`, `_`, `XPC_SERVICE_NAME`).
-///   3. **Dyld / ld.so code-injection vectors.** macOS hardened-runtime
-///      strips these at exec time anyway, but in dev / unsigned builds
-///      they'd otherwise propagate from a user's shell straight into our
-///      subprocesses. Defense-in-depth: the cost is five `matches!` arms.
-///
-/// We also reject anything that doesn't look like a POSIX env var name
-/// (`[A-Za-z_][A-Za-z0-9_]*`). `env -0` itself never emits malformed
-/// records, but if a user's rc file `echo`s noise to stdout before our
-/// `env -0` runs, that noise gets glued onto the first record's key and
-/// we'd otherwise set a junk variable.
+/// Vars we never copy from the login shell: Cadencr-owned state, shell
+/// bookkeeping, dynamic-loader injection vectors, and malformed env names.
 fn is_blocked(key: &str) -> bool {
     if key.is_empty() {
         return true;
@@ -152,19 +120,12 @@ pub async fn hydrate_from_login_shell() -> usize {
     written + crate::shared::ssh_env::hydrate_macos_ssh_auth_sock().await
 }
 
-/// Spawn `$SHELL -ilc 'env -0'` and capture stdout. The `-0` makes `env`
-/// emit NUL-terminated KEY=VALUE records, which lets us parse multi-line
-/// values (e.g. functions exported by `direnv`, ASCII-art `MOTD` strings)
-/// without the line-splitting fragility of plain `env`.
-///
-/// `-i` (interactive) is required so the shell sources rc files like
-/// `.zshrc` / `.bashrc` where most users actually export `GPG_TTY` and
-/// shim their `PATH`. `-l` (login) covers `.zprofile` / `.bash_profile`,
-/// where the system-wide `path_helper` is invoked on macOS.
+/// Spawn `$SHELL -ilc '<sentinel>; env -0'`: `-0` preserves multiline values,
+/// `-i` sources rc files like `.zshrc`, and `-l` covers login profiles.
 async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
     let mut child = Command::new(shell)
         .arg("-ilc")
-        .arg("env -0")
+        .arg(login_env_capture_script())
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -176,10 +137,9 @@ async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
         .take()
         .ok_or_else(|| "child stdout missing".to_string())?;
 
-    // 2 s is generous; an interactive zsh with heavy plugins (powerlevel10k,
-    // nvm) typically completes in well under 500 ms. If a user's rc files
-    // genuinely take longer than that we'd rather start with the launchd
-    // env than block the UI.
+    // Give real terminal setups enough room to finish. Heavy zsh configs can
+    // initialize Homebrew/asdf/mise/nvm/prompt plugins here; timing out too
+    // aggressively leaves later subprocesses with launchd's stripped PATH.
     let read = async {
         let mut buf = Vec::with_capacity(8 * 1024);
         stdout
@@ -189,15 +149,19 @@ async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
         Ok::<_, String>(String::from_utf8_lossy(&buf).into_owned())
     };
 
-    let raw = match timeout(Duration::from_secs(2), read).await {
+    let raw_with_noise = match timeout(LOGIN_ENV_TIMEOUT, read).await {
         Ok(Ok(raw)) => raw,
         Ok(Err(e)) => return Err(e),
         Err(_) => {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Err("shell hydration timed out after 2s".to_string());
+            return Err(format!(
+                "shell hydration timed out after {}s",
+                LOGIN_ENV_TIMEOUT.as_secs()
+            ));
         }
     };
+    let raw = strip_shell_startup_noise(raw_with_noise)?;
 
     // Reap the child so it doesn't show up as a zombie. Ignore the status:
     // an interactive shell can legitimately exit non-zero from rc-file
@@ -205,6 +169,17 @@ async fn capture_login_shell_env(shell: &str) -> Result<String, String> {
     let _ = timeout(Duration::from_millis(500), child.wait()).await;
 
     Ok(raw)
+}
+
+fn login_env_capture_script() -> String {
+    format!("printf '%s' '{LOGIN_ENV_SENTINEL}'; env -0")
+}
+
+fn strip_shell_startup_noise(mut raw: String) -> Result<String, String> {
+    let index = raw
+        .find(LOGIN_ENV_SENTINEL)
+        .ok_or_else(|| "shell env sentinel missing".to_string())?;
+    Ok(raw.split_off(index + LOGIN_ENV_SENTINEL.len()))
 }
 
 /// Parse the NUL-terminated `KEY=VALUE` records produced by `env -0`.
@@ -336,6 +311,22 @@ mod tests {
         assert!(!is_valid_env_name("1A"));
         assert!(!is_valid_env_name("A B"));
         assert!(!is_valid_env_name("A=B"));
+    }
+
+    #[test]
+    fn strips_shell_startup_noise_before_env_payload() {
+        let raw = format!("hello from rc\n{LOGIN_ENV_SENTINEL}PATH=/real/bin\0NEXT=ok\0");
+        let clean = strip_shell_startup_noise(raw).expect("sentinel");
+        let parsed = parse_env_null_separated(&clean);
+        assert_eq!(parsed[0], ("PATH".to_string(), "/real/bin".to_string()));
+        assert_eq!(parsed[1], ("NEXT".to_string(), "ok".to_string()));
+    }
+
+    #[test]
+    fn login_env_capture_script_uses_shared_sentinel() {
+        let script = login_env_capture_script();
+        assert!(script.contains(LOGIN_ENV_SENTINEL));
+        assert!(script.ends_with("; env -0"));
     }
 
     /// Single test mutating real env vars — kept serial via the unique key.

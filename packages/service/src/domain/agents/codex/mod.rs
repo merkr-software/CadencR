@@ -1,3 +1,4 @@
+mod branching;
 mod command_decisions;
 mod commands;
 mod event_command_actions;
@@ -35,6 +36,7 @@ mod session_permissions;
 mod thread_params;
 mod trusted_mcp;
 mod turn_start;
+mod turn_steer_recovery;
 mod worktree_config;
 
 use std::collections::HashMap;
@@ -229,6 +231,10 @@ async fn start_thread(
 
 #[async_trait]
 impl AgentRuntimeAdapter for CodexAdapter {
+    fn session_branching(&self) -> Option<&dyn super::adapter::SessionBranching> {
+        Some(&branching::CODEX_SESSION_BRANCHING)
+    }
+
     fn parse_permission_request(&self, raw: &Value) -> Option<RuntimePermissionRequest> {
         permissions::parse_permission_request(raw)
     }
@@ -358,5 +364,11 @@ mod tests {
         assert!(options
             .enable_features
             .contains(&"default_mode_request_user_input".to_string()));
+    }
+
+    #[test]
+    fn advertises_session_branching_capability() {
+        let adapter = CodexAdapter;
+        assert!(adapter.session_branching().is_some());
     }
 }

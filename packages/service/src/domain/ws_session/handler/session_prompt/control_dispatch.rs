@@ -315,12 +315,16 @@ fn replay_payload(
     PromptSendPayload {
         session_id: session_id.to_string(),
         text: text.to_string(),
+        profile: None,
         claude_profile: None,
         images: Vec::new(),
         attachments: Vec::new(),
         use_worktree,
         new_project_branch: None,
         client_message_id: None,
+        // Replay re-sends an already-persisted message (replay → no new row),
+        // so there is nothing to ack a persisted id for.
+        user_message_ref: None,
         replay,
     }
 }

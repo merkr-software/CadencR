@@ -20,8 +20,6 @@ import {
   $getRoot,
   COMMAND_PRIORITY_HIGH,
   KEY_ENTER_COMMAND,
-  KEY_SPACE_COMMAND,
-  TextNode,
   type EditorState,
   type LexicalEditor,
 } from "lexical";
@@ -34,11 +32,13 @@ import {
 } from "@/components/UnifiedAgentsFilterLanguage";
 import { UnifiedAgentsFilterHelpDialog } from "@/components/UnifiedAgentsFilterHelpDialog";
 import {
+  FilterTextNodeNormalizationPlugin,
+  PlainSpaceAfterFilterTokenPlugin,
+  SlashFilterCursorPlugin,
+} from "@/components/UnifiedAgentsFilterPlugins";
+import {
   getUnifiedAgentsFilterEditorText,
-  getUnifiedAgentsFilterActiveToken,
   initializeUnifiedAgentsFilterEditorText,
-  insertPlainSpaceAfterFilterToken,
-  normalizeUnifiedAgentsFilterTextNode,
   replaceUnifiedAgentsFilterActiveToken,
   setUnifiedAgentsFilterEditorText,
 } from "@/components/UnifiedAgentsFilterEditorText";
@@ -203,6 +203,7 @@ function UnifiedAgentsDynamicFilterInner({
         <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <FilterEditorShell
           editor={editor}
+          collapsed={!focused}
           onDraftChange={setDraft}
           onDirty={() => {
             if (skipNextDirtyRef.current) {
@@ -251,12 +252,14 @@ function UnifiedAgentsDynamicFilterInner({
 
 function FilterEditorShell({
   editor,
+  collapsed,
   onDraftChange,
   onDirty,
   onFocusChange,
   onActiveSlashFilterTokenChange,
 }: {
   editor: LexicalEditor;
+  collapsed: boolean;
   onDraftChange: (value: string) => void;
   onDirty: () => void;
   onFocusChange: (focused: boolean) => void;
@@ -277,7 +280,15 @@ function FilterEditorShell({
       <PlainTextPlugin
         contentEditable={
           <ContentEditable
-            className="min-h-8 min-w-0 flex-1 py-1.5 font-mono text-[12.5px] leading-5 text-foreground outline-none"
+            className={cn(
+              "min-h-8 min-w-0 flex-1 py-1.5 font-mono text-[12.5px] leading-5 text-foreground outline-none",
+              // Unfocused: keep the box a single line, ellipsizing a long filter
+              // (the `[&>p]` target hits the Lexical paragraph that holds the
+              // tokens). Focused: let it wrap so the whole filter stays editable.
+              collapsed
+                ? "overflow-hidden whitespace-nowrap [&>p]:overflow-hidden [&>p]:text-ellipsis [&>p]:whitespace-nowrap"
+                : "whitespace-pre-wrap break-words",
+            )}
             aria-label="Filter agents"
             spellCheck={false}
             autoCorrect="off"
@@ -288,7 +299,7 @@ function FilterEditorShell({
         }
         placeholder={
           <div className="pointer-events-none absolute top-1/2 left-7 -translate-y-1/2 select-none font-mono text-[12.5px] leading-5 text-muted-foreground">
-            Filter by agent name… type / for last, project, sort, exclude
+            Filter by agent name… type / for last, project, sort, exclude, pin
           </div>
         }
         ErrorBoundary={LexicalErrorBoundary}
@@ -299,50 +310,6 @@ function FilterEditorShell({
       <PlainSpaceAfterFilterTokenPlugin />
     </>
   );
-}
-
-function SlashFilterCursorPlugin({
-  onTokenChange,
-}: {
-  onTokenChange: (token: string | null) => void;
-}): null {
-  const [editor] = useLexicalComposerContext();
-  useEffect(
-    () =>
-      editor.registerUpdateListener(({ editorState }) => {
-        editorState.read(() => onTokenChange(getUnifiedAgentsFilterActiveToken()?.text ?? null));
-      }),
-    [editor, onTokenChange],
-  );
-  return null;
-}
-
-function PlainSpaceAfterFilterTokenPlugin(): null {
-  const [editor] = useLexicalComposerContext();
-  useEffect(
-    () =>
-      editor.registerCommand(
-        KEY_SPACE_COMMAND,
-        (event: KeyboardEvent): boolean => {
-          const handled = insertPlainSpaceAfterFilterToken();
-          if (!handled) return false;
-          event.preventDefault();
-          return true;
-        },
-        COMMAND_PRIORITY_HIGH,
-      ),
-    [editor],
-  );
-  return null;
-}
-
-function FilterTextNodeNormalizationPlugin(): null {
-  const [editor] = useLexicalComposerContext();
-  useEffect(
-    () => editor.registerNodeTransform(TextNode, normalizeUnifiedAgentsFilterTextNode),
-    [editor],
-  );
-  return null;
 }
 
 function useFilterImperativeHandle(

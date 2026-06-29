@@ -15,6 +15,7 @@ use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
 use super::super::{persist_and_close_query, QueryState, SdkSessions, WsSender};
 use super::stream_reader_resume::transition_active_to_pending_on_stream_end;
+use super::stream_reader_stop;
 
 pub(super) struct StreamReaderTask {
     pub db_session_id: i64,
@@ -47,6 +48,13 @@ pub(super) struct StreamReaderState {
     pub(super) saw_result: bool,
     /// True while the runtime is inside a provider-reported compaction turn.
     pub(super) compacting: bool,
+    /// Set once an error has already been surfaced to the conversation during
+    /// the current turn (a provider error or an unrecognized message). Gates
+    /// the turn-ending error-result path so a failure that was already shown
+    /// (e.g. an API 5xx, which the CLI reports *and* then ends the turn with
+    /// `is_error: true`) doesn't produce a second, redundant error bubble. Reset
+    /// at the start of each turn. Issue #78.
+    pub(super) surfaced_error_this_turn: bool,
     /// Opaque handles of background (run-in-background) agents that have
     /// started but not yet finished. Non-empty means the session is still
     /// working even though the launching turn's `Result` has arrived, so the
@@ -85,6 +93,7 @@ impl StreamReaderState {
             between_turns: true,
             saw_result: false,
             compacting: false,
+            surfaced_error_this_turn: false,
             live_background_agents: HashSet::new(),
         }
     }
@@ -136,7 +145,11 @@ impl StreamReaderTask {
                 ReaderAction::Continue => continue,
                 ReaderAction::Break => break,
                 ReaderAction::Closed => {
-                    self.send_stream_closed().await;
+                    if self.stream_close_was_unexpected(&state).await {
+                        self.handle_unexpected_stop().await;
+                    } else {
+                        self.send_stream_closed().await;
+                    }
                     break;
                 }
                 ReaderAction::Error(error) => {
@@ -214,6 +227,36 @@ impl StreamReaderTask {
             return ReaderAction::Break;
         }
         ReaderAction::Continue
+    }
+
+    /// A clean stream close (no SDK error) is *unexpected* when the DB still
+    /// says a turn is running and no live background agent is still expected
+    /// to emit follow-up events. That covers both mid-turn EOF and the #78
+    /// shape where the CLI exits before emitting even its first runtime event.
+    ///
+    /// Intentional teardowns (destroy/clear/suspend) move DB status off
+    /// `running` first, so stopping a conversation on purpose never raises a
+    /// spurious error.
+    /// Mirrors the `turn_running` guard in [`should_close_orphaned`].
+    async fn stream_close_was_unexpected(&self, state: &StreamReaderState) -> bool {
+        if !stream_reader_stop::stream_close_needs_running_status(
+            state.between_turns,
+            !state.live_background_agents.is_empty(),
+            state.surfaced_error_this_turn,
+        ) {
+            return false;
+        }
+
+        let session_running =
+            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
+                .await
+                .is_some_and(|row| row.status == "running");
+        stream_reader_stop::stream_close_was_unexpected(
+            state.between_turns,
+            !state.live_background_agents.is_empty(),
+            state.surfaced_error_this_turn,
+            session_running,
+        )
     }
 
     async fn reconcile_provider_completion(&self, runtime_sid: &str) {

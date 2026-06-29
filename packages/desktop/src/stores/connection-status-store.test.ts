@@ -11,11 +11,17 @@ vi.mock("@/api/client", () => ({
 vi.mock("@/lib/ws-reconnect", () => ({
   AUTO_RECONNECT_TIMEOUT_SECONDS: 240,
   forceReconnectAll: vi.fn(),
+  notifyRateLimited: vi.fn(),
+  clearRateLimit: vi.fn(),
 }));
 
 import { useConnectionStatusStore } from "./connection-status-store";
 import { pingHealth } from "@/api/client";
-import { forceReconnectAll as forceReconnectAllWs } from "@/lib/ws-reconnect";
+import {
+  forceReconnectAll as forceReconnectAllWs,
+  notifyRateLimited,
+  clearRateLimit,
+} from "@/lib/ws-reconnect";
 import { toast } from "sonner";
 
 beforeEach(() => {
@@ -143,6 +149,23 @@ describe("connection-status-store / probeHealth", () => {
       reason: "timed out",
     });
     expect(useConnectionStatusStore.getState().status).toBe("disconnected");
+    expect(notifyRateLimited).not.toHaveBeenCalled();
+  });
+
+  it("holds off reconnects when a probe is rate-limited (429)", async () => {
+    vi.mocked(pingHealth).mockResolvedValueOnce({
+      ok: false,
+      reason: "Backend rate limit reached; backing off",
+      retryAfterMs: 42_000,
+    });
+    await useConnectionStatusStore.getState().probeHealth();
+    expect(notifyRateLimited).toHaveBeenCalledWith(42_000);
+  });
+
+  it("clears the rate-limit hold once a probe succeeds", async () => {
+    vi.mocked(pingHealth).mockResolvedValueOnce({ ok: true });
+    await useConnectionStatusStore.getState().probeHealth();
+    expect(clearRateLimit).toHaveBeenCalledTimes(1);
   });
 });
 

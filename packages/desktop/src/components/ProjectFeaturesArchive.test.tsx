@@ -8,9 +8,15 @@ import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 const mockNavigate = vi.fn();
 const mockUpdateStatus = vi.fn();
 const mockDelete = vi.fn();
+const mockDisconnectSession = vi.fn();
 const { mockUseIsFeatureEmpty } = vi.hoisted(() => ({
   mockUseIsFeatureEmpty: vi.fn(),
 }));
+
+interface MockUpdateStatusVariables {
+  id: number;
+  data: { status: "active" | "archived" };
+}
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
@@ -39,12 +45,16 @@ vi.mock("@/api/generated", () => ({
   FeatureStatus: { active: "active", archived: "archived" },
   useListFeatures: vi.fn(() => ({ data: mockFeatures })),
   useListFeatureActivity: vi.fn(() => ({ data: [], error: null })),
-  useUpdateFeatureStatus: vi.fn((opts?: { mutation?: { onSuccess?: () => void } }) => ({
-    mutate: (data: unknown) => {
-      mockUpdateStatus(data);
-      opts?.mutation?.onSuccess?.();
-    },
-  })),
+  useUpdateFeatureStatus: vi.fn(
+    (opts?: {
+      mutation?: { onSuccess?: (data: unknown, variables: MockUpdateStatusVariables) => void };
+    }) => ({
+      mutate: (data: MockUpdateStatusVariables) => {
+        mockUpdateStatus(data);
+        opts?.mutation?.onSuccess?.({}, data);
+      },
+    }),
+  ),
   useUpdateFeaturePinned: vi.fn(() => ({ mutate: vi.fn() })),
   useDeleteFeature: vi.fn(
     (opts?: { mutation?: { onSuccess?: (data: unknown, variables: { id: number }) => void } }) => ({
@@ -79,8 +89,11 @@ vi.mock("@/api/generated", () => ({
 }));
 
 vi.mock("@/stores/ws-session-store", () => ({
-  useWsSessionStore: vi.fn((selector: (s: { sessions: Record<string, unknown> }) => unknown) =>
-    selector({ sessions: {} }),
+  useWsSessionStore: Object.assign(
+    vi.fn((selector: (s: { sessions: Record<string, unknown> }) => unknown) =>
+      selector({ sessions: {} }),
+    ),
+    { getState: () => ({ disconnect: mockDisconnectSession }) },
   ),
 }));
 
@@ -107,6 +120,7 @@ describe("ProjectFeatures archived section", () => {
     mockNavigate.mockClear();
     mockUpdateStatus.mockClear();
     mockDelete.mockClear();
+    mockDisconnectSession.mockClear();
     mockUseIsFeatureEmpty.mockReturnValue({
       data: { empty: false },
       isLoading: false,
@@ -171,6 +185,24 @@ describe("ProjectFeatures archived section", () => {
 
     expect(screen.getByText("Delete session?")).toBeInTheDocument();
     expect(screen.queryByText("Archive session?")).not.toBeInTheDocument();
+  });
+
+  it("leaves the active chat route after archiving the current session", async () => {
+    const user = userEvent.setup();
+    renderProjectFeatures(1);
+
+    openFeatureContextMenu("Feature One");
+    await user.click(await screen.findByRole("menuitem", { name: "Archive" }));
+    await user.click(screen.getByRole("button", { name: /archive/i }));
+
+    expect(mockUpdateStatus).toHaveBeenCalledWith({
+      id: 1,
+      data: { status: "archived" },
+    });
+    expect(mockDisconnectSession).toHaveBeenCalledWith("ws-feature-1");
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: "/",
+    });
   });
 
   it("shows unarchive and delete actions for archived session context menus", async () => {

@@ -71,11 +71,9 @@ pub struct SuccessResponse {
     path = "/api/claude-code/profiles",
     responses((status = 200, body = ProfilesResponse))
 )]
-pub async fn list_profiles_handler(
-    State(state): State<AppState>,
-) -> Result<Json<ProfilesResponse>, AppError> {
-    let profiles = profiles::list_profiles(&state.read_pool).await?;
-    let active = profiles::get_active_profile_name(&state.read_pool).await?;
+pub async fn list_profiles_handler() -> Result<Json<ProfilesResponse>, AppError> {
+    let profiles = profiles::list_profiles();
+    let active = profiles::get_active_profile_name();
     Ok(Json(ProfilesResponse {
         profiles: profiles.into_iter().map(ProfileView::from).collect(),
         active,
@@ -90,11 +88,10 @@ pub async fn list_profiles_handler(
     responses((status = 200, body = ProfileView))
 )]
 pub async fn upsert_profile_handler(
-    State(state): State<AppState>,
     Path(name): Path<String>,
     Json(body): Json<UpsertProfileRequest>,
 ) -> Result<Json<ProfileView>, AppError> {
-    let profile = profiles::upsert_profile(&state.write_pool, &name, &body.env).await?;
+    let profile = profiles::upsert_profile(&name, &body.env).await?;
     Ok(Json(ProfileView::from(profile)))
 }
 
@@ -105,10 +102,9 @@ pub async fn upsert_profile_handler(
     responses((status = 200, body = SuccessResponse))
 )]
 pub async fn delete_profile_handler(
-    State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<SuccessResponse>, AppError> {
-    profiles::delete_profile(&state.write_pool, &name).await?;
+    profiles::delete_profile(&name).await?;
     Ok(Json(SuccessResponse { ok: true }))
 }
 
@@ -119,10 +115,9 @@ pub async fn delete_profile_handler(
     responses((status = 200, body = SuccessResponse))
 )]
 pub async fn set_active_profile_handler(
-    State(state): State<AppState>,
     Json(body): Json<SetActiveProfileRequest>,
 ) -> Result<Json<SuccessResponse>, AppError> {
-    profiles::set_active_profile(&state.write_pool, &body.name).await?;
+    profiles::set_active_profile(&body.name).await?;
     Ok(Json(SuccessResponse { ok: true }))
 }
 

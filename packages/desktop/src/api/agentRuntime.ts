@@ -52,6 +52,7 @@ interface QueryExtras {
   enabled?: boolean;
   staleTime?: number;
   cwd?: string;
+  profile?: string;
 }
 
 function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
@@ -61,14 +62,19 @@ function readQueryExtras(arg: boolean | QueryExtras | undefined): QueryExtras {
 }
 
 export function useAgentCatalog(extras?: QueryExtras) {
-  const { cwd, ...queryExtras } = extras ?? {};
+  const { cwd, profile, ...queryExtras } = extras ?? {};
+  // The Claude model probe is profile-dependent (Bedrock/Vertex expose
+  // different model ids), so `profile` is part of the cache key — switching the
+  // prompt-area profile selector refetches the catalog for that profile rather
+  // than serving the active profile's stale models.
   return useQuery({
-    queryKey: ["agent-catalog", cwd ?? null],
+    queryKey: ["agent-catalog", cwd ?? null, profile ?? null],
     queryFn: () =>
       customInstance<AgentCatalog>({
         method: "GET",
         url: "/api/agent-catalog",
-        params: cwd ? { cwd } : undefined,
+        params:
+          cwd || profile ? { ...(cwd ? { cwd } : {}), ...(profile ? { profile } : {}) } : undefined,
       }),
     ...queryExtras,
   });

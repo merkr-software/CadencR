@@ -14,6 +14,11 @@ export function intArraysEqual(a: readonly number[], b: readonly number[]): bool
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+/** Shallow element-wise equality for two string arrays. */
+export function stringArraysEqual(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
 export function slugify(name: string): string {
   return name
     .toLowerCase()
@@ -38,4 +43,13 @@ export function toRelativePath(text: string, basePath?: string): string {
   const prefix = basePath.endsWith("/") ? basePath : basePath + "/";
   if (text === basePath || text + "/" === prefix) return ".";
   return text.replaceAll(prefix, "");
+}
+
+/** Pretty-print a JSON string; return the input unchanged if it isn't JSON. */
+export function formatJson(str: string): string {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2);
+  } catch {
+    return str;
+  }
 }

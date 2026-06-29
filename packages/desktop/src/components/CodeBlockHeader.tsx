@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { CodeIcon, CopyIcon, CheckIcon, TerminalIcon } from "lucide-react";
 
 interface CodeBlockHeaderProps {
@@ -6,6 +6,8 @@ interface CodeBlockHeaderProps {
   code: string;
   showTerminalButton?: boolean;
   onSendToTerminal?: (command: string) => void;
+  /** Extra actions rendered in the header's action row, before the copy button. */
+  leadingActions?: ReactNode;
 }
 
 export function CodeBlockHeader({
@@ -13,6 +15,7 @@ export function CodeBlockHeader({
   code,
   showTerminalButton,
   onSendToTerminal,
+  leadingActions,
 }: CodeBlockHeaderProps) {
   const [copied, setCopied] = useState(false);
 
@@ -32,6 +35,7 @@ export function CodeBlockHeader({
       <CodeIcon className="size-3" />
       <span className="flex-1">{language}</span>
       <div className="flex items-center gap-0.5">
+        {leadingActions}
         {showTerminalButton && (
           <button
             type="button"

@@ -13,7 +13,10 @@ use super::content::{
     build_content_value_for_provider, build_persist_content, payload_attachments,
 };
 use super::errors::persist_pause_and_send_session_error;
-use super::prompt_status::{clear_pending_prompt_receipt, mark_agent_running, mirror_user_message};
+use super::prompt_status::{
+    ack_persisted_user_message, clear_pending_prompt_receipt, mark_agent_running,
+    mirror_user_message,
+};
 
 pub(super) struct FollowupPromptContext {
     pub query: RuntimeSessionHandle,
@@ -37,7 +40,7 @@ pub(super) async fn handle_followup_prompt(
     context: FollowupPromptContext,
     payload: PromptSendPayload,
 ) {
-    persist_followup_user_message(&context, &payload).await;
+    let user_message_id = persist_followup_user_message(&context, &payload).await;
     mark_agent_running(
         &context.write_pool,
         &context.session_status_tx,
@@ -48,6 +51,11 @@ pub(super) async fn handle_followup_prompt(
     )
     .await;
 
+    // Snapshot the worktree *before* this turn's prompt is delivered to the live
+    // agent (the `stream_input` below), so a later rewind to this message can
+    // restore the pre-turn code state. A deliberate pre-turn barrier.
+    super::prompt_checkpoint::capture_pre_turn_followup(&context, user_message_id).await;
+
     info!(context.db_session_id, "follow-up prompt");
     tokio::spawn(stream_followup_prompt(context, payload));
 }
@@ -55,9 +63,9 @@ pub(super) async fn handle_followup_prompt(
 async fn persist_followup_user_message(
     context: &FollowupPromptContext,
     payload: &PromptSendPayload,
-) {
+) -> Option<i64> {
     if payload.replay {
-        return;
+        return None;
     }
     let attachments = payload_attachments(payload);
     let persist_content = build_persist_content(&payload.text, &attachments);
@@ -66,7 +74,12 @@ async fn persist_followup_user_message(
         context.feature_id,
         Some(context.db_session_id),
     );
-    persistence.persist_user_message(&persist_content).await;
+    let user_message_id = persistence.persist_user_message(&persist_content).await;
+    if let (Some(user_message_ref), Some(message_id)) =
+        (payload.user_message_ref.as_deref(), user_message_id)
+    {
+        ack_persisted_user_message(&context.sender, user_message_ref, message_id).await;
+    }
     mirror_user_message(
         &context.ws_feature_senders,
         &context.sender,
@@ -80,6 +93,7 @@ async fn persist_followup_user_message(
     context
         .feature_events_tx
         .emit(context.feature_id, None, FeatureEventAction::Reordered);
+    user_message_id
 }
 
 async fn stream_followup_prompt(context: FollowupPromptContext, payload: PromptSendPayload) {

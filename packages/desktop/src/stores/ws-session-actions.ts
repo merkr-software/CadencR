@@ -201,6 +201,7 @@ export function applyPersistedState(
     sessionDbId,
     currentProviderId,
     currentModelId,
+    currentProfile,
     runtimeProvider,
     runtimeSessionId,
     permissionMode,
@@ -271,6 +272,7 @@ export function applyPersistedState(
       shouldPreservePromptLifecycle && existing ? existing.lifecycle : lifecycleWithPendingGate,
     ...(resolvedProviderId ? { currentProviderId: resolvedProviderId } : {}),
     ...(currentModelId ? { currentModelId } : {}),
+    ...(currentProfile ? { currentProfile } : {}),
     // Rehydrate the persisted permission mode so sticky modes (notably
     // `bypassPermissions`) survive a store re-seed — app relaunch, dev HMR
     // reload, or a session entry rebuilt after a dropped connection. Without

@@ -1,5 +1,6 @@
 pub(in crate::domain::agents) mod acp;
 pub(in crate::domain::agents) mod agents;
+mod branching;
 pub(in crate::domain::agents::opencode) mod commands;
 pub(crate) mod permissions;
 mod questions;
@@ -29,6 +30,10 @@ fn normalize_resume_session_id(session_id: &str) -> Option<String> {
 
 #[async_trait]
 impl AgentRuntimeAdapter for OpenCodeAdapter {
+    fn session_branching(&self) -> Option<&dyn super::adapter::SessionBranching> {
+        Some(&branching::OPENCODE_SESSION_BRANCHING)
+    }
+
     fn is_valid_resume_session_id(&self, session_id: &str) -> bool {
         normalize_resume_session_id(session_id).is_some()
     }
@@ -225,5 +230,11 @@ mod tests {
         assert!(adapter
             .parse_permission_request(&json!({ "type": "other_event" }))
             .is_none());
+    }
+
+    #[test]
+    fn advertises_session_branching_capability() {
+        let adapter = OpenCodeAdapter;
+        assert!(adapter.session_branching().is_some());
     }
 }

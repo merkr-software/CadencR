@@ -34,7 +34,7 @@ pub(super) async fn has_pending_migrations(
     Ok(false)
 }
 
-pub(super) async fn table_exists(pool: &SqlitePool, table_name: &str) -> anyhow::Result<bool> {
+pub(crate) async fn table_exists(pool: &SqlitePool, table_name: &str) -> anyhow::Result<bool> {
     let count: i32 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?")
             .bind(table_name)

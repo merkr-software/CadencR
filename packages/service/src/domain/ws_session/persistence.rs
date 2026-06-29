@@ -5,7 +5,7 @@
 //! propagate to the caller so the WebSocket stream is not interrupted.
 
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tracing::{debug, error};
 
 use crate::domain::agents::adapter::{
@@ -25,6 +25,7 @@ pub struct SessionRow {
     pub runtime_provider: Option<String>,
     pub runtime_session_id: Option<String>,
     pub model: Option<String>,
+    pub profile: Option<String>,
     pub permission_mode: Option<String>,
     pub codex_permission_mode: Option<String>,
     pub status: String,
@@ -102,6 +103,13 @@ pub struct WsSessionPersistence {
     pending_tool_row_ids: HashMap<(String, u64), i64>,
     /// (runtime_session_id, block_index) -> merged text/thinking row metadata
     pending_mergeable_blocks: HashMap<(String, u64), PendingMergeableBlock>,
+    /// Runtime session ids whose current message cycle streamed text/thinking
+    /// (via `message_start` … content deltas). Used to decide whether a full
+    /// assistant message's text was already persisted live, so the
+    /// reconciliation fallback only writes text that was NOT streamed and never
+    /// double-writes a normal turn. Reset per cycle on `message_start` and
+    /// consumed when the full assistant message is reconciled.
+    streamed_assistant_content: HashSet<String>,
     file_change_marked: bool,
 }
 

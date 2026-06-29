@@ -27,7 +27,9 @@ import { toast } from "sonner";
 import { pingHealth } from "@/api/client";
 import {
   AUTO_RECONNECT_TIMEOUT_SECONDS,
+  clearRateLimit,
   forceReconnectAll as forceReconnectAllWs,
+  notifyRateLimited,
 } from "@/lib/ws-reconnect";
 
 export type ConnectionStatus =
@@ -133,8 +135,11 @@ export const useConnectionStatusStore = create<ConnectionStatusState>((set, get)
   async probeHealth(): Promise<void> {
     const result = await pingHealth();
     if (result.ok) {
+      clearRateLimit();
       get().reportSource(HEALTH_KEY, "connected");
     } else {
+      // A 429 tells every socket to hold off until the rate-limit window clears.
+      if (result.retryAfterMs != null) notifyRateLimited(result.retryAfterMs);
       get().reportSource(HEALTH_KEY, "disconnected", result.reason);
     }
   },

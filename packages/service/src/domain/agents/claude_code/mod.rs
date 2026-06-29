@@ -1,8 +1,10 @@
 mod adapter_impl;
 mod background_agents;
+mod branching;
 mod catalog;
 pub mod custom_models;
 mod events;
+mod jsonl_surgery;
 mod model_alias;
 mod post_plan_approval;
 pub mod profiles;
@@ -17,6 +19,12 @@ mod worktree_config;
 pub use self::session::ClaudeCodeSession;
 
 pub const PROVIDER_ID: &str = "claude_code";
+
+/// Process-lifetime capability handle for point-in-time branching (rewind /
+/// fork). A ZST, so a `static` is free and lets the adapter hand out a
+/// `&'static dyn SessionBranching`.
+static CLAUDE_SESSION_BRANCHING: branching::ClaudeSessionBranching =
+    branching::ClaudeSessionBranching;
 
 use crate::domain::agents::adapter::RuntimeSlashCommand;
 use crate::domain::agents::runtime::ModelCatalogEntry;
