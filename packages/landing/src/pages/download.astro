@@ -150,7 +150,12 @@ const structuredData = [softwareApplication, breadcrumbs];
 
 
 
-<script id="download-assets-json" type="application/json" set:html={JSON.stringify(DOWNLOAD_ASSETS)}></script>
+<script
+  is:inline
+  id="download-assets-json"
+  type="application/json"
+  set:html={JSON.stringify(DOWNLOAD_ASSETS)}
+></script>
 <script>
   import { archFromRenderer, normalizeArch, preferredMacArch, resolveMacArch } from "@/lib/downloads";
   import type { DetectedArch, DetectedOs } from "@/lib/downloads";
