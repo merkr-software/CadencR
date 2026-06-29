@@ -154,7 +154,8 @@ mod tests {
         assert_eq!(req["params"]["type"], "string");
         assert_eq!(req["params"]["value"], "openai/gpt-5.4");
         let id = req["id"].clone();
-        let mut frame = serde_json::to_vec(&json!({ "id": id, "result": {} })).unwrap();
+        let mut frame =
+            serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": id, "result": {} })).unwrap();
         frame.push(b'\n');
         stdout.write_all(&frame).await.unwrap();
         task.await
@@ -194,7 +195,8 @@ mod tests {
         assert_eq!(req["params"]["type"], "string");
         assert_eq!(req["params"]["value"], "high");
         let id = req["id"].clone();
-        let mut frame = serde_json::to_vec(&json!({ "id": id, "result": {} })).unwrap();
+        let mut frame =
+            serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": id, "result": {} })).unwrap();
         frame.push(b'\n');
         stdout.write_all(&frame).await.unwrap();
         task.await
@@ -233,6 +235,7 @@ mod tests {
         let req: Value = serde_json::from_str(line.trim()).unwrap();
         let id = req["id"].clone();
         let mut frame = serde_json::to_vec(&json!({
+            "jsonrpc": "2.0",
             "id": id,
             "error": { "code": -32601, "message": "method not found" }
         }))
@@ -291,7 +294,8 @@ mod tests {
             let cid = req["params"]["configId"].as_str().unwrap().to_owned();
             assert!(seen.insert(cid.clone()), "duplicate configId on the wire");
             let id = req["id"].clone();
-            let mut frame = serde_json::to_vec(&json!({ "id": id, "result": {} })).unwrap();
+            let mut frame =
+                serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": id, "result": {} })).unwrap();
             frame.push(b'\n');
             stdout.write_all(&frame).await.unwrap();
         }

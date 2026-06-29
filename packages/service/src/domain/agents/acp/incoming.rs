@@ -11,7 +11,7 @@
 //! extension the strict schema would drop, so a typed parse would always
 //! lose data.
 
-use agent_client_protocol::{schema::AgentRequest, JsonRpcMessage};
+use agent_client_protocol::{schema::v1::AgentRequest, JsonRpcMessage};
 use serde_json::Value;
 
 /// Inbound one-way notification from the agent. `Extension` covers
@@ -116,7 +116,7 @@ impl AcpServerRequest {
 #[cfg(test)]
 mod tests {
     use super::{AcpNotification, AcpServerRequest};
-    use agent_client_protocol::schema::AgentRequest;
+    use agent_client_protocol::schema::v1::AgentRequest;
     use serde_json::json;
 
     #[test]

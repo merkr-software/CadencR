@@ -262,6 +262,7 @@ mod tests {
         write_frame(
             &mut agent_stdout,
             json!({
+                "jsonrpc": "2.0",
                 "id": "perm-cache",
                 "method": "session/request_permission",
                 "params": {}

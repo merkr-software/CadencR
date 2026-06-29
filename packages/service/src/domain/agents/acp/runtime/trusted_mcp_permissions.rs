@@ -84,7 +84,12 @@ mod tests {
         let mut subscriber = client.subscribe();
         write_frame(
             &mut agent_stdout,
-            json!({ "id": "perm-browser", "method": "session/request_permission", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "perm-browser",
+                "method": "session/request_permission",
+                "params": {}
+            }),
         )
         .await;
         let event = tokio::time::timeout(std::time::Duration::from_secs(1), subscriber.recv())
