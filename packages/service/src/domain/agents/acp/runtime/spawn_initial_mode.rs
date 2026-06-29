@@ -177,7 +177,8 @@ mod tests {
         assert_eq!(req["params"]["sessionId"], "s-plan");
         assert_eq!(req["params"]["modeId"], "plan");
         let id = req["id"].clone();
-        let mut frame = serde_json::to_vec(&json!({ "id": id, "result": {} })).unwrap();
+        let mut frame =
+            serde_json::to_vec(&json!({ "jsonrpc": "2.0", "id": id, "result": {} })).unwrap();
         frame.push(b'\n');
         stdout.write_all(&frame).await.unwrap();
         task.await.unwrap().expect("set_mode should succeed");

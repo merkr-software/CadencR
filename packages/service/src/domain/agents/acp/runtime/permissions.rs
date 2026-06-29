@@ -12,7 +12,7 @@
 //! "allow_once"/"allow_always"/"reject_once" strings when the agent didn't
 //! advertise an explicit id.
 
-use agent_client_protocol::schema::{AgentRequest, RequestPermissionRequest};
+use agent_client_protocol::schema::v1::{AgentRequest, RequestPermissionRequest};
 use serde_json::Value;
 
 use crate::domain::agents::acp::incoming::AcpServerRequest;
@@ -171,7 +171,7 @@ mod tests {
     };
     use crate::domain::agents::acp::incoming::AcpServerRequest;
     use crate::domain::agents::adapter::RuntimePermissionDecision;
-    use agent_client_protocol::schema::{
+    use agent_client_protocol::schema::v1::{
         AgentRequest, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
         ToolCallUpdate, ToolCallUpdateFields,
     };

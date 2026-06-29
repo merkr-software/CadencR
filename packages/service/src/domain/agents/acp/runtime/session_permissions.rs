@@ -20,10 +20,10 @@ use tokio::sync::RwLock;
 use crate::domain::agents::adapter::RuntimePermissionDecision;
 
 /// Stable key for cached permission decisions: `(tool_name,
-/// canonical-json input)`. `serde_json::Map` is `BTreeMap`-backed when
-/// the `preserve_order` feature is off (it is here), so `to_string`
-/// already produces lexicographically-sorted keys. Two logically equal
-/// JSON inputs collapse to the same string regardless of source order.
+/// canonical-json input)`. The ACP SDK enables serde_json's
+/// `preserve_order` feature, so object key order must be normalized
+/// explicitly. Two logically equal JSON inputs collapse to the same
+/// string regardless of source order.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PermissionKey {
     pub tool_name: String,
@@ -34,7 +34,30 @@ impl PermissionKey {
     pub fn new(tool_name: &str, tool_input: &Value) -> Self {
         Self {
             tool_name: tool_name.to_string(),
-            canonical_input: tool_input.to_string(),
+            canonical_input: canonical_json(tool_input),
+        }
+    }
+}
+
+fn canonical_json(value: &Value) -> String {
+    match value {
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => value.to_string(),
+        Value::Array(items) => {
+            let values = items.iter().map(canonical_json).collect::<Vec<_>>();
+            format!("[{}]", values.join(","))
+        }
+        Value::Object(map) => {
+            let mut entries = map.iter().collect::<Vec<_>>();
+            entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+            let fields = entries
+                .into_iter()
+                .map(|(key, value)| {
+                    let encoded_key = serde_json::to_string(key)
+                        .expect("JSON object keys should always serialize");
+                    format!("{encoded_key}:{}", canonical_json(value))
+                })
+                .collect::<Vec<_>>();
+            format!("{{{}}}", fields.join(","))
         }
     }
 }

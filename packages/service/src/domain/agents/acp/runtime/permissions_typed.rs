@@ -6,7 +6,7 @@
 //! still falls through `permission_request_from_acp` and shares the same
 //! helpers (`default_options`, `default_description`, `derive_preview`).
 
-use agent_client_protocol::schema::RequestPermissionRequest;
+use agent_client_protocol::schema::v1::RequestPermissionRequest;
 
 use crate::domain::agents::adapter::RuntimePermissionRequest;
 
@@ -55,7 +55,7 @@ fn typed_options(
 #[cfg(test)]
 mod tests {
     use super::permission_request_from_typed;
-    use agent_client_protocol::schema::{
+    use agent_client_protocol::schema::v1::{
         PermissionOption, PermissionOptionKind, RequestPermissionRequest, ToolCallUpdate,
         ToolCallUpdateFields,
     };

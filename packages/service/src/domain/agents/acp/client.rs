@@ -213,7 +213,7 @@ mod tests {
         assert_eq!(parsed["method"], "ping");
         write_frame(
             &mut agent_stdout,
-            json!({ "id": id, "result": { "pong": true } }),
+            json!({ "jsonrpc": "2.0", "id": id, "result": { "pong": true } }),
         )
         .await;
         assert_eq!(req.await.unwrap().unwrap(), json!({ "pong": true }));
@@ -234,7 +234,11 @@ mod tests {
         let id = parsed["id"].as_str().unwrap();
         write_frame(
             &mut agent_stdout,
-            json!({ "id": id, "error": { "code": -32601, "message": "method not found" } }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": "method not found" }
+            }),
         )
         .await;
         let err = req.await.unwrap().expect_err("should be Rpc error");
@@ -269,6 +273,7 @@ mod tests {
         write_frame(
             &mut agent_stdout,
             json!({
+                "jsonrpc": "2.0",
                 "id": "perm-7",
                 "method": "session/request_permission",
                 "params": { "ok": true }
@@ -292,7 +297,12 @@ mod tests {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         write_frame(
             &mut agent_stdout,
-            json!({ "id": "perm-7", "method": "session/request_permission", "params": {} }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": "perm-7",
+                "method": "session/request_permission",
+                "params": {}
+            }),
         )
         .await;
         let mut subscriber = client.subscribe();

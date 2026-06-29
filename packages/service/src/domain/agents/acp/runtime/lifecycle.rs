@@ -13,10 +13,11 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     ClientCapabilities, FileSystemCapabilities, Implementation, InitializeRequest,
-    LoadSessionRequest, McpServer, NewSessionRequest, ProtocolVersion,
+    LoadSessionRequest, McpServer, NewSessionRequest,
 };
+use agent_client_protocol::schema::ProtocolVersion;
 use serde_json::Value;
 
 use super::provider_hooks::AcpProviderHooks;

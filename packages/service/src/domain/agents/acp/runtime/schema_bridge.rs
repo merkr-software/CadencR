@@ -1,7 +1,7 @@
 //! Compatibility helpers for ACP payloads that still need raw JSON because
 //! Cadencr preserves provider extensions on top of official ACP schema types.
 
-use agent_client_protocol::schema::{
+use agent_client_protocol::schema::v1::{
     PermissionOption, PermissionOptionKind, RequestPermissionOutcome, RequestPermissionResponse,
     SelectedPermissionOutcome,
 };
@@ -96,7 +96,7 @@ fn from_value<T: DeserializeOwned>(value: Value) -> serde_json::Result<T> {
 #[cfg(test)]
 mod tests {
     use super::{permission_response_value, resolve_permission_option};
-    use agent_client_protocol::schema::RequestPermissionResponse;
+    use agent_client_protocol::schema::v1::RequestPermissionResponse;
     use serde_json::json;
 
     use crate::domain::agents::adapter::RuntimePermissionDecision;

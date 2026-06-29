@@ -295,7 +295,11 @@ mod tests {
         .await;
         write_frame(
             &mut agent_stdout,
-            json!({ "id": request["id"].clone(), "result": { "stopReason": "end_turn" } }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": request["id"].clone(),
+                "result": { "stopReason": "end_turn" }
+            }),
         )
         .await;
 

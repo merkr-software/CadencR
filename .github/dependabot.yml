@@ -5,9 +5,16 @@ updates:
     schedule:
       interval: weekly
     groups:
+      # Group only minor/patch bumps together. Major (breaking) updates get
+      # their own PRs so risky migrations (e.g. react-query v5, TypeScript
+      # majors) are reviewed and merged deliberately rather than bundled into
+      # one large group PR.
       npm-and-yarn:
         patterns:
           - '*'
+        update-types:
+          - minor
+          - patch
 
   - package-ecosystem: cargo
     directory: /
