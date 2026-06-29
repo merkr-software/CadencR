@@ -134,7 +134,7 @@ mod tests {
         let canonical = std::fs::canonicalize(&repo).unwrap();
         // `git init` requires the dir to exist; we then set user.* locally
         // so `commit` doesn't blow up on minimal CI images with no global
-        // identity configured.
+        // identity configured, and so developer signing config is ignored.
         for args in [
             vec!["init", "-q"],
             vec!["config", "user.email", "t@example.com"],
