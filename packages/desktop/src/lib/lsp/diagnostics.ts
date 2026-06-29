@@ -22,6 +22,10 @@ function clampOffset(offset: number, docLength: number): number {
   return Math.min(Math.max(offset, 0), docLength);
 }
 
+function messageToString(message: lsp.Diagnostic["message"]): string {
+  return typeof message === "string" ? message : message.value;
+}
+
 function toDiagnostic(plugin: LSPPlugin, item: lsp.Diagnostic): Diagnostic {
   const docLength = plugin.view.state.doc.length;
   const from = clampOffset(plugin.fromPosition(item.range.start), docLength);
@@ -31,7 +35,7 @@ function toDiagnostic(plugin: LSPPlugin, item: lsp.Diagnostic): Diagnostic {
     to: Math.max(from, to),
     severity: toSeverity(item.severity),
     source: item.source,
-    message: item.message,
+    message: messageToString(item.message),
   };
 }
 

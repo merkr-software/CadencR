@@ -19,7 +19,10 @@
     "knip",
     "orval",
     "electron-vite",
-    "electron-builder"
+    "electron-builder",
+    "security",
+    "spctl",
+    "xcrun"
   ],
   "ignoreDependencies": [
     "autoprefixer",
