@@ -131,7 +131,11 @@ mod tests {
         .await;
         write_frame(
             stdout,
-            json!({ "id": prompt_id, "result": { "stopReason": "end_turn" } }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": prompt_id,
+                "result": { "stopReason": "end_turn" }
+            }),
         )
         .await;
     }
@@ -324,7 +328,11 @@ mod tests {
         let id = request["id"].clone();
         write_frame(
             &mut agent_stdout,
-            json!({ "id": id, "error": { "code": -32601, "message": "method not found" } }),
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": -32601, "message": "method not found" }
+            }),
         )
         .await;
         first

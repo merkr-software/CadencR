@@ -220,7 +220,11 @@ mod tests {
     async fn reply_with_stop(stdout: &mut DuplexStream, id: Value, stop_reason: &str) {
         let frame = format!(
             "{}\n",
-            json!({ "id": id, "result": { "stopReason": stop_reason } })
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "stopReason": stop_reason }
+            })
         );
         stdout.write_all(frame.as_bytes()).await.unwrap();
     }

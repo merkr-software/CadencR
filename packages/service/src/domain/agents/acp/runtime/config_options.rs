@@ -149,7 +149,10 @@ mod tests {
         serde_json::from_str(line.trim()).unwrap()
     }
     async fn reply_ok(stdout: &mut tokio::io::DuplexStream, id: Value, result: Value) {
-        let frame = format!("{}\n", json!({ "id": id, "result": result }));
+        let frame = format!(
+            "{}\n",
+            json!({ "jsonrpc": "2.0", "id": id, "result": result })
+        );
         stdout.write_all(frame.as_bytes()).await.unwrap();
     }
     async fn reply_error(
@@ -160,7 +163,11 @@ mod tests {
     ) {
         let frame = format!(
             "{}\n",
-            json!({ "id": id, "error": { "code": code, "message": message } })
+            json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": { "code": code, "message": message }
+            })
         );
         stdout.write_all(frame.as_bytes()).await.unwrap();
     }
