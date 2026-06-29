@@ -8,7 +8,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::Duration;
 
-use agent_client_protocol::schema::SetSessionModeRequest;
+use agent_client_protocol::schema::v1::SetSessionModeRequest;
 use tokio::sync::RwLock;
 
 use crate::domain::agents::acp::AcpClient;
