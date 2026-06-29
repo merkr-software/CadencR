@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use rand::RngCore;
+use rand::TryRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -113,7 +113,9 @@ impl PairingCodes {
 
 fn random_code() -> String {
     let mut bytes = [0u8; CODE_BYTES];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random source should be available");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 

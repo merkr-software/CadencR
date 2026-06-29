@@ -1,7 +1,7 @@
 //! Branch-name generation. Pure helpers with no DB or WS dependencies — easy
 //! to unit-test.
 
-use rand::Rng;
+use rand::RngExt;
 
 use crate::shared::slug::slugify;
 
@@ -9,7 +9,7 @@ use crate::shared::slug::slugify;
 /// Format: `{prefix}{slug}-{xxxx}` where xxxx is 4-char random hex.
 pub fn build_branch_name(prefix: &str, title: &str) -> String {
     let slug = slugify(title);
-    let suffix: u16 = rand::thread_rng().gen_range(0..=0xFFFF);
+    let suffix: u16 = rand::rng().random_range(0..=0xFFFF);
     let hex = format!("{:04x}", suffix);
     format!("{}{}-{}", prefix, slug, hex)
 }

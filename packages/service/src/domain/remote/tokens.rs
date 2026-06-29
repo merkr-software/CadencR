@@ -6,7 +6,7 @@
 //! is sufficient.
 
 use base64::Engine;
-use rand::RngCore;
+use rand::TryRng;
 use sha2::{Digest, Sha256};
 use sqlx::SqlitePool;
 use subtle::ConstantTimeEq;
@@ -17,7 +17,9 @@ use super::repo;
 /// `Sec-WebSocket-Protocol` token and a URL).
 pub fn mint_raw_token() -> String {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random source should be available");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
