@@ -12,6 +12,10 @@ const updaterState = vi.hoisted(() => ({
   on: vi.fn(),
 }));
 
+vi.mock("./linux-install-type", () => ({
+  detectLinuxInstallType: vi.fn(() => ({ type: "appimage", message: "" })),
+}));
+
 vi.mock("electron", () => ({
   app: {
     get isPackaged() {
