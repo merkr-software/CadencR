@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 
-use agent_client_protocol::schema::CancelNotification;
+use agent_client_protocol::schema::v1::CancelNotification;
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
