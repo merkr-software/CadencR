@@ -195,6 +195,17 @@ describe("Sidebar", () => {
     expect(screen.getByText("v1.2.3")).toBeInTheDocument();
   });
 
+  it("pads its surface by the safe-area insets so the rail reaches the screen edges", () => {
+    // The insets live on the `<aside>` (not the mobile drawer wrapper) so
+    // `bg-sidebar` extends edge-to-edge in fullscreen/standalone mobile while
+    // the header/footer still clear the notch and home indicator.
+    render(<Sidebar onSearch={() => {}} />);
+    const aside = screen.getByRole("complementary");
+    expect(aside.className).toContain("pt-[env(safe-area-inset-top)]");
+    expect(aside.className).toContain("pb-[env(safe-area-inset-bottom)]");
+    expect(aside.className).toContain("pl-[env(safe-area-inset-left)]");
+  });
+
   it("renders without crashing on any route", () => {
     render(<Sidebar onSearch={() => {}} />);
     expect(screen.getByText("Cadencr")).toBeInTheDocument();

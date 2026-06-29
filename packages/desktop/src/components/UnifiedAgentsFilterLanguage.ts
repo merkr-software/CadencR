@@ -5,6 +5,7 @@ import {
   dedupeTitles,
   firstFilterValue,
   isQuote,
+  isTruthyFilterValue,
   isWhitespace,
   normalizeFilterValue,
   quoteFilterValue,
@@ -13,7 +14,7 @@ import {
 
 export { quoteFilterValue } from "@/components/unified-agents-filter-values";
 
-const UNIFIED_AGENTS_FILTER_KEYS = ["last", "project", "sort", "exclude"] as const;
+const UNIFIED_AGENTS_FILTER_KEYS = ["last", "project", "sort", "exclude", "pin"] as const;
 export type UnifiedAgentsFilterKey = (typeof UNIFIED_AGENTS_FILTER_KEYS)[number];
 const LAST_PRESETS = ["2", "5", "20", "60", "all"] as const;
 const SORT_VALUES = ["created", "-created", "message", "-message"] as const;
@@ -23,6 +24,8 @@ export interface UnifiedAgentsParsedFilter {
   freshMinutes: number;
   projectIds: number[];
   excludedTitles: string[];
+  /** When true, only pinned features are shown (the `/pin:` filter). */
+  pinnedOnly: boolean;
   query: string;
   sortOrder: UnifiedAgentsSortOrder;
 }
@@ -52,6 +55,7 @@ export const DEFAULT_UNIFIED_AGENTS_PARSED_FILTER: UnifiedAgentsParsedFilter = {
   freshMinutes: 5,
   projectIds: [],
   excludedTitles: [],
+  pinnedOnly: false,
   query: "",
   sortOrder: "created_desc",
 };
@@ -80,6 +84,7 @@ export function serializeUnifiedAgentsFilterText(
   if (filter.sortOrder !== DEFAULT_UNIFIED_AGENTS_PARSED_FILTER.sortOrder) {
     parts.push(`/sort:${serializeSortValue(filter.sortOrder)}`);
   }
+  if (filter.pinnedOnly) parts.push("/pin:true");
   const projectValue = serializeProjectFilter(filter.projectIds, projects);
   if (projectValue) parts.push(`/project:${projectValue}`);
   if (filter.excludedTitles.length > 0) {
@@ -156,6 +161,7 @@ export function getUnifiedAgentsFilterSuggestions(
   if (!pair) return getKeySuggestions(tokenText.slice(1));
   if (pair.key === "last") return getLastSuggestions(pair.value);
   if (pair.key === "sort") return getSortSuggestions(pair.value);
+  if (pair.key === "pin") return getPinSuggestions(pair.value);
   if (pair.key === "project") return getProjectSuggestions(pair.value, projects);
   return [];
 }
@@ -183,6 +189,10 @@ function applyFilterPair(
   }
   if (pair.key === "exclude") {
     parsed.excludedTitles = dedupeTitles(splitFilterValues(pair.value), normalizeFilterValue);
+    return true;
+  }
+  if (pair.key === "pin") {
+    parsed.pinnedOnly = isTruthyFilterValue(firstFilterValue(pair.value));
     return true;
   }
   const sortOrder = parseSortValue(firstFilterValue(pair.value));
@@ -324,6 +334,21 @@ function getSortSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
   );
 }
 
+function getPinSuggestions(value: string): UnifiedAgentsFilterSuggestion[] {
+  return ["true"]
+    .filter((preset: string): boolean =>
+      preset.startsWith(normalizeFilterValue(value).toLowerCase()),
+    )
+    .map(
+      (preset: string): UnifiedAgentsFilterSuggestion => ({
+        label: `/pin:${preset}`,
+        detail: "Only pinned agents",
+        replacement: `/pin:${preset}`,
+        key: "pin",
+      }),
+    );
+}
+
 function getProjectSuggestions(
   value: string,
   projects: Project[],
@@ -348,6 +373,7 @@ function keySuggestionDetail(key: UnifiedAgentsFilterKey): string {
   if (key === "last") return "Activity window";
   if (key === "project") return "Project";
   if (key === "exclude") return "Hide agents by name";
+  if (key === "pin") return "Only pinned agents";
   return "Sort order";
 }
 

@@ -19,6 +19,7 @@ import {
 } from "./notifications";
 import { sendToWindow } from "./safe-send";
 import { appendRendererErrorLog } from "./renderer-error-log";
+import { setLinkHoverContext } from "./context-menu";
 
 const MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_HANDLES = 128;
@@ -52,6 +53,14 @@ export function registerIpc({ getMainWindow, confirmClose, requestQuit }: IpcOpt
   ipcMain.handle("shell:open-external", (event, url: unknown) => {
     assertTrustedSender(event, getMainWindow);
     return openExternal(url);
+  });
+  ipcMain.handle("shell:open-external-link", (event, url: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    return openExternalLink(url);
+  });
+  ipcMain.handle("links:set-hover-context", (event, context: unknown) => {
+    assertTrustedSender(event, getMainWindow);
+    setLinkHoverContext(context);
   });
   ipcMain.handle("dialog:pick-directory", (event) => {
     assertTrustedSender(event, getMainWindow);
@@ -216,6 +225,24 @@ export async function openExternal(rawUrl: unknown): Promise<void> {
   }
   if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
     throw new Error("Loopback URLs cannot be opened externally.");
+  }
+  await shell.openExternal(parsed.toString());
+}
+
+/**
+ * User-initiated "open in default browser" for a clicked link. Looser than
+ * `openExternal` (which also backs auto navigation-interception): permits
+ * `http:` and loopback so a dev-server URL can be opened in the system
+ * browser on demand. Still rejects credentials and any non-http(s) scheme.
+ */
+export async function openExternalLink(rawUrl: unknown): Promise<void> {
+  if (typeof rawUrl !== "string") throw new Error("Expected a URL.");
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("Only http:// and https:// links can be opened externally.");
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("URLs with embedded credentials cannot be opened externally.");
   }
   await shell.openExternal(parsed.toString());
 }

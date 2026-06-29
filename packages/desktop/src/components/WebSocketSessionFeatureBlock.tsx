@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } 
 import { EditorFuzzyShortcut } from "@/components/editor/EditorFuzzyShortcut";
 import { promptDropTargetIdOf } from "@/lib/prompt-drop-target";
 import { OpenDiffInEditorProvider } from "@/components/diff/OpenDiffInEditorContext";
+import { LinkRoutingProvider } from "@/components/links/LinkRoutingProvider";
 import { FeatureContentSearchShortcut } from "@/components/FeatureContentSearchShortcut";
 import { FeatureTopBar } from "@/components/FeatureTopBar";
 import { FeatureLayoutProvider } from "@/components/feature-layout/FeatureLayoutContext";
@@ -206,61 +207,69 @@ function WebSocketSessionFeatureBody(
   });
 
   return (
-    <OpenDiffInEditorProvider onOpenFileInEditor={openDiffFileInEditor}>
-      <section
-        ref={sectionRef}
-        tabIndex={0}
-        onFocusCapture={onActivate}
-        onPointerDownCapture={onActivate}
-        // `data-agent-prompt-id` tags this whole agent area as the drop
-        // target — the Electron preload walks `closest()` to find it. The
-        // `group/agent-section` + `data-agent-dragover` pair lets the prompt
-        // bar paint its primary ring via CSS, with no React state crossing
-        // component boundaries — so in the unified grid only the card under
-        // the cursor highlights, not every mounted prompt.
-        data-agent-prompt-id={promptDropTargetId}
-        data-agent-dragover={agentDropZone.isDragging ? "true" : undefined}
-        onDragEnter={agentDropZone.onDragEnter}
-        onDragLeave={agentDropZone.onDragLeave}
-        onDrop={agentDropZone.onDrop}
-        className="group/agent-section flex h-full min-h-0 flex-col outline-none"
-      >
-        {!embedded && (
-          <FeatureContentSearchShortcut
+    <LinkRoutingProvider scopeId={featureId}>
+      <OpenDiffInEditorProvider onOpenFileInEditor={openDiffFileInEditor}>
+        <section
+          ref={sectionRef}
+          tabIndex={0}
+          onFocusCapture={onActivate}
+          onPointerDownCapture={onActivate}
+          // `data-agent-prompt-id` tags this whole agent area as the drop
+          // target — the Electron preload walks `closest()` to find it. The
+          // `group/agent-section` + `data-agent-dragover` pair lets the prompt
+          // bar paint its primary ring via CSS, with no React state crossing
+          // component boundaries — so in the unified grid only the card under
+          // the cursor highlights, not every mounted prompt.
+          data-agent-prompt-id={promptDropTargetId}
+          data-agent-dragover={agentDropZone.isDragging ? "true" : undefined}
+          onDragEnter={agentDropZone.onDragEnter}
+          onDragLeave={agentDropZone.onDragLeave}
+          onDrop={agentDropZone.onDrop}
+          className="group/agent-section flex h-full min-h-0 flex-col outline-none"
+        >
+          {!embedded && (
+            <FeatureContentSearchShortcut
+              featureId={featureId}
+              projectId={projectId}
+              layoutFeatureId={layoutFeatureId}
+              enabled={hotkeysEnabled}
+            />
+          )}
+          <EditorFuzzyShortcut
             featureId={featureId}
             projectId={projectId}
-            layoutFeatureId={layoutFeatureId}
             enabled={hotkeysEnabled}
           />
-        )}
-        <EditorFuzzyShortcut featureId={featureId} projectId={projectId} enabled={hotkeysEnabled} />
-        <SessionFeatureTopBar
-          featureId={featureId}
-          projectId={projectId}
-          embedded={embedded}
-          data={data}
-          projectName={props.projectName}
-          featureTitle={props.featureTitle}
-          featureLabel={props.featureLabel}
-          lastActivityAt={props.lastActivityAt}
-          isPinned={props.isPinned}
-          isPinPending={props.isPinPending}
-          onTogglePin={props.onTogglePin}
-          onExclude={props.onExclude}
-        />
-        <FeatureLayoutShell
-          featureId={layoutFeatureId}
-          tabs={tabs}
-          splitsEnabled={splitsEnabled}
-          hotkeysEnabled={hotkeysEnabled}
-          mountInactiveTabs={false}
-          onTerminalActivate={() => requestAnimationFrame(() => refs.terminal.current?.activate())}
-          onEditorActivate={() =>
-            requestAnimationFrame(() => refs.editor.current?.focusActiveEditor())
-          }
-        />
-      </section>
-    </OpenDiffInEditorProvider>
+          <SessionFeatureTopBar
+            featureId={featureId}
+            projectId={projectId}
+            embedded={embedded}
+            data={data}
+            projectName={props.projectName}
+            featureTitle={props.featureTitle}
+            featureLabel={props.featureLabel}
+            lastActivityAt={props.lastActivityAt}
+            isPinned={props.isPinned}
+            isPinPending={props.isPinPending}
+            onTogglePin={props.onTogglePin}
+            onExclude={props.onExclude}
+          />
+          <FeatureLayoutShell
+            featureId={layoutFeatureId}
+            tabs={tabs}
+            splitsEnabled={splitsEnabled}
+            hotkeysEnabled={hotkeysEnabled}
+            mountInactiveTabs={false}
+            onTerminalActivate={() =>
+              requestAnimationFrame(() => refs.terminal.current?.activate())
+            }
+            onEditorActivate={() =>
+              requestAnimationFrame(() => refs.editor.current?.focusActiveEditor())
+            }
+          />
+        </section>
+      </OpenDiffInEditorProvider>
+    </LinkRoutingProvider>
   );
 }
 

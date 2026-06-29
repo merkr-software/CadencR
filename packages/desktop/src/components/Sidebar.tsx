@@ -43,7 +43,11 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   return (
     <aside
       ref={sidebarRef}
-      className="glass-surface flex h-full flex-col border-r border-border/60 bg-sidebar"
+      // Safe-area insets pad the content here (not the mobile drawer wrapper) so
+      // `bg-sidebar` reaches the screen edges while the header/footer clear the
+      // notch and home indicator. The `env()` values are 0 on desktop, so this
+      // is a no-op outside fullscreen/standalone mobile.
+      className="glass-surface flex h-full flex-col border-r border-border/60 bg-sidebar pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)]"
     >
       <SidebarHeader onCollapse={() => setCollapsed(true)} />
       {/* Flex column so the tree gets the *remaining* height (not 100%, which

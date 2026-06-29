@@ -80,6 +80,10 @@ export interface MetaBarProps {
   todos?: TodoItem[] | null;
   runtimeProvider?: string;
   runtimeSessionId?: string;
+  /** Feature (conversation) id — enables the Info chip's "Sync from CLI" button. */
+  featureId?: number;
+  /** WS store key — used to merge synced events into the live conversation. */
+  wsSessionId?: string;
   projectPath?: string;
   isRunning?: boolean;
   onPause?: () => void;
@@ -146,6 +150,8 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
     todos,
     runtimeProvider,
     runtimeSessionId,
+    featureId,
+    wsSessionId,
     projectPath,
     isRunning = false,
     onPause,
@@ -305,6 +311,8 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
             <SessionInfoChip
               runtimeProvider={runtimeProvider}
               runtimeSessionId={runtimeSessionId}
+              featureId={featureId}
+              wsSessionId={wsSessionId}
               projectPath={projectPath}
               isRunning={isRunning}
               onPause={onPause}

@@ -8,8 +8,6 @@ interface MobileDrawerProps {
   onClose: () => void;
   /** Accessible label for the backdrop dismiss button. */
   closeLabel: string;
-  /** Extra classes for the sliding panel (e.g. safe-area insets). */
-  panelClassName?: string;
   /** Drawer contents (the sidebar/tree). */
   children: ReactNode;
 }
@@ -29,7 +27,6 @@ export function MobileDrawer({
   collapsed,
   onClose,
   closeLabel,
-  panelClassName,
   children,
 }: MobileDrawerProps): ReactElement {
   return (
@@ -48,7 +45,6 @@ export function MobileDrawer({
         className={cn(
           "absolute inset-y-0 left-0 z-50 w-[85vw] max-w-xs transform shadow-xl transition-transform duration-200 ease-out",
           collapsed ? "-translate-x-full" : "translate-x-0",
-          panelClassName,
         )}
       >
         {children}

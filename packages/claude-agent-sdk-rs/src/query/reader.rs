@@ -64,6 +64,7 @@ mod tests {
     use futures::StreamExt;
     use tempfile::TempDir;
 
+    use crate::error::SdkError;
     use crate::messages::SdkMessage;
     use crate::options::Options;
     use crate::query::query;
@@ -108,6 +109,48 @@ sleep 300
         // After close, the stream should be done (no more messages)
         let remaining = q.next().await;
         assert!(remaining.is_none(), "stream should end after close()");
+    }
+
+    #[tokio::test]
+    async fn clean_exit_with_stderr_surfaces_a_process_exit_error() {
+        // Regression: a CLI that exits 0 but wrote to stderr (e.g. crashed after
+        // an internal error it "handled" by quitting) used to end the stream
+        // silently — code-0 exits sent nothing and the stderr was discarded. It
+        // must now surface as a `ProcessExit` carrying the stderr so the turn
+        // never just stops without explanation.
+        let dir = TempDir::new().unwrap();
+        let script = r#"#!/bin/sh
+read -r INIT_REQ
+read -r MCP_REQ
+MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p')
+printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[]}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+echo "fatal: the agent crashed" 1>&2
+exit 0
+"#;
+        let script_path = write_mock_cli(dir.path(), script);
+
+        let options = Options {
+            path_to_cli: Some(script_path),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+
+        let mut q = query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap();
+
+        let item = q.next().await.expect("a terminal item");
+        match item {
+            Err(SdkError::ProcessExit { code, stderr }) => {
+                assert_eq!(code, Some(0));
+                assert!(
+                    stderr.contains("the agent crashed"),
+                    "stderr must be surfaced, got: {stderr:?}"
+                );
+            }
+            other => panic!("expected ProcessExit carrying stderr, got {other:?}"),
+        }
     }
 
     #[tokio::test]

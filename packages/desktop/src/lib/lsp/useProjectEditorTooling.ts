@@ -8,7 +8,8 @@
  * / `React.memo` stay stable (frontend-performance rule).
  */
 import { useMemo } from "react";
-import { useGetProjectSettings, useGetWorkspaceSetting } from "@/api/generated";
+import { useGetProjectSettings } from "@/api/generated";
+import { settingsArrayToMap, useGetWorkspaceSettings } from "@/api/settings";
 import type { EditorToolingSettings } from "./active-servers";
 
 export interface ProjectEditorTooling extends EditorToolingSettings {
@@ -44,11 +45,10 @@ export function useProjectEditorTooling(projectId: number | undefined): ProjectE
   const { data: projectSettings } = useGetProjectSettings(projectId ?? 0, {
     query: { enabled: projectId != null },
   });
-  // Global defaults. These hooks each issue one cheap cached GET.
-  const tsGlobal = useGetWorkspaceSetting(KEYS.typescriptServer);
-  const linterGlobal = useGetWorkspaceSetting(KEYS.linter);
-  const formatterGlobal = useGetWorkspaceSetting(KEYS.formatter);
-  const formatOnSaveGlobal = useGetWorkspaceSetting(KEYS.formatOnSave);
+  // Global defaults in one cached GET — fetching each key separately fired four
+  // requests per editor mount, which floods the remote rate limit (see
+  // ws-reconnect).
+  const { data: workspaceSettings } = useGetWorkspaceSettings();
 
   const projectMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -58,16 +58,18 @@ export function useProjectEditorTooling(projectId: number | undefined): ProjectE
     return map;
   }, [projectSettings]);
 
+  const globalMap = useMemo(() => settingsArrayToMap(workspaceSettings), [workspaceSettings]);
+
   const typescriptServer = resolve(
     projectMap,
-    tsGlobal.data?.value ?? null,
+    globalMap[KEYS.typescriptServer] ?? null,
     KEYS.typescriptServer,
     "typescript-language-server",
   );
-  const linter = resolve(projectMap, linterGlobal.data?.value ?? null, KEYS.linter, "off");
-  const formatter = resolve(projectMap, formatterGlobal.data?.value ?? null, KEYS.formatter, "off");
+  const linter = resolve(projectMap, globalMap[KEYS.linter] ?? null, KEYS.linter, "off");
+  const formatter = resolve(projectMap, globalMap[KEYS.formatter] ?? null, KEYS.formatter, "off");
   const formatOnSave =
-    resolve(projectMap, formatOnSaveGlobal.data?.value ?? null, KEYS.formatOnSave, "false") ===
+    resolve(projectMap, globalMap[KEYS.formatOnSave] ?? null, KEYS.formatOnSave, "false") ===
     "true";
 
   return useMemo<ProjectEditorTooling>(

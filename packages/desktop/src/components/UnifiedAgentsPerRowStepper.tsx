@@ -35,7 +35,7 @@ export const UnifiedAgentsPerRowStepper = memo(function UnifiedAgentsPerRowStepp
         >
           <MinusIcon className="size-3" />
         </StepperButton>
-        <span className="flex h-6 min-w-6 items-center justify-center text-[11.5px] font-semibold text-foreground">
+        <span className="flex h-8 min-w-7 items-center justify-center text-[11.5px] font-semibold text-foreground">
           {busy ? (
             <Loader2Icon aria-label="Saving agents per row" className="size-3 animate-spin" />
           ) : (
@@ -73,7 +73,7 @@ function StepperButton({
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="size-6 rounded-none text-muted-foreground hover:bg-accent/70 hover:text-foreground"
+      className="h-8 w-8 rounded-none text-muted-foreground hover:bg-accent/70 hover:text-foreground"
     >
       {children}
     </Button>

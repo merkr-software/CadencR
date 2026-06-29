@@ -148,3 +148,28 @@ async fn test_session_delete_running_session_fails() {
         panic!("expected text message");
     }
 }
+
+#[tokio::test]
+async fn test_session_delete_running_session_keeps_in_memory_handle() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+
+    let session_id_str = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+    let session_id: i64 = session_id_str.parse().unwrap();
+    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
+    sdk_sessions.lock().await.insert(
+        session_id,
+        make_active_handle(1, Some("runtime-session".to_string())),
+    );
+
+    let envelope = make_envelope(
+        "session",
+        "delete",
+        serde_json::json!({ "session_id": session_id_str }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let _ = rx.recv().await.unwrap();
+    assert!(sdk_sessions.lock().await.contains_key(&session_id));
+}

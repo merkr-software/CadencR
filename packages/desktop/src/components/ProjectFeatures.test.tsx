@@ -27,6 +27,7 @@ const mockUpdatePinned = vi.fn();
 const mockDelete = vi.fn();
 const mockDeleteWorktree = vi.fn();
 const mockDeleteBranch = vi.fn();
+const mockDisconnectSession = vi.fn();
 interface MockFeatureWorktreeInfo {
   feature_id: number;
   worktree_path: string;
@@ -42,6 +43,11 @@ interface MockStatsParams {
 
 interface MockStatsResult {
   data: { insertions: number; deletions: number } | undefined;
+}
+
+interface MockUpdateStatusVariables {
+  id: number;
+  data: { status: "active" | "archived" };
 }
 
 const { mockListFeatureWorktrees, mockGetGitStatus, mockUseGetStats } = vi.hoisted(() => ({
@@ -120,12 +126,16 @@ vi.mock("@/api/generated", () => ({
       isPending: false,
     }),
   ),
-  useUpdateFeatureStatus: vi.fn((opts?: { mutation?: { onSuccess?: () => void } }) => ({
-    mutate: (data: unknown) => {
-      mockUpdateStatus(data);
-      opts?.mutation?.onSuccess?.();
-    },
-  })),
+  useUpdateFeatureStatus: vi.fn(
+    (opts?: {
+      mutation?: { onSuccess?: (data: unknown, variables: MockUpdateStatusVariables) => void };
+    }) => ({
+      mutate: (data: MockUpdateStatusVariables) => {
+        mockUpdateStatus(data);
+        opts?.mutation?.onSuccess?.({}, data);
+      },
+    }),
+  ),
   useUpdateFeaturePinned: vi.fn((opts?: { mutation?: { onSuccess?: () => void } }) => ({
     mutate: (data: unknown) => {
       mockUpdatePinned(data);
@@ -168,8 +178,11 @@ vi.mock("@/api/generated", () => ({
 }));
 
 vi.mock("@/stores/ws-session-store", () => ({
-  useWsSessionStore: vi.fn((selector: (s: { sessions: Record<string, unknown> }) => unknown) =>
-    selector({ sessions: {} }),
+  useWsSessionStore: Object.assign(
+    vi.fn((selector: (s: { sessions: Record<string, unknown> }) => unknown) =>
+      selector({ sessions: {} }),
+    ),
+    { getState: () => ({ disconnect: mockDisconnectSession }) },
   ),
 }));
 
@@ -183,6 +196,7 @@ describe("ProjectFeatures", () => {
     mockDelete.mockClear();
     mockDeleteWorktree.mockClear();
     mockDeleteBranch.mockClear();
+    mockDisconnectSession.mockClear();
     mockListFeatureWorktrees.mockReturnValue({ data: [] });
     mockGetGitStatus.mockReturnValue({ data: undefined, isLoading: false });
     mockUseGetStats.mockReturnValue({ data: undefined });

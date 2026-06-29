@@ -1,5 +1,5 @@
 use axum::extract::{Json, Path, Query, State};
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -131,6 +131,29 @@ pub async fn get_message_full_content_handler(
     Ok(Json(MessageFullContentResponse { content }))
 }
 
+#[utoipa::path(post, path = "/api/features/{feature_id}/refresh",
+    params(("feature_id" = i64, Path,)),
+    responses(
+        (status = 200, body = RefreshSessionResponse),
+        (status = 400, description = "No syncable session, it is running, or its provider can't be synced")
+    ))]
+pub async fn refresh_session_handler(
+    State(state): State<AppState>,
+    Path(feature_id): Path<i64>,
+) -> Result<Json<RefreshSessionResponse>, AppError> {
+    let outcome = crate::domain::imports::refresh::refresh_feature_from_provider(
+        &state.read_pool,
+        &state.write_pool,
+        feature_id,
+    )
+    .await?;
+    Ok(Json(RefreshSessionResponse {
+        added: outcome.added,
+        session_db_id: outcome.session_db_id,
+        cursor: outcome.cursor,
+    }))
+}
+
 #[utoipa::path(get, path = "/api/features/{feature_id}/message-preview",
     params(("feature_id" = i64, Path,)),
     responses((status = 200, body = MessagePreviewResponse)))]
@@ -160,6 +183,10 @@ pub fn sessions_router() -> Router<AppState> {
         .route(
             "/api/sessions/{session_id}/draft",
             get(get_draft_handler).put(save_draft_handler),
+        )
+        .route(
+            "/api/features/{feature_id}/refresh",
+            post(refresh_session_handler),
         )
         .route(
             "/api/sessions/messages/{message_id}/full",

@@ -48,6 +48,10 @@ export function registerBrowserIpc(options: BrowserIpcOptions): BrowserManager {
     assertTrustedSender(event, options.getMainWindow);
     return manager.closeTab(requiredString(tabId, "tab id"));
   });
+  ipcMain.handle("browser:close-tabs-for-scope", (event, scopeId: unknown) => {
+    assertTrustedSender(event, options.getMainWindow);
+    return manager.closeTabsForScope(requiredNumber(scopeId, "scope id"));
+  });
   ipcMain.handle(
     "browser:set-bounds",
     (event, bounds: unknown, scopeId: unknown, zoomFactor: unknown) => {

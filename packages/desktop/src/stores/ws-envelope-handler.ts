@@ -13,7 +13,9 @@ import {
   parseModePayload,
   parseModelPayload,
   parseProviderPayload,
+  parseProfilePayload,
 } from "./ws-envelope-payload";
+import { truncateBlocksAtMessage } from "./ws-session-branch";
 import { handleWorktreeEvent } from "./ws-worktree-handler";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { isRecord } from "./ws-message-processing";
@@ -31,6 +33,7 @@ import {
   handleMcpServers,
   handleMessage,
   handlePermissionRequest,
+  handlePromptPersisted,
   handlePromptReceived,
   handleUserMessageMirror,
 } from "./ws-envelope-session-handlers";
@@ -190,6 +193,9 @@ function handleConfigSessionAction(
     case "effort.set.ok":
       handleEffortSetOk(ctx, sessionId, envelope.payload);
       return true;
+    case "profile.changed":
+      handleProfileChanged(ctx, sessionId, envelope.payload);
+      return true;
     default:
       return false;
   }
@@ -222,6 +228,9 @@ function handleLifecycleSessionAction(
     case "prompt_received":
       handlePromptReceived(ctx, sessionId, envelope.payload);
       break;
+    case "prompt_persisted":
+      handlePromptPersisted(ctx, sessionId, envelope.payload);
+      break;
     case "lifecycle":
       handleLifecyclePayload(ctx, sessionId, envelope.payload);
       break;
@@ -234,11 +243,28 @@ function handleLifecycleSessionAction(
     case "feature.autonaming":
       handleFeatureAutoNaming(ctx, sessionId, envelope.payload);
       break;
+    case "branch.rewound":
+      // Broadcast from another device's rewind (the originator handled its own
+      // reply via sendRequest). Mirror the conversation truncation locally.
+      handleBranchRewoundBroadcast(ctx, sessionId, envelope.payload);
+      break;
+    // A fork on another device creates a new feature; that device's sidebar
+    // refreshes via the `feature.created` broadcast, so the ref-less
+    // `branch.forked` broadcast needs no per-session handling here.
     case "ended":
     case "turn_complete":
       handleTurnComplete(ctx, sessionId, envelope.payload);
       break;
   }
+}
+
+function handleBranchRewoundBroadcast(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  if (!isRecord(payload) || typeof payload.messageId !== "number") return;
+  truncateBlocksAtMessage(ctx.get, ctx.set, sessionId, payload.messageId);
 }
 
 function handleRuntimeSessionId(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
@@ -312,6 +338,14 @@ function handleEffortSetOk(ctx: StoreAccessors, sessionId: string, payload: unkn
   ctx.set(updateSession(ctx.get(), sessionId, { currentThinkingEffort: p?.thinking_effort }));
   if (p?.thinking_effort !== previous) {
     void queryClient.invalidateQueries({ queryKey: getWorkspaceSettingsQueryKey() });
+  }
+}
+
+function handleProfileChanged(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
+  const p = parseProfilePayload(payload);
+  if (p?.profile) {
+    if (ctx.get().sessions[sessionId]?.currentProfile === p.profile) return;
+    ctx.set(updateSession(ctx.get(), sessionId, { currentProfile: p.profile }));
   }
 }
 

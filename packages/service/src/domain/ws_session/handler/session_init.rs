@@ -19,8 +19,6 @@ mod session_init_effort;
 mod session_init_feature;
 #[path = "session_init_restore.rs"]
 mod session_init_restore;
-#[path = "session_init_resume.rs"]
-mod session_init_resume;
 
 /// Handle session.init: DB-driven session creation.
 pub(super) async fn handle_init(
@@ -162,7 +160,7 @@ pub(super) async fn handle_init(
     )
     .await;
     let resume_session_id = row.as_ref().and_then(|r| {
-        session_init_resume::resume_session_id_for_provider(
+        super::session_init_resume::resume_session_id_for_provider(
             &effective_provider,
             r.runtime_provider.as_deref(),
             r.runtime_session_id.as_deref(),
@@ -245,19 +243,21 @@ pub(super) async fn handle_init(
         &configured_codex_access_mode,
     );
     runtime_config.system_prompt = payload.system_prompt.clone();
-    let mut effective_claude_profile: Option<String> = None;
+    let mut effective_profile: Option<String> = None;
     if effective_provider == crate::domain::agents::claude_code::PROVIDER_ID {
-        let profile_env = crate::domain::agents::claude_code::profiles::resolve_active_profile_env(
-            &app_state.read_pool,
-        );
         let allow_bypass = super::claude_access::bypass_permissions_enabled(
             &app_state.read_pool,
             Some(feature_id),
             Some(project_id),
         );
+        let profile = super::session_profile::resolve_initial_claude_profile(
+            app_state,
+            db_session_id,
+            row.as_ref().and_then(|session| session.profile.as_deref()),
+        );
         let ((profile_name, profile_env), allow_bypass_permissions) =
-            tokio::join!(profile_env, allow_bypass);
-        effective_claude_profile = Some(profile_name);
+            tokio::join!(profile, allow_bypass);
+        effective_profile = Some(profile_name);
         runtime_config.env = profile_env;
         runtime_config.allow_bypass_permissions = allow_bypass_permissions;
         // `bypassPermissions` is the agent-equivalent of running as root, so it
@@ -301,7 +301,7 @@ pub(super) async fn handle_init(
         thinking_effort: runtime_config.thinking_effort.clone(),
         system_prompt: runtime_config.system_prompt.clone(),
         allow_bypass_permissions: runtime_config.allow_bypass_permissions,
-        claude_profile: effective_claude_profile.clone(),
+        claude_profile: effective_profile.clone(),
         env: runtime_config.env.clone(),
     };
     let handle = SdkHandle {
@@ -316,7 +316,7 @@ pub(super) async fn handle_init(
         spawned_access_mode: None,
         desired_thinking_effort,
         spawned_thinking_effort: None,
-        desired_claude_profile: effective_claude_profile,
+        desired_claude_profile: effective_profile.clone(),
         spawned_claude_profile: None,
         runtime_control_endpoint: None,
         resume_session_id: resume_session_id.clone(),
@@ -337,6 +337,7 @@ pub(super) async fn handle_init(
             provider: Some(effective_provider.clone()),
             model: effective_model,
             thinking_effort: effective_thinking_effort,
+            profile: effective_profile,
             codex_permission_mode: if effective_provider
                 == crate::domain::agents::codex::PROVIDER_ID
             {
@@ -353,7 +354,6 @@ pub(super) async fn handle_init(
     );
     let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
 
-    // If resuming, immediately send the known runtime_session_id so the frontend can display it
     if let Some(ref cli_sid) = resume_session_id {
         send_runtime_session_id(sender, cli_sid);
     }
@@ -361,9 +361,5 @@ pub(super) async fn handle_init(
     session_init_restore::restore_pending_or_idle(app_state, sender, db_session_id, feature_id)
         .await;
 
-    // Replay current worktree provisioning state so a client opening a
-    // conversation another device already started (e.g. desktop opening a
-    // phone-started worktree) sees the branch/path/setup status instead of
-    // nothing.
     super::session_init_worktree::restore_worktree_state(app_state, sender, feature_id).await;
 }

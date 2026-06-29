@@ -11,7 +11,9 @@ import {
 } from "@/components/ui/context-menu";
 import { copyAs, type ExportFormat } from "@/lib/markdown-export";
 import { fragmentToMarkdown } from "@/lib/selection-to-markdown";
-import type { AgentBlockData } from "../AgentBlock";
+import { RotateCcwIcon, GitBranchIcon } from "lucide-react";
+import { type AgentBlockData } from "../AgentBlock";
+import { useMessageBranchActions } from "./use-message-branch-actions";
 
 type CopyScope = "selection-or-block" | "block";
 
@@ -111,6 +113,10 @@ function AgentStreamContextMenu({ block, children }: AgentStreamContextMenuProps
     return copyAs(format, text);
   }
 
+  // Rewind/Fork target a persisted user message; the shared hook resolves the
+  // message id and gates on session liveness.
+  const { canBranch, rewind, fork } = useMessageBranchActions(block);
+
   return (
     <ContextMenu onOpenChange={setMenuOpen}>
       <ContextMenuTrigger asChild>
@@ -138,6 +144,19 @@ function AgentStreamContextMenu({ block, children }: AgentStreamContextMenuProps
         <ContextMenuItem onSelect={() => void copy("markdown", "block")}>
           Copy block as Markdown
         </ContextMenuItem>
+        {canBranch && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={rewind}>
+              <RotateCcwIcon className="size-4" />
+              Rewind to here
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={fork}>
+              <GitBranchIcon className="size-4" />
+              Fork from here
+            </ContextMenuItem>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );

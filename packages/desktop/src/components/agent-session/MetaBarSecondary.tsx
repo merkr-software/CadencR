@@ -29,6 +29,8 @@ export interface MetaBarSecondaryProps extends WorktreeChipProps {
   todos?: TodoItem[] | null;
   runtimeProvider?: string;
   runtimeSessionId?: string;
+  featureId?: number;
+  wsSessionId?: string;
   projectPath?: string;
   isRunning?: boolean;
   onPause?: () => void;
@@ -47,6 +49,8 @@ export const MetaBarSecondary = memo(function MetaBarSecondary({
   todos,
   runtimeProvider,
   runtimeSessionId,
+  featureId,
+  wsSessionId,
   projectPath,
   isRunning = false,
   onPause,
@@ -92,6 +96,8 @@ export const MetaBarSecondary = memo(function MetaBarSecondary({
           <SessionInfoChip
             runtimeProvider={runtimeProvider}
             runtimeSessionId={runtimeSessionId}
+            featureId={featureId}
+            wsSessionId={wsSessionId}
             projectPath={projectPath}
             isRunning={isRunning}
             onPause={onPause}

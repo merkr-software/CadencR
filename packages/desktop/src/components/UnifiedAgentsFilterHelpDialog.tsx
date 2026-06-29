@@ -48,6 +48,7 @@ export const UnifiedAgentsFilterHelpDialog = memo(function UnifiedAgentsFilterHe
                 code="/exclude:auth|docs"
                 detail="Hide agents whose name contains any of these. Use | for multiple."
               />
+              <HelpRow code="/pin:true" detail="Show only pinned agents." />
               <HelpRow code="/sort:created" detail="Newest created agent first." />
               <HelpRow code="/sort:-created" detail="Oldest created agent first." />
               <HelpRow code="/sort:message" detail="Newest message first." />

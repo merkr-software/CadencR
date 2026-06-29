@@ -81,7 +81,7 @@ export const UnifiedAgentsNewFeatureButton = memo(function UnifiedAgentsNewFeatu
             type="button"
             variant="default"
             size="sm"
-            className="h-9 gap-1.5 rounded-xl border border-border/80 px-3 text-xs"
+            className="h-9 gap-1.5 rounded-lg border border-border/80 px-3 text-xs"
             aria-label="New session"
           >
             <PlusIcon className="size-3.5" />

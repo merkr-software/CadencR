@@ -111,21 +111,30 @@ function useWorktreePreference(projectId: number): WorktreePreferenceControls {
   return useMemo(() => ({ worktreeMode, setWorktreeMode }), [setWorktreeMode, worktreeMode]);
 }
 
+// The active provider is known from the ws handle / resolved session provider
+// before the catalog loads, so callers can resolve it up front to drive Claude
+// profile selection and then feed the chosen profile back into the catalog.
+function activeProviderIdOf(ws: WsSession, resolvedProviderId: string): string {
+  return ws.runtimeProvider || ws.currentProviderId || resolvedProviderId;
+}
+
 function useRuntimeSelection(
   ws: WsSession,
   effectiveCwd: string,
   agentCatalogEnabled: boolean,
+  catalogClaudeProfile: string | undefined,
+  resolvedProviderId: string,
 ): RuntimeSelectionControls {
-  const { resolveModel, resolveProvider, resolveModelThinkingEffort } = useResolvedModelContext();
+  const { resolveModel, resolveModelThinkingEffort } = useResolvedModelContext();
   const agentCatalog = useAgentCatalog({
     cwd: effectiveCwd,
+    profile: catalogClaudeProfile,
     enabled: agentCatalogEnabled,
     staleTime: 30_000,
   });
-  const resolvedProviderId = resolveProvider("session");
   const resolvedModelId = resolveModel("session");
   const resolvedThinkingEffort = resolveModelThinkingEffort(resolvedProviderId, resolvedModelId);
-  const activeProviderId = ws.runtimeProvider || ws.currentProviderId || resolvedProviderId;
+  const activeProviderId = activeProviderIdOf(ws, resolvedProviderId);
   const activeSessionModel = agentCatalog.data?.providers
     .find((provider) => provider.id === (ws.currentProviderId || resolvedProviderId))
     ?.models.find((model) => model.id === (ws.currentModelId || resolvedModelId));
@@ -206,12 +215,27 @@ export function useSessionControls(
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
   const initializedRef = useRef<string | null>(null);
   const worktree = useWorktreePreference(projectId);
-  const runtime = useRuntimeSelection(ws, effectiveCwd, options?.agentCatalogEnabled ?? true);
   const codex = useCodexAccessControls(ws);
+  // Resolve the active provider and the Claude profile before the catalog query
+  // so a profile chosen in the prompt-area selector scopes the model probe
+  // (issue #76: the prompt selector must refresh the model list, like settings).
+  // resolvedProviderId is computed once here and threaded into the runtime hook.
+  const { resolveProvider } = useResolvedModelContext();
+  const resolvedProviderId = resolveProvider("session");
+  const isClaudeProvider = activeProviderIdOf(ws, resolvedProviderId) === PROVIDER_IDS.CLAUDE_CODE;
   const claudeProfile = useClaudeProfileSelection({
-    isClaudeProvider: runtime.activeProviderId === PROVIDER_IDS.CLAUDE_CODE,
+    isClaudeProvider,
     wsSessionId: sessionId,
+    sessionProfile: ws.currentProfile,
+    onSessionProfileChange: ws.setProfile,
   });
+  const runtime = useRuntimeSelection(
+    ws,
+    effectiveCwd,
+    options?.agentCatalogEnabled ?? true,
+    isClaudeProvider ? claudeProfile.catalogProfile : undefined,
+    resolvedProviderId,
+  );
   const handlePermissionModeToggle = usePermissionModeToggle(
     sessionId,
     runtime.activeProviderId,

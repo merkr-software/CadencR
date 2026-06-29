@@ -24,6 +24,10 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         uuid::Uuid::parse_str(session_id).is_ok()
     }
 
+    fn session_branching(&self) -> Option<&dyn crate::domain::agents::adapter::SessionBranching> {
+        Some(&super::CLAUDE_SESSION_BRANCHING)
+    }
+
     fn resolve_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
         runtime_session_id
             .filter(|sid| uuid::Uuid::parse_str(sid).is_ok())
@@ -142,10 +146,25 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
 
     async fn catalog_entry_live_for_settings(
         &self,
-        read_pool: &SqlitePool,
+        _read_pool: &SqlitePool,
         _cwd: Option<&Path>,
+        profile: Option<&str>,
     ) -> ProviderCatalogEntry {
-        let (_, profile_env) = super::profiles::resolve_active_profile_env(read_pool).await;
+        // `profile` lets the prompt-area selector preview a non-active profile's
+        // models (Bedrock/Vertex model ids differ from Anthropic). When it is
+        // None we fall back to the active profile — and if a named profile fails
+        // to resolve we still degrade to the active env rather than break the
+        // catalog probe.
+        let profile_env = match super::profiles::resolve_profile_env_by_name(profile) {
+            Ok((_, env)) => env,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to resolve claude_code profile env for catalog; using active profile"
+                );
+                super::profiles::resolve_active_profile_env().1
+            }
+        };
         let models = self.load_models_with_env(profile_env).await;
         provider_catalog_entry_from_models(models)
     }
@@ -154,8 +173,8 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         ClaudeCodeAdapter::default_model_id(self).await
     }
 
-    async fn default_model_id_for_settings(&self, read_pool: &SqlitePool) -> Option<String> {
-        let (_, profile_env) = super::profiles::resolve_active_profile_env(read_pool).await;
+    async fn default_model_id_for_settings(&self, _read_pool: &SqlitePool) -> Option<String> {
+        let (_, profile_env) = super::profiles::resolve_active_profile_env();
         ClaudeCodeAdapter::default_model_id_with_env(self, profile_env).await
     }
 

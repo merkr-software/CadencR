@@ -106,6 +106,7 @@ mod session_subagents_tests {
                 runtime_session_id TEXT,
 
                 model TEXT,
+                profile TEXT,
                 permission_mode TEXT,
                 codex_permission_mode TEXT DEFAULT 'default',
                 has_file_changes INTEGER NOT NULL DEFAULT 0,
@@ -326,7 +327,11 @@ mod session_subagents_tests {
     }
 
     #[tokio::test]
-    async fn test_assistant_without_parent_is_skipped() {
+    async fn test_unstreamed_top_level_assistant_text_is_persisted() {
+        // A top-level assistant text message that was NOT streamed (no prior
+        // `message_start`/deltas) must be persisted — otherwise the agent's
+        // reply silently vanishes. (Streamed turns are covered separately and
+        // must NOT double-write; see the reconciliation tests.)
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let sid = p.find_or_create_session(None, None).await.unwrap();
@@ -339,12 +344,16 @@ mod session_subagents_tests {
         );
         p.persist_runtime_event(&runtime_event).await;
 
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM agent_messages WHERE session_id = ?")
-            .bind(sid)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(count.0, 0);
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT message_type, content FROM agent_messages WHERE session_id = ? ORDER BY id",
+        )
+        .bind(sid)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0, "text");
+        assert_eq!(rows[0].1, "top-level response");
     }
 
     #[tokio::test]

@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="200" height="200">
-  
-  <circle cx="50" cy="50" r="16" fill="#b388ff"/>
+  <circle cx="50" cy="50" r="46" fill="#1f2230"/>
+  <circle cx="50" cy="50" r="44" fill="none" stroke="#34384a" stroke-width="3"/>
+  <circle cx="50" cy="50" r="16" fill="#bd93f9"/>
   <g transform="rotate(-90 50 50)">
     <!-- Anneau de base : 12 tirets parfaitement espacés -->
-    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#454f63" stroke-width="5" stroke-linecap="round" stroke-dasharray="10 20" fill="none"/>
+    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#8a93aa" stroke-width="6" stroke-linecap="round" stroke-dasharray="10 20" fill="none"/>
     <!-- Arc Vert : Couvre exactement de 240° à 280° (2 tirets) -->
-    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#b2ff59" stroke-width="5" stroke-linecap="round" stroke-dasharray="40 320" fill="none" transform="rotate(240 50 50)"/>
+    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#50fa7b" stroke-width="6" stroke-linecap="round" stroke-dasharray="40 320" fill="none" transform="rotate(240 50 50)"/>
     <!-- Arc Cyan : Couvre exactement de 60° à 100° (2 tirets) -->
-    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#80d8ff" stroke-width="5" stroke-linecap="round" stroke-dasharray="40 320" fill="none" transform="rotate(60 50 50)"/>
+    <circle cx="50" cy="50" r="28" pathLength="360" stroke="#8be9fd" stroke-width="6" stroke-linecap="round" stroke-dasharray="40 320" fill="none" transform="rotate(60 50 50)"/>
   </g>
 </svg>

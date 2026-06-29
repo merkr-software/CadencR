@@ -3,6 +3,7 @@ import type { UnifiedAgentEntry } from "@/api/generated";
 import {
   getUnifiedAgentsMatchingFilters,
   orderUnifiedAgentsForDisplay,
+  pruneRedundantExcludedTitles,
   type UnifiedAgentFilterArgs,
 } from "@/components/UnifiedAgentsViewData";
 
@@ -24,6 +25,7 @@ const ALL_FILTERS: UnifiedAgentFilterArgs = {
   freshMinutes: 5,
   projectIds: [],
   excludedTitles: [],
+  pinnedOnly: false,
   queryText: "",
   sortOrder: "created_desc",
 };
@@ -218,6 +220,50 @@ describe("UnifiedAgentsViewData", () => {
     );
 
     expect(ids(visible)).toEqual([1, 2]);
+  });
+
+  it("shows only pinned features when /pin is active", () => {
+    const visible = getUnifiedAgentsMatchingFilters(
+      [
+        buildAgent({ id: 1, title: "Unpinned" }),
+        buildAgent({ id: 2, title: "Pinned A", isPinned: true }),
+        buildAgent({ id: 3, title: "Pinned B", isPinned: true }),
+      ],
+      { ...ALL_FILTERS, pinnedOnly: true },
+    );
+
+    expect(ids(visible)).toEqual([2, 3]);
+  });
+
+  it("prunes excluded titles whose only match aged out of the /last window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-04T23:30:00.000Z"));
+
+    const entries = [
+      // Fresh and currently hidden by "keep": the title is still doing work.
+      buildAgent({ id: 1, title: "Keep me", lastActivityAt: "2026-03-04 23:28:00" }),
+      // Stale: outside the 5-minute window, so "gone" no longer hides anything.
+      buildAgent({ id: 2, title: "Gone agent", lastActivityAt: "2026-03-04 20:00:00" }),
+    ];
+
+    const pruned = pruneRedundantExcludedTitles(entries, {
+      ...ALL_FILTERS,
+      mode: "recent",
+      freshMinutes: 5,
+      excludedTitles: ["keep", "gone"],
+    });
+
+    expect(pruned).toEqual(["keep"]);
+  });
+
+  it("returns the same excluded-titles reference when nothing is redundant", () => {
+    const excludedTitles = ["keep"];
+    const pruned = pruneRedundantExcludedTitles([buildAgent({ id: 1, title: "Keep me" })], {
+      ...ALL_FILTERS,
+      excludedTitles,
+    });
+
+    expect(pruned).toBe(excludedTitles);
   });
 
   it("parses SQLite UTC timestamps consistently for recent filtering", () => {

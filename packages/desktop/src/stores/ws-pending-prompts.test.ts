@@ -3,6 +3,7 @@ import type { AgentBlockData } from "@/components/AgentBlock";
 import {
   markPromptReceived,
   movePendingPromptBlocksToTail,
+  stampPersistedMessageId,
   trimTailPromptTurnBoundary,
 } from "./ws-pending-prompts";
 
@@ -75,6 +76,23 @@ describe("pending prompt delivery ordering", () => {
     expect(trimmed.shouldTrim).toBe(true);
     expect(duplicate.shouldTrim).toBe(true);
     expect(trimmed.blocks[0].promptDeliveryState).toBe("received_agent");
+  });
+
+  it("stamps the persisted DB id on the matching live block without touching its id", () => {
+    const stamped = stampPersistedMessageId(
+      [block("assistant-1"), block("ws-user-1", "user_message", "client-1")],
+      "client-1",
+      42,
+    );
+
+    expect(stamped[1].messageDbId).toBe(42);
+    expect(stamped[1].id).toBe("ws-user-1"); // id/key unchanged → no Virtuoso remount
+    expect(stamped[1].clientMessageId).toBe("client-1"); // still matchable by prompt_received
+  });
+
+  it("returns the same array when no block matches the client id", () => {
+    const blocks = [block("ws-user-1", "user_message", "client-1")];
+    expect(stampPersistedMessageId(blocks, "client-unknown", 7)).toBe(blocks);
   });
 
   it("removes stale turn summaries after a pending tail prompt", () => {

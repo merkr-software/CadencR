@@ -216,6 +216,34 @@ index abc..def 100644
     expect(screen.getByRole("button", { name: "Unified" })).toBeInTheDocument();
   });
 
+  it("reads the workspace-level git diff view mode setting", () => {
+    mocks.useGetDiffMock.mockReturnValue({
+      data: { diff: singleFileDiff } as unknown,
+      isLoading: false,
+    });
+
+    render(<DiffViewer featureId={1} mode="worktree" />);
+
+    expect(mocks.useDebouncedSettingMock).toHaveBeenCalledWith("git_diff_view_mode", 0);
+  });
+
+  it("persists the diff view mode when toggling Split", async () => {
+    const setDiffMode = vi.fn();
+    mocks.useDebouncedSettingMock.mockImplementation((key: string) => ({
+      value: null,
+      setValue: key === "git_diff_view_mode" ? setDiffMode : mocks.persistFileListCollapsedMock,
+    }));
+    mocks.useGetDiffMock.mockReturnValue({
+      data: { diff: singleFileDiff } as unknown,
+      isLoading: false,
+    });
+
+    const { user } = render(<DiffViewer featureId={1} mode="worktree" />);
+    await user.click(screen.getByRole("button", { name: "Split" }));
+
+    expect(setDiffMode).toHaveBeenCalledWith("split");
+  });
+
   it("uses a workspace-level git file list collapse setting", () => {
     mocks.useGetDiffMock.mockReturnValue({
       data: { diff: singleFileDiff } as unknown,

@@ -49,6 +49,7 @@ vi.mock("@tanstack/react-router", () => ({
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 
 vi.mock("../api/generated", () => ({
+  FeatureStatus: { active: "active", archived: "archived" },
   useListProjects: () => mocks.mockProjectsListQuery(),
   getListProjectsQueryKey: vi.fn(() => ["projects"]),
   useListFeatures: () => mocks.mockFeaturesListQuery(),
@@ -91,6 +92,22 @@ describe("HomePage route", () => {
     });
     mocks.mockFeaturesListQuery.mockReturnValue({ data: [], isSuccess: true, error: null });
     render(<HomePage />);
+    expect(screen.getByText("No features in this project yet")).toBeInTheDocument();
+  });
+
+  it("shows the welcome screen instead of reopening an archived-only conversation", () => {
+    mocks.mockProjectsListQuery.mockReturnValue({
+      data: [{ id: 1, name: "Test", path: "/test" }],
+      isSuccess: true,
+      error: null,
+    });
+    mocks.mockFeaturesListQuery.mockReturnValue({
+      data: [{ id: 5, title: "Deleted conversation", status: "archived" }],
+      isSuccess: true,
+      error: null,
+    });
+    render(<HomePage />);
+    expect(mocks.mockNavigate).not.toHaveBeenCalled();
     expect(screen.getByText("No features in this project yet")).toBeInTheDocument();
   });
 

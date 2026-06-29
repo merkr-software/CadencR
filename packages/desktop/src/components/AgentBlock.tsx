@@ -1,23 +1,19 @@
 import { useState, useCallback, memo, useMemo } from "react";
-import { cn, toRelativePath } from "@/lib/utils";
-import { ChevronRightIcon, WrenchIcon, CopyIcon, CheckIcon } from "lucide-react";
-import {
-  isCadencrPlanPresentationTool,
-  parseCadencrMcpTool,
-  parseToolCall,
-} from "@/lib/tool-call-parser";
+import { toRelativePath } from "@/lib/utils";
+import { CopyIcon, CheckIcon } from "lucide-react";
+import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import {
   extractBashCommand,
   extractBashOutput,
   extractBashResultOutput,
   isFileChangeTool,
   isToolCallRunning,
-  normalizeToolName,
 } from "@/lib/tool-adapter";
-import { CadencrMcpBlock } from "@/components/CadencrMcpBlock";
+import { ToolCallBlock } from "@/components/AgentToolCallBlock";
 import { Markdown } from "@/components/Markdown";
 import { renderFileChangeBlocks } from "@/components/file-change-block";
 import { UserMessageBlock } from "@/components/UserMessageBlock";
+import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
 import { TaskAgentBlock } from "@/components/TaskAgentBlock";
 import { PlanBlock } from "@/components/PlanBlock";
 import { BashBlock } from "@/components/BashBlock";
@@ -74,7 +70,12 @@ export interface AgentBlockData {
   childBlocks?: AgentBlockData[];
   /** Whether this Task's subagent has completed */
   taskComplete?: boolean;
-  /** DB message ID — used for deduplication against server data */
+  /**
+   * Persisted DB message id. For history-loaded blocks the id is encoded in
+   * `id` (`msg-<n>`); for a message sent live this session (a `ws-user-*`
+   * block) it is stamped here by the `prompt_persisted` ack so rewind/fork can
+   * target it without a reload.
+   */
   messageDbId?: number;
   /** The tool name that produced this tool_result (resolved from parent tool_call) */
   sourceToolName?: string;
@@ -218,6 +219,7 @@ export const AgentBlock = memo(function AgentBlock({
           deliveryState={
             block.promptDeliveryState === "pending_agent" ? block.promptDeliveryState : undefined
           }
+          actions={<UserMessageActions block={block} />}
         />
       );
     case "turn_summary":
@@ -237,7 +239,7 @@ function isPlanPresentationTool(toolName: string | undefined): boolean {
   return toolName === "ExitPlanMode" || isCadencrPlanPresentationTool(toolName);
 }
 
-function messageIdFromBlockId(id: string): number | undefined {
+export function messageIdFromBlockId(id: string): number | undefined {
   if (!id.startsWith("msg-")) return undefined;
   const parsed = Number(id.slice(4));
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
@@ -330,68 +332,4 @@ function CodeBlock({ content, language }: { content: string; language?: string }
       </pre>
     </div>
   );
-}
-
-function ToolCallBlock({
-  name,
-  args,
-  basePath,
-}: {
-  name: string;
-  args?: string;
-  basePath?: string;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const canonicalName = normalizeToolName(name);
-  const cadencrMcp = parseCadencrMcpTool(canonicalName, args);
-  if (cadencrMcp) return <CadencrMcpBlock mcp={cadencrMcp} args={args} />;
-
-  const summary = parseToolCall(canonicalName, args);
-  const detail =
-    summary?.detail && basePath ? toRelativePath(summary.detail, basePath) : summary?.detail;
-  // File-patch tools (Edit / Write / ApplyPatch) get a distinct green "file
-  // change" identity so they stand apart from generic tool calls, which keep the
-  // neutral tool accent. The green is derived from each theme's --numstat-add-fg
-  // (the diff "lines added" color), so it stays distinct in every theme without
-  // per-theme tuning.
-  const isEdit = isFileChangeTool(canonicalName);
-  const toolColorClass = isEdit
-    ? "text-[var(--numstat-add-fg)]"
-    : "text-[var(--block-tool-accent)]";
-  const wrapperClass = isEdit
-    ? "border-[color-mix(in_srgb,var(--numstat-add-fg)_35%,transparent)] bg-[color-mix(in_srgb,var(--numstat-add-fg)_12%,var(--card))]"
-    : "border-border bg-[var(--block-tool-bg)]";
-
-  return (
-    <div className={cn("my-1 rounded-md border", wrapperClass)}>
-      <button
-        type="button"
-        className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <WrenchIcon className={cn("size-3", toolColorClass)} />
-        <span className={cn("font-medium", toolColorClass)}>{canonicalName}</span>
-        {detail && <span className="truncate text-muted-foreground">{detail}</span>}
-        <ChevronRightIcon
-          className={cn(
-            "ml-auto size-3 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-90",
-          )}
-        />
-      </button>
-      {expanded && args && (
-        <pre className="border-t border-border bg-muted/30 p-3 text-xs overflow-x-auto">
-          {formatJson(args)}
-        </pre>
-      )}
-    </div>
-  );
-}
-
-function formatJson(str: string): string {
-  try {
-    return JSON.stringify(JSON.parse(str), null, 2);
-  } catch {
-    return str;
-  }
 }

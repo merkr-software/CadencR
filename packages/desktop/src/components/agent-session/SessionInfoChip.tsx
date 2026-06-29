@@ -17,11 +17,16 @@ import { DEFAULT_CLAUDE_PROFILE_NAME, type ClaudeCodeProfile } from "@/api/agent
 import { cn } from "@/lib/utils";
 import type { McpServerStatus } from "@/stores/ws-session-types";
 import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
+import { SyncFromCliRow } from "./SyncFromCliRow";
 
 interface SessionInfoChipProps {
   runtimeProvider: string | undefined;
   runtimeSessionId: string;
   projectPath: string | undefined;
+  /** Feature (conversation) id — target of the "Sync from CLI" refresh endpoint. */
+  featureId?: number;
+  /** WS store key — used to merge the synced events into the live conversation. */
+  wsSessionId?: string;
   isRunning: boolean;
   onPause: () => void;
   chipClass: string;
@@ -49,6 +54,8 @@ export function SessionInfoChip({
   runtimeProvider,
   runtimeSessionId,
   projectPath,
+  featureId,
+  wsSessionId,
   isRunning,
   onPause,
   chipClass,
@@ -108,6 +115,8 @@ export function SessionInfoChip({
         <SessionInfoContent
           runtimeProvider={runtimeProvider}
           runtimeSessionId={runtimeSessionId}
+          featureId={featureId}
+          wsSessionId={wsSessionId}
           mcpServers={mcpServers}
           copiedField={copiedField}
           resumeSupported={resume.supported}
@@ -128,6 +137,8 @@ export function SessionInfoChip({
 interface SessionInfoContentProps {
   runtimeProvider: string | undefined;
   runtimeSessionId: string;
+  featureId?: number;
+  wsSessionId?: string;
   mcpServers: McpServerStatus[] | null;
   copiedField: "id" | "command" | null;
   resumeSupported: boolean;
@@ -144,6 +155,8 @@ interface SessionInfoContentProps {
 function SessionInfoContent({
   runtimeProvider,
   runtimeSessionId,
+  featureId,
+  wsSessionId,
   mcpServers,
   copiedField,
   resumeSupported,
@@ -181,6 +194,9 @@ function SessionInfoContent({
         isRunning={isRunning}
         onCopy={onCopyLaunchCommand}
       />
+      {featureId != null && wsSessionId && (
+        <SyncFromCliRow featureId={featureId} wsSessionId={wsSessionId} isRunning={isRunning} />
+      )}
     </>
   );
 }

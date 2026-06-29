@@ -7,9 +7,7 @@ use crate::domain::runtime_stream::{
 };
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::{PendingUserInput, WsSessionPersistence};
-use crate::domain::ws_session::protocol::{
-    PermissionRequestPayload, SessionErrorPayload, WsEnvelope,
-};
+use crate::domain::ws_session::protocol::{PermissionRequestPayload, WsEnvelope};
 
 use super::super::send_runtime_session_id;
 use super::mcp_servers::{refresh_mcp_servers_for_active_session, send_mcp_servers_if_init};
@@ -57,7 +55,23 @@ impl StreamReaderTask {
         let _ = self.send_mcp_servers_if_init(&runtime_event).await;
 
         if self.handle_provider_error(&runtime_event).await {
+            state.surfaced_error_this_turn = true;
             return;
+        }
+
+        if self.handle_unknown_message(&runtime_event).await {
+            state.surfaced_error_this_turn = true;
+            return;
+        }
+
+        // A turn-ending error result is surfaced but must NOT short-circuit —
+        // the result still has to flow through the turn-complete path below.
+        // Suppressed when an error already surfaced this turn (issue #78).
+        if self
+            .surface_result_error(state.surfaced_error_this_turn, &runtime_event)
+            .await
+        {
+            state.surfaced_error_this_turn = true;
         }
 
         if self.handle_non_result_signal(state, &runtime_event).await {
@@ -161,41 +175,6 @@ impl StreamReaderTask {
         result
     }
 
-    /// Surface a non-fatal provider error (e.g. an API 5xx the CLI reports as a
-    /// synthetic assistant message). Persist it as an `error` message so it
-    /// shows on history reload, and emit a live `session.error` envelope so it
-    /// appears immediately. Unlike [`Self::handle_stream_error`], this does NOT
-    /// stop the reader: the provider's own `Result` still ends the turn and the
-    /// subprocess stays alive for a retry. Returns `true` when handled.
-    async fn handle_provider_error(&self, runtime_event: &RuntimeEvent) -> bool {
-        let Some(error) = runtime_event.provider_error() else {
-            return false;
-        };
-        let code = error.code.unwrap_or("API_ERROR");
-        error!(self.db_session_id, code, "provider surfaced an API error");
-        WsSessionPersistence::persist_error_message_static(
-            &self.write_pool,
-            self.db_session_id,
-            error.message,
-            error.parent_tool_use_id,
-        )
-        .await;
-        let envelope = WsEnvelope::new(
-            "session",
-            "error",
-            serde_json::to_value(SessionErrorPayload {
-                code: code.to_string(),
-                message: error.message.to_string(),
-                ..Default::default()
-            })
-            .unwrap(),
-        );
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
-            .await;
-        true
-    }
-
     /// Emit `session.compacting` when a provider reports a compaction start/end.
     async fn forward_compaction_state(
         &self,
@@ -238,6 +217,9 @@ impl StreamReaderTask {
         }
         if crate::domain::session_status::event_starts_fresh_turn(runtime_event) {
             state.between_turns = false;
+            // New turn: clear any error surfaced in the previous turn so this
+            // turn's terminal error-result (if any) can surface (issue #78).
+            state.surfaced_error_this_turn = false;
         }
         if !state.between_turns {
             self.broadcast_runtime_signal(state, runtime_event).await;

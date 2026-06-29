@@ -64,6 +64,15 @@ while IFS= read -r line; do
     *'"method":"turn/start"'*)
       echo '{"id":4,"result":{"turn":{"id":"turn_mock"}}}'
       ;;
+    *'"method":"thread/fork"'*)
+      echo '{"id":5,"result":{"thread":{"id":"thread_fork","turns":[{"id":"turn_1","status":"completed","items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"first"}]}]},{"id":"turn_2","status":"completed","items":[{"type":"userMessage","id":"user_2","content":[{"type":"text","text":"second"}]}]}]}}}'
+      ;;
+    *'"method":"thread/rollback"'*)
+      echo '{"id":6,"result":{"thread":{"id":"thread_fork","turns":[{"id":"turn_1","status":"completed","items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"first"}]}]}]}}}'
+      ;;
+    *'"method":"thread/read"'*)
+      echo '{"id":7,"result":{"thread":{"id":"thread_fork","turns":[{"id":"turn_1","status":"completed","items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"first"}]}]}]}}}'
+      ;;
   esac
 done
 "#,
@@ -114,6 +123,20 @@ async fn mock_app_server_lifecycle_supports_handshake_model_list_and_requests() 
             .id,
         "turn_mock"
     );
+    let forked = client
+        .thread_fork("thread_mock", std::path::Path::new("/tmp"))
+        .await
+        .unwrap();
+    assert_eq!(forked.id, "thread_fork");
+    assert_eq!(forked.turns.len(), 2);
+    assert_eq!(forked.turns[1].user_message_count(), 1);
+
+    client.thread_rollback("thread_fork", 1).await.unwrap();
+
+    let read = client.thread_read("thread_fork", true).await.unwrap();
+    assert_eq!(read.id, "thread_fork");
+    assert_eq!(read.turns.len(), 1);
+
     client.shutdown().await;
     client.shutdown().await;
 }

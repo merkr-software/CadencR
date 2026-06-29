@@ -127,6 +127,12 @@ pub(crate) async fn handle_destroy(
     let feature_id = handle.feature_id;
     let runtime_provider = handle.runtime_provider.clone();
 
+    // Mark completed BEFORE closing the subprocess: closing ends the stream,
+    // and the per-turn reader interprets a clean close while the DB still shows
+    // `running` as an unexpected mid-turn death (raising an error). Flipping the
+    // status off `running` first makes this intentional close read as benign.
+    WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
+
     // Close active subprocess if running
     if let QueryState::Active { query, .. } = handle.state {
         persist_and_close_query(
@@ -137,8 +143,6 @@ pub(crate) async fn handle_destroy(
         )
         .await;
     }
-
-    WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
     WsSessionPersistence::broadcast_session_status(
         &app_state.session_status_tx,
         db_session_id,
@@ -187,11 +191,13 @@ pub(crate) async fn handle_delete(
         }
     };
 
-    // Remove from in-memory map if present (shouldn't be active, but clean up)
-    sdk_sessions.lock().await.remove(&db_session_id);
-
     match WsSessionPersistence::delete_session_static(&app_state.write_pool, db_session_id).await {
         Ok((feature_id, agent_type)) => {
+            // The DB delete is the source of truth. Only drop the in-memory
+            // handle after it succeeds; failed deletes (for example a running
+            // session) must leave the live handle intact.
+            sdk_sessions.lock().await.remove(&db_session_id);
+
             WsSessionPersistence::broadcast_session_status(
                 &app_state.session_status_tx,
                 db_session_id,
@@ -262,6 +268,12 @@ pub(crate) async fn handle_clear(
     // If stream already finished (Pending with resume), extract from those options.
     let cli_sid = match &handle.state {
         QueryState::Active { query, .. } => {
+            // Flip status off `running` BEFORE closing: closing ends the stream,
+            // and the per-turn reader treats a clean close while the DB still
+            // shows `running` as an unexpected mid-turn death (raising
+            // `AGENT_STOPPED`). An intentional clear must read as a benign close.
+            // (`archive_and_clear` below only nulls the runtime id, not status.)
+            WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
             persist_and_close_query(
                 query,
                 &app_state.write_pool,

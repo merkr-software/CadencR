@@ -142,6 +142,19 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
     );
     useImperativeHandle(ref, () => ({
       focusInput: () => editorRef.current?.focus(),
+      setDraft: (value: string) => {
+        // Mirror the draft-restore path: flag the restore so the editor's
+        // onChange doesn't treat it as a fresh user edit, populate both the
+        // editor and the text state, persist, and focus with the caret at end.
+        restoringDraftRef.current = true;
+        setText(value);
+        editorRef.current?.setText(value, true);
+        interactedRef.current = true;
+        saveDraft(value);
+        queueMicrotask(() => {
+          restoringDraftRef.current = false;
+        });
+      },
     }));
     const isRunning = status === "agent";
     const getAttachments = useCallback(() => attachments, [attachments]);

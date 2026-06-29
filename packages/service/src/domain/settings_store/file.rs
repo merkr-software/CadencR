@@ -8,6 +8,27 @@ use crate::error::AppError;
 
 use super::SettingWarning;
 
+/// Top-level keys whose value is a nested object the store persists verbatim
+/// (e.g. `profiles.<name>.<ENV_KEY>`). They are not part of the flat scalar
+/// projection, so they are skipped silently rather than warned on.
+const STRUCTURED_KEYS: &[&str] = &["profiles"];
+
+fn is_structured_key(key: &str) -> bool {
+    STRUCTURED_KEYS.contains(&key)
+}
+
+/// Clone a top-level object section (e.g. `profiles`) out of a parsed document.
+/// Returns an empty map when the key is absent or its value isn't an object.
+pub fn object_section(
+    doc: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> serde_json::Map<String, serde_json::Value> {
+    match doc.get(key) {
+        Some(serde_json::Value::Object(obj)) => obj.clone(),
+        _ => serde_json::Map::new(),
+    }
+}
+
 /// Read raw file text. Returns `None` when the file does not exist.
 pub fn read_file(path: &Path) -> Result<Option<String>, AppError> {
     match std::fs::read_to_string(path) {
@@ -57,6 +78,10 @@ pub fn parse_object(
                 out.insert(key, n.to_string());
             }
             serde_json::Value::Null => {}
+            // Recognized nested sections (e.g. `profiles`) are preserved on
+            // write and intentionally absent from the flat scalar map — not a
+            // mistake, so don't warn.
+            serde_json::Value::Object(_) if is_structured_key(&key) => {}
             serde_json::Value::Array(_) | serde_json::Value::Object(_) => {
                 warnings.push(SettingWarning::new(
                     key.clone(),
@@ -71,6 +96,32 @@ pub fn parse_object(
 /// Serialize a settings map to pretty JSON with a trailing newline. Keys are
 /// ordered (BTreeMap) so external diffs stay stable.
 pub fn serialize_map(map: &BTreeMap<String, String>) -> String {
+    let mut text = serde_json::to_string_pretty(map).unwrap_or_else(|_| "{}".to_string());
+    text.push('\n');
+    text
+}
+
+/// Parse the full settings document, preserving nested objects/arrays. This is
+/// the canonical write form: it keeps structured sections (e.g. `profiles`)
+/// that the flat scalar projection (`parse_object`) deliberately drops. Empty
+/// document → empty object; errors only when the top-level JSON isn't an object.
+pub fn parse_document(content: &str) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    let trimmed = content.trim();
+    if trimmed.is_empty() {
+        return Ok(serde_json::Map::new());
+    }
+    let value: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("not valid JSON: {e}"))?;
+    match value {
+        serde_json::Value::Object(map) => Ok(map),
+        _ => Err("settings file must contain a JSON object".to_string()),
+    }
+}
+
+/// Serialize a full settings document to pretty JSON with a trailing newline.
+/// serde_json's `Map` is a `BTreeMap` (no `preserve_order` feature), so keys
+/// serialize sorted at every level — stable external diffs, like `serialize_map`.
+pub fn serialize_document(map: &serde_json::Map<String, serde_json::Value>) -> String {
     let mut text = serde_json::to_string_pretty(map).unwrap_or_else(|_| "{}".to_string());
     text.push('\n');
     text
@@ -169,5 +220,40 @@ mod tests {
         let (map, warnings) = parse_object("   ").unwrap();
         assert!(map.is_empty());
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn structured_section_is_skipped_without_warning() {
+        // A recognized nested section (`profiles`) is absent from the flat scalar
+        // projection but must NOT produce a warning (it is preserved on write).
+        let (map, warnings) = parse_object(
+            r#"{"theme_current":"aurora","profiles":{"bedrock":{"AWS_REGION":"us-east-1"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(map.get("theme_current").map(String::as_str), Some("aurora"));
+        assert!(!map.contains_key("profiles"));
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn document_round_trip_preserves_nested_sections() {
+        let doc = parse_document(
+            r#"{"theme_current":"aurora","profiles":{"bedrock":{"AWS_REGION":"us-east-1"}}}"#,
+        )
+        .unwrap();
+        let text = serialize_document(&doc);
+        let reparsed = parse_document(&text).unwrap();
+        assert_eq!(reparsed["theme_current"], serde_json::json!("aurora"));
+        assert_eq!(
+            reparsed["profiles"]["bedrock"]["AWS_REGION"],
+            serde_json::json!("us-east-1")
+        );
+    }
+
+    #[test]
+    fn parse_document_rejects_non_object() {
+        assert!(parse_document("[1,2,3]").is_err());
+        assert!(parse_document("{ broken").is_err());
+        assert!(parse_document("  ").unwrap().is_empty());
     }
 }

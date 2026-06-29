@@ -145,8 +145,10 @@ export function CommitItemHoverCard({
       <HoverCard.Trigger asChild>{children}</HoverCard.Trigger>
       <HoverCard.Portal>
         <HoverCard.Content
-          side="right"
-          sideOffset={8}
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
           data-slot="hover-card-content"
           className="z-50 w-72 rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md
             data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95

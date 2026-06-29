@@ -13,6 +13,7 @@ interface UseUnifiedAgentsDataArgs {
   freshMinutes: number;
   projectIds: number[];
   excludedTitles: string[];
+  pinnedOnly: boolean;
   query: string;
   sortOrder: UnifiedAgentsSortOrder;
 }
@@ -24,6 +25,10 @@ export interface UnifiedAgentsData {
   isError: boolean;
   errorMessage: string;
   refresh: () => void;
+  /** Recompute the `/exclude:` titles against the current agents, dropping any
+   *  that no longer hide an otherwise-visible agent (e.g. it aged out of the
+   *  `/last` window). Returns the same array reference when nothing changed. */
+  pruneExcludedTitles: () => string[];
 }
 
 export const UNIFIED_AGENTS_QUERY_OPTIONS = {
@@ -38,6 +43,7 @@ export function useUnifiedAgentsData({
   freshMinutes,
   projectIds,
   excludedTitles,
+  pinnedOnly,
   query,
   sortOrder,
 }: UseUnifiedAgentsDataArgs): UnifiedAgentsData {
@@ -66,6 +72,7 @@ export function useUnifiedAgentsData({
         freshMinutes,
         projectIds,
         excludedTitles,
+        pinnedOnly,
         queryText,
         sortOrder,
         liveActiveSessionIds,
@@ -75,6 +82,7 @@ export function useUnifiedAgentsData({
       mode,
       projectIds,
       excludedTitles,
+      pinnedOnly,
       queryText,
       rawAgents,
       sortOrder,
@@ -84,6 +92,28 @@ export function useUnifiedAgentsData({
   const refresh = useCallback((): void => {
     void refetchAgents();
   }, [refetchAgents]);
+  const pruneExcludedTitles = useCallback(
+    (): string[] =>
+      pruneRedundantExcludedTitles(rawAgents, {
+        mode,
+        freshMinutes,
+        projectIds,
+        excludedTitles,
+        pinnedOnly,
+        queryText,
+        liveActiveSessionIds,
+      }),
+    [
+      excludedTitles,
+      freshMinutes,
+      liveActiveSessionIds,
+      mode,
+      pinnedOnly,
+      projectIds,
+      queryText,
+      rawAgents,
+    ],
+  );
 
   return useMemo<UnifiedAgentsData>(
     () => ({
@@ -93,8 +123,9 @@ export function useUnifiedAgentsData({
       isError,
       errorMessage: error instanceof Error ? error.message : "Failed to load agents",
       refresh,
+      pruneExcludedTitles,
     }),
-    [agents, agentsFetching, error, isError, isLoading, refresh],
+    [agents, agentsFetching, error, isError, isLoading, refresh, pruneExcludedTitles],
   );
 }
 
@@ -105,6 +136,9 @@ export interface UnifiedAgentMatchFilters {
   /** Feature-title substrings to hide entirely (the `/exclude:` filter).
    *  Case-insensitive; an excluded agent is dropped even if pinned. */
   excludedTitles: string[];
+  /** When true (the `/pin:` filter) the candidate set is restricted to pinned
+   *  features before any other filter runs. */
+  pinnedOnly: boolean;
   queryText: string;
   /** Live `sessionDbId`s with non-idle status — fed by the WS store.
    *  Optional so call sites that don't care about the "Recent" mode (e.g.
@@ -122,7 +156,11 @@ export function orderUnifiedAgentsForDisplay(
 ): UnifiedAgentEntry[] {
   // Excluded agents are hidden entirely — pre-filter before the pin/sort
   // logic so the `/exclude:` filter wins over the pinned-extras fallback.
-  const included = dropExcludedAgents(entries, filters.excludedTitles);
+  // `/pin:` then narrows the candidate set to pinned features only.
+  const included = scopeToPinned(
+    dropExcludedAgents(entries, filters.excludedTitles),
+    filters.pinnedOnly,
+  );
   if (hasNoActiveFilter(filters)) {
     return pinFirst(included.filter(isVisibleAgent), filters.sortOrder);
   }
@@ -138,9 +176,37 @@ export function getUnifiedAgentsMatchingFilters(
   entries: UnifiedAgentEntry[],
   filters: UnifiedAgentMatchFilters,
 ): UnifiedAgentEntry[] {
-  const included = dropExcludedAgents(entries, filters.excludedTitles);
+  const included = scopeToPinned(
+    dropExcludedAgents(entries, filters.excludedTitles),
+    filters.pinnedOnly,
+  );
   const { matching, pinnedExtras } = splitAgentsByFilterVisibility(included, filters);
   return [...matching, ...pinnedExtras];
+}
+
+/** Recompute the `/exclude:` titles, keeping only those that still hide an
+ *  agent which would otherwise be visible under the current filters. A title
+ *  whose matches have aged out of the `/last` window is dropped so the filter
+ *  shrinks over time. */
+export function pruneRedundantExcludedTitles(
+  entries: UnifiedAgentEntry[],
+  filters: UnifiedAgentMatchFilters,
+): string[] {
+  if (filters.excludedTitles.length === 0) return filters.excludedTitles;
+  const visibleTitles = getUnifiedAgentsMatchingFilters(entries, {
+    ...filters,
+    excludedTitles: [],
+  }).map((entry: UnifiedAgentEntry): string => entry.feature.title.toLowerCase());
+  const survivors = filters.excludedTitles.filter((title: string): boolean => {
+    const needle = title.toLowerCase();
+    return visibleTitles.some((visible: string): boolean => visible.includes(needle));
+  });
+  return survivors.length === filters.excludedTitles.length ? filters.excludedTitles : survivors;
+}
+
+function scopeToPinned(entries: UnifiedAgentEntry[], pinnedOnly: boolean): UnifiedAgentEntry[] {
+  if (!pinnedOnly) return entries;
+  return entries.filter((entry: UnifiedAgentEntry): boolean => entry.is_pinned);
 }
 
 function dropExcludedAgents(

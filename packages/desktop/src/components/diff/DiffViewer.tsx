@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
+import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
 import { useTheme } from "@/hooks/useTheme";
 import { DiffFileTree, type ChangedFileEntry } from "./DiffFileTree";
 import { DiffContent } from "./DiffContent";
@@ -46,7 +47,11 @@ export function DiffViewer({
 }: DiffViewerProps) {
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
-  const [diffMode, setDiffMode] = useState<"unified" | "split">("unified");
+  const { value: persistedDiffMode, setValue: setDiffMode } = useDebouncedSetting(
+    GIT_DIFF_VIEW_MODE_KEY,
+    0,
+  );
+  const diffMode = parseGitDiffViewMode(persistedDiffMode);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [focusedFileIndex, setFocusedFileIndex] = useState(-1);

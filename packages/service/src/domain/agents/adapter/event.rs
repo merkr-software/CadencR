@@ -4,7 +4,8 @@ use super::config::RuntimeUsage;
 use super::event_types::{
     BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEvent,
     RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeProviderError,
-    RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource, RuntimeUserMessage,
+    RuntimeResultError, RuntimeStreamEvent, RuntimeStreamStatus, RuntimeTurnStartedSource,
+    RuntimeUserMessage,
 };
 use super::permission::RuntimeSlashCommand;
 
@@ -14,6 +15,7 @@ impl RuntimeEvent {
             metadata,
             kind,
             background_agent: None,
+            result_error: None,
         }
     }
 
@@ -27,6 +29,20 @@ impl RuntimeEvent {
 
     pub fn background_agent_signal(&self) -> Option<&BackgroundAgentSignal> {
         self.background_agent.as_ref()
+    }
+
+    /// Attach failure detail to a turn-ending `Result`. Used by adapters whose
+    /// turn-complete signal can itself report an error (today only Claude Code:
+    /// `Result { is_error: true }`) so the reader can surface it (issue #78).
+    pub fn with_result_error(mut self, error: Option<RuntimeResultError>) -> Self {
+        self.result_error = error;
+        self
+    }
+
+    /// Failure detail of a turn-ending result, when the result reported an
+    /// error. `None` for a successful result and every non-result event.
+    pub fn result_error(&self) -> Option<&RuntimeResultError> {
+        self.result_error.as_ref()
     }
 
     pub fn session_id(&self) -> Option<&str> {
@@ -84,6 +100,16 @@ impl RuntimeEvent {
                 code: code.as_deref(),
                 parent_tool_use_id: parent_tool_use_id.as_deref(),
             }),
+            _ => None,
+        }
+    }
+
+    /// A provider message the adapter could not recognize at all. Surfaced to
+    /// the conversation verbatim so no agent output is silently dropped. See
+    /// [`RuntimeEventKind::Unknown`].
+    pub fn unknown_message(&self) -> Option<&Value> {
+        match &self.kind {
+            RuntimeEventKind::Unknown { raw } => Some(raw),
             _ => None,
         }
     }

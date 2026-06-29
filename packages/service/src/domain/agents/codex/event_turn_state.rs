@@ -59,8 +59,17 @@ pub(super) async fn update_turn_state(
     }
     if method == "item/started" && is_context_compaction_item(params) {
         if let Some(turn_id) = params.get("turnId").and_then(serde_json::Value::as_str) {
-            *active_turn_id.write().await = Some(turn_id.to_string());
-            *last_root_turn_id.write().await = Some(turn_id.to_string());
+            let updated_active_turn = {
+                let mut active_turn = active_turn_id.write().await;
+                let should_update = active_turn.is_none();
+                if should_update {
+                    *active_turn = Some(turn_id.to_string());
+                }
+                should_update
+            };
+            if updated_active_turn {
+                *last_root_turn_id.write().await = Some(turn_id.to_string());
+            }
         }
     }
     if method == "turn/completed" {
@@ -206,6 +215,31 @@ mod tests {
         )
         .await;
         assert!(active_turn_id.read().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn context_compaction_start_does_not_clobber_existing_root_turn() {
+        let active_turn_id = Arc::new(RwLock::new(Some("regular_turn".to_string())));
+        let last_root_turn_id = Arc::new(RwLock::new(Some("regular_turn".to_string())));
+
+        update_turn_state(
+            "item/started",
+            &json!({
+                "threadId": "thread_root",
+                "turnId": "compact_turn",
+                "item": { "type": "contextCompaction", "id": "compact_1" }
+            }),
+            &active_turn_id,
+            &last_root_turn_id,
+            "thread_root",
+        )
+        .await;
+
+        assert_eq!(active_turn_id.read().await.as_deref(), Some("regular_turn"));
+        assert_eq!(
+            last_root_turn_id.read().await.as_deref(),
+            Some("regular_turn")
+        );
     }
 
     #[tokio::test]

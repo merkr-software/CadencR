@@ -7,11 +7,13 @@ import {
   serializeUnifiedAgentsFilterText,
 } from "@/components/UnifiedAgentsFilterLanguage";
 import { dedupeTitles } from "@/components/unified-agents-filter-values";
+import { stringArraysEqual } from "@/lib/utils";
 
 interface UnifiedAgentsFilterTextState {
   filterText: string;
   commitFilterText: (nextText: string) => void;
   excludeAgent: (title: string) => void;
+  setExcludedTitles: (titles: string[]) => void;
 }
 
 /** Keeps the search-box text and the parsed filter in sync, and exposes the
@@ -42,12 +44,12 @@ export function useUnifiedAgentsFilterText(
     },
     [projects, setFilters],
   );
-  const excludeAgent = useCallback(
-    (title: string): void => {
-      const nextExcluded = dedupeTitles([...filters.excludedTitles, title]);
-      // dedupeTitles drops empties and case-insensitive duplicates, so an
-      // unchanged length means the agent is already excluded — nothing to do.
-      if (nextExcluded.length === filters.excludedTitles.length) return;
+  const setExcludedTitles = useCallback(
+    (titles: string[]): void => {
+      const nextExcluded = dedupeTitles(titles);
+      // dedupeTitles drops empties and case-insensitive duplicates; a no-op
+      // (same set) means there's nothing to commit.
+      if (stringArraysEqual(nextExcluded, filters.excludedTitles)) return;
       const nextText = serializeUnifiedAgentsFilterText(
         { ...filters, excludedTitles: nextExcluded },
         projects,
@@ -60,8 +62,12 @@ export function useUnifiedAgentsFilterText(
     },
     [commitFilterText, filters, inputRef, projects],
   );
+  const excludeAgent = useCallback(
+    (title: string): void => setExcludedTitles([...filters.excludedTitles, title]),
+    [filters.excludedTitles, setExcludedTitles],
+  );
   return useMemo(
-    () => ({ filterText, commitFilterText, excludeAgent }),
-    [filterText, commitFilterText, excludeAgent],
+    () => ({ filterText, commitFilterText, excludeAgent, setExcludedTitles }),
+    [filterText, commitFilterText, excludeAgent, setExcludedTitles],
   );
 }

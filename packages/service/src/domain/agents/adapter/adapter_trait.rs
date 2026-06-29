@@ -3,6 +3,7 @@ use std::path::Path;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use super::branching::SessionBranching;
 use super::config::{RuntimePermissionMode, RuntimeSpawnConfig};
 use super::error::RuntimeError;
 use super::event_types::RuntimeEvent;
@@ -13,6 +14,13 @@ use super::session::AgentRuntimeSession;
 pub trait AgentRuntimeAdapter: Send + Sync {
     fn is_valid_resume_session_id(&self, _session_id: &str) -> bool {
         true
+    }
+
+    /// Point-in-time context branching (rewind / fork). `None` (the default)
+    /// means the provider can't branch; the orchestrator reports the action
+    /// unsupported. Providers that can (today: Claude Code) return their impl.
+    fn session_branching(&self) -> Option<&dyn SessionBranching> {
+        None
     }
 
     fn parse_permission_request(&self, _raw: &Value) -> Option<RuntimePermissionRequest> {
@@ -53,10 +61,16 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     /// discovery depends on app settings (for example Claude Code profiles
     /// that inject Bedrock/Vertex env vars) can override this request-aware
     /// hook while other providers keep the cwd-only default.
+    ///
+    /// `profile` names a Claude Code profile to probe instead of the globally
+    /// active one (so the prompt-area profile selector can preview a profile's
+    /// models without mutating global state). Providers without env profiles
+    /// ignore it.
     async fn catalog_entry_live_for_settings(
         &self,
         _read_pool: &sqlx::SqlitePool,
         cwd: Option<&Path>,
+        _profile: Option<&str>,
     ) -> super::super::runtime::ProviderCatalogEntry {
         self.catalog_entry_live_for_cwd(cwd).await
     }

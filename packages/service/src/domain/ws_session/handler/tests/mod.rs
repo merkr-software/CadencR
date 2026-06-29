@@ -17,6 +17,7 @@ mod init;
 mod model_effort;
 mod permission;
 mod permission_mode;
+mod profile;
 mod prompt;
 mod provider;
 mod stream_reader;

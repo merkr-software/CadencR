@@ -20,16 +20,23 @@ use super::types::truncate_title;
 pub use super::types::{ImportedConversation, ImportedMessage};
 
 /// Encode a filesystem path the way Claude Code does for its
-/// `~/.claude/projects/<encoded>/` directory: drop the leading `/` and
-/// replace remaining `/` with `-`, then prepend a single `-`. We do this
-/// in one pass so we don't ship duplicate string-builder code.
+/// `~/.claude/projects/<encoded>/` directory: drop the leading `/`, replace
+/// every non-alphanumeric character (`/`, `.`, spaces, etc.) with `-`, then
+/// prepend a single `-`.
+///
+/// Matching Claude Code exactly matters: this encoded dir is how we locate a
+/// session's transcript for branching (rewind/fork context trim) and for
+/// import. Replacing only `/` silently misses the `.` in paths like
+/// `~/.cadencr/worktrees/...` — i.e. *every* Cadencr worktree — so the
+/// transcript was never found and rewind/fork fell back to resuming the full,
+/// un-trimmed history.
 pub fn encode_project_path(path: &Path) -> String {
     let s = path.to_string_lossy();
     let trimmed = s.trim_start_matches('/');
     let mut encoded = String::with_capacity(trimmed.len() + 1);
     encoded.push('-');
     for ch in trimmed.chars() {
-        encoded.push(if ch == '/' { '-' } else { ch });
+        encoded.push(if ch.is_ascii_alphanumeric() { ch } else { '-' });
     }
     encoded
 }
@@ -158,9 +165,23 @@ mod tests {
     use std::io::Write;
 
     #[test]
-    fn encode_project_path_replaces_slashes() {
+    fn encode_project_path_replaces_every_non_alphanumeric() {
+        // Slashes AND spaces collapse to '-' (Claude Code's rule).
         let p = Path::new("/Users/foo/bar baz/proj");
-        assert_eq!(encode_project_path(p), "-Users-foo-bar baz-proj");
+        assert_eq!(encode_project_path(p), "-Users-foo-bar-baz-proj");
+    }
+
+    #[test]
+    fn encode_project_path_collapses_dot_dirs() {
+        // Regression: `~/.cadencr/...` must encode the dot as '-' (so the
+        // leading `/.cadencr` becomes `--cadencr`), matching the on-disk dir
+        // Claude Code actually writes — otherwise branching can't find the
+        // transcript.
+        let p = Path::new("/Users/rle/.cadencr/worktrees/cadencr/feature-x-5d03");
+        assert_eq!(
+            encode_project_path(p),
+            "-Users-rle--cadencr-worktrees-cadencr-feature-x-5d03"
+        );
     }
 
     #[test]

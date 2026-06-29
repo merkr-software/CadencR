@@ -21,6 +21,7 @@ import {
 } from "@/components/UnifiedAgentsPerRowSetting";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { useUnifiedAgentsFilterText } from "@/components/useUnifiedAgentsFilterText";
+import { useUnifiedAgentsExcludePruning } from "@/components/useUnifiedAgentsExcludePruning";
 import type { UnifiedAgentsFilterInputHandle } from "@/components/UnifiedAgentsDynamicFilter";
 import { useUnifiedAgentPinControls } from "@/components/useUnifiedAgentPinControls";
 import { useUnifiedAgentsData, type UnifiedAgentsData } from "@/components/UnifiedAgentsViewData";
@@ -46,12 +47,9 @@ export function UnifiedAgentsView(): ReactElement {
     [data.agents],
   );
   const runningAgentsCount = useLiveWorkingCount(visibleSessionIds);
-  const { filterText, commitFilterText, excludeAgent } = useUnifiedAgentsFilterText(
-    filters,
-    setFilters,
-    projects,
-    searchInputRef,
-  );
+  const { filterText, commitFilterText, excludeAgent, setExcludedTitles } =
+    useUnifiedAgentsFilterText(filters, setFilters, projects, searchInputRef);
+  useUnifiedAgentsExcludePruning(data.pruneExcludedTitles, setExcludedTitles);
   const agentsPerRow = useUnifiedAgentsPerRowSetting();
   const columns = agentsPerRow.value;
   const { activeIndex, activeAgent, setActiveSessionId } = useActiveAgent(data.agents);

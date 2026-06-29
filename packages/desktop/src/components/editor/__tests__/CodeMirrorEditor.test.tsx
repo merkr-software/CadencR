@@ -138,8 +138,13 @@ vi.mock("@/api/generated", () => ({
   useGetFeatureWorkingDir: vi.fn(() => ({ data: undefined })),
   // Consumed by useEditorFormat → useProjectEditorTooling.
   useGetProjectSettings: vi.fn(() => ({ data: undefined })),
-  useGetWorkspaceSetting: vi.fn(() => ({ data: undefined })),
   format: vi.fn(),
+}));
+
+// Workspace defaults for editor tooling now come from the batched list endpoint.
+vi.mock("@/api/settings", () => ({
+  useGetWorkspaceSettings: vi.fn(() => ({ data: [] })),
+  settingsArrayToMap: () => ({}),
 }));
 
 vi.mock("@/lib/lsp/useLsp", () => ({

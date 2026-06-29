@@ -31,6 +31,7 @@ describe("UnifiedAgentsFilterState", () => {
       freshMinutes: 5,
       projectIds: [],
       excludedTitles: [],
+      pinnedOnly: false,
       query: "needle",
       sortOrder: "created_desc",
     });
@@ -47,6 +48,7 @@ describe("UnifiedAgentsFilterState", () => {
       freshMinutes: 999,
       projectIds: [42, 43],
       excludedTitles: [],
+      pinnedOnly: false,
       query: "",
       sortOrder: "created_asc",
     });

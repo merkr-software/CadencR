@@ -39,16 +39,18 @@ async fn prune(path: &Path) -> Result<bool, AppError> {
     let Some(text) = file::read_file(path)? else {
         return Ok(false);
     };
-    let Ok((mut map, _warnings)) = file::parse_object(&text) else {
+    let Ok(mut doc) = file::parse_document(&text) else {
         // Don't touch a file we can't parse — the user can fix it via "Edit JSON".
         return Ok(false);
     };
-    let before = map.len();
-    map.retain(|key, _| !is_ephemeral_key(key));
-    if map.len() == before {
+    let before = doc.len();
+    // Ephemeral keys are scalar UI state; nested sections (e.g. `profiles`) are
+    // never ephemeral and are preserved by operating on the full document.
+    doc.retain(|key, _| !is_ephemeral_key(key));
+    if doc.len() == before {
         return Ok(false);
     }
-    file::write_atomic(path, &file::serialize_map(&map))?;
+    file::write_atomic(path, &file::serialize_document(&doc))?;
     Ok(true)
 }
 
@@ -90,6 +92,25 @@ mod tests {
 
         // Idempotent: a second run has nothing to strip.
         assert!(!prune(&path).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn prune_preserves_nested_sections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(
+            &path,
+            r#"{"active_tab_1":"browser","profiles":{"bedrock":{"AWS_REGION":"us-east-1"}}}"#,
+        )
+        .unwrap();
+
+        assert!(prune(&path).await.unwrap());
+        let doc = file::parse_document(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(!doc.contains_key("active_tab_1"));
+        assert_eq!(
+            doc["profiles"]["bedrock"]["AWS_REGION"],
+            serde_json::json!("us-east-1")
+        );
     }
 
     #[tokio::test]

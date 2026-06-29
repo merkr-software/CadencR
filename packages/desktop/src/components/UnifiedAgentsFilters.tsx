@@ -79,7 +79,7 @@ function RefreshButton({
       type="button"
       variant="ghost"
       size="sm"
-      className="h-9 gap-2 rounded-xl border border-border/80 bg-background/90 px-3 text-xs text-foreground shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] hover:bg-accent/70"
+      className="h-9 gap-2 rounded-lg border border-border/80 bg-background/90 px-3 text-xs text-foreground shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] hover:bg-accent/70"
       onClick={onRefresh}
       disabled={isFetching}
     >

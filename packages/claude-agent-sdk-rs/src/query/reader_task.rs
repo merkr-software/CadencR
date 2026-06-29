@@ -104,13 +104,20 @@ impl ReaderTask {
             Ok(Some(value)) => ReaderAction::Raw(value),
             Ok(None) => {
                 let (code, stderr) = self.process.wait_with_stderr().await;
-                if code.unwrap_or(0) != 0 {
+                // A persistent stream-json session only reaches stdout EOF when
+                // the CLI exited on its own. Treat a non-zero code OR any stderr
+                // output as abnormal and surface it (with stderr) so the turn
+                // never just silently stops — previously a code-0 exit sent
+                // nothing and the captured stderr was discarded.
+                if code.unwrap_or(0) != 0 || !stderr.trim().is_empty() {
+                    warn!(?code, stderr = %stderr, "CLI process exited abnormally; surfacing as error");
                     let _ = self
                         .tx
                         .send(Err(SdkError::ProcessExit { code, stderr }))
                         .await;
+                } else {
+                    info!(?code, "CLI process exited cleanly");
                 }
-                info!("CLI process exited (code={code:?})");
                 ReaderAction::Break
             }
             Err(error) => {
@@ -196,8 +203,10 @@ impl ReaderTask {
     }
 
     async fn forward_sdk_message(&self, raw: Value) -> RawOutcome {
+        // `SdkMessage`'s custom `Deserialize` is infallible (it falls back to
+        // `Unknown` and logs internally), so the `unwrap_or` branch is unreachable.
         let message: SdkMessage =
-            serde_json::from_value(raw.clone()).unwrap_or(SdkMessage::Unknown(raw));
+            serde_json::from_value(raw).unwrap_or(SdkMessage::Unknown(Value::Null));
         self.capture_session_id(&message).await;
         self.cache_mcp_servers(&message).await;
         self.update_turn_state(&message).await;

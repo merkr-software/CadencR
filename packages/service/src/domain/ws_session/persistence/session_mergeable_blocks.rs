@@ -113,6 +113,11 @@ impl WsSessionPersistence {
         match result {
             Ok(row) => {
                 let row_id = row.last_insert_rowid();
+                // Record that this runtime session streamed text/thinking this
+                // cycle, so the full-assistant-message fallback knows the text
+                // is already persisted and must not write it again.
+                self.streamed_assistant_content
+                    .insert(runtime_key.to_string());
                 self.pending_mergeable_blocks.insert(
                     (runtime_key.to_string(), index),
                     PendingMergeableBlock {

@@ -62,6 +62,12 @@ pub enum StreamEventData {
     /// Marks the complete end of the streamed message.
     #[serde(rename = "message_stop")]
     MessageStop,
+
+    /// Any stream event the CLI emits that we don't model yet. Catching it here
+    /// keeps a novel event from sinking the whole `stream_event` message into
+    /// `SdkMessage::Unknown`, which would silently drop the live turn.
+    #[serde(other)]
+    Other,
 }
 
 // ── SystemMessage ────────────────────────────────────────────────────────────
@@ -75,19 +81,30 @@ pub enum SystemMessage {
     /// Cadencr captures `session_id` from this for resume workflows.
     #[serde(rename = "init")]
     Init {
+        #[serde(default)]
         uuid: String,
         session_id: String,
+        // Everything except `session_id` and `model` is defaulted: a single
+        // renamed/removed field must never sink the whole init message into
+        // `SdkMessage::Unknown`, because losing init means losing the
+        // `session_id` capture that the entire resume/turn machinery depends on.
+        #[serde(default)]
         claude_code_version: String,
+        #[serde(default)]
         cwd: String,
+        #[serde(default)]
         tools: Vec<String>,
+        #[serde(default)]
         mcp_servers: Vec<McpServerStatus>,
         model: String,
         // The CLI emits this one field in camelCase (`permissionMode`);
         // without the alias the whole init message fails to deserialize
         // and falls back to `SdkMessage::Unknown`.
-        #[serde(alias = "permissionMode")]
+        #[serde(alias = "permissionMode", default)]
         permission_mode: String,
+        #[serde(default)]
         slash_commands: Vec<String>,
+        #[serde(default)]
         output_style: String,
         #[serde(default)]
         skills: Vec<String>,
@@ -127,6 +144,12 @@ pub enum SystemMessage {
         #[serde(flatten)]
         extra: HashMap<String, Value>,
     },
+    // NOTE: intentionally NO `#[serde(other)]` catch-all here. The background
+    // run-in-background agent protocol (issue #58) relies on the CLI's
+    // `system/task_started` and `system/task_notification` subtypes arriving as
+    // `SdkMessage::Unknown(raw)` so it can read their fields off the raw JSON
+    // (see `background_agents::background_agent_signal`). A catch-all would
+    // capture those as a typed-but-empty variant and silently break it.
 }
 
 impl SystemMessage {

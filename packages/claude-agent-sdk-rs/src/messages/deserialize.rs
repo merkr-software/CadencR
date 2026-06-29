@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use tracing::warn;
 
 use crate::types::{PermissionDenial, Usage};
 
@@ -155,7 +156,7 @@ enum SdkMessageInner {
         #[serde(flatten)]
         data: Value,
     },
-    #[serde(rename = "rate_limit")]
+    #[serde(rename = "rate_limit", alias = "rate_limit_event")]
     RateLimit {
         uuid: String,
         session_id: String,
@@ -397,7 +398,24 @@ impl<'de> Deserialize<'de> for SdkMessage {
         let raw = Value::deserialize(deserializer)?;
         match SdkMessageInner::deserialize(&raw) {
             Ok(inner) => Ok(SdkMessage::from(inner)),
-            Err(_) => Ok(SdkMessage::Unknown(raw)),
+            Err(error) => {
+                // Never silently drop: a message that fails to match any known
+                // schema becomes `Unknown` (so the stream survives), but we log
+                // exactly what and why so a CLI wire-format drift is diagnosable
+                // instead of presenting as an agent that "just stopped".
+                let message_type = raw
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("<missing>");
+                let subtype = raw.get("subtype").and_then(|v| v.as_str());
+                warn!(
+                    message_type,
+                    ?subtype,
+                    %error,
+                    "claude SDK: message did not match any known schema; forwarding as Unknown (it will not render in the conversation)"
+                );
+                Ok(SdkMessage::Unknown(raw))
+            }
         }
     }
 }

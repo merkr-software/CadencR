@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.6.4 - 2026-06-29
+
+Previous release: v0.6.3 - 2026-06-25
+
+### ✨ Added
+
+- [**Desktop**] Added Rewind and Fork actions for persisted user messages, letting users roll a conversation and tracked code back to an earlier turn or branch it into a new feature with provider-backed transcript truncation, pre-turn tracked-code checkpoints, dirty-worktree confirmation, untracked local-file preservation, and a hard abort if code restore cannot be completed before conversation history is changed.
+- [**Desktop**] Added Mermaid diagram rendering for markdown across agent surfaces, with strict parsing, streaming-safe source fallback, source/diagram toggles, and a zoom/pan viewer so generated diagrams are readable without destabilizing the conversation.
+- [**Desktop**] Added a Session Info action to sync events that were added by continuing the same provider conversation in the CLI, appending only the missing messages to the existing Cadencr conversation.
+
+### 🔧 Changed
+
+- [**provider:claude**] Moved Claude Code profile storage into the JSON settings file so profiles can be inspected and edited programmatically while preserving existing profile APIs, redaction, denied-key validation, and one-time migration from the legacy SQLite table.
+- [**Desktop**] Improved the Unified Agents view with an auto-pruned `/exclude` filter, a new `/pin:true` filter, a collapsible filter input, and tighter toolbar sizing.
+- [**Desktop**] Changed terminal and agent-chat link handling so `Cmd`/`Ctrl` click routes internal domains such as localhost into the scoped Cadencr browser tab, external links open in the system browser, and right-click menus offer both open targets plus copy.
+- [**Desktop**] Changed feature sidebar menus with a control to close a feature's live terminals and browser tabs without opening it, including bulk browser-tab cleanup and terminal teardown that avoids re-adopting killed shells.
+- [**Desktop**] Changed Git diff layout selection into a persistent preference so Unified/Split mode stays in sync between the Git tab and Settings across sessions and projects.
+
+### 🐛 Fixed
+
+- [**provider:claude**] Fixed session profile persistence so changing the global Claude profile only affects new sessions instead of mutating the profile used by existing conversations.
+- [**Desktop**] Fixed remote/mobile reconnect storms by backing off WebSocket retries after rate limits, honoring `Retry-After`, and batching editor settings reads that previously amplified reconnect traffic.
+- [**Desktop**] Fixed the Git graph crash reported in #88 by always passing Virtuoso a valid components object after the last commit page loads.
+- [**Desktop**] Fixed stale sidebar agent counts by sourcing the working-agent indicator from live WebSocket session state and showing an active dot while agents are running.
+- [**Desktop**] Fixed Frost theme popovers that could be clipped or displaced by backdrop-filter containers, including context-menu submenus and Git graph commit hover cards.
+- [**Desktop**] Fixed fullscreen mobile sidebar gaps by moving safe-area padding onto the sidebar surface so it reaches the screen edges while keeping controls clear of the notch and home indicator.
+
+## v0.6.3 - 2026-06-25
+
+Previous release: v0.6.2 - 2026-06-23
+
+### 🐛 Fixed
+
+- [**provider:claude**] Fixed Claude Code sessions that could stop silently after resuming a completed background session, after CLI schema drift, or after a mid-turn stream close by preserving known text/tool blocks, surfacing CLI stderr, provider errors, and unknown messages inline, refreshing stale resume IDs before spawn, and recognizing Claude rate-limit telemetry without showing it as an unknown message.
+- [**provider:claude**] Fixed prompt-area Claude profile selection so new conversations keep the selected/default profile, model lists refresh when switching between Anthropic and Bedrock profiles, and the selector stays synchronized across conversations.
+- [**provider:codex**] Fixed Codex compaction recovery when the app server reports a different active turn ID, retrying steering with the active turn instead of leaving the conversation idle while the original stream continues.
+- [**Backend**] Fixed worktree Git setup for GUI-launched sessions by preserving the login-shell `PATH`, tolerating shell startup noise, and waiting longer for shell initialization so Git LFS and other user-installed helpers remain available.
+- [**Desktop**] Fixed deleting or archiving a fresh conversation so stale chat routes close immediately, archived conversations are not reopened from the home route, and failed deletion of a running session does not drop live backend handles.
+- [**Desktop**] Fixed Settings navigation highlighting after clicks and scrolls, including short sections and off-the-fold targets that previously selected the wrong section.
+- [**Desktop**] Fixed global sidebar resizing by enforcing a usable minimum width and clamping saved sidebar widths that were already too narrow.
+
+## v0.6.2 - 2026-06-23
+
+Previous release: v0.6.1 - 2026-06-22
+
+### 🔧 Changed
+
+- [**Desktop**] Improved large-conversation opening performance by loading a smaller initial agent stream window, backfilling older history only as needed, staggering non-agent tab hydration, parsing large diffs off the main thread, and auto-collapsing very large changed files in the Git tab.
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed startup dead-ends by detecting databases that were already opened by a newer Cadencr version before applying migrations, showing clear splash-screen recovery actions, supporting pre-migration backup restore, and smoke-testing the packaged service sidecar in the release workflow.
+- [**Desktop**] Fixed production white screens by capturing renderer crashes and unhandled React errors in local diagnostics, showing copyable error details, and offering a UI reload path while background agents can keep running.
+- [**Desktop**] Fixed Git diff readability by using the same file header for collapsed and expanded rows, matching status icons and count colors consistently, and keeping Edit/Write inline diffs in the green file-change style after they load.
+- [**github_actions**] Fixed Homebrew cask publishing by testing the release cask update script before building assets and hardening its tap update flow so Homebrew installs can be updated reliably after a release.
+
+### 🔒 Security
+
+- [**dependencies**] Updated release, desktop, landing, and backend dependencies, including Vite/Astro hardening for development tooling and landing builds, SQLx, sha2, serde_json, CodeQL Action, and actions/checkout.
+
 ## v0.6.1 - 2026-06-22
 
 Previous release: v0.6.0 - 2026-06-22

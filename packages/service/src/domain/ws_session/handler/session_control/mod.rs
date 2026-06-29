@@ -12,6 +12,7 @@ mod mode;
 mod model;
 mod permission;
 mod power;
+mod profile;
 mod provider;
 
 pub(super) use codex_mode::handle_codex_permission_mode_set;
@@ -21,6 +22,7 @@ pub(super) use mode::handle_mode_set;
 pub(super) use model::handle_model_set;
 pub(super) use permission::handle_permission_respond;
 pub(super) use power::{handle_resume, handle_retry_worktree_setup, handle_suspend};
+pub(super) use profile::handle_profile_set;
 pub(super) use provider::handle_provider_set;
 
 use axum::extract::ws::Message;

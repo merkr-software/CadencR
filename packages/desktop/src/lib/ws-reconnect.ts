@@ -1,19 +1,45 @@
 /**
- * Per-key fixed-interval WebSocket reconnection manager.
+ * Per-key WebSocket reconnection manager with exponential backoff + jitter.
  *
- * The service is local to the user's machine, so exponential backoff makes
- * recovery feel broken without protecting any remote dependency. Every
- * automatic retry waits exactly `RECONNECT_INTERVAL_MS`. After too many
- * consecutive failures, automatic retries pause and callers surface a
- * manual "Retry now" affordance.
+ * A fixed 1 s retry across every socket floods the backend's per-IP rate limit
+ * on a remote/mobile link, and the resulting `429` fails the next handshake —
+ * a self-feeding storm. Backoff (first retry fast, then doubling up to
+ * `RECONNECT_MAX_MS`) plus `notifyRateLimited` (defer until a 429's
+ * `Retry-After` elapses) break that loop. After `AUTO_RECONNECT_TIMEOUT_MS` of
+ * continuous failure, automatic retries pause for a manual "Retry now".
  */
 
 export const RECONNECT_INTERVAL_MS = 1000;
+export const RECONNECT_MAX_MS = 30_000;
 export const AUTO_RECONNECT_TIMEOUT_MS = 240_000;
 export const AUTO_RECONNECT_TIMEOUT_SECONDS = AUTO_RECONNECT_TIMEOUT_MS / 1000;
-export const MAX_AUTO_RECONNECT_FAILURES = Math.ceil(
-  AUTO_RECONNECT_TIMEOUT_MS / RECONNECT_INTERVAL_MS,
-);
+
+/** Backoff for the Nth (1-based) consecutive failure, with half-range jitter. */
+function backoffDelayMs(failures: number): number {
+  const base = Math.min(RECONNECT_INTERVAL_MS * 2 ** Math.max(0, failures - 1), RECONNECT_MAX_MS);
+  // Jitter into [base/2, base] to de-sync sockets that all dropped together.
+  return Math.round(base - base * 0.5 * Math.random());
+}
+
+/**
+ * Wall-clock millis until which the backend asked us to stop retrying (a 429
+ * `Retry-After`). Shared across every key — one rate limit covers the whole IP.
+ */
+let rateLimitedUntil = 0;
+
+/**
+ * Record a backend rate-limit signal. Until `retryAfterMs` elapses, scheduled
+ * reconnects wait at least that long so we stop feeding the 429 storm.
+ */
+export function notifyRateLimited(retryAfterMs: number): void {
+  const until = Date.now() + Math.max(0, retryAfterMs);
+  if (until > rateLimitedUntil) rateLimitedUntil = until;
+}
+
+/** Lift the rate-limit hold (the backend is reachable again). */
+export function clearRateLimit(): void {
+  rateLimitedUntil = 0;
+}
 
 interface ReconnectorOptions {
   onManualRequired?: (key: string) => void;
@@ -26,6 +52,8 @@ interface ForceReconnectOptions {
 interface ReconnectEntry {
   timer: ReturnType<typeof setTimeout> | null;
   firstFailureAt: number | null;
+  /** Consecutive failures since the last successful connect; drives backoff. */
+  failures: number;
   manualOnly: boolean;
   /** Latest connector seen for this key. Updated on every `scheduleReconnect`. */
   connect: (() => void) | null;
@@ -40,6 +68,7 @@ function getOrCreate(key: string): ReconnectEntry {
     entry = {
       timer: null,
       firstFailureAt: null,
+      failures: 0,
       manualOnly: false,
       connect: null,
       onManualRequired: null,
@@ -70,23 +99,29 @@ export function scheduleReconnect(
   if (entry.timer) return;
   if (entry.manualOnly) return;
 
-  if (entry.firstFailureAt == null) entry.firstFailureAt = Date.now();
-  if (Date.now() - entry.firstFailureAt >= AUTO_RECONNECT_TIMEOUT_MS) {
+  const now = Date.now();
+  if (entry.firstFailureAt == null) entry.firstFailureAt = now;
+  if (now - entry.firstFailureAt >= AUTO_RECONNECT_TIMEOUT_MS) {
     pauseForManualReconnect(key, entry);
     return;
   }
+
+  entry.failures += 1;
+  // Wait at least the backoff, and never retry before a 429's Retry-After.
+  const delay = Math.max(backoffDelayMs(entry.failures), rateLimitedUntil - now);
 
   entry.timer = setTimeout(() => {
     entry.timer = null;
     if (entry.manualOnly) return;
     connect();
-  }, RECONNECT_INTERVAL_MS);
+  }, delay);
 }
 
 export function resetReconnectState(key: string): void {
   const entry = entries.get(key);
   if (!entry) return;
   entry.firstFailureAt = null;
+  entry.failures = 0;
   entry.manualOnly = false;
 }
 
@@ -120,18 +155,22 @@ export function unregisterReconnector(key: string): void {
 }
 
 /**
- * Cancel the pending timer for `key` and invoke its connector now. Manual
- * calls also reset the failure cap; automatic watchdog calls respect a
- * paused/manual-only key.
+ * Cancel the pending timer for `key` and invoke its connector now. An explicit
+ * (manual) call resets the failure cap and lifts any rate-limit hold; automatic
+ * watchdog calls respect a paused/manual-only key and the rate-limit hold, so a
+ * wake/visibility storm can't hammer a backend that just returned 429.
  */
 export function forceReconnect(key: string, options?: ForceReconnectOptions): void {
   const entry = entries.get(key);
   if (!entry?.connect) return;
   if (options?.bypassManualPause) {
+    clearRateLimit();
     entry.firstFailureAt = null;
+    entry.failures = 0;
     entry.manualOnly = false;
-  } else if (entry.manualOnly) {
-    return;
+  } else {
+    if (entry.manualOnly) return;
+    if (Date.now() < rateLimitedUntil) return;
   }
   if (entry.timer) {
     clearTimeout(entry.timer);

@@ -98,6 +98,30 @@ impl OpenCodeClient {
         parse_array(body, "session", parse_session_from)
     }
 
+    pub async fn fork_session(
+        &self,
+        session_id: &str,
+        message_id: Option<&str>,
+        directory: Option<&str>,
+    ) -> Result<Session, SdkError> {
+        let body = message_id.map_or_else(
+            || serde_json::json!({}),
+            |message_id| serde_json::json!({ "messageID": message_id }),
+        );
+        let response = self
+            .maybe_scoped_request(
+                self.http
+                    .post(format!("{}/session/{session_id}/fork", self.base_url))
+                    .json(&body),
+                directory,
+            )
+            .send()
+            .await?;
+        let body = ensure_success(response).await?;
+        parse_session_from(&body)
+            .ok_or_else(|| SdkError::Protocol("malformed fork session response".to_string()))
+    }
+
     /// `GET /permission` — all currently-pending permission prompts on
     /// the embedded backend. Used by the sub-agent listener to surface
     /// permissions for child sessions (root-session permissions still

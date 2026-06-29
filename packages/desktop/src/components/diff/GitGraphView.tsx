@@ -60,6 +60,10 @@ export const GitGraphView = memo(function GitGraphView({
     if (hasMore) setLimit((l) => l + PAGE_SIZE);
   }, [hasMore]);
 
+  // Always hand Virtuoso a components object — passing `undefined` overwrites its
+  // internal default (`{}`) and makes it crash reading `components.EmptyPlaceholder`.
+  const components = useMemo(() => (hasMore ? { Footer: GraphFooter } : {}), [hasMore]);
+
   const handleOpenOnline = useCallback(
     async (sha: string) => {
       try {
@@ -169,7 +173,7 @@ export const GitGraphView = memo(function GitGraphView({
           itemContent={itemContent}
           endReached={handleEndReached}
           increaseViewportBy={ROW_HEIGHT * 6}
-          components={hasMore ? { Footer: GraphFooter } : undefined}
+          components={components}
         />
       </div>
     </div>

@@ -48,6 +48,7 @@ export interface FeatureSession {
   status: AgentStatus;
   subprocessId: string | null;
   model: string | null;
+  profile: string | null;
   blocks: AgentBlockData[];
   pendingQuestions: AgentQuestion[] | null;
   hasFileChanges: boolean;
@@ -67,7 +68,11 @@ export interface FeatureSession {
   oldestMessageId: number | null;
 }
 
-type FeatureSessionOptionalField = "runtimeProvider" | "runtimeSessionId" | "draftPrompt";
+type FeatureSessionOptionalField =
+  | "runtimeProvider"
+  | "runtimeSessionId"
+  | "draftPrompt"
+  | "profile";
 
 function getOptionalSessionString(
   session: object,
@@ -212,6 +217,7 @@ export function useFeatureAgentState(featureId: number) {
         status,
         subprocessId: s.subprocessId ?? null,
         model: s.model ?? null,
+        profile: getOptionalSessionString(s, "profile"),
         blocks: acc?.blocks ?? serverBlocksToAgentBlocks(s.blocks),
         pendingQuestions: parseQuestions(s.pendingQuestions),
         hasFileChanges: s.hasFileChanges,

@@ -108,6 +108,11 @@ async fn main() -> anyhow::Result<()> {
             let settings_dir = std::fs::canonicalize(&settings_dir).unwrap_or(settings_dir);
             domain::settings_store::init(settings_dir.clone());
             domain::settings_store::migrate::migrate_from_sqlite(&read_pool, &settings_dir).await;
+            // Claude Code profiles moved out of SQLite into the nested `profiles`
+            // section of settings.json — copy any legacy rows over, then drop the
+            // table. Needs `write_pool` for the DROP and must run after the dir is
+            // initialized so the JSON write lands in the right place.
+            domain::agents::claude_code::profiles::migrate_from_sqlite(&write_pool).await;
             // Strip per-device UI state (active tab, sidebar visibility,
             // last-opened feature) that older versions wrote into the global
             // file — it now lives in the frontend's localStorage.

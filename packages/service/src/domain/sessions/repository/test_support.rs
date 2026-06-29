@@ -50,6 +50,7 @@ pub(super) async fn setup_test_db() -> SqlitePool {
             ended_at TEXT,
             subprocess_id TEXT,
             model TEXT,
+            profile TEXT,
             pending_questions TEXT,
             has_file_changes INTEGER NOT NULL DEFAULT 0,
             permission_mode TEXT,

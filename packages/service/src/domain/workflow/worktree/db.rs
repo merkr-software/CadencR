@@ -30,6 +30,21 @@ pub async fn get_project_directory(pool: &SqlitePool, project_id: i64) -> Result
         })
 }
 
+/// Resolve the directory a feature's agent actually runs in: its worktree when
+/// one is provisioned, otherwise the project directory (features can run "on
+/// branch" directly in the project folder). This mirrors how the first-turn
+/// checkpoint resolves cwd, so checkpoints and rewind/fork behave the same with
+/// or without a worktree.
+pub async fn resolve_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, String> {
+    if let Some(path) = get_setting(pool, feature_id, "worktree_path").await {
+        if !path.trim().is_empty() {
+            return Ok(path);
+        }
+    }
+    let project_id = get_project_id_for_feature(pool, feature_id).await?;
+    get_project_directory(pool, project_id).await
+}
+
 pub async fn get_setting(pool: &SqlitePool, feature_id: i64, key: &str) -> Option<String> {
     sqlx::query_as::<_, (String,)>(
         "SELECT value FROM feature_settings WHERE feature_id = ? AND key = ?",
@@ -134,5 +149,61 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(read_base_branch(&pool, 1).await, None);
+    }
+
+    /// Pool with the tables `resolve_feature_cwd` touches: a feature in a
+    /// project whose path is the fallback cwd, plus `feature_settings`.
+    async fn make_cwd_pool() -> SqlitePool {
+        let pool = make_pool().await;
+        sqlx::query("CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO projects (id, path) VALUES (6, '/Users/x/proj')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO features (id, project_id) VALUES (1, 6)")
+            .execute(&pool)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[tokio::test]
+    async fn resolve_feature_cwd_prefers_the_worktree_path() {
+        let pool = make_cwd_pool().await;
+        set_setting(&pool, 1, "worktree_path", "/Users/x/.cadencr/worktrees/wt")
+            .await
+            .unwrap();
+        assert_eq!(
+            resolve_feature_cwd(&pool, 1).await.unwrap(),
+            "/Users/x/.cadencr/worktrees/wt"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_feature_cwd_falls_back_to_project_dir_without_a_worktree() {
+        // The "on branch / no worktree" case — the previous code bailed here,
+        // which broke rewind/fork and follow-up checkpoints for the feature.
+        let pool = make_cwd_pool().await;
+        assert_eq!(
+            resolve_feature_cwd(&pool, 1).await.unwrap(),
+            "/Users/x/proj"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolve_feature_cwd_treats_blank_worktree_as_no_worktree() {
+        let pool = make_cwd_pool().await;
+        set_setting(&pool, 1, "worktree_path", "   ").await.unwrap();
+        assert_eq!(
+            resolve_feature_cwd(&pool, 1).await.unwrap(),
+            "/Users/x/proj"
+        );
     }
 }

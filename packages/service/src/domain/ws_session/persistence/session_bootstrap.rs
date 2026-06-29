@@ -17,6 +17,7 @@ impl WsSessionPersistence {
             pending_tool_inputs: HashMap::new(),
             pending_tool_row_ids: HashMap::new(),
             pending_mergeable_blocks: HashMap::new(),
+            streamed_assistant_content: HashSet::new(),
             file_change_marked: false,
         }
     }
@@ -89,11 +90,12 @@ impl WsSessionPersistence {
         }
     }
 
-    pub async fn persist_user_message(&self, text: &str) {
-        let Some(session_id) = self.session_db_id else {
-            return;
-        };
-        if let Err(e) = Self::insert_message(
+    /// Persist a user prompt row and return its `agent_messages.id` (the seam
+    /// the checkpoints subsystem links a pre-turn snapshot to). Returns `None`
+    /// when there is no session id yet or the insert fails.
+    pub async fn persist_user_message(&self, text: &str) -> Option<i64> {
+        let session_id = self.session_db_id?;
+        match Self::insert_message(
             &self.write_pool,
             session_id,
             "user",
@@ -106,7 +108,11 @@ impl WsSessionPersistence {
         )
         .await
         {
-            error!(error = %e, "failed to persist user message");
+            Ok(result) => Some(result.last_insert_rowid()),
+            Err(e) => {
+                error!(error = %e, "failed to persist user message");
+                None
+            }
         }
     }
 }
@@ -147,6 +153,7 @@ mod session_bootstrap_tests {
                 runtime_session_id TEXT,
 
                 model TEXT,
+                profile TEXT,
                 permission_mode TEXT,
                 codex_permission_mode TEXT DEFAULT 'default',
                 has_file_changes INTEGER NOT NULL DEFAULT 0,

@@ -27,6 +27,8 @@ pub struct SessionInitializedPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_effort: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
@@ -175,6 +177,18 @@ pub struct SessionStreamStatusPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptReceivedPayload {
     pub client_message_id: String,
+}
+
+/// Server → the *sending* client only: the persisted DB id of a user message
+/// the sender is showing optimistically (matched by its `user_message_ref`).
+/// The sender renders its own prompt from a local `ws-user-*` block that has no
+/// DB id, so rewind/fork — which cut at a persisted message id — stay hidden on
+/// it until the conversation is reloaded. Stamping the id back lets those
+/// actions light up on the live message immediately.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptPersistedPayload {
+    pub user_message_ref: String,
+    pub message_id: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

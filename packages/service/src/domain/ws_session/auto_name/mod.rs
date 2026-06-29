@@ -181,7 +181,7 @@ async fn run_auto_name(
     };
 
     let prompt = build_prompt(&user_input);
-    let config = build_spawn_config(pool, &provider_id, &model_id, &cwd).await;
+    let config = build_spawn_config(&provider_id, &model_id, &cwd);
     debug!(
         feature_id,
         prompt_len = prompt.len(),
@@ -268,18 +268,11 @@ fn build_prompt(user_input: &str) -> String {
     )
 }
 
-async fn build_spawn_config(
-    pool: &SqlitePool,
-    provider_id: &str,
-    model_id: &str,
-    cwd: &str,
-) -> RuntimeSpawnConfig {
+fn build_spawn_config(provider_id: &str, model_id: &str, cwd: &str) -> RuntimeSpawnConfig {
     // Provider-specific env injection lives co-located with the provider
     // module (claude_code::profiles) so generic code stays provider-neutral.
     let env = if provider_id == "claude_code" {
-        crate::domain::agents::claude_code::profiles::resolve_active_profile_env(pool)
-            .await
-            .1
+        crate::domain::agents::claude_code::profiles::resolve_active_profile_env().1
     } else {
         None
     };

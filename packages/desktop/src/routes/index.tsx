@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useListProjects, useListFeatures } from "../api/generated";
+import { FeatureStatus, useListProjects, useListFeatures, type Feature } from "../api/generated";
 import { readSavedFeature } from "@/lib/saved-feature";
 
 export const Route = createFileRoute("/")({
@@ -15,6 +15,10 @@ export const Route = createFileRoute("/")({
 function getQueryErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message;
   return "Failed to load workspace data.";
+}
+
+function isRestorableFeature(feature: Feature): boolean {
+  return feature.status !== FeatureStatus.archived;
 }
 
 function HomePage() {
@@ -32,6 +36,10 @@ function HomePage() {
     { project_id: targetProjectId ?? 0, include_archived: true },
     { query: { enabled: targetProjectId != null } },
   );
+  const activeFeatures = useMemo(
+    () => featuresQuery.data?.filter(isRestorableFeature) ?? [],
+    [featuresQuery.data],
+  );
 
   const startupError =
     projectsQuery.error ?? (targetProjectId != null ? featuresQuery.error : null);
@@ -42,7 +50,7 @@ function HomePage() {
 
     // Try saved feature first (unless searchProjectId overrides)
     if (lastFeature && !searchProjectId) {
-      const exists = features.some((f) => f.id === lastFeature.featureId);
+      const exists = activeFeatures.some((f) => f.id === lastFeature.featureId);
       if (exists && targetProjectId === lastFeature.projectId) {
         void navigate({
           to: "/projects/$projectId/features/$featureId",
@@ -57,8 +65,7 @@ function HomePage() {
     }
 
     // Fallback: first feature of target project
-    const firstFeatureId =
-      (features.find((feature) => feature.status === "active") ?? features[0])?.id ?? null;
+    const firstFeatureId = activeFeatures[0]?.id ?? null;
     if (targetProjectId != null && firstFeatureId != null) {
       void navigate({
         to: "/projects/$projectId/features/$featureId",
@@ -69,14 +76,14 @@ function HomePage() {
         replace: true,
       });
     }
-  }, [lastFeature, searchProjectId, targetProjectId, featuresQuery.data, navigate]);
+  }, [activeFeatures, lastFeature, searchProjectId, targetProjectId, featuresQuery.data, navigate]);
 
-  // Show helpful message if project exists but has no features
+  // Show helpful message if project exists but has no active features.
   if (
     projectsQuery.isSuccess &&
     targetProjectId != null &&
     featuresQuery.isSuccess &&
-    (featuresQuery.data?.length ?? 0) === 0
+    activeFeatures.length === 0
   ) {
     return (
       <div className="flex h-full items-center justify-center p-6">

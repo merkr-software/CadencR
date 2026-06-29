@@ -35,29 +35,32 @@ use std::path::{Path, PathBuf};
 #[utoipa::path(
     get,
     path = "/api/agent-catalog",
-    params(("cwd" = Option<String>, Query, description = "Workspace path used to discover project-local provider modes")),
+    params(
+        ("cwd" = Option<String>, Query, description = "Workspace path used to discover project-local provider modes"),
+        ("profile" = Option<String>, Query, description = "Claude Code profile to scope the model probe to; defaults to the active profile")
+    ),
     responses((status = 200, body = AgentCatalogResponse))
 )]
 pub async fn get_agent_catalog(
     State(state): State<AppState>,
     Query(query): Query<AgentCatalogQuery>,
 ) -> Json<AgentCatalogResponse> {
-    let catalog = match query.cwd.as_deref() {
-        Some(cwd) => {
-            crate::domain::agents::providers::provider_catalog_live_for_cwd(
-                &state.read_pool,
-                Some(cwd),
-            )
-            .await
-        }
-        None => crate::domain::agents::providers::provider_catalog_live(&state.read_pool).await,
-    };
+    let catalog = crate::domain::agents::providers::provider_catalog_live_for_cwd(
+        &state.read_pool,
+        query.cwd.as_deref(),
+        query.profile.as_deref(),
+    )
+    .await;
     Json(catalog)
 }
 
 #[derive(Debug, Deserialize)]
 pub struct AgentCatalogQuery {
     cwd: Option<PathBuf>,
+    /// Claude Code profile name. Scopes the model probe to that profile's env
+    /// (Bedrock / Vertex expose different model ids than Anthropic) instead of
+    /// the globally active profile. Providers without env profiles ignore it.
+    profile: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

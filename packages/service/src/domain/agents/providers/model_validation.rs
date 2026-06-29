@@ -49,7 +49,7 @@ pub async fn validate_provider_model(
         });
     };
 
-    let catalog = provider_catalog_entry_live_for_settings(read_pool, None, adapter).await;
+    let catalog = provider_catalog_entry_live_for_settings(read_pool, None, None, adapter).await;
     if catalog.models.iter().any(|model| model.id == model_id)
         || adapter
             .catalog_entry()

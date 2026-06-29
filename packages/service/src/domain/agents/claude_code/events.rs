@@ -3,8 +3,8 @@ use serde_json::Value;
 use crate::domain::agents::adapter::{
     RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeContentBlock, RuntimeContentDelta,
     RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeMcpServerStatus,
-    RuntimeStreamEvent, RuntimeTurnStartedSource, RuntimeUsage, RuntimeUserContentBlock,
-    RuntimeUserMessage,
+    RuntimeResultError, RuntimeStreamEvent, RuntimeTurnStartedSource, RuntimeUsage,
+    RuntimeUserContentBlock, RuntimeUserMessage,
 };
 
 pub(super) fn context_window_for_model_from_raw(raw: &Value, model: &str) -> Option<u64> {
@@ -106,23 +106,32 @@ fn map_stream_event(event: &claude_agent_sdk_rs::StreamEventData) -> RuntimeStre
             block: map_content_block(content_block),
         },
         claude_agent_sdk_rs::StreamEventData::ContentBlockDelta { index, delta } => {
-            RuntimeStreamEvent::ContentBlockDelta {
-                index: u64::from(*index),
-                delta: match delta {
-                    claude_agent_sdk_rs::types::ContentDelta::TextDelta { text } => {
-                        RuntimeContentDelta::Text { text: text.clone() }
+            match delta {
+                claude_agent_sdk_rs::types::ContentDelta::TextDelta { text } => {
+                    RuntimeStreamEvent::ContentBlockDelta {
+                        index: u64::from(*index),
+                        delta: RuntimeContentDelta::Text { text: text.clone() },
                     }
-                    claude_agent_sdk_rs::types::ContentDelta::ThinkingDelta { thinking } => {
-                        RuntimeContentDelta::Thinking {
+                }
+                claude_agent_sdk_rs::types::ContentDelta::ThinkingDelta { thinking } => {
+                    RuntimeStreamEvent::ContentBlockDelta {
+                        index: u64::from(*index),
+                        delta: RuntimeContentDelta::Thinking {
                             thinking: thinking.clone(),
-                        }
+                        },
                     }
-                    claude_agent_sdk_rs::types::ContentDelta::InputJsonDelta { partial_json } => {
-                        RuntimeContentDelta::InputJson {
+                }
+                claude_agent_sdk_rs::types::ContentDelta::InputJsonDelta { partial_json } => {
+                    RuntimeStreamEvent::ContentBlockDelta {
+                        index: u64::from(*index),
+                        delta: RuntimeContentDelta::InputJson {
                             partial_json: partial_json.clone(),
-                        }
+                        },
                     }
-                },
+                }
+                // An unknown delta type carries nothing we can render; treat the
+                // whole event as `Other` rather than fabricating a delta.
+                claude_agent_sdk_rs::types::ContentDelta::Other => RuntimeStreamEvent::Other,
             }
         }
         claude_agent_sdk_rs::StreamEventData::ContentBlockStop { index } => {
@@ -178,6 +187,9 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
         context_window: msg.result_context_window(),
         raw: serde_json::to_value(&msg).unwrap_or(Value::Null),
     };
+
+    // Populated by a failing (`is_error`) `Result`; see `RuntimeResultError`.
+    let mut result_error: Option<RuntimeResultError> = None;
 
     let kind = match msg {
         claude_agent_sdk_rs::SdkMessage::System(system) => match system {
@@ -262,18 +274,91 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
         claude_agent_sdk_rs::SdkMessage::ToolUseSummary { data, .. } => {
             RuntimeEventKind::ToolUseSummary { data }
         }
-        claude_agent_sdk_rs::SdkMessage::Result { .. } => RuntimeEventKind::Result,
+        claude_agent_sdk_rs::SdkMessage::Result {
+            is_error,
+            ref subtype,
+            ref result,
+            ref errors,
+            ref stop_reason,
+            ..
+        } => {
+            if is_error {
+                result_error = Some(build_result_error(
+                    subtype,
+                    result.as_deref(),
+                    errors.as_deref(),
+                    stop_reason.as_deref(),
+                ));
+            }
+            RuntimeEventKind::Result
+        }
+        // A message type the SDK has never seen. Keep the raw payload so the
+        // stream reader can surface it to the conversation instead of dropping
+        // it silently — the silent-stop users couldn't diagnose. EXCEPT
+        // `system` messages: those are operational metadata, not conversation
+        // content, and the run-in-background agent protocol (issue #58) emits
+        // `system/task_started` / `system/task_notification` that arrive here
+        // as Unknown by design. Surfacing those as visible errors would spam
+        // the conversation on every background-agent run, so an unknown
+        // `system` subtype stays silent (`Other`) like every other operational
+        // message; only genuinely-unknown NON-system messages reach the user.
+        claude_agent_sdk_rs::SdkMessage::Unknown(raw) => {
+            if raw.get("type").and_then(Value::as_str) == Some("system") {
+                RuntimeEventKind::Other
+            } else {
+                RuntimeEventKind::Unknown { raw }
+            }
+        }
         _ => RuntimeEventKind::Other,
     };
 
-    RuntimeEvent::new(metadata, kind).with_background_agent(background_agent)
+    RuntimeEvent::new(metadata, kind)
+        .with_background_agent(background_agent)
+        .with_result_error(result_error)
+}
+
+/// Assemble a [`RuntimeResultError`] from a failing Claude Code `Result`.
+/// `code` is the upper-cased subtype (e.g. `ERROR_DURING_EXECUTION`) so the
+/// failure mode is identifiable; the message prefers the CLI's human-readable
+/// `result` text, then any `errors`, and appends a `stop_reason` when present.
+fn build_result_error(
+    subtype: &str,
+    result: Option<&str>,
+    errors: Option<&[String]>,
+    stop_reason: Option<&str>,
+) -> RuntimeResultError {
+    let code = if subtype.is_empty() {
+        "AGENT_ERROR".to_string()
+    } else {
+        subtype.to_uppercase()
+    };
+    let detail = result
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            errors
+                .filter(|list| !list.is_empty())
+                .map(|list| list.join("; "))
+        });
+    let mut message = match detail {
+        Some(detail) => format!("Claude Code ended the turn with an error ({subtype}): {detail}"),
+        None => format!("Claude Code ended the turn with an error ({subtype})."),
+    };
+    if let Some(reason) = stop_reason
+        .map(str::trim)
+        .filter(|reason| !reason.is_empty())
+    {
+        message.push_str(&format!(" [stop reason: {reason}]"));
+    }
+    RuntimeResultError { code, message }
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::{context_window_for_model_from_raw, normalize_event};
+    use super::{build_result_error, context_window_for_model_from_raw, normalize_event};
     use crate::domain::agents::adapter::{RuntimeContentDelta, RuntimeStreamEvent};
 
     #[test]
@@ -301,6 +386,53 @@ mod tests {
             }
             other => panic!("unexpected stream mapping: {other:?}"),
         }
+    }
+
+    #[test]
+    fn normalize_event_preserves_raw_for_an_unrecognized_message_type() {
+        // A `type` the SDK has never seen falls back to `SdkMessage::Unknown`.
+        // The adapter must keep the raw payload (via `RuntimeEventKind::Unknown`)
+        // so the stream reader can surface it instead of dropping it silently.
+        let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "some_future_message",
+            "session_id": "s1",
+            "detail": "important content"
+        }))
+        .expect("unknown types deserialize infallibly");
+        assert!(matches!(msg, claude_agent_sdk_rs::SdkMessage::Unknown(_)));
+
+        let event = normalize_event(msg);
+        let raw = event
+            .unknown_message()
+            .expect("unrecognized message must surface its raw payload");
+        assert_eq!(raw["type"], "some_future_message");
+        assert_eq!(raw["detail"], "important content");
+    }
+
+    #[test]
+    fn normalize_event_does_not_surface_unknown_system_messages_as_errors() {
+        // The run-in-background agent protocol (issue #58) and any untyped
+        // `system` subtype arrive as `SdkMessage::Unknown` by design. They are
+        // operational metadata and must NOT become visible `UNKNOWN_MESSAGE`
+        // errors — otherwise every background-agent run would spam the
+        // conversation. They stay silent (`Other`) while still driving
+        // background-agent tracking via the independently-derived signal.
+        let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "system", "subtype": "task_started", "uuid": "u", "session_id": "s",
+            "task_id": "task-abc", "task_type": "local_agent"
+        }))
+        .expect("unknown system subtype deserializes infallibly");
+        assert!(matches!(msg, claude_agent_sdk_rs::SdkMessage::Unknown(_)));
+
+        let event = normalize_event(msg);
+        assert!(
+            event.unknown_message().is_none(),
+            "an unknown `system` message must not surface as a visible error"
+        );
+        assert!(
+            event.background_agent_signal().is_some(),
+            "the background-agent signal must still be derived from the raw message"
+        );
     }
 
     #[test]
@@ -487,6 +619,36 @@ mod tests {
     }
 
     #[test]
+    fn normalize_event_keeps_text_when_assistant_has_unknown_block() {
+        // Regression for CLI schema drift: an assistant message carrying a
+        // novel content block (here `server_tool_use`) must still map to an
+        // assistant message with its text intact — the unknown sibling degrades
+        // to `Other` instead of sinking the whole message into `Unknown`/`Other`
+        // (which would silently drop the agent's reply).
+        let msg: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "assistant",
+            "uuid": "u",
+            "session_id": "s",
+            "message": {
+                "id": "m",
+                "model": "claude-opus-4-8",
+                "content": [
+                    { "type": "text", "text": "partial answer" },
+                    { "type": "server_tool_use", "id": "x", "name": "web_search", "input": {} }
+                ]
+            }
+        }))
+        .expect("valid assistant");
+
+        let event = normalize_event(msg);
+        let message = event.assistant_message().expect("assistant message kind");
+        assert!(message.content.iter().any(|block| matches!(
+            block,
+            crate::domain::agents::adapter::RuntimeContentBlock::Text { text } if text == "partial answer"
+        )));
+    }
+
+    #[test]
     fn normalize_event_maps_result_to_result_kind() {
         let message: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
             "type": "result",
@@ -505,5 +667,58 @@ mod tests {
 
         let event = normalize_event(message);
         assert!(event.is_result());
+        assert!(
+            event.result_error().is_none(),
+            "a successful result must carry no error detail"
+        );
+    }
+
+    #[test]
+    fn normalize_event_surfaces_error_detail_from_a_failing_result() {
+        // Issue #78: Claude Code (notably on Bedrock) can end a turn with an
+        // error result and no other output. The mapping must keep it a Result
+        // (so the turn still completes) AND carry the failure detail so the
+        // reader can surface it instead of a silent stop.
+        let message: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "result",
+            "subtype": "error_during_execution",
+            "uuid": "u3",
+            "session_id": "s3",
+            "duration_ms": 1,
+            "duration_api_ms": 1,
+            "is_error": true,
+            "num_turns": 1,
+            "result": "Bedrock throttled the request",
+            "stop_reason": "error",
+            "total_cost_usd": 0.0,
+            "usage": { "input_tokens": 1, "output_tokens": 0 }
+        }))
+        .expect("valid error result event");
+
+        let event = normalize_event(message);
+        assert!(event.is_result(), "an error result is still a turn end");
+        let error = event
+            .result_error()
+            .expect("a failing result must carry error detail");
+        assert_eq!(error.code, "ERROR_DURING_EXECUTION");
+        assert!(
+            error.message.contains("Bedrock throttled the request"),
+            "message should include the CLI's human-readable detail: {}",
+            error.message
+        );
+        assert!(
+            error.message.contains("error_during_execution"),
+            "message should name the failing subtype: {}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn build_result_error_falls_back_to_a_generic_message_without_detail() {
+        // A failing result with no human-readable text must still produce a
+        // surfaceable message rather than an empty one.
+        let error = build_result_error("error_max_turns", None, None, None);
+        assert_eq!(error.code, "ERROR_MAX_TURNS");
+        assert!(error.message.contains("error_max_turns"));
     }
 }

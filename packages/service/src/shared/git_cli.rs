@@ -12,6 +12,40 @@ pub async fn run_git(args: &[&str], cwd: &Path) -> Result<String, AppError> {
     run_raw(args, cwd).await
 }
 
+/// Run a git command with extra environment variables injected for this one
+/// invocation. Used by the checkpoints subsystem to snapshot a worktree with an
+/// **isolated index** (`GIT_INDEX_FILE`) so the user's real `.git/index` is
+/// never touched, and to supply a deterministic committer identity to
+/// `commit-tree` so it can't fail on a worktree with no configured `user.name`.
+///
+/// Composes a fully-static (caller-controlled) arg list — there is no
+/// user-supplied positional here — so it does not run the flag-injection guard.
+pub async fn run_git_with_env(
+    args: &[&str],
+    cwd: &Path,
+    env: &[(&str, &str)],
+) -> Result<String, AppError> {
+    let output = Command::new("git")
+        .args(args)
+        .envs(env.iter().copied())
+        .current_dir(cwd)
+        .output()
+        .await
+        .map_err(|e| AppError::GitCommandError(format!("Failed to spawn git: {e}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let sanitized = sanitize_git_stderr(stderr.trim());
+        return Err(AppError::GitCommandError(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            sanitized
+        )));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 /// Run a **periodic / read-style** git command with `--no-optional-locks`
 /// so it can't race a concurrent user-initiated mutation (`git rebase`,
 /// `git commit`, etc.) for `.git/index.lock`.

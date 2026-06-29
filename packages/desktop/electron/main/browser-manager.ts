@@ -172,13 +172,19 @@ export class BrowserManager {
     this.layout.apply(this.tabs, this.scopes.active, this.scopes.bounds);
   }
 
-  closeTab(tabId: string): BrowserStateSnapshot {
-    const tab = this.requireTab(tabId);
-    const scope = tab.metadata.scopeId;
+  /** Detach and destroy a tab's native views, then drop it from the map. The
+   *  caller handles scope promotion and emitting counts/layout/state. */
+  private destroyTab(tab: ManagedTab): void {
     this.layout.detach(tab.view);
     if (tab.devtoolsView) this.layout.detach(tab.devtoolsView);
     tab.view.webContents.close();
-    this.tabs.delete(tabId);
+    this.tabs.delete(tab.metadata.id);
+  }
+
+  closeTab(tabId: string): BrowserStateSnapshot {
+    const tab = this.requireTab(tabId);
+    const scope = tab.metadata.scopeId;
+    this.destroyTab(tab);
     this.emitTabCountsIfChanged();
     // Closing a scope's active tab promotes the next tab *in the same scope*,
     // so closing a tab never reveals another feature's tab.
@@ -191,6 +197,27 @@ export class BrowserManager {
     this.applyLayout();
     this.emitState(scope);
     return this.state(scope);
+  }
+
+  /**
+   * Close every tab belonging to a feature scope in one pass. Used by the
+   * sidebar "Close terminals & browsers" action so the user can tear down a
+   * feature's browsers without entering it. Destroys all of the scope's tabs
+   * first, then emits counts/layout/state once — going through `closeTab`
+   * per tab would promote (and re-render) intermediate tabs we're about to
+   * destroy anyway. Returns the (now empty) snapshot for that scope.
+   */
+  closeTabsForScope(scopeId: number): BrowserStateSnapshot {
+    const tabs = [...this.tabs.values()].filter((tab) => tab.metadata.scopeId === scopeId);
+    for (const tab of tabs) {
+      this.destroyTab(tab);
+      this.scopes.forget(scopeId, tab.metadata.id, this.tabs);
+    }
+    this.emitTabCountsIfChanged();
+    this.scopes.refreshActiveFlags(this.tabs);
+    this.applyLayout();
+    this.emitState(scopeId);
+    return this.state(scopeId);
   }
 
   setBounds(

@@ -10,6 +10,7 @@ import { SettingsCard } from "./SettingsCard";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
+import { InternalDomainsEditor } from "./InternalDomainsEditor";
 
 /**
  * Browser workspace preferences:
@@ -35,7 +36,7 @@ export function BrowserSection(): React.JSX.Element {
   );
 
   return (
-    <SettingsSection id="browser" title="Browser" subtitle="Default cookie mode">
+    <SettingsSection id="browser" title="Browser" subtitle="Cookie mode and link routing">
       <SettingsCard>
         <SettingsSubsection
           title="Default mode"
@@ -50,6 +51,12 @@ export function BrowserSection(): React.JSX.Element {
             showDot={false}
             disabled={modeSetting.isLoading}
           />
+        </SettingsSubsection>
+        <SettingsSubsection
+          title="Open in Cadencr's browser"
+          description="Links to these domains (and their subdomains) open in a Cadencr browser tab when Cmd/Ctrl+clicked in the terminal or agent chat. Everything else opens in your system browser."
+        >
+          <InternalDomainsEditor />
         </SettingsSubsection>
       </SettingsCard>
     </SettingsSection>

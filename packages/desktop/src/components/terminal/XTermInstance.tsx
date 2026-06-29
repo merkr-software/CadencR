@@ -9,6 +9,7 @@ import { toControlChar } from "@/lib/terminal-keys";
 import type { XTermPalette } from "@/lib/themes";
 import { createXtermInstance } from "./createXtermInstance";
 import { attachXtermNavigationKeys } from "./xtermNavigationKeys";
+import { useLinkRouting } from "@/components/links/LinkRoutingContext";
 
 interface XTermInstanceProps {
   featureId: number;
@@ -104,6 +105,11 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
     ctrlArmedRef.current = ctrlArmed ?? false;
     const onConsumeCtrlRef = useRef(onConsumeCtrl);
     onConsumeCtrlRef.current = onConsumeCtrl;
+    // Link routing (Cmd/Ctrl+Click activation + native menu hover context).
+    // Read via ref so the once-bound web-links handler sees the latest router.
+    const linkRouting = useLinkRouting();
+    const linkRoutingRef = useRef(linkRouting);
+    linkRoutingRef.current = linkRouting;
 
     useImperativeHandle(ref, () => ({
       focus: () => {
@@ -253,7 +259,18 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
       // live-swap effect below, which mutates `terminal.options.theme`.
       const terminal = createXtermInstance(theme);
       const fitAddon = new FitAddon();
-      const webLinksAddon = new WebLinksAddon();
+      // Cmd/Ctrl+Click opens a link via the shared router (domain policy);
+      // plain click is ignored so it never fights text selection/copy. Hover
+      // feeds the native right-click menu its feature-scoped open choices.
+      const webLinksAddon = new WebLinksAddon(
+        (event, uri) => {
+          if (event.metaKey || event.ctrlKey) linkRoutingRef.current?.activate(uri);
+        },
+        {
+          hover: (_event, uri) => linkRoutingRef.current?.setHoverLink(uri),
+          leave: () => linkRoutingRef.current?.setHoverLink(null),
+        },
+      );
 
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(webLinksAddon);
@@ -392,6 +409,8 @@ export const XTermInstance = forwardRef<XTermInstanceHandle, XTermInstanceProps>
 
       return () => {
         mountedRef.current = false;
+        // Drop any lingering hover link so a stale URL doesn't haunt the menu.
+        linkRoutingRef.current?.setHoverLink(null);
         cancelAnimationFrame(bootstrapRaf);
         intersectionObserver.disconnect();
         resizeObserver.disconnect();

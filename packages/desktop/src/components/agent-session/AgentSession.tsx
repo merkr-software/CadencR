@@ -1,6 +1,7 @@
 import {
   useState,
   useEffect,
+  useMemo,
   useRef,
   useImperativeHandle,
   useCallback,
@@ -29,6 +30,9 @@ import { AgentSessionComposer } from "./AgentSessionComposer";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
 import { useClaudeProfileSelection } from "./useClaudeProfileSelection";
+import { AgentSessionProvider } from "./agent-session-context";
+import { BranchConfirmDialog } from "./BranchConfirmDialog";
+import { useAgentSessionBranchEffects } from "./useAgentSessionBranchEffects";
 
 const META_BAR_COMPACT_THRESHOLD_PX = 640;
 
@@ -181,6 +185,17 @@ export const AgentSession = memo(
       }),
       [isOpen],
     );
+
+    // Identity for the stream subtree (the per-block context menu dispatches
+    // rewind/fork against this). Stable per session → no streaming re-renders.
+    const agentSessionContextValue = useMemo(
+      () => ({ wsSessionId: wsSessionId ?? null }),
+      [wsSessionId],
+    );
+
+    // Rewind/Fork store reactions (draft prefill + navigate to a new fork),
+    // scoped to this session and consumed once each.
+    useAgentSessionBranchEffects(wsSessionId, promptBarRef);
 
     const handleToggle = () => {
       if (onToggle) onToggle();
@@ -348,30 +363,33 @@ export const AgentSession = memo(
     );
 
     return (
-      <AgentSessionFrame
-        containerRef={containerRef}
-        headerRef={headerRef}
-        collapsible={collapsible}
-        className={className}
-        navAgentIndex={navAgentIndex}
-        maximized={maximized}
-        isOpen={isOpen}
-        isIdle={isIdle}
-        status={status}
-        blocks={blocks}
-        streamContent={streamContent}
-        bottomContent={bottomSection}
-        onToggle={handleToggle}
-        IconComponent={IconComponent}
-        badge={badge}
-        displayLabel={displayLabel}
-        onMarkDone={onMarkDone}
-        resumable={resumable}
-        onResume={onResume}
-        canDelete={canDelete}
-        onDelete={onDelete}
-        onToggleMaximize={onToggleMaximize}
-      />
+      <AgentSessionProvider value={agentSessionContextValue}>
+        {wsSessionId && <BranchConfirmDialog wsSessionId={wsSessionId} />}
+        <AgentSessionFrame
+          containerRef={containerRef}
+          headerRef={headerRef}
+          collapsible={collapsible}
+          className={className}
+          navAgentIndex={navAgentIndex}
+          maximized={maximized}
+          isOpen={isOpen}
+          isIdle={isIdle}
+          status={status}
+          blocks={blocks}
+          streamContent={streamContent}
+          bottomContent={bottomSection}
+          onToggle={handleToggle}
+          IconComponent={IconComponent}
+          badge={badge}
+          displayLabel={displayLabel}
+          onMarkDone={onMarkDone}
+          resumable={resumable}
+          onResume={onResume}
+          canDelete={canDelete}
+          onDelete={onDelete}
+          onToggleMaximize={onToggleMaximize}
+        />
+      </AgentSessionProvider>
     );
   }),
   shallowEqualSkipFunctions,
