@@ -3,12 +3,18 @@
   "private": true,
   "version": "0.7.2",
   "description": "Cadencr desktop shell — Electron app with a React frontend for driving local AI coding agents.",
+  "homepage": "https://cadencr.com",
+  "author": {
+    "name": "Raphael Le Minor",
+    "email": "raphael.leminor@gmail.com"
+  },
   "license": "Apache-2.0",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node ./scripts/electron-vite.mjs dev",
     "dev:electron": "node ./scripts/electron-vite.mjs dev",
     "build:local": "node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.local.yml",
+    "build:local:linux": "pnpm --filter @cadencr/service build && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml --linux AppImage deb",
     "build": "pnpm --filter @cadencr/service build && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml",
     "build:electron": "pnpm --filter @cadencr/service build && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml",
     "package:electron": "electron-builder --config electron-builder.yml",
@@ -25,6 +31,8 @@
     "predev": "pnpm ensure:electron",
     "predev:electron": "pnpm ensure:electron",
     "prebuild:local": "pnpm ensure:electron",
+    "prebuild:local:linux": "pnpm ensure:electron",
+    "postbuild:local:linux": "node ./scripts/install-local-linux-build.mjs",
     "prebuild": "pnpm ensure:electron",
     "prebuild:electron": "pnpm ensure:electron",
     "build:mac:signed": "node scripts/build-mac-signed.mjs",

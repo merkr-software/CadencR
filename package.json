@@ -17,6 +17,7 @@
     "format:check": "turbo run format:check",
     "start": "node scripts/dev.mjs --filter=@cadencr/desktop",
     "build:local": "node scripts/cargo-env.mjs turbo run build:local --filter=@cadencr/desktop",
+    "build:local:linux": "pnpm --filter @cadencr/desktop build:local:linux",
     "build": "node scripts/cargo-env.mjs turbo run build --filter=@cadencr/desktop",
     "rust": "node scripts/cargo-env.mjs cargo",
     "rust:storage": "node scripts/rust-storage.mjs status",
