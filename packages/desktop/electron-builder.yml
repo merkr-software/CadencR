@@ -20,6 +20,8 @@ files:
   - "!out/renderer/**"
   - package.json
 extraResources:
+  - from: icons/512x512.png
+    to: icons/512x512.png
   - from: resources/bin/cadencr-service
     to: cadencr-service
   # The built SPA on the real filesystem — loaded directly by the packaged
