@@ -371,12 +371,17 @@ pub struct SearchParams {
     #[serde(default)]
     pub feature_id: Option<i64>,
     pub query: Option<String>,
+    /// Include directories in the results (used by the `@` file-mention
+    /// picker). Defaults to false so the file-open palette stays files-only.
+    #[serde(default)]
+    pub include_dirs: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct FileMatchResult {
     pub path: String,
     pub positions: Vec<u32>,
+    pub is_dir: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -394,28 +399,23 @@ pub async fn search_handler(
     let project_root =
         resolve_feature_editor_root(&state.read_pool, params.project_id, params.feature_id).await?;
     let query = params.query.unwrap_or_default();
+    let include_dirs = params.include_dirs;
 
     let files: Vec<FileMatchResult> =
         tokio::task::spawn_blocking(move || -> Result<Vec<FileMatchResult>, AppError> {
-            if query.is_empty() {
-                let paths = service::recent_files(&project_root, 20)?;
-                Ok(paths
-                    .into_iter()
-                    .map(|path| FileMatchResult {
-                        path,
-                        positions: vec![],
-                    })
-                    .collect())
+            let matches = if query.is_empty() {
+                service::recent_files(&project_root, 20, include_dirs)?
             } else {
-                let matches = service::fuzzy_search_files(&project_root, &query, 50)?;
-                Ok(matches
-                    .into_iter()
-                    .map(|m| FileMatchResult {
-                        path: m.path,
-                        positions: m.positions,
-                    })
-                    .collect())
-            }
+                service::fuzzy_search_files(&project_root, &query, 50, include_dirs)?
+            };
+            Ok(matches
+                .into_iter()
+                .map(|m| FileMatchResult {
+                    path: m.path,
+                    positions: m.positions,
+                    is_dir: m.is_dir,
+                })
+                .collect())
         })
         .await
         .map_err(|e| AppError::Internal(format!("Blocking task failed: {e}")))??;

@@ -1,18 +1,18 @@
 ---
-title: "Cadencr is now open source, and completely free"
+title: "CadencR is now open source, and completely free"
 date: 2026-05-16
 summary: "After three months and 1,800+ commits, the code is on GitHub under Apache 2.0. No paid tier, no waitlist. Here's what I built and why I'm giving it away."
 author: "Raphaël - RLE - Le Minor"
 tags: ["announcement", "open-source", "launch"]
 ---
 
-The first commit on Cadencr landed on February 11th. Today, 1,824 commits later, the whole thing is on [GitHub](https://github.com/merkr-software/cadencr) under Apache 2.0. Free. No paid tier, no "pro" plan, no waitlist.
+The first commit on CadencR landed on February 11th. Today, 1,824 commits later, the whole thing is on [GitHub](https://github.com/merkr-software/cadencr) under Apache 2.0. Free. No paid tier, no "pro" plan, no waitlist.
 
 If you want to skip the rest, [grab the latest release](https://github.com/merkr-software/cadencr/releases/latest). macOS, Windows, Linux.
 
 ## Why give it away
 
-Honestly, this wasn't the plan. I started Cadencr as a personal tool, for me. The CLI agents I was using were powerful but the workflow around them drove me up a wall, so I built the thing I wished existed and used it every day. It was never meant to leave my laptop.
+Honestly, this wasn't the plan. I started CadencR as a personal tool, for me. The CLI agents I was using were powerful but the workflow around them drove me up a wall, so I built the thing I wished existed and used it every day. It was never meant to leave my laptop.
 
 What actually changed my mind happened by accident. People would glance at my screen while I was working, slow down, and then start asking questions. "Wait, what is that?" "Are those all running at the same time?" "What's that panel on the side?" It kept happening. Not from people I'd shown the tool to, from people who just happened to look over and got curious.
 
@@ -20,19 +20,19 @@ That's a hard signal to ignore. At that point keeping it to myself felt selfish,
 
 The other reason is that the way developers work is being rewritten in real time, and nobody (me included) knows what the right shape is yet. I'd rather be wrong in public and fix it fast than be wrong on my own laptop forever.
 
-## What Cadencr actually does
+## What CadencR actually does
 
 It's a desktop IDE that runs Claude Code, OpenCode, and Codex side by side, in one window, with a real UI on top instead of a terminal scrollback.
 
 The two things I cared most about getting right:
 
-**Running more than one agent at a time.** If you've used a CLI agent, you've probably noticed they spend a lot of their time waiting. For you to read a diff. For a test to run. For a permission prompt. Cadencr puts each session in its own Git worktree on its own feature, so while one's working you can start another. I usually have three or four going at once. It changes the job.
+**Running more than one agent at a time.** If you've used a CLI agent, you've probably noticed they spend a lot of their time waiting. For you to read a diff. For a test to run. For a permission prompt. CadencR puts each session in its own Git worktree on its own feature, so while one's working you can start another. I usually have three or four going at once. It changes the job.
 
 **Being able to read what the agent did.** There's a popular take right now that you don't really need to watch the agent anymore. For a side project, a script, a throwaway prototype, that's fair. Models have gotten genuinely good, and at small scale you can let them rip and only look at the output.
 
 Try the same thing on a 10M-line codebase and the illusion falls apart fast. Ask an agent to find a bug somewhere in real production code and you'll watch it confidently edit the wrong file, miss the convention three modules over, or "fix" a symptom while the cause sits untouched. Fully autonomous software development is coming, probably. It's not here yet. In the meantime, the difference between an agent that helps and an agent that quietly burns an afternoon is whether a human is guiding, reviewing, and noticing things early.
 
-That's the part a terminal scrollback is terrible at. A 4,000-line stream of tool calls is not a UI, it's a coping mechanism. Cadencr renders sessions as something you can actually skim: file changes grouped, tool calls collapsed, plan and approvals as their own surfaces. The point isn't to babysit every token. It's to make spot-checking cheap enough that you'll actually do it.
+That's the part a terminal scrollback is terrible at. A 4,000-line stream of tool calls is not a UI, it's a coping mechanism. CadencR renders sessions as something you can actually skim: file changes grouped, tool calls collapsed, plan and approvals as their own surfaces. The point isn't to babysit every token. It's to make spot-checking cheap enough that you'll actually do it.
 
 Everything else (the editor, the built-in terminal, Git, custom actions, shortcuts) is there because I needed it myself while building the first two.
 

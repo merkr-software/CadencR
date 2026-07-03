@@ -1,5 +1,5 @@
 ---
-title: "Cadencr v0.3.0 turns the editor into a real coding surface"
+title: "CadencR v0.3.0 turns the editor into a real coding surface"
 date: 2026-05-24
 summary: "The big v0.3.0 update brings LSP-powered navigation, a reworked file tree, diagnostics, in-buffer search and replace, Markdown preview, scratch buffers, and a lot of editor polish to the agent workspace."
 author: "Raphaël - RLE - Le Minor"
@@ -10,9 +10,9 @@ import DocScreenshot from "@/components/docs/DocScreenshot.astro";
 import editorScreenshot from "@/assets/news/0.3.0/editor.png";
 import oneDarkScreenshot from "@/assets/news/0.3.0/one-dark.png";
 
-Cadencr started as an agent workspace, but an agent workspace still needs a good place to read and edit code. Version 0.3.0 is the release where the editor stops feeling like a side panel and starts becoming a real coding surface.
+CadencR started as an agent workspace, but an agent workspace still needs a good place to read and edit code. Version 0.3.0 is the release where the editor stops feeling like a side panel and starts becoming a real coding surface.
 
-The headline is LSP support and the file tree rework around it. You can Cmd-click through code, see diagnostics in the editor, watch server status, and manage supported language servers from Settings. Cadencr discovers installed servers when it can, downloads managed ones when needed, verifies those downloads before running them, and keeps their lifecycle tied to the workspace instead of leaving background processes around forever.
+The headline is LSP support and the file tree rework around it. You can Cmd-click through code, see diagnostics in the editor, watch server status, and manage supported language servers from Settings. CadencR discovers installed servers when it can, downloads managed ones when needed, verifies those downloads before running them, and keeps their lifecycle tied to the workspace instead of leaving background processes around forever.
 
 That matters because agent work is full of tiny human checks. An agent changes a symbol, you jump to its definition. It mentions a diagnostic, you inspect it in place. It opens a file you have never seen before, you search inside it, jump to a line, or make a quick manual edit without leaving the app.
 
@@ -20,14 +20,14 @@ That matters because agent work is full of tiny human checks. An agent changes a
 
 <DocScreenshot
   src={editorScreenshot}
-  alt="Cadencr editor showing the file tree, TypeScript syntax highlighting, in-buffer search, and an LSP diagnostic tooltip"
+  alt="CadencR editor showing the file tree, TypeScript syntax highlighting, in-buffer search, and an LSP diagnostic tooltip"
   caption="The editor now combines the file tree, syntax highlighting, in-buffer search, and LSP diagnostics in one workspace view."
   bordered={false}
 />
 
-The editor gained the workflows I missed most while using Cadencr every day.
+The editor gained the workflows I missed most while using CadencR every day.
 
-The biggest piece is language intelligence. Cadencr now has an LSP host that connects CodeMirror to local language servers over WebSocket, with Cmd-click go-to-definition, symbol hover affordances, diagnostics, and a status indicator in the editor chrome. Settings now includes a language-server list, so you can see what Cadencr found and what it can manage for you.
+The biggest piece is language intelligence. CadencR now has an LSP host that connects CodeMirror to local language servers over WebSocket, with Cmd-click go-to-definition, symbol hover affordances, diagnostics, and a status indicator in the editor chrome. Settings now includes a language-server list, so you can see what CadencR found and what it can manage for you.
 
 The language support is broader too. Rust Analyzer can be downloaded as a pinned managed binary, npm-backed servers can be installed automatically, and the catalog now covers everyday web files like TypeScript, JavaScript, JSON, YAML, HTML, CSS, Svelte, Vue, Astro, shell scripts, and Dockerfiles. Diagnostics show up with theme-correct tooltips, server messages are surfaced as toasts, and missing tools fail early with a readable error instead of a silent editor feature that simply does nothing.
 
@@ -56,11 +56,11 @@ For the full list, read the changelog in the [v0.3.0 GitHub release notes](https
 
 The agent is only half the product. The other half is the human feedback loop around it. Version 0.3.0 makes that loop tighter. You can let agents do more of the mechanical work, but you can also inspect, navigate, and correct their output without dropping back to another editor every thirty seconds.
 
-[Download Cadencr v0.3.0](https://github.com/merkr-software/CadencR/releases/tag/v0.3.0) once the release is live, or read the full changelog from the same release page.
+[Download CadencR v0.3.0](https://github.com/merkr-software/CadencR/releases/tag/v0.3.0) once the release is live, or read the full changelog from the same release page.
 
 <DocScreenshot
   src={oneDarkScreenshot}
-  alt="Cadencr workspace with the theme drawer open and One Dark and One Light theme options visible"
+  alt="CadencR workspace with the theme drawer open and One Dark and One Light theme options visible"
   caption="The new global theme drawer previews themes live and adds One Dark and One Light to the built-in theme set."
   bordered={false}
 />

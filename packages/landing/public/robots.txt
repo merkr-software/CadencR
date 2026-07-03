@@ -1,15 +1,13 @@
-# Cadencr — https://cadencr.com
+# CadencR — https://cadencr.com
 #
-# Content-Signal:
-#   search       = yes (web search indexes and result snippets)
-#   ai-input     = unspecified
-#   ai-train     = no
-#
-# If a Content-Signal = no, you may not collect content for the
-# corresponding use. See https://content-signal.org/ for context.
+# Content usage preferences are declared with Content-Signal directives
+# (https://contentsignals.org/): web search is allowed; AI training and
+# AI input (RAG / grounding / generative AI answers) are not.
+# If a Content-Signal = no, you may not collect content for that use.
 
 # General-purpose search crawlers are welcome.
 User-agent: *
+Content-Signal: search=yes, ai-train=no, ai-input=no
 Allow: /
 Disallow:
 

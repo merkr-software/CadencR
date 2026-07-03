@@ -12,7 +12,7 @@ Custom actions are **shell commands** you attach to a project. The `+` button in
 
 <DocScreenshot
   src={customActionsMenuImage}
-  alt="Cadencr custom actions menu showing a list of saved shell commands with status dots and a schedule toggle"
+  alt="CadencR custom actions menu showing a list of saved shell commands with status dots and a schedule toggle"
   caption="The custom actions menu opens from the + button in the feature header."
 />
 
@@ -35,7 +35,7 @@ The command is run with a hard **5-minute timeout** on the host machine. The wor
 
 ## Variables
 
-Anywhere in the command, write `${VAR_NAME}` and Cadencr treats `VAR_NAME` as a variable. Names must be uppercase letters, digits, or underscores and start with a letter or underscore. The set of placeholders is discovered automatically — there is nothing to declare on the side.
+Anywhere in the command, write `${VAR_NAME}` and CadencR treats `VAR_NAME` as a variable. Names must be uppercase letters, digits, or underscores and start with a letter or underscore. The set of placeholders is discovered automatically — there is nothing to declare on the side.
 
 Example commands:
 
@@ -67,7 +67,7 @@ Each action shows a small status dot you can read at a glance:
 | Dot           | Meaning                                                                   |
 | ------------- | ------------------------------------------------------------------------- |
 | Grey          | Never run on this feature yet.                                            |
-| Pulsing amber | A run is in progress (manual or scheduled — Cadencr does not care which). |
+| Pulsing amber | A run is in progress (manual or scheduled — CadencR does not care which). |
 | Green         | Last run exited 0.                                                        |
 | Red           | Last run exited non-zero. Hover for the exit code.                        |
 

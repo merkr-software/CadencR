@@ -15,33 +15,33 @@ Settings is the app-wide preferences page. You probably will not spend much time
 | **Appearance**       | Theme selector (light, dark, follow-system) and per-mode theme IDs                      |
 | **Editor**           | Editor preferences for the built-in CodeMirror surface                                  |
 | **Interface & Zoom** | Density and zoom-level preferences for the whole app                                    |
-| **Notifications**    | When (and how loudly) Cadencr pings you about agent activity                            |
+| **Notifications**    | When (and how loudly) CadencR pings you about agent activity                            |
 | **Browser**          | Default cookie mode for new Browser tabs                                                |
-| **MCP**              | Cadencr-owned agent tool servers for Browser, project, and workspace context            |
+| **MCP**              | CadencR-owned agent tool servers for Browser, project, and workspace context            |
 | **Runtime & Models** | Provider runtime toggles — bypass permissions, full-access modes, and **Custom models** |
 | **Git**              | Default merge strategy and Git-related behaviour                                        |
-| **CLI Providers**    | Per-provider profiles, binary discovery, and which agent CLI Cadencr should use         |
+| **CLI Providers**    | Per-provider profiles, binary discovery, and which agent CLI CadencR should use         |
 | **About**            | Build info and a button to replay the onboarding tour                                   |
 
 ## Browser and notifications
 
 The **Browser** section controls the default cookie mode for new Browser tabs: normal for reused cookies and logins, or private for an in-memory session that clears when the tab closes.
 
-The **Notifications** section covers local notifications and remote Web Push. Remote push is useful when you want Cadencr to notify another device about agent progress, but it still depends on Cadencr running where the work is happening.
+The **Notifications** section covers local notifications and remote Web Push. Remote push is useful when you want CadencR to notify another device about agent progress, but it still depends on CadencR running where the work is happening.
 
 ## MCP tool servers
 
-The **MCP** section controls Cadencr-owned tool servers that can be exposed to agents on the next turn:
+The **MCP** section controls CadencR-owned tool servers that can be exposed to agents on the next turn:
 
 - **Browser MCP** lets agents open local pages, inspect browser state, and drive the Browser tab.
 - **Project MCP** lets agents inspect, compare, spawn, and message sessions in the current project.
-- **Workspace MCP** lets agents search and read conversation history across Cadencr projects.
+- **Workspace MCP** lets agents search and read conversation history across CadencR projects.
 
 Leave these off unless you want agents to have that extra context or orchestration ability for the work you are doing.
 
 ## Provider profiles & custom models
 
-Cadencr is provider-neutral by design. The **CLI Providers** section is where you set up profiles for Claude Code, Codex, and OpenCode — each provider has its own binary, profile, and (optionally) authentication path. The **Runtime & Models** section lets you register custom models on top of those providers so they show up in the model picker (<kbd>⌘ P</kbd>).
+CadencR is provider-neutral by design. The **CLI Providers** section is where you set up profiles for Claude Code, Codex, and OpenCode — each provider has its own binary, profile, and (optionally) authentication path. The **Runtime & Models** section lets you register custom models on top of those providers so they show up in the model picker (<kbd>⌘ P</kbd>).
 
 <DocCallout title="Provider neutrality" variant="tip">
   Most of the rest of the app does not care which provider you picked. The picker, model selector,

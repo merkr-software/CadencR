@@ -8,26 +8,42 @@ import {
   LATEST_RELEASE_URL,
   selectRecommendedDownload,
 } from "@/lib/downloads";
+import { SITE_URL, ORG_REF } from "@/lib/seo";
 
 const defaultDownload = selectRecommendedDownload({ os: "macos", arch: "unknown" });
-const pageTitle = "Download Cadencr for macOS — agent IDE for Claude, OpenCode, and Codex";
+const pageTitle = "Download CadencR for macOS — agent IDE for Claude Code, OpenCode, and Codex";
 const pageDescription =
-  "Download the latest Cadencr desktop build for macOS. Cadencr is the local IDE for supervising Claude Code, OpenCode, and Codex agent sessions.";
+  "Download the latest CadencR desktop build for macOS. CadencR is the local IDE for supervising Claude Code, OpenCode, and Codex agent sessions.";
 
-const softwareApplicationJsonLd = {
-  "@context": "https://schema.org",
+const softwareApplication = {
   "@type": "SoftwareApplication",
-  name: "Cadencr",
+  "@id": `${SITE_URL}/#software`,
+  name: "CadencR",
+  alternateName: ["Cadencr", "Cadencr IDE"],
   applicationCategory: "DeveloperApplication",
+  applicationSubCategory: "IDE",
   operatingSystem: "macOS",
   softwareVersion: DISPLAY_VERSION,
   description: pageDescription,
   downloadUrl: defaultDownload?.url ?? LATEST_RELEASE_URL,
+  installUrl: `${SITE_URL}/download/`,
+  isAccessibleForFree: true,
+  license: "https://www.apache.org/licenses/LICENSE-2.0",
+  author: ORG_REF,
+  publisher: ORG_REF,
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  url: "https://cadencr.com/download/",
+  url: `${SITE_URL}/download/`,
 };
+const breadcrumbs = {
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+    { "@type": "ListItem", position: 2, name: "Download", item: `${SITE_URL}/download/` },
+  ],
+};
+const structuredData = [softwareApplication, breadcrumbs];
 ---
-<BaseLayout title={pageTitle} description={pageDescription} structuredData={softwareApplicationJsonLd}>
+<BaseLayout title={pageTitle} description={pageDescription} structuredData={structuredData}>
   <section class="border-b border-border/55 py-16">
     <div class="mx-auto grid max-w-[1160px] grid-cols-1 gap-10 px-4 sm:px-6 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
       <div>
@@ -35,10 +51,10 @@ const softwareApplicationJsonLd = {
           Download · {DISPLAY_VERSION}
         </p>
         <h1 class="mt-3 text-[clamp(30px,4vw,52px)] font-semibold leading-[1.05] tracking-[-0.025em] [text-wrap:balance]">
-          Get Cadencr for your machine.
+          Get CadencR for your machine.
         </h1>
         <p class="mt-4 max-w-[620px] text-sm leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-          Cadencr currently ships for macOS. We try to detect the right build automatically,
+          CadencR currently ships for macOS. We try to detect the right build automatically,
           and you can always choose another target manually below.
         </p>
       </div>
@@ -212,7 +228,7 @@ const softwareApplicationJsonLd = {
     if (!recommendation) {
       if (title) title.textContent = os === "unknown" ? "Choose your build" : "Coming soon for your OS";
       if (copy) {
-        copy.textContent = "Cadencr currently ships for macOS. Linux and Windows builds are planned next.";
+        copy.textContent = "CadencR currently ships for macOS. Linux and Windows builds are planned next.";
       }
       if (label) label.textContent = "View available downloads";
       if (primary) primary.href = "#macos-intel-dmg";

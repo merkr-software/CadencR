@@ -67,6 +67,8 @@ Download the latest build from [GitHub Releases](https://github.com/merkr-softwa
 
 Use this path if you want to try the latest code or contribute.
 
+On Linux, follow the [Linux development setup](./docs/LINUX_SETUP.md).
+
 #### Requirements
 
 - **Node.js 22.x** — the repo enforces `>=22.18.0 <23.0.0`.

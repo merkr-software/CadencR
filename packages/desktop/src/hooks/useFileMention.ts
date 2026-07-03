@@ -1,10 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
-
-function dirname(p: string): string {
-  const idx = p.lastIndexOf("/");
-  if (idx <= 0) return idx === 0 ? "/" : ".";
-  return p.slice(0, idx);
-}
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
+import { useFileSearch } from "@/api/generated";
 
 interface FileMentionState {
   isOpen: boolean;
@@ -20,36 +16,39 @@ const INITIAL_STATE: FileMentionState = {
   triggerIndex: -1,
 };
 
-const MAX_RESULTS = 50;
+const DEBOUNCE_MS = 150;
 
-export function useFileMention(files: string[] | undefined) {
+interface UseFileMentionParams {
+  projectId: number | undefined;
+  featureId: number | undefined;
+}
+
+export function useFileMention({ projectId, featureId }: UseFileMentionParams) {
   const [state, setState] = useState<FileMentionState>(INITIAL_STATE);
 
-  // Derive unique directories from file paths
-  const allItems = useMemo(() => {
-    if (!files || files.length === 0) return [];
-    const dirSet = new Set<string>();
-    for (const f of files) {
-      let dir = dirname(f);
-      while (dir && dir !== ".") {
-        dirSet.add(dir + "/");
-        dir = dirname(dir);
-      }
-    }
-    const dirs = Array.from(dirSet).toSorted();
-    const sortedFiles = [...files].toSorted();
-    return [
-      ...dirs.map((d) => ({ path: d, isDir: true })),
-      ...sortedFiles.map((f) => ({ path: f, isDir: false })),
-    ];
-  }, [files]);
+  // Source of truth is the backend fuzzy search (same as the file picker), so
+  // freshly created files are always reachable — no stale client-side list.
+  // We only query while the mention popover is open.
+  const debouncedQuery = useDebouncedValue(state.query, DEBOUNCE_MS);
+  const { data } = useFileSearch(
+    {
+      project_id: projectId ?? 0,
+      feature_id: featureId,
+      query: debouncedQuery || undefined,
+      include_dirs: true,
+    },
+    { query: { enabled: state.isOpen && projectId != null, keepPreviousData: true } },
+  );
 
   const filteredItems = useMemo(() => {
     if (!state.isOpen) return [];
-    const q = state.query.toLowerCase();
-    if (!q) return allItems.slice(0, MAX_RESULTS);
-    return allItems.filter((item) => item.path.toLowerCase().includes(q)).slice(0, MAX_RESULTS);
-  }, [state.isOpen, state.query, allItems]);
+    // Directories carry a trailing slash so the inserted mention reads as a
+    // folder (e.g. `@src/components/`).
+    return (data?.files ?? []).map((f) => ({
+      path: f.is_dir ? `${f.path}/` : f.path,
+      isDir: f.is_dir,
+    }));
+  }, [state.isOpen, data]);
 
   const close = useCallback(() => {
     setState(INITIAL_STATE);

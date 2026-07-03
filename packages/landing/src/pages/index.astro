@@ -7,32 +7,57 @@ import FeatureAgentCockpit from "@/components/FeatureAgentCockpit.astro";
 import FeatureGit from "@/components/FeatureGit.astro";
 import FeatureTerminal from "@/components/FeatureTerminal.astro";
 import FeatureEditor from "@/components/FeatureEditor.astro";
+import FAQ from "@/components/FAQ.astro";
 import CloserCTA from "@/components/CloserCTA.astro";
 import { DISPLAY_VERSION } from "@/lib/downloads";
+import { SITE_URL, ORG_REF } from "@/lib/seo";
+import { FAQ_ITEMS } from "@/lib/faq";
 
-const title = "Cadencr — Agent IDE for Claude Code, OpenCode, and Codex";
+const title = "CadencR — Agent IDE for Claude Code, OpenCode, and Codex";
 const description =
-  "Cadencr is a local agent IDE for Claude Code, OpenCode, and Codex. Read streams, manage worktrees, inspect diffs, and ship from one desktop workspace.";
-const structuredData = [
-  {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: "Cadencr",
-    url: "https://cadencr.com/",
-    description,
-  },
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    name: "Cadencr",
-    applicationCategory: "DeveloperApplication",
-    operatingSystem: "macOS",
-    softwareVersion: DISPLAY_VERSION,
-    description,
-    downloadUrl: "https://cadencr.com/download/",
-    url: "https://cadencr.com/",
-  },
-];
+  "CadencR is a local agent IDE for Claude Code, OpenCode, and Codex. Read streams, manage worktrees, inspect diffs, and ship from one desktop workspace.";
+
+const softwareApplication = {
+  "@type": "SoftwareApplication",
+  "@id": `${SITE_URL}/#software`,
+  name: "CadencR",
+  alternateName: ["Cadencr", "Cadencr IDE"],
+  applicationCategory: "DeveloperApplication",
+  applicationSubCategory: "IDE",
+  operatingSystem: "macOS",
+  softwareVersion: DISPLAY_VERSION,
+  description,
+  url: `${SITE_URL}/`,
+  downloadUrl: `${SITE_URL}/download/`,
+  installUrl: `${SITE_URL}/download/`,
+  softwareHelp: `${SITE_URL}/docs/`,
+  releaseNotes: `${SITE_URL}/news/`,
+  screenshot: `${SITE_URL}/og-image.png`,
+  image: `${SITE_URL}/og-image.png`,
+  license: "https://www.apache.org/licenses/LICENSE-2.0",
+  isAccessibleForFree: true,
+  author: ORG_REF,
+  publisher: ORG_REF,
+  offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+  featureList: [
+    "Unified workspace for Claude Code, OpenCode, and Codex agents",
+    "Readable agent stream with tool-call pills and inline diffs",
+    "Per-task Git worktrees with visible, reviewable commits",
+    "Built-in terminal and editor next to the agent",
+  ],
+};
+
+const faqPage = {
+  "@type": "FAQPage",
+  "@id": `${SITE_URL}/#faq`,
+  mainEntity: FAQ_ITEMS.map((item) => ({
+    "@type": "Question",
+    name: item.q,
+    acceptedAnswer: { "@type": "Answer", text: item.a },
+  })),
+};
+
+const structuredData = [softwareApplication, faqPage];
 ---
 <BaseLayout title={title} description={description} structuredData={structuredData}>
   <Hero />
@@ -42,5 +67,6 @@ const structuredData = [
   <FeatureGit />
   <FeatureTerminal />
   <FeatureEditor />
+  <FAQ />
   <CloserCTA />
 </BaseLayout>

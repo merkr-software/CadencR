@@ -30,7 +30,9 @@ interface PromptEditorProps {
   onChange?: (text: string) => void;
   placeholder?: string;
   className?: string;
-  mentionFiles?: string[];
+  /** Project/feature scope for the `@` file-mention backend search. */
+  mentionProjectId?: number;
+  mentionFeatureId?: number;
   slashCommands?: SlashCommand[];
   slashCommandsLoading?: boolean;
   /** Called when Enter pressed (no shift, no popover). Return true to consume. */
@@ -81,7 +83,8 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
       onChange,
       placeholder,
       className,
-      mentionFiles,
+      mentionProjectId,
+      mentionFeatureId,
       slashCommands,
       slashCommandsLoading,
       onEnterSend,
@@ -152,7 +155,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
         />
         <HistoryPlugin />
         <OnChangePlugin onChange={handleChange} ignoreSelectionChange />
-        <MentionPlugin files={mentionFiles} />
+        <MentionPlugin projectId={mentionProjectId} featureId={mentionFeatureId} />
         <SlashCommandPlugin
           commands={slashCommands}
           isLoading={slashCommandsLoading}
