@@ -7,6 +7,7 @@ mod error;
 mod remote;
 mod shared;
 
+use anyhow::Context;
 use axum::http::header::{HeaderName, CONTENT_TYPE};
 use axum::http::Method;
 use clap::Parser;
@@ -65,6 +66,11 @@ async fn main() -> anyhow::Result<()> {
             } else if let Some(dotenv_path) = dotenv_path.as_deref() {
                 info!("Loaded env from {}", dotenv_path.display());
             }
+
+            let addr = format!("127.0.0.1:{}", config.port);
+            let listener = tokio::net::TcpListener::bind(&addr)
+                .await
+                .with_context(|| format!("failed to bind Cadencr service listener on {addr}"))?;
 
             // Hydrate process env from the user's login shell BEFORE any
             // subprocesses (git, gpg, ssh, agent CLIs, PTY shells) get
@@ -223,10 +229,7 @@ async fn main() -> anyhow::Result<()> {
             let remote_for_shutdown = state.remote.clone();
             let app = api::build_router(state).layer(build_cors_layer(config.frontend_port));
 
-            let addr = format!("127.0.0.1:{}", config.port);
             info!("Cadencr service listening on {addr}");
-
-            let listener = tokio::net::TcpListener::bind(&addr).await?;
             // Wrap in a `Listener` that disables Nagle's algorithm on every
             // accepted connection. Nagle is the default on `tokio::net::TcpStream`
             // and silently coalesces small frames for ~200 ms — which turns
