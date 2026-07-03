@@ -8,7 +8,7 @@ By participating, you agree to the [Code of Conduct](./.github/CODE_OF_CONDUCT.m
 
 ## Local Development
 
-Setup (prerequisites, `.env` files, `pnpm dev`) lives in the [README — Build from source](./README.md#build-from-source). Follow that first. The notes below assume your dev environment is running.
+Setup (prerequisites, `.env` files, `pnpm dev`) lives in the [README — Run from source](./README.md#run-from-source). Follow that first. The notes below assume your dev environment is running.
 
 ## Common Commands
 

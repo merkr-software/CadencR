@@ -1,7 +1,7 @@
 ---
-title: "Cadencr v0.4.0 adds remote env for second-screen agent work"
+title: "CadencR v0.4.0 adds remote env for second-screen agent work"
 date: 2026-06-07
-summary: "Cadencr v0.4.0 introduces remote env: pair a phone, tablet, or second computer with your local desktop app, then steer the same sessions, terminals, and workspace from a browser."
+summary: "CadencR v0.4.0 introduces remote env: pair a phone, tablet, or second computer with your local desktop app, then steer the same sessions, terminals, and workspace from a browser."
 author: "Raphaël - RLE - Le Minor"
 tags: ["release", "remote", "mobile"]
 ---
@@ -15,13 +15,13 @@ import responsiveTerminalScreenshot from "@/assets/news/0.4.0/responsive_termina
 
 <DocScreenshot
   src={heroScreenshot}
-  alt="Cadencr remote env showing a paired browser device controlling the same local workspace"
-  caption="Remote env lets a phone, tablet, or second computer pair with the desktop app and steer the same local Cadencr workspace from a browser."
+  alt="CadencR remote env showing a paired browser device controlling the same local workspace"
+  caption="Remote env lets a phone, tablet, or second computer pair with the desktop app and steer the same local CadencR workspace from a browser."
   bordered={false}
   rounded
 />
 
-Cadencr is local-first on purpose: your agents, terminals, worktrees, and project state stay on your machine. Version 0.4.0 adds **remote env** so another device can become a control surface for that same local workspace.
+CadencR is local-first on purpose: your agents, terminals, worktrees, and project state stay on your machine. Version 0.4.0 adds **remote env** so another device can become a control surface for that same local workspace.
 
 Pair a phone, tablet, or second computer by QR code or link, then keep a session moving from a browser: review a plan, approve work, send a follow-up prompt, steer model or permission settings, and use the terminal without moving the project to a hosted service.
 
@@ -29,7 +29,7 @@ Pair a phone, tablet, or second computer by QR code or link, then keep a session
 
 On the same Wi-Fi or LAN, remote env exposes HTTPS links for the detected local network addresses. Open one from another device, pair once, and the remote browser mirrors the host workspace.
 
-Away from the local network, Cadencr is designed around **Tailscale** rather than a public tunnel. The Remote Access dialog gives a `tailscale serve` command and accepts your `*.ts.net` hostname, then adds that hostname to the backend allowlist and points pairing links at it. The result is that your Cadencr instance can be reachable anywhere you have an internet connection, but only from devices on your own tailnet.
+Away from the local network, CadencR is designed around **Tailscale** rather than a public tunnel. The Remote Access dialog gives a `tailscale serve` command and accepts your `*.ts.net` hostname, then adds that hostname to the backend allowlist and points pairing links at it. The result is that your CadencR instance can be reachable anywhere you have an internet connection, but only from devices on your own tailnet.
 
 ## Built for companion devices
 
@@ -39,9 +39,9 @@ It also includes the mobile work needed to make that useful: responsive layouts,
 
 ## PWA and prevent sleep
 
-The remote browser experience ships as an installable PWA with app icons, standalone display support, iOS viewport handling, and an update prompt so long-lived installed sessions can reload when the host serves a newer Cadencr frontend.
+The remote browser experience ships as an installable PWA with app icons, standalone display support, iOS viewport handling, and an update prompt so long-lived installed sessions can reload when the host serves a newer CadencR frontend.
 
-There is also an opt-in **Prevent Mac sleep while hosting** toggle. When enabled on macOS, Cadencr holds a sleep-prevention assertion only while remote access is on, so the host stays available for paired devices without changing power behavior silently.
+There is also an opt-in **Prevent Mac sleep while hosting** toggle. When enabled on macOS, CadencR holds a sleep-prevention assertion only while remote access is on, so the host stays available for paired devices without changing power behavior silently.
 
 ## Also in v0.4.0
 
@@ -49,7 +49,7 @@ This release also adds Monokai and Monokai Light themes, a feature unarchive act
 
 For the full list, read the changelog in the [v0.4.0 GitHub release notes](https://github.com/merkr-software/CadencR/releases/tag/v0.4.0).
 
-[Download Cadencr v0.4.0](https://github.com/merkr-software/CadencR/releases/tag/v0.4.0), or read the full changelog from the same release page.
+[Download CadencR v0.4.0](https://github.com/merkr-software/CadencR/releases/tag/v0.4.0), or read the full changelog from the same release page.
 
 ## Responsive remote env
 
@@ -57,17 +57,17 @@ For the full list, read the changelog in the [v0.4.0 GitHub release notes](https
   items={[
     {
       src: responsiveAgentScreenshot,
-      alt: "Cadencr remote env showing an agent conversation in a responsive mobile layout",
+      alt: "CadencR remote env showing an agent conversation in a responsive mobile layout",
       caption: "Agent conversations adapt to smaller screens.",
     },
     {
       src: responsiveAgentSecondScreenshot,
-      alt: "Cadencr remote env showing a second responsive agent conversation view",
+      alt: "CadencR remote env showing a second responsive agent conversation view",
       caption: "Remote devices mirror the same local session.",
     },
     {
       src: responsiveTerminalScreenshot,
-      alt: "Cadencr remote env showing the terminal in a responsive mobile layout",
+      alt: "CadencR remote env showing the terminal in a responsive mobile layout",
       caption: "Terminal controls stay usable from touch devices.",
     },
   ]}

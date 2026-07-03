@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use rand::RngCore;
+use rand::TryRng;
 
 use super::secure_fs;
 
@@ -27,7 +27,9 @@ pub fn load_or_generate_pepper(dir: &Path) -> Result<Vec<u8>> {
 
     std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     let mut bytes = vec![0u8; PEPPER_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rngs::SysRng
+        .try_fill_bytes(&mut bytes)
+        .expect("OS random source should be available");
     secure_fs::write_secret(&path, &bytes)?;
     Ok(bytes)
 }

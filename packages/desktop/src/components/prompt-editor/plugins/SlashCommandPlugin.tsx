@@ -49,12 +49,22 @@ export function SlashCommandPlugin({
         }
 
         const match = getTriggerMatch(node, anchor.offset, triggerChar);
-        // Command/skill triggers only open at the very start of the editor.
-        const isFirstNode =
-          node.getPreviousSibling() === null && node.getParent() === $getRoot().getFirstChild();
-        if (!match || match.triggerOffset !== 0 || !isFirstNode) {
+        if (!match) {
           if (s.isOpen) s.close();
           return;
+        }
+
+        // Slash commands ("/") only open at the very start of the editor.
+        // Skills ("$") can appear anywhere and multiple times, like @ mentions.
+        if (triggerChar === "/") {
+          const isAtStart =
+            match.triggerOffset === 0 &&
+            node.getPreviousSibling() === null &&
+            node.getParent() === $getRoot().getFirstChild();
+          if (!isAtStart) {
+            if (s.isOpen) s.close();
+            return;
+          }
         }
 
         const syntheticText = triggerChar + match.query;

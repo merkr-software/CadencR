@@ -25,7 +25,7 @@ anyhow = "1"
 agent-client-protocol = "0.15.0"
 regex-lite = "0.1"
 dirs = "6"
-rand = "0.8"
+rand = "0.10"
 futures = "0.3"
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
@@ -50,8 +50,8 @@ sha2 = "0.11"
 # the packaged service is self-contained.
 openssl = { version = "0.10", features = ["vendored"] }
 # Remote access: self-signed TLS listener + device-token auth.
-rcgen = "0.13"
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+rcgen = "0.14"
+axum-server = { version = "0.8", features = ["tls-rustls"] }
 # Pin the `ring` crypto provider explicitly (installed at remote startup) so TLS
 # is deterministic regardless of what else pulls rustls into the tree.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }

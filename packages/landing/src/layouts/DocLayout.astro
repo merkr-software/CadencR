@@ -15,7 +15,7 @@ interface Props {
    * MDX files using `layout: "@/layouts/DocLayout.astro"` pass their
    * frontmatter under `Astro.props.frontmatter` (Astro convention).
    * The old top-level `title` / `description` props were never set,
-   * which is why every doc page emitted `<title>undefined — Cadencr</title>`.
+   * which is why every doc page emitted `<title>undefined — CadencR</title>`.
    */
   frontmatter?: DocFrontmatter;
   title?: string;
@@ -64,7 +64,7 @@ const structuredData = {
 };
 ---
 <BaseLayout
-  title={`${title} — Cadencr`}
+  title={`${title} — CadencR`}
   description={description}
   structuredData={structuredData}
 >

@@ -1,15 +1,15 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Worktrees"
-description: "Why each feature in Cadencr runs in its own Git worktree, and how to work with them without surprise."
+description: "Why each feature in CadencR runs in its own Git worktree, and how to work with them without surprise."
 ---
 
 import DocCallout from "@/components/docs/DocCallout.astro";
 import ShiftIcon from "@/components/icons/ShiftIcon.astro";
 
-A **worktree** is a checked-out copy of your repository on its own branch, living in its own folder. Cadencr leans on worktrees so several features — and several agents — can work in parallel without overwriting each other's files.
+A **worktree** is a checked-out copy of your repository on its own branch, living in its own folder. CadencR leans on worktrees so several features — and several agents — can work in parallel without overwriting each other's files.
 
-## Why Cadencr uses worktrees
+## Why CadencR uses worktrees
 
 If two agents are editing the same checkout at once, you get one of two outcomes: a corrupted working tree, or both agents fighting over the same files. Neither is fun. Worktrees give every feature its own isolated playground:
 
@@ -39,7 +39,7 @@ You usually want a **new worktree** when:
 - you are starting a new feature, fix, or refactor,
 - you want a clean branch for the agent to work on,
 - you might want to compare results from several attempts side by side,
-- you are tempted to reuse the project's main working tree. Cadencr avoids using the main checkout as a feature worktree because it is too easy to overwrite unrelated local work.
+- you are tempted to reuse the project's main working tree. CadencR avoids using the main checkout as a feature worktree because it is too easy to overwrite unrelated local work.
 
 You usually want to **reuse an existing worktree** when:
 
@@ -49,14 +49,14 @@ You usually want to **reuse an existing worktree** when:
 
 ## Branch switching notes
 
-If a feature has not sent its first prompt yet, Cadencr may defer a branch switch until that first message starts the worktree setup. The UI surfaces that state instead of pretending the branch moved immediately. Once the worktree exists, the Git tab, Editor, Terminal, and Browser all stay tied to that feature's folder.
+If a feature has not sent its first prompt yet, CadencR may defer a branch switch until that first message starts the worktree setup. The UI surfaces that state instead of pretending the branch moved immediately. Once the worktree exists, the Git tab, Editor, Terminal, and Browser all stay tied to that feature's folder.
 
 ## Cleaning up
 
-Archiving a feature (<kbd>⌘ <ShiftIcon /> X</kbd>) leaves its worktree alone by default. If you archive an already-archived feature, Cadencr removes the worktree from disk and prunes it from Git. That two-step is intentional — it is hard to lose work by accident.
+Archiving a feature (<kbd>⌘ <ShiftIcon /> X</kbd>) leaves its worktree alone by default. If you archive an already-archived feature, CadencR removes the worktree from disk and prunes it from Git. That two-step is intentional — it is hard to lose work by accident.
 
 ## Related docs
 
-- [Git in Cadencr](../git/) — the rest of the Git story
+- [Git in CadencR](../git/) — the rest of the Git story
 - [Feature workspace](../feature-workspace/) — what lives on top of each worktree
 - [Shortcuts](../shortcuts/) — keyboard map for the surfaces that touch worktrees

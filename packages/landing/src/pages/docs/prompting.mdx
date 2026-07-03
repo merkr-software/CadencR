@@ -1,7 +1,7 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Prompt"
-description: "Understand the prompt bar in Cadencr: where it appears, what it can do, and how it helps you work with agents."
+description: "Understand the prompt bar in CadencR: where it appears, what it can do, and how it helps you work with agents."
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
@@ -10,11 +10,11 @@ import Kbd from "@/components/ui/Kbd.astro";
 import ShiftIcon from "@/components/icons/ShiftIcon.astro";
 import promptImage from "@/assets/docs/prompt.png";
 
-The prompt feature in Cadencr is more than a text box. It is the main control surface for working with an agent: starting work, continuing a session, attaching context, and responding when the agent needs something from you.
+The prompt feature in CadencR is more than a text box. It is the main control surface for working with an agent: starting work, continuing a session, attaching context, and responding when the agent needs something from you.
 
 <DocScreenshot
   src={promptImage}
-  alt="Cadencr prompt bar showing a draft, an attachment, model picker, thinking-effort, and permission-mode controls"
+  alt="CadencR prompt bar showing a draft, an attachment, model picker, thinking-effort, and permission-mode controls"
   caption="The prompt area is where you start work, continue a session, and manage the flow of agent interaction."
 />
 
@@ -46,7 +46,7 @@ Here are the main capabilities around the prompt bar:
 | **Slash commands**  | Type `/` at the start of the prompt                                            | Speeds up common workflows without leaving the keyboard                         |
 | **Attachments**     | Paste, drag and drop, or use the attach button                                 | Add images, PDFs, and provider-supported files without leaving the prompt       |
 | **Send**            | <kbd>⌘ Enter</kbd>                                                             | Plain <kbd>Enter</kbd> inserts a newline so you can write multi-line prompts    |
-| **Schedule send**   | Use the send split-button when a feature can schedule messages                 | Queue a message for later; it is sent while Cadencr is running                  |
+| **Schedule send**   | Use the send split-button when a feature can schedule messages                 | Queue a message for later; it is sent while CadencR is running                  |
 | **Stop**            | <kbd>Esc</kbd> inside the session, or <kbd>⌘ Esc</kbd> for every running agent | Keeps you in control when the agent is moving in the wrong direction            |
 | **Model picker**    | <kbd>⌘ P</kbd>                                                                 | Switch model per-message without leaving the prompt bar                         |
 | **Thinking effort** | <kbd>⌘ T</kbd>                                                                 | Cycle reasoning effort when the task is harder (or easier) than usual           |
@@ -54,13 +54,13 @@ Here are the main capabilities around the prompt bar:
 
 ### Mentions and slash commands in detail
 
-- **`@` mentions** open a file picker as you type. Pick a file (or a folder) and Cadencr inlines the reference so the agent knows exactly what to read.
+- **`@` mentions** open a file picker as you type. Pick a file (or a folder) and CadencR inlines the reference so the agent knows exactly what to read.
 - **`/` slash commands** at the start of the prompt expose project-specific and built-in commands — pre-baked prompts your agent provider exposes. Arrow keys to pick, <kbd>Enter</kbd> or <kbd>Tab</kbd> to insert.
-- **Attachments** support paste, drag-and-drop, and the attach button. Images show previews; non-image files show as removable file chips. Cadencr filters accepted file types by the active provider and sends provider-aware payloads — for example, Codex receives PDFs as file references.
+- **Attachments** support paste, drag-and-drop, and the attach button. Images show previews; non-image files show as removable file chips. CadencR filters accepted file types by the active provider and sends provider-aware payloads — for example, Codex receives PDFs as file references.
 
 ### Picking model, profile, and effort per message
 
-Cadencr stays provider-neutral: the model picker (<kbd>⌘ P</kbd>) lists whatever models your active provider profile exposes — Claude, Codex, OpenCode, or a custom model you added in **Settings → Runtime & Models**. When a provider supports multiple profiles, the session controls let you pick the profile for the next prompt without rebuilding the whole session. The thinking-effort cycle (<kbd>⌘ T</kbd>) toggles among the levels that model supports; unsupported effort settings are cleared instead of being sent to a model that cannot use them.
+CadencR stays provider-neutral: the model picker (<kbd>⌘ P</kbd>) lists whatever models your active provider profile exposes — Claude, Codex, OpenCode, or a custom model you added in **Settings → Runtime & Models**. When a provider supports multiple profiles, the session controls let you pick the profile for the next prompt without rebuilding the whole session. The thinking-effort cycle (<kbd>⌘ T</kbd>) toggles among the levels that model supports; unsupported effort settings are cleared instead of being sent to a model that cannot use them.
 
 ## What happens around the prompt while you work
 

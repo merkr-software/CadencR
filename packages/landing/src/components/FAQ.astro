@@ -1,0 +1,47 @@
+---
+import Wrap from "@/components/ui/Wrap.astro";
+import Eyebrow from "@/components/ui/Eyebrow.astro";
+import { FAQ_ITEMS } from "@/lib/faq";
+---
+<section id="faq" class="relative border-t border-border/55 py-20">
+  <Wrap maxWidth="narrow">
+    <div class="mb-9 max-w-[560px]">
+      <Eyebrow>FAQ</Eyebrow>
+      <h2 class="mt-2.5 text-[26px] font-semibold leading-[1.2] tracking-[-0.015em] [text-wrap:balance]">
+        What CadencR is, in plain terms.
+      </h2>
+    </div>
+
+    <dl class="flex flex-col gap-2.5">
+      {
+        FAQ_ITEMS.map((item) => (
+          <div class="rounded-xl border border-border bg-muted/20 transition-colors duration-150 hover:border-primary/40">
+            <details class="group">
+              <summary class="flex cursor-pointer list-none items-center justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+                <dt class="text-[14.5px] font-medium tracking-[-0.005em] text-foreground">
+                  {item.q}
+                </dt>
+                <svg
+                  class="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-45"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </summary>
+              <dd class="px-5 pb-4 -mt-0.5 max-w-[620px] text-[13.5px] leading-[1.65] text-muted-foreground">
+                {item.a}
+              </dd>
+            </details>
+          </div>
+        ))
+      }
+    </dl>
+  </Wrap>
+</section>

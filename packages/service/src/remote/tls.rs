@@ -84,7 +84,7 @@ fn http1_rustls_config(cert_pem: &str, key_pem: &str) -> Result<RustlsConfig> {
 fn generate(sans: Vec<String>) -> Result<(String, String)> {
     let certified =
         rcgen::generate_simple_self_signed(sans).context("generate self-signed certificate")?;
-    Ok((certified.cert.pem(), certified.key_pair.serialize_pem()))
+    Ok((certified.cert.pem(), certified.signing_key.serialize_pem()))
 }
 
 fn write_public(path: &Path, contents: &str) -> Result<()> {

@@ -11,7 +11,7 @@ const DOC_PAGES: DocPage[] = [
     slug: "",
     title: "Docs",
     navLabel: "Overview",
-    description: "Start here for the short version of what Cadencr is and where to click next.",
+    description: "Start here for the short version of what CadencR is and where to click next.",
     section: "Start Here",
   },
   {
@@ -19,7 +19,7 @@ const DOC_PAGES: DocPage[] = [
     title: "The IDE for the era of agents",
     navLabel: "Concept",
     description:
-      "What Cadencr is, who it is for, and why it feels different from regular chat tools.",
+      "What CadencR is, who it is for, and why it feels different from regular chat tools.",
     section: "Start Here",
   },
   {
@@ -60,7 +60,7 @@ const DOC_PAGES: DocPage[] = [
   },
   {
     slug: "git",
-    title: "Git in Cadencr",
+    title: "Git in CadencR",
     navLabel: "Git",
     description: "How Git shows up in the product and how to stay confident instead of git-scared.",
     section: "Features",

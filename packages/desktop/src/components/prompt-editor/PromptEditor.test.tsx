@@ -138,4 +138,42 @@ describe("PromptEditor", () => {
 
     expect(screen.getByText("/superpowers:brainstorming")).toBeInTheDocument();
   });
+
+  it("shows skill suggestions when $ appears mid-prompt", async () => {
+    const ref = createRef<PromptEditorHandle>();
+    const slashCommands = [
+      {
+        name: "superpowers:brainstorming",
+        description: "Brainstorm with superpowers",
+        kind: "skill" as const,
+      },
+    ];
+    render(<PromptEditor ref={ref} slashCommands={slashCommands} slashCommandsLoading={false} />);
+
+    await act(async () => {
+      ref.current!.setText("first do this then $brain");
+    });
+
+    // Skills ($) can be referenced anywhere in the prompt, not just at the start.
+    expect(screen.getByText("$superpowers:brainstorming")).toBeInTheDocument();
+  });
+
+  it("does not show command suggestions when / appears mid-prompt", async () => {
+    const ref = createRef<PromptEditorHandle>();
+    const slashCommands = [
+      {
+        name: "superpowers:brainstorming",
+        description: "Brainstorm with superpowers",
+        kind: "command" as const,
+      },
+    ];
+    render(<PromptEditor ref={ref} slashCommands={slashCommands} slashCommandsLoading={false} />);
+
+    await act(async () => {
+      ref.current!.setText("first do this then /brain");
+    });
+
+    // Slash commands (/) only trigger at the very start of the prompt.
+    expect(screen.queryByText("/superpowers:brainstorming")).not.toBeInTheDocument();
+  });
 });

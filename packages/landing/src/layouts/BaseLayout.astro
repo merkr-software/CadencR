@@ -2,24 +2,43 @@
 import "@/styles/global.css";
 import NavBar from "@/components/NavBar.astro";
 import Footer from "@/components/Footer.astro";
+import { buildGraph, BRAND_NAME, type SchemaNode } from "@/lib/seo";
 
-type StructuredData = Record<string, unknown> | Array<Record<string, unknown>>;
+interface ArticleMeta {
+  publishedTime?: string;
+  modifiedTime?: string;
+  author?: string;
+}
 
 interface Props {
   title?: string;
   description?: string;
-  structuredData?: StructuredData;
+  structuredData?: SchemaNode | SchemaNode[];
+  ogType?: "website" | "article";
+  ogImage?: string;
+  noindex?: boolean;
+  article?: ArticleMeta;
 }
+
 const {
-  title = "Cadencr — IDE for the era of agents",
-  description = "Cadencr is the IDE for the era of agents. One workspace for Claude, OpenCode and Codex — readable stream, worktrees, and visible git.",
+  title = "CadencR — IDE for the era of agents",
+  description = "CadencR is the IDE for the era of agents. One workspace for Claude Code, OpenCode and Codex — readable stream, worktrees, and visible git.",
   structuredData,
+  ogType = "website",
+  ogImage,
+  noindex = false,
+  article,
 } = Astro.props;
 
+const base = import.meta.env.BASE_URL;
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
-const ogImage = new URL("og-image.png", Astro.site).toString();
+const ogImageUrl = new URL(ogImage ?? "og-image.png", Astro.site).toString();
 const rssUrl = new URL("rss.xml", Astro.site).toString();
-const structuredDataJson = structuredData ? JSON.stringify(structuredData) : undefined;
+const ogImageAlt = "CadencR — the IDE for the era of agents.";
+const ldJson = buildGraph(structuredData);
+const robots = noindex
+  ? "noindex, nofollow"
+  : "index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1";
 ---
 <!doctype html>
 <html lang="en">
@@ -28,27 +47,57 @@ const structuredDataJson = structuredData ? JSON.stringify(structuredData) : und
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
-    <link rel="icon" type="image/svg+xml" href={`${import.meta.env.BASE_URL}favicon.svg`} />
+    <meta name="robots" content={robots} />
     <link rel="canonical" href={canonical} />
-    <link rel="alternate" type="application/rss+xml" title="Cadencr news" href={rssUrl} />
-    <meta property="og:type" content="website" />
+
+    <!-- Icons / PWA -->
+    <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <link rel="icon" type="image/png" sizes="96x96" href={`${base}favicon-96x96.png`} />
+    <link rel="icon" type="image/png" sizes="32x32" href={`${base}favicon-32x32.png`} />
+    <link rel="icon" type="image/png" sizes="16x16" href={`${base}favicon-16x16.png`} />
+    <link rel="shortcut icon" href={`${base}favicon.ico`} />
+    <link rel="apple-touch-icon" sizes="180x180" href={`${base}apple-touch-icon.png`} />
+    <link rel="manifest" href={`${base}site.webmanifest`} />
+    <meta name="theme-color" content="#1f2230" />
+    <meta name="application-name" content={BRAND_NAME} />
+    <meta name="apple-mobile-web-app-title" content={BRAND_NAME} />
+
+    <!-- Feeds + sitemap + agent map -->
+    <link rel="alternate" type="application/rss+xml" title="CadencR news" href={rssUrl} />
+    <link rel="sitemap" type="application/xml" href={`${base}sitemap-index.xml`} />
+    <link rel="service-desc" type="text/markdown" title="CadencR for agents" href={`${base}llms.txt`} />
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content={BRAND_NAME} />
+    <meta property="og:type" content={ogType} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <meta property="og:url" content={canonical} />
-    <meta property="og:image" content={ogImage} />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:image" content={ogImageUrl} />
     <meta property="og:image:type" content="image/png" />
     <meta property="og:image:width" content="1280" />
     <meta property="og:image:height" content="640" />
-    <meta property="og:image:alt" content="Cadencr — The IDE for the era of agents." />
+    <meta property="og:image:alt" content={ogImageAlt} />
+    {ogType === "article" && article?.publishedTime && (
+      <meta property="article:published_time" content={article.publishedTime} />
+    )}
+    {ogType === "article" && article?.modifiedTime && (
+      <meta property="article:modified_time" content={article.modifiedTime} />
+    )}
+    {ogType === "article" && article?.author && (
+      <meta property="article:author" content={article.author} />
+    )}
+
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
-    <meta name="twitter:image" content={ogImage} />
-    <meta name="twitter:image:alt" content="Cadencr — The IDE for the era of agents." />
+    <meta name="twitter:image" content={ogImageUrl} />
+    <meta name="twitter:image:alt" content={ogImageAlt} />
+
     <meta name="color-scheme" content="dark" />
-    {structuredDataJson && (
-      <script type="application/ld+json" set:html={structuredDataJson} />
-    )}
+    <script type="application/ld+json" set:html={ldJson} />
   </head>
   <body>
     <NavBar />

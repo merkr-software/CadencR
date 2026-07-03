@@ -13,12 +13,13 @@ import {
 } from "./trigger-utils";
 
 interface MentionPluginProps {
-  files: string[] | undefined;
+  projectId: number | undefined;
+  featureId: number | undefined;
 }
 
-export function MentionPlugin({ files }: MentionPluginProps) {
+export function MentionPlugin({ projectId, featureId }: MentionPluginProps) {
   const [editor] = useLexicalComposerContext();
-  const mention = useFileMention(files);
+  const mention = useFileMention({ projectId, featureId });
   const mentionRef = useRef(mention);
   mentionRef.current = mention;
   const [cursorRect, updateCursorRect] = useCursorRect();

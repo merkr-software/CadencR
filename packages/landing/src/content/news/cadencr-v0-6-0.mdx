@@ -1,7 +1,7 @@
 ---
-title: "Cadencr v0.6.0 turns the workspace into an agent orchestration IDE"
+title: "CadencR v0.6.0 turns the workspace into an agent orchestration IDE"
 date: 2026-06-22
-summary: "Cadencr v0.6.0 adds project and workspace MCP orchestration, a stronger editor workspace, scheduled and pinned conversations, in-conversation search, JSON-backed settings, and a long list of reliability fixes for serious multi-agent work."
+summary: "CadencR v0.6.0 adds project and workspace MCP orchestration, a stronger editor workspace, scheduled and pinned conversations, in-conversation search, JSON-backed settings, and a long list of reliability fixes for serious multi-agent work."
 author: "Raphaël - RLE - Le Minor"
 tags: ["release", "orchestration", "editor", "mcp"]
 ---
@@ -13,27 +13,27 @@ import scheduleMessageScreenshot from "@/assets/news/v0.6.0/schedule message.png
 import searchConversationScreenshot from "@/assets/news/v0.6.0/search_conversation.png";
 import spawnConversationScreenshot from "@/assets/news/v0.6.0/spawn_conversation.png";
 
-Cadencr v0.6.0 is the release where the app starts to feel less like a UI around agent terminals and more like an **orchestration IDE for agent work**.
+CadencR v0.6.0 is the release where the app starts to feel less like a UI around agent terminals and more like an **orchestration IDE for agent work**.
 
 The main idea is simple: if agents are going to help with real projects, they need a better operating surface than a chat box. They need to see workspace context, coordinate with other sessions, work inside isolated project scopes, and leave enough visible state for a human to stay in control.
 
-This release moves several big pieces in that direction: **Cadencr-owned MCP tools for project and workspace orchestration**, a **much more capable editor**, **scheduled and pinned conversations**, **searchable long sessions**, **JSON-backed settings for automation**, and reliability fixes across worktrees, compaction, and provider-specific session behavior.
+This release moves several big pieces in that direction: **CadencR-owned MCP tools for project and workspace orchestration**, a **much more capable editor**, **scheduled and pinned conversations**, **searchable long sessions**, **JSON-backed settings for automation**, and reliability fixes across worktrees, compaction, and provider-specific session behavior.
 
 <DocScreenshot
   src={spawnConversationScreenshot}
-  alt="Cadencr conversation showing a project MCP spawned session card for a scoped helper agent"
+  alt="CadencR conversation showing a project MCP spawned session card for a scoped helper agent"
   caption="Project MCP turns coordination into visible, scoped conversation events instead of hidden side effects."
   bordered={false}
   rounded
 />
 
-## Agent orchestration inside Cadencr
+## Agent orchestration inside CadencR
 
-The biggest structural change is the new **Cadencr-owned project and workspace MCP orchestration layer**.
+The biggest structural change is the new **CadencR-owned project and workspace MCP orchestration layer**.
 
-Agents can now work through Cadencr's own understanding of the workspace instead of relying only on raw shell commands or disconnected context. The project and workspace MCP surfaces let agents inspect activity, list projects, search project context, follow conversation tails, compare relevant session history, and safely **message or spawn scoped sessions** from inside the active Cadencr workspace.
+Agents can now work through CadencR's own understanding of the workspace instead of relying only on raw shell commands or disconnected context. The project and workspace MCP surfaces let agents inspect activity, list projects, search project context, follow conversation tails, compare relevant session history, and safely **message or spawn scoped sessions** from inside the active CadencR workspace.
 
-That matters for multi-agent work. A session should be able to ask what else is happening, hand off follow-up work, or inspect another related conversation without turning the whole app into a pile of hidden terminals and ad hoc notes. Cadencr v0.6.0 starts making that coordination explicit, visible, and scoped.
+That matters for multi-agent work. A session should be able to ask what else is happening, hand off follow-up work, or inspect another related conversation without turning the whole app into a pile of hidden terminals and ad hoc notes. CadencR v0.6.0 starts making that coordination explicit, visible, and scoped.
 
 The desktop Settings UI now exposes this orchestration layer as part of the product instead of hiding it as backend plumbing. The goal is not to make agents magically autonomous. The goal is to give them better rails when you do ask them to coordinate.
 
@@ -41,7 +41,7 @@ The desktop Settings UI now exposes this orchestration layer as part of the prod
 
 The editor also takes a major step forward in v0.6.0.
 
-Cadencr can now handle larger files more safely with **read-only large-file mode** and **hybrid lazy file-tree loading**. The editor gained git gutter markers, **LSP diagnostics and status**, **document symbols**, **workspace symbols**, **references**, **rename support**, formatting, better root resolution for monorepos, and multi-server language tooling for TypeScript, linters, and formatters.
+CadencR can now handle larger files more safely with **read-only large-file mode** and **hybrid lazy file-tree loading**. The editor gained git gutter markers, **LSP diagnostics and status**, **document symbols**, **workspace symbols**, **references**, **rename support**, formatting, better root resolution for monorepos, and multi-server language tooling for TypeScript, linters, and formatters.
 
 This is the practical human side of agent work. Agents can make large changes, but you still need to inspect the diff, jump through code, check diagnostics, understand symbols, and make small corrections without leaving the workspace.
 
@@ -49,13 +49,13 @@ Version 0.6.0 makes that review loop faster. When an agent mentions a symbol, yo
 
 ## Better ways to manage long-running conversations
 
-Long conversations are where agent products usually start to fray. Cadencr v0.6.0 adds several tools for keeping them manageable.
+Long conversations are where agent products usually start to fray. CadencR v0.6.0 adds several tools for keeping them manageable.
 
 **Pinned conversations** now live in a dedicated global section above the project list, so important sessions stay reachable even after the sidebar fills up. **In-conversation search** brings `Cmd+F` / `Ctrl+F`, highlighted matches, keyboard navigation, and `Escape` to close, which makes long agent runs searchable like an IDE or browser page.
 
 <DocScreenshot
   src={searchConversationScreenshot}
-  alt="Cadencr in-conversation search bar showing highlighted matches inside a long agent conversation"
+  alt="CadencR in-conversation search bar showing highlighted matches inside a long agent conversation"
   caption="In-conversation search highlights every match and keeps navigation controls visible while you scan a long agent run."
   bordered={false}
   rounded
@@ -65,17 +65,17 @@ Long conversations are where agent products usually start to fray. Cadencr v0.6.
 
 <DocScreenshot
   src={scheduleMessageScreenshot}
-  alt="Cadencr schedule message dialog with quick choices, date picker, time picker, and Schedule button"
+  alt="CadencR schedule message dialog with quick choices, date picker, time picker, and Schedule button"
   caption="Scheduled prompts let you queue a concrete follow-up message for the current conversation, using quick presets or an exact date and time."
   bordered={false}
   rounded
 />
 
-**Remote Web Push notifications** round this out for paired browser/PWA clients, so remote Cadencr sessions can tell you when agent work finishes without requiring you to stare at the desktop window.
+**Remote Web Push notifications** round this out for paired browser/PWA clients, so remote CadencR sessions can tell you when agent work finishes without requiring you to stare at the desktop window.
 
 <DocScreenshot
   src={mobileNotificationsScreenshot}
-  alt="iPhone notification stack showing Cadencr remote notifications for agent progress and completion"
+  alt="iPhone notification stack showing CadencR remote notifications for agent progress and completion"
   caption="Remote Web Push notifications bring agent progress back to your phone or paired browser when you step away from the desktop."
   bordered={false}
   rounded
@@ -84,11 +84,11 @@ Long conversations are where agent products usually start to fray. Cadencr v0.6.
 
 ## Settings you can inspect and automate
 
-Cadencr settings are now moving into **JSON-backed global and project files**.
+CadencR settings are now moving into **JSON-backed global and project files**.
 
 <DocScreenshot
   src={jsonSettingsScreenshot}
-  alt="Cadencr global settings JSON editor showing editable configuration keys"
+  alt="CadencR global settings JSON editor showing editable configuration keys"
   caption="Global and project settings now have a JSON-backed editing path for scripts, review, and direct configuration changes."
   bordered={false}
   rounded
@@ -102,7 +102,7 @@ The existing settings APIs remain the compatibility layer for the app. Validatio
 
 A release this large also includes a lot of unglamorous fixes that make daily work feel less surprising.
 
-**Claude worktree sessions now preserve root-level Claude configuration, skills, commands, rules, and MCP settings** for subfolder projects, so skills available before entering a worktree remain available afterward. Worktree sessions are also more reliable: Cadencr avoids reusing the project's main working tree, replays persisted setup output, and starts MCP-spawned worktree sessions more consistently.
+**Claude worktree sessions now preserve root-level Claude configuration, skills, commands, rules, and MCP settings** for subfolder projects, so skills available before entering a worktree remain available afterward. Worktree sessions are also more reliable: CadencR avoids reusing the project's main working tree, replays persisted setup output, and starts MCP-spawned worktree sessions more consistently.
 
 **Compaction now has visible in-progress feedback across providers** instead of looking like a hung request. Claude background agents keep the parent conversation visibly active while they are still running. Branch switching for worktree-backed projects now tells the truth when a switch is deferred until the first message instead of implying the underlying worktree changed immediately.
 
@@ -114,4 +114,4 @@ This release also adds per-session Claude profile selection, Carbon Owl and Pape
 
 For the full list, read the changelog in the [v0.6.0 GitHub release notes](https://github.com/merkr-software/CadencR/releases/tag/v0.6.0).
 
-[Download Cadencr v0.6.0](https://github.com/merkr-software/CadencR/releases/tag/v0.6.0), or read the full changelog from the same release page.
+[Download CadencR v0.6.0](https://github.com/merkr-software/CadencR/releases/tag/v0.6.0), or read the full changelog from the same release page.
