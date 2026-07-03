@@ -1,4 +1,4 @@
-import { BrowserWindow } from "electron";
+import { app, BrowserWindow } from "electron";
 import { readFileSync } from "node:fs";
 import {
   EMERALD,
@@ -15,6 +15,7 @@ import {
   type StartupRecoveryAction,
   type StartupRecoveryActionId,
 } from "./startup-recovery";
+import { windowIconOption } from "./app-icon";
 
 // The splash loads from a data: URL before the renderer exists, so the brand
 // font (Figtree — the "CADENCR" wordmark face) must be embedded inline rather
@@ -116,6 +117,11 @@ function createSplashBrowserWindow(): BrowserWindow {
     center: true,
     backgroundColor: BACKGROUND,
     title: "Cadencr",
+    ...windowIconOption({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
