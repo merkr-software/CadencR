@@ -369,17 +369,20 @@ export default function CodeMirrorEditor({
           workspaceRoot={workspaceRoot ?? null}
         />
       )}
-      {goToLineOpen && editorView && !searchOpen && onCloseGoToLine && (
-        // Go-to-line and search share the top-right corner — render only
-        // one at a time so they don't overlap. Search takes priority since
-        // it's the more common action; opening go-to-line while find is
-        // visible is intentionally a no-op until the user dismisses find.
-        <EditorGoToLinePanel
-          view={editorView}
-          reopenSignal={goToLineReopenSignal}
-          onClose={onCloseGoToLine}
-        />
-      )}
+      {goToLineOpen &&
+        editorView &&
+        !searchOpen &&
+        onCloseGoToLine && (
+          // Go-to-line and search share the top-right corner — render only
+          // one at a time so they don't overlap. Search takes priority since
+          // it's the more common action; opening go-to-line while find is
+          // visible is intentionally a no-op until the user dismisses find.
+          <EditorGoToLinePanel
+            view={editorView}
+            reopenSignal={goToLineReopenSignal}
+            onClose={onCloseGoToLine}
+          />
+        )}
       <EditorStatusBar
         line={cursorPosition.line}
         col={cursorPosition.col}
