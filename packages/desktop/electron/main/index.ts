@@ -25,6 +25,7 @@ import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
 import { installDefaultRendererCrashRecovery } from "./renderer-crash-recovery";
 import { installCsp, rendererLoadTarget, secureWebContents } from "./renderer-window-security";
+import { windowIconOption } from "./app-icon";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
@@ -117,6 +118,11 @@ function createWindow(): BrowserWindow {
     width: 1200,
     height: 800,
     titleBarStyle: "hiddenInset",
+    ...windowIconOption({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
