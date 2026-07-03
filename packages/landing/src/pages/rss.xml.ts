@@ -12,8 +12,8 @@ export async function GET(context: APIContext): Promise<Response> {
   const site = context.site ?? new URL("https://cadencr.com/");
 
   return rss({
-    title: "Cadencr news",
-    description: "Release notes, articles and announcements for Cadencr.",
+    title: "CadencR news",
+    description: "Release notes, articles and announcements for CadencR.",
     site,
     items: entries.map((entry) => ({
       title: entry.data.title,

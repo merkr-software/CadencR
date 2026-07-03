@@ -5,6 +5,7 @@ import Wrap from "@/components/ui/Wrap.astro";
 import Eyebrow from "@/components/ui/Eyebrow.astro";
 import Lede from "@/components/ui/Lede.astro";
 import { formatDate } from "@/lib/formatDate";
+import { SITE_URL, ORG_REF } from "@/lib/seo";
 
 type NewsEntry = CollectionEntry<"news">;
 
@@ -24,22 +25,38 @@ const { Content } = await render(entry);
 
 const canonical = new URL(`news/${entry.id}/`, Astro.site).toString();
 const ogImage = new URL("og-image.png", Astro.site).toString();
-const structuredData = {
-  "@context": "https://schema.org",
+const published = entry.data.date.toISOString();
+const blogPosting = {
   "@type": "BlogPosting",
+  "@id": `${canonical}#article`,
   headline: entry.data.title,
   description: entry.data.summary,
-  datePublished: entry.data.date.toISOString(),
+  datePublished: published,
+  dateModified: published,
   author: { "@type": "Person", name: entry.data.author },
-  publisher: { "@type": "Organization", name: "Cadencr" },
-  mainEntityOfPage: canonical,
+  publisher: ORG_REF,
+  mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
   image: ogImage,
+  url: canonical,
+  inLanguage: "en",
   keywords: entry.data.tags.join(", "),
+  isPartOf: { "@type": "Blog", "@id": `${SITE_URL}/news/#blog`, name: "CadencR news" },
 };
+const breadcrumbs = {
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Home", item: `${SITE_URL}/` },
+    { "@type": "ListItem", position: 2, name: "News", item: `${SITE_URL}/news/` },
+    { "@type": "ListItem", position: 3, name: entry.data.title, item: canonical },
+  ],
+};
+const structuredData = [blogPosting, breadcrumbs];
 ---
 <BaseLayout
-  title={`${entry.data.title} — Cadencr`}
+  title={`${entry.data.title} — CadencR`}
   description={entry.data.summary}
+  ogType="article"
+  article={{ publishedTime: published, modifiedTime: published, author: entry.data.author }}
   structuredData={structuredData}
 >
   <section class="py-16 pb-24">

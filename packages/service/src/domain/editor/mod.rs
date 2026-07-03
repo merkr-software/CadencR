@@ -1,3 +1,4 @@
+pub mod file_search;
 pub mod file_size;
 pub mod format;
 pub mod format_catalog;

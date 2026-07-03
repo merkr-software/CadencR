@@ -748,6 +748,7 @@ export interface FileContentBatchItem {
 }
 
 export interface FileMatchResult {
+  is_dir: boolean;
   path: string;
   positions: number[];
 }
@@ -2080,6 +2081,11 @@ export type FileSearchParams = {
   project_id: number;
   feature_id?: number | null;
   query?: string | null;
+  /**
+ * Include directories in the results (used by the `@` file-mention
+picker). Defaults to false so the file-open palette stays files-only.
+ */
+  include_dirs?: boolean;
 };
 
 export type FileTreeParams = {

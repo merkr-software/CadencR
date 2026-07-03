@@ -1,12 +1,12 @@
 ---
-title: "Cadencr v0.5.0 adds a Browser workspace agents can actually use"
+title: "CadencR v0.5.0 adds a Browser workspace agents can actually use"
 date: 2026-06-14
-summary: "Cadencr v0.5.0 introduces the embedded Browser workspace: a new tab where agents can open your app, inspect precise page context, capture scoped screenshots and snapshots, and interact with the UI while they build."
+summary: "CadencR v0.5.0 introduces the embedded Browser workspace: a new tab where agents can open your app, inspect precise page context, capture scoped screenshots and snapshots, and interact with the UI while they build."
 author: "Raphaël - RLE - Le Minor"
 tags: ["release", "browser", "agents"]
 ---
 
-Cadencr v0.5.0 is a big release, and the headline is the new **Browser workspace**.
+CadencR v0.5.0 is a big release, and the headline is the new **Browser workspace**.
 
 This is not just a preview pane next to the chat. The Browser tab is built so an agent can test the thing it is changing, gather the right context, and understand what is happening on the page without asking you to copy-paste screenshots, DOM snippets, console output, or network failures back into the conversation.
 
@@ -22,7 +22,7 @@ The new `cadencr-browser` MCP server gives agents a purpose-built browser tool s
 
 The most important part is context quality. The agent can request compact page snapshots with stable element refs, scope snapshots to one part of the page, capture raw HTML when needed, and grab partial screenshots of a selected element, selector, ref, or viewport region. Partial screenshots and scoped snapshots keep the model focused on the exact thing it needs to reason about instead of flooding it with the whole page.
 
-There is also a user-selected element context flow: click an element in the Browser tab and Cadencr can return selector candidates, attributes, computed styles, diagnostics, and a region screenshot. That makes the handoff much sharper when the issue is visual, hover-only, or buried inside a specific component.
+There is also a user-selected element context flow: click an element in the Browser tab and CadencR can return selector candidates, attributes, computed styles, diagnostics, and a region screenshot. That makes the handoff much sharper when the issue is visual, hover-only, or buried inside a specific component.
 
 ## Safer automation defaults
 
@@ -32,8 +32,8 @@ The workflow should feel simple: let the agent open the app, inspect the page, t
 
 ## Also in v0.5.0
 
-This release also adds a Git graph view with commit diffs and online links, Frost Dark and Frost Light glass themes, sidebar activity indicators for busy features, a Cadencr wordmark refresh, improved prompt and question handling, and more reliable Git diff navigation.
+This release also adds a Git graph view with commit diffs and online links, Frost Dark and Frost Light glass themes, sidebar activity indicators for busy features, a CadencR wordmark refresh, improved prompt and question handling, and more reliable Git diff navigation.
 
 For the full list, read the changelog in the [v0.5.0 GitHub release notes](https://github.com/merkr-software/CadencR/releases/tag/v0.5.0) once the release is live.
 
-[Download Cadencr v0.5.0](https://github.com/merkr-software/CadencR/releases/tag/v0.5.0) once the release is live, or read the full changelog from the same release page.
+[Download CadencR v0.5.0](https://github.com/merkr-software/CadencR/releases/tag/v0.5.0) once the release is live, or read the full changelog from the same release page.

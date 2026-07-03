@@ -2,6 +2,70 @@
 //! guard that skips persistence when the runtime rejects the response.
 
 use super::support::*;
+use crate::domain::agents::adapter::RuntimePermissionResponse;
+
+struct AcceptingPermissionSession {
+    message_rx: Option<RuntimeMessageRx>,
+}
+
+impl AcceptingPermissionSession {
+    fn new() -> Self {
+        let (_tx, rx) = mpsc::channel(1);
+        Self {
+            message_rx: Some(rx),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl AgentRuntimeSession for AcceptingPermissionSession {
+    fn take_message_rx(&mut self) -> RuntimeMessageRx {
+        self.message_rx.take().unwrap()
+    }
+
+    async fn session_id(&self) -> Option<String> {
+        Some("runtime-session".to_string())
+    }
+
+    async fn stream_input(&self, _content: Value) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    async fn interrupt(&self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    async fn close(&mut self) {}
+
+    async fn set_model(&self, _model: &str) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    async fn set_permission_mode(&self, _mode: RuntimePermissionMode) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    async fn respond_permission(
+        &self,
+        _response: RuntimePermissionResponse,
+    ) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+}
+
+fn make_permission_handle(feature_id: i64) -> SdkHandle {
+    let mut handle = make_in_place_effort_handle(feature_id);
+    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    handle.state = QueryState::Active {
+        query: Arc::new(RwLock::new(Box::new(AcceptingPermissionSession::new()))),
+        permission_tx,
+    };
+    handle
+}
 
 #[tokio::test]
 async fn test_permission_respond_persists_ask_user_question_answer() {
@@ -148,4 +212,113 @@ async fn test_permission_respond_does_not_persist_question_answer_when_runtime_r
         .await
         .unwrap();
     assert_eq!(count, 0);
+}
+
+#[tokio::test]
+async fn test_permission_respond_keeps_newer_pending_permission_stacked() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let feature_id = 1i64;
+    let newer_pending = serde_json::json!({
+        "request_id": "req-2",
+        "tool_name": "Bash",
+        "tool_input": { "command": "pwd" },
+        "description": "Run pwd"
+    });
+    let db_session_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO agent_sessions \
+                (feature_id, agent_type, status, runtime_provider, pending_permission) \
+             VALUES (?, 'session', 'running', 'opencode', ?) RETURNING id",
+    )
+    .bind(feature_id)
+    .bind(newer_pending.to_string())
+    .fetch_one(&app_state.write_pool)
+    .await
+    .unwrap();
+
+    sdk_sessions
+        .lock()
+        .await
+        .insert(db_session_id, make_permission_handle(feature_id));
+
+    let envelope = make_envelope(
+        "session",
+        "permission.respond",
+        serde_json::json!({
+            "session_id": db_session_id.to_string(),
+            "request_id": "req-1",
+            "decision": "allow_once"
+        }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let msg = rx.recv().await.unwrap();
+    if let Message::Text(text) = msg {
+        let env: WsEnvelope = serde_json::from_str(&text).unwrap();
+        assert_eq!(env.action, "acknowledged");
+    } else {
+        panic!("expected text message");
+    }
+
+    let pending: Option<String> =
+        sqlx::query_scalar("SELECT pending_permission FROM agent_sessions WHERE id = ?")
+            .bind(db_session_id)
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, Some(newer_pending.to_string()));
+}
+
+#[tokio::test]
+async fn test_permission_respond_clears_answered_pending_permission() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let feature_id = 1i64;
+    let answered_pending = serde_json::json!({
+        "request_id": "req-1",
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls" },
+        "description": "Run ls"
+    });
+    let db_session_id = sqlx::query_scalar::<_, i64>(
+        "INSERT INTO agent_sessions \
+                (feature_id, agent_type, status, runtime_provider, pending_permission) \
+             VALUES (?, 'session', 'running', 'opencode', ?) RETURNING id",
+    )
+    .bind(feature_id)
+    .bind(answered_pending.to_string())
+    .fetch_one(&app_state.write_pool)
+    .await
+    .unwrap();
+
+    sdk_sessions
+        .lock()
+        .await
+        .insert(db_session_id, make_permission_handle(feature_id));
+    dispatch_envelope(
+        make_envelope(
+            "session",
+            "permission.respond",
+            serde_json::json!({
+                "session_id": db_session_id.to_string(),
+                "request_id": "req-1",
+                "decision": "allow_once"
+            }),
+        ),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+
+    assert!(matches!(rx.recv().await.unwrap(), Message::Text(_)));
+    let pending: Option<String> =
+        sqlx::query_scalar("SELECT pending_permission FROM agent_sessions WHERE id = ?")
+            .bind(db_session_id)
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, None);
 }

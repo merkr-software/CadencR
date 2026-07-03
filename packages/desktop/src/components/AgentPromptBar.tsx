@@ -16,7 +16,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { usePromptHistory } from "@/hooks/usePromptHistory";
 import { usePromptScheduleControl } from "@/hooks/usePromptScheduleControl";
 import { useAgentPromptShortcuts } from "@/hooks/useAgentPromptShortcuts";
-import { useListFiles } from "@/api/generated";
 import { useAgentPromptSend } from "./agent-prompt-send";
 import { useFeaturePromptDraftRestore } from "./agent-prompt-draft-restore";
 import { useDeferredAgentPrompts } from "./useDeferredAgentPrompts";
@@ -136,10 +135,6 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
       restoreAttachments,
       dragHandlers,
     } = usePromptAttachments({ wsSessionId, sessionId, featureId, providerId });
-    const filesQuery = useListFiles(
-      { feature_id: featureId! },
-      { query: { enabled: !!featureId && agentTabActive && !disabled } },
-    );
     useImperativeHandle(ref, () => ({
       focusInput: () => editorRef.current?.focus(),
       setDraft: (value: string) => {
@@ -343,7 +338,8 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
                   : "Send a message… (@ files, / commands, $ skills)"
               }
               className="max-h-[40vh] min-h-0 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm leading-[22px] shadow-none focus:border-0 focus:ring-0"
-              mentionFiles={filesQuery.data}
+              mentionProjectId={projectId}
+              mentionFeatureId={featureId}
               slashCommands={slashCommandsOverride}
               slashCommandsLoading={slashCommandsLoading}
               onPasteImages={addFiles}

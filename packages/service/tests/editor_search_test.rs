@@ -29,11 +29,13 @@ fn recent_files_returns_files_sorted_by_mtime() {
     let dir = setup_test_dir();
     let root = canonical_root(&dir);
 
-    let files = service::recent_files(&root, 10).unwrap();
+    let files = service::recent_files(&root, 10, false).unwrap();
 
     assert!(!files.is_empty());
     // main.rs was touched last, should be first
-    assert_eq!(files[0], "src/main.rs");
+    assert_eq!(files[0].path, "src/main.rs");
+    // Files-only by default
+    assert!(files.iter().all(|f| !f.is_dir));
 }
 
 #[test]
@@ -41,8 +43,18 @@ fn recent_files_respects_limit() {
     let dir = setup_test_dir();
     let root = canonical_root(&dir);
 
-    let files = service::recent_files(&root, 1).unwrap();
+    let files = service::recent_files(&root, 1, false).unwrap();
     assert_eq!(files.len(), 1);
+}
+
+#[test]
+fn recent_files_includes_dirs_when_requested() {
+    let dir = setup_test_dir();
+    let root = canonical_root(&dir);
+
+    let entries = service::recent_files(&root, 50, true).unwrap();
+    let src = entries.iter().find(|e| e.path == "src").expect("src dir");
+    assert!(src.is_dir);
 }
 
 #[test]
@@ -50,7 +62,7 @@ fn fuzzy_search_finds_matching_files() {
     let dir = setup_test_dir();
     let root = canonical_root(&dir);
 
-    let results = service::fuzzy_search_files(&root, "main", 10).unwrap();
+    let results = service::fuzzy_search_files(&root, "main", 10, false).unwrap();
 
     assert!(!results.is_empty());
     assert!(results[0].path.contains("main"));
@@ -62,7 +74,7 @@ fn fuzzy_search_returns_empty_for_no_match() {
     let dir = setup_test_dir();
     let root = canonical_root(&dir);
 
-    let results = service::fuzzy_search_files(&root, "zzzznotfound", 10).unwrap();
+    let results = service::fuzzy_search_files(&root, "zzzznotfound", 10, false).unwrap();
     assert!(results.is_empty());
 }
 
@@ -71,6 +83,25 @@ fn fuzzy_search_respects_limit() {
     let dir = setup_test_dir();
     let root = canonical_root(&dir);
 
-    let results = service::fuzzy_search_files(&root, "rs", 1).unwrap();
+    let results = service::fuzzy_search_files(&root, "rs", 1, false).unwrap();
     assert_eq!(results.len(), 1);
+}
+
+#[test]
+fn fuzzy_search_excludes_dirs_by_default() {
+    let dir = setup_test_dir();
+    let root = canonical_root(&dir);
+
+    let results = service::fuzzy_search_files(&root, "src", 10, false).unwrap();
+    assert!(results.iter().all(|r| !r.is_dir));
+}
+
+#[test]
+fn fuzzy_search_matches_dirs_when_requested() {
+    let dir = setup_test_dir();
+    let root = canonical_root(&dir);
+
+    let results = service::fuzzy_search_files(&root, "src", 10, true).unwrap();
+    let src = results.iter().find(|r| r.path == "src").expect("src dir");
+    assert!(src.is_dir);
 }

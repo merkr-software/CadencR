@@ -1,31 +1,31 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "The IDE for the era of agents"
-description: "What Cadencr is, why it feels different from traditional IDEs and agent CLIs, and how to think about work inside it."
+description: "What CadencR is, why it feels different from traditional IDEs and agent CLIs, and how to think about work inside it."
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
 import DocCallout from "@/components/docs/DocCallout.astro";
 import conceptImage from "@/assets/docs/concept.png";
 
-Cadencr exists for the gap between **"I can ask an agent to help"** and **"I can actually finish this piece of work without losing context."**
+CadencR exists for the gap between **"I can ask an agent to help"** and **"I can actually finish this piece of work without losing context."**
 
 A classic IDE is great at editing. An agent CLI like **Claude**, **Codex**, or **OpenCode** is great at doing focused work in the terminal. Real work usually needs both, plus a way to keep files, commands, Git, and multiple agent attempts organized in one place.
 
 <DocScreenshot
   src={conceptImage}
-  alt="Cadencr concept — a feature workspace with the brief, agent sessions, files, terminal, and Git in one place"
+  alt="CadencR concept — a feature workspace with the brief, agent sessions, files, terminal, and Git in one place"
   caption="A feature workspace brings your brief, agent sessions, files, terminal, and Git into one place."
   bordered={false}
 />
 
-## What Cadencr is
+## What CadencR is
 
-Cadencr is a desktop IDE for agent-driven work.
+CadencR is a desktop IDE for agent-driven work.
 
 That means it is built around a simple idea: **a task should have a home**.
 
-In Cadencr, that home is usually a **feature workspace**. Instead of starting from a blank chat box and hoping you remember where everything went, you get a place where the work stays organized:
+In CadencR, that home is usually a **feature workspace**. Instead of starting from a blank chat box and hoping you remember where everything went, you get a place where the work stays organized:
 
 - the goal you are working on
 - one or more agent **sessions** trying to help
@@ -43,14 +43,14 @@ Because shipping work is not just editing files, and it is not just running one 
 | ----------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Plain IDE                           | Editing code, browsing files, running commands    | You want several agent attempts, session context, and Git-aware workflows without stitching it together yourself   |
 | Agent CLI (Claude, Codex, OpenCode) | Fast agent-driven work in the terminal            | You want a clearer home for sessions, files, diffs, review, and parallel work across tasks                         |
-| Cadencr                             | Keeping agent work attached to the actual project | You still need to make decisions, but at least the work is not scattered across panes, terminals, and memory alone |
+| CadencR                             | Keeping agent work attached to the actual project | You still need to make decisions, but at least the work is not scattered across panes, terminals, and memory alone |
 
-What makes Cadencr different is not that it "has an agent."
+What makes CadencR different is not that it "has an agent."
 
 It is that the agent work is attached to the work itself. Instead of living only inside an editor or only inside a terminal session, it becomes part of a workspace where you can inspect files, compare attempts, run commands, and see what changed without jumping across several tools.
 
 <DocCallout title="Important" variant="tip">
-  Cadencr is not trying to replace your judgment. It is trying to make your judgment easier by
+  CadencR is not trying to replace your judgment. It is trying to make your judgment easier by
   keeping the useful evidence in one place.
 </DocCallout>
 
@@ -80,7 +80,7 @@ That last step is underrated.
 
 ## What kind of user benefits most
 
-Cadencr is especially helpful for:
+CadencR is especially helpful for:
 
 - people who like the speed of AI help but hate tab chaos
 - developers who want something more structured than a plain IDE plus terminal juggling
@@ -100,5 +100,5 @@ If you want the tour after the big idea, go here next:
 - [Session view](../session-view/) for understanding one agent run at a time
 - [Editor](../editor/) for reviewing files and diffs
 - [Terminal](../terminal/) for the built-in command line
-- [Git in Cadencr](../git/) for the confidence-building part
+- [Git in CadencR](../git/) for the confidence-building part
 - [Prompt](../prompting/) for asking agents clearly and giving them useful direction

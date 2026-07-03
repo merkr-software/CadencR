@@ -1,0 +1,19 @@
+# Cloudflare Pages response headers (https://developers.cloudflare.com/pages/configuration/headers/)
+#
+# RFC 8288 Link headers advertise machine-discoverable resources to agents:
+#   service-desc -> /llms.txt          (machine-readable site map for LLMs/agents)
+#   service-doc  -> /docs/             (human documentation)
+#   sitemap      -> /sitemap-index.xml (XML sitemap)
+#   alternate    -> /rss.xml           (news feed)
+#   license      -> source license
+/*
+  Link: </llms.txt>; rel="service-desc"; type="text/markdown"
+  Link: </docs/>; rel="service-doc"; type="text/html"
+  Link: </sitemap-index.xml>; rel="sitemap"; type="application/xml"
+  Link: </rss.xml>; rel="alternate"; type="application/rss+xml"
+  Link: <https://github.com/merkr-software/cadencr/blob/main/LICENSE>; rel="license"
+
+# Serve the agent map as Markdown (static endpoints can't set their own type).
+/llms.txt
+  Content-Type: text/markdown; charset=utf-8
+  X-Robots-Tag: all
