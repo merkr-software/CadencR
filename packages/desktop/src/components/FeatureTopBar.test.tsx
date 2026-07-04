@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen } from "@/test-utils";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { FeatureTopBar } from "./FeatureTopBar";
 
 const platformMock = vi.hoisted(() => ({ hasMacWindowControls: false }));
@@ -100,6 +102,9 @@ vi.mock("./ModelSelector", () => ({
 }));
 
 const mockSetCollapsed = vi.fn();
+const EXPAND_TITLE = `Expand sidebar (${formatCompactCombo(
+  getRegistryShortcut("toggle-sidebar").keys,
+)})`;
 let mockSidebarCollapsed = false;
 
 vi.mock("@/components/SidebarContext", () => ({
@@ -202,7 +207,7 @@ describe("FeatureTopBar", () => {
   it("shows expand button when sidebar is collapsed", () => {
     mockSidebarCollapsed = true;
     render(<FeatureTopBar featureId={1} projectId={1} />);
-    expect(screen.getByTitle("Expand sidebar (⌘B)")).toBeInTheDocument();
+    expect(screen.getByTitle(EXPAND_TITLE)).toBeInTheDocument();
   });
 
   it("shows settings link when sidebar is collapsed", () => {
@@ -243,7 +248,7 @@ describe("FeatureTopBar", () => {
     const { default: userEvent } = await import("@testing-library/user-event");
     const user = userEvent.setup();
     render(<FeatureTopBar featureId={1} projectId={1} />);
-    await user.click(screen.getByTitle("Expand sidebar (⌘B)"));
+    await user.click(screen.getByTitle(EXPAND_TITLE));
     expect(mockSetCollapsed).toHaveBeenCalledWith(false);
   });
 });

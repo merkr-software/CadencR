@@ -7,7 +7,10 @@
 import { type KeyboardEvent, type RefObject } from "react";
 import { Replace, ReplaceAll } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
 import { cn } from "@/lib/utils";
+
+const REPLACE_ALL_COMBO = formatCompactCombo(["mod", "enter"]);
 
 interface EditorReplaceRowProps {
   inputRef: RefObject<HTMLInputElement | null>;
@@ -60,7 +63,7 @@ export function EditorReplaceRow({
         <Button
           variant="ghost"
           size="icon-xs"
-          title="Replace all (⌘⏎)"
+          title={`Replace all (${REPLACE_ALL_COMBO})`}
           aria-label="Replace all"
           onClick={onReplaceAll}
           disabled={disabled}

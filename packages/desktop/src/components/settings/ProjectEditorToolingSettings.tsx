@@ -11,8 +11,14 @@ import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetProjectSettingsQueryKey, useSetProjectSetting } from "@/api/generated";
 import { useProjectEditorTooling } from "@/lib/lsp/useProjectEditorTooling";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
+
+const FORMAT_DOCUMENT_COMBO = formatCompactCombo(
+  getRegistryShortcut("editor-format-document").keys,
+);
 
 const TS_SERVER_OPTIONS: ReadonlyArray<RadioCardOption<string>> = [
   {
@@ -103,7 +109,7 @@ export function ProjectEditorToolingSettings({
       <div className="space-y-2">
         <div className="text-sm font-medium">Formatter</div>
         <p className="text-xs text-muted-foreground">
-          Used by “Format document” (⌘⇧I) and format-on-save.
+          Used by “Format document” ({FORMAT_DOCUMENT_COMBO}) and format-on-save.
         </p>
         <RadioCardGroup<string>
           ariaLabel="Formatter"
