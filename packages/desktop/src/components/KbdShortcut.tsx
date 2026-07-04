@@ -1,7 +1,7 @@
 /**
  * Inline keyboard shortcut badge for buttons.
  * Accepts an array of key tokens: "cmd", "shift", "enter", or any letter/symbol.
- * Renders Lucide icons for modifier/special keys and text for letters.
+ * Renders platform-aware modifier glyphs/labels and text for letters.
  *
  * Callers that pre-format via `formatCombo` pass glyphs (`⌘`, `⇧`, `↵`), so
  * the map recognizes both the raw tokens and their formatted equivalents.
@@ -9,7 +9,7 @@
 import { CommandIcon, CornerDownLeftIcon, ArrowUpIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useIsTabFocused } from "@/hooks/useScopedHotkeys";
-import { formatCombo } from "@/lib/shortcuts/format";
+import { formatCombo, formatKey, PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 import type { TabKind } from "@/stores/feature-layout-schema";
@@ -18,14 +18,37 @@ import { cn } from "@/lib/utils";
 const ICON_SIZE = "size-2.5";
 const ICON_SIZE_SM = "size-2";
 
-function createKeyMap(sizeClass: string): Record<string, ReactNode> {
+function TextKeyLabel({ label, small }: { label: string; small?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-[1em] min-w-[1.75em] items-center justify-center font-mono font-semibold leading-none tracking-[-0.08em]",
+        small ? "text-[0.95em]" : "text-[1em]",
+      )}
+    >
+      {label}
+    </span>
+  );
+}
+
+function ShiftKeyIcon({ small }: { small?: boolean }) {
+  return <ArrowUpIcon className={cn(small ? ICON_SIZE_SM : ICON_SIZE, "-translate-y-px")} />;
+}
+
+function createKeyMap(sizeClass: string, small = false): Record<string, ReactNode> {
   const command = <CommandIcon className={sizeClass} />;
-  const shift = <ArrowUpIcon className={sizeClass} />;
+  const modifier = PLATFORM_IS_MAC ? (
+    command
+  ) : (
+    <TextKeyLabel label={formatKey("mod")} small={small} />
+  );
+  const shift = <ShiftKeyIcon small={small} />;
   const enter = <CornerDownLeftIcon className={sizeClass} />;
   return {
-    cmd: command,
+    cmd: modifier,
+    mod: modifier,
     "⌘": command,
-    ctrl: <span className="leading-none">⌃</span>,
+    ctrl: <TextKeyLabel label={formatKey("ctrl")} small={small} />,
     shift,
     "⇧": shift,
     enter,
@@ -34,7 +57,7 @@ function createKeyMap(sizeClass: string): Record<string, ReactNode> {
 }
 
 const KEY_MAP = createKeyMap(ICON_SIZE);
-const KEY_MAP_SM = createKeyMap(ICON_SIZE_SM);
+const KEY_MAP_SM = createKeyMap(ICON_SIZE_SM, true);
 
 const VARIANT_CLASSES = {
   inline:
@@ -42,7 +65,7 @@ const VARIANT_CLASSES = {
   "inline-sm":
     "ml-1 inline-flex items-center gap-px rounded border border-current/20 bg-current/10 px-1.5 py-0.5 text-[8px] font-medium leading-none text-current [&_svg]:!size-2",
   square:
-    "mr-1.5 inline-flex size-6 items-center justify-center rounded border border-border bg-card text-[10px] text-foreground",
+    "mr-1.5 inline-flex h-6 min-w-6 items-center justify-center rounded border border-border bg-card px-1 text-[10px] text-foreground",
   modal:
     "inline-flex items-center justify-center rounded border border-border bg-card px-2 py-1 text-[11px] font-mono font-medium text-foreground shadow-sm min-w-[24px]",
   hint: "inline-flex items-center justify-center gap-px rounded border border-current/25 bg-transparent px-1 py-0.5 text-[10px] font-mono font-medium leading-none text-current [&_svg]:!size-2.5",
@@ -139,11 +162,11 @@ function KbdContent({ keys, map, className }: KbdContentProps) {
       {keys.map((k, i) => {
         const icon = map[k.toLowerCase()];
         return icon ? (
-          <span key={i} className="flex items-center">
+          <span key={i} className="inline-flex h-[1em] items-center">
             {icon}
           </span>
         ) : (
-          <span key={i} className="leading-none">
+          <span key={i} className="inline-flex h-[1em] items-center leading-none">
             {k}
           </span>
         );
