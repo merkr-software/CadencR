@@ -1,4 +1,26 @@
-import { app, Menu, type MenuItemConstructorOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  Menu,
+  type BaseWindow,
+  type WebContents,
+  type MenuItem,
+  type MenuItemConstructorOptions,
+} from "electron";
+
+interface EditCommand {
+  label: string;
+  run: (webContents: WebContents) => void;
+}
+
+const NON_MAC_EDIT_COMMANDS: readonly EditCommand[] = [
+  { label: "Undo", run: (webContents) => webContents.undo() },
+  { label: "Redo", run: (webContents) => webContents.redo() },
+  { label: "Cut", run: (webContents) => webContents.cut() },
+  { label: "Copy", run: (webContents) => webContents.copy() },
+  { label: "Paste", run: (webContents) => webContents.paste() },
+  { label: "Select All", run: (webContents) => webContents.selectAll() },
+];
 
 export function installApplicationMenu(onQuit: () => void): void {
   const appMenu: MenuItemConstructorOptions =
@@ -27,7 +49,19 @@ export function installApplicationMenu(onQuit: () => void): void {
 
   const template: MenuItemConstructorOptions[] = [
     appMenu,
+    buildEditMenu(),
+    ...(devViewSubmenu.length > 0 ? [{ label: "View", submenu: devViewSubmenu }] : []),
     {
+      label: "Window",
+      submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "togglefullscreen" }],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+function buildEditMenu(): MenuItemConstructorOptions {
+  if (process.platform === "darwin") {
+    return {
       label: "Edit",
       submenu: [
         { role: "undo" },
@@ -38,12 +72,28 @@ export function installApplicationMenu(onQuit: () => void): void {
         { role: "paste" },
         { role: "selectAll" },
       ],
+    };
+  }
+
+  return {
+    label: "Edit",
+    submenu: [
+      editMenuItem(NON_MAC_EDIT_COMMANDS[0]),
+      editMenuItem(NON_MAC_EDIT_COMMANDS[1]),
+      { type: "separator" },
+      ...NON_MAC_EDIT_COMMANDS.slice(2).map(editMenuItem),
+    ],
+  };
+}
+
+function editMenuItem(command: EditCommand): MenuItemConstructorOptions {
+  return {
+    label: command.label,
+    click: (_item: MenuItem, focusedWindow: BaseWindow | undefined): void => {
+      const webContents = focusedWindow
+        ? BrowserWindow.fromId(focusedWindow.id)?.webContents
+        : null;
+      if (webContents) command.run(webContents);
     },
-    ...(devViewSubmenu.length > 0 ? [{ label: "View", submenu: devViewSubmenu }] : []),
-    {
-      label: "Window",
-      submenu: [{ role: "minimize" }, { role: "zoom" }, { role: "togglefullscreen" }],
-    },
-  ];
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  };
 }

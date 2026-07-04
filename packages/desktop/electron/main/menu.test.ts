@@ -8,6 +8,9 @@ vi.mock("electron", () => ({
     isPackaged: true,
     name: "Cadencr",
   },
+  BrowserWindow: {
+    fromId: vi.fn(),
+  },
   Menu: {
     buildFromTemplate,
     setApplicationMenu,
@@ -34,5 +37,21 @@ describe("installApplicationMenu", () => {
     if (process.platform === "darwin") {
       expect(JSON.stringify(buildFromTemplate.mock.calls.at(-1)?.[0])).toContain('"role":"hide"');
     }
+  });
+
+  it("does not install non-mac edit role accelerators that steal terminal Ctrl keys", async () => {
+    const { installApplicationMenu } = await import("./menu");
+
+    installApplicationMenu(vi.fn());
+
+    const template = buildFromTemplate.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      submenu?: unknown[];
+    }>;
+    const editMenu = template.find((item) => item.label === "Edit");
+
+    expect(JSON.stringify(editMenu)).not.toContain('"role":"copy"');
+    expect(JSON.stringify(editMenu)).not.toContain('"role":"paste"');
+    expect(JSON.stringify(editMenu)).not.toContain("accelerator");
   });
 });
