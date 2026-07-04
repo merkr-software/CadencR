@@ -176,6 +176,7 @@ function onFileDrop(cb: (payload: FileDropPayload) => void): () => void {
 
 contextBridge.exposeInMainWorld("cadencr", {
   isElectron: true,
+  usesCustomWindowControls: process.platform === "linux",
   runtimeConfig: (): Promise<RuntimeConfig> => ipcRenderer.invoke("runtime-config"),
   readFileBase64: (handle: string): Promise<string> =>
     ipcRenderer.invoke("fs:read-file-base64", handle),
@@ -207,6 +208,9 @@ contextBridge.exposeInMainWorld("cadencr", {
   onCloseRequested: (cb: () => void): (() => void) => onIpc("app:close-requested", cb),
   confirmClose: (): Promise<void> => ipcRenderer.invoke("app:confirm-close"),
   requestQuit: (): Promise<void> => ipcRenderer.invoke("app:request-quit"),
+  windowMinimize: (): Promise<void> => ipcRenderer.invoke("app:window-minimize"),
+  windowToggleMaximize: (): Promise<void> => ipcRenderer.invoke("app:window-toggle-maximize"),
+  windowClose: (): Promise<void> => ipcRenderer.invoke("app:window-close"),
   reportRendererError: (payload: RendererErrorReportPayload): Promise<void> =>
     ipcRenderer.invoke("app:renderer-error", payload),
   setZoom: (factor: number): Promise<void> => ipcRenderer.invoke("webview:set-zoom", factor),

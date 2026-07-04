@@ -319,6 +319,7 @@ function UnifiedAgentsHeader({
       data-feature-header
       data-unified-agents-header
       data-mac-controls={HAS_MAC_WINDOW_CONTROLS ? "true" : undefined}
+      data-window-control-safe
       className={cn(
         "titlebar-drag flex shrink-0 items-center gap-3 border-b border-border/40 bg-background px-4 md:px-6",
         sidebarCollapsed && HAS_MAC_WINDOW_CONTROLS ? "pt-1.5 pb-1.5" : "py-4",
