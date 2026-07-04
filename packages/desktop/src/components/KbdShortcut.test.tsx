@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@/test-utils";
+import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { KbdShortcut } from "./KbdShortcut";
 
 describe("KbdShortcut", () => {
@@ -10,13 +11,14 @@ describe("KbdShortcut", () => {
 
   it("renders multiple text keys", () => {
     render(<KbdShortcut keys={["ctrl", "S"]} />);
-    expect(screen.getByText("⌃")).toBeInTheDocument();
+    expect(screen.getByText(PLATFORM_IS_MAC ? "⌃" : "Ctrl")).toBeInTheDocument();
     expect(screen.getByText("S")).toBeInTheDocument();
   });
 
-  it("renders cmd icon for cmd key", () => {
+  it("renders a platform-correct modifier for cmd/mod keys", () => {
     const { container } = render(<KbdShortcut keys={["cmd"]} />);
-    expect(container.querySelector("svg")).toBeInTheDocument();
+    if (PLATFORM_IS_MAC) expect(container.querySelector("svg")).toBeInTheDocument();
+    else expect(screen.getByText("Ctrl")).toBeInTheDocument();
   });
 
   it("renders enter icon for enter key", () => {
@@ -24,9 +26,15 @@ describe("KbdShortcut", () => {
     expect(container.querySelector("svg")).toBeInTheDocument();
   });
 
+  it("nudges the shift arrow up for optical alignment", () => {
+    const { container } = render(<KbdShortcut keys={["shift"]} />);
+    expect(container.querySelector("svg")?.className.baseVal).toContain("-translate-y-px");
+  });
+
   it("renders mixed keys", () => {
     const { container } = render(<KbdShortcut keys={["cmd", "S"]} />);
-    expect(container.querySelector("svg")).toBeInTheDocument();
+    if (PLATFORM_IS_MAC) expect(container.querySelector("svg")).toBeInTheDocument();
+    else expect(screen.getByText("Ctrl")).toBeInTheDocument();
     expect(screen.getByText("S")).toBeInTheDocument();
   });
 
@@ -39,7 +47,8 @@ describe("KbdShortcut", () => {
     const { container } = render(<KbdShortcut keys={["1"]} variant="square" />);
     const kbd = container.querySelector("kbd");
     expect(kbd).toBeInTheDocument();
-    expect(kbd?.className).toContain("size-6");
+    expect(kbd?.className).toContain("h-6");
+    expect(kbd?.className).toContain("min-w-6");
     expect(screen.getByText("1")).toBeInTheDocument();
   });
 

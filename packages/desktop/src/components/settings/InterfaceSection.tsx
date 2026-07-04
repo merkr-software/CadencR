@@ -13,6 +13,9 @@ import { SettingsSection } from "./SettingsSection";
 
 // Combo is static (registry-derived), so compute its glyphs once at module load.
 const HELP_COMBO = formatCombo(getRegistryShortcut("shortcuts-help").keys).join(" ");
+const ZOOM_IN_COMBO = formatCombo(getRegistryShortcut("zoom-in").keys).join(" ");
+const ZOOM_OUT_COMBO = formatCombo(getRegistryShortcut("zoom-out").keys).join(" ");
+const ZOOM_RESET_COMBO = formatCombo(getRegistryShortcut("zoom-reset").keys).join(" ");
 
 export function InterfaceSection(): React.JSX.Element {
   const { zoomLevel, zoomIn, zoomOut, resetZoom } = useZoom();
@@ -41,9 +44,9 @@ export function InterfaceSection(): React.JSX.Element {
               <>
                 Affects sidebar, editor, terminal, and chrome together.
                 <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  <Kbd>⌘ +</Kbd>
-                  <Kbd>⌘ −</Kbd>
-                  <Kbd>⌘ 0</Kbd>
+                  <Kbd>{ZOOM_IN_COMBO}</Kbd>
+                  <Kbd>{ZOOM_OUT_COMBO}</Kbd>
+                  <Kbd>{ZOOM_RESET_COMBO}</Kbd>
                   work everywhere.
                 </span>
               </>

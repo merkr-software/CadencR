@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { ZoomInIcon, ZoomOutIcon, Maximize2Icon } from "lucide-react";
 import { usePanZoom } from "@/hooks/usePanZoom";
+import { formatKey } from "@/lib/shortcuts/format";
 import { cn } from "@/lib/utils";
 
 interface MermaidDiagramViewProps {
@@ -9,6 +10,7 @@ interface MermaidDiagramViewProps {
 
 const CONTROL_CLASS =
   "flex size-6 items-center justify-center rounded text-foreground/70 hover:bg-accent hover:text-foreground transition-colors";
+const PAN_MODIFIER = formatKey("mod");
 
 /**
  * Renders a mermaid SVG inside a scrollable zoom viewport: native two-finger
@@ -55,7 +57,7 @@ export const MermaidDiagramView = memo(function MermaidDiagramView({
           "max-h-[32rem] overflow-auto overscroll-contain",
           isPanning ? "cursor-grabbing select-none" : "cursor-default",
         )}
-        title="Scroll to pan · pinch to zoom · ⌘-drag to pan"
+        title={`Scroll to pan · pinch to zoom · ${PAN_MODIFIER}-drag to pan`}
       >
         <div
           ref={contentRef}

@@ -7,7 +7,11 @@ import { Button } from "@/components/ui/button";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { APP_ENVIRONMENT_KIND } from "@/lib/app-environment";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { cn } from "@/lib/utils";
+
+const TOGGLE_SIDEBAR_COMBO = formatCompactCombo(getRegistryShortcut("toggle-sidebar").keys);
 
 interface SidebarCollapsedChromeProps {
   visible: boolean;
@@ -62,7 +66,7 @@ export function SidebarCollapsedChrome({
             variant="ghost"
             size={actionButtonSize}
             className={actionButtonClass}
-            title="Expand sidebar (⌘B)"
+            title={`Expand sidebar (${TOGGLE_SIDEBAR_COMBO})`}
             onClick={onExpand}
           >
             <PanelLeft className="size-4" />
