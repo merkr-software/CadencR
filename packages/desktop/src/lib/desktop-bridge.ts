@@ -131,6 +131,8 @@ export interface CadencrDesktopBridge {
   setLinkHoverContext: (context: LinkHoverContext | null) => Promise<void>;
   /** Fired when the user picks an open action from the native link menu. */
   onOpenLinkFromMenu: (cb: (payload: LinkMenuOpenPayload) => void) => () => void;
+  readClipboardText?: () => Promise<string>;
+  writeClipboardText?: (text: string) => Promise<void>;
   pickDirectory: () => Promise<string | null>;
   /**
    * Prompt the user to pick an image file (project icon). Resolves to the
@@ -294,6 +296,8 @@ const browserBridge: CadencrBrowserBridge = {
   // no-op and the menu never fires.
   setLinkHoverContext: () => Promise.resolve(),
   onOpenLinkFromMenu: () => () => undefined,
+  readClipboardText: () => navigator.clipboard.readText(),
+  writeClipboardText: (text: string) => navigator.clipboard.writeText(text),
   pickDirectory: () => unavailable("pickDirectory"),
   pickImageFile: () => unavailable("pickImageFile"),
   showSaveDialog: () => unavailable("showSaveDialog"),
