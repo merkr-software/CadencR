@@ -100,6 +100,20 @@ export function registerIpc({ getMainWindow, confirmClose, requestQuit }: IpcOpt
     assertTrustedSender(event, getMainWindow);
     requestQuit();
   });
+  ipcMain.handle("app:window-minimize", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    requireMainWindow(getMainWindow).minimize();
+  });
+  ipcMain.handle("app:window-toggle-maximize", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    const window = requireMainWindow(getMainWindow);
+    if (window.isMaximized()) window.unmaximize();
+    else window.maximize();
+  });
+  ipcMain.handle("app:window-close", (event) => {
+    assertTrustedSender(event, getMainWindow);
+    requireMainWindow(getMainWindow).close();
+  });
   ipcMain.handle("app:renderer-error", (event, payload: unknown) => {
     assertTrustedSender(event, getMainWindow);
     if (rendererErrorLogCount >= MAX_RENDERER_ERROR_LOGS_PER_RUN) return;

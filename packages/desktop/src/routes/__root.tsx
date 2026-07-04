@@ -49,6 +49,7 @@ import { useThemeSync } from "@/hooks/useTheme";
 import UniversalContextMenu from "@/components/UniversalContextMenu";
 import { RootOverlays, type ConfirmFeatureAction } from "@/components/RootOverlays";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
+import { AppWindowControls } from "@/components/AppWindowControls";
 import { isMeaningfulScreenPath, useLastScreenStore } from "@/stores/last-screen-store";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
 import { toastError } from "@/lib/api-errors";
@@ -357,6 +358,7 @@ function RootLayout() {
     >
       <UniversalContextMenu>
         <div className="flex h-[var(--app-vh)]">
+          <AppWindowControls />
           <AppShell
             isMobile={isMobile}
             collapsed={isSidebarCollapsed}
