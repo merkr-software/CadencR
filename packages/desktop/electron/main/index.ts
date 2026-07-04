@@ -115,7 +115,9 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    titleBarStyle: "hiddenInset",
+    ...(process.platform === "linux"
+      ? { frame: false }
+      : { titleBarStyle: "hiddenInset" as const }),
     ...windowIconOption({
       appPath: app.getAppPath(),
       isPackaged: app.isPackaged,

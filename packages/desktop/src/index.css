@@ -70,10 +70,30 @@
 :root {
   --scrollbar-thumb: color-mix(in oklab, var(--foreground) 34%, transparent);
   --scrollbar-thumb-hover: color-mix(in oklab, var(--foreground) 48%, transparent);
+  --app-window-controls-safe-area: 0px;
   /* Shared code font-size for the editor and git-diff buffers so they match
    * (DESIGN.md specs both at 11.5px). rem (not px) so it scales with the mobile
    * UI-zoom, which scales the root font-size. 0.71875rem = 11.5px at 16px root. */
   --code-font-size: 0.71875rem;
+}
+
+:root[data-window-controls="linux"] {
+  --app-window-controls-safe-area: 148px;
+}
+
+:root[data-window-controls="linux"] [data-window-control-safe] {
+  padding-right: calc(var(--app-window-controls-safe-area) + 12px);
+}
+
+[data-app-window-controls],
+[data-app-window-control-button] {
+  -webkit-app-region: no-drag;
+}
+
+[data-app-window-controls] {
+  z-index: 10000;
+  width: var(--app-window-controls-safe-area);
+  pointer-events: auto;
 }
 
 /*
