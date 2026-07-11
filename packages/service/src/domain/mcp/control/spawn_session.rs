@@ -3,48 +3,35 @@ use serde::{Deserialize, Serialize};
 
 use super::audit::{elapsed_ms, record_tool_audit, result_size_bytes, ToolAudit};
 use super::scope::resolve_session_scope;
+use super::spawn_persist::{insert_initial_message, insert_spawn_link, insert_spawned_session};
+use super::spawn_resolve::{
+    branch_worktree_settings, codex_permission_mode_for_spawn, resolve_spawn_runtime,
+    resolve_target_project, SpawnBranch, TargetProject,
+};
 use crate::app_state::AppState;
-use crate::domain::agents::codex::{
-    canonical_access_mode_wire, configured_access_mode as configured_codex_access_mode,
-    PROVIDER_ID as CODEX_PROVIDER_ID,
-};
-use crate::domain::agents::providers::{
-    canonical_model_or_error, canonical_provider_or_error, resolve_effective_provider,
-};
-use crate::domain::agents::runtime::{runtime_setting_key, DEFAULT_PROVIDER};
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::features::service::create_feature_with_worktree;
-use crate::domain::settings;
 use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct SpawnSessionRequest {
-    source_feature_id: i64,
-    source_session_id: i64,
-    title: Option<String>,
-    initial_message: Option<String>,
-    branch: Option<SpawnBranch>,
-    provider: Option<String>,
-    model: Option<String>,
-    permission_mode: Option<String>,
-    codex_permission_mode: Option<String>,
-    source_note: Option<String>,
-    link_to_current_session: Option<bool>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct SpawnBranch {
-    mode: Option<String>,
-    base: Option<String>,
-    reuse_branch: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-struct SpawnRuntimeSelection {
-    provider: Option<String>,
-    model: Option<String>,
-    effective_provider: String,
+    pub(super) source_feature_id: i64,
+    pub(super) source_session_id: i64,
+    pub(super) title: Option<String>,
+    pub(super) initial_message: Option<String>,
+    pub(super) branch: Option<SpawnBranch>,
+    pub(super) provider: Option<String>,
+    pub(super) model: Option<String>,
+    pub(super) permission_mode: Option<String>,
+    pub(super) codex_permission_mode: Option<String>,
+    pub(super) source_note: Option<String>,
+    pub(super) link_to_current_session: Option<bool>,
+    pub(super) await_result: Option<bool>,
+    /// Optional target project to spawn into a project other than the caller's.
+    pub(super) target_project_id: Option<i64>,
+    /// Optional target project root path (alternative to `target_project_id`).
+    pub(super) target_project_path: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,6 +42,16 @@ pub(super) struct SpawnSessionResponse {
     session_id: i64,
     #[serde(rename = "messageId", skip_serializing_if = "Option::is_none")]
     message_id: Option<i64>,
+    /// The resolved target project the session was created in.
+    project: TargetProject,
+    /// True when the session landed in a different project than the caller.
+    #[serde(rename = "crossProject")]
+    cross_project: bool,
+    /// Present when the conversation was created but sending the initial message
+    /// failed. The target session already exists — do NOT spawn again; retry by
+    /// messaging the returned `sessionId`.
+    #[serde(rename = "dispatchError", skip_serializing_if = "Option::is_none")]
+    dispatch_error: Option<String>,
 }
 
 pub(super) async fn spawn_session_handler(
@@ -65,40 +62,76 @@ pub(super) async fn spawn_session_handler(
     let source = resolve_session_scope(&state.write_pool, body.source_session_id).await?;
     if source.feature_id != body.source_feature_id {
         let message = "source_session_id does not belong to source_feature_id".to_string();
-        audit_spawn_error(&state, &source, &message, started_at).await?;
+        // Target not resolved yet; attribute to the requested id when one was supplied.
+        audit_spawn_error(
+            &state,
+            &source,
+            body.target_project_id,
+            &message,
+            started_at,
+        )
+        .await?;
         return Err(AppError::BadRequest(message));
     }
 
-    let (worktree_mode, reuse_branch, base_branch) =
-        match branch_worktree_settings(body.branch.as_ref()) {
-            Ok(settings) => settings,
-            Err(error) => {
-                let message = error.to_string();
-                audit_spawn_error(&state, &source, &message, started_at).await?;
-                return Err(error);
-            }
-        };
-    let runtime = match resolve_spawn_runtime(&state, &source, &body).await {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            let message = error.to_string();
-            audit_spawn_error(&state, &source, &message, started_at).await?;
-            return Err(error);
-        }
-    };
-    let codex_permission_mode = match codex_permission_mode_for_spawn(&state, &runtime, &body).await
+    let target_project = match resolve_target_project(
+        &state.write_pool,
+        body.target_project_id,
+        body.target_project_path.as_deref(),
+    )
+    .await
     {
-        Ok(mode) => mode,
+        Ok(project) => project,
         Err(error) => {
-            let message = error.to_string();
-            audit_spawn_error(&state, &source, &message, started_at).await?;
+            audit_spawn_error(
+                &state,
+                &source,
+                body.target_project_id,
+                &error.to_string(),
+                started_at,
+            )
+            .await?;
             return Err(error);
         }
     };
+
+    // Everything past target resolution is audited against the resolved target, so the
+    // pipeline uses `?` and a single failure-audit site instead of repeating the dance.
+    match spawn_into_target(&state, &source, &target_project, &body, started_at).await {
+        Ok(response) => Ok(Json(response)),
+        Err(error) => {
+            audit_spawn_error(
+                &state,
+                &source,
+                Some(target_project.id),
+                &error.to_string(),
+                started_at,
+            )
+            .await?;
+            Err(error)
+        }
+    }
+}
+
+/// Runs the fallible spawn pipeline once a target project is resolved, recording the
+/// success audit itself. Any error bubbles to the caller, which audits it against the
+/// resolved target project.
+async fn spawn_into_target(
+    state: &AppState,
+    source: &super::scope::SessionScope,
+    target_project: &TargetProject,
+    body: &SpawnSessionRequest,
+    started_at: std::time::Instant,
+) -> Result<SpawnSessionResponse, AppError> {
+    validate_await_result(body)?;
+    let (worktree_mode, reuse_branch, base_branch) =
+        branch_worktree_settings(body.branch.as_ref())?;
+    let runtime = resolve_spawn_runtime(state, source, target_project, body).await?;
+    let codex_permission_mode = codex_permission_mode_for_spawn(state, &runtime, body).await?;
     let created = create_feature_with_worktree(
         &state.write_pool,
-        source.project_id,
-        trimmed_optional(body.title.as_deref()),
+        target_project.id,
+        super::trimmed_optional(body.title.as_deref()),
         Some("ws-session".to_string()),
         Some(worktree_mode),
         reuse_branch,
@@ -107,17 +140,17 @@ pub(super) async fn spawn_session_handler(
     .await?;
 
     let session_id = insert_spawned_session(
-        &state,
+        state,
         created.id,
-        &body,
+        body,
         &runtime,
         codex_permission_mode.as_deref(),
     )
     .await?;
-    let message_id = insert_initial_message(&state, &source, session_id, &body).await?;
+    let message_id = insert_initial_message(state, source, session_id, body).await?;
     if body.link_to_current_session.unwrap_or(true) {
         insert_spawn_link(
-            &state,
+            state,
             source.session_id,
             session_id,
             body.source_note.as_deref(),
@@ -126,16 +159,34 @@ pub(super) async fn spawn_session_handler(
     }
     state.feature_events_tx.emit(
         created.id,
-        Some(source.project_id),
+        Some(target_project.id),
         FeatureEventAction::Created,
     );
-    if let Some(initial_message) = trimmed_optional(body.initial_message.as_deref()) {
-        dispatch_control_prompt(&state, created.id, session_id, &initial_message, true).await?;
+    // The conversation is already fully persisted at this point. If dispatching the
+    // initial prompt fails we must NOT return an error: that would leave a complete
+    // target session behind while signalling failure, tempting the caller to spawn a
+    // duplicate. Instead we surface the failure in the response so it can retry by
+    // messaging the existing session.
+    let mut dispatch_error =
+        dispatch_initial_message(state, created.id, session_id, body, message_id).await?;
+    if body.await_result.unwrap_or(false) {
+        if let Some(error) = dispatch_error.clone() {
+            if let Err(reply_error) =
+                super::reply_wait::deliver_failed(state, session_id, &error).await
+            {
+                dispatch_error = Some(format!(
+                    "{error}; automatic reply delivery also failed: {reply_error}"
+                ));
+            }
+        }
     }
     let response = SpawnSessionResponse {
         feature_id: created.id,
         session_id,
         message_id,
+        project: target_project.clone(),
+        cross_project: target_project.id != source.project_id,
+        dispatch_error: dispatch_error.clone(),
     };
     record_tool_audit(
         &state.write_pool,
@@ -147,20 +198,61 @@ pub(super) async fn spawn_session_handler(
             source_project_id: Some(source.project_id),
             target_session_id: Some(session_id),
             target_feature_id: Some(created.id),
-            target_project_id: Some(source.project_id),
-            status: "ok",
+            target_project_id: Some(target_project.id),
+            // The target conversation exists, but if dispatch failed the tool call did
+            // not fully succeed — audit it as an error (the created ids stay recorded so
+            // provenance survives). The audit CHECK only permits 'ok' | 'error'.
+            status: if dispatch_error.is_some() {
+                "error"
+            } else {
+                "ok"
+            },
             result_size_bytes: result_size_bytes(&response),
             latency_ms: elapsed_ms(started_at),
-            error: None,
+            error: dispatch_error.as_deref(),
         },
     )
     .await?;
-    Ok(Json(response))
+    Ok(response)
+}
+
+fn validate_await_result(body: &SpawnSessionRequest) -> Result<(), AppError> {
+    if body.await_result.unwrap_or(false)
+        && super::trimmed_optional(body.initial_message.as_deref()).is_none()
+    {
+        return Err(AppError::BadRequest(
+            "await_result=true requires initial_message".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn dispatch_initial_message(
+    state: &AppState,
+    feature_id: i64,
+    session_id: i64,
+    body: &SpawnSessionRequest,
+    message_id: Option<i64>,
+) -> Result<Option<String>, AppError> {
+    let Some(initial_message) = super::trimmed_optional(body.initial_message.as_deref()) else {
+        return Ok(None);
+    };
+    if body.await_result.unwrap_or(false) {
+        let message_id = message_id.expect("await_result requires a persisted message");
+        super::reply_wait::arm(&state.write_pool, session_id, message_id).await?;
+    }
+    Ok(
+        dispatch_control_prompt(state, feature_id, session_id, &initial_message, true)
+            .await
+            .err()
+            .map(|error| error.to_string()),
+    )
 }
 
 async fn audit_spawn_error(
     state: &AppState,
     source: &super::scope::SessionScope,
+    target_project_id: Option<i64>,
     error: &str,
     started_at: std::time::Instant,
 ) -> Result<(), AppError> {
@@ -174,7 +266,7 @@ async fn audit_spawn_error(
             source_project_id: Some(source.project_id),
             target_session_id: None,
             target_feature_id: None,
-            target_project_id: Some(source.project_id),
+            target_project_id,
             status: "error",
             result_size_bytes: 0,
             latency_ms: elapsed_ms(started_at),
@@ -184,212 +276,89 @@ async fn audit_spawn_error(
     .await
 }
 
-fn branch_worktree_settings(
-    branch: Option<&SpawnBranch>,
-) -> Result<(String, Option<String>, Option<String>), AppError> {
-    let default_branch = SpawnBranch::default();
-    let branch = branch.unwrap_or(&default_branch);
-    let mode = branch.mode.as_deref().unwrap_or("none");
-    let worktree_mode = match mode {
-        "none" | "skip" => "skip",
-        "new" | "new_project_branch" | "new_worktree" => "new",
-        "reuse" | "reuse_worktree" => "reuse",
-        other => {
-            return Err(AppError::BadRequest(format!(
-                "unsupported branch mode '{other}'"
-            )))
-        }
-    };
-    if worktree_mode == "reuse" && trimmed_optional(branch.reuse_branch.as_deref()).is_none() {
-        return Err(AppError::BadRequest(
-            "branch.reuse_branch is required for reuse_worktree".to_string(),
-        ));
-    }
-    let base_branch = if worktree_mode == "new" {
-        trimmed_optional(branch.base.as_deref())
-    } else {
-        None
-    };
-    Ok((
-        worktree_mode.to_string(),
-        trimmed_optional(branch.reuse_branch.as_deref()),
-        base_branch,
-    ))
-}
-
-async fn resolve_spawn_runtime(
-    state: &AppState,
-    source: &super::scope::SessionScope,
-    body: &SpawnSessionRequest,
-) -> Result<SpawnRuntimeSelection, AppError> {
-    let provider = trimmed_optional(body.provider.as_deref())
-        .map(|provider| canonical_provider_or_error(&provider))
-        .transpose()
-        .map_err(|error| AppError::BadRequest(error.to_string()))?;
-    let effective_provider = match &provider {
-        Some(provider) => provider.clone(),
-        None => {
-            let raw_provider = effective_spawn_provider(state, source, body).await;
-            canonical_provider_or_error(&raw_provider)
-                .map_err(|error| AppError::BadRequest(error.to_string()))?
-        }
-    };
-    let model = match trimmed_optional(body.model.as_deref()) {
-        Some(model) => Some(
-            canonical_model_or_error(&state.read_pool, &effective_provider, &model)
-                .await
-                .map_err(|error| AppError::BadRequest(error.to_string()))?,
-        ),
-        None => None,
-    };
-    Ok(SpawnRuntimeSelection {
-        provider,
-        model,
-        effective_provider,
-    })
-}
-
-async fn insert_spawned_session(
-    state: &AppState,
-    feature_id: i64,
-    body: &SpawnSessionRequest,
-    runtime: &SpawnRuntimeSelection,
-    codex_permission_mode: Option<&str>,
-) -> Result<i64, AppError> {
-    let now = chrono::Utc::now().to_rfc3339();
-    Ok(sqlx::query_scalar(
-        "INSERT INTO agent_sessions
-         (feature_id, agent_type, status, runtime_provider, model, permission_mode, codex_permission_mode, started_at)
-         VALUES (?, 'session', 'paused', ?, ?, ?, COALESCE(?, 'default'), ?)
-         RETURNING id",
-    )
-    .bind(feature_id)
-    .bind(runtime.provider.as_deref())
-    .bind(runtime.model.as_deref())
-    .bind(trimmed_optional(body.permission_mode.as_deref()))
-    .bind(codex_permission_mode)
-    .bind(now)
-    .fetch_one(&state.write_pool)
-    .await?)
-}
-
-async fn codex_permission_mode_for_spawn(
-    state: &AppState,
-    runtime: &SpawnRuntimeSelection,
-    body: &SpawnSessionRequest,
-) -> Result<Option<String>, AppError> {
-    if runtime.effective_provider != CODEX_PROVIDER_ID {
-        return Ok(None);
-    }
-    if let Some(raw_mode) = trimmed_optional(body.codex_permission_mode.as_deref()) {
-        return canonical_codex_permission_mode(&raw_mode).map(Some);
-    }
-
-    let configured = configured_codex_access_mode(&state.read_pool).await;
-    canonical_codex_permission_mode(&configured).map(Some)
-}
-
-async fn effective_spawn_provider(
-    state: &AppState,
-    source: &super::scope::SessionScope,
-    body: &SpawnSessionRequest,
-) -> String {
-    if let Some(provider) = trimmed_optional(body.provider.as_deref()) {
-        return provider;
-    }
-    let configured = settings::resolve_setting(
-        &state.read_pool,
-        &runtime_setting_key("session"),
-        Some(source.feature_id),
-        Some(source.project_id),
-        Some(DEFAULT_PROVIDER),
-    )
-    .await
-    .unwrap_or_else(|| DEFAULT_PROVIDER.to_string());
-    resolve_effective_provider(configured, body.model.as_deref())
-}
-
-fn canonical_codex_permission_mode(raw_mode: &str) -> Result<String, AppError> {
-    canonical_access_mode_wire(raw_mode)
-        .ok_or_else(|| AppError::BadRequest(format!("unsupported Codex access mode '{raw_mode}'")))
-}
-
-async fn insert_initial_message(
-    state: &AppState,
-    source: &super::scope::SessionScope,
-    session_id: i64,
-    body: &SpawnSessionRequest,
-) -> Result<Option<i64>, AppError> {
-    let Some(message) = trimmed_optional(body.initial_message.as_deref()) else {
-        return Ok(None);
-    };
-    let mut tx = state.write_pool.begin().await?;
-    let message_id: i64 = sqlx::query_scalar(
-        "INSERT INTO agent_messages (session_id, role, content, message_type)
-         VALUES (?, 'user', ?, 'user_message')
-         RETURNING id",
-    )
-    .bind(session_id)
-    .bind(&message)
-    .fetch_one(&mut *tx)
-    .await?;
-    sqlx::query(
-        "INSERT INTO agent_message_origins
-         (message_id, origin_kind, source_session_id, source_feature_id, source_project_id, note)
-         VALUES (?, 'session_generated', ?, ?, ?, ?)",
-    )
-    .bind(message_id)
-    .bind(source.session_id)
-    .bind(source.feature_id)
-    .bind(source.project_id)
-    .bind(body.source_note.as_deref())
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
-    Ok(Some(message_id))
-}
-
-async fn insert_spawn_link(
-    state: &AppState,
-    source_session_id: i64,
-    target_session_id: i64,
-    note: Option<&str>,
-) -> Result<(), AppError> {
-    sqlx::query(
-        "INSERT INTO agent_session_links (source_session_id, target_session_id, link_type, note)
-         VALUES (?, ?, 'spawned', ?)",
-    )
-    .bind(source_session_id)
-    .bind(target_session_id)
-    .bind(note)
-    .execute(&state.write_pool)
-    .await?;
-    Ok(())
-}
-
-fn trimmed_optional(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn branch_worktree_settings_preserves_base_branch_for_new_worktree() {
-        let branch = SpawnBranch {
-            mode: Some("new_worktree".to_string()),
-            base: Some("main".to_string()),
-            reuse_branch: None,
-        };
+    async fn make_audit_state() -> AppState {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            r#"
+            CREATE TABLE mcp_tool_audit_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_name TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                source_session_id INTEGER,
+                source_feature_id INTEGER,
+                source_project_id INTEGER,
+                target_session_id INTEGER,
+                target_feature_id INTEGER,
+                target_project_id INTEGER,
+                status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+                result_size_bytes INTEGER NOT NULL DEFAULT 0,
+                latency_ms INTEGER NOT NULL DEFAULT 0,
+                error TEXT,
+                created_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        AppState::with_pool(pool)
+    }
 
-        let settings = branch_worktree_settings(Some(&branch)).unwrap();
+    fn source_scope() -> super::super::scope::SessionScope {
+        super::super::scope::SessionScope {
+            session_id: 100,
+            feature_id: 10,
+            feature_title: "Source feature".to_string(),
+            project_id: 7,
+            status: "active".to_string(),
+        }
+    }
 
-        assert_eq!(settings.0, "new");
-        assert_eq!(settings.1, None);
-        assert_eq!(settings.2.as_deref(), Some("main"));
+    // Regression: a spawn that fails while targeting another project must be audited
+    // against the *target* project, not the caller's, so cross-project provenance holds.
+    #[tokio::test]
+    async fn audit_spawn_error_attributes_the_resolved_target_project() {
+        let state = make_audit_state().await;
+        let source = source_scope();
+        audit_spawn_error(&state, &source, Some(9), "boom", std::time::Instant::now())
+            .await
+            .unwrap();
+
+        let (source_project, target_project): (i64, i64) = sqlx::query_as(
+            "SELECT source_project_id, target_project_id FROM mcp_tool_audit_log LIMIT 1",
+        )
+        .fetch_one(&state.read_pool)
+        .await
+        .unwrap();
+        assert_eq!(source_project, 7);
+        assert_eq!(target_project, 9);
+    }
+
+    // When the target could not be resolved (and none was supplied), the audit row must
+    // leave the target unset rather than falsely blaming the caller's project.
+    #[tokio::test]
+    async fn audit_spawn_error_leaves_target_unset_when_unresolved() {
+        let state = make_audit_state().await;
+        let source = source_scope();
+        audit_spawn_error(
+            &state,
+            &source,
+            None,
+            "no target",
+            std::time::Instant::now(),
+        )
+        .await
+        .unwrap();
+
+        let target_project: Option<i64> =
+            sqlx::query_scalar("SELECT target_project_id FROM mcp_tool_audit_log LIMIT 1")
+                .fetch_one(&state.read_pool)
+                .await
+                .unwrap();
+        assert_eq!(target_project, None);
     }
 }

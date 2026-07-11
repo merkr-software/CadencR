@@ -2,6 +2,7 @@ import React from "react";
 import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { parseThinkingEffort } from "@/shared/thinking-effort";
 import { useResolvedModel } from "./useResolvedModel";
 
 const mockSetModelMutate = vi.fn();
@@ -280,7 +281,11 @@ describe("useResolvedModel", () => {
 
   it("setModelThinkingEffort writes the per-model workspace setting", () => {
     const { result } = renderHook(() => useResolvedModel(1, 1), { wrapper });
-    result.current.setModelThinkingEffort("claude_code", "claude-opus-4", "high");
+    result.current.setModelThinkingEffort(
+      "claude_code",
+      "claude-opus-4",
+      parseThinkingEffort("high"),
+    );
     expect(mockSetWorkspaceSettingMutate).toHaveBeenCalledWith({
       key: "thinking_effort_model_claude_code_claude-opus-4",
       data: { value: "high" },

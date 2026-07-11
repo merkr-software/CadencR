@@ -112,6 +112,11 @@ pnpm --filter @cadencr/desktop ts-check # TypeScript checks
 pnpm --filter @cadencr/desktop knip     # unused export detection
 ```
 
+Rust build artifacts are isolated in each checkout's `target/`, where Cargo's
+incremental compilation accelerates repeated work. Run `pnpm rust:storage` to
+inspect disk use, or see
+[CONTRIBUTING.md](./CONTRIBUTING.md#rust-build-storage) for cleanup commands.
+
 ## How it works
 
 ```text

@@ -10,7 +10,8 @@ const STEP_LABELS: Record<Exclude<OnboardingStep, "completed">, string> = {
   welcome: "Welcome",
   discover_cli: "Detect CLIs",
   choose_workspace: "Choose folder",
-  pick_agent: "Default agent",
+  pick_agent: "Agent & model",
+  preferences: "Preferences",
   first_prompt: "Get started",
 };
 

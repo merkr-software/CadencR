@@ -10,8 +10,8 @@ import {
 } from "@/components/RuntimeModelPicker";
 import { ThinkingEffortBars } from "@/components/ThinkingEffortBars";
 import {
-  THINKING_EFFORT_LABELS,
   nextThinkingEffort,
+  thinkingEffortLabel,
   type ThinkingEffortLevel,
 } from "@/shared/thinking-effort";
 import { ShortcutTooltip } from "../ShortcutTooltip";
@@ -189,7 +189,7 @@ function ThinkingEffortSegment({
     <>
       <div className="w-px bg-[var(--chip-violet-soft)]/15" aria-hidden="true" />
       <ShortcutTooltip
-        label={`Thinking effort: ${THINKING_EFFORT_LABELS[displayedThinkingEffort]}`}
+        label={`Thinking effort: ${thinkingEffortLabel(displayedThinkingEffort)}`}
         keys={["cmd", "T"]}
       >
         <button

@@ -18,54 +18,38 @@ import { Loader2 } from "lucide-react";
 import { BashBlock } from "@/components/BashBlock";
 import {
   selectCommitOutput,
-  selectCommitRunning,
+  selectCommitStatus,
   useCommitOutputStore,
 } from "@/stores/useCommitOutputStore";
 
 interface CommitOutputPaneProps {
   featureId: number;
-  /**
-   * The mutation's `isPending`. We treat the pane as "running" if either
-   * the HTTP request or the WS lifecycle says so — the WS may flip to
-   * complete first, and the request may still be in flight when no WS
-   * arrived (e.g. running offline).
-   */
-  isMutationPending: boolean;
-  /** Whether the last completed commit failed. Switches `BashBlock` to error mode. */
-  hasFailed: boolean;
 }
 
 export const CommitOutputPane = memo(function CommitOutputPane({
   featureId,
-  isMutationPending,
-  hasFailed,
 }: CommitOutputPaneProps): ReactElement | null {
-  // Narrow selectors: the pane re-renders only when the streamed buffer
-  // or the running flag actually changes for *this* feature. Critical
-  // for streaming UX — wider subscriptions would re-run parseAnsi on
-  // unrelated store mutations.
+  // Two primitive selectors isolate this feature's output and lifecycle.
   const text = useCommitOutputStore(selectCommitOutput(featureId));
-  const wsRunning = useCommitOutputStore(selectCommitRunning(featureId));
-  const running = isMutationPending || wsRunning;
+  const status = useCommitOutputStore(selectCommitStatus(featureId));
+  const running = status === "running";
 
   // Hide entirely until either the user submits or output starts flowing.
   if (!text && !running) return null;
 
-  // We deliberately don't echo the full `git commit -m "<message>"` here:
-  // the textarea above already shows the message verbatim, and reproducing
-  // it inside the bash block's header reads as redundant noise — worse,
-  // it grows the dialog horizontally for long messages. A short label
-  // keeps the focus on the streamed output below.
-  const command = "Committing…";
+  // Do not echo the full `git commit -m "<message>"`: reproducing a long
+  // message in the header is noisy and can widen the dialog. The operation
+  // name keeps the focus on the streamed hook output.
+  const command = "git commit";
 
   // Hard invariant: the command is "in error" only once the underlying
-  // process has exited. Until the HTTP mutation resolves and the WS lifecycle
-  // is `complete`, we keep the block in its neutral chrome — even if the
-  // streamed output already contains red ANSI lines from a failing tool
+  // process has exited. Until the WS lifecycle is `complete`, we keep the
+  // block in its neutral chrome — even if streamed output already contains
+  // red ANSI lines from a failing tool
   // (eslint, vitest, …). Pre-commit tools routinely emit colored progress
   // and only the final exit status decides whether the *commit* itself
   // failed; flipping the block red mid-stream would lie about that.
-  const isError = hasFailed && !running;
+  const isError = status === "error";
 
   return (
     <BashBlock
@@ -80,7 +64,7 @@ export const CommitOutputPane = memo(function CommitOutputPane({
       runningFooter={
         <div className="mt-1 flex items-center gap-1.5 border-t border-zinc-800 pt-1 text-[11px] text-zinc-500">
           <Loader2 className="size-3 animate-spin" />
-          Running — pre-commit hooks may take a few minutes.
+          Pre-commit hooks are running — you can safely continue in the background.
         </div>
       }
     />

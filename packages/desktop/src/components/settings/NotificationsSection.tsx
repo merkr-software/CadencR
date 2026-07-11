@@ -1,22 +1,15 @@
-import { createElement, useMemo, useState } from "react";
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { desktopBridge, isDesktopShell } from "@/lib/desktop-bridge";
-import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
-import {
-  NOTIFICATION_MODE_KEY,
-  NOTIFICATION_MODE_OPTIONS,
-  parseNotificationMode,
-  type NotificationMode,
-} from "@/lib/notification-mode";
 import { isBrowserRemote } from "@/lib/remote/device-token";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsSection } from "./SettingsSection";
 import { IconTile } from "./IconTile";
-import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
+import { NotificationModePicker } from "./NotificationModePicker";
 import { PushNotificationsSubsection } from "./PushNotificationsSubsection";
 import { apiErrorMessage } from "@/lib/api-errors";
 
@@ -31,22 +24,6 @@ import { apiErrorMessage } from "@/lib/api-errors";
  */
 export function NotificationsSection(): React.JSX.Element {
   const [sending, setSending] = useState(false);
-  const modeSetting = useDebouncedSetting(NOTIFICATION_MODE_KEY, 0);
-  const mode = parseNotificationMode(modeSetting.value);
-
-  const options = useMemo<RadioCardOption<NotificationMode>[]>(
-    () =>
-      NOTIFICATION_MODE_OPTIONS.map((option) => ({
-        value: option.value,
-        label: option.label,
-        description: option.description,
-        visual: createElement(option.icon, {
-          className: "mt-0.5 size-4",
-          style: { color: option.iconColorVar },
-        }),
-      })),
-    [],
-  );
 
   const handleSendTest = async () => {
     setSending(true);
@@ -70,15 +47,7 @@ export function NotificationsSection(): React.JSX.Element {
           title="Notification destination"
           description="Where agent-finished notifications appear. System notifications stay visible even when Cadencr is in the background."
         >
-          <RadioCardGroup<NotificationMode>
-            ariaLabel="Notification destination"
-            value={mode}
-            onChange={modeSetting.setValue}
-            options={options}
-            layout="stack"
-            showDot={false}
-            disabled={modeSetting.isLoading}
-          />
+          <NotificationModePicker />
         </SettingsSubsection>
         {/* Background Web Push is the only cross-platform delivery for an
             installed PWA / remote browser, where the Electron-native path

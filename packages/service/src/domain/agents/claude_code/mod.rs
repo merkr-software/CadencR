@@ -9,6 +9,7 @@ mod model_alias;
 mod post_plan_approval;
 pub mod profiles;
 mod prompt_receipts;
+pub(crate) mod question_answers;
 pub mod routes;
 mod session;
 mod slash_catalog;

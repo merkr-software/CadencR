@@ -7,16 +7,18 @@ use super::event_inputs::{
     collab_tool_input, collab_tool_name, dynamic_tool_input, dynamic_tool_name, file_input,
 };
 use super::event_json::{
-    compact_event, input_json_delta_event, metadata, stream_event_raw, thread_id, user_raw,
+    compact_event, input_json_delta_event, metadata, runtime_stream_event, thread_id, user_raw,
 };
 use super::event_mcp_items::mcp_tool_item;
 use super::event_payloads::{
     parse_file_patch_updated_params, parse_item_params, parse_tool_json_delta_params,
 };
 use super::event_plan_item::plan_item;
+use super::event_reasoning::reasoning_item_event;
 use super::event_state::IndexState;
+use super::event_subagent_activity::subagent_activity_events;
 use super::event_subagents::{
-    agent_tool_input, synthesize_subagent_messages, synthesize_subagent_prompt,
+    agent_tool_block, synthesize_subagent_messages, synthesize_subagent_prompt,
 };
 use crate::domain::agents::adapter::{
     RuntimeContentBlock, RuntimeEvent, RuntimeEventKind, RuntimeStreamEvent,
@@ -54,12 +56,15 @@ pub(super) fn item_events(
     };
     let item_value = parsed.item.as_value();
     let item_type = parsed.item.item_type.clone();
+    if item_type == "subAgentActivity" {
+        return subagent_activity_events(parsed.thread_id(), &parsed.item, index_state);
+    }
     let params = parsed.into_raw();
     match item_type.as_str() {
         "agentMessage" => text_item(params, completed, index_state),
         // Codex has emitted both casings while the plan item API is settling.
         "plan" | "Plan" => plan_item(params, completed, index_state),
-        "reasoning" => thinking_item(params, completed, index_state),
+        "reasoning" => reasoning_item_event(params, completed, index_state),
         "commandExecution" => command_execution_events(params, completed, index_state),
         "fileChange" => tool_item(params, "ApplyPatch", file_input, completed, index_state),
         "mcpToolCall" => mcp_tool_item(params, completed, index_state),
@@ -163,21 +168,6 @@ fn text_item(params: Value, completed: bool, index_state: &mut IndexState) -> Ve
     )
 }
 
-fn thinking_item(
-    params: Value,
-    completed: bool,
-    index_state: &mut IndexState,
-) -> Vec<RuntimeEvent> {
-    content_item(
-        params,
-        RuntimeContentBlock::Thinking {
-            thinking: String::new(),
-        },
-        completed,
-        index_state,
-    )
-}
-
 fn content_item(
     params: Value,
     block: RuntimeContentBlock,
@@ -194,13 +184,7 @@ fn content_item(
     } else {
         RuntimeStreamEvent::ContentBlockStart { index, block }
     };
-    vec![RuntimeEvent::new(
-        metadata(&sid, stream_event_raw(&sid, None, &event)),
-        RuntimeEventKind::StreamEvent {
-            event,
-            parent_tool_use_id: None,
-        },
-    )]
+    vec![runtime_stream_event(&sid, event)]
 }
 
 fn tool_item(
@@ -272,13 +256,9 @@ pub(super) fn stream_start_event(
     index: u64,
     block: RuntimeContentBlock,
 ) -> RuntimeEvent {
-    let event = RuntimeStreamEvent::ContentBlockStart { index, block };
-    RuntimeEvent::new(
-        metadata(session_id, stream_event_raw(session_id, None, &event)),
-        RuntimeEventKind::StreamEvent {
-            event,
-            parent_tool_use_id: None,
-        },
+    runtime_stream_event(
+        session_id,
+        RuntimeStreamEvent::ContentBlockStart { index, block },
     )
 }
 
@@ -336,11 +316,7 @@ fn spawn_agent_collab_events(
 
     let mut events = Vec::new();
     if !index_state.has_index(&item_id) {
-        let block = RuntimeContentBlock::ToolUse {
-            id: canonical_id.clone(),
-            name: "Agent".to_string(),
-            input: agent_tool_input(item),
-        };
+        let block = agent_tool_block(&canonical_id, item);
         events.push(stream_start_event(
             &session_id,
             index_state.index_for(&item_id),

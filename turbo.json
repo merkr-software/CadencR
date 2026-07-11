@@ -1,11 +1,12 @@
 {
   "$schema": "https://v2-9-14.turborepo.dev/schema.json",
-  "globalEnv": [
-    "CARGO_INCREMENTAL"
+  "globalDependencies": [
+    "Cargo.lock",
+    "Cargo.toml",
+    "scripts/cargo-env.mjs"
   ],
   "globalPassThroughEnv": [
-    "RUSTC_WRAPPER",
-    "SCCACHE_*"
+    "RUSTC_WRAPPER"
   ],
   "tasks": {
     "build": {

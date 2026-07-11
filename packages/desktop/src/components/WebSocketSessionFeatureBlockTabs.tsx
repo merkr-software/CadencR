@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, type ReactElement } from "react";
+import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon, CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
@@ -189,6 +189,15 @@ function useTerminalTab(args: UseSessionTabsArgs): FeatureTabDef {
 function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
   const { featureId, data, sendFromGitTab } = args;
   const gitReady = args.tabReady.git;
+  // The live session controls replace `sendFromGitTab` throughout streaming.
+  // Keep the tab prop stable while always dispatching through the latest one;
+  // otherwise every agent block rebuilds the memoized Git panel.
+  const sendFromGitTabRef = useRef(sendFromGitTab);
+  sendFromGitTabRef.current = sendFromGitTab;
+  const handleSendComments = useCallback(
+    (message: string): void => sendFromGitTabRef.current(message),
+    [],
+  );
   return useMemo(
     () => ({
       label: "Git",
@@ -196,12 +205,16 @@ function useGitTab(args: UseSessionTabsArgs): FeatureTabDef {
       shortcut: ["cmd", "shift", "G"],
       badge: <GitBadge featureId={featureId} gitBranch={data.gitBranch} />,
       content: gitReady ? (
-        <FeatureGitTab featureId={featureId} diffMode="worktree" onSendComments={sendFromGitTab} />
+        <FeatureGitTab
+          featureId={featureId}
+          diffMode="worktree"
+          onSendComments={handleSendComments}
+        />
       ) : (
         <DeferredTabContent label="Git" />
       ),
     }),
-    [data.gitBranch, featureId, gitReady, sendFromGitTab],
+    [data.gitBranch, featureId, gitReady, handleSendComments],
   );
 }
 

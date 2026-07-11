@@ -16,7 +16,10 @@ mod event_plan_item;
 mod event_raw;
 #[cfg(test)]
 mod event_raw_tests;
+mod event_reasoning;
 mod event_state;
+mod event_subagent_activity;
+mod event_subagent_routes;
 mod event_subagents;
 mod event_system;
 mod event_turn_state;
@@ -45,7 +48,7 @@ mod turn_start;
 mod turn_steer_recovery;
 mod worktree_config;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -117,10 +120,14 @@ fn unavailable_catalog(message: impl Into<String>) -> ProviderCatalogEntry {
 }
 
 fn model_entry(model: CodexModel) -> ModelCatalogEntry {
+    let mut seen = HashSet::new();
     let supported_efforts = model
         .supported_efforts
         .into_iter()
-        .filter(|effort| matches!(effort.as_str(), "low" | "medium" | "high" | "xhigh"))
+        .filter_map(|effort| {
+            let effort = effort.trim().to_string();
+            (!effort.is_empty() && seen.insert(effort.clone())).then_some(effort)
+        })
         .collect::<Vec<_>>();
     ModelCatalogEntry {
         id: model.id,
@@ -316,8 +323,39 @@ impl AgentRuntimeAdapter for CodexAdapter {
 
 #[cfg(test)]
 mod tests {
-    use super::{app_server_spawn_options, CodexAdapter};
+    use super::{app_server_spawn_options, model_entry, CodexAdapter};
     use crate::domain::agents::adapter::AgentRuntimeAdapter;
+    use codex_app_server_sdk_rs::CodexModel;
+
+    #[test]
+    fn preserves_reasoning_efforts_advertised_by_codex() {
+        let entry = model_entry(CodexModel {
+            id: "gpt-5.6-sol".to_string(),
+            label: "GPT-5.6-Sol".to_string(),
+            description: None,
+            supported_efforts: vec![
+                "low".to_string(),
+                "max".to_string(),
+                "ultra".to_string(),
+                "future".to_string(),
+                " ultra ".to_string(),
+                String::new(),
+            ],
+            default_effort: Some("low".to_string()),
+            context_window: None,
+            is_default: true,
+        });
+
+        assert_eq!(
+            entry.supported_effort_levels,
+            Some(vec![
+                "low".to_string(),
+                "max".to_string(),
+                "ultra".to_string(),
+                "future".to_string(),
+            ])
+        );
+    }
 
     #[test]
     fn accepts_bare_codex_and_gpt_models() {

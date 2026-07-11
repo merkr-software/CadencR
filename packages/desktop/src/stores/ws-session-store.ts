@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { buildUserMessageContent } from "@/types/agent-types";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
-import { createWsConnection } from "@/lib/ws-connection";
+import { createWsConnection, type WsConnection } from "@/lib/ws-connection";
 import {
   scheduleReconnect,
   resetReconnectState,
@@ -65,6 +65,7 @@ import {
   updateSession,
 } from "./ws-session-types";
 import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
+import type { DisplayRowMode } from "@/components/agentStreamDisplay";
 import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
 import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
@@ -95,22 +96,58 @@ function shouldTrackPromptReceipt(session: SessionEntry): boolean {
   );
 }
 
+/**
+ * Resolve every in-flight `sendRequest()` with `null` and clear the map, so
+ * callers stop waiting the moment the socket is gone (transient drop or
+ * deliberate teardown) instead of hanging until the 10s timeout.
+ *
+ * A request resolved as failed must not execute later as a stale side effect:
+ * its envelope may still sit in `outboundQueue` (queued while the socket was
+ * down), so drop it too. Non-request envelopes (prompts, resume, control)
+ * keep the queue-and-flush policy — only rejected requests are removed.
+ */
+function rejectPendingRequests(session: SessionEntry): void {
+  if (!session.pendingWsRequests.size) return;
+  const requestIds = new Set(session.pendingWsRequests.keys());
+  for (const cb of session.pendingWsRequests.values()) cb(null);
+  session.pendingWsRequests.clear();
+  const queue = session.outboundQueue;
+  for (let i = queue.length - 1; i >= 0; i -= 1) {
+    if (requestIds.has(queue[i].id)) queue.splice(i, 1);
+  }
+}
+
 export const useWsSessionStore = create<WsSessionStore>((set, get) => {
   function getSession(sessionId: string): SessionEntry {
     return get().sessions[sessionId] ?? createSessionEntry();
   }
 
-  function sendRaw(sessionId: string, data: unknown): void {
-    getSession(sessionId).conn?.sendJson(data);
+  function sendRaw(sessionId: string, envelope: WsEnvelope): void {
+    const session = get().sessions[sessionId];
+    if (session?.conn?.sendJson(envelope)) return;
+    // The socket is not OPEN (reconnecting, or still CONNECTING). Dropping the
+    // envelope here is silent data loss — a prompt sent during the gap shows
+    // up locally but never reaches the agent. Hold it and flush on `onOpen`,
+    // after the reconnect `session.init` replay.
+    session?.outboundQueue.push(envelope);
+  }
+
+  /** Send queued envelopes in order; stop (and keep the rest) if the socket drops again. */
+  function flushOutboundQueue(sessionId: string): void {
+    const session = get().sessions[sessionId];
+    if (!session?.conn) return;
+    const queue = session.outboundQueue;
+    // Drain by index and splice once at the end: shift() per envelope would
+    // reindex the array each time (O(n²) on a long-outage backlog).
+    let sent = 0;
+    while (sent < queue.length && session.conn.sendJson(queue[sent])) sent += 1;
+    if (sent > 0) queue.splice(0, sent);
   }
 
   function forceReconnectSession(sessionId: string): void {
     const session = get().sessions[sessionId];
     if (session?.conn) {
-      if (session.pendingWsRequests.size) {
-        for (const cb of session.pendingWsRequests.values()) cb(null);
-        session.pendingWsRequests.clear();
-      }
+      rejectPendingRequests(session);
       session.conn.close(1000, "force-reconnect");
       set(updateSession(get(), sessionId, { conn: null, isConnected: false }));
     }
@@ -205,10 +242,14 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
       registerReconnector(reconnectKey, () => forceReconnectSession(sessionId), {
         onManualRequired: reportManualReconnectRequired,
       });
-      const conn = createWsConnection({
+      // A replaced mobile socket can remain registered on the service while its
+      // close is in flight, so stale callbacks must not mutate the shared store.
+      let conn: WsConnection;
+      conn = createWsConnection({
         url: getWsUrl(),
         protocols: getWsProtocols(),
         onOpen: () => {
+          if (get().sessions[sessionId]?.conn !== conn) return;
           resetReconnectState(reconnectKey);
           set(updateSession(get(), sessionId, { isConnected: true }));
           useConnectionStatusStore.getState().reportSource(reconnectKey, "connected");
@@ -222,6 +263,10 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
           // wiped, the more confusing `INVALID_SESSION_ID`).
           // Provider-neutral: applies to Claude Code, OpenCode, Codex.
           reinitOnReconnect(sessionId);
+          // Deliver whatever was sent while the socket was down (prompts,
+          // permission responses, session.resume after wake). After the init
+          // replay so the backend has rebuilt its handle for this session.
+          flushOutboundQueue(sessionId);
           // Catch up on anything the agent streamed while the socket was
           // down (e.g. the mobile client was asleep). WS streaming only
           // delivers live; without this pull the gap is lost forever. Guarded
@@ -229,15 +274,13 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
           void resyncMessagesOnReconnect(ctx, sessionId);
         },
         onClose: (intentional) => {
+          if (get().sessions[sessionId]?.conn !== conn) return;
           if (intentional) return;
           // Apply any buffered tokens before the "connection lost" error block
           // so the transcript keeps them in order.
           flushStreamDeltas(ctx, sessionId);
           const session = get().sessions[sessionId];
-          if (session?.pendingWsRequests.size) {
-            for (const cb of session.pendingWsRequests.values()) cb(null);
-            session.pendingWsRequests.clear();
-          }
+          if (session) rejectPendingRequests(session);
           const wasRunning = session != null && isTurnActive(session.lifecycle);
           const closedDerived = wasRunning
             ? blocksPatchWithDerived(session.streamingState, [
@@ -271,13 +314,11 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
           if (!intentional) scheduleReconnect(reconnectKey, () => get().connect(sessionId));
         },
         onError: (intentional) => {
+          if (get().sessions[sessionId]?.conn !== conn) return;
           if (intentional) return;
           flushStreamDeltas(ctx, sessionId);
           const session = get().sessions[sessionId];
-          if (session?.pendingWsRequests.size) {
-            for (const cb of session.pendingWsRequests.values()) cb(null);
-            session.pendingWsRequests.clear();
-          }
+          if (session) rejectPendingRequests(session);
           set(
             updateSession(get(), sessionId, {
               conn: null,
@@ -295,7 +336,10 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
             .reportSource(reconnectKey, "reconnecting", "Session WebSocket error");
           if (!intentional) scheduleReconnect(reconnectKey, () => get().connect(sessionId));
         },
-        onMessage: (data) => handleSocketMessage(socketDeps, sessionId, data),
+        onMessage: (data) => {
+          if (get().sessions[sessionId]?.conn !== conn) return;
+          handleSocketMessage(socketDeps, sessionId, data);
+        },
       });
 
       set({
@@ -316,6 +360,17 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
       useConnectionStatusStore.getState().clearSource(wsSessionSourceKey(sessionId));
       discardStreamDeltas(sessionId);
       const session = get().sessions[sessionId];
+      // Deliberate teardown: queued envelopes must not outlive it. Without
+      // this, a disconnect while the socket is already down early-returns
+      // below (conn is null), the entry survives, and a later connect() would
+      // flush stale envelopes (e.g. an old prompt) into a session the user
+      // had closed. In-place splice because the queue is mutated in place by
+      // design (see SessionEntry.outboundQueue).
+      session?.outboundQueue.splice(0);
+      // The deliberate close() below skips onClose's pending-request sweep
+      // (it early-returns on `intentional`), so resolve in-flight requests now
+      // rather than leaving permission/worktree calls hanging until the timeout.
+      if (session) rejectPendingRequests(session);
       if (!session?.conn) return;
 
       if (session.serverSessionId) {
@@ -332,12 +387,22 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
     sendRequest(sessionId: string, envelope: WsEnvelope): Promise<unknown> {
       return new Promise((resolve) => {
         const session = get().sessions[sessionId];
-        if (!session?.conn?.isOpen()) {
+        if (!session) {
           resolve(null);
           return;
         }
+        // A non-OPEN socket is not an instant failure: sendRaw queues the
+        // envelope and the reconnect flush usually lands well inside the
+        // timeout window. The timer (and the close handler's pending-request
+        // sweep) still bound the wait.
         const timer = setTimeout(() => {
           session.pendingWsRequests.delete(envelope.id);
+          // Drop the still-queued envelope too. Otherwise a reconnect after the
+          // timeout flushes a request the caller already gave up on — e.g. a
+          // permission response the user was told "timed out" would silently
+          // reach the backend on the next onOpen.
+          const queued = session.outboundQueue.indexOf(envelope);
+          if (queued !== -1) session.outboundQueue.splice(queued, 1);
           resolve(null);
         }, 10_000);
         session.pendingWsRequests.set(envelope.id, (payload) => {
@@ -527,6 +592,11 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
       useConnectionStatusStore.getState().clearSource(wsSessionSourceKey(sessionId));
       discardStreamDeltas(sessionId);
       const session = get().sessions[sessionId];
+      // Same rationale as disconnect(): a destroyed session must not replay
+      // its queued envelopes on a future connect, nor leave sendRequest()
+      // callers hanging until the timeout after a deliberate close().
+      session?.outboundQueue.splice(0);
+      if (session) rejectPendingRequests(session);
       if (!session?.conn) return;
 
       if (session.serverSessionId) {
@@ -696,8 +766,8 @@ export const useWsSessionStore = create<WsSessionStore>((set, get) => {
       applyPersistedState(ctx, sessionId, payload, PLAN_RESTORE_PREFIX);
     },
 
-    async loadOlderMessages(sessionId: string): Promise<number> {
-      return loadOlderSessionMessages(ctx, sessionId);
+    async loadOlderMessages(sessionId: string, displayMode?: DisplayRowMode): Promise<number> {
+      return loadOlderSessionMessages(ctx, sessionId, displayMode);
     },
 
     refreshSessionMessages(sessionId: string, target?: ResyncTarget): Promise<void> {

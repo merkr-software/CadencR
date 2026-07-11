@@ -10,6 +10,7 @@ import { WelcomeStep } from "./steps/WelcomeStep";
 import { DiscoverCliStep } from "./steps/DiscoverCliStep";
 import { ChooseWorkspaceStep } from "./steps/ChooseWorkspaceStep";
 import { PickAgentStep } from "./steps/PickAgentStep";
+import { PreferencesStep } from "./steps/PreferencesStep";
 import { FirstPromptStep } from "./steps/FirstPromptStep";
 
 /**
@@ -65,7 +66,10 @@ export function OnboardingOverlay() {
       aria-modal="true"
       aria-label="Onboarding"
     >
-      <header className="flex items-center justify-between gap-4 px-8 pt-6 pb-4 border-b border-border/40">
+      {/* `pt-12` clears the macOS traffic-light buttons, which sit at ~y=12
+          inside `titleBarStyle: "hiddenInset"` and would otherwise overlap the
+          stepper's top-left "Step X of Y" label. */}
+      <header className="flex items-center justify-between gap-4 px-8 pt-12 pb-4 border-b border-border/40">
         <div className="flex-1 max-w-2xl">
           <Stepper step={step} />
         </div>
@@ -101,6 +105,8 @@ function StepBody({ step, ...props }: OnboardingStepProps & { step: OnboardingSt
       return <ChooseWorkspaceStep {...props} />;
     case "pick_agent":
       return <PickAgentStep {...props} />;
+    case "preferences":
+      return <PreferencesStep {...props} />;
     case "first_prompt":
       return <FirstPromptStep {...props} />;
     case "completed":

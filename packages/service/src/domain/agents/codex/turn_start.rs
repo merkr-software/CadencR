@@ -23,7 +23,7 @@ pub(super) fn turn_start_params(
         "approvalPolicy": approval_policy(permission_mode, access_mode),
         "approvalsReviewer": approvals_reviewer(access_mode),
         "sandboxPolicy": sandbox_policy(permission_mode, access_mode, cwd),
-        "summary": "auto",
+        "summary": "detailed",
     });
     if let Some(model) = model {
         params["model"] = Value::String(model);
@@ -72,20 +72,24 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn turn_start_requests_reasoning_summaries_and_effort() {
+    fn turn_start_requests_detailed_reasoning_summaries_and_effort() {
         let params = turn_start_params(
             "thread",
             vec![serde_json::json!({ "type": "text", "text": "hello" })],
             Path::new("/tmp/app"),
             None,
             None,
-            Some("gpt-5.5".to_string()),
-            Some("xhigh".to_string()),
+            Some("gpt-5.6-sol".to_string()),
+            Some("ultra".to_string()),
         );
 
-        assert_eq!(params["summary"], "auto");
-        assert_eq!(params["effort"], "xhigh");
-        assert_eq!(params["model"], "gpt-5.5");
+        assert_eq!(params["summary"], "detailed");
+        assert_eq!(params["effort"], "ultra");
+        assert_eq!(params["model"], "gpt-5.6-sol");
+        assert_eq!(
+            params["collaborationMode"]["settings"]["reasoning_effort"],
+            "ultra"
+        );
     }
 
     #[test]

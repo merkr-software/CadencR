@@ -147,13 +147,7 @@ export default function PushDialog({
    * has something to show.
    */
   function showError(detail: string): void {
-    const store = usePushOutputStore.getState();
-    const existing = store.byFeature[featureId] ?? "";
-    if (existing.length === 0) {
-      store.start(featureId);
-    }
-    store.append(featureId, `\n${detail}\n`);
-    store.complete(featureId);
+    usePushOutputStore.getState().fail(featureId, detail);
     setFailed(true);
   }
 

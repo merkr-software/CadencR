@@ -28,6 +28,59 @@ pnpm --filter @cadencr/desktop <script>
 pnpm --filter @cadencr/service <script>
 ```
 
+## Rust Build Storage
+
+Cargo targets are intentionally isolated per Git worktree. The main checkout
+uses `./target/`; each linked worktree uses its own `<worktree>/target/`.
+Repository scripts deliberately do not use `sccache`: it did not produce cache
+hits between Cadencr worktrees, while disabling Cargo incremental compilation
+and consuming another large machine-wide cache. Cargo's own incremental cache
+instead accelerates repeated builds inside each active worktree.
+
+Do not set `CARGO_TARGET_DIR` to `.shared-cargo-target` or another shared path.
+Sharing Cargo targets can mix branch artifacts, create lock contention, and
+leave large directories behind after worktrees are removed. The repository's
+Cargo wrapper overrides inherited `CARGO_TARGET_DIR` values to enforce the
+per-worktree policy.
+
+Use the wrapper for targeted Cargo commands:
+
+```bash
+pnpm rust -- test -p cadencr-service shared::migrate
+pnpm rust -- check -p opencode-sdk-rs
+```
+
+The default test profile omits debug information and incremental state to keep
+the many integration test binaries small. Development builds keep Cargo
+incremental compilation enabled. For a debugger-oriented test run with line
+tables, use:
+
+```bash
+pnpm rust -- test --profile test-debug -p cadencr-service <test-name>
+```
+
+Inspect and clean storage with dry-run-first commands:
+
+```bash
+pnpm rust:storage                         # targets and legacy-path check
+pnpm rust:clean                           # preview cleaning the current target
+pnpm rust:clean -- --release --apply      # remove current release artifacts
+pnpm rust:prune                           # preview non-main targets unused for 14 days
+pnpm rust:prune -- --older-than 7d --apply
+```
+
+`rust:prune` never cleans the main checkout, the current checkout, or symlinked
+targets. Deleted artifacts are safe to rebuild, but applying a
+cleanup causes the next Rust command in that worktree to perform a cold build.
+
+Troubleshoot the effective configuration with:
+
+```bash
+echo "${CARGO_TARGET_DIR:-<unset>}"
+cargo metadata --no-deps --format-version 1 | jq -r .target_directory
+pnpm rust:storage
+```
+
 ---
 
 ## Project Conventions

@@ -2,17 +2,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { customInstance } from "./client";
 import { AGENT_TYPES, type AgentTypeSetting } from "../shared/models";
 import type { PermissionMode } from "@/types/permission-mode";
+import type { ModelCatalogEntry } from "./generated";
 
-export interface RuntimeModelOption {
-  id: string;
-  label: string;
-  description?: string;
-  supports_effort?: boolean;
-  supported_effort_levels?: ("low" | "medium" | "high" | "xhigh" | "max")[];
-  supports_adaptive_thinking?: boolean;
-  supports_fast_mode?: boolean;
-  supports_auto_mode?: boolean;
-}
+export type RuntimeModelOption = {
+  [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
+};
 
 export interface RuntimeProviderOption {
   id: string;

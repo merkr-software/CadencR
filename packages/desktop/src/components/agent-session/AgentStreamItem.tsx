@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format, isToday } from "date-fns";
 import { AgentBlock, type AgentBlockData } from "../AgentBlock";
 import { parseUTCDateTime } from "@/lib/date-utils";
 import AgentStreamContextMenu from "./AgentStreamContextMenu";
+import { parseGeneratedSessionReply } from "@/lib/session-reply";
 import {
   AGENT_AUTO_COLLAPSE_DELAY_MS,
   isToolAutoCollapsible,
@@ -99,33 +100,43 @@ export const AgentStreamItem = memo(function AgentStreamItem({
 
   const handleExpandedChange = useCallback((next: boolean) => setCollapsedByPolicy(!next), []);
 
-  const showHeader = (block.type === "text" || block.type === "user_message") && !!block.createdAt;
+  const sessionReply = useMemo(
+    () =>
+      block.type === "user_message"
+        ? parseGeneratedSessionReply(block.content, block.origin)
+        : null,
+    [block.content, block.origin, block.type],
+  );
+  const isSessionReply = sessionReply !== null;
+  const showHeader =
+    !isSessionReply &&
+    (block.type === "text" || block.type === "user_message") &&
+    !!block.createdAt;
   const isUserMessage = block.type === "user_message";
 
-  return (
-    <AgentStreamContextMenu block={block}>
-      <div className="py-0.5" data-block-id={block.id}>
-        {showHeader && block.createdAt && (
-          <div
-            className={`text-xs text-muted-foreground/60 mt-2 mb-0.5 ${isUserMessage ? "text-right" : ""}`}
-          >
-            <span className="font-medium">
-              {isUserMessage ? "User" : (block.model ?? "unknown")}
-            </span>
-            {" · "}
-            {formatTimestamp(block.createdAt)}
-          </div>
-        )}
-        <AgentBlock
-          block={block}
-          isStreaming={isStreaming}
-          basePath={basePath}
-          toolResultMap={toolResultMap}
-          verbosityMode={verbosityMode}
-          isCollapsedByPolicy={collapsedByPolicy}
-          onExpandedChange={handleExpandedChange}
-        />
-      </div>
-    </AgentStreamContextMenu>
+  const item = (
+    <div className="py-0.5" data-block-id={block.id}>
+      {showHeader && block.createdAt && (
+        <div
+          className={`text-xs text-muted-foreground/60 mt-2 mb-0.5 ${isUserMessage ? "text-right" : ""}`}
+        >
+          <span className="font-medium">{isUserMessage ? "User" : (block.model ?? "unknown")}</span>
+          {" · "}
+          {formatTimestamp(block.createdAt)}
+        </div>
+      )}
+      <AgentBlock
+        block={block}
+        isStreaming={isStreaming}
+        basePath={basePath}
+        toolResultMap={toolResultMap}
+        verbosityMode={verbosityMode}
+        isCollapsedByPolicy={collapsedByPolicy}
+        onExpandedChange={handleExpandedChange}
+        sessionReply={sessionReply}
+      />
+    </div>
   );
+  if (isSessionReply) return item;
+  return <AgentStreamContextMenu block={block}>{item}</AgentStreamContextMenu>;
 });

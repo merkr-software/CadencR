@@ -11,6 +11,7 @@ import {
 import { useGitStatusStore } from "./useGitStatusStore";
 import {
   selectCommitOutput,
+  selectCommitOutcome,
   selectCommitRunning,
   useCommitOutputStore,
 } from "./useCommitOutputStore";
@@ -40,8 +41,8 @@ const validSnapshot = {
 beforeEach(() => {
   resetGitInvalidationSchedulingForTest();
   useGitStatusStore.setState({ byFeature: {}, errorByFeature: {} });
-  useCommitOutputStore.setState({ byFeature: {}, runningByFeature: {} });
-  usePushOutputStore.setState({ byFeature: {}, runningByFeature: {} });
+  useCommitOutputStore.setState({ byFeature: {} });
+  usePushOutputStore.setState({ byFeature: {} });
   vi.mocked(toast.error).mockClear();
 });
 
@@ -190,22 +191,30 @@ describe("handleGitEnvelope", () => {
     handleGitEnvelope("commit.start", { feature_id: 7 });
     handleGitEnvelope("commit.output", { feature_id: 7, text: "pre-commit\n" });
     handleGitEnvelope("commit.output", { feature_id: 7, line: "created commit" });
-    handleGitEnvelope("commit.complete", { feature_id: 7 });
+    handleGitEnvelope("commit.complete", { feature_id: 7, success: false });
 
     const state = useCommitOutputStore.getState();
     expect(selectCommitOutput(7)(state)).toBe("pre-commit\ncreated commit\n");
     expect(selectCommitRunning(7)(state)).toBe(false);
+    expect(selectCommitOutcome(7)(state)).toBe("error");
   });
 
   it("routes push lifecycle envelopes into the push output store", () => {
     handleGitEnvelope("push.start", { feature_id: 7 });
     handleGitEnvelope("push.output", { feature_id: 7, text: "Counting objects\n" });
     handleGitEnvelope("push.output", { feature_id: 7, line: "remote: ok" });
-    handleGitEnvelope("push.complete", { feature_id: 7 });
+    handleGitEnvelope("push.complete", { feature_id: 7, success: true });
 
     const state = usePushOutputStore.getState();
     expect(selectPushOutput(7)(state)).toBe("Counting objects\nremote: ok\n");
     expect(selectPushRunning(7)(state)).toBe(false);
+  });
+
+  it("ignores a completion envelope without an explicit outcome", () => {
+    handleGitEnvelope("commit.start", { feature_id: 7 });
+    handleGitEnvelope("commit.complete", { feature_id: 7 });
+
+    expect(selectCommitRunning(7)(useCommitOutputStore.getState())).toBe(true);
   });
 
   it("ignores malformed commit and push lifecycle payloads", () => {
@@ -217,8 +226,6 @@ describe("handleGitEnvelope", () => {
     handleGitEnvelope("push.complete", { feature_id: null });
 
     expect(useCommitOutputStore.getState().byFeature).toEqual({});
-    expect(useCommitOutputStore.getState().runningByFeature).toEqual({});
     expect(usePushOutputStore.getState().byFeature).toEqual({});
-    expect(usePushOutputStore.getState().runningByFeature).toEqual({});
   });
 });

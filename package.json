@@ -8,6 +8,7 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "build:agents-md": "node scripts/build-agents-md.mjs",
     "test": "node scripts/cargo-env.mjs turbo run test && node --test scripts/*.test.mjs",
     "lint": "node scripts/cargo-env.mjs turbo run lint",
     "test:release-scripts": "env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh && env -u BASH_ENV bash scripts/desktop-release-workflow.test.sh",
@@ -16,6 +17,10 @@
     "start": "node scripts/dev.mjs --filter=@cadencr/desktop",
     "build:local": "node scripts/cargo-env.mjs turbo run build:local --filter=@cadencr/desktop",
     "build": "node scripts/cargo-env.mjs turbo run build --filter=@cadencr/desktop",
+    "rust": "node scripts/cargo-env.mjs cargo",
+    "rust:storage": "node scripts/rust-storage.mjs status",
+    "rust:clean": "node scripts/rust-storage.mjs clean",
+    "rust:prune": "node scripts/rust-storage.mjs prune",
     "prepare": "husky",
     "build:mac:signed": "pnpm --filter @cadencr/desktop build:mac:signed",
     "notarize:mac:status": "pnpm --filter @cadencr/desktop notarize:mac:status",

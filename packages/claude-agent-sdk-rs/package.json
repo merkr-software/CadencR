@@ -5,11 +5,11 @@
   "description": "Rust SDK wrapping the Claude Code CLI — used by Cadencr to stream and control Claude sessions.",
   "license": "Apache-2.0",
   "scripts": {
-    "build": "cargo build",
-    "build:release": "cargo build --release",
-    "dev": "cargo build",
-    "test": "cargo test",
-    "lint": "cargo check",
+    "build": "node ../../scripts/cargo-env.mjs cargo build",
+    "build:release": "node ../../scripts/cargo-env.mjs cargo build --release",
+    "dev": "node ../../scripts/cargo-env.mjs cargo build",
+    "test": "node ../../scripts/cargo-env.mjs cargo test",
+    "lint": "node ../../scripts/cargo-env.mjs cargo check",
     "format": "cargo fmt",
     "format:check": "cargo fmt -- --check"
   }

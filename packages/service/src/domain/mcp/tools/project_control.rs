@@ -85,14 +85,58 @@ pub async fn spawn_session(
     spawn_session_with_client(args, ctx, McpControlClient::from_env()?).await
 }
 
+pub async fn list_pending_gates(
+    args: &serde_json::Value,
+    ctx: &McpContext,
+) -> Result<serde_json::Value, String> {
+    let source_session_id = require_source_session(ctx, "project_list_pending_gates")?;
+    let session_id = require_i64(args, "session_id")?;
+    McpControlClient::from_env()?
+        .post_json(
+            "/internal/mcp/project/pending-gates",
+            json!({"source_session_id": source_session_id, "session_id": session_id}),
+        )
+        .await
+}
+
+pub async fn respond_gate(
+    args: &serde_json::Value,
+    ctx: &McpContext,
+) -> Result<serde_json::Value, String> {
+    let source_session_id = require_source_session(ctx, "project_respond_gate")?;
+    let session_id = require_i64(args, "session_id")?;
+    let request_id = args
+        .get("request_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Missing required parameter: request_id".to_string())?;
+    let decision = args
+        .get("decision")
+        .cloned()
+        .ok_or_else(|| "Missing required parameter: decision".to_string())?;
+    McpControlClient::from_env()?
+        .post_json(
+            "/internal/mcp/project/respond-gate",
+            json!({
+                "source_session_id": source_session_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "decision": decision
+            }),
+        )
+        .await
+}
+
+fn require_source_session(ctx: &McpContext, tool: &str) -> Result<i64, String> {
+    ctx.source_session_id
+        .ok_or_else(|| format!("{tool} requires a source session id"))
+}
+
 pub async fn spawn_session_with_client(
     args: &serde_json::Value,
     ctx: &McpContext,
     client: McpControlClient,
 ) -> Result<serde_json::Value, String> {
-    let source_session_id = ctx
-        .source_session_id
-        .ok_or_else(|| "project_spawn_session requires a source session id".to_string())?;
+    let source_session_id = require_source_session(ctx, "project_spawn_session")?;
     client
         .post_json(
             "/internal/mcp/project/spawn-session",
@@ -107,7 +151,10 @@ pub async fn spawn_session_with_client(
                 "permission_mode": optional_string(args, "permission_mode"),
                 "codex_permission_mode": optional_string(args, "codex_permission_mode"),
                 "source_note": optional_string(args, "source_note"),
-                "link_to_current_session": optional_bool(args, "link_to_current_session")
+                "link_to_current_session": optional_bool(args, "link_to_current_session"),
+                "await_result": optional_bool(args, "await_result"),
+                "target_project_id": optional_i64(args, "project_id"),
+                "target_project_path": optional_string(args, "project_path")
             }),
         )
         .await
@@ -118,9 +165,7 @@ pub async fn send_session_message_with_client(
     ctx: &McpContext,
     client: McpControlClient,
 ) -> Result<serde_json::Value, String> {
-    let source_session_id = ctx
-        .source_session_id
-        .ok_or_else(|| "project_send_session_message requires a source session id".to_string())?;
+    let source_session_id = require_source_session(ctx, "project_send_session_message")?;
     let target_session_id = require_i64(args, "target_session_id")?;
     let message = args
         .get("message")
@@ -128,6 +173,7 @@ pub async fn send_session_message_with_client(
         .ok_or_else(|| "Missing required parameter: message".to_string())?;
     let source_note = args.get("source_note").and_then(serde_json::Value::as_str);
     let delivery = args.get("delivery").and_then(serde_json::Value::as_str);
+    let reply = args.get("reply").and_then(serde_json::Value::as_str);
     client
         .post_json(
             "/internal/mcp/project/send-message",
@@ -137,6 +183,7 @@ pub async fn send_session_message_with_client(
                 "target_session_id": target_session_id,
                 "message": message,
                 "delivery": delivery,
+                "reply": reply,
                 "source_note": source_note,
                 "link_to_current_session": optional_bool(args, "link_to_current_session")
             }),
@@ -152,6 +199,10 @@ fn optional_string(args: &serde_json::Value, key: &str) -> Option<String> {
 
 fn optional_bool(args: &serde_json::Value, key: &str) -> Option<bool> {
     args.get(key).and_then(serde_json::Value::as_bool)
+}
+
+fn optional_i64(args: &serde_json::Value, key: &str) -> Option<i64> {
+    args.get(key).and_then(serde_json::Value::as_i64)
 }
 
 #[cfg(test)]
@@ -251,6 +302,43 @@ mod tests {
             "Please investigate and report findings."
         );
         assert_eq!(request["branch"]["mode"], "none");
+        assert!(request["target_project_id"].is_null());
+        assert!(request["target_project_path"].is_null());
+    }
+
+    #[tokio::test]
+    async fn spawn_session_forwards_target_project_selectors() {
+        let captured = Arc::new(Mutex::new(None));
+        let url = spawn_project_route(
+            "/internal/mcp/project/spawn-session",
+            json!({ "featureId": 51, "sessionId": 900, "crossProject": true }),
+            captured.clone(),
+        )
+        .await;
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let ctx = McpContext::new_with_source_session(pool.clone(), pool, 42, Some(777));
+        let client = McpControlClient::from_env_values(Some(url), Some("secret".to_string()))
+            .expect("control client");
+
+        spawn_session_with_client(
+            &json!({
+                "title": "Ship the shared API change",
+                "project_id": 9,
+                "project_path": "/repos/api"
+            }),
+            &ctx,
+            client,
+        )
+        .await
+        .expect("spawn result");
+
+        let request = captured.lock().await.take().expect("captured request");
+        assert_eq!(request["target_project_id"], 9);
+        assert_eq!(request["target_project_path"], "/repos/api");
     }
 
     async fn spawn_send_message_route(captured: Arc<Mutex<Option<serde_json::Value>>>) -> String {

@@ -233,6 +233,121 @@ describe("ProjectFeatures", () => {
     expect(screen.queryByText("Archived Session")).not.toBeInTheDocument();
   });
 
+  it("nests an active child and toggles its subtree without navigating", () => {
+    vi.mocked(useListFeatures).mockReturnValueOnce({
+      data: [
+        mockFeatures[0],
+        { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
+      ],
+    } as ReturnType<typeof useListFeatures>);
+
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={2}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+
+    // The child renders inside the parent's indented, guide-railed subtree.
+    const childRow = screen.getByText("Feature Two").closest("[role=button]");
+    const childrenWrap = childRow?.closest("[data-feature-subtree-children='1']");
+    expect(childrenWrap).not.toBeNull();
+    expect(childrenWrap?.querySelector(".bg-sidebar-border")).not.toBeNull();
+
+    // The parent exposes an expand/collapse twisty for its subtree.
+    const parentRow = screen.getByText("Feature One").closest("[role=button]");
+    const collapseButton = within(parentRow as HTMLElement).getByRole("button", {
+      name: "Collapse child sessions",
+    });
+    fireEvent.click(collapseButton);
+    expect(screen.queryByText("Feature Two")).not.toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    fireEvent.click(
+      within(parentRow as HTMLElement).getByRole("button", {
+        name: "Expand child sessions",
+      }),
+    );
+    expect(screen.getByText("Feature Two")).toBeInTheDocument();
+
+    // Active-row color is the shared `bg-accent` — identical at every depth.
+    expect(childRow).toHaveClass("bg-accent");
+  });
+
+  it("nests an active handoff child under its active parent", () => {
+    vi.mocked(useListFeatures).mockReturnValueOnce({
+      data: [
+        mockFeatures[0],
+        { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "handoff" },
+      ],
+    } as ReturnType<typeof useListFeatures>);
+
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+
+    const childRow = screen.getByText("Feature Two").closest("[role=button]");
+    expect(childRow?.closest("[data-feature-subtree-children='1']")).not.toBeNull();
+  });
+
+  it("renders an active child flat when its parent is archived", () => {
+    vi.mocked(useListFeatures).mockReturnValueOnce({
+      data: [
+        { ...mockFeatures[0], status: "archived" },
+        { ...mockFeatures[1], spawned_by_feature_id: 1, spawn_link_type: "spawned" },
+      ],
+    } as ReturnType<typeof useListFeatures>);
+
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+
+    const childRow = screen.getByText("Feature Two").closest("[role=button]");
+    expect(childRow?.closest("[data-feature-subtree-children]")).toBeNull();
+    expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+  });
+
+  it("renders an archived child only as a flat archived feature", async () => {
+    const user = userEvent.setup();
+    vi.mocked(useListFeatures).mockReturnValueOnce({
+      data: [
+        mockFeatures[0],
+        {
+          ...mockFeatures[1],
+          status: "archived",
+          spawned_by_feature_id: 1,
+          spawn_link_type: "spawned",
+        },
+      ],
+    } as ReturnType<typeof useListFeatures>);
+
+    render(
+      <ProjectFeatures
+        projectId={1}
+        projectPath="/test/path"
+        activeFeatureId={null}
+        onSelectFeature={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Feature One")).toBeInTheDocument();
+    expect(screen.queryByText("Feature Two")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /archived \(1\)/i }));
+    const archivedChild = screen.getByText("Feature Two").closest("[role=button]");
+    expect(archivedChild?.closest("[data-feature-subtree-children]")).toBeNull();
+  });
+
   it("excludes pinned features from the project list (they render in the global Pinned section)", () => {
     vi.mocked(useListFeatures).mockReturnValueOnce({
       data: [{ ...mockFeatures[0], is_pinned: true }, mockFeatures[1], mockFeatures[2]],

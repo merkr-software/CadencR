@@ -118,6 +118,10 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // step (provider id from the agent catalog).
     "onboarding_step",
     "default_agent_provider",
+    // Set to "true" from the per-project onboarding dialog's "Don't show this
+    // again" checkbox. When "true", adding a new project skips the color +
+    // worktree-setup onboarding modal. Missing/unset = show the modal.
+    "project_onboarding_dismissed",
     // Master switch for fluid UI animations. When unset the frontend falls back
     // to the OS `prefers-reduced-motion` media query. Stored as "true" / "false".
     "animations_enabled",
@@ -126,6 +130,13 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // "auto_collapse" | "collapsed" | "compact"). The frontend is the source
     // of truth for the set; this allowlist only gates the write endpoint.
     "agent_stream_verbosity_mode",
+    // Global agent stream "Summary mode" toggle. Stored as "true" / "false"
+    // (default false when unset). When on, the frontend collapses each agent
+    // turn's tool calls into a single recap block (per-tool counts) followed by
+    // the turn's final message. Independent of the verbosity mode above; this
+    // allowlist only gates the write endpoint. See
+    // packages/desktop/src/lib/agent-verbosity.ts.
+    "agent_stream_summary_mode",
     // Plays the welcome-step intro animation exactly once, on the very first
     // open of the onboarding overlay. Set to "true" by `WelcomeIntro` after
     // the animation completes (or the user clicks to skip).

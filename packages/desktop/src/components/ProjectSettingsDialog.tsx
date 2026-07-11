@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -6,20 +6,15 @@ import {
   useSetProjectSetting,
   getGetProjectSettingsQueryKey,
 } from "../api/generated";
-import { GitBranch, TerminalSquare } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ModelSelector } from "./ModelSelector";
 import { WorktreeList } from "./WorktreeList";
-import { ShellTerminalFrame } from "./ShellTerminalFrame";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSection } from "@/components/settings/SettingsSection";
-import { IconTile } from "@/components/settings/IconTile";
-import { ProjectColorPicker } from "@/components/settings/ProjectColorPicker";
+import { ProjectColorField } from "@/components/settings/ProjectColorField";
 import { ProjectJsonSettings } from "@/components/settings/SettingsJsonControls";
 import { ProjectEditorToolingSettings } from "@/components/settings/ProjectEditorToolingSettings";
-import { useDebouncedCallback } from "@/hooks/useDebouncedCallback";
+import { WorktreeSetupFields } from "@/components/settings/WorktreeSetupFields";
 import { settingsArrayToMap } from "@/api/settings";
 
 const PROJECT_SETTING_KEYS = {
@@ -97,40 +92,6 @@ export function ProjectSettingsDialog({
   );
 }
 
-interface SyncedSettingInput {
-  value: string;
-  setValue: (value: string) => void;
-}
-
-function useSyncedSettingInput(
-  remoteValue: string | undefined,
-  resetKey: string,
-): SyncedSettingInput {
-  const [value, setStoredValue] = useState(remoteValue ?? "");
-  const dirtyRef = useRef(false);
-  const resetKeyRef = useRef(resetKey);
-
-  useEffect((): void => {
-    if (resetKeyRef.current !== resetKey) {
-      resetKeyRef.current = resetKey;
-      dirtyRef.current = false;
-      setStoredValue(remoteValue ?? "");
-      return;
-    }
-    if (remoteValue === undefined) return;
-    if (dirtyRef.current && remoteValue !== value) return;
-    dirtyRef.current = false;
-    if (remoteValue !== value) setStoredValue(remoteValue);
-  }, [remoteValue, resetKey, value]);
-
-  const setValue = useCallback((next: string): void => {
-    dirtyRef.current = true;
-    setStoredValue(next);
-  }, []);
-
-  return useMemo(() => ({ value, setValue }), [value, setValue]);
-}
-
 function ConfigurationSection({
   projectId,
   enabled,
@@ -156,23 +117,14 @@ function IdentitySection({
   color: string | undefined;
   saveProjectSetting: (key: ProjectSettingKey, value: string) => void;
 }): React.JSX.Element {
-  const colorInput = useSyncedSettingInput(color, `${projectId}:color`);
-
-  function commitColor(next: string): void {
-    colorInput.setValue(next);
-    if (next !== (color ?? "")) saveProjectSetting(PROJECT_SETTING_KEYS.color, next);
-  }
-
   return (
     <SettingsSection size="sm" title="Identity" subtitle="Color · Display">
       <SettingsCard padded>
-        <div className="space-y-2">
-          <div className="text-sm font-medium">Project color</div>
-          <p className="text-xs text-muted-foreground">
-            Accent dot used for this project in the sidebar.
-          </p>
-          <ProjectColorPicker value={colorInput.value} onChange={commitColor} />
-        </div>
+        <ProjectColorField
+          resetKeyPrefix={String(projectId)}
+          color={color}
+          onSave={saveProjectSetting}
+        />
       </SettingsCard>
     </SettingsSection>
   );
@@ -225,18 +177,6 @@ function GitAutomationSection({
   setupWorktree: string | undefined;
   saveProjectSetting: (key: ProjectSettingKey, value: string) => void;
 }): React.JSX.Element {
-  const branchPrefixInput = useSyncedSettingInput(branchPrefix, `${projectId}:branch_prefix`);
-  const setupWorktreeInput = useSyncedSettingInput(setupWorktree, `${projectId}:setup_worktree`);
-
-  const commitBranchPrefix = useDebouncedCallback((next: string): void => {
-    if (next !== (branchPrefix ?? "")) saveProjectSetting(PROJECT_SETTING_KEYS.branchPrefix, next);
-  }, 400);
-
-  const commitSetupWorktree = useDebouncedCallback((next: string): void => {
-    if (next !== (setupWorktree ?? ""))
-      saveProjectSetting(PROJECT_SETTING_KEYS.setupWorktree, next);
-  }, 600);
-
   return (
     <SettingsSection
       size="sm"
@@ -245,55 +185,12 @@ function GitAutomationSection({
       description="Defaults applied to worktrees created for this project."
     >
       <SettingsCard padded className="space-y-5">
-        <div className="space-y-2">
-          <label htmlFor="branch-prefix" className="text-sm font-medium">
-            Branch prefix
-          </label>
-          <p className="text-xs text-muted-foreground">Prefix added to worktree branch names.</p>
-          <div className="flex items-center gap-2">
-            <IconTile tint="cyan">
-              <GitBranch className="size-4" />
-            </IconTile>
-            <Input
-              id="branch-prefix"
-              placeholder="e.g. feature/"
-              value={branchPrefixInput.value}
-              onChange={(e) => {
-                branchPrefixInput.setValue(e.target.value);
-                commitBranchPrefix(e.target.value);
-              }}
-              className="h-8 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="border-t border-border" />
-
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <IconTile tint="green">
-              <TerminalSquare className="size-4" />
-            </IconTile>
-            <div>
-              <div className="text-sm font-medium">Worktree setup commands</div>
-              <p className="text-xs text-muted-foreground">
-                Shell commands to run after creating a worktree (one per line).
-              </p>
-            </div>
-          </div>
-          <ShellTerminalFrame subtitle="one command per line" bodyClassName="p-0">
-            <Textarea
-              placeholder={"pnpm install\ncp packages/service/.env.example packages/service/.env"}
-              rows={4}
-              value={setupWorktreeInput.value}
-              onChange={(e) => {
-                setupWorktreeInput.setValue(e.target.value);
-                commitSetupWorktree(e.target.value);
-              }}
-              className="min-h-24 resize-y rounded-none border-0 bg-[var(--block-bash-body-bg)] font-mono text-xs leading-relaxed text-[var(--block-bash-fg)] placeholder:text-muted-foreground/60 focus-visible:ring-0 focus-visible:ring-offset-0"
-            />
-          </ShellTerminalFrame>
-        </div>
+        <WorktreeSetupFields
+          resetKeyPrefix={String(projectId)}
+          branchPrefix={branchPrefix}
+          setupWorktree={setupWorktree}
+          onSave={saveProjectSetting}
+        />
       </SettingsCard>
     </SettingsSection>
   );

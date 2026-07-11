@@ -241,6 +241,28 @@ async fn test_permission_respond_keeps_newer_pending_permission_stacked() {
         .lock()
         .await
         .insert(db_session_id, make_permission_handle(feature_id));
+    app_state
+        .pending_gates
+        .register(
+            db_session_id,
+            crate::domain::gate_registry::PendingGate {
+                request_id: "req-1".into(),
+                kind: crate::domain::gate_registry::GateKind::Permission,
+                payload: serde_json::json!({"request_id":"req-1"}),
+            },
+        )
+        .await;
+    app_state
+        .pending_gates
+        .register(
+            db_session_id,
+            crate::domain::gate_registry::PendingGate {
+                request_id: "req-2".into(),
+                kind: crate::domain::gate_registry::GateKind::Permission,
+                payload: newer_pending.clone(),
+            },
+        )
+        .await;
 
     let envelope = make_envelope(
         "session",

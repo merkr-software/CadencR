@@ -19,7 +19,7 @@
     "test": "vitest run",
     "ts-check": "tsc --noEmit",
     "knip": "knip",
-    "generate:openapi": "cargo run --quiet --manifest-path ../service/Cargo.toml --bin dump-openapi",
+    "generate:openapi": "node ../../scripts/cargo-env.mjs cargo run --quiet --manifest-path ../service/Cargo.toml --bin dump-openapi",
     "generate:api": "pnpm generate:openapi && orval --config ./orval.config.ts && oxfmt src/api/generated/",
     "ensure:electron": "node ./scripts/ensure-electron.mjs",
     "predev": "pnpm ensure:electron",

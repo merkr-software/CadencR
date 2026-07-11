@@ -1,66 +1,71 @@
-import { accessSync, constants } from "node:fs";
-import { basename, join } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const command = process.argv[2];
-const args = process.argv.slice(3);
+const scriptPath = fileURLToPath(import.meta.url);
+const repoRoot = dirname(dirname(scriptPath));
+export const CARGO_LAST_USED_FILE = ".cadencr-last-used";
 
-if (!command) {
-  console.error("Usage: node scripts/cargo-env.mjs <command> [...args]");
-  process.exit(1);
-}
+export function createCargoEnv(baseEnv, options = {}) {
+  const env = { ...baseEnv };
+  const root = options.repoRoot ?? repoRoot;
 
-const env = { ...process.env };
+  // Cargo artifacts are intentionally isolated per Git worktree. Let Cargo's
+  // own incremental compilation optimize repeated builds inside that worktree.
+  env.CARGO_TARGET_DIR = join(root, "target");
 
-delete env.CARGO_TARGET_DIR;
-
-if (!env.RUSTC_WRAPPER) {
-  const sccachePath = findSccache(env.PATH ?? "");
-  if (sccachePath) {
-    env.RUSTC_WRAPPER = sccachePath;
+  let removedSccache = false;
+  for (const key of ["RUSTC_WRAPPER", "RUSTC_WORKSPACE_WRAPPER"]) {
+    if (!usesSccache(env[key])) continue;
+    delete env[key];
+    removedSccache = true;
   }
-}
-
-if (usesSccache(env.RUSTC_WRAPPER)) {
-  env.CARGO_INCREMENTAL ??= "0";
-}
-
-const result = spawnSync(command, args, {
-  stdio: "inherit",
-  env,
-});
-
-if (result.error) {
-  console.error(result.error.message);
-  process.exit(1);
-}
-
-process.exit(result.status ?? 1);
-
-function findSccache(pathValue) {
-  const candidates = new Set([
-    "/opt/homebrew/bin/sccache",
-    ...pathValue.split(":").filter(Boolean).map((entry) => join(entry, "sccache")),
-  ]);
-
-  for (const candidate of candidates) {
-    if (isExecutable(candidate)) {
-      return candidate;
-    }
+  if (removedSccache) {
+    delete env.CARGO_INCREMENTAL;
+  }
+  for (const key of Object.keys(env)) {
+    if (key.startsWith("SCCACHE_")) delete env[key];
   }
 
-  return undefined;
+  return env;
 }
 
-function isExecutable(path) {
-  try {
-    accessSync(path, constants.X_OK);
-    return true;
-  } catch {
-    return false;
+export function markCargoUse(targetDir) {
+  mkdirSync(targetDir, { recursive: true });
+  writeFileSync(join(targetDir, CARGO_LAST_USED_FILE), "");
+}
+
+function main() {
+  const command = process.argv[2];
+  const args = process.argv.slice(3);
+  if (args[0] === "--") args.shift();
+
+  if (!command) {
+    console.error("Usage: node scripts/cargo-env.mjs <command> [...args]");
+    process.exit(1);
   }
+
+  const env = createCargoEnv(process.env);
+  markCargoUse(env.CARGO_TARGET_DIR);
+
+  const result = spawnSync(command, args, {
+    stdio: "inherit",
+    env,
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    process.exit(1);
+  }
+
+  process.exit(result.status ?? 1);
 }
 
-function usesSccache(wrapper) {
-  return wrapper !== undefined && basename(wrapper) === "sccache";
+export function usesSccache(wrapper) {
+  return wrapper !== undefined && basename(wrapper).replace(/\.exe$/i, "") === "sccache";
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {
+  main();
 }

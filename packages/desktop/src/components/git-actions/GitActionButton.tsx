@@ -13,7 +13,7 @@
  *   subtree only mount when the dialog opens.
  */
 import { lazy, memo, Suspense, useCallback, useState, type ReactElement } from "react";
-import { ChevronDown, GitBranch, GitCommit } from "lucide-react";
+import { CircleAlert, ChevronDown, GitBranch, GitCommit, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -27,8 +27,15 @@ import { BranchChip } from "@/components/branch-chip/BranchChip";
 import { isInCodeMirrorEditor } from "@/lib/shortcuts/dom-targets";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { apiErrorMessage, toastError } from "@/lib/api-errors";
-import { useGitAction, type GitAction } from "./useGitAction";
+import { cn } from "@/lib/utils";
+import {
+  useGitAction,
+  type CommitActivity,
+  type GitAction,
+  type GitActionState,
+} from "./useGitAction";
 import { GitActionPopover, ICONS } from "./GitActionPopover";
+import { useCommitSubmission } from "./useCommitSubmission";
 
 const GIT_ACTION_BUTTON_CLASS =
   "border-border/80 bg-muted/20 text-xs text-foreground hover:bg-muted/35 disabled:opacity-100 disabled:bg-muted/20 disabled:text-muted-foreground";
@@ -60,15 +67,22 @@ export const GitActionButton = memo(function GitActionButton({
   const state = useGitAction(snapshot);
   const isMobile = useIsMobile();
   const [commitOpen, setCommitOpen] = useState(false);
+  const commitSubmission = useCommitSubmission({
+    featureId,
+    open: commitOpen,
+    onOpenChange: setCommitOpen,
+  });
+  const commitActivity: CommitActivity = commitSubmission.submitting
+    ? "running"
+    : commitSubmission.outcome === "error"
+      ? "failed"
+      : null;
   const [pushOpen, setPushOpen] = useState(false);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const openCommit = useCallback(() => setCommitOpen(true), []);
+  const openPopover = useCallback(() => setPopoverOpen(true), []);
 
-  // The push flow now lives in `PushDialog`: ssh prompts (passphrase,
-  // first-time host key) need a real UI surface, and even on the happy
-  // path the live `git push` output is useful transparency. Opening the
-  // dialog auto-starts the push — the user already clicked once to get
-  // here, a second confirmation would be friction.
   const openPush = useCallback(() => setPushOpen(true), []);
 
   const runOpenCompare = useCallback(async () => {
@@ -93,104 +107,44 @@ export const GitActionButton = memo(function GitActionButton({
   const runAction = useCallback(
     (action: GitAction) => {
       setPopoverOpen(false);
+      if (action === "commit" && commitActivity) {
+        openCommit();
+        return;
+      }
       if (state.disabled[action] !== null) return;
-      if (action === "commit") setCommitOpen(true);
+      if (action === "commit") openCommit();
       else if (action === "push") openPush();
       else if (action === "merge") setMergeOpen(true);
       else void runOpenCompare();
     },
-    [state.disabled, openPush, runOpenCompare],
+    [commitActivity, state.disabled, openCommit, openPush, runOpenCompare],
   );
 
-  // Keyboard shortcuts for header actions.
-  useShortcut("git-commit", (e) => {
-    // Mod+Shift+K is also "Delete line" inside the editor buffer. Let the
-    // buffer keymap win when focus is in CodeMirror.
-    if (isInCodeMirrorEditor(e.target)) return;
-    if (state.disabled.commit !== null) return;
-    e.preventDefault();
-    setCommitOpen(true);
+  useGitActionShortcuts({
+    state,
+    commitActivity,
+    openCommit,
+    openPush,
+    openCompare: runOpenCompare,
+    openPopover,
   });
-  useShortcut("git-push", (e) => {
-    if (state.disabled.push !== null) return;
-    e.preventDefault();
-    openPush();
-  });
-  useShortcut("git-pr", (e) => {
-    if (state.disabled.pr !== null) return;
-    e.preventDefault();
-    void runOpenCompare();
-  });
-  useGlobalShortcutById("git-actions", (e) => {
-    e.preventDefault();
-    setPopoverOpen(true);
-  });
-
-  const PrimaryIcon = state.primary ? ICONS[state.primary] : GitCommit;
-  const primaryDisabled = state.primary === null;
 
   return (
     <>
-      {/* Phones: a single compact "Git" button opens the actions menu — the
-          split button's inline status label ("No uncommitted changes", etc.)
-          would otherwise eat the space the feature title needs. */}
-      {isMobile ? (
-        <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="xs"
-              className={GIT_ACTION_BUTTON_CLASS}
-              aria-label="Git actions"
-            >
-              <GitBranch className="size-3.5" />
-              <span>Git</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent align="end" className="w-80 p-0">
-            {/* On phones the branch → target chip is hidden from the cramped
-                header and shown here instead, so the title keeps the space. */}
-            <div className="border-b border-border px-3 py-2">
-              <BranchChip featureId={featureId} projectId={projectId} />
-            </div>
-            <GitActionPopover state={state} onPick={runAction} />
-          </PopoverContent>
-        </Popover>
-      ) : (
-        <div className="inline-flex items-center">
-          <Button
-            variant="outline"
-            size="xs"
-            className={`${GIT_ACTION_BUTTON_CLASS} rounded-r-none border-r-0`}
-            disabled={primaryDisabled}
-            onClick={() => state.primary && runAction(state.primary)}
-            title={primaryDisabled ? (state.disabled.commit ?? state.label) : state.label}
-          >
-            <PrimaryIcon className="size-3.5" />
-            <span>{state.label}</span>
-          </Button>
-          <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
-            <ShortcutTooltip label="Git actions" keys={["cmd", "G"]}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
-                  aria-label="More git actions"
-                >
-                  <ChevronDown className="size-3.5" />
-                </Button>
-              </PopoverTrigger>
-            </ShortcutTooltip>
-            <PopoverContent align="end" className="w-80 p-0">
-              <GitActionPopover state={state} onPick={runAction} />
-            </PopoverContent>
-          </Popover>
-        </div>
-      )}
+      <GitActionControls
+        featureId={featureId}
+        projectId={projectId}
+        isMobile={isMobile}
+        state={state}
+        commitActivity={commitActivity}
+        popoverOpen={popoverOpen}
+        onPopoverOpenChange={setPopoverOpen}
+        onOpenCommit={openCommit}
+        onAction={runAction}
+      />
       <Suspense fallback={null}>
         {commitOpen && (
-          <CommitDialog featureId={featureId} open={commitOpen} onOpenChange={setCommitOpen} />
+          <CommitDialog featureId={featureId} open={commitOpen} submission={commitSubmission} />
         )}
         {pushOpen && (
           <PushDialog featureId={featureId} open={pushOpen} onOpenChange={setPushOpen} />
@@ -202,3 +156,200 @@ export const GitActionButton = memo(function GitActionButton({
     </>
   );
 });
+
+interface GitActionControlsProps {
+  featureId: number;
+  projectId: number;
+  isMobile: boolean;
+  state: GitActionState;
+  commitActivity: CommitActivity;
+  popoverOpen: boolean;
+  onPopoverOpenChange: (open: boolean) => void;
+  onOpenCommit: () => void;
+  onAction: (action: GitAction) => void;
+}
+
+function GitActionControls(props: GitActionControlsProps): ReactElement {
+  if (props.isMobile) return <MobileGitActionControl {...props} />;
+  return <DesktopGitActionControl {...props} />;
+}
+
+function MobileGitActionControl({
+  featureId,
+  projectId,
+  state,
+  commitActivity,
+  popoverOpen,
+  onPopoverOpenChange,
+  onOpenCommit,
+  onAction,
+}: GitActionControlsProps): ReactElement {
+  if (commitActivity) {
+    return (
+      <div className="inline-flex items-center">
+        <CommitActivityButton
+          activity={commitActivity}
+          onClick={onOpenCommit}
+          className="rounded-r-none border-r-0"
+        />
+        <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="xs"
+              className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
+              aria-label="More git actions"
+            >
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-80 p-0">
+            <div className="border-b border-border px-3 py-2">
+              <BranchChip featureId={featureId} projectId={projectId} />
+            </div>
+            <GitActionPopover state={state} commitActivity={commitActivity} onPick={onAction} />
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
+  return (
+    <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="xs"
+          className={GIT_ACTION_BUTTON_CLASS}
+          aria-label="Git actions"
+        >
+          <GitBranch className="size-3.5" />
+          <span>Git</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0">
+        <div className="border-b border-border px-3 py-2">
+          <BranchChip featureId={featureId} projectId={projectId} />
+        </div>
+        <GitActionPopover state={state} onPick={onAction} />
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function DesktopGitActionControl({
+  state,
+  commitActivity,
+  popoverOpen,
+  onPopoverOpenChange,
+  onOpenCommit,
+  onAction,
+}: GitActionControlsProps): ReactElement {
+  const primaryAction = commitActivity ? "commit" : state.primary;
+  const PrimaryIcon = primaryAction ? ICONS[primaryAction] : GitCommit;
+  const primaryDisabled = primaryAction === null;
+  return (
+    <div className="inline-flex items-center">
+      {commitActivity ? (
+        <CommitActivityButton
+          activity={commitActivity}
+          onClick={onOpenCommit}
+          className="rounded-r-none border-r-0"
+        />
+      ) : (
+        <Button
+          variant="outline"
+          size="xs"
+          className={`${GIT_ACTION_BUTTON_CLASS} rounded-r-none border-r-0`}
+          disabled={primaryDisabled}
+          onClick={() => primaryAction && onAction(primaryAction)}
+          title={primaryDisabled ? (state.disabled.commit ?? state.label) : state.label}
+        >
+          <PrimaryIcon className="size-3.5" />
+          <span>{state.label}</span>
+        </Button>
+      )}
+      <Popover open={popoverOpen} onOpenChange={onPopoverOpenChange}>
+        <ShortcutTooltip label="Git actions" keys={["cmd", "G"]}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="outline"
+              size="xs"
+              className={`${GIT_ACTION_BUTTON_CLASS} rounded-l-none px-1.5`}
+              aria-label="More git actions"
+            >
+              <ChevronDown className="size-3.5" />
+            </Button>
+          </PopoverTrigger>
+        </ShortcutTooltip>
+        <PopoverContent align="end" className="w-80 p-0">
+          <GitActionPopover state={state} commitActivity={commitActivity} onPick={onAction} />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+interface CommitActivityButtonProps {
+  activity: Exclude<CommitActivity, null>;
+  className?: string;
+  onClick: () => void;
+}
+
+function CommitActivityButton({
+  activity,
+  className,
+  onClick,
+}: CommitActivityButtonProps): ReactElement {
+  const running = activity === "running";
+  return (
+    <Button
+      variant="outline"
+      size="xs"
+      className={cn(GIT_ACTION_BUTTON_CLASS, className)}
+      onClick={onClick}
+      aria-live="polite"
+      title={running ? "View commit progress" : "View commit error"}
+    >
+      {running ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : (
+        <CircleAlert className="size-3.5 text-destructive" />
+      )}
+      <span className={running ? undefined : "text-destructive"}>
+        {running ? "Committing" : "Commit failed"}
+      </span>
+    </Button>
+  );
+}
+
+interface GitActionShortcutOptions {
+  state: GitActionState;
+  commitActivity: CommitActivity;
+  openCommit: () => void;
+  openPush: () => void;
+  openCompare: () => Promise<void>;
+  openPopover: () => void;
+}
+
+function useGitActionShortcuts(options: GitActionShortcutOptions): void {
+  useShortcut("git-commit", (event) => {
+    if (isInCodeMirrorEditor(event.target)) return;
+    if (!options.commitActivity && options.state.disabled.commit !== null) return;
+    event.preventDefault();
+    options.openCommit();
+  });
+  useShortcut("git-push", (event) => {
+    if (options.state.disabled.push !== null) return;
+    event.preventDefault();
+    options.openPush();
+  });
+  useShortcut("git-pr", (event) => {
+    if (options.state.disabled.pr !== null) return;
+    event.preventDefault();
+    void options.openCompare();
+  });
+  useGlobalShortcutById("git-actions", (event) => {
+    event.preventDefault();
+    options.openPopover();
+  });
+}

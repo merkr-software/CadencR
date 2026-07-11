@@ -98,15 +98,10 @@ impl StreamReaderTask {
         else {
             return false;
         };
-        let is_question = request.tool_name == "AskUserQuestion";
+        let is_question = crate::domain::ws_session::protocol::is_question_tool(&request.tool_name);
         let payload: PermissionRequestPayload = permission_request_payload(request);
         let question_payload = is_question.then(|| {
-            serde_json::json!({
-                "tool_name": payload.tool_name.clone(),
-                "tool_input": payload.tool_input.clone(),
-                "request_id": payload.request_id.clone(),
-                "pattern": payload.pattern.clone(),
-            })
+            serde_json::to_value(&payload).expect("question permission payload should serialize")
         });
         self.persist_pending_user_input(&payload, question_payload.as_ref())
             .await;
@@ -129,8 +124,7 @@ impl StreamReaderTask {
             .map(PendingUserInput::Question)
             .unwrap_or(PendingUserInput::Permission(payload));
         WsSessionPersistence::mark_awaiting_user_static(
-            &self.write_pool,
-            &self.session_status_tx,
+            &self.app_state,
             self.db_session_id,
             self.feature_id,
             &pending,
@@ -304,7 +298,15 @@ impl StreamReaderTask {
                 .send_and_mirror(Message::Text(String::from(envelope).into()))
                 .await;
         }
-        if runtime_event.is_result() {
+        if runtime_event.is_result() && state.live_background_agents.is_empty() {
+            if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_completed(
+                &self.app_state,
+                self.db_session_id,
+            )
+            .await
+            {
+                error!(self.db_session_id, error = %error, "failed to deliver MCP session reply");
+            }
             let _ = self.refresh_mcp_servers_after_turn().await;
             self.drain_queued_message_after_result().await;
         }

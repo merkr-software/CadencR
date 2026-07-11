@@ -9,6 +9,7 @@
 
 import { subscribe, unsubscribe, vapidKey } from "@/api/generated";
 import { detectStandalone } from "@/hooks/useFullscreen";
+import { isIos } from "@/lib/is-ios";
 import { isPushSupported } from "@/lib/remote/push-register";
 
 /** Remembers which VAPID key the active subscription was made with, so we can
@@ -19,16 +20,6 @@ export type PushState = "unsupported" | "ios-needs-install" | "denied" | "off" |
 
 /** iOS only delivers Web Push to a home-screen-installed PWA (16.4+). A plain
  *  Safari tab can't, so we steer the user to "Add to Home Screen" instead. */
-function isIos(): boolean {
-  if (typeof navigator === "undefined") return false;
-  return (
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    // iPadOS reports as a Mac; disambiguate via touch support.
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
-  );
-}
-
-/** Whether this device can never receive push until installed to the homescreen. */
 export function iosNeedsInstall(): boolean {
   return isIos() && !detectStandalone();
 }
