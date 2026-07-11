@@ -147,7 +147,17 @@ impl StreamReaderTask {
             AgentStatus::Idle,
             None,
         );
-        self.persist_and_emit_error(code, message, None).await;
+        self.persist_and_emit_error(code, message.clone(), None)
+            .await;
+        if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_failed(
+            &self.app_state,
+            self.db_session_id,
+            &message,
+        )
+        .await
+        {
+            error!(self.db_session_id, error = %error, "failed to deliver MCP failure reply");
+        }
     }
 
     /// Persist an `error` message and emit a live, mirrored `session.error` —

@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod project;
+mod project_gate_schema;
 mod project_schema;
 pub mod workspace;
 

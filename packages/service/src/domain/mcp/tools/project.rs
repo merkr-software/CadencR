@@ -68,6 +68,8 @@ pub async fn run_project_tool(
         "project_list_agent_providers" => project_providers::list_agent_providers(&ctx).await,
         "project_send_session_message" => project_control::send_session_message(&args, &ctx).await,
         "project_spawn_session" => project_control::spawn_session(&args, &ctx).await,
+        "project_list_pending_gates" => project_control::list_pending_gates(&args, &ctx).await,
+        "project_respond_gate" => project_control::respond_gate(&args, &ctx).await,
         _ => Err(format!("Unknown tool: {name}")),
     };
     let result = if is_project_read_tool(name) {

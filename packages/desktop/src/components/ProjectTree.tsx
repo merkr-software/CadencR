@@ -21,6 +21,7 @@ import {
   useCreateProject,
   useDeleteProject,
   getListProjectsQueryKey,
+  getGetProjectSettingsQueryKey,
   useCreateFeature,
   useSetProjectSetting,
 } from "../api/generated";
@@ -44,6 +45,10 @@ import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { ProjectColorDot } from "@/hooks/useProjectColor";
 import { PROJECT_COLORS } from "@/lib/project-colors";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
+import { NewProjectOnboardingDialog } from "./NewProjectOnboardingDialog";
+import { useNewProjectOnboarding } from "@/lib/project-onboarding";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { toast } from "sonner";
 import { SidebarProjectsHeader } from "./SidebarProjectsHeader";
 import { ProjectFeatures } from "./ProjectFeatures";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -70,7 +75,20 @@ export function ProjectTree({
   const { collapsed } = useSidebarCollapsed();
 
   const [isSelectingFolder, setIsSelectingFolder] = useState(false);
-  const setProjectSetting = useSetProjectSetting();
+  const { onboardingProject, maybeOnboard, close: closeOnboarding } = useNewProjectOnboarding();
+
+  const setProjectSetting = useSetProjectSetting({
+    mutation: {
+      onSuccess: (_data, variables) => {
+        void queryClient.invalidateQueries({
+          queryKey: getGetProjectSettingsQueryKey(variables.id),
+        });
+      },
+      onError: (err: unknown) => {
+        toast.error(`Could not save project setting: ${apiErrorMessage(err, "Unknown error")}`);
+      },
+    },
+  });
   const createProjectMutation = useCreateProject({
     mutation: {
       onSuccess: (project) => {
@@ -79,6 +97,9 @@ export function ProjectTree({
         void queryClient.invalidateQueries({
           queryKey: getListProjectsQueryKey(),
         });
+        // Onboard the freshly-added project (color + worktree defaults) unless
+        // the user opted out.
+        maybeOnboard({ id: project.id, name: project.name });
       },
     },
   });
@@ -319,6 +340,17 @@ export function ProjectTree({
             open={true}
             onOpenChange={(open) => {
               if (!open) setSettingsProject(null);
+            }}
+          />
+        )}
+
+        {onboardingProject && (
+          <NewProjectOnboardingDialog
+            projectId={onboardingProject.id}
+            projectName={onboardingProject.name}
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) closeOnboarding();
             }}
           />
         )}

@@ -7,8 +7,6 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 
 pub(super) fn thread_start_params(config: &RuntimeSpawnConfig, mcp_config: &Value) -> Value {
     let mut params = base_thread_params(config);
-    params["experimentalRawEvents"] = Value::Bool(true);
-    params["persistExtendedHistory"] = Value::Bool(true);
     if !mcp_config.is_null() {
         params["config"] = mcp_config.clone();
     }
@@ -33,6 +31,8 @@ fn base_thread_params(config: &RuntimeSpawnConfig) -> Value {
         "cwd": config.cwd.to_string_lossy(),
         "approvalPolicy": approval_policy(config.permission_mode.as_ref(), config.access_mode.as_ref()),
         "approvalsReviewer": approvals_reviewer(config.access_mode.as_ref()),
+        "experimentalRawEvents": true,
+        "persistExtendedHistory": true,
         // `thread/start` takes the shorthand sandbox mode, while per-turn
         // overrides use `sandboxPolicy`.
         "sandbox": sandbox_mode(config.permission_mode.as_ref(), config.access_mode.as_ref()),
@@ -110,6 +110,8 @@ mod tests {
         assert_eq!(params["threadId"], json!("thread-1"));
         assert_eq!(params["cwd"], json!("/tmp/project"));
         assert_eq!(params["model"], json!("gpt-5.5"));
+        assert_eq!(params["experimentalRawEvents"], json!(true));
+        assert_eq!(params["persistExtendedHistory"], json!(true));
         let base_instructions = params["baseInstructions"]
             .as_str()
             .expect("base instructions");

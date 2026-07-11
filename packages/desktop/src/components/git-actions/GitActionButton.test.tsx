@@ -2,11 +2,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import type { GitStatusSnapshot } from "@/api/generated";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
+import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
 import { GitActionButton } from "./GitActionButton";
+
+const viewportMocks = vi.hoisted(() => ({ isMobile: false }));
+
+vi.mock("@/hooks/useIsMobile", () => ({
+  useIsMobile: () => viewportMocks.isMobile,
+}));
 
 vi.mock("./MergeDialog", () => ({
   default: ({ open }: { open: boolean }) =>
     open ? <div role="dialog" aria-label="Merge branch" /> : null,
+}));
+
+vi.mock("./CommitDialog", () => ({
+  default: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" aria-label="Commit progress" /> : null,
 }));
 
 function makeMergeableSnapshot(featureId: number): GitStatusSnapshot {
@@ -36,10 +48,53 @@ function makeDirtyMergeableSnapshot(featureId: number): GitStatusSnapshot {
 }
 
 beforeEach(() => {
+  viewportMocks.isMobile = false;
   useGitStatusStore.setState({ byFeature: {}, errorByFeature: {}, watcherEpoch: {} });
+  useCommitOutputStore.setState({ byFeature: {} });
 });
 
 describe("GitActionButton shortcuts", () => {
+  it("replaces Commit with a clickable Committing progress control", async () => {
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    useCommitOutputStore.getState().start(42);
+
+    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+
+    const progressButton = screen.getByRole("button", { name: "Committing" });
+    expect(progressButton).toBeEnabled();
+    expect(progressButton.querySelector(".animate-spin")).not.toBeNull();
+    await user.click(progressButton);
+
+    expect(await screen.findByRole("dialog", { name: "Commit progress" })).toBeInTheDocument();
+  });
+
+  it("keeps failed background output discoverable from the primary action", async () => {
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    const store = useCommitOutputStore.getState();
+    store.start(42);
+    store.append(42, "pre-commit failed\n");
+    store.complete(42, false);
+
+    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+
+    await user.click(screen.getByRole("button", { name: "Commit failed" }));
+    expect(await screen.findByRole("dialog", { name: "Commit progress" })).toBeInTheDocument();
+  });
+
+  it("keeps the Git actions menu available on mobile while committing", async () => {
+    viewportMocks.isMobile = true;
+    useGitStatusStore.getState().setStatus(makeDirtyMergeableSnapshot(42));
+    useCommitOutputStore.getState().start(42);
+
+    const { user } = render(<GitActionButton featureId={42} projectId={7} />);
+
+    expect(screen.getByRole("button", { name: "Committing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "More git actions" }));
+
+    expect(await screen.findByText("View commit progress")).toBeInTheDocument();
+    expect(screen.getByText("Merge")).toBeInTheDocument();
+  });
+
   it("opens git actions with Cmd+G while an input is focused", async () => {
     useGitStatusStore.getState().setStatus(makeMergeableSnapshot(42));
 

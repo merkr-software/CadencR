@@ -9,6 +9,7 @@ use crate::domain::custom_actions::scheduler::CustomActionScheduler;
 use crate::domain::editor::watcher::{FileChangeEvent, SharedFileWatcher};
 use crate::domain::feature_events::FeatureEventBroadcaster;
 use crate::domain::features::run_registry::FeatureRunRegistry;
+use crate::domain::gate_registry::GateRegistry;
 use crate::domain::git::push_sessions::PushSessionRegistry;
 use crate::domain::git::watcher::GitWatcherRegistry;
 use crate::domain::imports::jobs::ImportJobRegistry;
@@ -138,6 +139,9 @@ pub struct AppState {
     /// remote client answer a permission/question/plan against the host's live
     /// query, and carries the server-stamped turn start for synced timers.
     pub active_turns: Arc<ActiveTurnRegistry>,
+    /// Process-global pending gate registry. Both human WebSocket responses and
+    /// MCP parent responses atomically claim the same entry, so first answer wins.
+    pub pending_gates: Arc<GateRegistry>,
     /// Runtime-session owner map for turns started by internal MCP control
     /// endpoints when no frontend WebSocket connection currently owns the
     /// target session. Kept strongly referenced so `active_turns` weak entries
@@ -240,6 +244,7 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            pending_gates: Arc::new(GateRegistry::new()),
             mcp_control_sessions: new_sdk_sessions(),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
@@ -292,6 +297,7 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            pending_gates: Arc::new(GateRegistry::new()),
             mcp_control_sessions: new_sdk_sessions(),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),

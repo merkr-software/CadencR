@@ -26,3 +26,5 @@ packages/service/cadencr-settings/
 packages/*/dist-electron/
 packages/*/release/
 .superpowers/
+
+.cursor

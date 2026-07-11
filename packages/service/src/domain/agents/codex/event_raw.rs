@@ -97,7 +97,11 @@ fn tool_call_event(
     // the spawned threadId. Stamp the pending flag here, before the event is
     // emitted, so the result handler can identify the pairing.
     if name == "Agent" {
-        index_state.record_pending_spawn_call(&id);
+        index_state.record_pending_spawn_call(
+            &id,
+            thread_id(params),
+            input.get("task_name").and_then(Value::as_str),
+        );
     }
     let sid = thread_id(params).to_string();
     let index = index_state.index_for(&id);
@@ -138,16 +142,19 @@ fn tool_result_event(
     }
     let content = item.get("output").cloned().unwrap_or(Value::Null);
     // If this call was a `spawn_agent` invocation, harvest the spawned
-    // sub-agent threadIds from `output.agentsStates` keys so subsequent
-    // events arriving on those threads can be tagged with the parent
+    // sub-agent thread ids from v1's `agent_id` or the legacy
+    // `agentsStates` keys so subsequent events can be tagged with the parent
     // `tool_use_id` (= our canonical `id`) by `notification_events`.
     if index_state.take_pending_spawn_call(raw_id) {
-        register_spawned_subagent_threads(&content, &id, index_state);
-        // Suppress the tool_result for spawn_agent: its content is just
-        // the bookkeeping `agentsStates` blob (`pendingInit`, etc.) which
-        // would render as a literal JSON dump under the Agent block. The
-        // sub-agent's actual output lands later via wait_agent /
-        // close_agent and is rendered by `synthesize_subagent_messages`.
+        let recognized = register_spawned_subagent_threads(&content, &id, index_state);
+        let failed = item.get("status").and_then(Value::as_str) == Some("failed");
+        if failed || !recognized {
+            index_state.discard_pending_spawn_route(raw_id);
+            return Some(tool_result_event_with_error(params, id, content, true));
+        }
+        // Suppress recognized spawn bookkeeping; rendering it would dump
+        // provider metadata inside the Agent block. Unrecognized or failed
+        // outputs took the visible error path above.
         return None;
     }
     let is_error = item.get("status").and_then(Value::as_str) == Some("failed");
@@ -158,16 +165,32 @@ fn register_spawned_subagent_threads(
     output: &Value,
     parent_tool_use_id: &str,
     index_state: &mut IndexState,
-) {
+) -> bool {
+    // Raw OpenAI function outputs are commonly JSON encoded as a string.
+    let parsed_output = output
+        .as_str()
+        .and_then(|raw| serde_json::from_str::<Value>(raw).ok());
+    let output = parsed_output.as_ref().unwrap_or(output);
+    let mut recognized = output.get("task_name").and_then(Value::as_str).is_some();
+    if let Some(thread_id) = output
+        .get("agent_id")
+        .and_then(Value::as_str)
+        .filter(|thread_id| !thread_id.is_empty())
+    {
+        recognized = true;
+        index_state.record_subagent_thread(thread_id, parent_tool_use_id);
+    }
     let Some(agents_states) = output.get("agentsStates").and_then(Value::as_object) else {
-        return;
+        return recognized;
     };
+    recognized = true;
     for thread_id in agents_states.keys() {
         if thread_id.is_empty() {
             continue;
         }
         index_state.record_subagent_thread(thread_id, parent_tool_use_id);
     }
+    recognized
 }
 
 fn args(item: &Value, field: &str) -> Value {
@@ -233,4 +256,81 @@ fn response_item_id(params: &Value, item: &Value, fallback_name: &str) -> String
                 .unwrap_or_else(|| thread_id(params));
             format!("codex_raw_{turn_id}_{fallback_name}")
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::raw_response_item_events;
+    use crate::domain::agents::adapter::RuntimeUserContentBlock;
+    use crate::domain::agents::codex::event_state::IndexState;
+
+    #[test]
+    fn v1_spawn_agent_string_output_registers_agent_id_thread() {
+        let mut indexes = IndexState::default();
+        raw_response_item_events(
+            json!({
+                "threadId": "thread_root",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_spawn_v1",
+                    "name": "spawn_agent",
+                    "arguments": "{\"agent_type\":\"explorer\",\"message\":\"review\"}"
+                }
+            }),
+            &mut indexes,
+        );
+        raw_response_item_events(
+            json!({
+                "threadId": "thread_root",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_spawn_v1",
+                    "output": "{\"agent_id\":\"thread_v1_child\",\"nickname\":\"Euler\"}"
+                }
+            }),
+            &mut indexes,
+        );
+
+        assert_eq!(
+            indexes.subagent_parent_tool_use_id("thread_v1_child"),
+            Some("call_spawn_v1")
+        );
+    }
+
+    #[test]
+    fn unrecognized_spawn_output_is_surfaced_as_an_error() {
+        let mut indexes = IndexState::default();
+        raw_response_item_events(
+            json!({
+                "threadId": "thread_root",
+                "item": {
+                    "type": "function_call",
+                    "call_id": "call_spawn_error",
+                    "name": "spawn_agent",
+                    "arguments": "{}"
+                }
+            }),
+            &mut indexes,
+        );
+        let events = raw_response_item_events(
+            json!({
+                "threadId": "thread_root",
+                "item": {
+                    "type": "function_call_output",
+                    "call_id": "call_spawn_error",
+                    "output": "spawn failed before creating a child"
+                }
+            }),
+            &mut indexes,
+        );
+
+        let result = events[0].user_message().expect("visible tool result");
+        let RuntimeUserContentBlock::ToolResult { is_error, .. } = &result.content[0] else {
+            panic!("expected tool result");
+        };
+        assert!(*is_error);
+        assert_eq!(indexes.take_pending_spawn_route("thread_root", None), None);
+    }
 }

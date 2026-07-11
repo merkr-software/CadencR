@@ -17,6 +17,7 @@ use super::event_plan::plan_updated_event;
 use super::event_raw::raw_response_item_events;
 use super::event_reasoning::reasoning_delta_event;
 use super::event_state::IndexState;
+use super::event_subagent_routes::register_thread_started_route;
 use super::event_usage::usage_event;
 use crate::domain::agents::adapter::RuntimeEvent;
 
@@ -26,6 +27,11 @@ pub fn notification_events(
     model: Option<&str>,
     index_state: &mut IndexState,
 ) -> Vec<RuntimeEvent> {
+    // Codex multi-agent v2 announces a child thread separately from the raw
+    // `spawn_agent` function call. Join those notifications before routing
+    // this event so the child's very first streamed item is nested correctly.
+    register_thread_started_route(method, &params, index_state);
+
     let subagent_parent_tool_use_id = if index_state.has_any_subagents() {
         params
             .get("threadId")

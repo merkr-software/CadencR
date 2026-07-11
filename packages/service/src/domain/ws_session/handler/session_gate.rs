@@ -41,21 +41,37 @@ pub(super) async fn handle_gate_close(
         );
         return;
     };
+    let request_id =
+        match claim_gate_close(app_state, db_session_id, payload.request_id.as_deref()).await {
+            Ok(request_id) => request_id,
+            Err(message) => {
+                send_error(sender, &envelope.id, "STALE_GATE", &message);
+                return;
+            }
+        };
 
     let clear_result = clear_persisted_gate_and_notify(
         sender,
         app_state,
         db_session_id,
-        payload.request_id.as_deref(),
+        Some(&request_id),
         payload.reason,
         Some(&envelope.id),
     )
     .await;
     match clear_result {
         Ok(true) => {
-            deny_runtime_gate(sdk_sessions, db_session_id, payload.request_id.as_deref()).await;
+            app_state
+                .pending_gates
+                .complete(db_session_id, &request_id)
+                .await;
+            deny_runtime_gate(sdk_sessions, db_session_id, Some(&request_id)).await;
         }
         Ok(false) => {
+            app_state
+                .pending_gates
+                .release(db_session_id, &request_id)
+                .await;
             send_error(
                 sender,
                 &envelope.id,
@@ -64,6 +80,10 @@ pub(super) async fn handle_gate_close(
             );
         }
         Err(error) => {
+            app_state
+                .pending_gates
+                .release(db_session_id, &request_id)
+                .await;
             send_error(
                 sender,
                 &envelope.id,
@@ -72,6 +92,28 @@ pub(super) async fn handle_gate_close(
             );
         }
     }
+}
+
+async fn claim_gate_close(
+    state: &AppState,
+    session_id: i64,
+    requested_id: Option<&str>,
+) -> Result<String, String> {
+    state
+        .pending_gates
+        .ensure_loaded(&state.read_pool, session_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let Some(gate) = state.pending_gates.latest_open(session_id).await else {
+        return Ok(requested_id.unwrap_or_default().to_string());
+    };
+    let request_id = requested_id.unwrap_or(&gate.request_id).to_string();
+    state
+        .pending_gates
+        .claim(session_id, &request_id)
+        .await
+        .map_err(|error| format!("gate is stale, mismatched, or already answered: {error:?}"))?;
+    Ok(request_id)
 }
 
 pub(super) async fn clear_persisted_gate_and_notify(

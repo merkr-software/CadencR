@@ -18,7 +18,7 @@ import { selectPushOutput, selectPushRunning, usePushOutputStore } from "./usePu
 beforeEach(() => {
   // Wipe the store between tests so leaked state from one case can't
   // mask a regression in the next.
-  usePushOutputStore.setState({ byFeature: {}, runningByFeature: {} });
+  usePushOutputStore.setState({ byFeature: {} });
 });
 
 describe("usePushOutputStore lifecycle", () => {
@@ -45,7 +45,7 @@ describe("usePushOutputStore lifecycle", () => {
     const store = usePushOutputStore.getState();
     store.start(1);
     store.append(1, "ok\n");
-    store.complete(1);
+    store.complete(1, true);
     const s = usePushOutputStore.getState();
     expect(selectPushRunning(1)(s)).toBe(false);
     expect(selectPushOutput(1)(s)).toBe("ok\n");
@@ -68,7 +68,7 @@ describe("usePushOutputStore lifecycle", () => {
     const store = usePushOutputStore.getState();
     store.start(1);
     store.start(2);
-    store.complete(1);
+    store.complete(1, true);
     const s = usePushOutputStore.getState();
     expect(selectPushRunning(1)(s)).toBe(false);
     expect(selectPushRunning(2)(s)).toBe(true);

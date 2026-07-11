@@ -139,6 +139,15 @@ export function selectGitStatus(
   return (state) => (featureId == null ? undefined : state.byFeature[featureId]);
 }
 
+/** Narrow selector for the one status field that drives Git diff query params.
+ *  A fresh watcher snapshot gets a new `computed_at` on every file change; Git
+ *  panel consumers that only need the target branch must not re-render for it. */
+export function selectGitTargetBranch(
+  featureId: number | null | undefined,
+): (state: GitStatusState) => string | undefined {
+  return (state) => (featureId == null ? undefined : state.byFeature[featureId]?.target_branch);
+}
+
 /** Narrow selector: latest error for one feature (cleared on next success). */
 export function selectGitStatusError(
   featureId: number | null | undefined,

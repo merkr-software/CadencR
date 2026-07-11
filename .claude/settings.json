@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' | { read -r f; echo \"$f\" | grep -qE '\\.(ts|tsx|js|jsx)$' && npx oxlint --fix \"$f\" || true; } 2>/dev/null || true"
+            "command": "jq -r '.tool_input.file_path // .tool_response.filePath' 2>/dev/null | { read -r f; case \"$f\" in *.ts|*.tsx|*.js|*.jsx) npx oxlint --fix \"$f\" 2>/dev/null ;; *.rs) n=$(awk 'g{next} /#\\[cfg\\(test\\)\\]/{print NR-1; g=1} END{if(!g)print NR}' \"$f\" 2>/dev/null); if [ -n \"$n\" ] && [ \"$n\" -gt 400 ] 2>/dev/null; then echo \"file-size rule: $f has $n lines before #[cfg(test)] (limit 400) — extract modules; see .claude/rules/file-size.md\" >&2; fi ;; esac; }; true"
           }
         ]
       }

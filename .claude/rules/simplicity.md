@@ -1,1 +1,1 @@
-Keep code simple. If an approach feels complex, it will be hard to maintain — find a simpler way. Prefer straightforward, obvious implementations over clever ones. If you can't explain the approach in one sentence, it's too complicated.
+Keep code simple. Prefer the straightforward, obvious implementation over the clever one — complexity is the cost you pay later to maintain it. If an approach feels complex, find a simpler way before writing it. If you can't explain the approach in one sentence, it's too complicated.

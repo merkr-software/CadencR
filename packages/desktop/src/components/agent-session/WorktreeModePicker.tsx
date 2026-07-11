@@ -17,6 +17,7 @@ import {
   type WorktreeMode,
 } from "@/lib/worktree-mode";
 import { WORKTREE_SEGMENT, WORKTREE_SEGMENT_ACTIVE } from "./meta-bar-chip-styles";
+import { SlidingText } from "@/components/SlidingText";
 
 /** Modes that actually provision a worktree light the segment cyan, matching
  *  the old "Use worktree" active state. `from_branch` (project path) stays
@@ -58,9 +59,9 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
           className={cn(active ? WORKTREE_SEGMENT_ACTIVE : WORKTREE_SEGMENT, "rounded-r-md")}
           aria-label="Branch / worktree behavior"
         >
-          <GitBranchIcon className="size-3" />
-          <span className="truncate max-w-[140px]">{label}</span>
-          <ChevronDownIcon className="size-3 opacity-70" />
+          <GitBranchIcon className="size-3 shrink-0" />
+          <SlidingText text={label} className="max-w-[140px]" />
+          <ChevronDownIcon className="size-3 shrink-0 opacity-70" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-80 p-1">

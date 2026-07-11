@@ -1,6 +1,11 @@
 #!/bin/sh
 set -u
 
+if ! node scripts/build-agents-md.mjs --check; then
+  echo "AGENTS.md is out of sync with .claude/rules/ — run 'pnpm build:agents-md' and stage the result"
+  exit 1
+fi
+
 cmd="pnpm turbo run format:check lint ts-check test knip"
 log_file="$(mktemp -t cadencr-precommit-log.XXXXXX)" || exit 1
 tmp_dir="$(mktemp -d -t cadencr-precommit.XXXXXX)" || {

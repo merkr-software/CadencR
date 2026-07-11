@@ -20,7 +20,7 @@ import {
   getGetFeatureSettingsQueryKey,
 } from "@/api/generated";
 import { useSendPendingComments } from "@/hooks/useSendPendingComments";
-import { selectGitStatus, useGitStatusStore } from "@/stores/useGitStatusStore";
+import { selectGitTargetBranch, useGitStatusStore } from "@/stores/useGitStatusStore";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 const GIT_VIEW_MODE_SETTING = "git_view_mode";
@@ -91,10 +91,11 @@ export const FeatureGitTab = memo(function FeatureGitTab({
     [featureId, setFeatureSetting, viewMode],
   );
 
-  // Live snapshot — narrow selector so this component only re-renders when its
-  // own feature's status changes (per frontend-performance.md).
-  const snapshot = useGitStatusStore(selectGitStatus(featureId));
-  const targetBranch = snapshot?.target_branch;
+  // Only the target branch affects this component's query parameters. Selecting
+  // the full live snapshot would re-render the entire Git tab whenever the
+  // watcher advances `computed_at` for an agent file write; changed-files and
+  // per-file diff queries already subscribe to their own cache updates below.
+  const targetBranch = useGitStatusStore(selectGitTargetBranch(featureId));
 
   // The file-list collapse state lives here (alongside the new top toolbar)
   // so we can render the toggle next to the view-mode segmented control —

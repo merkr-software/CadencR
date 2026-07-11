@@ -66,6 +66,11 @@ vi.mock("react-virtuoso", () => ({
 // exercised here, so a stub is enough.
 vi.mock("./TaskAgentBlock", () => ({ TaskAgentBlock: () => null }));
 
+// ToolSummaryBlock (summary-mode recap) adds the same AgentBlock →
+// ToolSummaryBlock → AgentStreamItem → AgentBlock cycle; stub it for the same
+// reason. Summary rendering is covered by agentStreamSummary.test.ts.
+vi.mock("./agent-session/ToolSummaryBlock", () => ({ ToolSummaryBlock: () => null }));
+
 // Per-block render counts captured by the AgentBlock mock. Tests that care
 // about the memoisation of `AgentStreamItem` read this map after re-rendering.
 const blockRenderCounts = new Map<string, number>();
@@ -155,6 +160,22 @@ describe("AgentStream", () => {
     };
     render(<AgentStream blocks={[block]} />);
     expect(screen.getByText("User")).toBeInTheDocument();
+  });
+
+  it("suppresses the user header for session replies", () => {
+    const block: AgentBlockData = {
+      ...makeBlock(
+        "1",
+        '<cadencr-reply from-session="3291" from-feature="1780" from-feature-title="QA reply routing" from-project="6" status="completed" link="spawned" request-message-id="1959337">\nREPLY_ROUTING_SUCCESS\n</cadencr-reply>',
+        "user_message",
+      ),
+      createdAt: "2026-07-11T06:38:00Z",
+      origin: { originKind: "session_generated", sourceSessionId: 3291 },
+    };
+
+    render(<AgentStream blocks={[block]} />);
+
+    expect(screen.queryByText("User")).toBeNull();
   });
 
   it("renders 'unknown' when model is not set", () => {

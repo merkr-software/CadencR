@@ -34,6 +34,8 @@ pub struct Feature {
     pub created_at: String,
     /// Whether the conversation is pinned to the top of the sidebar.
     pub is_pinned: bool,
+    pub spawned_by_feature_id: Option<i64>,
+    pub spawn_link_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -138,6 +140,8 @@ mod tests {
             model_session: Some("claude-session".to_string()),
             created_at: "2024-01-01T00:00:00".to_string(),
             is_pinned: false,
+            spawned_by_feature_id: None,
+            spawn_link_type: None,
         };
 
         let json = serde_json::to_string(&feature).unwrap();

@@ -90,7 +90,12 @@ async fn session_json(
         "worktree": { "branch": row.branch },
         "message_counts": counts,
         "first_user_message": first_message(ctx, row.session_id, "user_message").await?,
-        "latest_assistant_text": latest_assistant_text(ctx, row.session_id).await?
+        "latest_assistant_text": crate::domain::mcp::message_queries::latest_assistant_text(
+            &ctx.read_pool,
+            row.session_id,
+        )
+        .await
+        .map_err(|e| format!("Failed to read latest assistant text: {e}"))?
     }))
 }
 
@@ -124,21 +129,6 @@ async fn first_message(
     .fetch_optional(&ctx.read_pool)
     .await
     .map_err(|e| format!("Failed to read first session message: {e}"))
-}
-
-async fn latest_assistant_text(
-    ctx: &McpContext,
-    session_id: i64,
-) -> Result<Option<String>, String> {
-    sqlx::query_scalar(
-        "SELECT content FROM agent_messages
-         WHERE session_id = ? AND role = 'assistant' AND message_type = 'text'
-         ORDER BY id DESC LIMIT 1",
-    )
-    .bind(session_id)
-    .fetch_optional(&ctx.read_pool)
-    .await
-    .map_err(|e| format!("Failed to read latest assistant text: {e}"))
 }
 
 async fn load_links(ctx: &McpContext, left_id: i64, right_id: i64) -> Result<Vec<LinkRow>, String> {

@@ -2,6 +2,11 @@ use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
+struct PendingSpawnRoute {
+    sender_thread_id: String,
+    task_name: Option<String>,
+}
+
 #[derive(Default)]
 pub(super) struct IndexState {
     next: u64,
@@ -26,6 +31,9 @@ pub(super) struct IndexState {
     /// tool_result's `agentsStates` keys, so we need to pair the two events
     /// to learn the threadId and register the sub-agent mapping.
     pending_spawn_calls: HashSet<String>,
+    /// Spawn call metadata retained until a child routing signal supplies the
+    /// thread id.
+    pending_spawn_routes: HashMap<String, PendingSpawnRoute>,
     /// `threadId` of the root conversation. The codex app-server multiplexes
     /// every thread (root + every sub-agent) onto a single JSON-RPC stream
     /// and sends `turn/started` for sub-agents too. We must NOT reset the
@@ -58,6 +66,8 @@ impl IndexState {
         self.command_output_snapshots.clear();
         self.reasoning_marker_prefixes.clear();
         self.suppressed_raw_tool_items.clear();
+        self.pending_spawn_calls.clear();
+        self.pending_spawn_routes.clear();
         // `subagent_threads` is intentionally not cleared: sub-agent threads
         // may continue streaming across multiple root turns.
     }
@@ -178,6 +188,7 @@ impl IndexState {
             subagent_thread_id.to_string(),
             parent_tool_use_id.to_string(),
         );
+        self.pending_spawn_routes.remove(parent_tool_use_id);
     }
 
     /// Returns the `tool_use_id` of the parent `spawn_agent` call if
@@ -196,8 +207,20 @@ impl IndexState {
 
     /// Mark `call_id` as a `spawn_agent` invocation pending its
     /// `function_call_output` (where the spawned threadId is reported).
-    pub(super) fn record_pending_spawn_call(&mut self, call_id: &str) {
+    pub(super) fn record_pending_spawn_call(
+        &mut self,
+        call_id: &str,
+        sender_thread_id: &str,
+        task_name: Option<&str>,
+    ) {
         self.pending_spawn_calls.insert(call_id.to_string());
+        self.pending_spawn_routes.insert(
+            call_id.to_string(),
+            PendingSpawnRoute {
+                sender_thread_id: sender_thread_id.to_string(),
+                task_name: task_name.map(ToOwned::to_owned),
+            },
+        );
     }
 
     /// Take the pending flag for `call_id`. Returns true if this call_id was
@@ -205,6 +228,31 @@ impl IndexState {
     /// so a duplicate output can't double-register the same thread.
     pub(super) fn take_pending_spawn_call(&mut self, call_id: &str) -> bool {
         self.pending_spawn_calls.remove(call_id)
+    }
+
+    pub(super) fn discard_pending_spawn_route(&mut self, call_id: &str) {
+        self.pending_spawn_routes.remove(call_id);
+    }
+
+    /// Match a child route by parent thread and the task-name segment of its
+    /// `agent_path`.
+    pub(super) fn take_pending_spawn_route(
+        &mut self,
+        sender_thread_id: &str,
+        agent_path: Option<&str>,
+    ) -> Option<String> {
+        let mut matching = self
+            .pending_spawn_routes
+            .iter()
+            .filter(|(_, route)| route.sender_thread_id == sender_thread_id)
+            .filter(|(_, route)| route_matches_agent_path(route, agent_path))
+            .map(|(call_id, _)| call_id.clone());
+        let call_id = matching.next()?;
+        if matching.next().is_some() {
+            return None;
+        }
+        self.pending_spawn_routes.remove(&call_id);
+        Some(call_id)
     }
 
     /// Decide whether a `turn/started` for `thread_id` should reset the
@@ -240,6 +288,22 @@ impl IndexState {
     }
 }
 
+fn route_matches_agent_path(route: &PendingSpawnRoute, agent_path: Option<&str>) -> bool {
+    let Some(agent_path) = agent_path else {
+        return route.task_name.is_none();
+    };
+    let Some(task_name) = route.task_name.as_deref() else {
+        return true;
+    };
+    let normalized_task = task_name.trim_matches('/');
+    let normalized_path = agent_path.trim_matches('/');
+    normalized_path == normalized_task
+        || normalized_path
+            .rsplit('/')
+            .next()
+            .is_some_and(|segment| segment == normalized_task)
+}
+
 #[cfg(test)]
 mod tests {
     use super::IndexState;
@@ -253,6 +317,22 @@ mod tests {
             Some("toolu_spawn"),
         );
         assert_eq!(state.subagent_parent_tool_use_id("thread_other"), None);
+    }
+
+    #[test]
+    fn pending_spawn_route_matches_parent_and_task_path() {
+        let mut state = IndexState::default();
+        state.record_pending_spawn_call("call_quality", "thread_root", Some("quality_review"));
+        state.record_pending_spawn_call("call_other", "thread_root", Some("other_review"));
+
+        assert_eq!(
+            state.take_pending_spawn_route("thread_root", Some("/root/quality_review")),
+            Some("call_quality".to_string()),
+        );
+        assert_eq!(
+            state.take_pending_spawn_route("thread_root", Some("/root/quality_review")),
+            None,
+        );
     }
 
     #[test]
@@ -292,10 +372,16 @@ mod tests {
     fn subagent_thread_mapping_survives_reset() {
         let mut state = IndexState::default();
         state.record_subagent_thread("thread_child", "toolu_spawn");
+        state.record_pending_spawn_call("stale_call", "thread_root", Some("stale_task"));
         state.index_for("anything");
         state.reset();
-        // Per-turn caches are cleared, but sub-agent mappings outlive turns.
+        // Per-turn caches and unresolved routes are cleared, while established
+        // sub-agent mappings outlive turns.
         assert!(!state.has_index("anything"));
+        assert_eq!(
+            state.take_pending_spawn_route("thread_root", Some("/root/stale_task")),
+            None,
+        );
         assert_eq!(
             state.subagent_parent_tool_use_id("thread_child"),
             Some("toolu_spawn"),

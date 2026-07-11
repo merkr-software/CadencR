@@ -22,6 +22,7 @@ interface AgentSessionStreamContentProps {
   isLoadingOlder: boolean;
   historyPrependDisplayOffset?: number;
   verbosityMode: AgentStreamProps["verbosityMode"];
+  summaryMode: AgentStreamProps["summaryMode"];
   searchEnabled: boolean;
 }
 
@@ -42,6 +43,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   isLoadingOlder,
   historyPrependDisplayOffset,
   verbosityMode,
+  summaryMode,
   searchEnabled,
 }: AgentSessionStreamContentProps): ReactElement | null {
   if (blocks.length === 0 && !isAgentWorking) return null;
@@ -64,6 +66,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       isLoadingOlder={isLoadingOlder}
       historyPrependDisplayOffset={historyPrependDisplayOffset}
       verbosityMode={verbosityMode}
+      summaryMode={summaryMode}
       searchEnabled={searchEnabled}
     />
   );

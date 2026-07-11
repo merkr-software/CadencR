@@ -2,12 +2,13 @@ use axum::extract::ws::Message;
 
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::{parse_session_id, send_error};
+use super::super::helpers::send_error;
 use super::super::post_plan_mode::{
     should_transition_after_plan_approval, transition_session_to_post_plan_mode,
 };
 use super::super::session_prompt::PermissionResponse;
 use super::super::types::{QueryState, SdkSessions, WsSender};
+use super::permission_dispatch::finish_gate_claim;
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
     RuntimePermissionResponse, RuntimePermissionResponseKind, RuntimeSessionHandle,
@@ -119,7 +120,7 @@ async fn finish_accepted_runtime_permission(
     permission_kind: RuntimePermissionResponseKind,
     payload: &PermissionRespondPayload,
     answer_to_persist: Option<&serde_json::Value>,
-) {
+) -> bool {
     let is_plan_approval = permission_kind == RuntimePermissionResponseKind::PlanApproval;
     let turn_feedback = if is_plan_approval {
         Some(payload.feedback.as_deref().unwrap_or("Plan feedback"))
@@ -151,7 +152,7 @@ async fn finish_accepted_runtime_permission(
             Ok(has_replacement) => has_replacement,
             Err(error) => {
                 send_error(sender, envelope_id, "DB_ERROR", &error.to_string());
-                return;
+                return false;
             }
         }
     };
@@ -184,6 +185,7 @@ async fn finish_accepted_runtime_permission(
             None,
         );
     }
+    true
 }
 
 async fn clear_runtime_resolved_gate(app_state: &AppState, db_session_id: i64) {
@@ -202,7 +204,7 @@ async fn send_permission_channel_response(
     feature_id: i64,
     db_session_id: i64,
     answer_to_persist: Option<serde_json::Value>,
-) {
+) -> bool {
     let response = PermissionResponse {
         request_id: payload.request_id,
         decision: payload.decision,
@@ -219,6 +221,7 @@ async fn send_permission_channel_response(
             "CHANNEL_ERROR",
             "Permission channel closed",
         );
+        false
     } else {
         acknowledge_permission_response(sender, envelope_id);
         persist_question_answer(
@@ -228,6 +231,7 @@ async fn send_permission_channel_response(
             answer_to_persist.as_ref(),
         )
         .await;
+        true
     }
 }
 
@@ -325,37 +329,22 @@ async fn respond_runtime_permission(
     }
 }
 
-pub(crate) async fn handle_permission_respond(
-    envelope: WsEnvelope,
+pub(super) async fn respond_permission_claimed(
+    payload: PermissionRespondPayload,
+    envelope_id: &str,
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
+    db_session_id: i64,
 ) {
-    let payload: PermissionRespondPayload = match serde_json::from_value(envelope.payload.clone()) {
-        Ok(p) => p,
-        Err(e) => {
-            send_error(sender, &envelope.id, "INVALID_PAYLOAD", &e.to_string());
-            return;
-        }
-    };
-
-    let db_session_id = match parse_session_id(&payload.session_id) {
-        Some(id) => id,
-        None => {
-            send_error(
-                sender,
-                &envelope.id,
-                "INVALID_SESSION_ID",
-                "Invalid session_id",
-            );
-            return;
-        }
-    };
-
     let Some(runtime) =
-        resolve_permission_runtime(sdk_sessions, app_state, db_session_id, sender, &envelope.id)
+        resolve_permission_runtime(sdk_sessions, app_state, db_session_id, sender, envelope_id)
             .await
     else {
+        app_state
+            .pending_gates
+            .release(db_session_id, &payload.request_id)
+            .await;
         return;
     };
     let answer_to_persist = payload.updated_input.clone();
@@ -365,14 +354,14 @@ pub(crate) async fn handle_permission_respond(
         db_session_id,
         app_state,
         sender,
-        &envelope.id,
+        envelope_id,
     )
     .await
     {
         Some(RuntimePermissionOutcome::Accepted(permission_kind)) => {
-            finish_accepted_runtime_permission(
+            let succeeded = finish_accepted_runtime_permission(
                 sender,
-                &envelope.id,
+                envelope_id,
                 app_state,
                 db_session_id,
                 runtime.active.feature_id,
@@ -381,20 +370,29 @@ pub(crate) async fn handle_permission_respond(
                 answer_to_persist.as_ref(),
             )
             .await;
+            finish_gate_claim(app_state, db_session_id, &payload.request_id, succeeded).await;
             return;
         }
         Some(RuntimePermissionOutcome::UsePermissionChannel) => {}
-        None => return,
+        None => {
+            app_state
+                .pending_gates
+                .release(db_session_id, &payload.request_id)
+                .await;
+            return;
+        }
     }
-    send_permission_channel_response(
+    let request_id = payload.request_id.clone();
+    let succeeded = send_permission_channel_response(
         runtime.active.permission_tx,
         payload,
         sender,
-        &envelope.id,
+        envelope_id,
         app_state,
         runtime.active.feature_id,
         db_session_id,
         answer_to_persist,
     )
     .await;
+    finish_gate_claim(app_state, db_session_id, &request_id, succeeded).await;
 }

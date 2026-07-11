@@ -1,6 +1,7 @@
 interface PermissionPreviewSource {
   preview?: unknown;
   input?: Record<string, unknown> | null;
+  fallbackToJson?: boolean;
 }
 
 const DIRECT_PREVIEW_KEYS = [
@@ -26,7 +27,10 @@ export function getPermissionPreview(permission: PermissionPreviewSource): strin
   if (explicit) return explicit;
   const input = objectValue(permission.input);
   if (!input) return null;
-  return previewFromInput(input) ?? compactJsonPreview(input);
+  return (
+    previewFromInput(input) ??
+    (permission.fallbackToJson === false ? null : compactJsonPreview(input))
+  );
 }
 
 function previewString(value: unknown): string | null {

@@ -1,1 +1,2 @@
-No function longer than 100 lines. If a function exceeds this, split it into smaller, well-named functions. Before finishing an edit, check that no function in the modified file breaks this limit.
+Max 100 lines per function — past that, split into smaller, well-named functions so logic stays readable.
+(test files exempt; enforced by oxlint `max-lines-per-function` — see .oxlintrc.json.)

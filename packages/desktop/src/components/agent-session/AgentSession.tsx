@@ -25,7 +25,12 @@ import { useNarrowContainer } from "./useNarrowContainer";
 import { useAutoScrollShortcut } from "./useAutoScrollShortcut";
 import { useTurnWorkingLabel } from "@/components/TurnWorkingLabel";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
-import { AGENT_VERBOSITY_SETTING_KEY, parseAgentVerbosityMode } from "@/lib/agent-verbosity";
+import {
+  AGENT_SUMMARY_MODE_SETTING_KEY,
+  AGENT_VERBOSITY_SETTING_KEY,
+  parseAgentSummaryMode,
+  parseAgentVerbosityMode,
+} from "@/lib/agent-verbosity";
 import { AgentSessionComposer } from "./AgentSessionComposer";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
@@ -119,6 +124,23 @@ export const AgentSession = memo(
     const isControlled = controlledOpen !== undefined;
     const isOpen = isControlled ? controlledOpen : internalOpen;
 
+    const verbositySetting = useDebouncedSetting(AGENT_VERBOSITY_SETTING_KEY);
+    const verbosityMode = parseAgentVerbosityMode(verbositySetting.value);
+    const summaryModeSetting = useDebouncedSetting(AGENT_SUMMARY_MODE_SETTING_KEY);
+    const summaryMode = parseAgentSummaryMode(summaryModeSetting.value);
+
+    // Older-history loads must be sized to the rows actually rendered, so pass
+    // the active display mode down — summary/compact collapse fewer rows than
+    // the raw block count, and a mismatch jumps the scroll on prepend.
+    const loadOlder = useMemo(
+      () =>
+        onLoadOlder
+          ? (): Promise<number | void> =>
+              onLoadOlder({ summaryMode, compactMode: verbosityMode === "compact" })
+          : undefined,
+      [onLoadOlder, summaryMode, verbosityMode],
+    );
+
     const {
       virtuosoRef,
       scrollContainerRef,
@@ -133,7 +155,7 @@ export const AgentSession = memo(
       blocks,
       conversationKey: wsSessionId ?? null,
       hasMore,
-      onLoadOlder,
+      onLoadOlder: loadOlder,
     });
 
     useAutoScrollShortcut({
@@ -280,9 +302,6 @@ export const AgentSession = memo(
     const showClaudeProfileSelector = isClaudeProvider && blocks.length === 0;
     const showAutoScrollChip = !!shouldShowPromptBar;
 
-    const verbositySetting = useDebouncedSetting(AGENT_VERBOSITY_SETTING_KEY);
-    const verbosityMode = parseAgentVerbosityMode(verbositySetting.value);
-
     const isNarrow = useNarrowContainer(containerRef, META_BAR_COMPACT_THRESHOLD_PX);
 
     // When narrow, secondary chips (incl. the worktree selector) render below
@@ -323,6 +342,7 @@ export const AgentSession = memo(
         isLoadingOlder={isLoadingOlder}
         historyPrependDisplayOffset={historyPrependDisplayOffset}
         verbosityMode={verbosityMode}
+        summaryMode={summaryMode}
         searchEnabled={agentTabActive && !disableShortcuts}
       />
     );

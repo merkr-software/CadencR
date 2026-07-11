@@ -12,6 +12,7 @@ import { AgentStreamItem } from "./agent-session/AgentStreamItem";
 import { CompactFlowRow } from "./agent-session/CompactFlowRow";
 import { ConversationSearch } from "./agent-session/ConversationSearch";
 import { buildDisplayItems, filterRenderableBlocks, type DisplayItem } from "./agentStreamDisplay";
+import { collapseTurnsToSummary } from "./agentStreamSummary";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { isTurnInProgress } from "@/components/TurnWorkingLabel";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
@@ -81,6 +82,12 @@ interface AgentStreamProps {
   /** Number of rendered Virtuoso rows prepended by older-history pagination. */
   historyPrependDisplayOffset?: number;
   verbosityMode?: AgentVerbosityMode;
+  /**
+   * "Summary mode": collapse each turn's tool calls into a single recap block
+   * (per-tool counts) followed by the turn's text. Independent of
+   * `verbosityMode`. See `collapseTurnsToSummary`.
+   */
+  summaryMode?: boolean;
   /**
    * Enables the ⌘F find-in-conversation bar. Passed down as the agent-tab
    * focus gate so search only binds/opens for the visible feature workspace.
@@ -165,10 +172,18 @@ export const AgentStream = memo(function AgentStream({
   isLoadingOlder = false,
   historyPrependDisplayOffset = 0,
   verbosityMode = "maximal",
+  summaryMode = false,
   searchEnabled = false,
 }: AgentStreamProps) {
   const rootBlocks = useRootBlocks(blocks, rootBlocksProp);
-  const displayBlocks = useMemo(() => filterRenderableBlocks(rootBlocks), [rootBlocks]);
+  const displayBlocks = useMemo(() => {
+    const filtered = filterRenderableBlocks(rootBlocks);
+    if (!summaryMode) return filtered;
+    // The in-flight turn streams live; recaps appear only once a turn ends. Each
+    // recap reveals its turn detail inline (local to the block), so no expand
+    // state is threaded here.
+    return collapseTurnsToSummary(filtered, { activeStreaming: !!isStreaming });
+  }, [rootBlocks, summaryMode, isStreaming]);
   const toolResultMap = useToolResultMap(blocks, toolResultMapProp);
   const isCompact = verbosityMode === "compact";
   const displayItems = useMemo(

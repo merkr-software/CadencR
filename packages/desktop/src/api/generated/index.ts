@@ -679,6 +679,10 @@ export type FeatureLabel = string | null;
 
 export type FeatureModelSession = string | null;
 
+export type FeatureSpawnLinkType = string | null;
+
+export type FeatureSpawnedByFeatureId = number | null;
+
 export interface Feature {
   created_at: string;
   id: number;
@@ -687,6 +691,8 @@ export interface Feature {
   label?: FeatureLabel;
   model_session?: FeatureModelSession;
   project_id: number;
+  spawn_link_type?: FeatureSpawnLinkType;
+  spawned_by_feature_id?: FeatureSpawnedByFeatureId;
   /** Feature archive state. Only `active` and `archived` are valid. */
   status: FeatureStatus;
   title: string;

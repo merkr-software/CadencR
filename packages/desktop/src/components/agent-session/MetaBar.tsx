@@ -1,5 +1,6 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
+import { SlidingText } from "@/components/SlidingText";
 import { ShortcutTooltip } from "../ShortcutTooltip";
 import { AgentTodoList } from "../AgentTodoList";
 import { AutoScrollChip } from "./AutoScrollChip";
@@ -235,10 +236,10 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
             onClick={onPermissionModeToggle}
             title={`${displayMode.description} (Shift+Tab to cycle)`}
             aria-label={displayMode.ariaLabel}
-            className={cn(META_BAR_CHIP, displayMode.chipClass)}
+            className={cn(META_BAR_CHIP, displayMode.chipClass, "min-w-0")}
           >
-            <displayMode.icon className="size-3" />
-            {displayMode.label}
+            <displayMode.icon className="size-3 shrink-0" />
+            <SlidingText text={displayMode.label} className="max-w-[160px]" />
           </button>
         </ShortcutTooltip>
       )}

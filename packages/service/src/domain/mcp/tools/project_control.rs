@@ -85,14 +85,58 @@ pub async fn spawn_session(
     spawn_session_with_client(args, ctx, McpControlClient::from_env()?).await
 }
 
+pub async fn list_pending_gates(
+    args: &serde_json::Value,
+    ctx: &McpContext,
+) -> Result<serde_json::Value, String> {
+    let source_session_id = require_source_session(ctx, "project_list_pending_gates")?;
+    let session_id = require_i64(args, "session_id")?;
+    McpControlClient::from_env()?
+        .post_json(
+            "/internal/mcp/project/pending-gates",
+            json!({"source_session_id": source_session_id, "session_id": session_id}),
+        )
+        .await
+}
+
+pub async fn respond_gate(
+    args: &serde_json::Value,
+    ctx: &McpContext,
+) -> Result<serde_json::Value, String> {
+    let source_session_id = require_source_session(ctx, "project_respond_gate")?;
+    let session_id = require_i64(args, "session_id")?;
+    let request_id = args
+        .get("request_id")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Missing required parameter: request_id".to_string())?;
+    let decision = args
+        .get("decision")
+        .cloned()
+        .ok_or_else(|| "Missing required parameter: decision".to_string())?;
+    McpControlClient::from_env()?
+        .post_json(
+            "/internal/mcp/project/respond-gate",
+            json!({
+                "source_session_id": source_session_id,
+                "session_id": session_id,
+                "request_id": request_id,
+                "decision": decision
+            }),
+        )
+        .await
+}
+
+fn require_source_session(ctx: &McpContext, tool: &str) -> Result<i64, String> {
+    ctx.source_session_id
+        .ok_or_else(|| format!("{tool} requires a source session id"))
+}
+
 pub async fn spawn_session_with_client(
     args: &serde_json::Value,
     ctx: &McpContext,
     client: McpControlClient,
 ) -> Result<serde_json::Value, String> {
-    let source_session_id = ctx
-        .source_session_id
-        .ok_or_else(|| "project_spawn_session requires a source session id".to_string())?;
+    let source_session_id = require_source_session(ctx, "project_spawn_session")?;
     client
         .post_json(
             "/internal/mcp/project/spawn-session",
@@ -108,6 +152,7 @@ pub async fn spawn_session_with_client(
                 "codex_permission_mode": optional_string(args, "codex_permission_mode"),
                 "source_note": optional_string(args, "source_note"),
                 "link_to_current_session": optional_bool(args, "link_to_current_session"),
+                "await_result": optional_bool(args, "await_result"),
                 "target_project_id": optional_i64(args, "project_id"),
                 "target_project_path": optional_string(args, "project_path")
             }),
@@ -120,9 +165,7 @@ pub async fn send_session_message_with_client(
     ctx: &McpContext,
     client: McpControlClient,
 ) -> Result<serde_json::Value, String> {
-    let source_session_id = ctx
-        .source_session_id
-        .ok_or_else(|| "project_send_session_message requires a source session id".to_string())?;
+    let source_session_id = require_source_session(ctx, "project_send_session_message")?;
     let target_session_id = require_i64(args, "target_session_id")?;
     let message = args
         .get("message")
@@ -130,6 +173,7 @@ pub async fn send_session_message_with_client(
         .ok_or_else(|| "Missing required parameter: message".to_string())?;
     let source_note = args.get("source_note").and_then(serde_json::Value::as_str);
     let delivery = args.get("delivery").and_then(serde_json::Value::as_str);
+    let reply = args.get("reply").and_then(serde_json::Value::as_str);
     client
         .post_json(
             "/internal/mcp/project/send-message",
@@ -139,6 +183,7 @@ pub async fn send_session_message_with_client(
                 "target_session_id": target_session_id,
                 "message": message,
                 "delivery": delivery,
+                "reply": reply,
                 "source_note": source_note,
                 "link_to_current_session": optional_bool(args, "link_to_current_session")
             }),

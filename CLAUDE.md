@@ -44,6 +44,13 @@ Electron desktop shell with a React frontend. The backend is the Rust API server
 
 Frontend path alias: `@` → `packages/desktop/src/` (for example `import { foo } from "@/lib/foo"`).
 
+## Definition of done
+
+Before claiming a task complete:
+
+- **Checks pass.** Run `pnpm --filter @cadencr/desktop ts-check`, `pnpm lint`, and the relevant tests — vitest for the frontend, `cargo test` for Rust.
+- **Verified end-to-end in the running app.** Any behavior change must be exercised against a live `pnpm dev` instance: for backend/API changes, make real API calls against the dev server; for frontend changes, drive the UI via the qa skill, the Cadencr browser MCP, or devtools. "It compiles", "tests pass", and "the code looks right" are not done. (If the Rust API surface changed, also regenerate and commit the client — see "Project-specific workflows" below.)
+
 ## Project-specific workflows
 
 **Regenerating the API client.** After changing the Rust API surface (utoipa attributes / new handlers), run `pnpm --filter @cadencr/desktop run generate:api`. This re-emits `packages/service/openapi.json` (gitignored, derived from utoipa) and regenerates `packages/desktop/src/api/generated/index.ts` via orval — commit the regenerated TS file. Naming overrides for hooks live in `packages/desktop/orval.transformer.cjs`.

@@ -33,6 +33,7 @@ import {
 } from "@/lib/worktree-mode";
 import { WorktreeModePicker } from "./WorktreeModePicker";
 import { WORKTREE_GROUP, WORKTREE_SEGMENT_ACTIVE } from "./meta-bar-chip-styles";
+import { SlidingText } from "@/components/SlidingText";
 
 const EMPTY_BRANCHES: BranchInfo[] = [];
 
@@ -144,9 +145,9 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
             className={cn(WORKTREE_SEGMENT_ACTIVE, "rounded-l-md")}
             title={effectHint ?? undefined}
           >
-            <GitBranchIcon className="size-3" />
-            <span className="truncate max-w-[160px]">{branchLabel}</span>
-            <ChevronDownIcon className="size-3 opacity-70" />
+            <GitBranchIcon className="size-3 shrink-0" />
+            <SlidingText text={branchLabel} className="max-w-[160px]" />
+            <ChevronDownIcon className="size-3 shrink-0 opacity-70" />
           </button>
         </PopoverTrigger>
         <PopoverContent className="w-[28rem] max-w-[calc(100vw-2rem)] p-0" align="start">

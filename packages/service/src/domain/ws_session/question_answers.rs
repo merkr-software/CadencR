@@ -3,6 +3,10 @@ use serde_json::Value;
 pub fn extract_answer_lists(updated_input: &Value) -> Option<Vec<Vec<String>>> {
     let answers = updated_input.get("answers")?;
 
+    if let Some(answer) = answers.as_str() {
+        return Some(vec![vec![answer.to_string()]]);
+    }
+
     if let Some(items) = answers.as_array() {
         let parsed = items
             .iter()
@@ -104,7 +108,7 @@ pub fn format_answers_markdown(updated_input: &Value) -> Option<String> {
     Some(formatted)
 }
 
-fn extract_question_labels(updated_input: &Value) -> Vec<String> {
+pub(crate) fn extract_question_labels(updated_input: &Value) -> Vec<String> {
     updated_input
         .get("questions")
         .and_then(Value::as_array)
@@ -162,6 +166,16 @@ mod tests {
         assert_eq!(
             extract_answer_lists(&updated_input),
             Some(vec![vec!["Legacy answer".to_string()]])
+        );
+    }
+
+    #[test]
+    fn extracts_single_string_answer() {
+        let updated_input = json!({"answers": "Question path"});
+
+        assert_eq!(
+            extract_answer_lists(&updated_input),
+            Some(vec![vec!["Question path".to_string()]])
         );
     }
 

@@ -32,6 +32,7 @@ pub mod editor;
 pub mod feature_events;
 pub mod feature_layouts;
 pub mod features;
+pub mod gate_registry;
 pub mod git;
 pub mod imports;
 pub mod lsp;

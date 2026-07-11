@@ -27,6 +27,7 @@ pub(super) struct SpawnSessionRequest {
     pub(super) codex_permission_mode: Option<String>,
     pub(super) source_note: Option<String>,
     pub(super) link_to_current_session: Option<bool>,
+    pub(super) await_result: Option<bool>,
     /// Optional target project to spawn into a project other than the caller's.
     pub(super) target_project_id: Option<i64>,
     /// Optional target project root path (alternative to `target_project_id`).
@@ -122,6 +123,7 @@ async fn spawn_into_target(
     body: &SpawnSessionRequest,
     started_at: std::time::Instant,
 ) -> Result<SpawnSessionResponse, AppError> {
+    validate_await_result(body)?;
     let (worktree_mode, reuse_branch, base_branch) =
         branch_worktree_settings(body.branch.as_ref())?;
     let runtime = resolve_spawn_runtime(state, source, target_project, body).await?;
@@ -165,15 +167,19 @@ async fn spawn_into_target(
     // target session behind while signalling failure, tempting the caller to spawn a
     // duplicate. Instead we surface the failure in the response so it can retry by
     // messaging the existing session.
-    let dispatch_error = match super::trimmed_optional(body.initial_message.as_deref()) {
-        Some(initial_message) => {
-            dispatch_control_prompt(state, created.id, session_id, &initial_message, true)
-                .await
-                .err()
-                .map(|error| error.to_string())
+    let mut dispatch_error =
+        dispatch_initial_message(state, created.id, session_id, body, message_id).await?;
+    if body.await_result.unwrap_or(false) {
+        if let Some(error) = dispatch_error.clone() {
+            if let Err(reply_error) =
+                super::reply_wait::deliver_failed(state, session_id, &error).await
+            {
+                dispatch_error = Some(format!(
+                    "{error}; automatic reply delivery also failed: {reply_error}"
+                ));
+            }
         }
-        None => None,
-    };
+    }
     let response = SpawnSessionResponse {
         feature_id: created.id,
         session_id,
@@ -208,6 +214,39 @@ async fn spawn_into_target(
     )
     .await?;
     Ok(response)
+}
+
+fn validate_await_result(body: &SpawnSessionRequest) -> Result<(), AppError> {
+    if body.await_result.unwrap_or(false)
+        && super::trimmed_optional(body.initial_message.as_deref()).is_none()
+    {
+        return Err(AppError::BadRequest(
+            "await_result=true requires initial_message".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn dispatch_initial_message(
+    state: &AppState,
+    feature_id: i64,
+    session_id: i64,
+    body: &SpawnSessionRequest,
+    message_id: Option<i64>,
+) -> Result<Option<String>, AppError> {
+    let Some(initial_message) = super::trimmed_optional(body.initial_message.as_deref()) else {
+        return Ok(None);
+    };
+    if body.await_result.unwrap_or(false) {
+        let message_id = message_id.expect("await_result requires a persisted message");
+        super::reply_wait::arm(&state.write_pool, session_id, message_id).await?;
+    }
+    Ok(
+        dispatch_control_prompt(state, feature_id, session_id, &initial_message, true)
+            .await
+            .err()
+            .map(|error| error.to_string()),
+    )
 }
 
 async fn audit_spawn_error(
@@ -273,6 +312,7 @@ mod tests {
         super::super::scope::SessionScope {
             session_id: 100,
             feature_id: 10,
+            feature_title: "Source feature".to_string(),
             project_id: 7,
             status: "active".to_string(),
         }

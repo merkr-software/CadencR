@@ -65,6 +65,10 @@ pub struct PermissionRequestPayload {
     pub options: Vec<PermissionOptionPayload>,
 }
 
+pub fn is_question_tool(tool_name: &str) -> bool {
+    tool_name == "AskUserQuestion"
+}
+
 pub fn permission_request_envelope(payload: impl Serialize) -> serde_json::Result<WsEnvelope> {
     WsEnvelope::session_event(WsSessionAction::PermissionRequest, payload)
 }
@@ -323,5 +327,11 @@ mod tests {
 
         let value = serde_json::to_value(&payload).unwrap();
         assert_eq!(value["context_window"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn canonical_question_tool_is_distinct_from_permissions() {
+        assert!(is_question_tool("AskUserQuestion"));
+        assert!(!is_question_tool("Bash"));
     }
 }
