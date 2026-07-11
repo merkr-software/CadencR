@@ -32,6 +32,7 @@ import { GitSection } from "@/components/settings/GitSection";
 import { ProvidersSection } from "@/components/settings/ProvidersSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
+import { AgentSummaryModeToggle } from "@/components/settings/AgentSummaryModeToggle";
 import { ThemeSelector } from "@/components/settings/ThemeSelector";
 import { FileTreeIconSetSelector } from "@/components/settings/FileTreeIconSetSelector";
 import { LspServerList } from "@/components/settings/LspServerList";
@@ -259,6 +260,7 @@ function AppearanceSection(): React.JSX.Element {
           description="Control how much of each agent turn stays expanded in the stream. Switching modes does not affect what the agent does — only how its output is rendered."
         >
           <AgentVerbositySettings />
+          <AgentSummaryModeToggle />
         </SettingsSubsection>
       </SettingsCard>
     </SettingsSection>

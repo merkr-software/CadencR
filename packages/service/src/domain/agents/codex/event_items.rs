@@ -16,8 +16,9 @@ use super::event_payloads::{
 use super::event_plan_item::plan_item;
 use super::event_reasoning::reasoning_item_event;
 use super::event_state::IndexState;
+use super::event_subagent_activity::subagent_activity_events;
 use super::event_subagents::{
-    agent_tool_input, synthesize_subagent_messages, synthesize_subagent_prompt,
+    agent_tool_block, synthesize_subagent_messages, synthesize_subagent_prompt,
 };
 use crate::domain::agents::adapter::{
     RuntimeContentBlock, RuntimeEvent, RuntimeEventKind, RuntimeStreamEvent,
@@ -55,6 +56,9 @@ pub(super) fn item_events(
     };
     let item_value = parsed.item.as_value();
     let item_type = parsed.item.item_type.clone();
+    if item_type == "subAgentActivity" {
+        return subagent_activity_events(parsed.thread_id(), &parsed.item, index_state);
+    }
     let params = parsed.into_raw();
     match item_type.as_str() {
         "agentMessage" => text_item(params, completed, index_state),
@@ -312,11 +316,7 @@ fn spawn_agent_collab_events(
 
     let mut events = Vec::new();
     if !index_state.has_index(&item_id) {
-        let block = RuntimeContentBlock::ToolUse {
-            id: canonical_id.clone(),
-            name: "Agent".to_string(),
-            input: agent_tool_input(item),
-        };
+        let block = agent_tool_block(&canonical_id, item);
         events.push(stream_start_event(
             &session_id,
             index_state.index_for(&item_id),

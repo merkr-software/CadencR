@@ -17,6 +17,7 @@ export const ONBOARDING_STEPS = [
   "discover_cli",
   "choose_workspace",
   "pick_agent",
+  "preferences",
   "first_prompt",
   "completed",
 ] as const;

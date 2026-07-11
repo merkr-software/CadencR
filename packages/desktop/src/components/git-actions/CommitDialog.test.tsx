@@ -14,7 +14,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent } from "@testing-library/react";
+import type { ReactElement } from "react";
 import { render, screen, waitFor } from "@/test-utils";
+import { useCommitOutputStore } from "@/stores/useCommitOutputStore";
+import { useCommitSubmission } from "./useCommitSubmission";
 
 // Stable mock return values: the dialog has a `useEffect` keyed on the file
 // list reference; if we built a fresh array every render the effect would
@@ -58,12 +61,24 @@ vi.mock("sonner", () => ({
 
 import CommitDialog from "./CommitDialog";
 
+interface TestCommitDialogProps {
+  featureId: number;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+function TestCommitDialog({ featureId, open, onOpenChange }: TestCommitDialogProps): ReactElement {
+  const submission = useCommitSubmission({ featureId, open, onOpenChange });
+  return <CommitDialog featureId={featureId} open={open} submission={submission} />;
+}
+
 beforeEach(() => {
   mocks.mutateAsyncMock.mockReset();
   mocks.useCommitMock.mockClear();
   mocks.useGetUncommittedFilesMock.mockClear();
   mocks.toastSuccessMock.mockReset();
   mocks.toastErrorMock.mockReset();
+  useCommitOutputStore.setState({ byFeature: {} });
 });
 
 describe("CommitDialog", () => {
@@ -72,7 +87,7 @@ describe("CommitDialog", () => {
     const onOpenChange = vi.fn();
 
     const { user } = render(
-      <CommitDialog featureId={42} open={true} onOpenChange={onOpenChange} />,
+      <TestCommitDialog featureId={42} open={true} onOpenChange={onOpenChange} />,
     );
 
     const textarea = screen.getByPlaceholderText("Commit message");
@@ -101,7 +116,9 @@ describe("CommitDialog", () => {
     });
     const onOpenChange = vi.fn();
 
-    const { user } = render(<CommitDialog featureId={1} open={true} onOpenChange={onOpenChange} />);
+    const { user } = render(
+      <TestCommitDialog featureId={1} open={true} onOpenChange={onOpenChange} />,
+    );
 
     await user.type(screen.getByPlaceholderText("Commit message"), "msg");
     await user.click(screen.getByRole("button", { name: "Commit" }));
@@ -116,7 +133,9 @@ describe("CommitDialog", () => {
     mocks.mutateAsyncMock.mockRejectedValueOnce(new Error("network down"));
     const onOpenChange = vi.fn();
 
-    const { user } = render(<CommitDialog featureId={1} open={true} onOpenChange={onOpenChange} />);
+    const { user } = render(
+      <TestCommitDialog featureId={1} open={true} onOpenChange={onOpenChange} />,
+    );
 
     await user.type(screen.getByPlaceholderText("Commit message"), "msg");
     await user.click(screen.getByRole("button", { name: "Commit" }));
@@ -127,8 +146,54 @@ describe("CommitDialog", () => {
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
 
+  it("lets the user continue a running pre-commit hook in the background", async () => {
+    let resolveCommit: ((value: { success: boolean; error: null }) => void) | undefined;
+    mocks.mutateAsyncMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveCommit = resolve;
+      }),
+    );
+    const onOpenChange = vi.fn();
+    const { user } = render(
+      <TestCommitDialog featureId={9} open={true} onOpenChange={onOpenChange} />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Commit message"), "feat: background hook");
+    await user.click(screen.getByRole("button", { name: "Commit" }));
+
+    expect(screen.getByText("Committing changes")).toBeInTheDocument();
+    expect(screen.getByText(/Pre-commit hooks are running/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run in background" }));
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(useCommitOutputStore.getState().byFeature[9]?.status).toBe("running");
+
+    resolveCommit?.({ success: true, error: null });
+    await waitFor(() => {
+      expect(mocks.toastSuccessMock).toHaveBeenCalledWith("Background commit completed");
+    });
+  });
+
+  it("moves an already-running commit to the background on Meta+Enter", async () => {
+    mocks.mutateAsyncMock.mockReturnValueOnce(new Promise(() => {}));
+    const onOpenChange = vi.fn();
+    const { user } = render(
+      <TestCommitDialog featureId={10} open={true} onOpenChange={onOpenChange} />,
+    );
+
+    await user.type(screen.getByPlaceholderText("Commit message"), "feat: keyboard background");
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+    expect(screen.getByText("Committing changes")).toBeInTheDocument();
+
+    await user.keyboard("{Meta>}{Enter}{/Meta}");
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(useCommitOutputStore.getState().byFeature[10]?.status).toBe("running");
+    expect(mocks.mutateAsyncMock).toHaveBeenCalledTimes(1);
+  });
+
   it("disables the submit button when the message is empty", () => {
-    render(<CommitDialog featureId={1} open={true} onOpenChange={() => {}} />);
+    render(<TestCommitDialog featureId={1} open={true} onOpenChange={() => {}} />);
     const button = screen.getByRole("button", { name: "Commit" });
     expect(button).toBeDisabled();
   });
@@ -137,7 +202,9 @@ describe("CommitDialog", () => {
     mocks.mutateAsyncMock.mockResolvedValueOnce({ success: true, error: null });
     const onOpenChange = vi.fn();
 
-    const { user } = render(<CommitDialog featureId={7} open={true} onOpenChange={onOpenChange} />);
+    const { user } = render(
+      <TestCommitDialog featureId={7} open={true} onOpenChange={onOpenChange} />,
+    );
 
     const textarea = screen.getByPlaceholderText("Commit message");
     await user.type(textarea, "feat: shortcut");
@@ -159,7 +226,9 @@ describe("CommitDialog", () => {
     mocks.mutateAsyncMock.mockResolvedValueOnce({ success: true, error: null });
     const onOpenChange = vi.fn();
 
-    const { user } = render(<CommitDialog featureId={7} open={true} onOpenChange={onOpenChange} />);
+    const { user } = render(
+      <TestCommitDialog featureId={7} open={true} onOpenChange={onOpenChange} />,
+    );
 
     await user.type(screen.getByPlaceholderText("Commit message"), "feat: global shortcut");
     fireEvent.keyDown(document.body, { key: "Enter", code: "Enter", metaKey: true });
@@ -173,13 +242,25 @@ describe("CommitDialog", () => {
   });
 
   it("does not submit on bare Enter inside the textarea (newline insertion)", async () => {
-    const { user } = render(<CommitDialog featureId={7} open={true} onOpenChange={() => {}} />);
+    const { user } = render(<TestCommitDialog featureId={7} open={true} onOpenChange={() => {}} />);
 
     const textarea = screen.getByPlaceholderText("Commit message");
     await user.type(textarea, "line one{Enter}line two");
 
     expect(mocks.mutateAsyncMock).not.toHaveBeenCalled();
     expect((textarea as HTMLTextAreaElement).value).toBe("line one\nline two");
+  });
+
+  it("resets the draft when a controlled dialog closes", async () => {
+    const { user, rerender } = render(
+      <TestCommitDialog featureId={7} open={true} onOpenChange={vi.fn()} />,
+    );
+    await user.type(screen.getByPlaceholderText("Commit message"), "temporary draft");
+
+    rerender(<TestCommitDialog featureId={7} open={false} onOpenChange={vi.fn()} />);
+    rerender(<TestCommitDialog featureId={7} open={true} onOpenChange={vi.fn()} />);
+
+    expect(screen.getByPlaceholderText("Commit message")).toHaveValue("");
   });
 });
 
@@ -211,7 +292,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
     mocks.mutateAsyncMock.mockResolvedValueOnce({ success: true, error: null });
 
     const { user, rerender } = render(
-      <CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
+      <TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
     );
 
     // All three default-selected on first load.
@@ -230,7 +311,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
     // returning the same array; force a re-render so the dialog re-runs
     // its default-select effect with a fresh `files` reference.
     setFiles([makeFile("src/a.ts"), makeFile("src/b.ts"), makeFile("src/c.ts")]);
-    rerender(<CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
+    rerender(<TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
 
     // b must remain deselected — the bug we're guarding against was that
     // the default-select effect reset selection to {a, b, c}.
@@ -250,7 +331,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
     mocks.mutateAsyncMock.mockResolvedValueOnce({ success: true, error: null });
 
     const { user, rerender } = render(
-      <CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
+      <TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
     );
 
     await screen.findByLabelText(/src\/b\.ts/);
@@ -259,7 +340,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
     // outside the app). Selection should also drop b without disturbing
     // a / c.
     setFiles([makeFile("src/a.ts"), makeFile("src/c.ts")]);
-    rerender(<CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
+    rerender(<TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
 
     expect(screen.queryByLabelText(/src\/b\.ts/)).not.toBeInTheDocument();
 
@@ -274,7 +355,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
     mocks.mutateAsyncMock.mockResolvedValueOnce({ success: true, error: null });
 
     const { user, rerender } = render(
-      <CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
+      <TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />,
     );
 
     const cbB = (await screen.findByLabelText(/src\/b\.ts/)) as HTMLButtonElement;
@@ -290,7 +371,7 @@ describe("CommitDialog file-selection persistence across refetch", () => {
       makeFile("src/c.ts"),
       makeFile("src/d.ts"),
     ]);
-    rerender(<CommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
+    rerender(<TestCommitDialog featureId={1} open={true} onOpenChange={vi.fn()} />);
 
     expect((await screen.findByLabelText(/src\/d\.ts/)).getAttribute("aria-checked")).toBe("true");
     expect((await screen.findByLabelText(/src\/b\.ts/)).getAttribute("aria-checked")).toBe("false");

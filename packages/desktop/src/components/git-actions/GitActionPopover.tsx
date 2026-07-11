@@ -12,7 +12,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import type { GitAction, GitActionState } from "./useGitAction";
+import type { CommitActivity, GitAction, GitActionState } from "./useGitAction";
 
 export const ICONS: Record<GitAction, ComponentType<{ className?: string }>> = {
   commit: GitCommit,
@@ -32,10 +32,15 @@ const ACTIONS: readonly GitAction[] = ["commit", "push", "pr", "merge"] as const
 
 interface GitActionPopoverProps {
   state: GitActionState;
+  commitActivity?: CommitActivity;
   onPick: (action: GitAction) => void;
 }
 
-export function GitActionPopover({ state, onPick }: GitActionPopoverProps): ReactElement {
+export function GitActionPopover({
+  state,
+  commitActivity = null,
+  onPick,
+}: GitActionPopoverProps): ReactElement {
   return (
     <Command>
       <CommandInput autoFocus placeholder="Search git actions…" />
@@ -44,8 +49,15 @@ export function GitActionPopover({ state, onPick }: GitActionPopoverProps): Reac
         <CommandGroup>
           {ACTIONS.map((action) => {
             const Icon = ICONS[action];
-            const reason = state.disabled[action];
-            const label = action === "pr" ? state.compareLabel : ACTION_LABELS[action];
+            const reason = action === "commit" && commitActivity ? null : state.disabled[action];
+            const label =
+              action === "commit" && commitActivity === "running"
+                ? "View commit progress"
+                : action === "commit" && commitActivity === "failed"
+                  ? "View commit error"
+                  : action === "pr"
+                    ? state.compareLabel
+                    : ACTION_LABELS[action];
             return (
               <CommandItem
                 key={action}

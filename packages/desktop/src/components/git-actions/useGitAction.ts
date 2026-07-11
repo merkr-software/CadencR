@@ -11,6 +11,7 @@ import { useMemo } from "react";
 import type { GitStatusSnapshot } from "@/api/generated";
 
 export type GitAction = "commit" | "push" | "pr" | "merge";
+export type CommitActivity = "running" | "failed" | null;
 
 export interface GitActionState {
   primary: GitAction | null;

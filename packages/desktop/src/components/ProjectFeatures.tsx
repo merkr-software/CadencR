@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { useLiveFeatureMeta } from "@/hooks/useLiveFeatureMeta";
 import { useNavigate } from "@tanstack/react-router";
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
 import { WorktreeGroup } from "@/components/WorktreeGroup";
+import { FeatureSubtree } from "@/components/FeatureSubtree";
+import { ArchivedFeatureList } from "@/components/ArchivedFeatureList";
+import { buildFeatureForest } from "@/lib/feature-hierarchy";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useListFeatures,
@@ -98,25 +100,31 @@ export function ProjectFeatures({
     return map;
   }, [featureWorktrees]);
 
-  // Pinned features are pulled out here so they don't appear in this project's
-  // flat list or worktree groups — they render in the global "Pinned" section
-  // above the project list (`SidebarPinnedConversations`).
+  const activeForest = useMemo(
+    () => buildFeatureForest(activeFeatures.filter((feature) => !feature.is_pinned)),
+    [activeFeatures],
+  );
+  const rootNodeByFeatureId = useMemo(
+    () => new Map(activeForest.map((node) => [node.feature.id, node])),
+    [activeForest],
+  );
+  // Hierarchy wins over worktree grouping: only subtree roots are partitioned;
+  // every spawned descendant stays with its parent even when it owns a worktree.
   const { worktreeGroups, flatActiveFeatures } = useMemo(
-    () => partitionActiveFeatures(activeFeatures, worktreeByFeatureId, projectPath),
-    [activeFeatures, worktreeByFeatureId, projectPath],
+    () =>
+      partitionActiveFeatures(
+        activeForest.map((node) => node.feature),
+        worktreeByFeatureId,
+        projectPath,
+      ),
+    [activeForest, worktreeByFeatureId, projectPath],
   );
 
-  // Live WS-pushed titles from auto-naming. Narrowly subscribed so the sidebar
-  // does not re-reconcile on every stream delta of any session (see
-  // useLiveFeatureMeta).
   const liveMeta = useLiveFeatureMeta();
-
-  /** Resolve the live WS title for a feature, or undefined to fall back to HTTP data. */
   const getLiveTitle = (id: number): string | undefined => {
     return liveMeta[wsSessionIdFromFeature(id)]?.featureTitle ?? undefined;
   };
 
-  /** True while auto-naming is running for the given feature. */
   const isAutoNaming = (id: number): boolean => {
     return liveMeta[wsSessionIdFromFeature(id)]?.isAutoNaming ?? false;
   };
@@ -268,8 +276,6 @@ export function ProjectFeatures({
     [handleUpdateFeatureStatus],
   );
 
-  // Counts come in from the row (which already has them) so this callback stays
-  // referentially stable across the sidebar's activity polling.
   const closeFeatureActivity = useCloseFeatureActivity();
   const handleCloseActivity = useCallback(
     (featureId: number, shellCount: number, browserCount: number): void => {
@@ -278,7 +284,7 @@ export function ProjectFeatures({
     [closeFeatureActivity, projectId],
   );
 
-  const renderFeature = (feature: Feature) => (
+  const renderFeature = (feature: Feature, hierarchyControl?: ReactNode) => (
     <ProjectFeatureRow
       key={feature.id}
       feature={feature}
@@ -304,8 +310,18 @@ export function ProjectFeatures({
       onUnarchive={handleUnarchiveFeature}
       onTogglePin={handleTogglePin}
       onCloseActivity={handleCloseActivity}
+      hierarchyControl={hierarchyControl}
     />
   );
+
+  const renderSubtree = (feature: Feature) => {
+    const node = rootNodeByFeatureId.get(feature.id);
+    return node ? (
+      <FeatureSubtree key={feature.id} node={node} renderFeature={renderFeature} />
+    ) : (
+      renderFeature(feature)
+    );
+  };
 
   const confirmFeature = features.find((f) => f.id === confirmFeatureId);
   const isConfirmDelete = confirmFeature?.status === ARCHIVED_FEATURE_STATUS;
@@ -332,10 +348,10 @@ export function ProjectFeatures({
           key={group.key}
           label={group.label}
           features={group.features}
-          renderFeature={renderFeature}
+          renderFeature={renderSubtree}
         />
       ))}
-      {flatActiveFeatures.map(renderFeature)}
+      {flatActiveFeatures.map(renderSubtree)}
 
       <ArchiveFeatureDialog
         open={confirmFeatureId != null && confirmAction === "archive"}
@@ -367,29 +383,12 @@ export function ProjectFeatures({
         }}
       />
 
-      {archivedFeatures.length > 0 && (
-        <>
-          <button
-            type="button"
-            className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => setShowArchived((value) => !value)}
-          >
-            <span className="flex-1 border-t border-border/50" />
-            {showArchived ? (
-              <ChevronDownIcon className="size-3 shrink-0" />
-            ) : (
-              <ChevronRightIcon className="size-3 shrink-0" />
-            )}
-            <span className="shrink-0">Archived ({archivedFeatures.length})</span>
-            <span className="flex-1 border-t border-border/50" />
-          </button>
-          {showArchived && (
-            <div className="max-h-[calc(5*2.25rem)] overflow-y-auto">
-              {archivedFeatures.map(renderFeature)}
-            </div>
-          )}
-        </>
-      )}
+      <ArchivedFeatureList
+        features={archivedFeatures}
+        expanded={showArchived}
+        onToggle={() => setShowArchived((value) => !value)}
+        renderFeature={renderFeature}
+      />
     </div>
   );
 }

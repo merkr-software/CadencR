@@ -1,5 +1,6 @@
 import type { Loader2Icon } from "lucide-react";
 import type { AgentBlockData } from "../AgentBlock";
+import type { DisplayRowMode } from "../agentStreamDisplay";
 import type { AgentType } from "../../types/agent-types";
 import type { PromptAttachmentPayload } from "../../types/agent-types";
 import type { AgentQuestion, AgentQuestionAnswers } from "../AgentQuestionDrawer";
@@ -192,9 +193,10 @@ export interface AgentSessionProps {
    * Called when user scrolls to top and older messages should be loaded.
    * Resolves with the number of blocks that were prepended (or `void` for
    * legacy callers that haven't migrated). WS sessions preserve prepend
-   * anchoring through `historyPrependDisplayOffset`.
+   * anchoring through `historyPrependDisplayOffset`. `displayMode` sizes the
+   * prepend to the rows actually rendered under summary/compact collapse.
    */
-  onLoadOlder?: () => Promise<number | void>;
+  onLoadOlder?: (displayMode?: DisplayRowMode) => Promise<number | void>;
   /**
    * Pre-first-prompt branch/worktree picker — a two-chip group: a Branch chip
    * (chevron + virtualized branch list, default = the project's current

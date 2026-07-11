@@ -76,6 +76,20 @@ pub(crate) async fn handle_interrupt(
         if let Err(e) = q.interrupt().await {
             error!(db_session_id, error = %e, "interrupt failed");
             send_error(sender, &envelope.id, "SDK_ERROR", &e.to_string());
+        } else if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_failed(
+            app_state,
+            db_session_id,
+            "The responder turn was interrupted.",
+        )
+        .await
+        {
+            error!(db_session_id, error = %error, "failed to deliver MCP interruption reply");
+            send_error(
+                sender,
+                &envelope.id,
+                "REPLY_DELIVERY_ERROR",
+                &error.to_string(),
+            );
         }
     } else {
         send_error(sender, &envelope.id, "INVALID_STATE", "Session not active");

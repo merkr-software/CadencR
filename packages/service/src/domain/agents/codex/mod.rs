@@ -18,6 +18,8 @@ mod event_raw;
 mod event_raw_tests;
 mod event_reasoning;
 mod event_state;
+mod event_subagent_activity;
+mod event_subagent_routes;
 mod event_subagents;
 mod event_system;
 mod event_turn_state;

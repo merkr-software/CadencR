@@ -9,6 +9,19 @@ export type AgentVerbosityMode = (typeof AGENT_VERBOSITY_MODES)[number];
 
 export const DEFAULT_AGENT_VERBOSITY_MODE: AgentVerbosityMode = "maximal";
 
+/**
+ * Workspace setting key for "Summary mode". Independent of the verbosity mode
+ * above: when enabled, each agent turn's tool calls are collapsed into a single
+ * recap block (per-tool counts) followed by the turn's final message. Stored as
+ * the string "true" / "false"; unset (null) resolves to `false`.
+ */
+export const AGENT_SUMMARY_MODE_SETTING_KEY = "agent_stream_summary_mode";
+
+/** Parse the persisted `agent_stream_summary_mode` setting. Defaults to false. */
+export function parseAgentSummaryMode(value: string | null | undefined): boolean {
+  return value === "true";
+}
+
 /** Delay before a finished block auto-collapses in `auto_collapse` mode. */
 export const AGENT_AUTO_COLLAPSE_DELAY_MS = 3000;
 

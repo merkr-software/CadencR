@@ -200,6 +200,16 @@ describe("DiffViewer", () => {
     expect(screen.getByText("src/foo.ts")).toBeInTheDocument();
   });
 
+  it("does not re-render the diff tree for an identical parent render", () => {
+    withFooFile();
+    const { rerender } = render(<DiffViewer featureId={1} mode="worktree" />);
+    const queryHookCalls = mocks.useGetChangedFilesMock.mock.calls.length;
+
+    rerender(<DiffViewer featureId={1} mode="worktree" />);
+
+    expect(mocks.useGetChangedFilesMock).toHaveBeenCalledTimes(queryHookCalls);
+  });
+
   it("renders the file copy and collapse controls in the file header", () => {
     withFooFile();
     render(<DiffViewer featureId={1} mode="worktree" />);
@@ -290,7 +300,7 @@ describe("DiffViewer", () => {
     expect(filterInput?.closest("[aria-hidden='true']")).not.toBeNull();
   });
 
-  it("expands a previously viewed file when its blob SHA changes", async () => {
+  it("keeps a collapsed file collapsed when its viewed blob SHA changes", async () => {
     withFooFile();
     mocks.useGetFileBlobShasMock.mockReturnValue({
       data: [{ file_path: "src/foo.ts", sha: "old-sha" }],
@@ -315,10 +325,8 @@ describe("DiffViewer", () => {
     });
     rerender(<DiffViewer featureId={1} mode="worktree" />);
 
-    expect(await screen.findByTestId("patch-diff-view")).toHaveAttribute(
-      "data-patch",
-      singleFileDiff,
-    );
+    await vi.waitFor(() => expect(screen.queryByTestId("patch-diff-view")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Expand src/foo.ts" })).toBeInTheDocument();
   });
 
   it("does not emit nested button warnings for file headers", () => {

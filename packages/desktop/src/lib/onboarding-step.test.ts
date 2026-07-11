@@ -32,6 +32,7 @@ describe("onboarding-step", () => {
         "discover_cli",
         "choose_workspace",
         "pick_agent",
+        "preferences",
         "first_prompt",
         "completed",
       ] as const;
@@ -47,7 +48,8 @@ describe("onboarding-step", () => {
 
   describe("previousOnboardingStep", () => {
     it("walks back through every step", () => {
-      expect(previousOnboardingStep("first_prompt")).toBe("pick_agent");
+      expect(previousOnboardingStep("first_prompt")).toBe("preferences");
+      expect(previousOnboardingStep("preferences")).toBe("pick_agent");
       expect(previousOnboardingStep("pick_agent")).toBe("choose_workspace");
       expect(previousOnboardingStep("choose_workspace")).toBe("discover_cli");
       expect(previousOnboardingStep("discover_cli")).toBe("welcome");

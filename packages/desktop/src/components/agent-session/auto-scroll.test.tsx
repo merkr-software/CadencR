@@ -191,6 +191,57 @@ function userWheelUp(el: HTMLElement, scrollTop: number): void {
   dispatchScroll(el, scrollTop);
 }
 
+const IPHONE_USER_AGENT =
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+
+/**
+ * Drive the shared "user scrolls to the top from 80px, a page of older
+ * history loads, then Virtuoso reports the taller remeasured height" flow used
+ * by both prepend-anchoring tests. Returns the scroller so each test asserts
+ * only the behaviour that differs (desktop compensates scrollTop; iOS leaves
+ * it alone).
+ */
+function loadOlderHistoryPage(): HTMLElement {
+  let resolveLoad: () => void = () => {};
+  const onLoadOlder = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        resolveLoad = resolve;
+      }),
+  );
+  const baseProps = {
+    agentType: "session" as const,
+    status: "agent" as const,
+    onSend: vi.fn(),
+    onStop: vi.fn(),
+    hasMore: true,
+    onLoadOlder,
+  };
+
+  const { rerender } = render(<AgentSession {...baseProps} blocks={[makeBlock("1", "Old")]} />);
+  const scroller = getScroller();
+  // Reading 80px from the top of a 600px-tall list. WheelUp also disengages
+  // stick so the layout effect doesn't pull us back to the bottom.
+  stubGeometry(scroller, 600, 200);
+  userWheelUp(scroller, 80);
+
+  fireStartReached();
+  expect(onLoadOlder).toHaveBeenCalledTimes(1);
+
+  // Older blocks land at the front; once resolved, Virtuoso reports the taller
+  // total height via `totalListHeightChanged`.
+  act(() => resolveLoad());
+  stubGeometry(scroller, 1000, 200);
+  rerender(
+    <AgentSession
+      {...baseProps}
+      blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("1", "Old")]}
+    />,
+  );
+  fireTotalHeightChange(1000);
+  return scroller;
+}
+
 describe("AgentSession auto-scroll", () => {
   beforeEach(() => {
     Element.prototype.hasPointerCapture ??= vi.fn(() => false);
@@ -719,47 +770,39 @@ describe("AgentSession auto-scroll", () => {
   // visible content stays anchored instead of jumping upward into the newly
   // loaded history.
   it("compensates scrollTop by the measured height delta after older messages are prepended", async () => {
-    let resolveLoad: () => void = () => {};
-    const onLoadOlder = vi.fn(
-      () =>
-        new Promise<void>((resolve) => {
-          resolveLoad = resolve;
-        }),
-    );
-    const baseProps = {
-      agentType: "session" as const,
-      status: "agent" as const,
-      onSend: vi.fn(),
-      onStop: vi.fn(),
-      hasMore: true,
-      onLoadOlder,
-    };
-
-    const { rerender } = render(<AgentSession {...baseProps} blocks={[makeBlock("1", "Old")]} />);
-    const scroller = getScroller();
-    // Reading 80px from the top of a 600px-tall list. WheelUp also disengages
-    // stick so the layout effect doesn't pull us back to the bottom on the
-    // next render.
-    stubGeometry(scroller, 600, 200);
-    userWheelUp(scroller, 80);
-
-    fireStartReached();
-    expect(onLoadOlder).toHaveBeenCalledTimes(1);
-
-    // Older blocks land at the front. The hook leaves scrollTop alone;
-    // once Virtuoso reports the measured total height, the hook preserves
-    // the previous visual anchor by adding the measured scrollHeight delta.
-    act(() => resolveLoad());
-    stubGeometry(scroller, 1000, 200);
-    rerender(
-      <AgentSession
-        {...baseProps}
-        blocks={[makeBlock("0a", ""), makeBlock("0b", ""), makeBlock("1", "Old")]}
-      />,
-    );
-    fireTotalHeightChange(1000);
-
+    // Older blocks land at the front. The hook leaves scrollTop alone until
+    // Virtuoso reports the measured total height, then preserves the previous
+    // visual anchor by adding the measured scrollHeight delta (200 → 1000 over
+    // a viewport of 200, so 80 + 400).
+    const scroller = loadOlderHistoryPage();
     await waitFor(() => expect(scroller.scrollTop).toBe(480));
+  });
+
+  // iOS regression (remote SPA on Safari): momentum scrolling keeps moving
+  // the viewport after the history request captures its anchor, and Virtuoso
+  // itself defers upward-resize compensation into a CSS deviation until the
+  // scroll settles. Replaying the stale absolute anchor snapped the view back
+  // *down* while the user was scrolling up. On iOS the hook must leave
+  // scrollTop alone and let Virtuoso's `firstItemIndex` anchoring own the
+  // prepend.
+  it("does not rewrite scrollTop after older messages are prepended on iOS", async () => {
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: IPHONE_USER_AGENT,
+    });
+    try {
+      const scroller = loadOlderHistoryPage();
+      // Flush the scheduled restore frames (the hook schedules 3 rAF passes
+      // plus a settle timeout) — none of them may touch scrollTop on iOS.
+      await act(async () => {
+        for (let i = 0; i < 4; i += 1) {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        }
+      });
+      expect(scroller.scrollTop).toBe(80);
+    } finally {
+      Reflect.deleteProperty(navigator, "userAgent");
+    }
   });
 
   // Conversation switch: the same `AgentSession` instance is reused when the

@@ -1,6 +1,11 @@
-These rules apply to frontend code under `packages/desktop/src/`. The app is an IDE; technical users expect IDE-level responsiveness. Performance is a hard constraint, not an afterthought — think about render cost, subscription scope, and main-thread work *before* writing the change. The existing generic `performance.md` rule still applies; this one is the detailed, mandatory version for frontend code.
+---
+paths:
+  - "packages/desktop/src/**"
+---
 
-## Mandatory practices
+These rules apply to frontend code under `packages/desktop/src/`. The app is an IDE; technical users expect IDE-level responsiveness. Performance is a hard constraint, not an afterthought — think about render cost, subscription scope, main-thread work, and redundant network calls *before* writing the change.
+
+### Mandatory practices
 
 - **Always select from Zustand stores.** Never call a store hook without a selector (`useFooStore()` subscribes the consumer to every mutation, on every session). Always select the slice you actually read: `useFooStore((s) => s.fieldA)`. Read actions outside the render flow via `useFooStore.getState()` when they don't need to drive UI updates.
 - **Stabilize hook return values.** A custom hook that returns a fresh object literal each render breaks every downstream `useMemo` and `React.memo`. Wrap the return in `useMemo` keyed on the primitive fields it depends on, or split state and actions into separate hooks.
@@ -9,7 +14,7 @@ These rules apply to frontend code under `packages/desktop/src/`. The app is an 
 - **Bound main-thread work.** Synchronous parsing, syntax highlighting, or markdown rendering at mount must be cached, gated by viewport, or offloaded (`requestIdleCallback`, Web Worker). No unbounded synchronous work on first paint.
 - **Lazy-load heavy modules.** Editors (CodeMirror), syntax-highlighting grammars, image/video decoders, and any module > 100 KB gzipped must be code-split via dynamic `import()` or `React.lazy`.
 
-## Forbidden patterns
+### Forbidden patterns
 
 - Subscribing a hot component to an entire store (no selector), or returning the raw store from a wrapper hook.
 - Returning a fresh object literal from a custom hook without `useMemo`.

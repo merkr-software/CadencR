@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { memo, useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { GIT_DIFF_VIEW_MODE_KEY, parseGitDiffViewMode } from "@/lib/git-diff-view-mode";
 import { useTheme } from "@/hooks/useTheme";
@@ -9,10 +9,7 @@ import type { CommentSide } from "./PatchDiffView";
 import { DiffViewerBottomBar } from "./DiffViewerBottomBar";
 import { useDiffData, type DiffMode } from "./useDiffData";
 import { useDiffKeyboard } from "./useDiffKeyboard";
-import {
-  useCollapseLargeFilesOnLoad,
-  useExpandFilesWhenViewedReset,
-} from "./useViewedFileCollapseSync";
+import { useCollapseLargeFilesOnLoad } from "./useLargeFileCollapse";
 import { scrollFileToTop } from "./scroll-to-file";
 import type { ActiveWidget, CommentCallbacks, CommentLineData } from "./diff-comment-decorations";
 import type { DiffComment } from "./DiffCommentWidget";
@@ -36,7 +33,7 @@ interface DiffViewerProps {
 
 const GIT_SIDEBAR_COLLAPSED_SETTING = "git_sidebar_collapsed";
 
-export function DiffViewer({
+function DiffViewerImpl({
   featureId,
   mode,
   targetBranch,
@@ -155,7 +152,6 @@ export function DiffViewer({
     }
   }, [data.viewedFilesSet, data.hasInitializedCollapse]);
 
-  useExpandFilesWhenViewedReset(data.viewedFilesSet, setCollapsedFiles);
   useCollapseLargeFilesOnLoad(data.changedFiles, setCollapsedFiles);
 
   const scrollToFileIndex = useCallback(
@@ -368,3 +364,8 @@ export function DiffViewer({
     </div>
   );
 }
+
+// The Git panel is mounted beside a streaming agent. Parent toolbar/badge
+// updates must not make the diff tree render again; its own React Query hooks
+// still update it immediately when changed-files or a per-file patch changes.
+export const DiffViewer = memo(DiffViewerImpl);

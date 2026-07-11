@@ -1,13 +1,11 @@
 //! Pending user-input restoration for `session.init`.
 
-use axum::extract::ws::Message;
-use serde_json::Value;
-
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::{permission_request_envelope, PermissionRequestPayload};
 use super::super::WsSender;
 use crate::app_state::AppState;
 use crate::domain::session_status::{AgentStatus, PendingKind};
+use axum::extract::ws::Message;
 
 pub(super) async fn restore_pending_or_idle(
     app_state: &AppState,
@@ -16,37 +14,16 @@ pub(super) async fn restore_pending_or_idle(
     feature_id: i64,
 ) {
     let row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await;
-    if let Some(ref row) = row {
-        if let Some(payload) = row
-            .pending_permission
-            .as_deref()
-            .and_then(|value| serde_json::from_str::<PermissionRequestPayload>(value).ok())
-        {
-            send_pending(
-                app_state,
-                sender,
-                db_session_id,
-                feature_id,
-                payload,
-                PendingKind::Permission,
-            );
-            return;
-        }
-        if let Some(payload) = row
-            .pending_questions
-            .as_deref()
-            .and_then(pending_question_payload)
-        {
-            send_pending(
-                app_state,
-                sender,
-                db_session_id,
-                feature_id,
-                payload,
-                PendingKind::Question,
-            );
-            return;
-        }
+    if let Some((kind, payload)) = row.as_ref().and_then(|row| row.pending_gate_payload()) {
+        send_pending(
+            app_state,
+            sender,
+            db_session_id,
+            feature_id,
+            payload,
+            kind.as_session_kind(),
+        );
+        return;
     }
 
     // No pending user input. Do NOT broadcast Idle if the turn is still
@@ -99,38 +76,9 @@ async fn clear_stale_pending(app_state: &AppState, db_session_id: i64, feature_i
     );
 }
 
-pub(super) fn pending_question_payload(value: &str) -> Option<PermissionRequestPayload> {
-    if let Ok(payload) = serde_json::from_str::<PermissionRequestPayload>(value) {
-        return Some(payload);
-    }
-    let raw = serde_json::from_str::<Value>(value).ok()?;
-    Some(PermissionRequestPayload {
-        request_id: raw.get("request_id").and_then(Value::as_str)?.to_string(),
-        tool_name: raw
-            .get("tool_name")
-            .and_then(Value::as_str)
-            .unwrap_or("AskUserQuestion")
-            .to_string(),
-        tool_input: raw.get("tool_input").cloned().unwrap_or(Value::Null),
-        description: raw
-            .get("description")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        pattern: raw
-            .get("pattern")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        preview: raw
-            .get("preview")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned),
-        options: Vec::new(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{pending_question_payload, restore_pending_or_idle};
+    use super::restore_pending_or_idle;
     use crate::app_state::AppState;
     use crate::domain::session_status::{AgentStatus, PendingKind};
     use axum::extract::ws::Message;
@@ -176,7 +124,24 @@ mod tests {
         })
         .to_string();
 
-        let payload = pending_question_payload(&stored).expect("payload");
+        let row = crate::domain::ws_session::persistence::SessionRow {
+            id: 1,
+            feature_id: 1,
+            runtime_provider: None,
+            runtime_session_id: None,
+            model: None,
+            profile: None,
+            permission_mode: None,
+            codex_permission_mode: None,
+            status: "running".into(),
+            pending_permission: None,
+            pending_questions: Some(stored),
+            input_tokens: None,
+            output_tokens: None,
+            context_window: None,
+            thinking_effort: None,
+        };
+        let (_, payload) = row.pending_gate_payload().expect("payload");
         assert_eq!(payload.request_id, "req_1");
         assert_eq!(payload.tool_name, "AskUserQuestion");
         assert_eq!(payload.tool_input["question"], "Proceed?");
@@ -195,9 +160,33 @@ mod tests {
         })
         .to_string();
 
-        let payload = pending_question_payload(&stored).expect("payload");
+        let row = crate::domain::ws_session::persistence::SessionRow {
+            pending_questions: Some(stored),
+            ..test_session_row()
+        };
+        let (_, payload) = row.pending_gate_payload().expect("payload");
         assert_eq!(payload.request_id, "req_2");
         assert_eq!(payload.description.as_deref(), Some("Codex question"));
+    }
+
+    fn test_session_row() -> crate::domain::ws_session::persistence::SessionRow {
+        crate::domain::ws_session::persistence::SessionRow {
+            id: 1,
+            feature_id: 1,
+            runtime_provider: None,
+            runtime_session_id: None,
+            model: None,
+            profile: None,
+            permission_mode: None,
+            codex_permission_mode: None,
+            status: "running".into(),
+            pending_permission: None,
+            pending_questions: None,
+            input_tokens: None,
+            output_tokens: None,
+            context_window: None,
+            thinking_effort: None,
+        }
     }
 
     #[tokio::test]

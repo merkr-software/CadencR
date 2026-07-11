@@ -60,7 +60,7 @@ beforeEach(() => {
   mocks.toastSuccess.mockReset();
   mocks.toastError.mockReset();
   // Wipe the streaming buffer between tests so seeded prompts don't leak.
-  usePushOutputStore.setState({ byFeature: {}, runningByFeature: {} });
+  usePushOutputStore.setState({ byFeature: {} });
 });
 
 /**

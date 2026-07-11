@@ -14,16 +14,17 @@ vi.mock("../api/generated", () => ({
 
 const mockSetQueryData = vi.fn();
 const mockGetQueryData = vi.fn();
+const mockQueryClient = {
+  invalidateQueries: mockInvalidateQueries,
+  getQueryData: mockGetQueryData,
+  setQueryData: mockSetQueryData,
+};
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-query")>();
   return {
     ...actual,
-    useQueryClient: vi.fn(() => ({
-      invalidateQueries: mockInvalidateQueries,
-      getQueryData: mockGetQueryData,
-      setQueryData: mockSetQueryData,
-    })),
+    useQueryClient: vi.fn(() => mockQueryClient),
   };
 });
 
@@ -45,6 +46,15 @@ describe("useDebouncedSetting", () => {
   it("returns the stored value from the query", () => {
     const { result } = renderHook(() => useDebouncedSetting("my-key"));
     expect(result.current.value).toBe("stored-value");
+  });
+
+  it("keeps the setter stable when the mutation result object is recreated", () => {
+    const { result, rerender } = renderHook(() => useDebouncedSetting("my-key"));
+    const initialSetter = result.current.setValue;
+
+    rerender();
+
+    expect(result.current.setValue).toBe(initialSetter);
   });
 
   it("does not call mutate immediately on setValue", () => {

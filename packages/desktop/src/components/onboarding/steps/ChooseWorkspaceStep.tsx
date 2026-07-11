@@ -5,6 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCreateProject, getListProjectsQueryKey, type Project } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import { desktopBridge } from "@/lib/desktop-bridge";
+import { NewProjectOnboardingDialog } from "@/components/NewProjectOnboardingDialog";
+import { useNewProjectOnboarding } from "@/lib/project-onboarding";
 import { OnboardingFooter } from "../OnboardingFooter";
 import { apiErrorMessage } from "@/lib/api-errors";
 import type { OnboardingStepProps } from "../OnboardingOverlay";
@@ -26,12 +28,16 @@ export function ChooseWorkspaceStep({
 }: OnboardingStepProps) {
   const queryClient = useQueryClient();
   const [createdProject, setCreatedProject] = useState<Project | null>(null);
+  const { onboardingProject, maybeOnboard, close: closeOnboarding } = useNewProjectOnboarding();
 
   const createProjectMutation = useCreateProject({
     mutation: {
       onSuccess: (project) => {
         setCreatedProject(project);
         void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
+        // The very first project is created here (not via the sidebar), so
+        // trigger the same per-project onboarding modal unless opted out.
+        maybeOnboard({ id: project.id, name: project.name });
       },
       onError: (err: unknown) => {
         const message = apiErrorMessage(err, "Unknown error");
@@ -66,42 +72,11 @@ export function ChooseWorkspaceStep({
         </p>
       </header>
 
-      <div className="rounded-md border border-border bg-muted/30 p-4 flex items-center gap-3">
-        <FolderOpen className="size-5 text-muted-foreground" />
-        <div className="flex-1 min-w-0 text-sm">
-          {createdProject ? (
-            <div className="space-y-0.5">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-500" />
-                <span className="font-medium">{createdProject.name}</span>
-              </div>
-              <code className="text-xs text-muted-foreground font-mono truncate block">
-                {createdProject.path}
-              </code>
-            </div>
-          ) : (
-            <span className="text-muted-foreground">No folder selected yet.</span>
-          )}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={pickFolder}
-          disabled={isCreating}
-        >
-          {isCreating ? (
-            <>
-              <Loader2 className="size-3 animate-spin" />
-              Creating…
-            </>
-          ) : createdProject ? (
-            "Choose another"
-          ) : (
-            "Choose folder…"
-          )}
-        </Button>
-      </div>
+      <FolderPickerCard
+        createdProject={createdProject}
+        isCreating={isCreating}
+        onPickFolder={pickFolder}
+      />
 
       <OnboardingFooter
         primaryLabel="Continue"
@@ -111,6 +86,66 @@ export function ChooseWorkspaceStep({
         onSkipStep={onSkipStep}
         skipStepLabel="Do this later"
       />
+
+      {onboardingProject ? (
+        <NewProjectOnboardingDialog
+          projectId={onboardingProject.id}
+          projectName={onboardingProject.name}
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) closeOnboarding();
+          }}
+        />
+      ) : null}
     </form>
+  );
+}
+
+function FolderPickerCard({
+  createdProject,
+  isCreating,
+  onPickFolder,
+}: {
+  createdProject: Project | null;
+  isCreating: boolean;
+  onPickFolder: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-4 flex items-center gap-3">
+      <FolderOpen className="size-5 text-muted-foreground" />
+      <div className="flex-1 min-w-0 text-sm">
+        {createdProject ? (
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="size-4 text-emerald-600 dark:text-emerald-500" />
+              <span className="font-medium">{createdProject.name}</span>
+            </div>
+            <code className="text-xs text-muted-foreground font-mono truncate block">
+              {createdProject.path}
+            </code>
+          </div>
+        ) : (
+          <span className="text-muted-foreground">No folder selected yet.</span>
+        )}
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={onPickFolder}
+        disabled={isCreating}
+      >
+        {isCreating ? (
+          <>
+            <Loader2 className="size-3 animate-spin" />
+            Creating…
+          </>
+        ) : createdProject ? (
+          "Choose another"
+        ) : (
+          "Choose folder…"
+        )}
+      </Button>
+    </div>
   );
 }

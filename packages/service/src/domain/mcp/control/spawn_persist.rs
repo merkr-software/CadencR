@@ -47,6 +47,16 @@ pub(super) async fn insert_initial_message(
     .bind(&message)
     .fetch_one(&mut *tx)
     .await?;
+    if body.await_result.unwrap_or(false) {
+        super::reply_wait::insert_pending(
+            &mut tx,
+            source.session_id,
+            session_id,
+            message_id,
+            "spawn",
+        )
+        .await?;
+    }
     sqlx::query(
         "INSERT INTO agent_message_origins
          (message_id, origin_kind, source_session_id, source_feature_id, source_project_id, note)
@@ -79,4 +89,81 @@ pub(super) async fn insert_spawn_link(
     .execute(&state.write_pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::mcp::control::scope::resolve_session_scope;
+    use crate::shared::migrate::{run_migrations, MigrationContext};
+
+    #[tokio::test]
+    async fn spawn_with_await_result_creates_reply_wait() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        run_migrations(&MigrationContext {
+            pool: &pool,
+            db_path: None,
+            app_version: None,
+        })
+        .await
+        .unwrap();
+        seed_sessions(&pool).await;
+        let state = AppState::with_pool(pool.clone());
+        let source = resolve_session_scope(&pool, 777).await.unwrap();
+        let body = SpawnSessionRequest {
+            source_feature_id: 42,
+            source_session_id: 777,
+            title: Some("Child".into()),
+            initial_message: Some("Do the work".into()),
+            branch: None,
+            provider: None,
+            model: None,
+            permission_mode: None,
+            codex_permission_mode: None,
+            source_note: None,
+            link_to_current_session: None,
+            await_result: Some(true),
+            target_project_id: Some(7),
+            target_project_path: None,
+        };
+
+        let message_id = insert_initial_message(&state, &source, 888, &body)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let wait: (i64, i64, i64, String, String) = sqlx::query_as(
+            "SELECT requester_session_id, responder_session_id, request_message_id, kind, status
+             FROM agent_session_reply_waits",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            wait,
+            (777, 888, message_id, "spawn".into(), "pending".into())
+        );
+    }
+
+    async fn seed_sessions(pool: &sqlx::SqlitePool) {
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (7, 'Proj', '/tmp/proj')")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status, type)
+             VALUES (42, 7, 'Source', 'active', 'ws-session'),
+                    (43, 7, 'Child', 'active', 'ws-session')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_sessions (id, feature_id, agent_type, status)
+             VALUES (777, 42, 'session', 'running'), (888, 43, 'session', 'paused')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+    }
 }

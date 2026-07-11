@@ -2,8 +2,7 @@ use rmcp::model::Tool;
 use serde_json::{json, Value};
 
 use crate::domain::agents::providers::{provider_alias_metadata, valid_provider_ids};
-
-const PROJECT_TOOL_NAMES: [&str; 11] = [
+const PROJECT_TOOL_NAMES: [&str; 13] = [
     "project_list_sessions",
     "project_read_session",
     "project_read_session_tail",
@@ -15,6 +14,8 @@ const PROJECT_TOOL_NAMES: [&str; 11] = [
     "project_list_agent_providers",
     "project_spawn_session",
     "project_send_session_message",
+    "project_list_pending_gates",
+    "project_respond_gate",
 ];
 
 pub(super) fn tools() -> Vec<Tool> {
@@ -59,6 +60,8 @@ fn tool_description(name: &str) -> &'static str {
         "project_send_session_message" => {
             "Send a provenance-tracked user message to another current-project session."
         }
+        "project_list_pending_gates" => "Recover or reconcile the current pending gate for a linked child session. A live <cadencr-gate> notification already includes the complete request id, kind, options, and tool/question payload, so do not list again unless recovery or stale-state verification is needed.",
+        "project_respond_gate" => "Answer a linked child session's pending gate. Use the session id, request id, kind, and complete payload directly from the live <cadencr-gate> notification.",
         _ => "Coordinate CadencR sessions in the current project.",
     }
 }
@@ -136,16 +139,19 @@ fn tool_schema(name: &str) -> Value {
                 "target_session_id": { "type": "number" },
                 "message": { "type": "string" },
                 "delivery": { "type": "string", "enum": ["send_now", "queue_if_busy", "reject_if_busy"] },
+                "reply": { "type": "string", "enum": ["none", "on_turn_end"], "default": "none" },
                 "source_note": { "type": "string" },
                 "link_to_current_session": { "type": "boolean" }
             },
             "required": ["target_session_id", "message"]
         }),
+        "project_list_pending_gates" | "project_respond_gate" => {
+            super::project_gate_schema::schema(name)
+        }
         _ => json!({ "type": "object", "properties": {} }),
     };
     document_schema(name, schema)
 }
-
 fn paginated_session_schema(include_query: bool) -> Value {
     let mut schema = json!({
         "type": "object",
@@ -171,40 +177,23 @@ fn spawn_session_schema() -> Value {
     json!({
         "type": "object",
         "properties": {
-            "title": { "type": "string" },
-            "initial_message": { "type": "string" },
-            "project_id": { "type": "number" },
-            "project_path": { "type": "string" },
-            "provider": {
-                "type": "string",
-                "enum": valid_provider_ids()
-            },
-            "model": { "type": "string" },
-            "permission_mode": { "type": "string" },
-            "codex_permission_mode": { "type": "string" },
-            "source_note": { "type": "string" },
-            "branch": {
-                "type": "object",
-                "properties": {
-                    "mode": {
-                        "type": "string",
-                        "enum": ["none", "new_project_branch", "new_worktree", "reuse_worktree"],
-                        "description": "Worktree strategy. Prefer new_worktree for independent implementation tasks."
-                    },
-                    "base": { "type": "string", "description": "Base branch for new_worktree/new_project_branch, commonly main." },
-                    "reuse_branch": { "type": "string", "description": "Existing branch to reuse when mode is reuse_worktree." }
-                }
-            },
-            "link_to_current_session": { "type": "boolean" }
+            "title": { "type": "string" }, "initial_message": { "type": "string" },
+            "project_id": { "type": "number" }, "project_path": { "type": "string" },
+            "provider": { "type": "string", "enum": valid_provider_ids() },
+            "model": { "type": "string" }, "permission_mode": { "type": "string" },
+            "codex_permission_mode": { "type": "string" }, "source_note": { "type": "string" },
+            "branch": { "type": "object", "properties": {
+                "mode": { "type": "string", "enum": ["none", "new_project_branch", "new_worktree", "reuse_worktree"], "description": "Worktree strategy. Prefer new_worktree for independent implementation tasks." },
+                "base": { "type": "string", "description": "Base branch for new_worktree/new_project_branch, commonly main." },
+                "reuse_branch": { "type": "string", "description": "Existing branch to reuse when mode is reuse_worktree." }
+            }},
+            "link_to_current_session": { "type": "boolean" },
+            "await_result": { "type": "boolean", "default": false }
         },
         "required": ["title"],
-        "anyOf": [
-            { "required": ["project_id"] },
-            { "required": ["project_path"] }
-        ]
+        "anyOf": [{ "required": ["project_id"] }, { "required": ["project_path"] }]
     })
 }
-
 fn document_schema(tool_name: &str, mut schema: Value) -> Value {
     let Some(properties) = schema["properties"].as_object_mut() else {
         return schema;

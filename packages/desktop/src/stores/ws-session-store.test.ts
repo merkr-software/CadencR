@@ -166,6 +166,32 @@ describe("ws-session-store", () => {
     expect(MockWebSocket.instances.length).toBe(2);
   });
 
+  it("ignores events from a replaced connection", async () => {
+    const { store, ws: staleWs } = await connectInitializedSession();
+
+    staleWs.readyState = MockWebSocket.CLOSED;
+    store.connect("s1");
+    await tick();
+    const currentWs = getWs();
+    expect(currentWs).not.toBe(staleWs);
+
+    store.sendPrompt("s1", "hello from mobile");
+    const currentSentBeforeStaleEvents = currentWs.sent.length;
+    staleWs.fireEvent("open");
+    staleWs.simulateMessage({
+      domain: "session",
+      action: "user_message",
+      payload: { text: "hello from mobile" },
+    });
+    staleWs.fireEvent("error");
+    staleWs.fireEvent("close");
+
+    const session = useWsSessionStore.getState().sessions["s1"];
+    expect(session.isConnected).toBe(true);
+    expect(currentWs.sent).toHaveLength(currentSentBeforeStaleEvents);
+    expect(session.blocks.filter((block) => block.type === "user_message")).toHaveLength(1);
+  });
+
   it("disconnect closes the WebSocket and removes the session", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");

@@ -1,6 +1,7 @@
+import { act, renderHook } from "@/test-utils";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/api/generated";
-import { useGitStatusStore } from "./useGitStatusStore";
+import { selectGitTargetBranch, useGitStatusStore } from "./useGitStatusStore";
 
 function snap(overrides: Partial<GitStatusSnapshot> = {}): GitStatusSnapshot {
   return {
@@ -78,5 +79,32 @@ describe("useGitStatusStore.setStatus", () => {
     setStatus(snap({ feature_id: 1, computed_at: 200 }));
     setStatus(snap({ feature_id: 2, computed_at: 50 }));
     expect(useGitStatusStore.getState().byFeature[2]?.computed_at).toBe(50);
+  });
+});
+
+describe("selectGitTargetBranch", () => {
+  it("returns only the target branch used by the Git diff query", () => {
+    useGitStatusStore.getState().setStatus(snap({ target_branch: "develop" }));
+
+    expect(selectGitTargetBranch(1)(useGitStatusStore.getState())).toBe("develop");
+    expect(selectGitTargetBranch(2)(useGitStatusStore.getState())).toBeUndefined();
+  });
+
+  it("does not re-render a subscriber when only the watcher timestamp changes", () => {
+    useGitStatusStore.getState().setStatus(snap({ target_branch: "develop", computed_at: 100 }));
+    let renderCount = 0;
+    const { result } = renderHook(() => {
+      renderCount += 1;
+      return useGitStatusStore(selectGitTargetBranch(1));
+    });
+
+    act(() => {
+      useGitStatusStore
+        .getState()
+        .setStatus(snap({ target_branch: "develop", computed_at: 200, uncommitted_count: 1 }));
+    });
+
+    expect(result.current).toBe("develop");
+    expect(renderCount).toBe(1);
   });
 });

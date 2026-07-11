@@ -13,21 +13,47 @@ const mocks = vi.hoisted(() => {
   const renderMock = vi.fn();
   const setOptionsMock = vi.fn();
   const cleanUpMock = vi.fn();
+  const prepareCodeViewItemMock = vi.fn();
+  const rerenderMock = vi.fn();
+  const setLineAnnotationsMock = vi.fn();
+  const useVirtualizerMock = vi.fn(() => undefined as object | undefined);
   const getHoveredLineMock = vi.fn(() => ({ lineNumber: 2, side: "additions" }));
   const instances: unknown[] = [];
   class FileDiffMock {
     options: unknown;
+    fileDiff: unknown = undefined;
+    top = 0;
     constructor(options: unknown) {
       this.options = options;
       instances.push(this);
     }
-    hydrate = hydrateMock;
+    hydrate = (args: { fileDiff: unknown }): void => {
+      this.fileDiff = args.fileDiff;
+      hydrateMock(args);
+    };
     render = renderMock;
     setOptions = setOptionsMock;
     cleanUp = cleanUpMock;
+    prepareCodeViewItem = (fileDiff: unknown, top: number): void => {
+      this.fileDiff = fileDiff;
+      prepareCodeViewItemMock(fileDiff, top);
+    };
+    rerender = rerenderMock;
+    setLineAnnotations = setLineAnnotationsMock;
     getHoveredLine = getHoveredLineMock;
   }
-  return { FileDiffMock, hydrateMock, renderMock, setOptionsMock, cleanUpMock, instances };
+  return {
+    FileDiffMock,
+    hydrateMock,
+    renderMock,
+    setOptionsMock,
+    cleanUpMock,
+    prepareCodeViewItemMock,
+    rerenderMock,
+    setLineAnnotationsMock,
+    useVirtualizerMock,
+    instances,
+  };
 });
 
 vi.mock("@pierre/diffs", () => ({
@@ -45,7 +71,7 @@ vi.mock("@pierre/diffs", () => ({
 }));
 
 vi.mock("@pierre/diffs/react", () => ({
-  useVirtualizer: vi.fn(() => undefined),
+  useVirtualizer: mocks.useVirtualizerMock,
   noopRender: vi.fn(),
   templateRender: (children: unknown) => children,
   renderDiffChildren: ({
@@ -90,6 +116,11 @@ beforeEach(() => {
   mocks.renderMock.mockClear();
   mocks.setOptionsMock.mockClear();
   mocks.cleanUpMock.mockClear();
+  mocks.prepareCodeViewItemMock.mockClear();
+  mocks.rerenderMock.mockClear();
+  mocks.setLineAnnotationsMock.mockClear();
+  mocks.useVirtualizerMock.mockReset();
+  mocks.useVirtualizerMock.mockReturnValue(undefined);
   mocks.instances.length = 0;
 });
 
@@ -174,6 +205,33 @@ describe("PatchDiffView", () => {
     expect(mocks.hydrateMock).toHaveBeenLastCalledWith(
       expect.objectContaining({ fileDiff: expect.objectContaining({ patch: updatedPatch }) }),
     );
+  });
+
+  it("updates a virtualized patch in place so its scroll window stays connected", () => {
+    mocks.useVirtualizerMock.mockReturnValue({});
+    const { rerender } = render(
+      <PatchDiffView patch={patch} mode="unified" themeAppearance="dark" themeId="dracula" />,
+    );
+    const initialInstances = mocks.instances.length;
+    mocks.cleanUpMock.mockClear();
+
+    const updatedPatch = patch.replace("+line2", "+updated line");
+    rerender(
+      <PatchDiffView
+        patch={updatedPatch}
+        mode="unified"
+        themeAppearance="dark"
+        themeId="dracula"
+      />,
+    );
+
+    expect(mocks.instances).toHaveLength(initialInstances);
+    expect(mocks.cleanUpMock).not.toHaveBeenCalled();
+    expect(mocks.prepareCodeViewItemMock).toHaveBeenCalledWith(
+      expect.objectContaining({ patch: updatedPatch }),
+      0,
+    );
+    expect(mocks.rerenderMock).toHaveBeenCalled();
   });
 
   it("passes the selected Cadencr theme to Pierre options", () => {

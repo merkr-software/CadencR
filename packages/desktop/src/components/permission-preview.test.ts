@@ -20,4 +20,8 @@ describe("getPermissionPreview", () => {
   it("returns null when the input is null (does not crash)", () => {
     expect(getPermissionPreview({ input: null })).toBeNull();
   });
+
+  it("can omit the raw JSON fallback for compact summaries", () => {
+    expect(getPermissionPreview({ input: { opaque: "value" }, fallbackToJson: false })).toBeNull();
+  });
 });

@@ -10,9 +10,7 @@
  *  - `git/push.*` envelopes get distinct handlers in `ws-git-status-handler`,
  *    one less moving part to keep in sync.
  *
- * Implementation lives in {@link createGitOutputStore}; public hook +
- * selector exports are preserved byte-identically so consumers compile
- * unchanged.
+ * Implementation lives in {@link createGitOutputStore}.
  *
  * The buffer is capped at 100 KB; once exceeded we drop the oldest 25 KB
  * so a runaway log can't grow the React tree without bound.

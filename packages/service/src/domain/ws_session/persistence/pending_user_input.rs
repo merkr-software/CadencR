@@ -19,62 +19,6 @@
 // NOTE: this file is `include!`'d into ws_session/persistence.rs, so it may
 // not have top-level `use` statements. It relies on imports in the parent.
 
-/// The DB-backed user-input gate kinds.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum PendingUserInputKind {
-    Permission,
-    Question,
-}
-
-impl PendingUserInputKind {
-    fn column(self) -> &'static str {
-        match self {
-            Self::Permission => "pending_permission",
-            Self::Question => "pending_questions",
-        }
-    }
-
-    /// Project this DB-side kind onto the canonical, frontend-visible
-    /// [`PendingKind`] enum used on the wire.
-    pub fn as_session_kind(self) -> crate::domain::session_status::PendingKind {
-        match self {
-            Self::Permission => crate::domain::session_status::PendingKind::Permission,
-            Self::Question => crate::domain::session_status::PendingKind::Question,
-        }
-    }
-}
-
-/// A typed, about-to-be-persisted user-input gate. Variants borrow their
-/// payload to avoid forcing callers to clone before the write.
-#[derive(Debug)]
-pub enum PendingUserInput<'a> {
-    /// Regular per-tool permission (Read/Write/Bash/...). Serialized as the
-    /// full `PermissionRequestPayload` so a reconnect can re-emit the WS
-    /// envelope verbatim.
-    Permission(&'a crate::domain::ws_session::protocol::PermissionRequestPayload),
-    /// `AskUserQuestion` gate. The payload shape is
-    /// `{ tool_name, tool_input, request_id, pattern }` — intentionally the
-    /// same format used by `workflow/engine` restore so workflow and
-    /// ws-session agree on a single wire format.
-    Question(&'a serde_json::Value),
-}
-
-impl<'a> PendingUserInput<'a> {
-    pub fn kind(&self) -> PendingUserInputKind {
-        match self {
-            Self::Permission(_) => PendingUserInputKind::Permission,
-            Self::Question(_) => PendingUserInputKind::Question,
-        }
-    }
-
-    fn serialize(&self) -> String {
-        match self {
-            Self::Permission(p) => serde_json::to_string(p).unwrap_or_default(),
-            Self::Question(v) => serde_json::to_string(v).unwrap_or_default(),
-        }
-    }
-}
-
 impl WsSessionPersistence {
     /// Persist a pending user-input gate to its column. Does NOT broadcast.
     /// Prefer `mark_awaiting_user_static` which pairs write + broadcast.
@@ -84,7 +28,13 @@ impl WsSessionPersistence {
         input: &PendingUserInput<'_>,
     ) {
         let column = input.kind().column();
-        let payload = input.serialize();
+        let payload = match input.serialize() {
+            Ok(payload) => payload,
+            Err(error) => {
+                error!(session_id, %error, "failed to serialize pending user input");
+                return;
+            }
+        };
         // Column name is a compile-time &'static str from our own enum — not
         // user input, so string interpolation into SQL is safe here.
         let sql = format!("UPDATE agent_sessions SET {column} = ? WHERE id = ?");
@@ -149,52 +99,6 @@ impl WsSessionPersistence {
         }
     }
 
-    /// Paired write + broadcast: persist the gate, THEN broadcast Question.
-    /// Ordering is load-bearing: a broadcast-lag recovery re-reads the DB,
-    /// so the column must be set before any subscriber can see the event.
-    pub async fn mark_awaiting_user_static(
-        pool: &SqlitePool,
-        broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
-        session_id: i64,
-        feature_id: i64,
-        input: &PendingUserInput<'_>,
-    ) {
-        let kind = input.kind().as_session_kind();
-        Self::set_pending_user_input_static(pool, session_id, input).await;
-        // Propagate `kind` so live askUser listeners can identify the gate
-        // type (permission/question) without a DB snapshot round
-        // trip.
-        Self::broadcast_session_status(
-            broadcaster,
-            session_id,
-            feature_id,
-            crate::domain::session_status::AgentStatus::Question,
-            Some(kind),
-        );
-    }
-
-    /// Paired clear + broadcast: NULL the gate, THEN broadcast the next
-    /// status (`Agent` for Allow, `Idle` for Deny). Same ordering
-    /// guarantee as `mark_awaiting_user_static`.
-    pub async fn mark_agent_resumed_static(
-        pool: &SqlitePool,
-        broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
-        session_id: i64,
-        feature_id: i64,
-        kind: PendingUserInputKind,
-        next_status: crate::domain::session_status::AgentStatus,
-    ) {
-        debug_assert!(
-            matches!(
-                next_status,
-                crate::domain::session_status::AgentStatus::Agent
-                    | crate::domain::session_status::AgentStatus::Idle
-            ),
-            "mark_agent_resumed_static expects Agent or Idle, got {next_status:?}",
-        );
-        Self::clear_pending_user_input_static(pool, session_id, kind).await;
-        Self::broadcast_session_status(broadcaster, session_id, feature_id, next_status, None);
-    }
 }
 
 #[cfg(test)]
@@ -376,12 +280,12 @@ mod pending_user_input_tests {
         use crate::domain::session_status::{AgentStatus, PendingKind};
         let pool = setup_pool().await;
         let id = insert_session(&pool).await;
-        let (bc, mut rx) = test_broadcaster();
+        let state = crate::app_state::AppState::with_pool(pool.clone());
+        let mut rx = state.session_status_tx.subscribe();
         let payload = sample_permission_payload();
 
         WsSessionPersistence::mark_awaiting_user_static(
-            &pool,
-            &bc,
+            &state,
             id,
             42,
             &PendingUserInput::Permission(&payload),
@@ -403,17 +307,42 @@ mod pending_user_input_tests {
         use crate::domain::session_status::PendingKind;
         let pool = setup_pool().await;
         let id = insert_session(&pool).await;
-        let (bc, mut rx) = test_broadcaster();
-        let question = serde_json::json!({"tool_name": "AskUserQuestion"});
+        let state = crate::app_state::AppState::with_pool(pool.clone());
+        let mut rx = state.session_status_tx.subscribe();
+        let question = serde_json::json!({"tool_name": "AskUserQuestion", "request_id": "q1"});
         WsSessionPersistence::mark_awaiting_user_static(
-            &pool,
-            &bc,
+            &state,
             id,
             1,
             &PendingUserInput::Question(&question),
         )
         .await;
         assert_eq!(rx.recv().await.unwrap().kind, Some(PendingKind::Question));
+    }
+
+    #[tokio::test]
+    async fn ask_user_question_payload_is_registered_as_question_defensively() {
+        let pool = setup_pool().await;
+        let id = insert_session(&pool).await;
+        let state = crate::app_state::AppState::with_pool(pool);
+        let mut payload = sample_permission_payload();
+        payload.tool_name = "AskUserQuestion".into();
+        payload.tool_input = serde_json::json!({
+            "question": "Which provider?",
+            "options": ["Claude", "OpenCode"]
+        });
+
+        WsSessionPersistence::mark_awaiting_user_static(
+            &state,
+            id,
+            1,
+            &PendingUserInput::Permission(&payload),
+        )
+        .await;
+
+        let gate = state.pending_gates.latest_open(id).await.unwrap();
+        assert_eq!(gate.kind, crate::domain::gate_registry::GateKind::Question);
+        assert_eq!(gate.payload["tool_input"]["question"], "Which provider?");
     }
 
     #[tokio::test]

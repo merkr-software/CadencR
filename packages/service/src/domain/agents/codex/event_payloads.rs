@@ -18,6 +18,10 @@ pub(super) struct CodexItem {
     pub receiver_thread_ids: Vec<String>,
     #[serde(rename = "agentsStates", default)]
     pub agents_states: Option<Map<String, Value>>,
+    #[serde(rename = "agentThreadId", default)]
+    pub agent_thread_id: Option<String>,
+    #[serde(rename = "agentPath", default)]
+    pub agent_path: Option<String>,
     #[serde(flatten)]
     pub fields: Map<String, Value>,
 }
@@ -61,6 +65,15 @@ impl CodexItem {
                 "agentsStates".to_string(),
                 Value::Object(agents_states.clone()),
             );
+        }
+        if let Some(agent_thread_id) = &self.agent_thread_id {
+            fields.insert(
+                "agentThreadId".to_string(),
+                Value::String(agent_thread_id.clone()),
+            );
+        }
+        if let Some(agent_path) = &self.agent_path {
+            fields.insert("agentPath".to_string(), Value::String(agent_path.clone()));
         }
         Value::Object(fields)
     }
@@ -175,6 +188,10 @@ pub(super) struct ItemParams {
 }
 
 impl ItemParams {
+    pub(super) fn thread_id(&self) -> Option<&str> {
+        self.raw_fields.get("threadId").and_then(Value::as_str)
+    }
+
     pub(super) fn into_raw(self) -> Value {
         envelope_raw(self.raw_fields, Some(self.item))
     }

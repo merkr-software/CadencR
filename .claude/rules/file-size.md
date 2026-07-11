@@ -1,1 +1,2 @@
-No file longer than 400 lines. If a file grows past this, extract modules or components. Check file length before and after edits — if an edit would push a file over 400 lines, refactor first.
+Max 400 lines per file — past that, split into modules/components so files stay reviewable.
+(test files exempt; enforced by oxlint `max-lines` — see .oxlintrc.json. Rust `.rs` files are checked by the PostToolUse hook in .claude/settings.json.)
