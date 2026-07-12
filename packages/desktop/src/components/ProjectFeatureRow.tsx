@@ -1,4 +1,4 @@
-import { memo, useRef, type ReactElement } from "react";
+import { memo, useRef, type ReactElement, type ReactNode } from "react";
 import {
   TrashIcon,
   ArchiveIcon,
@@ -62,6 +62,8 @@ interface ProjectFeatureRowProps {
   onUnarchive: (featureId: number) => void;
   onTogglePin: (featureId: number, pinned: boolean) => void;
   onCloseActivity: (featureId: number, shellCount: number, browserCount: number) => void;
+  /** Expand/collapse twisty (or an alignment spacer) rendered by FeatureSubtree. */
+  hierarchyControl?: ReactNode;
 }
 
 /**
@@ -94,6 +96,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
   onUnarchive,
   onTogglePin,
   onCloseActivity,
+  hierarchyControl,
 }: ProjectFeatureRowProps): ReactElement {
   const startLabelEditOnMenuCloseRef = useRef(false);
   // Live status is the canonical 3-value enum: per-session entries pushed
@@ -150,8 +153,8 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
           data-nav-type="feature"
           data-nav-id={String(feature.id)}
           data-nav-project-id={String(projectId)}
-          className={`group/feature relative flex min-w-0 cursor-pointer items-center gap-1 rounded-md py-1.5 pl-3 pr-1.5 text-sm outline-none hover:bg-accent ${
-            activeFeatureId === feature.id ? "bg-accent" : ""
+          className={`group/feature relative flex min-w-0 cursor-pointer items-center gap-1 rounded-md py-1.5 pl-3 pr-1.5 text-sm outline-none transition-colors hover:bg-accent ${
+            isActive ? "bg-accent" : ""
           } ${isArchived ? "opacity-50" : ""}`}
           onClick={(e) => {
             if (isActive || e.detail > 1) return;
@@ -168,6 +171,7 @@ export const ProjectFeatureRow = memo(function ProjectFeatureRow({
           }}
         >
           <SidebarShortcutBadge ref={badgeRef} />
+          {hierarchyControl}
 
           {/* Live status icon driven by the per-session backend store. */}
           <div className="flex shrink-0 w-3.5 items-center justify-center">

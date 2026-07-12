@@ -208,10 +208,7 @@ function processContentBlockDelta(
     return [];
   }
 
-  const knownBlockId = persistedBlockId ?? stream.contentBlockIds.get(index);
-  if (persistedBlockId) {
-    stream.contentBlockIds.set(index, persistedBlockId);
-  }
+  const knownBlockId = stream.contentBlockIds.get(index);
 
   // Self-heal an orphan delta: if the `content_block_start` for this index was
   // never seen (lost envelope, block type we couldn't render at start),
@@ -224,7 +221,7 @@ function processContentBlockDelta(
       "[agent-stream] content_block_delta for unseen block index; synthesizing block",
       index,
     );
-    const blockId = nextSyntheticBlockId(state);
+    const blockId = persistedBlockId ?? nextSyntheticBlockId(state);
     stream.contentBlockIds.set(index, blockId);
     return [
       {

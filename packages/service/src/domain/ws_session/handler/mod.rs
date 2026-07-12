@@ -41,6 +41,7 @@ mod types;
 pub use connection::ws_handler;
 
 // Public type for crate-wide use (referenced via `handler::SdkHandle`).
+pub(crate) use session_control::handle_permission_respond;
 pub use types::SdkHandle;
 pub(crate) use types::{new_sdk_sessions, SdkSessions};
 

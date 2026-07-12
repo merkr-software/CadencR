@@ -60,6 +60,16 @@ pub(super) fn stream_event_raw(
     stream_raw(session_id, parent_tool_use_id, raw_event)
 }
 
+pub(super) fn runtime_stream_event(session_id: &str, event: RuntimeStreamEvent) -> RuntimeEvent {
+    RuntimeEvent::new(
+        metadata(session_id, stream_event_raw(session_id, None, &event)),
+        RuntimeEventKind::StreamEvent {
+            event,
+            parent_tool_use_id: None,
+        },
+    )
+}
+
 pub(super) fn user_raw(
     session_id: &str,
     parent_tool_use_id: Option<&str>,

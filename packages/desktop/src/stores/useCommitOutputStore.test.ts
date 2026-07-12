@@ -10,12 +10,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   selectCommitOutput,
+  selectCommitOutcome,
   selectCommitRunning,
   useCommitOutputStore,
 } from "./useCommitOutputStore";
 
 beforeEach(() => {
-  useCommitOutputStore.setState({ byFeature: {}, runningByFeature: {} });
+  useCommitOutputStore.setState({ byFeature: {} });
 });
 
 describe("useCommitOutputStore lifecycle", () => {
@@ -38,14 +39,53 @@ describe("useCommitOutputStore lifecycle", () => {
     );
   });
 
+  it("ignores orphan output and completion events", () => {
+    const store = useCommitOutputStore.getState();
+    store.append(1, "late output");
+    store.complete(1, false);
+
+    expect(useCommitOutputStore.getState().byFeature[1]).toBeUndefined();
+  });
+
+  it("does not reset a running buffer on a duplicate start event", () => {
+    const store = useCommitOutputStore.getState();
+    store.start(1);
+    store.append(1, "already streamed\n");
+    store.start(1);
+
+    expect(selectCommitOutput(1)(useCommitOutputStore.getState())).toBe("already streamed\n");
+  });
+
   it("complete() flips running=false but preserves the buffer", () => {
     const store = useCommitOutputStore.getState();
     store.start(1);
     store.append(1, "ok\n");
-    store.complete(1);
+    store.complete(1, true);
     const s = useCommitOutputStore.getState();
     expect(selectCommitRunning(1)(s)).toBe(false);
     expect(selectCommitOutput(1)(s)).toBe("ok\n");
+    expect(selectCommitOutcome(1)(s)).toBe("success");
+  });
+
+  it("records a failed outcome until the next run starts", () => {
+    const store = useCommitOutputStore.getState();
+    store.start(1);
+    store.complete(1, false);
+    expect(selectCommitOutcome(1)(useCommitOutputStore.getState())).toBe("error");
+
+    store.start(1);
+    expect(selectCommitOutcome(1)(useCommitOutputStore.getState())).toBeNull();
+  });
+
+  it("records a failure detail and terminal state atomically", () => {
+    const store = useCommitOutputStore.getState();
+    store.start(1);
+    store.append(1, "hook output\n");
+    store.fail(1, "lint failed");
+
+    const state = useCommitOutputStore.getState();
+    expect(selectCommitOutcome(1)(state)).toBe("error");
+    expect(selectCommitOutput(1)(state)).toBe("hook output\n\nlint failed\n");
   });
 
   it("append() to one feature does not affect another feature's buffer", () => {
@@ -65,7 +105,7 @@ describe("useCommitOutputStore lifecycle", () => {
     const store = useCommitOutputStore.getState();
     store.start(1);
     store.start(2);
-    store.complete(1);
+    store.complete(1, true);
     const s = useCommitOutputStore.getState();
     expect(selectCommitRunning(1)(s)).toBe(false);
     expect(selectCommitRunning(2)(s)).toBe(true);
@@ -79,5 +119,6 @@ describe("useCommitOutputStore lifecycle", () => {
     const s = useCommitOutputStore.getState();
     expect(selectCommitOutput(1)(s)).toBe("");
     expect(selectCommitRunning(1)(s)).toBe(false);
+    expect(selectCommitOutcome(1)(s)).toBeNull();
   });
 });

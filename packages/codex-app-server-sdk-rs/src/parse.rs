@@ -116,7 +116,9 @@ mod tests {
             "supportedReasoningEfforts": [
                 { "reasoningEffort": "low" },
                 { "reasoningEffort": "high" },
-                { "reasoningEffort": "max" }
+                { "reasoningEffort": "max" },
+                { "reasoningEffort": "ultra" },
+                { "reasoningEffort": "future" }
             ],
             "isDefault": true
         }))
@@ -124,7 +126,10 @@ mod tests {
         let thread = parse_thread_handle(&json!({ "thread": { "id": "thread_1" } })).unwrap();
         let turn = parse_turn_handle(&json!({ "turn": { "id": "turn_1" } })).unwrap();
 
-        assert_eq!(model.supported_efforts, vec!["low", "high", "max"]);
+        assert_eq!(
+            model.supported_efforts,
+            vec!["low", "high", "max", "ultra", "future"]
+        );
         assert_eq!(model.default_effort.as_deref(), Some("high"));
         assert!(model.is_default);
         assert_eq!(thread.id, "thread_1");

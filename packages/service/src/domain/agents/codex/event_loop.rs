@@ -7,7 +7,7 @@ use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 
 use super::event_state::IndexState;
 use super::event_system::{permission_request_event, request_key};
-use super::event_turn_state::{update_turn_state, RootTurnTracker};
+use super::event_turn_state::{belongs_to_root_thread, update_turn_state, RootTurnTracker};
 use super::events::notification_events;
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
@@ -52,6 +52,9 @@ pub(super) fn spawn_event_loop(
                         &turns.root_thread_id,
                     )
                     .await;
+                    if !should_forward_notification(&method, &params, &turns.root_thread_id) {
+                        continue;
+                    }
                     clear_resolved_request(&method, &params, &pending_requests).await;
                     enrich_command_output(&method, &mut params, &mut command_outputs);
                     if let Some(receipt_event) = pending_prompt_receipts
@@ -132,6 +135,14 @@ pub(super) fn spawn_event_loop(
             }
         }
     });
+}
+
+fn should_forward_notification(
+    method: &str,
+    params: &serde_json::Value,
+    root_thread_id: &str,
+) -> bool {
+    method != "turn/completed" || belongs_to_root_thread(params, root_thread_id)
 }
 
 async fn clear_resolved_request(
@@ -220,7 +231,7 @@ mod tests {
 
     use super::super::event_system::request_key;
     use super::super::permissions::PendingCodexRequest;
-    use super::{clear_resolved_request, enrich_command_output};
+    use super::{clear_resolved_request, enrich_command_output, should_forward_notification};
 
     #[tokio::test]
     async fn server_request_resolved_clears_matching_pending_request() {
@@ -273,5 +284,19 @@ mod tests {
 
         assert_eq!(completed["item"]["aggregatedOutput"], json!("hello world"));
         assert!(outputs.is_empty());
+    }
+
+    #[test]
+    fn only_root_turn_completion_is_forwarded() {
+        assert!(should_forward_notification(
+            "turn/completed",
+            &json!({ "threadId": "thread_root" }),
+            "thread_root",
+        ));
+        assert!(!should_forward_notification(
+            "turn/completed",
+            &json!({ "threadId": "thread_child" }),
+            "thread_root",
+        ));
     }
 }

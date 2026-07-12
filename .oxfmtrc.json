@@ -3,6 +3,7 @@
   "ignorePatterns": [
     "packages/desktop/src/routeTree.gen.ts",
     ".claude/",
+    "**/AGENTS.md",
     "target/",
     "packages/landing/dist/",
     "packages/landing/.astro/",

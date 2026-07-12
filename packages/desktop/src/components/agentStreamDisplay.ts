@@ -1,4 +1,5 @@
 import type { AgentBlockData } from "./AgentBlock";
+import { collapseTurnsToSummary } from "./agentStreamSummary";
 
 /**
  * A renderable row in the agent stream. In every mode except "compact" each
@@ -14,6 +15,7 @@ const FLOW_BREAKING_TYPES = new Set<AgentBlockData["type"]>([
   "text",
   "user_message",
   "turn_summary",
+  "tool_summary",
   "compact_divider",
   "clear_divider",
 ]);
@@ -84,6 +86,28 @@ export function deriveAgentStreamDisplayBlocks(blocks: AgentBlockData[]): AgentB
   return filterRenderableBlocks(blocks.filter((block) => !block.parentToolUseId));
 }
 
-export function countRenderableDisplayRows(blocks: AgentBlockData[]): number {
-  return deriveAgentStreamDisplayBlocks(blocks).length;
+/**
+ * Which display transforms are active, so row counts match what `AgentStream`
+ * actually renders. Both default to off (Maximal, no summary).
+ */
+export interface DisplayRowMode {
+  summaryMode?: boolean;
+  compactMode?: boolean;
+}
+
+/**
+ * Number of Virtuoso rows `AgentStream` renders for `blocks` under the given
+ * display mode. Follows the AgentStream pipeline (filter → optional summary
+ * collapse → buildDisplayItems) because it drives Virtuoso's `firstItemIndex`
+ * prepend anchoring — a mismatch shifts every row key and jumps the scroll on
+ * history load. It intentionally omits `activeStreaming`: callers diff two
+ * counts (merged − current), so the in-flight tail turn cancels out either way.
+ */
+export function countRenderableDisplayRows(
+  blocks: AgentBlockData[],
+  mode?: DisplayRowMode,
+): number {
+  let display = deriveAgentStreamDisplayBlocks(blocks);
+  if (mode?.summaryMode) display = collapseTurnsToSummary(display);
+  return buildDisplayItems(display, { compact: !!mode?.compactMode }).length;
 }

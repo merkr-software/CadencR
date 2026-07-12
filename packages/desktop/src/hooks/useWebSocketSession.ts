@@ -30,6 +30,7 @@ import { createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing"
 import { useSessionStatus } from "@/stores/session-status-selectors";
 import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
+import type { DisplayRowMode } from "@/components/agentStreamDisplay";
 import { parseCodexPermissionMode, type CodexPermissionMode } from "@/types/codex-permission-mode";
 import { parsePermissionMode } from "@/types/permission-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
@@ -66,8 +67,9 @@ export interface UseWebSocketSessionReturn {
   pendingQuestions: AgentQuestion[];
   respondToQuestion: (response: AgentQuestionAnswers) => void;
   hasMore: boolean;
-  /** Resolves with the number of older blocks that were prepended. */
-  loadOlderMessages: () => Promise<number>;
+  /** Resolves with the number of older blocks that were prepended. `displayMode`
+   *  sizes the prepend to the rows actually rendered under summary/compact. */
+  loadOlderMessages: (displayMode?: DisplayRowMode) => Promise<number>;
 
   permissionMode: PermissionMode;
   codexPermissionMode: CodexPermissionMode;
@@ -237,7 +239,12 @@ function useSessionActions(sessionId: string): SessionActions {
   return useMemo<SessionActions>(() => {
     const s = useWsSessionStore.getState();
     return {
-      loadOlderMessages: (): Promise<number> => s.loadOlderMessages(sessionId),
+      // The caller passes the active display mode so the older-history prepend
+      // is sized to the rows actually rendered (summary/compact collapse fewer
+      // rows than the raw block count), keeping Virtuoso's `firstItemIndex`
+      // aligned and the scroll from jumping.
+      loadOlderMessages: (displayMode?: DisplayRowMode): Promise<number> =>
+        s.loadOlderMessages(sessionId, displayMode),
       sendPrompt: (text: string, options?: PromptDispatchOptions): void =>
         s.sendPrompt(sessionId, text, options),
       respondToPermission: (

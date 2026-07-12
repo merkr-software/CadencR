@@ -275,6 +275,7 @@ mod tests {
         assert!(is_workspace_key_allowed("onboarding_step"));
         assert!(is_workspace_key_allowed("default_agent_provider"));
         assert!(is_workspace_key_allowed("onboarding_intro_shown"));
+        assert!(is_workspace_key_allowed("project_onboarding_dismissed"));
     }
     #[test]
     fn workspace_accepts_agent_stream_verbosity_mode() {
@@ -284,6 +285,15 @@ mod tests {
         assert!(is_workspace_key_allowed("agent_stream_verbosity_mode"));
         assert!(!is_feature_key_allowed("agent_stream_verbosity_mode"));
         assert!(!is_project_key_allowed("agent_stream_verbosity_mode"));
+    }
+    #[test]
+    fn workspace_accepts_agent_stream_summary_mode() {
+        // Persisted by the global Settings page → "Agent output verbosity" →
+        // "Summary mode" toggle via useDebouncedSetting. Stored as "true" /
+        // "false"; without this the toggle 400s and the FE toasts a save error.
+        assert!(is_workspace_key_allowed("agent_stream_summary_mode"));
+        assert!(!is_feature_key_allowed("agent_stream_summary_mode"));
+        assert!(!is_project_key_allowed("agent_stream_summary_mode"));
     }
     #[test]
     fn workspace_accepts_animations_enabled() {

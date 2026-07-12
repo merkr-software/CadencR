@@ -95,6 +95,39 @@ describe("ws session history pagination", () => {
     ]);
   });
 
+  it("sizes the prepend offset to the collapsed row count in summary mode", async () => {
+    const currentBlocks = [
+      makeBlock("u2", "next", "user_message"),
+      makeBlock("current", "Current", "text"),
+    ];
+    const olderBlocks = [
+      makeBlock("u1", "prompt", "user_message"),
+      makeBlock("t1", "read", "tool_call", { toolName: "Read" }),
+      makeBlock("t2", "bash", "tool_call", { toolName: "Bash" }),
+      makeBlock("m1", "older answer", "text"),
+    ];
+    const ctx = createCtx(createPaginationSession(currentBlocks));
+    apiMocks.getFeatureAgentState.mockResolvedValue({
+      sessions: [{ sessionDbId: 2586, blocks: olderBlocks, hasMore: false, oldestMessageId: 100 }],
+    });
+
+    await loadOlderSessionMessages(ctx, "s1", { summaryMode: true });
+
+    // Older chunk renders as [u1, tool_summary, m1] = 3 collapsed rows (vs 4 raw
+    // rows), so the offset grows by 3 from its base of 5.
+    const session = ctx.get().sessions.s1;
+    expect(session.historyPrependDisplayOffset).toBe(8);
+    // The store still holds raw blocks; the collapse is display-only.
+    expect(session.blocks.map((block) => block.id)).toEqual([
+      "u1",
+      "t1",
+      "t2",
+      "m1",
+      "u2",
+      "current",
+    ]);
+  });
+
   it("resets historyPrependDisplayOffset when persisted state replaces a session", () => {
     const ctx = createCtx(createPaginationSession([makeBlock("current", "Current")]));
 

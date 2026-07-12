@@ -92,8 +92,9 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
   }
   if (action === "commit.complete") {
     const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
-    if (featureId == null) return;
-    useCommitOutputStore.getState().complete(featureId);
+    const success = typeof payload.success === "boolean" ? payload.success : null;
+    if (featureId == null || success == null) return;
+    useCommitOutputStore.getState().complete(featureId, success);
     return;
   }
   // Push lifecycle: identical shape to commit, but routed to its own store
@@ -120,8 +121,9 @@ export function handleGitEnvelope(action: string, payload: Record<string, unknow
   }
   if (action === "push.complete") {
     const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
-    if (featureId == null) return;
-    usePushOutputStore.getState().complete(featureId);
+    const success = typeof payload.success === "boolean" ? payload.success : null;
+    if (featureId == null || success == null) return;
+    usePushOutputStore.getState().complete(featureId, success);
   }
 }
 

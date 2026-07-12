@@ -133,6 +133,7 @@ async fn project_spawn_session_inherits_configured_codex_permission_without_over
         .oneshot(spawn_request_from_body(serde_json::json!({
             "source_feature_id": 42,
             "source_session_id": 777,
+            "target_project_id": 7,
             "title": "Codex child",
             "initial_message": "Please investigate.",
             "branch": { "mode": "none" },
@@ -160,6 +161,7 @@ async fn project_spawn_session_explicit_codex_permission_override_wins() {
         .oneshot(spawn_request_from_body(serde_json::json!({
             "source_feature_id": 42,
             "source_session_id": 777,
+            "target_project_id": 7,
             "title": "Codex child",
             "branch": { "mode": "none" },
             "provider": "codex_cli",

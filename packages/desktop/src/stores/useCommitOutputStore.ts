@@ -6,14 +6,9 @@
  * be a partial line, multiple lines, or carriage-return progress
  * sequences); `git/commit.complete` marks the run as finished.
  *
- * Storing a single growing `string` (rather than `Line[]`) mirrors how
- * `WorktreeSetupSection` renders setup output — the `<pre>` displays
- * the whole feed verbatim and a real terminal feel falls out for free.
- *
- * Implementation lives in {@link createGitOutputStore} — kept identical to
- * `usePushOutputStore` because the WS lifecycle is identical. Public hook
- * + selector exports are preserved byte-identically; consumers compile
- * unchanged.
+ * Each feature has one atomic entry containing its output and lifecycle
+ * status, so impossible running/failed combinations cannot be represented.
+ * The implementation is shared with `usePushOutputStore`.
  */
 import { createGitOutputStore } from "./createGitOutputStore";
 
@@ -24,5 +19,11 @@ export const useCommitOutputStore = bundle.useStore;
 /** Narrow selector: the buffer for a single feature, or `""` when absent. */
 export const selectCommitOutput = bundle.selectOutput;
 
+/** Narrow selector: current lifecycle status for one feature. */
+export const selectCommitStatus = bundle.selectStatus;
+
 /** Narrow selector: whether the commit is currently running. */
 export const selectCommitRunning = bundle.selectRunning;
+
+/** Narrow selector: result of the latest completed commit. */
+export const selectCommitOutcome = bundle.selectOutcome;

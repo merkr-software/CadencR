@@ -19,7 +19,18 @@ unused_variables = "deny"
 [profile.dev]
 debug = "line-tables-only"
 
+[profile.dev.package."*"]
+debug = false
+
 [profile.test]
+debug = false
+incremental = false
+
+[profile.test.package."*"]
+debug = false
+
+[profile.test-debug]
+inherits = "test"
 debug = "line-tables-only"
 
 # Shrink the packaged `cadencr-service` sidecar (~41 MB → ~22-28 MB). Note we

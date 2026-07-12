@@ -248,6 +248,7 @@ async fn report_branch_setup_error(context: PendingPromptContext, message: Strin
 fn attach_permission_bridge(context: &mut PendingPromptContext) {
     let (permission_tx, permission_rx) = mpsc::channel::<PermissionResponse>(16);
     let bridge = WsBridgeCanUseTool {
+        app_state: context.app_state.clone(),
         sender: context.sender.clone(),
         feature_senders: context.app_state.ws_feature_senders.clone(),
         response_rx: Arc::new(Mutex::new(permission_rx)),
@@ -278,7 +279,6 @@ fn validate_resume_id(
     );
     context.options.resume_session_id = None;
 }
-
 async fn spawn_runtime(
     mut context: PendingPromptContext,
     adapter: &'static dyn AgentRuntimeAdapter,

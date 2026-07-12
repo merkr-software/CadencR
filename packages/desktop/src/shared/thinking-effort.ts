@@ -1,20 +1,15 @@
 import type { RuntimeModelOption } from "@/api/agentRuntime";
+import { capitalize } from "@/lib/utils";
 
-export const THINKING_EFFORT_LEVELS = ["low", "medium", "high", "xhigh", "max"] as const;
+declare const thinkingEffortLevelBrand: unique symbol;
 
-export type ThinkingEffortLevel = (typeof THINKING_EFFORT_LEVELS)[number];
-
-export const THINKING_EFFORT_LABELS: Record<ThinkingEffortLevel, string> = {
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra High",
-  max: "Max",
+export type ThinkingEffortLevel = string & {
+  readonly [thinkingEffortLevelBrand]: true;
 };
 
-export function isThinkingEffortLevel(value: unknown): value is ThinkingEffortLevel {
-  return typeof value === "string" && THINKING_EFFORT_LEVELS.includes(value as ThinkingEffortLevel);
-}
+const EMPTY_THINKING_EFFORT_LEVELS: ThinkingEffortLevel[] = [];
+const supportedLevelsCache = new WeakMap<string[], ThinkingEffortLevel[]>();
+const effortLabelCache = new Map<ThinkingEffortLevel, string>();
 
 /**
  * Workspace setting key for the last-used thinking effort on a given
@@ -28,25 +23,48 @@ export function thinkingEffortModelKey(providerId: string, modelId: string): str
 export function parseThinkingEffort(
   value: string | null | undefined,
 ): ThinkingEffortLevel | undefined {
-  return isThinkingEffortLevel(value) ? value : undefined;
+  if (typeof value !== "string") return undefined;
+  const effort = value.trim();
+  return effort.length > 0 ? (effort as ThinkingEffortLevel) : undefined;
 }
 
 export function supportedThinkingEffortLevels(
   model: Pick<RuntimeModelOption, "supports_effort" | "supported_effort_levels"> | null | undefined,
 ): ThinkingEffortLevel[] {
-  if (!model?.supports_effort) return [];
-  return [...(model.supported_effort_levels ?? [])]
-    .filter(isThinkingEffortLevel)
-    .sort(
-      (left, right) => THINKING_EFFORT_LEVELS.indexOf(left) - THINKING_EFFORT_LEVELS.indexOf(right),
-    );
+  const advertisedLevels = model?.supported_effort_levels;
+  if (!model?.supports_effort || !advertisedLevels?.length) return EMPTY_THINKING_EFFORT_LEVELS;
+  const cached = supportedLevelsCache.get(advertisedLevels);
+  if (cached) return cached;
+
+  const levels: ThinkingEffortLevel[] = [];
+  for (const value of advertisedLevels) {
+    const effort = parseThinkingEffort(value);
+    if (effort) levels.push(effort);
+  }
+  supportedLevelsCache.set(advertisedLevels, levels);
+  return levels;
+}
+
+export function thinkingEffortLabel(effort: ThinkingEffortLevel): string {
+  const cached = effortLabelCache.get(effort);
+  if (cached) return cached;
+
+  const normalized = (effort === "xhigh" ? "extra high" : effort)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ");
+  const label = normalized.split(/\s+/).map(capitalize).join(" ");
+  effortLabelCache.set(effort, label);
+  return label;
 }
 
 export function isThinkingEffortSupported(
   levels: readonly ThinkingEffortLevel[],
   effort: string | null | undefined,
 ): effort is ThinkingEffortLevel {
-  return typeof effort === "string" && levels.includes(effort as ThinkingEffortLevel);
+  return (
+    typeof effort === "string" &&
+    levels.some((level: ThinkingEffortLevel): boolean => level === effort)
+  );
 }
 
 export function nextThinkingEffort(

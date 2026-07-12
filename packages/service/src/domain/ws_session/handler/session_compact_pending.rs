@@ -169,6 +169,7 @@ async fn pending_spawn_config(
     let spawned_thinking_effort = handle.desired_thinking_effort.clone();
     let spawned_model = handle.desired_model.clone();
     let bridge = WsBridgeCanUseTool {
+        app_state: app_state.clone(),
         sender: sender.clone(),
         feature_senders: app_state.ws_feature_senders.clone(),
         response_rx: Arc::new(Mutex::new(permission_rx)),

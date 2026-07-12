@@ -26,7 +26,7 @@ export function useDebouncedSetting(
   { immediateCache = true } = {},
 ): DebouncedSettingResult {
   const query = useGetWorkspaceSetting(key);
-  const mutation = useSetWorkspaceSetting();
+  const { mutate } = useSetWorkspaceSetting();
   const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -50,7 +50,7 @@ export function useDebouncedSetting(
       if (timerRef.current) clearTimeout(timerRef.current);
 
       const persistValue = (): void => {
-        mutation.mutate(
+        mutate(
           { key, data: { value } },
           {
             onSuccess: () => {
@@ -78,7 +78,7 @@ export function useDebouncedSetting(
 
       timerRef.current = setTimeout(persistValue, debounceMs);
     },
-    [key, debounceMs, immediateCache, mutation, queryClient],
+    [key, debounceMs, immediateCache, mutate, queryClient],
   );
 
   const value = query.data?.value ?? null;

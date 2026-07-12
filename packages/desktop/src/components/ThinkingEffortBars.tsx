@@ -1,4 +1,5 @@
-import { THINKING_EFFORT_LABELS, type ThinkingEffortLevel } from "@/shared/thinking-effort";
+import { memo, type ReactNode } from "react";
+import { thinkingEffortLabel, type ThinkingEffortLevel } from "@/shared/thinking-effort";
 import { cn } from "@/lib/utils";
 
 interface ThinkingEffortBarsProps {
@@ -9,13 +10,13 @@ interface ThinkingEffortBarsProps {
   compact?: boolean;
 }
 
-export function ThinkingEffortBars({
+export const ThinkingEffortBars = memo(function ThinkingEffortBars({
   levels,
   value,
   onChange,
   className,
   compact = false,
-}: ThinkingEffortBarsProps) {
+}: ThinkingEffortBarsProps): ReactNode {
   if (levels.length === 0) return null;
 
   const selectedIndex = value ? levels.indexOf(value) : -1;
@@ -27,6 +28,7 @@ export function ThinkingEffortBars({
       aria-label="Thinking effort"
     >
       {levels.map((level, index) => {
+        const label = thinkingEffortLabel(level);
         const selected = selectedIndex >= 0 && index <= selectedIndex;
         const interactive = typeof onChange === "function";
         const height = compact ? 14 : 16;
@@ -42,11 +44,7 @@ export function ThinkingEffortBars({
 
         if (!interactive) {
           return (
-            <span
-              key={level}
-              title={THINKING_EFFORT_LABELS[level]}
-              aria-label={THINKING_EFFORT_LABELS[level]}
-            >
+            <span key={level} title={label} aria-label={label}>
               {bar}
             </span>
           );
@@ -58,8 +56,8 @@ export function ThinkingEffortBars({
             type="button"
             role="radio"
             aria-checked={selected}
-            aria-label={THINKING_EFFORT_LABELS[level]}
-            title={THINKING_EFFORT_LABELS[level]}
+            aria-label={label}
+            title={label}
             className="flex items-center rounded-sm p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-ring"
             onClick={() => onChange(selected ? undefined : level)}
           >
@@ -69,4 +67,4 @@ export function ThinkingEffortBars({
       })}
     </div>
   );
-}
+});

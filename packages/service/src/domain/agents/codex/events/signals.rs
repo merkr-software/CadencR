@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::super::event_json::{metadata, stream_event_raw, thread_id};
+use super::super::event_json::{metadata, runtime_stream_event, thread_id};
 use super::super::event_state::IndexState;
 use crate::domain::agents::adapter::{
     RuntimeContentDelta, RuntimeEvent, RuntimeEventKind, RuntimeStreamEvent,
@@ -38,27 +38,10 @@ pub(super) fn result_event(params: Value) -> RuntimeEvent {
 
 pub(super) fn text_delta_event(
     params: Value,
-    model: Option<&str>,
-    index_state: &mut IndexState,
-) -> Vec<RuntimeEvent> {
-    delta_event(params, model, false, index_state)
-}
-
-pub(super) fn reasoning_delta_event(
-    params: Value,
-    model: Option<&str>,
-    index_state: &mut IndexState,
-) -> Vec<RuntimeEvent> {
-    delta_event(params, model, true, index_state)
-}
-
-fn delta_event(
-    params: Value,
     _model: Option<&str>,
-    thinking: bool,
     index_state: &mut IndexState,
 ) -> Vec<RuntimeEvent> {
-    let delta = params
+    let text = params
         .get("delta")
         .and_then(Value::as_str)
         .unwrap_or("")
@@ -68,25 +51,12 @@ fn delta_event(
         .and_then(Value::as_str)
         .map(|item_id| index_state.index_for(item_id))
         .unwrap_or(0);
-    let event = if thinking {
-        RuntimeStreamEvent::ContentBlockDelta {
-            index,
-            delta: RuntimeContentDelta::Thinking { thinking: delta },
-        }
-    } else {
-        RuntimeStreamEvent::ContentBlockDelta {
-            index,
-            delta: RuntimeContentDelta::Text { text: delta },
-        }
+    let event = RuntimeStreamEvent::ContentBlockDelta {
+        index,
+        delta: RuntimeContentDelta::Text { text },
     };
     let sid = thread_id(&params).to_string();
-    vec![RuntimeEvent::new(
-        metadata(&sid, stream_event_raw(&sid, None, &event)),
-        RuntimeEventKind::StreamEvent {
-            event,
-            parent_tool_use_id: None,
-        },
-    )]
+    vec![runtime_stream_event(&sid, event)]
 }
 
 #[cfg(test)]

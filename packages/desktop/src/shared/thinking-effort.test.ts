@@ -3,22 +3,34 @@ import {
   nextThinkingEffort,
   parseThinkingEffort,
   supportedThinkingEffortLevels,
+  thinkingEffortLabel,
   thinkingEffortModelKey,
+  type ThinkingEffortLevel,
 } from "./thinking-effort";
 
 describe("thinking-effort helpers", () => {
+  const effort = (value: string) => parseThinkingEffort(value) as ThinkingEffortLevel;
+
   it("returns only supported ordered effort levels", () => {
-    expect(
-      supportedThinkingEffortLevels({
-        supports_effort: true,
-        supported_effort_levels: ["max", "low", "medium"],
-      }),
-    ).toEqual(["low", "medium", "max"]);
+    const model = {
+      supports_effort: true,
+      supported_effort_levels: ["ultra", "future-deep", "low"],
+    };
+    const levels = supportedThinkingEffortLevels(model);
+
+    expect(levels).toEqual(["ultra", "future-deep", "low"]);
+    expect(supportedThinkingEffortLevels(model)).toBe(levels);
   });
 
-  it("parses valid effort values", () => {
-    expect(parseThinkingEffort("high")).toBe("high");
-    expect(parseThinkingEffort("nope")).toBeUndefined();
+  it("accepts non-empty effort values supplied by a provider", () => {
+    expect(parseThinkingEffort("future-deep")).toBe("future-deep");
+    expect(parseThinkingEffort("  ")).toBeUndefined();
+  });
+
+  it("generates labels without a fixed effort list", () => {
+    expect(thinkingEffortLabel(effort("xhigh"))).toBe("Extra High");
+    expect(thinkingEffortLabel(effort("future-deep"))).toBe("Future Deep");
+    expect(thinkingEffortLabel(effort("xenon"))).toBe("Xenon");
   });
 
   it("builds per-model setting keys matching the Rust helper", () => {
@@ -31,8 +43,12 @@ describe("thinking-effort helpers", () => {
   });
 
   it("cycles to the next supported effort", () => {
-    expect(nextThinkingEffort(["low", "medium", "high"], "medium")).toBe("high");
-    expect(nextThinkingEffort(["low", "medium", "high"], "high")).toBe("low");
+    const standard = [effort("low"), effort("medium"), effort("high")];
+    const extended = [effort("max"), effort("ultra")];
+    expect(nextThinkingEffort(standard, "medium")).toBe("high");
+    expect(nextThinkingEffort(standard, "high")).toBe("low");
+    expect(nextThinkingEffort(extended, "max")).toBe("ultra");
+    expect(nextThinkingEffort(extended, "ultra")).toBe("max");
     expect(nextThinkingEffort([], "high")).toBeUndefined();
   });
 });

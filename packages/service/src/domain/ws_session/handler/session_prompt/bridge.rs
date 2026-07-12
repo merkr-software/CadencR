@@ -36,6 +36,7 @@ pub struct PermissionResponse {
 }
 
 pub(crate) struct WsBridgeCanUseTool {
+    pub(crate) app_state: crate::app_state::AppState,
     pub(crate) sender: WsSender,
     /// Every other device viewing this feature. A gate is mirrored to them so
     /// it appears on all connected clients, not just whichever one owns the
@@ -96,29 +97,16 @@ impl WsBridgeCanUseTool {
     ) -> RuntimeToolPermissionResult {
         info!("ExitPlanMode detected, sending permission request and blocking");
 
-        let initial_payload = self.plan_permission_payload(request, request.input.clone());
+        let enriched_input = self.attach_plan_to_exit_block(request).await;
+        let payload = self.plan_permission_payload(request, enriched_input);
         WsSessionPersistence::mark_awaiting_user_static(
-            &self.write_pool,
-            &self.session_status_tx,
+            &self.app_state,
             self.db_session_id,
             self.feature_id,
-            &PendingUserInput::Permission(&initial_payload),
+            &PendingUserInput::Permission(&payload),
         )
         .await;
-
-        self.send_permission_payload(initial_payload).await;
-
-        let enriched_input = self.attach_plan_to_exit_block(request).await;
-        if enriched_input != request.input {
-            let enriched_payload = self.plan_permission_payload(request, enriched_input);
-            WsSessionPersistence::set_pending_user_input_static(
-                &self.write_pool,
-                self.db_session_id,
-                &PendingUserInput::Permission(&enriched_payload),
-            )
-            .await;
-            self.send_permission_payload(enriched_payload).await;
-        }
+        self.send_permission_payload(payload).await;
 
         let mut rx = self.response_rx.lock().await;
         match rx.recv().await {
@@ -342,6 +330,12 @@ impl WsBridgeCanUseTool {
         request: &RuntimeToolPermissionRequest,
     ) -> RuntimeToolPermissionResult {
         debug!(tool_name = %request.tool_name, "prompting user for provider-native permission");
+        let is_question = crate::domain::ws_session::protocol::is_question_tool(&request.tool_name);
+        let pending_kind = if is_question {
+            PendingUserInputKind::Question
+        } else {
+            PendingUserInputKind::Permission
+        };
         let permission_updates =
             permission_bridge::persistent_permission_updates(&request.permission_updates);
 
@@ -354,18 +348,24 @@ impl WsBridgeCanUseTool {
             preview: permission_bridge::extract_permission_preview(&request.input),
             options: permission_bridge::build_provider_permission_options(&permission_updates),
         };
+        let question_payload = is_question.then(|| {
+            serde_json::to_value(&payload).expect("question permission payload should serialize")
+        });
+        let pending = question_payload
+            .as_ref()
+            .map(PendingUserInput::Question)
+            .unwrap_or(PendingUserInput::Permission(&payload));
         WsSessionPersistence::mark_awaiting_user_static(
-            &self.write_pool,
-            &self.session_status_tx,
+            &self.app_state,
             self.db_session_id,
             self.feature_id,
-            &PendingUserInput::Permission(&payload),
+            &pending,
         )
         .await;
         self.send_permission_payload(payload).await;
 
         // `wait_and_apply_decision` owns the clear + terminal-turn broadcast.
-        permission_bridge::wait_and_apply_decision(
+        let result = permission_bridge::wait_and_apply_decision(
             &self.response_rx,
             &request.tool_use_id,
             request.input.clone(),
@@ -374,8 +374,13 @@ impl WsBridgeCanUseTool {
             self.feature_id,
             &self.write_pool,
             self.db_session_id,
-            PendingUserInputKind::Permission,
+            pending_kind,
         )
-        .await
+        .await;
+        if is_question {
+            crate::domain::agents::claude_code::question_answers::normalize_result(result)
+        } else {
+            result
+        }
     }
 }

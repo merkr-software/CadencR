@@ -12,6 +12,11 @@ vi.mock("@/components/AgentBlock", async (importOriginal) => {
   };
 });
 
+// ToolSummaryBlock re-enters the AgentBlock → ToolSummaryBlock → AgentStreamItem
+// → AgentBlock import cycle; stub it so pulling the real AgentBlock above leaves
+// its export resolved. Not exercised by subagent windowing.
+vi.mock("@/components/agent-session/ToolSummaryBlock", () => ({ ToolSummaryBlock: () => null }));
+
 const { TaskAgentBlock } = await import("./TaskAgentBlock");
 
 function taskBlock(childCount: number, taskComplete = false): AgentBlockData {

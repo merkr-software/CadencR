@@ -44,14 +44,6 @@ Electron desktop shell with a React frontend. The backend is the Rust API server
 
 Frontend path alias: `@` → `packages/desktop/src/` (for example `import { foo } from "@/lib/foo"`).
 
-## Design System
-
-`DESIGN.md` is the source of truth for Cadencr Desktop visual design: tokens, themes, typography, layout states, component anatomy, iconography, and UI self-audit checks.
-
-- Before changing frontend UI, layout, styling, design tokens, icons, or user-facing visual behavior, read `DESIGN.md` and preserve its constraints.
-- Do not load or summarize `DESIGN.md` for backend-only, SDK-only, migration-only, or non-visual documentation work.
-- If implementation and `DESIGN.md` conflict, pause and surface the mismatch instead of silently inventing a new visual rule.
-
 ## Project-specific workflows
 
 **Regenerating the API client.** After changing the Rust API surface (utoipa attributes / new handlers), run `pnpm --filter @cadencr/desktop run generate:api`. This re-emits `packages/service/openapi.json` (gitignored, derived from utoipa) and regenerates `packages/desktop/src/api/generated/index.ts` via orval — commit the regenerated TS file. Naming overrides for hooks live in `packages/desktop/orval.transformer.cjs`.
@@ -75,9 +67,11 @@ Project-specific skills use agent-skills-compatible directories:
 If a task clearly matches one of these skills, read the matching skill and follow it before editing:
 
 - `db`
+- `finish-job`
+- `keyboard-shortcuts`
 - `migration-safety`
 - `qa`
-- `finish-job`
+- `release`
 
 ## Command Aliases
 
@@ -91,30 +85,44 @@ For agents that do not support project slash commands natively, treat these as s
 <!-- begin:rules -->
 
 ### components
+_Applies to: `packages/desktop/src/components/**`_
 
 shadcn/ui components go in `ui/` subdirectory (new-york style, neutral base). Custom components go directly in `components/`.
 
 ### database
+_Applies to: `packages/service/src/shared/db.rs`, `packages/service/src/shared/migrate.rs`, `packages/service/migrations/**`_
 
 Schema migrations are managed by sqlx in the Rust service (`packages/service/migrations/`). New migrations use timestamp-based naming: `YYYYMMDDHHMMSS_description.sql`. They are embedded at compile time via `sqlx::migrate!()` and run automatically on server startup. Migrations are non-reversible (plain `.sql`, not `.up.sql`/`.down.sql`).
+
+### design-system
+_Applies to: `packages/desktop/**`_
+
+`DESIGN.md` is the source of truth for Cadencr Desktop visual design: tokens, themes, typography, layout states, component anatomy, iconography, and UI self-audit checks.
+
+- Before changing frontend UI, layout, styling, design tokens, icons, or user-facing visual behavior under `packages/desktop/`, read `DESIGN.md` and preserve its constraints.
+- Do not load or summarize `DESIGN.md` for non-visual changes under `packages/desktop/`.
+- If implementation and `DESIGN.md` conflict, pause and surface the mismatch instead of silently inventing a new visual rule.
 
 ### error-handling
 
 Never swallow errors silently. Every error must be surfaced to the user — no empty catch blocks, no `catch (_) {}`, no logging-only without user-visible feedback. On the frontend, show a toast or inline error message. On the backend, return a meaningful error response. A no-op error handler is always wrong.
 
 ### explicit-state
+_Applies to: `**/*.tsx`, `**/*.ts`_
 
 Every async operation must have visible loading state. If the app is loading, fetching, or processing, the user must see a loader, skeleton, or progress indicator. Users should never stare at a seemingly frozen screen. An unacknowledged wait is a UX bug.
 
 ### file-size
 
-No file longer than 400 lines. If a file grows past this, extract modules or components. Check file length before and after edits — if an edit would push a file over 400 lines, refactor first.
+Max 400 lines per file — past that, split into modules/components so files stay reviewable.
+(test files exempt; enforced by oxlint `max-lines` — see .oxlintrc.json. Rust `.rs` files are checked by the PostToolUse hook in .claude/settings.json.)
 
 ### frontend-performance
+_Applies to: `packages/desktop/src/**`_
 
-These rules apply to frontend code under `packages/desktop/src/`. The app is an IDE; technical users expect IDE-level responsiveness. Performance is a hard constraint, not an afterthought — think about render cost, subscription scope, and main-thread work *before* writing the change. The existing generic `performance.md` rule still applies; this one is the detailed, mandatory version for frontend code.
+These rules apply to frontend code under `packages/desktop/src/`. The app is an IDE; technical users expect IDE-level responsiveness. Performance is a hard constraint, not an afterthought — think about render cost, subscription scope, main-thread work, and redundant network calls *before* writing the change.
 
-## Mandatory practices
+#### Mandatory practices
 
 - **Always select from Zustand stores.** Never call a store hook without a selector (`useFooStore()` subscribes the consumer to every mutation, on every session). Always select the slice you actually read: `useFooStore((s) => s.fieldA)`. Read actions outside the render flow via `useFooStore.getState()` when they don't need to drive UI updates.
 - **Stabilize hook return values.** A custom hook that returns a fresh object literal each render breaks every downstream `useMemo` and `React.memo`. Wrap the return in `useMemo` keyed on the primitive fields it depends on, or split state and actions into separate hooks.
@@ -123,7 +131,7 @@ These rules apply to frontend code under `packages/desktop/src/`. The app is an 
 - **Bound main-thread work.** Synchronous parsing, syntax highlighting, or markdown rendering at mount must be cached, gated by viewport, or offloaded (`requestIdleCallback`, Web Worker). No unbounded synchronous work on first paint.
 - **Lazy-load heavy modules.** Editors (CodeMirror), syntax-highlighting grammars, image/video decoders, and any module > 100 KB gzipped must be code-split via dynamic `import()` or `React.lazy`.
 
-## Forbidden patterns
+#### Forbidden patterns
 
 - Subscribing a hot component to an entire store (no selector), or returning the raw store from a wrapper hook.
 - Returning a fresh object literal from a custom hook without `useMemo`.
@@ -136,27 +144,30 @@ When in doubt, profile first. Don't speculate; don't ignore. A perf regression o
 
 ### function-size
 
-No function longer than 100 lines. If a function exceeds this, split it into smaller, well-named functions. Before finishing an edit, check that no function in the modified file breaks this limit.
+Max 100 lines per function — past that, split into smaller, well-named functions so logic stays readable.
+(test files exempt; enforced by oxlint `max-lines-per-function` — see .oxlintrc.json.)
 
 ### inline-rust-tests
+_Applies to: `**/*.rs`_
 
 In Rust source files, keep unit tests inline with the code they cover. Do not create or expand dedicated sibling test files like `tests.rs` just to hold unit tests for a module. If a Rust module needs more room, split production code into smaller modules or files, but keep each module’s unit tests in the same source file behind `#[cfg(test)]`.
 
 ### keyboard-shortcuts
+_Applies to: `**/*.tsx`_
 
 When adding a new user-facing feature, ask whether it needs a keyboard shortcut. Power users rely on keyboard navigation — don't ship a feature that can only be triggered by mouse if it could reasonably have a keybinding.
 
 ### no-optimistic-updates
+_Applies to: `packages/desktop/src/**`_
 
 Do NOT use optimistic updates in the frontend. Everything runs locally — there is no latency to hide. Optimistic updates create multiple sources of truth and add unnecessary complexity.
 
-The Zustand store state must be the single source of truth. Only update store state when the backend confirms a change via WebSocket events. Never set state optimistically in action dispatchers — wait for the corresponding event from the backend.
+The Zustand store state must be the single source of truth. Only update store state when the backend confirms a change via WebSocket events. Never set state optimistically in action dispatchers (e.g., don't set status in `startPlan()`, `approvePlan()`, etc. — wait for the backend WebSocket event).
 
-### performance
-
-Performance is critical — this app targets technical users who expect speed. Avoid unnecessary re-renders, heavy computations on the main thread, and redundant network calls. Lazy-load where appropriate. When in doubt, profile first.
+Session/agent status has exactly one canonical source: `useSessionStatusStore` (`@/stores/session-status-store`), populated only by the backend `session_status.update` / `session_status.snapshot` envelopes (`LiveAgentStatus`: `"idle" | "agent" | "question"`). Read "is the agent working?" from there — never re-derive or track it separately.
 
 ### provider-boundaries
+_Applies to: `packages/service/src/**`, `packages/desktop/src/**`, `packages/*-sdk-rs/src/**`_
 
 Do not scatter provider-specific logic across shared codepaths.
 
@@ -168,18 +179,26 @@ Do not scatter provider-specific logic across shared codepaths.
 
 ### reusability
 
-Always search for existing code before writing new code. Grep/glob for similar utilities, helpers, hooks, or components already in the codebase. Duplicate code is a bug — extract shared logic instead of copying.
+Search for existing code before writing new. Check the likely homes first:
+- UI primitives: `packages/desktop/src/components/ui/` (shadcn) — don't hand-roll a button, dialog, dropdown, input, etc.
+- Feature components, hooks, and helpers: `packages/desktop/src/components/`, `hooks/`, `lib/`, `stores/`.
+- Backend shared logic: `packages/service/src/shared/` (git_cli, worktree_paths, slug, db, env).
+
+Grep/glob for a similar utility, helper, hook, or component before adding one. Duplicate code is a bug — extract shared logic instead of copying.
 
 ### routes
+_Applies to: `packages/desktop/src/routes/**`_
 
 Do not edit `routeTree.gen.ts` — it is auto-generated by TanStack Router from the file-based routes.
 
 ### simplicity
 
-Keep code simple. If an approach feels complex, it will be hard to maintain — find a simpler way. Prefer straightforward, obvious implementations over clever ones. If you can't explain the approach in one sentence, it's too complicated.
+Keep code simple. Prefer the straightforward, obvious implementation over the clever one — complexity is the cost you pay later to maintain it. If an approach feels complex, find a simpler way before writing it. If you can't explain the approach in one sentence, it's too complicated.
 
 ### strict-typing
+_Applies to: `**/*.ts`, `**/*.tsx`_
 
-Never use `any` type. Use `unknown` when the type is truly uncertain, then narrow with type guards. All functions, parameters, and return values must have explicit types. Prefer interfaces for object shapes and use Zod schemas (already in the project) for runtime validation at boundaries.
+Never use `any` — use `unknown` and narrow with type guards; prefer explicit types and Zod schemas at boundaries.
+(enforced by oxlint `typescript/no-explicit-any` — see .oxlintrc.json.)
 
 <!-- end:rules -->

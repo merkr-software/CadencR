@@ -22,7 +22,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 clap = { version = "4", features = ["derive", "env"] }
 anyhow = "1"
-agent-client-protocol = "0.15.0"
+agent-client-protocol = "1.2.0"
 regex-lite = "0.1"
 dirs = "6"
 rand = "0.10"

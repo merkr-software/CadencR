@@ -162,6 +162,18 @@ async fn create_schema(pool: &SqlitePool) {
     .execute(pool)
     .await
     .unwrap();
+    sqlx::query(
+        r#"CREATE TABLE agent_session_links (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_session_id INTEGER NOT NULL,
+        target_session_id INTEGER NOT NULL,
+        link_type TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 async fn seed_basic_rows(pool: &SqlitePool, repo_path: &str) {

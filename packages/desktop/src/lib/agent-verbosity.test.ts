@@ -4,6 +4,7 @@ import {
   AGENT_VERBOSITY_OPTIONS,
   DEFAULT_AGENT_VERBOSITY_MODE,
   isToolAutoCollapsible,
+  parseAgentSummaryMode,
   parseAgentVerbosityMode,
   verbosityControlsCollapse,
 } from "./agent-verbosity";
@@ -37,6 +38,19 @@ describe("verbosityControlsCollapse", () => {
   it("returns false for modes that leave blocks uncontrolled", () => {
     expect(verbosityControlsCollapse("maximal")).toBe(false);
     expect(verbosityControlsCollapse("compact")).toBe(false);
+  });
+});
+
+describe("parseAgentSummaryMode", () => {
+  it("defaults to false when unset or not the literal 'true'", () => {
+    expect(parseAgentSummaryMode(null)).toBe(false);
+    expect(parseAgentSummaryMode(undefined)).toBe(false);
+    expect(parseAgentSummaryMode("false")).toBe(false);
+    expect(parseAgentSummaryMode("nonsense")).toBe(false);
+  });
+
+  it("is true only for the literal 'true'", () => {
+    expect(parseAgentSummaryMode("true")).toBe(true);
   });
 });
 

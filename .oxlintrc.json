@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript"],
+  "rules": {
+    "typescript/no-explicit-any": "error",
+    "no-empty": ["error", { "allowEmptyCatch": false }],
+    "max-lines": ["warn", { "max": 400, "skipBlankLines": false, "skipComments": false }],
+    "max-lines-per-function": ["warn", { "max": 100, "skipBlankLines": false, "skipComments": false, "IIFEs": true }]
+  },
+  "overrides": [
+    {
+      "files": [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/*.spec.js",
+        "**/*.spec.jsx",
+        "**/api/generated/**",
+        "**/routeTree.gen.ts"
+      ],
+      "rules": {
+        "max-lines": "off",
+        "max-lines-per-function": "off"
+      }
+    }
+  ]
+}

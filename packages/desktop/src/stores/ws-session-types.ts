@@ -3,6 +3,7 @@
  */
 
 import type { AgentBlockData } from "@/components/AgentBlock";
+import type { DisplayRowMode } from "@/components/agentStreamDisplay";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
@@ -172,6 +173,14 @@ export interface SessionEntry {
   featureTitle: string | null;
   isAutoNaming: boolean;
   pendingWsRequests: Map<string, (payload: unknown) => void>;
+  /**
+   * Envelopes that could not be sent because the socket was not OPEN
+   * (reconnecting after a drop, or still CONNECTING). Flushed in order once
+   * the transport is back, right after the reconnect `session.init` replay.
+   * Mutated in place (like `pendingWsRequests`) — transport plumbing, not
+   * render state.
+   */
+  outboundQueue: WsEnvelope[];
   worktreeStatus: WorktreeStatus;
   worktreePath: string | null;
   worktreeBranch: string | null;
@@ -241,6 +250,7 @@ export function createSessionEntry(): SessionEntry {
     featureTitle: null,
     isAutoNaming: false,
     pendingWsRequests: new Map(),
+    outboundQueue: [],
     worktreeStatus: "idle",
     worktreePath: null,
     worktreeBranch: null,
@@ -306,7 +316,7 @@ export interface WsSessionStore {
   connect: (sessionId: string) => void;
   disconnect: (sessionId: string) => void;
 
-  send: (sessionId: string, data: unknown) => void;
+  send: (sessionId: string, envelope: WsEnvelope) => void;
   initSession: (sessionId: string, config: SessionConfig) => void;
   sendPrompt: (sessionId: string, text: string, options?: PromptDispatchOptions) => void;
   respondToPermission: (
@@ -354,7 +364,7 @@ export interface WsSessionStore {
    * prepended to the conversation. The store also increments
    * `historyPrependDisplayOffset` by the rendered row count for Virtuoso.
    */
-  loadOlderMessages: (sessionId: string) => Promise<number>;
+  loadOlderMessages: (sessionId: string, displayMode?: DisplayRowMode) => Promise<number>;
   /**
    * Pull any messages persisted after the newest block we hold and merge them
    * in — the same catch-up path used on WS reconnect. Used after a manual

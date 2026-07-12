@@ -88,6 +88,20 @@ describe("agentStreamDisplay", () => {
     ).toBe(0);
   });
 
+  it("counts summary-mode rows as the collapsed row count (recap + final text)", () => {
+    const turn = [
+      block("u1", "prompt", { type: "user_message" }),
+      block("t1", "read", { type: "tool_call", toolName: "Read" }),
+      block("t2", "read", { type: "tool_call", toolName: "Read" }),
+      block("t3", "bash", { type: "tool_call", toolName: "Bash" }),
+      block("m0", "preamble"),
+      block("m1", "final answer"),
+    ];
+    // Raw: user + 3 tools + 2 text = 6 rows. Summary: user + recap + final = 3.
+    expect(countRenderableDisplayRows(turn)).toBe(6);
+    expect(countRenderableDisplayRows(turn, { summaryMode: true })).toBe(3);
+  });
+
   describe("buildDisplayItems (compact mode grouping)", () => {
     it("wraps every block in its own item when compact is off", () => {
       const text = block("t1", "hello");

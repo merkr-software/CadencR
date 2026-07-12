@@ -7,7 +7,16 @@ const FEATURE_COLUMNS: &str = r#"id, project_id, title, status,
            COALESCE(type, 'ws-session') as type_, label,
            model_session,
            COALESCE(created_at, datetime('now')) as created_at,
-           is_pinned"#;
+           is_pinned,
+           (SELECT source_session.feature_id FROM agent_session_links link
+            JOIN agent_sessions target_session ON target_session.id = link.target_session_id
+            JOIN agent_sessions source_session ON source_session.id = link.source_session_id
+            WHERE target_session.feature_id = f.id AND link.link_type IN ('spawned', 'handoff')
+            ORDER BY link.created_at ASC, link.id ASC LIMIT 1) AS spawned_by_feature_id,
+           (SELECT link.link_type FROM agent_session_links link
+            JOIN agent_sessions target_session ON target_session.id = link.target_session_id
+            WHERE target_session.feature_id = f.id AND link.link_type IN ('spawned', 'handoff')
+            ORDER BY link.created_at ASC, link.id ASC LIMIT 1) AS spawn_link_type"#;
 
 pub async fn list_by_project(
     pool: &SqlitePool,
@@ -66,7 +75,7 @@ pub async fn list_pinned(pool: &SqlitePool) -> Result<Vec<Feature>, AppError> {
 }
 
 pub async fn get_by_id(pool: &SqlitePool, id: i64) -> Result<Option<Feature>, AppError> {
-    let sql = format!("SELECT {FEATURE_COLUMNS} FROM features WHERE id = ?");
+    let sql = format!("SELECT {FEATURE_COLUMNS} FROM features f WHERE id = ?");
     let row = sqlx::query_as::<_, Feature>(AssertSqlSafe(sql))
         .bind(id)
         .fetch_optional(pool)
@@ -272,6 +281,19 @@ mod tests {
         .await
         .unwrap();
         sqlx::query(
+            r#"CREATE TABLE agent_session_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_session_id INTEGER NOT NULL,
+                target_session_id INTEGER NOT NULL,
+                link_type TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                note TEXT
+            )"#,
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
             r#"CREATE TABLE agent_sessions (
                 id INTEGER PRIMARY KEY,
                 feature_id INTEGER NOT NULL,
@@ -326,6 +348,41 @@ mod tests {
         assert_eq!(features.len(), 1);
         assert_eq!(features[0].id, 1);
         assert_eq!(features[0].status, FeatureStatus::Active);
+    }
+
+    #[tokio::test]
+    async fn list_by_project_derives_spawn_parent_feature() {
+        let pool = setup_pool().await;
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title, status) VALUES
+             (1, 1, 'parent', 'active'), (2, 1, 'spawned child', 'active'),
+             (3, 1, 'handoff child', 'active')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_sessions (id, feature_id, status) VALUES
+             (10, 1, 'paused'), (20, 2, 'paused'), (30, 3, 'paused')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO agent_session_links (source_session_id, target_session_id, link_type)
+             VALUES (10, 20, 'spawned'), (10, 30, 'handoff')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let features = list_by_project(&pool, 1, false).await.unwrap();
+        let child = features.iter().find(|feature| feature.id == 2).unwrap();
+        assert_eq!(child.spawned_by_feature_id, Some(1));
+        assert_eq!(child.spawn_link_type.as_deref(), Some("spawned"));
+        let handoff = features.iter().find(|feature| feature.id == 3).unwrap();
+        assert_eq!(handoff.spawned_by_feature_id, Some(1));
+        assert_eq!(handoff.spawn_link_type.as_deref(), Some("handoff"));
     }
 
     #[tokio::test]

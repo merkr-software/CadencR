@@ -70,7 +70,7 @@ interface SafePatchDiffProps<LAnnotation> {
 }
 
 interface RenderableFilePatch {
-  key: string;
+  stableKey: string;
   patch: string;
 }
 
@@ -104,12 +104,14 @@ const VIRTUAL_FILE_METRICS: Partial<VirtualFileMetrics> = {
 
 function getRenderableFilePatches(patch: string): RenderableFilePatch[] {
   const sections = parseUnifiedDiff(patch);
-  if (sections.length === 0) return [{ key: `single:${hashPatchKey(patch)}`, patch }];
+  if (sections.length === 0) {
+    return [{ stableKey: "single", patch }];
+  }
 
   return sections.flatMap((section, sectionIndex) =>
     section.hunks.map((filePatch, hunkIndex) => {
       const fileKey = `${sectionIndex}:${section.oldFileName}->${section.newFileName}:${hunkIndex}`;
-      return { key: `${fileKey}:${hashPatchKey(filePatch)}`, patch: filePatch };
+      return { stableKey: fileKey, patch: filePatch };
     }),
   );
 }
@@ -176,8 +178,28 @@ function SafePatchDiff<LAnnotation>({
     if (!instance) return;
     const forceRender = !areOptionsEqual(instance.options, options);
     instance.setOptions(options);
+    if (
+      virtualizer &&
+      instance instanceof PierreVirtualizedFileDiff &&
+      instance.fileDiff !== fileDiff
+    ) {
+      const virtualizedInstance = instance as PierreVirtualizedFileDiff<LAnnotation>;
+      // Keep the virtualized instance + host element alive across live patch
+      // updates. Re-keying by patch content disconnects the old instance while
+      // the scroll window still points into it; the replacement then combines
+      // a stale `bufferBefore` with lines rendered from index 0, leaving a huge
+      // empty band until the next user scroll.
+      //
+      // `prepareCodeViewItem` swaps the target and resets Pierre's layout cache
+      // without touching the DOM. `rerender` then lets the outer Virtualizer
+      // capture the OLD visible-line anchor before it renders the new target.
+      virtualizedInstance.prepareCodeViewItem(fileDiff, virtualizedInstance.top ?? 0);
+      virtualizedInstance.setLineAnnotations(lineAnnotations ?? []);
+      virtualizedInstance.rerender();
+      return;
+    }
     instance.render({ forceRender, fileDiff, lineAnnotations });
-  }, [fileDiff, lineAnnotations, options]);
+  }, [fileDiff, lineAnnotations, options, virtualizer]);
   const getHoveredLine = useCallback(() => instanceRef.current?.getHoveredLine(), []);
 
   return createElement(
@@ -289,6 +311,7 @@ function PatchDiffViewImpl({
   renderHeaderMetadata,
 }: PatchDiffViewProps) {
   ensurePierreThemesRegistered();
+  const virtualizer = useVirtualizer();
   const filePatches = useMemo(() => getRenderableFilePatches(patch), [patch]);
   const lineAnnotations = useMemo(
     () => buildLineAnnotations(commentLines, activeWidget, commentCallbacks),
@@ -339,7 +362,14 @@ function PatchDiffViewImpl({
     <>
       {filePatches.map((filePatch) => (
         <SafePatchDiff
-          key={filePatch.key}
+          // Outside the Git virtualizer, remounting is still the safest way to
+          // cancel Pierre's pending async highlight for an obsolete patch. In
+          // the Git tab the stable instance is required for correct anchoring.
+          key={
+            virtualizer
+              ? filePatch.stableKey
+              : `${filePatch.stableKey}:${hashPatchKey(filePatch.patch)}`
+          }
           patch={filePatch.patch}
           options={options}
           lineAnnotations={lineAnnotations}
