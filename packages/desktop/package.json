@@ -71,7 +71,7 @@
     "@tanstack/hotkeys": "0.8.0",
     "@tanstack/query-sync-storage-persister": "^4.43.0",
     "@tanstack/react-hotkeys": "0.10.0",
-    "@tanstack/react-query": "^4.43.0",
+    "@tanstack/react-query": "^5.101.2",
     "@tanstack/react-query-persist-client": "^4.43.0",
     "@tanstack/react-router": "1.170.16",
     "@tanstack/router-vite-plugin": "1.167.18",
