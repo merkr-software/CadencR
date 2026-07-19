@@ -172,8 +172,17 @@ await writeFile(path.join(PUBLIC_DIR, "favicon.ico"), ico(faviconEntries));
 console.log("wrote favicon.ico");
 
 // ─── Electron app icons (icons/) ───────────────────────────────────────────
-await writeFile(path.join(APP_ICONS_DIR, "128x128.png"), await png(APP_ICON_STANDARD, 128));
-console.log("wrote icons/128x128.png");
+// electron-builder consumes the PNG directory on Linux and selects the best
+// size for each desktop/package target. Keep these cuts generated from the
+// same source as the macOS and Windows containers so platform packaging can
+// never reintroduce a retired brand mark.
+for (const size of [16, 32, 48, 64, 128, 256, 512]) {
+  const svg = size <= 32 ? APP_ICON_SMALL : APP_ICON_STANDARD;
+  await writeFile(path.join(APP_ICONS_DIR, `${size}x${size}.png`), await png(svg, size));
+  console.log(`wrote icons/${size}x${size}.png`);
+}
+await writeFile(path.join(APP_ICONS_DIR, "icon.png"), await png(APP_ICON_STANDARD, 512));
+console.log("wrote icons/icon.png");
 
 const icoEntries = await Promise.all(
   [16, 32, 48, 256].map(async (size) => ({
