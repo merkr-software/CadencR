@@ -1,9 +1,9 @@
 import landingPackage from "../../package.json";
 
-type SupportedDownloadOs = "macos";
-export type DetectedOs = SupportedDownloadOs | "windows" | "linux" | "unknown";
+type SupportedDownloadOs = "linux" | "macos";
+export type DetectedOs = SupportedDownloadOs | "windows" | "unknown";
 export type DetectedArch = "arm64" | "x64" | "unknown";
-type DownloadKind = "installer" | "archive";
+type DownloadKind = "installer" | "archive" | "portable";
 
 interface DownloadAsset {
   assetName: string;
@@ -74,6 +74,36 @@ export const DOWNLOAD_ASSETS: DownloadAsset[] = [
     size: "147 MB",
     url: releaseAssetUrl(`Cadencr-${appVersion}-mac.zip`),
   },
+  {
+    assetName: `Cadencr-${appVersion}.AppImage`,
+    arch: "x64",
+    href: "#linux-appimage",
+    kind: "portable",
+    label: "Linux x86-64 AppImage",
+    os: "linux",
+    size: "152 MB",
+    url: releaseAssetUrl(`Cadencr-${appVersion}.AppImage`),
+  },
+  {
+    assetName: `Cadencr-${appVersion}-amd64.deb`,
+    arch: "x64",
+    href: "#linux-deb",
+    kind: "installer",
+    label: "Linux x86-64 DEB",
+    os: "linux",
+    size: "122 MB",
+    url: releaseAssetUrl(`Cadencr-${appVersion}-amd64.deb`),
+  },
+  {
+    assetName: `Cadencr-${appVersion}-x86_64.rpm`,
+    arch: "x64",
+    href: "#linux-rpm",
+    kind: "installer",
+    label: "Linux x86-64 RPM",
+    os: "linux",
+    size: "122 MB",
+    url: releaseAssetUrl(`Cadencr-${appVersion}-x86_64.rpm`),
+  },
 ];
 
 /**
@@ -92,10 +122,18 @@ export function preferredMacArch(arch: DetectedArch): DetectedArch {
 }
 
 export function selectRecommendedDownload(detection: DownloadDetection): DownloadAsset | undefined {
+  if (detection.os === "linux") {
+    if (detection.arch === "arm64") return undefined;
+    return DOWNLOAD_ASSETS.find(
+      (asset) => asset.os === "linux" && asset.assetName.endsWith(".AppImage"),
+    );
+  }
   if (detection.os !== "macos") return undefined;
 
   const wanted = preferredMacArch(detection.arch);
-  return DOWNLOAD_ASSETS.find((asset) => asset.arch === wanted && asset.assetName.endsWith(".dmg"));
+  return DOWNLOAD_ASSETS.find(
+    (asset) => asset.os === "macos" && asset.arch === wanted && asset.assetName.endsWith(".dmg"),
+  );
 }
 
 /** Normalize a raw architecture token (e.g. from `userAgentData`) to our enum. */

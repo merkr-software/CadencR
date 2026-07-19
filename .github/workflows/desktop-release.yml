@@ -217,15 +217,23 @@ jobs:
             apt-get update -qq
             apt-get install -y -q /pkg/$DEB
             SIDECAR=\$(dpkg -L cadencr | grep -E '/cadencr-service\$' | head -n1)
+            PACKAGE_TYPE=\$(dpkg -L cadencr | grep -E '/resources/package-type\$' | head -n1)
             test -n \"\$SIDECAR\" && test -x \"\$SIDECAR\"
+            test \"\$(cat \"\$PACKAGE_TYPE\")\" = deb
             \"\$SIDECAR\" --help > /dev/null
           "
           docker run --rm -v "$PWD:/pkg:ro" fedora:40 bash -eu -c "
             dnf install -y -q /pkg/$RPM
             SIDECAR=\$(rpm -ql cadencr | grep -E '/cadencr-service\$' | head -n1)
+            PACKAGE_TYPE=\$(rpm -ql cadencr | grep -E '/resources/package-type\$' | head -n1)
             test -n \"\$SIDECAR\" && test -x \"\$SIDECAR\"
+            test \"\$(cat \"\$PACKAGE_TYPE\")\" = rpm
             \"\$SIDECAR\" --help > /dev/null
           "
+
+          grep -Eq 'url: .*\.AppImage$' latest-linux.yml
+          grep -Eq 'url: .*\.deb$' latest-linux.yml
+          grep -Eq 'url: .*\.rpm$' latest-linux.yml
 
       - name: Upload Linux release assets
         if: matrix.os == 'ubuntu-latest'
