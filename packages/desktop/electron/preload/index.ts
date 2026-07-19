@@ -69,7 +69,7 @@ type UpdateEvent =
   | { kind: "error"; message: string }
   | { kind: "download-progress"; percent: number; bytesPerSecond: number }
   | { kind: "downloaded"; version: string }
-  | { kind: "unsupported"; reason: "package-manager"; message: string };
+  | { kind: "unsupported"; reason: "unsupported-install"; message: string };
 
 function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
   const unsubs = [
@@ -90,7 +90,7 @@ function onUpdateEvent(cb: (event: UpdateEvent) => void): () => void {
     onIpc<{ version: string }>("update:downloaded", (p) =>
       cb({ kind: "downloaded", version: p.version }),
     ),
-    onIpc<{ reason: "package-manager"; message: string }>("update:unsupported", (p) =>
+    onIpc<{ reason: "unsupported-install"; message: string }>("update:unsupported", (p) =>
       cb({ kind: "unsupported", reason: p.reason, message: p.message }),
     ),
   ];

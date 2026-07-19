@@ -29,13 +29,40 @@ describe("selectRecommendedDownload", () => {
     expect(result?.assetName).toBe(`Cadencr-${appVersion}-arm64.dmg`);
   });
 
+  it("recommends the portable AppImage for Linux x64 browsers", () => {
+    const result = selectRecommendedDownload({ os: "linux", arch: "x64" });
+
+    expect(result?.assetName).toBe(`Cadencr-${appVersion}.AppImage`);
+  });
+
+  it("defaults Linux browsers with an unknown architecture to the x64 AppImage", () => {
+    const result = selectRecommendedDownload({ os: "linux", arch: "unknown" });
+
+    expect(result?.assetName).toBe(`Cadencr-${appVersion}.AppImage`);
+  });
+
+  it("does not recommend the x64 Linux build to ARM browsers", () => {
+    expect(selectRecommendedDownload({ os: "linux", arch: "arm64" })).toBeUndefined();
+  });
+
   it("does not recommend a download for operating systems not shipped yet", () => {
-    expect(selectRecommendedDownload({ os: "linux", arch: "x64" })).toBeUndefined();
     expect(selectRecommendedDownload({ os: "windows", arch: "x64" })).toBeUndefined();
   });
 
   it("keeps asset URLs pinned to the current landing version", () => {
     expect(DOWNLOAD_ASSETS.every((asset) => asset.url.includes(`/v${appVersion}/`))).toBe(true);
+  });
+
+  it("publishes AppImage, DEB, and RPM Linux targets", () => {
+    const linuxNames = DOWNLOAD_ASSETS.filter((asset) => asset.os === "linux").map(
+      (asset) => asset.assetName,
+    );
+
+    expect(linuxNames).toEqual([
+      `Cadencr-${appVersion}.AppImage`,
+      `Cadencr-${appVersion}-amd64.deb`,
+      `Cadencr-${appVersion}-x86_64.rpm`,
+    ]);
   });
 });
 

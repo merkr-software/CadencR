@@ -15,6 +15,13 @@ const DOC_PAGES: DocPage[] = [
     section: "Start Here",
   },
   {
+    slug: "installation",
+    title: "Install CadencR on macOS and Linux",
+    navLabel: "Installation",
+    description: "Download, install, update, and uninstall CadencR on macOS and Linux.",
+    section: "Start Here",
+  },
+  {
     slug: "concept",
     title: "The IDE for the era of agents",
     navLabel: "Concept",

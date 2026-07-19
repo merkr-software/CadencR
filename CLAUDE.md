@@ -51,6 +51,15 @@ Before claiming a task complete:
 - **Checks pass.** Run `pnpm --filter @cadencr/desktop ts-check`, `pnpm lint`, and the relevant tests — vitest for the frontend, `cargo test` for Rust.
 - **Verified end-to-end in the running app.** Any behavior change must be exercised against a live `pnpm dev` instance: for backend/API changes, make real API calls against the dev server; for frontend changes, drive the UI via the qa skill, the Cadencr browser MCP, or devtools. "It compiles", "tests pass", and "the code looks right" are not done. (If the Rust API surface changed, also regenerate and commit the client — see "Project-specific workflows" below.)
 
+## Platform support: macOS and Linux
+
+CadencR Desktop is supported on both macOS and Linux. Treat both platforms as first-class whenever changing shared application behavior.
+
+- Prefer platform-neutral implementations. For filesystem paths, process spawning, shell commands, executable discovery, keyboard modifiers, updater behavior, packaging, native dialogs, window chrome, and Electron/runtime integration, explicitly evaluate the behavior on both macOS and Linux.
+- Add automated coverage for every platform-specific branch whenever practical. Keep platform detection at a narrow boundary instead of scattering OS checks through shared code.
+- Before reporting work complete, explicitly tell the user which macOS- and Linux-specific tests were run, which were automated, and which still require validation on a real platform or packaged artifact. Never imply that a test on one operating system proves behavior on the other.
+- If a change requires a dedicated platform test that cannot be run in the current environment, call that out clearly as a remaining verification requirement rather than silently omitting it.
+
 **Per-user paths (database, worktrees, logs).** Cadencr stores user data under a platform-specific root. On macOS everything lives under `~/.cadencr/` (database at `~/.cadencr/database/cadencr.db`, worktrees at `~/.cadencr/worktrees`). On Linux we follow the XDG Base Directory spec: data under `$XDG_DATA_HOME/cadencr` (default `~/.local/share/cadencr`), config under `$XDG_CONFIG_HOME/cadencr` (default `~/.config/cadencr`), cache/logs under `$XDG_CACHE_HOME/cadencr` (default `~/.cache/cadencr`). New code MUST go through `cadencr_service::shared::app_paths` (Rust) or `packages/desktop/electron/main/app-paths.ts` (Electron main) instead of building paths from the home directory — those modules are the single seam keeping the two platforms in sync.
 
 ## Project-specific workflows

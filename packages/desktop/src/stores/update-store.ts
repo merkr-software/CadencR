@@ -11,9 +11,8 @@ export type UpdateStatus =
   | "up-to-date"
   | "error"
   /**
-   * In-app updates are disabled for this install (Linux deb/rpm). The UI
-   * shows `unsupportedMessage` instead of a working "Check for updates"
-   * button — never silently no-op'ing the action.
+   * In-app updates are disabled for an unrecognized/custom Linux install.
+   * Official AppImage, DEB, and RPM packages all use electron-updater.
    */
   | "unsupported";
 

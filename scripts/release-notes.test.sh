@@ -43,5 +43,15 @@ grep -q '^## v1\.2\.3 - 2026-07-17$' "$tmp_dir/release-notes.md" \
 if grep -q '^## v1\.2\.2' "$tmp_dir/release-notes.md"; then
   fail "release output must not include the previous release"
 fi
+grep -q '^## Install$' "$tmp_dir/release-notes.md" \
+  || fail "expected platform installation instructions"
+grep -q 'brew install --cask merkr-software/cadencr/cadencr' "$tmp_dir/release-notes.md" \
+  || fail "expected Homebrew installation instructions"
+grep -q 'sudo apt install ./Cadencr-1.2.3-amd64.deb' "$tmp_dir/release-notes.md" \
+  || fail "expected versioned Debian installation instructions"
+grep -q 'sudo dnf install ./Cadencr-1.2.3-x86_64.rpm' "$tmp_dir/release-notes.md" \
+  || fail "expected RPM installation instructions"
+grep -q 'sudo zypper install ./Cadencr-1.2.3-x86_64.rpm' "$tmp_dir/release-notes.md" \
+  || fail "expected openSUSE installation instructions"
 
 echo "release-notes tests passed"

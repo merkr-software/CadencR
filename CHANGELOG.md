@@ -8,6 +8,12 @@ Previous release: v0.7.1 - 2026-07-15
 
 - [**Desktop**] Added leading-`!` shell commands to the prompt composer for Claude, Codex, and OpenCode sessions, with a dedicated shell mode, streamed and persisted output, worktree-aware local execution where needed, provider-native execution when supported, cancellation and restart recovery, and command results carried into subsequent conversation context.
 - [**Backend**] Added push-based agent orchestration so spawned or messaged sessions can deliver permission, plan, and question gates plus completed results directly into the parent’s active turn, with explicit queue and reject modes, interruption-safe follow-ups, and durable delivery claims and UUIDs that recover replies across interruptions and restarts without duplicating stored messages.
+- [**Desktop**] Added first-class Linux x86-64 releases as AppImage, DEB, and RPM packages, with XDG-aware data paths, executable sidecar packaging, and in-app updates for every official Linux format.
+- [**Documentation**] Added macOS and Linux download detection, distro-specific installation guidance, and copy-paste install commands across the website, repository README, and GitHub release notes.
+
+### 🔧 Changed
+
+- [**Developer experience**] Made macOS and Linux compatibility an explicit repository requirement, including platform-specific automated coverage where practical and a required disclosure of any real-platform verification still needed.
 
 ### 🐛 Fixed
 

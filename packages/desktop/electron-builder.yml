@@ -58,10 +58,11 @@ linux:
   synopsis: Desktop shell for driving local AI coding agents
   executableName: cadencr
 
-# Distro packages. Auto-updater is disabled for these in updater.ts — users
-# upgrade through their package manager. Dep lists are pinned explicitly
-# (rather than relying on electron-builder defaults) so a future Electron bump
-# can't silently drop required libs.
+# Distro packages. electron-updater uses the package identity emitted by
+# electron-builder to download and install the matching DEB or RPM release.
+# Dependency lists are pinned explicitly (rather than relying on
+# electron-builder defaults) so a future Electron bump cannot silently drop
+# required libraries.
 deb:
   packageName: cadencr
   artifactName: Cadencr-${version}-${arch}.${ext}
