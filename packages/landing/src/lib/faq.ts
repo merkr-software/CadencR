@@ -32,7 +32,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
   {
     q: "What platforms does CadencR run on?",
-    a: "CadencR currently ships a desktop build for macOS on both Apple Silicon and Intel. Native Linux and Windows builds are planned next.",
+    a: "CadencR ships for macOS on Apple Silicon and Intel, plus Linux x86-64 as AppImage, DEB, and RPM packages. Native Linux ARM64 and Windows builds are planned next.",
   },
   {
     q: "Does CadencR collect telemetry?",

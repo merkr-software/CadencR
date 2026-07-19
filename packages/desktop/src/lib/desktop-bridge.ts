@@ -87,13 +87,12 @@ export type UpdateEvent =
   | { kind: "downloaded"; version: string }
   | {
       /**
-       * In-app updates are unavailable for this install. Today this only
-       * fires on Linux deb / rpm / unknown installs where the package
-       * manager owns upgrades; the renderer should render `message` instead
-       * of offering a "Check for updates" button.
+       * In-app updates are unavailable because this Linux build is not an
+       * official AppImage, DEB, or RPM package. The renderer should render
+       * `message` instead of offering a non-working update action.
        */
       kind: "unsupported";
-      reason: "package-manager";
+      reason: "unsupported-install";
       message: string;
     };
 

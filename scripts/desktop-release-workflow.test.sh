@@ -37,3 +37,13 @@ case "$workflow_text" in
   *"latest-mac.yml"*"Cadencr-\${version}-arm64.dmg"*"Cadencr-\${version}.dmg"*) ;;
   *) fail "workflow must require updater metadata and both Homebrew DMGs" ;;
 esac
+
+case "$workflow_text" in
+  *"url: .*\\.AppImage\$"*"url: .*\\.deb\$"*"url: .*\\.rpm\$"*) ;;
+  *) fail "workflow must verify latest-linux.yml contains every auto-updatable target" ;;
+esac
+
+case "$workflow_text" in
+  *"/resources/package-type"*"= deb"*"= rpm"*) ;;
+  *) fail "workflow must verify DEB and RPM updater package identities" ;;
+esac

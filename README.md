@@ -26,7 +26,7 @@
 </p>
 
 <p align="center">
-  <sub>Open source · No telemetry · Apache 2.0 · macOS</sub>
+  <sub>Open source · No telemetry · Apache 2.0 · macOS + Linux</sub>
 </p>
 
 ---
@@ -75,7 +75,7 @@ You keep the agents you already use. CadencR gives you the surface to supervise 
 
 ### macOS
 
-CadencR currently ships a desktop build for **macOS on both Apple Silicon and Intel**. Native Linux and Windows builds are planned next; you can [run from source](#run-from-source) on either today.
+CadencR ships a desktop build for **macOS on both Apple Silicon and Intel**.
 
 Install with [Homebrew](https://brew.sh):
 
@@ -84,6 +84,39 @@ brew install --cask merkr-software/cadencr/cadencr
 ```
 
 Or download the latest DMG/ZIP from [GitHub Releases](https://github.com/merkr-software/CadencR/releases).
+
+### Linux
+
+CadencR ships **x86-64** AppImage, DEB, and RPM packages. Download the latest artifact from [GitHub Releases](https://github.com/merkr-software/CadencR/releases/latest), then use the matching installation command.
+
+#### AppImage — most glibc-based distributions
+
+```bash
+chmod +x Cadencr-*.AppImage
+./Cadencr-*.AppImage
+```
+
+#### Ubuntu, Debian, Mint, Pop!_OS, and other Debian-based distributions
+
+```bash
+sudo apt install ./Cadencr-*-amd64.deb
+```
+
+#### Fedora, RHEL, Rocky, AlmaLinux, and other RPM distributions
+
+```bash
+sudo dnf install ./Cadencr-*.rpm
+```
+
+#### openSUSE and SUSE Linux Enterprise
+
+```bash
+sudo zypper install ./Cadencr-*.rpm
+```
+
+Official AppImage, DEB, and RPM installs receive updates through CadencR. DEB and RPM updates may request administrator authentication when installing the new system package. See the [complete installation guide](https://cadencr.com/docs/installation/) for launch, update, and uninstall instructions.
+
+Windows packaging is still planned. Windows users can currently [run from source](#run-from-source) with WSL2/WSLg.
 
 > CadencR is early `0.x` software. Expect fast iteration, frequent updates, and a few sharp edges.
 
@@ -166,7 +199,7 @@ packages/
 - **Service ↔ Agents**: provider adapters call local CLIs through focused Rust SDKs.
 - **Work isolation**: sessions run in Git worktrees so parallel work stays separated.
 - **Local-first**: everything runs on your machine and sends no telemetry; remote access is opt-in over your own LAN or Tailscale.
-- **Release flow**: tagged desktop releases build, sign, notarize, and publish macOS artifacts from GitHub Actions.
+- **Release flow**: tagged desktop releases build, sign, notarize, and publish macOS artifacts plus Linux AppImage, DEB, and RPM packages from GitHub Actions.
 
 ## Open an issue or contribute
 
