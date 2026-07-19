@@ -246,6 +246,9 @@ mod tests {
         run_git(&["config", "commit.gpgsign", "false"], path)
             .await
             .unwrap();
+        run_git(&["config", "tag.gpgsign", "false"], path)
+            .await
+            .unwrap();
         run_git(&["commit", "--allow-empty", "-q", "-m", "base"], path)
             .await
             .unwrap();
