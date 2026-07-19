@@ -30,6 +30,9 @@ const DEB_MESSAGE =
 const RPM_MESSAGE =
   "Cadencr was installed via your package manager — run `sudo dnf upgrade cadencr` to update.";
 
+const SUSE_MESSAGE =
+  "Cadencr was installed via your package manager — run `sudo zypper update cadencr` to update.";
+
 const UNKNOWN_MESSAGE =
   "Cadencr was installed outside the in-app updater — use your package manager to upgrade.";
 
@@ -50,7 +53,8 @@ export function detectLinuxInstallType(
 
   const family = readDistroFamily(osReleasePath);
   if (family === "debian") return { type: "deb", message: DEB_MESSAGE };
-  if (family === "rhel" || family === "suse") return { type: "rpm", message: RPM_MESSAGE };
+  if (family === "rhel") return { type: "rpm", message: RPM_MESSAGE };
+  if (family === "suse") return { type: "rpm", message: SUSE_MESSAGE };
   return { type: "unknown", message: UNKNOWN_MESSAGE };
 }
 

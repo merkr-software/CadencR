@@ -60,6 +60,8 @@ describe("detectLinuxInstallType", () => {
     writeFileSync(osReleasePath, 'ID=opensuse-leap\nID_LIKE="suse opensuse"\n');
     const info = detectLinuxInstallType({}, osReleasePath);
     expect(info.type).toBe("rpm");
+    expect(info.message).toMatch(/zypper update cadencr/);
+    expect(info.message).not.toMatch(/dnf/);
   });
 
   it("falls back to unknown for distros we don't recognize", () => {
