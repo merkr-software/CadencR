@@ -73,8 +73,13 @@ deb:
   priority: optional
 rpm:
   depends:
+    - gtk3
     - libXScrnSaver
+    - libXtst
     - libnotify
     - nss
+    - xdg-utils
+    - at-spi2-atk
     - libdrm
+    - mesa-libgbm
     - libxkbcommon
