@@ -358,18 +358,24 @@ mod tests {
         let blocked = "CADENCR_LOGIN_ENV_TEST_BLOCKED_42";
 
         let prev_path = std::env::var(always).ok();
-        std::env::set_var(always, "/launchd/only");
+        let launch_path = prev_path
+            .clone()
+            .unwrap_or_else(|| "/usr/bin:/bin".to_string());
+        let login_path = format!("/bin:{launch_path}");
+        // PATH is process-global, so keep both fixture values executable-safe
+        // for unrelated tests that may spawn a child concurrently.
+        std::env::set_var(always, &launch_path);
         std::env::set_var(fill_only, "preexisting");
         std::env::remove_var(blocked);
 
         let pairs = vec![
-            (always.into(), "/from/login".into()),
+            (always.into(), login_path.clone()),
             (fill_only.into(), "from-login".into()),
             (blocked.into(), "should-not-appear".into()),
         ];
         apply_env(pairs);
 
-        assert_eq!(std::env::var(always).unwrap(), "/from/login");
+        assert_eq!(std::env::var(always).unwrap(), login_path);
         // Pre-existing non-override key keeps its value.
         assert_eq!(std::env::var(fill_only).unwrap(), "preexisting");
         // Blocked key never written.

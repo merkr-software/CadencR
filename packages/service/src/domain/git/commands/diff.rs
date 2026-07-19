@@ -286,6 +286,7 @@ mod tests {
         git(&["init", "-q", "-b", "main"], root);
         git(&["config", "user.email", "test@example.com"], root);
         git(&["config", "user.name", "Test"], root);
+        git(&["config", "commit.gpgsign", "false"], root);
     }
 
     async fn rev_parse(root: &Path, rev: &str) -> String {
