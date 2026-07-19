@@ -67,6 +67,7 @@ jobs:
           persist-credentials: false
 
       - name: Test Homebrew cask update script
+        if: matrix.os == 'macos-14'
         run: env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh
 
       - name: Enable pnpm from packageManager

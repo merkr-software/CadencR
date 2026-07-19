@@ -81,10 +81,15 @@ rpm:
   packageName: cadencr
   artifactName: Cadencr-${version}-${arch}.${ext}
   depends:
+    - gtk3
     - libXScrnSaver
+    - libXtst
     - libnotify
     - nss
+    - xdg-utils
+    - at-spi2-atk
     - libdrm
+    - mesa-libgbm
     - libxkbcommon
 
 dmg:
