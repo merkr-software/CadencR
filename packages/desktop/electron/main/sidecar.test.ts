@@ -6,6 +6,7 @@ import {
   describeStartupFailure,
   ensureLinuxSidecarExecutable,
   parsePhaseLine,
+  resolveSettingsDir,
   serviceArgs,
   serviceEnv,
 } from "./sidecar";
@@ -13,12 +14,13 @@ import {
 describe("sidecar process arguments", () => {
   it("does not expose the auth token on argv", () => {
     const args = serviceArgs("/tmp/cadencr.db");
+    const settingsDir = resolveSettingsDir("/tmp/cadencr.db");
 
     expect(args).toEqual([
       "--db-path",
       "/tmp/cadencr.db",
       "--settings-dir",
-      "/settings",
+      settingsDir,
       "--port",
       "5004",
     ]);
@@ -39,12 +41,13 @@ describe("sidecar process arguments", () => {
 
   it("appends --app-version when provided", () => {
     const args = serviceArgs("/tmp/cadencr.db", "1.2.3");
+    const settingsDir = resolveSettingsDir("/tmp/cadencr.db");
 
     expect(args).toEqual([
       "--db-path",
       "/tmp/cadencr.db",
       "--settings-dir",
-      "/settings",
+      settingsDir,
       "--port",
       "5004",
       "--app-version",
@@ -53,17 +56,31 @@ describe("sidecar process arguments", () => {
   });
 
   it("appends --renderer-dir when provided, and omits it otherwise", () => {
+    const settingsDir = resolveSettingsDir("/tmp/cadencr.db");
     expect(serviceArgs("/tmp/cadencr.db", undefined, "/res/renderer")).toEqual([
       "--db-path",
       "/tmp/cadencr.db",
       "--settings-dir",
-      "/settings",
+      settingsDir,
       "--port",
       "5004",
       "--renderer-dir",
       "/res/renderer",
     ]);
     expect(serviceArgs("/tmp/cadencr.db", undefined, null)).not.toContain("--renderer-dir");
+  });
+
+  it("uses XDG config for Linux settings and preserves the legacy macOS layout", () => {
+    expect(
+      resolveSettingsDir(
+        "/home/u/.local/share/cadencr/database/cadencr.db",
+        "linux",
+        "/home/u/.config/cadencr",
+      ),
+    ).toBe("/home/u/.config/cadencr/settings");
+    expect(resolveSettingsDir("/Users/u/.cadencr/database/cadencr.db", "darwin")).toBe(
+      "/Users/u/.cadencr/settings",
+    );
   });
 });
 
