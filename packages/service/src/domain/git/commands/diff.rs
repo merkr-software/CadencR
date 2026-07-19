@@ -243,6 +243,7 @@ mod tests {
         git(&["init", "-q", "-b", "main"], root);
         git(&["config", "user.email", "test@example.com"], root);
         git(&["config", "user.name", "Test"], root);
+        git(&["config", "commit.gpgsign", "false"], root);
     }
 
     /// The per-file diff must scope to the requested path and fold staged +
