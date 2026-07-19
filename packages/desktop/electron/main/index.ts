@@ -24,6 +24,7 @@ import type { BrowserManager } from "./browser-manager";
 import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
 import { installDefaultRendererCrashRecovery } from "./renderer-crash-recovery";
+import { configureLinuxOzonePlatform } from "./linux-ozone-platform";
 import { installCsp, rendererLoadTarget, secureWebContents } from "./renderer-window-security";
 import { windowIconOption } from "./app-icon";
 let mainWindow: BrowserWindow | null = null;
@@ -252,9 +253,7 @@ if (!app.isPackaged) {
   app.setPath("userData", devProfile.userDataPath);
 }
 
-if (process.platform === "linux") {
-  app.commandLine.appendSwitch("ozone-platform-hint", "auto");
-}
+configureLinuxOzonePlatform(app.commandLine, process.platform);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();
