@@ -1,3 +1,4 @@
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@/test-utils";
 import { ContextUsageBar } from "./ContextUsageBar";
@@ -138,5 +139,61 @@ describe("ContextUsageBar", () => {
       />,
     );
     expect(container.firstChild).toBeNull();
+  });
+
+  it("shows token detail popover on hover", async () => {
+    const user = userEvent.setup();
+    render(
+      <ContextUsageBar
+        usage={makeUsage({ inputTokens: 40000, outputTokens: 5230, contextWindow: 200000 })}
+        isStreaming={false}
+      />,
+    );
+
+    expect(screen.queryByText("Tokens used")).not.toBeInTheDocument();
+
+    await user.hover(screen.getByText("23%"));
+
+    expect(await screen.findByText("Tokens used")).toBeInTheDocument();
+    expect(screen.getByText("45,230 / 200,000")).toBeInTheDocument();
+    expect(screen.getByText("Input")).toBeInTheDocument();
+    expect(screen.getByText("40,000")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
+    expect(screen.getByText("5,230")).toBeInTheDocument();
+  });
+
+  it("hides the popover again on unhover", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageBar usage={makeUsage({ usageRatio: 0.3 })} isStreaming={false} />);
+
+    await user.hover(screen.getByText("30%"));
+    expect(await screen.findByText("Tokens used")).toBeInTheDocument();
+
+    await user.unhover(screen.getByText("30%"));
+    expect(screen.queryByText("Tokens used")).not.toBeInTheDocument();
+  });
+
+  it("shows the compacted row only when wasCompacted is true", async () => {
+    const user = userEvent.setup();
+    render(
+      <ContextUsageBar
+        usage={makeUsage({ usageRatio: 0.3, wasCompacted: true })}
+        isStreaming={false}
+      />,
+    );
+
+    await user.hover(screen.getByText("30%"));
+
+    expect(await screen.findByText("Context compacted")).toBeInTheDocument();
+  });
+
+  it("omits the compacted row when wasCompacted is false", async () => {
+    const user = userEvent.setup();
+    render(<ContextUsageBar usage={makeUsage({ usageRatio: 0.3 })} isStreaming={false} />);
+
+    await user.hover(screen.getByText("30%"));
+
+    expect(await screen.findByText("Tokens used")).toBeInTheDocument();
+    expect(screen.queryByText("Context compacted")).not.toBeInTheDocument();
   });
 });
