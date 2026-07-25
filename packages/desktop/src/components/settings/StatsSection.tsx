@@ -1,0 +1,163 @@
+import { useMemo, useState } from "react";
+import { useGetUsageStats } from "@/api/generated";
+import { apiErrorMessage } from "@/lib/api-errors";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SettingsSection } from "@/components/settings/SettingsSection";
+import { SettingsCard } from "@/components/settings/SettingsCard";
+import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
+import { UsageSegmentedControl } from "@/components/settings/stats/UsageSegmentedControl";
+import { UsageSummaryTiles } from "@/components/settings/stats/UsageSummaryTiles";
+import { UsageChartBlock } from "@/components/settings/stats/UsageChartBlock";
+import { providerLabel, useUsageCharts } from "@/components/settings/stats/use-usage-charts";
+import { resolveEndDay, type UsageMetric } from "@/components/settings/stats/usage-stats-model";
+import { UsageRecordingWarning } from "@/components/settings/stats/UsageRecordingWarning";
+
+const RANGE_OPTIONS = [
+  { value: "7", label: "7d", title: "Last 7 days" },
+  { value: "30", label: "30d", title: "Last 30 days" },
+  { value: "90", label: "90d", title: "Last 90 days" },
+] as const;
+
+const METRIC_OPTIONS = [
+  { value: "total", label: "Total", title: "Words sent plus received" },
+  { value: "input", label: "Sent", title: "Words you sent to the provider" },
+  { value: "output", label: "Received", title: "Words the provider sent back" },
+] as const satisfies readonly { value: UsageMetric; label: string; title: string }[];
+
+const METRIC_UNIT: Record<UsageMetric, string> = {
+  total: "words exchanged",
+  input: "words sent",
+  output: "words received",
+};
+
+export function StatsSection(): React.JSX.Element {
+  const [range, setRange] = useState<(typeof RANGE_OPTIONS)[number]["value"]>("30");
+  const [metric, setMetric] = useState<UsageMetric>("total");
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
+
+  const windowDays = Number(range);
+  const { data, isLoading, error } = useGetUsageStats({ days: windowDays });
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
+  // The backend computes the window's last day from the same clock that stamped
+  // the rows; deriving it here would drift across UTC midnight.
+  const endDay = resolveEndDay(data?.end_day);
+  const { providerChart, modelChart, providerIds, activeProviderId, summary } = useUsageCharts({
+    entries,
+    windowDays,
+    endDay,
+    metric,
+    selectedProviderId: providerFilter,
+  });
+
+  return (
+    <SettingsSection
+      id="stats"
+      title="Usage stats"
+      description="Words exchanged with each agent, kept independently of your conversations — archiving or deleting a conversation does not erase its usage."
+    >
+      <SettingsCard>
+        <SettingsSubsection
+          title="Overview"
+          description="Counted from the prompts you send and the text agents stream back."
+          action={
+            <UsageSegmentedControl
+              value={range}
+              options={RANGE_OPTIONS}
+              onChange={setRange}
+              ariaLabel="Time range"
+            />
+          }
+        >
+          {/* Outside `StatsBody` on purpose: a failed write is often the reason
+              there is nothing to chart, so it must survive the empty state. */}
+          {data?.recording_issue ? (
+            <div className="mb-4">
+              <UsageRecordingWarning issue={data.recording_issue} />
+            </div>
+          ) : null}
+          <StatsBody
+            isLoading={isLoading}
+            error={error}
+            hasUsage={summary.totalInputWords + summary.totalOutputWords > 0}
+          >
+            <div className="space-y-5">
+              <UsageSummaryTiles summary={summary} />
+
+              <UsageChartBlock
+                title="By provider"
+                data={providerChart}
+                metricLabel={METRIC_UNIT[metric]}
+                emptyMessage="No provider usage in this range yet."
+                control={
+                  <UsageSegmentedControl
+                    value={metric}
+                    options={METRIC_OPTIONS}
+                    onChange={setMetric}
+                    ariaLabel="Measure"
+                  />
+                }
+              />
+
+              <UsageChartBlock
+                divided
+                title="By model and thinking level"
+                data={modelChart}
+                metricLabel={METRIC_UNIT[metric]}
+                emptyMessage="No model usage for this provider in this range yet."
+                control={
+                  <UsageSegmentedControl
+                    value={activeProviderId ?? ""}
+                    options={providerIds.map((id) => ({ value: id, label: providerLabel(id) }))}
+                    onChange={setProviderFilter}
+                    ariaLabel="Provider"
+                  />
+                }
+              />
+            </div>
+          </StatsBody>
+        </SettingsSubsection>
+      </SettingsCard>
+    </SettingsSection>
+  );
+}
+
+function StatsBody({
+  isLoading,
+  error,
+  hasUsage,
+  children,
+}: {
+  isLoading: boolean;
+  error: unknown;
+  hasUsage: boolean;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  if (error) {
+    return (
+      <p className="rounded-lg border border-[color-mix(in_oklab,var(--acc-red)_35%,transparent)] bg-[color-mix(in_oklab,var(--acc-red)_5%,var(--card))] px-3 py-2.5 text-xs text-foreground">
+        Could not load usage stats. {apiErrorMessage(error, "Please try again.")}
+      </p>
+    );
+  }
+  if (isLoading) {
+    return (
+      <div className="space-y-5" aria-busy="true" aria-label="Loading usage stats">
+        <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
+          {Array.from({ length: 4 }, (_, index) => (
+            <Skeleton key={index} className="h-[62px] rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-[196px] rounded-lg" />
+        <Skeleton className="h-[196px] rounded-lg" />
+      </div>
+    );
+  }
+  if (!hasUsage) {
+    return (
+      <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground">
+        No usage recorded yet. Send a prompt to an agent and it will show up here.
+      </p>
+    );
+  }
+  return <>{children}</>;
+}

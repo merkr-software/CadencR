@@ -1,25 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useShortcut } from "@/hooks/useShortcut";
-import {
-  ArrowLeft,
-  Bell,
-  BrainCircuit,
-  ChevronRight,
-  Code2,
-  Files,
-  GitMerge,
-  Globe,
-  History,
-  Info,
-  Keyboard,
-  MonitorCog,
-  Network,
-  Palette,
-  Plug,
-  Save,
-  Settings2,
-} from "lucide-react";
+import { ArrowLeft, ChevronRight, Files, History, Keyboard, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -30,6 +12,7 @@ import { InterfaceSection } from "@/components/settings/InterfaceSection";
 import { GitSection } from "@/components/settings/GitSection";
 import { ProvidersSection } from "@/components/settings/ProvidersSection";
 import { AboutSection } from "@/components/settings/AboutSection";
+import { StatsSection } from "@/components/settings/StatsSection";
 import { AgentVerbositySettings } from "@/components/settings/AgentVerbositySettings";
 import { AgentSummaryModeToggle } from "@/components/settings/AgentSummaryModeToggle";
 import { ThemeSelector } from "@/components/settings/ThemeSelector";
@@ -42,10 +25,8 @@ import { WorkspaceJsonSettings } from "@/components/settings/SettingsJsonControl
 import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { SettingsSwitchRow } from "@/components/settings/SettingsSwitchRow";
-import {
-  SettingsNavSidebar,
-  type SettingsNavGroup,
-} from "@/components/settings/SettingsNavSidebar";
+import { SettingsNavSidebar } from "@/components/settings/SettingsNavSidebar";
+import { NAV_GROUPS } from "@/components/settings/settings-nav-groups";
 import { IconTile } from "@/components/settings/IconTile";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { APP_VERSION } from "@/lib/app-version";
@@ -58,93 +39,6 @@ export const Route = createFileRoute("/settings")({
     return {};
   },
 });
-
-const NAV_GROUPS: SettingsNavGroup[] = [
-  {
-    label: "General",
-    items: [
-      {
-        id: "appearance",
-        label: "Appearance",
-        icon: <Palette className="size-4" />,
-      },
-      { id: "editor", label: "Editor", icon: <Code2 className="size-4" /> },
-      {
-        id: "interface",
-        label: "Interface & Zoom",
-        icon: <MonitorCog className="size-4" />,
-      },
-      {
-        id: "notifications",
-        label: "Notifications",
-        icon: <Bell className="size-4" />,
-      },
-      {
-        id: "browser",
-        label: "Browser",
-        icon: <Globe className="size-4" />,
-      },
-    ],
-  },
-  {
-    label: "MCP",
-    items: [
-      {
-        id: "mcp",
-        label: "MCP",
-        icon: <Network className="size-4" />,
-      },
-    ],
-  },
-  {
-    label: "Agents",
-    items: [
-      {
-        id: "runtime",
-        label: "Runtime & Models",
-        icon: <BrainCircuit className="size-4" />,
-      },
-    ],
-  },
-  {
-    label: "Source Control",
-    items: [{ id: "git", label: "Git", icon: <GitMerge className="size-4" /> }],
-  },
-  {
-    label: "Providers",
-    items: [
-      {
-        id: "providers",
-        label: "CLI Providers",
-        icon: <Plug className="size-4" />,
-      },
-    ],
-  },
-  {
-    label: "About",
-    items: [
-      {
-        id: "about",
-        label: "About Cadencr",
-        icon: <Info className="size-4" />,
-      },
-    ],
-  },
-];
-
-function SettingsSidebarHeader(): React.JSX.Element {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="grid size-7 place-items-center rounded-md bg-primary text-[var(--primary-foreground)]">
-        <Settings2 className="size-4" />
-      </div>
-      <div className="min-w-0">
-        <div className="text-sm font-semibold">Settings</div>
-        <div className="truncate text-[11px] text-muted-foreground">Cadencr v{APP_VERSION}</div>
-      </div>
-    </div>
-  );
-}
 
 function SettingsPage() {
   const { section } = Route.useSearch();
@@ -175,21 +69,8 @@ function SettingsPage() {
       <SettingsNavSidebar
         groups={NAV_GROUPS}
         scrollRef={mainRef}
-        header={<SettingsSidebarHeader />}
-        footer={
-          <div className="flex items-center justify-between gap-2">
-            <span>Changes save automatically.</span>
-            <button
-              type="button"
-              onClick={goBack}
-              title="Back to workspace (Esc)"
-              className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <ArrowLeft className="size-3" />
-              Esc
-            </button>
-          </div>
-        }
+        header={<SidebarHeader />}
+        footer={<SidebarFooter onBack={goBack} />}
       />
 
       <main ref={mainRef} className="flex-1 overflow-y-auto">
@@ -227,11 +108,43 @@ function SettingsPage() {
           <RuntimeSettingsSection />
           <GitSection />
           <ProvidersSection />
+          <StatsSection />
           <AboutSection />
 
           <div className="h-12" />
         </div>
       </main>
+    </div>
+  );
+}
+
+function SidebarHeader(): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="grid size-7 place-items-center rounded-md bg-primary text-[var(--primary-foreground)]">
+        <Settings2 className="size-4" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-sm font-semibold">Settings</div>
+        <div className="truncate text-[11px] text-muted-foreground">Cadencr v{APP_VERSION}</div>
+      </div>
+    </div>
+  );
+}
+
+function SidebarFooter({ onBack }: { onBack: () => void }): React.JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span>Changes save automatically.</span>
+      <button
+        type="button"
+        onClick={onBack}
+        title="Back to workspace (Esc)"
+        className="inline-flex items-center gap-1 rounded border border-border bg-card px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <ArrowLeft className="size-3" />
+        Esc
+      </button>
     </div>
   );
 }
