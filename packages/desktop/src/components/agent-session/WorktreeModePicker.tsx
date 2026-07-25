@@ -30,6 +30,8 @@ interface WorktreeModePickerProps {
   mode: WorktreeMode;
   onModeChange: (mode: WorktreeMode) => void;
   state: BranchWorktreeState;
+  /** Behaviors to list. Defaults to all of them. */
+  modes?: readonly WorktreeMode[];
   /** Future-tense summary of what the first prompt will do — surfaced as a
    *  footer so the deferred-until-send behavior is explicit. `null` hides it. */
   effectHint?: string | null;
@@ -39,6 +41,7 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   mode,
   onModeChange,
   state,
+  modes = WORKTREE_MODES,
   effectHint,
 }: WorktreeModePickerProps): ReactElement {
   const [open, setOpen] = useState(false);
@@ -65,7 +68,7 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" side="top" className="w-80 p-1">
-        {WORKTREE_MODES.map((m) => (
+        {modes.map((m) => (
           <WorktreeModeRow
             key={m}
             mode={m}

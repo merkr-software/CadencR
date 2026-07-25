@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SchedulesRouteImport } from './routes/schedules'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as WsSessionSessionIdRouteImport } from './routes/ws-session.$sessionId'
@@ -18,6 +19,11 @@ import { Route as ProjectsProjectIdFeaturesFeatureIdRouteImport } from './routes
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SchedulesRoute = SchedulesRouteImport.update({
+  id: '/schedules',
+  path: '/schedules',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsRoute = AgentsRouteImport.update({
@@ -45,6 +51,7 @@ const ProjectsProjectIdFeaturesFeatureIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/agents': typeof AgentsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agents': typeof AgentsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/agents': typeof AgentsRoute
+  '/schedules': typeof SchedulesRoute
   '/settings': typeof SettingsRoute
   '/ws-session/$sessionId': typeof WsSessionSessionIdRoute
   '/projects/$projectId/features/$featureId': typeof ProjectsProjectIdFeaturesFeatureIdRoute
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/agents'
+    | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
     | '/projects/$projectId/features/$featureId'
@@ -76,6 +86,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/agents'
+    | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
     | '/projects/$projectId/features/$featureId'
@@ -83,6 +94,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/agents'
+    | '/schedules'
     | '/settings'
     | '/ws-session/$sessionId'
     | '/projects/$projectId/features/$featureId'
@@ -91,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AgentsRoute: typeof AgentsRoute
+  SchedulesRoute: typeof SchedulesRoute
   SettingsRoute: typeof SettingsRoute
   WsSessionSessionIdRoute: typeof WsSessionSessionIdRoute
   ProjectsProjectIdFeaturesFeatureIdRoute: typeof ProjectsProjectIdFeaturesFeatureIdRoute
@@ -103,6 +116,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/schedules': {
+      id: '/schedules'
+      path: '/schedules'
+      fullPath: '/schedules'
+      preLoaderRoute: typeof SchedulesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents': {
@@ -139,6 +159,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AgentsRoute: AgentsRoute,
+  SchedulesRoute: SchedulesRoute,
   SettingsRoute: SettingsRoute,
   WsSessionSessionIdRoute: WsSessionSessionIdRoute,
   ProjectsProjectIdFeaturesFeatureIdRoute:

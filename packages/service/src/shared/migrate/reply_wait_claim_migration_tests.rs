@@ -19,6 +19,21 @@ async fn migration_adds_delivery_claims_without_rewriting_reply_waits() {
              session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
              content TEXT NOT NULL DEFAULT ''
          );
+         -- Baselined after 20260621120100, so the schedules migration expects
+         -- this table to be present and folds it into `schedules`.
+         CREATE TABLE scheduled_messages (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             feature_id INTEGER NOT NULL,
+             text TEXT NOT NULL,
+             scheduled_at TEXT NOT NULL,
+             status TEXT NOT NULL DEFAULT 'pending',
+             error TEXT,
+             created_at TEXT NOT NULL DEFAULT (datetime('now')),
+             updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+             claim_token TEXT,
+             claimed_at TEXT,
+             attempt_count INTEGER NOT NULL DEFAULT 0
+         );
          CREATE TABLE agent_session_reply_waits (
              id INTEGER PRIMARY KEY AUTOINCREMENT,
              requester_session_id INTEGER NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
@@ -44,6 +59,7 @@ async fn migration_adds_delivery_claims_without_rewriting_reply_waits() {
     .unwrap();
     seed_migrations_before_target(&pool).await;
 
+    crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

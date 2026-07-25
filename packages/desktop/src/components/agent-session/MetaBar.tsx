@@ -1,15 +1,13 @@
 import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { SlidingText } from "@/components/SlidingText";
-import { ShortcutTooltip } from "../ShortcutTooltip";
 import { AgentTodoList } from "../AgentTodoList";
 import { AutoScrollChip } from "./AutoScrollChip";
+import { PermissionModeChip } from "./PermissionModeChip";
 import { SessionInfoChip } from "./SessionInfoChip";
 import { WorktreeChip } from "./WorktreeChip";
 import type { WorktreeMode } from "@/lib/worktree-mode";
 import type { TodoItem } from "@/types/agent";
 import type { ThinkingEffortLevel } from "@/shared/thinking-effort";
-import { findProviderMode, getVisibleModes } from "@/lib/provider-modes";
 import type { PermissionMode } from "@/types/permission-mode";
 import type { AccessMode } from "@/types/access-mode";
 import type {
@@ -20,7 +18,6 @@ import type { ClaudeCodeProfile } from "@/api/agentRuntime";
 import { ModelMetaChip, type Model, type Provider } from "./ModelMetaChip";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
 import { AccessModePopover } from "./AccessModePopover";
-import { getDisplayMode } from "./meta-bar-codex-modes";
 import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
 import type { ModelSelectionStatus } from "./useAgentSessionModelState";
 
@@ -138,37 +135,15 @@ function useMetaBarState(props: MetaBarProps, ref: React.ForwardedRef<MetaBarHan
       },
     ];
   }, [displayProviderId, props.models, props.providers]);
-  const activeMode = useMemo(() => {
-    if (isSelectionPending || !props.onPermissionModeToggle || !props.permissionMode) return null;
-    const visibleModes = getVisibleModes(
-      displayProviderId,
-      props.enabledOptInModes ?? [],
-      props.providerModes ?? [],
-    );
-    if (visibleModes.length < 2) return null;
-    return (
-      findProviderMode(displayProviderId, props.permissionMode, props.providerModes ?? []) ??
-      visibleModes[0]
-    );
-  }, [
-    displayProviderId,
-    isSelectionPending,
-    props.enabledOptInModes,
-    props.onPermissionModeToggle,
-    props.permissionMode,
-    props.providerModes,
-  ]);
-  const displayMode = getDisplayMode(activeMode, displayProviderId, props.permissionMode);
   return useMemo(
     () => ({
-      displayMode,
       displayProviderId,
       isSelectionPending,
       modelPickerOpen,
       pickerProviders,
       setModelPickerOpen,
     }),
-    [displayMode, displayProviderId, isSelectionPending, modelPickerOpen, pickerProviders],
+    [displayProviderId, isSelectionPending, modelPickerOpen, pickerProviders],
   );
 }
 
@@ -201,19 +176,16 @@ function MetaBarPrimary({ props, state }: { props: MetaBarProps; state: MetaBarS
       {props.showAutoScrollChip && !props.secondaryBelow && (
         <AutoScrollChip enabled={props.autoScrollEnabled} onToggle={props.onToggleAutoScroll} />
       )}
-      {state.displayMode && (
-        <ShortcutTooltip label={`${state.displayMode.label} mode`} keys={["shift", "Tab"]}>
-          <button
-            type="button"
-            onClick={props.onPermissionModeToggle}
-            title={`${state.displayMode.description} (Shift+Tab to cycle)`}
-            aria-label={state.displayMode.ariaLabel}
-            className={cn(META_BAR_CHIP, state.displayMode.chipClass, "min-w-0")}
-          >
-            <state.displayMode.icon className="size-3 shrink-0" />
-            <SlidingText text={state.displayMode.label} className="max-w-[160px]" />
-          </button>
-        </ShortcutTooltip>
+      {/* Hidden mid-selection, as it was inline: the provider is about to change
+          and with it which modes exist. */}
+      {!state.isSelectionPending && (
+        <PermissionModeChip
+          providerId={state.displayProviderId}
+          permissionMode={props.permissionMode}
+          enabledOptInModes={props.enabledOptInModes}
+          providerModes={props.providerModes}
+          onToggle={props.onPermissionModeToggle}
+        />
       )}
       {props.showWorktreeChip && !props.secondaryBelow && (
         <WorktreeChip

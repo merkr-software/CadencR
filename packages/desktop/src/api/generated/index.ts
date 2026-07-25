@@ -768,9 +768,27 @@ export interface EffortSetPayload {
   thinking_effort?: EffortSetPayloadThinkingEffort;
 }
 
+/**
+ * Provider access mode on the latest agent session (`codex_permission_mode`
+is the legacy storage name; the contract here is provider-neutral).
+ */
+export type FeatureAccessMode = string | null;
+
 export type FeatureLabel = string | null;
 
 export type FeatureModelSession = string | null;
+
+/**
+ * Collaboration mode on the latest agent session. Read by surfaces that
+configure a conversation without opening it — the schedule editor shows
+it as the mode a scheduled run inherits.
+ */
+export type FeaturePermissionMode = string | null;
+
+/**
+ * Claude profile the latest agent session runs under, when set.
+ */
+export type FeatureProfile = string | null;
 
 /**
  * Effective provider id for sidebar display (latest session, else feature setting).
@@ -787,12 +805,21 @@ export type FeatureSpawnedByFeatureId = number | null;
 export type FeatureThinkingEffort = string | null;
 
 export interface Feature {
+  /** Provider access mode on the latest agent session (`codex_permission_mode`
+is the legacy storage name; the contract here is provider-neutral). */
+  access_mode?: FeatureAccessMode;
   created_at: string;
   id: number;
   /** Whether the conversation is pinned to the top of the sidebar. */
   is_pinned: boolean;
   label?: FeatureLabel;
   model_session?: FeatureModelSession;
+  /** Collaboration mode on the latest agent session. Read by surfaces that
+configure a conversation without opening it — the schedule editor shows
+it as the mode a scheduled run inherits. */
+  permission_mode?: FeaturePermissionMode;
+  /** Claude profile the latest agent session runs under, when set. */
+  profile?: FeatureProfile;
   project_id: number;
   /** Effective provider id for sidebar display (latest session, else feature setting). */
   runtime_provider?: FeatureRuntimeProvider;
@@ -1974,6 +2001,13 @@ export interface PromptCommandPolicyPayload {
   user_shell?: boolean;
 }
 
+export interface PromptCommandsResponse {
+  commands: SlashCommandPayload[];
+  /** Which trigger characters mean what for this provider — `$` for skills on
+Codex, `/` everywhere on Claude, and so on. */
+  prompt_command_policy: PromptCommandPolicyPayload;
+}
+
 export type PromptReceiptState = (typeof PromptReceiptState)[keyof typeof PromptReceiptState];
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
@@ -2140,6 +2174,89 @@ The frontend opens these read-only with language features disabled. */
 }
 
 /**
+ * `monthly`: 1-31, clamped to the last day of shorter months.
+ */
+export type RecurrenceDayOfMonth = number | null;
+
+/**
+ * `interval`: seconds between runs.
+ */
+export type RecurrenceIntervalSeconds = number | null;
+
+/**
+ * `daily` / `weekly` / `monthly`: local wall-clock time as `HH:MM`.
+ */
+export type RecurrenceTimeOfDay = string | null;
+
+/**
+ * `weekly`: ISO weekdays, 1 = Monday .. 7 = Sunday, ascending and unique.
+ */
+export type RecurrenceWeekdays = number[] | null;
+
+/**
+ * A validated recurrence rule. Construct via [`Recurrence::parse`] so the
+per-kind fields can never disagree with the kind.
+ */
+export interface Recurrence {
+  /** `monthly`: 1-31, clamped to the last day of shorter months. */
+  day_of_month?: RecurrenceDayOfMonth;
+  /** `interval`: seconds between runs. */
+  interval_seconds?: RecurrenceIntervalSeconds;
+  kind: RecurrenceKind;
+  /** `daily` / `weekly` / `monthly`: local wall-clock time as `HH:MM`. */
+  time_of_day?: RecurrenceTimeOfDay;
+  /** IANA zone the wall-clock fields are read in. */
+  timezone: string;
+  /** `weekly`: ISO weekdays, 1 = Monday .. 7 = Sunday, ascending and unique. */
+  weekdays?: RecurrenceWeekdays;
+}
+
+export type RecurrenceInputDayOfMonth = number | null;
+
+export type RecurrenceInputIntervalSeconds = number | null;
+
+/**
+ * Required for `once`: ISO-8601 target instant.
+ */
+export type RecurrenceInputRunAt = string | null;
+
+export type RecurrenceInputTimeOfDay = string | null;
+
+/**
+ * IANA zone; defaults to UTC when the client doesn't send one.
+ */
+export type RecurrenceInputTimezone = string | null;
+
+export type RecurrenceInputWeekdays = number[] | null;
+
+/**
+ * The recurrence half of a save. Mirrors [`Recurrence`] plus `run_at`, the
+absolute instant a one-shot schedule fires at.
+ */
+export interface RecurrenceInput {
+  day_of_month?: RecurrenceInputDayOfMonth;
+  interval_seconds?: RecurrenceInputIntervalSeconds;
+  kind: RecurrenceKind;
+  /** Required for `once`: ISO-8601 target instant. */
+  run_at?: RecurrenceInputRunAt;
+  time_of_day?: RecurrenceInputTimeOfDay;
+  /** IANA zone; defaults to UTC when the client doesn't send one. */
+  timezone?: RecurrenceInputTimezone;
+  weekdays?: RecurrenceInputWeekdays;
+}
+
+export type RecurrenceKind = (typeof RecurrenceKind)[keyof typeof RecurrenceKind];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RecurrenceKind = {
+  once: "once",
+  interval: "interval",
+  daily: "daily",
+  weekly: "weekly",
+  monthly: "monthly",
+} as const;
+
+/**
  * Result of syncing a session from the provider's on-disk CLI conversation.
  */
 export interface RefreshSessionResponse {
@@ -2294,26 +2411,218 @@ export interface SaveDraftResponse {
 }
 
 /**
- * A user message queued for future delivery to a conversation (feature).
-
-`scheduled_at` and `created_at` are serialised as ISO-8601 UTC (the
-repository formats them with a trailing `Z`) so the frontend can parse them
-unambiguously and render in the viewer's local timezone.
+ * Defaults to `true` on create; on update, omitting it leaves the current
+paused/active state alone.
  */
-export interface ScheduledMessage {
-  /** ISO-8601 UTC. */
-  created_at: string;
-  feature_id: number;
-  id: number;
-  /** ISO-8601 UTC, e.g. `2026-06-21T15:00:00Z`. */
-  scheduled_at: string;
-  /** `pending` | `sent` | `failed`. */
-  status: string;
-  text: string;
+export type SaveScheduleRequestEnabled = boolean | null;
+
+export type SaveScheduleRequestName = string | null;
+
+/**
+ * Create/replace payload. `PUT` replaces the whole rule (history and run
+counters are preserved), so the editor can send one shape for both.
+ */
+export interface SaveScheduleRequest {
+  /** Defaults to `true` on create; on update, omitting it leaves the current
+paused/active state alone. */
+  enabled?: SaveScheduleRequestEnabled;
+  name?: SaveScheduleRequestName;
+  prompt: string;
+  recurrence: RecurrenceInput;
+  target: ScheduleTarget;
 }
 
-export interface ScheduledMessageDeleted {
+export type ScheduleLastRunProperty = null | ScheduleLastRun;
+
+export type ScheduleName = string | null;
+
+/**
+ * Next firing time, ISO-8601 UTC. `None` once a one-shot schedule has run.
+ */
+export type ScheduleNextRunAt = string | null;
+
+/**
+ * A configured schedule. Timestamps are ISO-8601 UTC (trailing `Z`) so the
+frontend parses them unambiguously and renders in the viewer's timezone.
+ */
+export interface Schedule {
+  /** A one-shot schedule that has already fired. It is neither upcoming nor
+paused — a third state the UI has to name, so it ships on the wire
+rather than being re-derived from two other fields on every render. */
+  completed: boolean;
+  context: ScheduleContext;
+  created_at: string;
+  enabled: boolean;
+  id: number;
+  last_run?: ScheduleLastRunProperty;
+  name?: ScheduleName;
+  /** Next firing time, ISO-8601 UTC. `None` once a one-shot schedule has run. */
+  next_run_at?: ScheduleNextRunAt;
+  prompt: string;
+  recurrence: Recurrence;
+  run_count: number;
+  target: ScheduleTarget;
+  updated_at: string;
+}
+
+/**
+ * Title of the targeted conversation (`kind = conversation` only).
+ */
+export type ScheduleContextFeatureTitle = string | null;
+
+/**
+ * Title of the conversation the most recent run landed in.
+ */
+export type ScheduleContextLastFeatureTitle = string | null;
+
+/**
+ * Owning project, whichever target kind the schedule uses.
+ */
+export type ScheduleContextProjectId = number | null;
+
+export type ScheduleContextProjectName = string | null;
+
+/**
+ * Read-only context resolved by join so the schedules list can render a target
+without one lookup per row.
+ */
+export interface ScheduleContext {
+  /** Title of the targeted conversation (`kind = conversation` only). */
+  feature_title?: ScheduleContextFeatureTitle;
+  /** Title of the conversation the most recent run landed in. */
+  last_feature_title?: ScheduleContextLastFeatureTitle;
+  /** Owning project, whichever target kind the schedule uses. */
+  project_id?: ScheduleContextProjectId;
+  project_name?: ScheduleContextProjectName;
+}
+
+export interface ScheduleDeleted {
   deleted: boolean;
+}
+
+export type ScheduleLastRunError = string | null;
+
+/**
+ * Conversation it delivered into, when that conversation still exists.
+ */
+export type ScheduleLastRunFeatureId = number | null;
+
+/**
+ * Outcome of the most recent run.
+ */
+export interface ScheduleLastRun {
+  /** ISO-8601 UTC. */
+  at: string;
+  error?: ScheduleLastRunError;
+  /** Conversation it delivered into, when that conversation still exists. */
+  feature_id?: ScheduleLastRunFeatureId;
+  /** `sent` | `failed` | `skipped`. */
+  status: string;
+}
+
+export type ScheduleRunResultError = string | null;
+
+/**
+ * Conversation the run delivered into.
+ */
+export type ScheduleRunResultFeatureId = number | null;
+
+/**
+ * Result of a manual "run now".
+ */
+export interface ScheduleRunResult {
+  error?: ScheduleRunResultError;
+  /** Conversation the run delivered into. */
+  feature_id?: ScheduleRunResultFeatureId;
+  ran: boolean;
+}
+
+/**
+ * Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+don't offer one.
+ */
+export type ScheduleTargetAccessMode = string | null;
+
+export type ScheduleTargetBaseBranch = string | null;
+
+/**
+ * Required when `kind = conversation`.
+ */
+export type ScheduleTargetFeatureId = number | null;
+
+/**
+ * Model to run with. Unlike the provider this applies to both kinds — a
+schedule may run a cheap model in a conversation the user drives with an
+expensive one.
+ */
+export type ScheduleTargetModel = string | null;
+
+/**
+ * Collaboration mode (`default` | `acceptEdits` | `plan` | …), the chip the
+composer cycles with Shift+Tab. Applies to both kinds: a nightly sweep
+may run in plan mode inside a conversation the user drives normally.
+ */
+export type ScheduleTargetPermissionMode = string | null;
+
+/**
+ * Claude Code profile to run under. Lets a schedule bill against a
+different account or endpoint than the one the user is working in.
+ */
+export type ScheduleTargetProfile = string | null;
+
+/**
+ * Required when `kind = new_conversation`.
+ */
+export type ScheduleTargetProjectId = number | null;
+
+/**
+ * Agent to run with. Only meaningful for `new_conversation`: an existing
+conversation is already bound to its provider.
+ */
+export type ScheduleTargetProvider = string | null;
+
+export type ScheduleTargetReuseBranch = string | null;
+
+export type ScheduleTargetThinkingLevel = string | null;
+
+/**
+ * `new` | `reuse` | `skip`. Defaults to `skip` (work in the project root).
+ */
+export type ScheduleTargetWorktreeMode = string | null;
+
+/**
+ * Where a schedule delivers, plus the runtime options used when it has to
+create the conversation itself. Every option is nullable: omitting them all
+reproduces exactly what the "New session" button does.
+ */
+export interface ScheduleTarget {
+  /** Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+don't offer one. */
+  access_mode?: ScheduleTargetAccessMode;
+  base_branch?: ScheduleTargetBaseBranch;
+  /** Required when `kind = conversation`. */
+  feature_id?: ScheduleTargetFeatureId;
+  kind: TargetKind;
+  /** Model to run with. Unlike the provider this applies to both kinds — a
+schedule may run a cheap model in a conversation the user drives with an
+expensive one. */
+  model?: ScheduleTargetModel;
+  /** Collaboration mode (`default` | `acceptEdits` | `plan` | …), the chip the
+composer cycles with Shift+Tab. Applies to both kinds: a nightly sweep
+may run in plan mode inside a conversation the user drives normally. */
+  permission_mode?: ScheduleTargetPermissionMode;
+  /** Claude Code profile to run under. Lets a schedule bill against a
+different account or endpoint than the one the user is working in. */
+  profile?: ScheduleTargetProfile;
+  /** Required when `kind = new_conversation`. */
+  project_id?: ScheduleTargetProjectId;
+  /** Agent to run with. Only meaningful for `new_conversation`: an existing
+conversation is already bound to its provider. */
+  provider?: ScheduleTargetProvider;
+  reuse_branch?: ScheduleTargetReuseBranch;
+  thinking_level?: ScheduleTargetThinkingLevel;
+  /** `new` | `reuse` | `skip`. Defaults to `skip` (work in the project root). */
+  worktree_mode?: ScheduleTargetWorktreeMode;
 }
 
 /**
@@ -2553,14 +2862,8 @@ export interface SetProviderSettingRequest {
   provider_id: string;
 }
 
-/**
- * Create-or-replace payload. There is at most one pending scheduled message per
-conversation, so a PUT replaces any existing pending row for that feature.
- */
-export interface SetScheduledMessageRequest {
-  /** Target time as ISO-8601 (UTC). Normalised to SQLite UTC on insert. */
-  scheduled_at: string;
-  text: string;
+export interface SetScheduleEnabledRequest {
+  enabled: boolean;
 }
 
 export interface SetSettingRequest {
@@ -2725,6 +3028,17 @@ export const StreamStatusState = {
 export interface SuccessResponse {
   success: boolean;
 }
+
+/**
+ * What a schedule delivers into when it fires.
+ */
+export type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const TargetKind = {
+  conversation: "conversation",
+  new_conversation: "new_conversation",
+} as const;
 
 /**
  * A live terminal session a client can attach to (one PTY).
@@ -3281,8 +3595,6 @@ export type UnmarkDiffViewedParams = {
   file_path: string;
 };
 
-export type GetScheduledMessage200 = null | ScheduledMessage;
-
 export type GetFeatureWorkingDirParams = {
   project_id: number;
 };
@@ -3464,6 +3776,28 @@ catalog `root_markers` to look for when no concrete `lsp_id` is given.
 the renderer is about to start. Falls back to the language default.
  */
   lsp_id?: string | null;
+};
+
+export type GetPromptCommandsParams = {
+  /**
+   * Directory to resolve project-local commands and skills in
+   */
+  cwd: string;
+  /**
+   * Runtime provider id
+   */
+  provider: string;
+};
+
+export type ListSchedulesParams = {
+  /**
+   * Only schedules targeting this conversation.
+   */
+  feature_id?: number | null;
+  /**
+   * Only schedules belonging to this project, whichever target kind they use.
+   */
+  project_id?: number | null;
 };
 
 export type ListConversationReferencesParams = {
@@ -7132,225 +7466,6 @@ export const useRefreshSession = <TError = ErrorType<void>, TContext = unknown>(
   TContext
 > => {
   const mutationOptions = getRefreshSessionMutationOptions(options);
-
-  return useMutation(mutationOptions);
-};
-
-/**
- * @summary The pending scheduled message for a conversation, or `null` when none is
-queued.
- */
-export const getScheduledMessage = (featureId: number, signal?: AbortSignal) => {
-  return customInstance<GetScheduledMessage200>({
-    url: `/api/features/${featureId}/scheduled-message`,
-    method: "GET",
-    signal,
-  });
-};
-
-export const getGetScheduledMessageQueryKey = (featureId?: number) => {
-  return [`/api/features/${featureId}/scheduled-message`] as const;
-};
-
-export const getGetScheduledMessageQueryOptions = <
-  TData = Awaited<ReturnType<typeof getScheduledMessage>>,
-  TError = ErrorType<unknown>,
->(
-  featureId: number,
-  options?: {
-    query?: UseQueryOptions<Awaited<ReturnType<typeof getScheduledMessage>>, TError, TData>;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetScheduledMessageQueryKey(featureId);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getScheduledMessage>>> = ({ signal }) =>
-    getScheduledMessage(featureId, signal);
-
-  return { queryKey, queryFn, enabled: !!featureId, ...queryOptions } as UseQueryOptions<
-    Awaited<ReturnType<typeof getScheduledMessage>>,
-    TError,
-    TData
-  > & { queryKey: QueryKey };
-};
-
-export type GetScheduledMessageQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getScheduledMessage>>
->;
-export type GetScheduledMessageQueryError = ErrorType<unknown>;
-
-/**
- * @summary The pending scheduled message for a conversation, or `null` when none is
-queued.
- */
-
-export function useGetScheduledMessage<
-  TData = Awaited<ReturnType<typeof getScheduledMessage>>,
-  TError = ErrorType<unknown>,
->(
-  featureId: number,
-  options?: {
-    query?: UseQueryOptions<Awaited<ReturnType<typeof getScheduledMessage>>, TError, TData>;
-  },
-): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetScheduledMessageQueryOptions(featureId, options);
-
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
-
-  query.queryKey = queryOptions.queryKey;
-
-  return query;
-}
-
-/**
- * @summary Create or replace the pending scheduled message for a conversation.
- */
-export const setScheduledMessage = (
-  featureId: number,
-  setScheduledMessageRequest: SetScheduledMessageRequest,
-) => {
-  return customInstance<ScheduledMessage>({
-    url: `/api/features/${featureId}/scheduled-message`,
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    data: setScheduledMessageRequest,
-  });
-};
-
-export const getSetScheduledMessageMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setScheduledMessage>>,
-    TError,
-    { featureId: number; data: SetScheduledMessageRequest },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof setScheduledMessage>>,
-  TError,
-  { featureId: number; data: SetScheduledMessageRequest },
-  TContext
-> => {
-  const mutationKey = ["setScheduledMessage"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setScheduledMessage>>,
-    { featureId: number; data: SetScheduledMessageRequest }
-  > = (props) => {
-    const { featureId, data } = props ?? {};
-
-    return setScheduledMessage(featureId, data);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SetScheduledMessageMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setScheduledMessage>>
->;
-export type SetScheduledMessageMutationBody = SetScheduledMessageRequest;
-export type SetScheduledMessageMutationError = ErrorType<unknown>;
-
-/**
- * @summary Create or replace the pending scheduled message for a conversation.
- */
-export const useSetScheduledMessage = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setScheduledMessage>>,
-    TError,
-    { featureId: number; data: SetScheduledMessageRequest },
-    TContext
-  >;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof setScheduledMessage>>,
-  TError,
-  { featureId: number; data: SetScheduledMessageRequest },
-  TContext
-> => {
-  const mutationOptions = getSetScheduledMessageMutationOptions(options);
-
-  return useMutation(mutationOptions);
-};
-
-/**
- * @summary Cancel the pending scheduled message for a conversation.
- */
-export const deleteScheduledMessage = (featureId: number) => {
-  return customInstance<ScheduledMessageDeleted>({
-    url: `/api/features/${featureId}/scheduled-message`,
-    method: "DELETE",
-  });
-};
-
-export const getDeleteScheduledMessageMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteScheduledMessage>>,
-    TError,
-    { featureId: number },
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof deleteScheduledMessage>>,
-  TError,
-  { featureId: number },
-  TContext
-> => {
-  const mutationKey = ["deleteScheduledMessage"];
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof deleteScheduledMessage>>,
-    { featureId: number }
-  > = (props) => {
-    const { featureId } = props ?? {};
-
-    return deleteScheduledMessage(featureId);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type DeleteScheduledMessageMutationResult = NonNullable<
-  Awaited<ReturnType<typeof deleteScheduledMessage>>
->;
-
-export type DeleteScheduledMessageMutationError = ErrorType<unknown>;
-
-/**
- * @summary Cancel the pending scheduled message for a conversation.
- */
-export const useDeleteScheduledMessage = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof deleteScheduledMessage>>,
-    TError,
-    { featureId: number },
-    TContext
-  >;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof deleteScheduledMessage>>,
-  TError,
-  { featureId: number },
-  TContext
-> => {
-  const mutationOptions = getDeleteScheduledMessageMutationOptions(options);
 
   return useMutation(mutationOptions);
 };
@@ -13001,6 +13116,65 @@ export const usePutProjectSettingsFile = <
   return useMutation(mutationOptions);
 };
 
+export const getPromptCommands = (params: GetPromptCommandsParams, signal?: AbortSignal) => {
+  return customInstance<PromptCommandsResponse>({
+    url: `/api/prompt-commands`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetPromptCommandsQueryKey = (params?: GetPromptCommandsParams) => {
+  return [`/api/prompt-commands`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPromptCommandsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPromptCommands>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPromptCommandsParams,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getPromptCommands>>, TError, TData>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPromptCommandsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPromptCommands>>> = ({ signal }) =>
+    getPromptCommands(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPromptCommands>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetPromptCommandsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPromptCommands>>
+>;
+export type GetPromptCommandsQueryError = ErrorType<unknown>;
+
+export function useGetPromptCommands<
+  TData = Awaited<ReturnType<typeof getPromptCommands>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPromptCommandsParams,
+  options?: {
+    query?: UseQueryOptions<Awaited<ReturnType<typeof getPromptCommands>>, TError, TData>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetPromptCommandsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
 export const subscribe = (pushSubscribeRequest: PushSubscribeRequest, signal?: AbortSignal) => {
   return customInstance<PushSubscriptionResponse>({
     url: `/api/push/subscribe`,
@@ -13544,6 +13718,455 @@ export const useRemoteSetTunnelHost = <TError = ErrorType<unknown>, TContext = u
   TContext
 > => {
   const mutationOptions = getRemoteSetTunnelHostMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+/**
+ * @summary Every configured schedule, soonest first.
+ */
+export const listSchedules = (params?: ListSchedulesParams, signal?: AbortSignal) => {
+  return customInstance<Schedule[]>({ url: `/api/schedules`, method: "GET", params, signal });
+};
+
+export const getListSchedulesQueryKey = (params?: ListSchedulesParams) => {
+  return [`/api/schedules`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSchedulesQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSchedules>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSchedulesParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof listSchedules>>, TError, TData> },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSchedulesQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSchedules>>> = ({ signal }) =>
+    listSchedules(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSchedules>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type ListSchedulesQueryResult = NonNullable<Awaited<ReturnType<typeof listSchedules>>>;
+export type ListSchedulesQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Every configured schedule, soonest first.
+ */
+
+export function useListSchedules<
+  TData = Awaited<ReturnType<typeof listSchedules>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSchedulesParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof listSchedules>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getListSchedulesQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const createSchedule = (saveScheduleRequest: SaveScheduleRequest, signal?: AbortSignal) => {
+  return customInstance<Schedule>({
+    url: `/api/schedules`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: saveScheduleRequest,
+    signal,
+  });
+};
+
+export const getCreateScheduleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSchedule>>,
+    TError,
+    { data: SaveScheduleRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createSchedule>>,
+  TError,
+  { data: SaveScheduleRequest },
+  TContext
+> => {
+  const mutationKey = ["createSchedule"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createSchedule>>,
+    { data: SaveScheduleRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createSchedule(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof createSchedule>>>;
+export type CreateScheduleMutationBody = SaveScheduleRequest;
+export type CreateScheduleMutationError = ErrorType<unknown>;
+
+export const useCreateSchedule = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createSchedule>>,
+    TError,
+    { data: SaveScheduleRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof createSchedule>>,
+  TError,
+  { data: SaveScheduleRequest },
+  TContext
+> => {
+  const mutationOptions = getCreateScheduleMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const getSchedule = (id: number, signal?: AbortSignal) => {
+  return customInstance<Schedule>({ url: `/api/schedules/${id}`, method: "GET", signal });
+};
+
+export const getGetScheduleQueryKey = (id?: number) => {
+  return [`/api/schedules/${id}`] as const;
+};
+
+export const getGetScheduleQueryOptions = <
+  TData = Awaited<ReturnType<typeof getSchedule>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSchedule>>, TError, TData> },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetScheduleQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getSchedule>>> = ({ signal }) =>
+    getSchedule(id, signal);
+
+  return { queryKey, queryFn, enabled: !!id, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getSchedule>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetScheduleQueryResult = NonNullable<Awaited<ReturnType<typeof getSchedule>>>;
+export type GetScheduleQueryError = ErrorType<void>;
+
+export function useGetSchedule<
+  TData = Awaited<ReturnType<typeof getSchedule>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getSchedule>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetScheduleQueryOptions(id, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+/**
+ * @summary Replace a schedule's rule. Run history is preserved.
+ */
+export const updateSchedule = (id: number, saveScheduleRequest: SaveScheduleRequest) => {
+  return customInstance<Schedule>({
+    url: `/api/schedules/${id}`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: saveScheduleRequest,
+  });
+};
+
+export const getUpdateScheduleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSchedule>>,
+    TError,
+    { id: number; data: SaveScheduleRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSchedule>>,
+  TError,
+  { id: number; data: SaveScheduleRequest },
+  TContext
+> => {
+  const mutationKey = ["updateSchedule"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSchedule>>,
+    { id: number; data: SaveScheduleRequest }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateSchedule(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof updateSchedule>>>;
+export type UpdateScheduleMutationBody = SaveScheduleRequest;
+export type UpdateScheduleMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Replace a schedule's rule. Run history is preserved.
+ */
+export const useUpdateSchedule = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSchedule>>,
+    TError,
+    { id: number; data: SaveScheduleRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof updateSchedule>>,
+  TError,
+  { id: number; data: SaveScheduleRequest },
+  TContext
+> => {
+  const mutationOptions = getUpdateScheduleMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const deleteSchedule = (id: number) => {
+  return customInstance<ScheduleDeleted>({ url: `/api/schedules/${id}`, method: "DELETE" });
+};
+
+export const getDeleteScheduleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSchedule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteSchedule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["deleteSchedule"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSchedule>>, { id: number }> = (
+    props,
+  ) => {
+    const { id } = props ?? {};
+
+    return deleteSchedule(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSchedule>>>;
+
+export type DeleteScheduleMutationError = ErrorType<unknown>;
+
+export const useDeleteSchedule = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteSchedule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteSchedule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationOptions = getDeleteScheduleMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+/**
+ * @summary Pause or resume a schedule without losing it.
+ */
+export const setScheduleEnabled = (
+  id: number,
+  setScheduleEnabledRequest: SetScheduleEnabledRequest,
+) => {
+  return customInstance<Schedule>({
+    url: `/api/schedules/${id}/enabled`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: setScheduleEnabledRequest,
+  });
+};
+
+export const getSetScheduleEnabledMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setScheduleEnabled>>,
+    TError,
+    { id: number; data: SetScheduleEnabledRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof setScheduleEnabled>>,
+  TError,
+  { id: number; data: SetScheduleEnabledRequest },
+  TContext
+> => {
+  const mutationKey = ["setScheduleEnabled"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof setScheduleEnabled>>,
+    { id: number; data: SetScheduleEnabledRequest }
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return setScheduleEnabled(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SetScheduleEnabledMutationResult = NonNullable<
+  Awaited<ReturnType<typeof setScheduleEnabled>>
+>;
+export type SetScheduleEnabledMutationBody = SetScheduleEnabledRequest;
+export type SetScheduleEnabledMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Pause or resume a schedule without losing it.
+ */
+export const useSetScheduleEnabled = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof setScheduleEnabled>>,
+    TError,
+    { id: number; data: SetScheduleEnabledRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof setScheduleEnabled>>,
+  TError,
+  { id: number; data: SetScheduleEnabledRequest },
+  TContext
+> => {
+  const mutationOptions = getSetScheduleEnabledMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+/**
+ * @summary Fire a schedule immediately, without disturbing when it next fires.
+ */
+export const runSchedule = (id: number, signal?: AbortSignal) => {
+  return customInstance<ScheduleRunResult>({
+    url: `/api/schedules/${id}/run`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRunScheduleMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSchedule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof runSchedule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationKey = ["runSchedule"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof runSchedule>>, { id: number }> = (
+    props,
+  ) => {
+    const { id } = props ?? {};
+
+    return runSchedule(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RunScheduleMutationResult = NonNullable<Awaited<ReturnType<typeof runSchedule>>>;
+
+export type RunScheduleMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Fire a schedule immediately, without disturbing when it next fires.
+ */
+export const useRunSchedule = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof runSchedule>>,
+    TError,
+    { id: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof runSchedule>>,
+  TError,
+  { id: number },
+  TContext
+> => {
+  const mutationOptions = getRunScheduleMutationOptions(options);
 
   return useMutation(mutationOptions);
 };

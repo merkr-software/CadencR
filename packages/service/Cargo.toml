@@ -66,6 +66,7 @@ if-addrs = "0.15"
 # (pure-rust, the same crate web-push uses for ES256) generates the VAPID keypair.
 web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
 jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
+chrono-tz = { version = "0.10.4", features = ["serde"] }
 
 [[bin]]
 name = "dump-openapi"

@@ -43,6 +43,9 @@ const RENAMES = {
   cancel_run: "cancel_custom_action_run",
   get_schedule: "get_custom_action_schedule",
   set_schedule: "set_custom_action_schedule",
+  // Schedules: the Rust name is disambiguated from the custom-action one above,
+  // but the hook should still read as the plain `useGetSchedule`.
+  get_schedule_by_id: "get_schedule",
   // LSP: disambiguate the catalog probe from the generic "list servers" name.
   list_servers: "list_lsp_servers",
   // Remote access: the handlers use bare verbs (status/enable/pair/…); prefix

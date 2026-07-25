@@ -4,6 +4,7 @@ pub mod permissions;
 pub mod persistence;
 pub mod protocol;
 pub mod question_answers;
+pub mod routes;
 pub mod sender_registry;
 pub mod slash_commands;
 pub(crate) mod stream_readers;

@@ -42,7 +42,7 @@ pub mod projects;
 pub mod push;
 pub mod remote;
 pub mod runtime_stream;
-pub mod scheduled_messages;
+pub mod schedules;
 pub mod session_status;
 pub mod sessions;
 pub mod settings;

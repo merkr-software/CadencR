@@ -37,6 +37,18 @@ pub struct Feature {
     /// Thinking effort on the latest agent session, when set.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_effort: Option<String>,
+    /// Collaboration mode on the latest agent session. Read by surfaces that
+    /// configure a conversation without opening it — the schedule editor shows
+    /// it as the mode a scheduled run inherits.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
+    /// Provider access mode on the latest agent session (`codex_permission_mode`
+    /// is the legacy storage name; the contract here is provider-neutral).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_mode: Option<String>,
+    /// Claude profile the latest agent session runs under, when set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
     pub created_at: String,
     /// Whether the conversation is pinned to the top of the sidebar.
     pub is_pinned: bool,
@@ -146,6 +158,9 @@ mod tests {
             model_session: Some("claude-session".to_string()),
             runtime_provider: Some("claude_code".to_string()),
             thinking_effort: Some("high".to_string()),
+            permission_mode: Some("plan".to_string()),
+            access_mode: None,
+            profile: None,
             created_at: "2024-01-01T00:00:00".to_string(),
             is_pinned: false,
             spawned_by_feature_id: None,

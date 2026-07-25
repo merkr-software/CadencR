@@ -206,9 +206,9 @@ async fn main() -> anyhow::Result<()> {
             // Resume periodic custom-action schedules from a previous launch.
             state.custom_action_scheduler.bootstrap(&state).await;
 
-            // Background dispatcher for user-scheduled messages (one poll loop
-            // for the process lifetime; survives client disconnects).
-            domain::scheduled_messages::scheduler::spawn(state.clone());
+            // Background dispatcher for user schedules (one poll loop for the
+            // process lifetime; survives client disconnects).
+            domain::schedules::scheduler::spawn(state.clone());
             domain::mcp::control::message_queue::spawn(state.clone());
             domain::git::forge::spawn(state.clone());
 

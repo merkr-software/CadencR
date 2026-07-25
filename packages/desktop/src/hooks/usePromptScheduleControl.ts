@@ -3,16 +3,20 @@
  *
  * Kept out of the bar so that file stays within its line-count budget. The hook
  * is always called (the clear-on-success callback is stable); it returns
- * `undefined` when scheduling isn't available (no handler, or no feature to
- * schedule against). Scheduling is keyed on the feature, so it is available even
- * before the conversation has spawned a session.
+ * `undefined` when scheduling isn't available (no handler, or no conversation to
+ * schedule against). Scheduling is keyed on the conversation, so it is available
+ * even before a session has spawned.
+ *
+ * The bar doesn't own the schedule editor — the composer does, because a
+ * schedule is a conversation-level object, not a prompt-bar one. The bar only
+ * hands over its text and a callback to clear itself once the schedule sticks.
  */
 import { useCallback, useMemo, type MutableRefObject, type RefObject } from "react";
 import type { PromptBarScheduleControl } from "@/components/PromptBarActions";
 import type { PromptEditorHandle } from "@/components/prompt-editor/PromptEditor";
 
 interface UsePromptScheduleControlParams {
-  onSchedule?: (text: string, scheduledAt: Date) => Promise<void>;
+  onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
   featureId?: number;
   /** Whether there is schedulable text right now (drives the disabled state). */
   enabled: boolean;
@@ -25,7 +29,7 @@ interface UsePromptScheduleControlParams {
 }
 
 export function usePromptScheduleControl({
-  onSchedule,
+  onScheduleRequest,
   featureId,
   enabled,
   textRef,
@@ -45,11 +49,15 @@ export function usePromptScheduleControl({
     interactedRef.current = true;
   }, [addHistoryEntry, editorRef, interactedRef, saveDraft, setText, textRef]);
 
-  const getText = useCallback(() => textRef.current.trim(), [textRef]);
+  const requestSchedule = useCallback(() => {
+    const trimmed = textRef.current.trim();
+    if (!trimmed) return;
+    onScheduleRequest?.(trimmed, onScheduled);
+  }, [onScheduleRequest, onScheduled, textRef]);
 
   // Stable object so the prompt-bar action group can stay memoized.
   return useMemo(() => {
-    if (!onSchedule || !featureId) return undefined;
-    return { getText, onSchedule, onScheduled, disabled: !enabled };
-  }, [enabled, featureId, getText, onSchedule, onScheduled]);
+    if (!onScheduleRequest || !featureId) return undefined;
+    return { requestSchedule, disabled: !enabled };
+  }, [enabled, featureId, onScheduleRequest, requestSchedule]);
 }

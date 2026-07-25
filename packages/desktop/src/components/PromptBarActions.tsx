@@ -4,9 +4,8 @@ import { ImageAttachmentButton } from "./ImageAttachmentButton";
 import { AutoMessageMenu } from "./AutoMessageMenu";
 
 export interface PromptBarScheduleControl {
-  getText: () => string;
-  onSchedule: (text: string, scheduledAt: Date) => Promise<void>;
-  onScheduled: () => void;
+  /** Opens the conversation's schedule editor with the composer's text. */
+  requestSchedule: () => void;
   disabled: boolean;
 }
 
@@ -87,9 +86,7 @@ export function PromptBarActions({
           )}
           {showScheduleButton && (
             <AutoMessageMenu
-              getText={schedule.getText}
-              onSchedule={schedule.onSchedule}
-              onScheduled={schedule.onScheduled}
+              requestSchedule={schedule.requestSchedule}
               disabled={schedule.disabled}
               className={cn(
                 "w-5 bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground data-[state=open]:bg-primary/90 data-[state=open]:text-primary-foreground",

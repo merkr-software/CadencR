@@ -3,8 +3,40 @@ import { Popover as PopoverPrimitive } from "radix-ui";
 
 import { cn } from "@/lib/utils";
 
-function Popover({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
-  return <PopoverPrimitive.Root data-slot="popover" {...props} />;
+/**
+ * Whether popovers below this point open modally. See {@link PopoverModality}.
+ */
+const PopoverModalityContext = React.createContext(false);
+
+/**
+ * Makes every popover inside modal — the fix for "the list won't scroll".
+ *
+ * A Radix dialog locks the page with react-remove-scroll, which cancels wheel
+ * events whose target sits outside the dialog's own subtree. Popover content is
+ * portaled to the body, so a picker opened inside a dialog looks scrollable and
+ * isn't: the branch list and the model list both dead-stop on the wheel. A modal
+ * popover installs its own scroll lock, which takes over while it is open.
+ *
+ * Wrap the dialog's content in this rather than threading a `modal` prop through
+ * every picker it happens to contain.
+ */
+function PopoverModality({
+  modal = true,
+  children,
+}: {
+  modal?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <PopoverModalityContext.Provider value={modal}>{children}</PopoverModalityContext.Provider>
+  );
+}
+
+function Popover({ modal, ...props }: React.ComponentProps<typeof PopoverPrimitive.Root>) {
+  const inheritedModality = React.useContext(PopoverModalityContext);
+  return (
+    <PopoverPrimitive.Root data-slot="popover" modal={modal ?? inheritedModality} {...props} />
+  );
 }
 
 function PopoverTrigger({ ...props }: React.ComponentProps<typeof PopoverPrimitive.Trigger>) {
@@ -37,4 +69,4 @@ function PopoverAnchor({ ...props }: React.ComponentProps<typeof PopoverPrimitiv
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
-export { Popover, PopoverAnchor, PopoverTrigger, PopoverContent };
+export { Popover, PopoverAnchor, PopoverModality, PopoverTrigger, PopoverContent };

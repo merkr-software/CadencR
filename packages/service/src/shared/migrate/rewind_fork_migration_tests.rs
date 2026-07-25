@@ -55,6 +55,7 @@ async fn rewind_fork_migration_adds_checkpoints_and_uuid_column() {
     .unwrap();
     seed_applied_migrations_before(&pool).await;
 
+    crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

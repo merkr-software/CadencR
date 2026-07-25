@@ -29,7 +29,9 @@ export interface AgentPromptBarProps {
    * `sessionId` exists), a "schedule" affordance appears next to Send. Rejects
    * on failure so the bar keeps the user's text.
    */
-  onSchedule?: (message: string, scheduledAt: Date) => Promise<void>;
+  /** Opens the conversation's schedule editor prefilled with `prompt`.
+   *  `onSaved` runs once the schedule is persisted, clearing the composer. */
+  onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
   onStop: () => void;
   status: LiveAgentStatus;
   splitSendActions?: SplitSendAction[];

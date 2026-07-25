@@ -9,6 +9,9 @@ const FEATURE_COLUMNS: &str = r#"f.id, f.project_id, f.title, f.status,
            COALESCE(ls.model, f.model_session) AS model_session,
            COALESCE(ls.runtime_provider, f.agent_runtime_session) AS runtime_provider,
            ls.thinking_effort AS thinking_effort,
+           ls.permission_mode AS permission_mode,
+           ls.codex_permission_mode AS access_mode,
+           ls.profile AS profile,
            COALESCE(f.created_at, datetime('now')) as created_at,
            f.is_pinned,
            (SELECT source_session.feature_id FROM agent_session_links link
@@ -362,7 +365,10 @@ mod tests {
                 is_pinned INTEGER NOT NULL DEFAULT 0,
                 runtime_provider TEXT,
                 model TEXT,
-                thinking_effort TEXT
+                thinking_effort TEXT,
+                permission_mode TEXT,
+                codex_permission_mode TEXT,
+                profile TEXT
             )"#,
         )
         .execute(&pool)

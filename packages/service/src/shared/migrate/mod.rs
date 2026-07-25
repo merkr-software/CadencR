@@ -19,6 +19,8 @@ mod message_uuid_migration_tests;
 mod reply_wait_claim_migration_tests;
 #[cfg(test)]
 mod rewind_fork_migration_tests;
+#[cfg(test)]
+mod schedules_migration_tests;
 mod seed;
 mod support;
 #[cfg(test)]
@@ -294,6 +296,9 @@ mod tests {
             .await
             .unwrap();
         create_pre_agent_message_index_schema(&pool).await;
+        // The schedules migration (20260724120000) folds `scheduled_messages`
+        // into `schedules`, which FKs into projects/features.
+        test_fixtures::create_schedules_migration_prerequisites(&pool).await;
         seed_applied_migrations_before(&pool, AGENT_MESSAGE_INDEX_VERSION).await;
         run_migrations(&MigrationContext::pool_only(&pool))
             .await
@@ -371,6 +376,9 @@ mod tests {
         .execute(&pool)
         .await
         .unwrap();
+        // The schedules migration (20260724120000) folds `scheduled_messages`
+        // into `schedules`, which FKs into projects/features.
+        test_fixtures::create_schedules_migration_prerequisites(&pool).await;
         seed_applied_migrations_before(&pool, DROP_PIN_VERSION).await;
 
         run_migrations(&MigrationContext::pool_only(&pool))

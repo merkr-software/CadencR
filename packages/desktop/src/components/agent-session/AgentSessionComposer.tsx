@@ -3,11 +3,10 @@ import { parseThinkingEffort } from "@/shared/thinking-effort";
 import { normalizeContextWindow } from "@/types/agent";
 import { AgentPromptBar, type AgentPromptBarHandle } from "../AgentPromptBar";
 import { ContextUsageBar } from "../ContextUsageBar";
-import { useScheduledMessage } from "@/hooks/useScheduledMessage";
 import type { AgentSessionProps } from "./types";
 import { MetaBar, type MetaBarHandle } from "./MetaBar";
 import { MetaBarSecondary } from "./MetaBarSecondary";
-import { SessionScheduledCard } from "./SessionScheduledCard";
+import { useSessionSchedules } from "./SessionSchedules";
 
 export interface AgentSessionComposerProps {
   sessionProps: AgentSessionProps;
@@ -89,17 +88,17 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
   props: AgentSessionComposerProps,
 ): ReactElement {
   const { contextUsage } = props.sessionProps;
-  const schedule = useScheduledMessage(props.sessionProps.featureId);
-  // When the scheduled-message banner sits above the chips, the meta bar's
-  // "blend into the conversation" fade (negative margin + gradient) would
-  // overpaint the banner. Drop it to a standalone bar so the banner reads as a
-  // clean row above the chips.
-  const scheduledActive = props.shouldShowPromptBar && schedule.scheduled != null;
+  const schedules = useSessionSchedules(props.sessionProps.featureId, props.sessionProps.projectId);
+  // When the schedule banner sits above the chips, the meta bar's "blend into
+  // the conversation" fade (negative margin + gradient) would overpaint it.
+  // Drop it to a standalone bar so the banner reads as a clean row above the
+  // chips.
+  const scheduledActive = props.shouldShowPromptBar && schedules.armed.length > 0;
   const metaBar = props.hasMeta ? (
     <AgentSessionMeta {...props} metaVariant={scheduledActive ? "standalone" : "session"} />
   ) : null;
   const promptBar = props.shouldShowPromptBar ? (
-    <AgentSessionPrompt {...props} onSchedule={schedule.schedule} />
+    <AgentSessionPrompt {...props} onScheduleRequest={schedules.requestSchedule} />
   ) : null;
   const secondaryBar =
     props.isNarrow && props.hasSecondaryMeta && props.shouldShowPromptBar ? (
@@ -109,9 +108,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
   return (
     <div className={props.collapsible ? COLLAPSIBLE_ROOT_CLASS : FULL_PAGE_ROOT_CLASS}>
       {props.collapsible && !props.hasMeta && <ComposerFade />}
-      {props.shouldShowPromptBar && (
-        <SessionScheduledCard schedule={schedule} onSend={props.onSend} />
-      )}
+      {props.shouldShowPromptBar && schedules.element}
       {metaBar}
       {promptBar}
       {secondaryBar}
@@ -188,7 +185,7 @@ function AgentSessionMeta(
 
 function AgentSessionPrompt(
   props: AgentSessionComposerProps & {
-    onSchedule?: (message: string, scheduledAt: Date) => Promise<void>;
+    onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
   },
 ): ReactElement {
   const session = props.sessionProps;
@@ -196,7 +193,7 @@ function AgentSessionPrompt(
     <AgentPromptBar
       ref={props.promptBarRef}
       onSend={props.onSend}
-      onSchedule={props.onSchedule}
+      onScheduleRequest={props.onScheduleRequest}
       onStop={session.onStop}
       status={session.status}
       disabled={session.disabled}

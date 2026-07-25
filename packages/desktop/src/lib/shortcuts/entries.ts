@@ -60,6 +60,14 @@ const APP_SHORTCUTS = [
     scope: "global",
   },
   {
+    // ⌘⇧Y, chosen because every mnemonic candidate is taken: ⇧S is
+    // `agent-autoscroll`, ⇧T/⇧L are pane chords. Y is free in every scope.
+    id: "open-schedules",
+    keys: ["mod", "shift", "y"],
+    description: "Open schedules",
+    scope: "global",
+  },
+  {
     id: "content-search",
     keys: ["mod", "shift", "f"],
     description: "Open content search in this feature",

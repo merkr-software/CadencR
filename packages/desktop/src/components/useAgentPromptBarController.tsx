@@ -156,7 +156,7 @@ function usePromptSending(
     [canSend, send.runSend, state.textRef],
   );
   const scheduleControl = usePromptScheduleControl({
-    onSchedule: props.onSchedule,
+    onScheduleRequest: props.onScheduleRequest,
     featureId: props.featureId,
     enabled: canSend && state.text.trim().length > 0,
     textRef: state.textRef,

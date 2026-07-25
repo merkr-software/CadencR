@@ -152,7 +152,7 @@ async fn handle_commands_get(envelope: WsEnvelope, sender: &WsSender) {
     }
 }
 
-fn to_payload_commands(
+pub(in crate::domain::ws_session) fn to_payload_commands(
     commands: Vec<super::super::slash_commands::SlashCommand>,
 ) -> Vec<SlashCommandPayload> {
     commands

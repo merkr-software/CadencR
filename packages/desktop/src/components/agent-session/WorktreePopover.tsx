@@ -54,6 +54,9 @@ interface WorktreeButtonGroupProps {
   /** Picked branch, or `null` when implicitly using `defaultBranch`. */
   selectedBranch: string | null;
   onSelectedBranchChange: (next: string | null) => void;
+  /** Behaviors to offer. Defaults to all four; the schedule editor drops
+   *  "From branch", which its runs can't perform. */
+  modes?: readonly WorktreeMode[];
 }
 
 interface BranchPickerProps {
@@ -149,6 +152,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
   onModeChange,
   selectedBranch,
   onSelectedBranchChange,
+  modes,
 }: WorktreeButtonGroupProps): ReactElement {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -230,6 +234,7 @@ export const WorktreeButtonGroup = memo(function WorktreeButtonGroup({
         mode={mode}
         onModeChange={onModeChange}
         state={state}
+        modes={modes}
         effectHint={effectHint}
       />
     </div>

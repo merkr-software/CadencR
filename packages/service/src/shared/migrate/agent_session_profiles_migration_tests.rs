@@ -58,6 +58,7 @@ async fn agent_session_profiles_migration_adds_provider_neutral_profile_column()
     .unwrap();
     seed_applied_migrations_before(&pool).await;
 
+    crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

@@ -27,8 +27,9 @@ use crate::domain::push::models as push_models;
 use crate::domain::push::routes as push_routes;
 use crate::domain::remote::models as remote_models;
 use crate::domain::remote::routes as remote_routes;
-use crate::domain::scheduled_messages::models as scheduled_messages_models;
-use crate::domain::scheduled_messages::routes as scheduled_messages_routes;
+use crate::domain::schedules::models as schedules_models;
+use crate::domain::schedules::recurrence as schedules_recurrence;
+use crate::domain::schedules::routes as schedules_routes;
 use crate::domain::sessions::models as sessions_models;
 use crate::domain::sessions::routes as sessions_routes;
 use crate::domain::terminal::routes as terminal_routes;
@@ -38,6 +39,7 @@ use crate::domain::usage_stats::routes as usage_stats_routes;
 use crate::domain::workspace::models as workspace_models;
 use crate::domain::workspace::routes as workspace_routes;
 use crate::domain::ws_session::protocol as ws_protocol;
+use crate::domain::ws_session::routes as ws_routes;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -117,9 +119,14 @@ use crate::domain::ws_session::protocol as ws_protocol;
         custom_actions_routes::cancel_run_handler,
         custom_actions_routes::get_schedule_handler,
         custom_actions_routes::set_schedule_handler,
-        scheduled_messages_routes::get_scheduled_message_handler,
-        scheduled_messages_routes::set_scheduled_message_handler,
-        scheduled_messages_routes::delete_scheduled_message_handler,
+        schedules_routes::list_schedules_handler,
+        schedules_routes::create_schedule_handler,
+        schedules_routes::get_schedule_by_id_handler,
+        schedules_routes::update_schedule_handler,
+        schedules_routes::delete_schedule_handler,
+        schedules_routes::set_schedule_enabled_handler,
+        schedules_routes::run_schedule_handler,
+        ws_routes::get_prompt_commands,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
         feature_layouts_routes::update_layout_handler,
@@ -266,9 +273,24 @@ use crate::domain::ws_session::protocol as ws_protocol;
         custom_actions_models::Scope,
         custom_actions_models::TriggeredBy,
         custom_actions_models::SuccessResponse,
-        scheduled_messages_models::ScheduledMessage,
-        scheduled_messages_models::SetScheduledMessageRequest,
-        scheduled_messages_models::ScheduledMessageDeleted,
+        schedules_models::Schedule,
+        schedules_models::ScheduleTarget,
+        schedules_models::ScheduleContext,
+        schedules_models::ScheduleLastRun,
+        schedules_models::TargetKind,
+        schedules_models::SaveScheduleRequest,
+        schedules_models::RecurrenceInput,
+        schedules_models::SetScheduleEnabledRequest,
+        schedules_models::ScheduleDeleted,
+        schedules_models::ScheduleRunResult,
+        ws_routes::PromptCommandsResponse,
+        ws_protocol::SlashCommandPayload,
+        ws_protocol::SlashCommandKindPayload,
+        ws_protocol::PromptCommandPolicyPayload,
+        ws_protocol::PromptCommandPlacementPayload,
+        ws_protocol::SkillReferenceTriggerPayload,
+        schedules_recurrence::Recurrence,
+        schedules_recurrence::RecurrenceKind,
         feature_layouts_models::FeatureLayout,
         feature_layouts_models::CreateFeatureLayoutRequest,
         feature_layouts_models::UpdateFeatureLayoutRequest,

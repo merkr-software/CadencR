@@ -62,6 +62,7 @@ async fn message_uuid_migration_preserves_legacy_rows_and_enforces_session_uniqu
     .unwrap();
     seed_applied_migrations_before(&pool).await;
 
+    crate::shared::migrate::test_fixtures::create_schedules_migration_prerequisites(&pool).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

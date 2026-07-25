@@ -23,7 +23,7 @@ import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { queryClient } from "@/lib/queryClient";
-import { getGetScheduledMessageQueryKey } from "@/api/generated";
+import { getListSchedulesQueryKey } from "@/api/generated";
 // Re-exported so the envelope dispatch table keeps importing `handleMessage`
 // from here; the implementation moved to `ws-message-envelope-handler.ts`.
 export { handleMessage } from "./ws-message-envelope-handler";
@@ -217,16 +217,23 @@ export function handleCanonicalUserMessage(
       updateSession(ctx.get(), sessionId, blocksPatchWithDerived(session.streamingState, blocks)),
     );
   }
-  // A fired scheduled message arrives as this canonical event; its row is already marked
-  // `sent` server-side, so refetch clears the pending card in lockstep with the
-  // bubble appearing (instead of waiting for the next poll). Only refetch when a
-  // pending row is actually cached — most user messages aren't scheduled.
-  if (session.featureId != null) {
-    const queryKey = getGetScheduledMessageQueryKey(session.featureId);
-    if (queryClient.getQueryData(queryKey) != null) {
-      void queryClient.invalidateQueries({ queryKey });
-    }
-  }
+  refreshSchedulesIfAny();
+}
+
+/**
+ * A fired schedule arrives as a normal user message; its row has already rolled
+ * forward server-side, so refetching here moves the composer banner in lockstep
+ * with the bubble appearing instead of waiting for the next poll.
+ *
+ * Guarded on something actually being cached: most user messages aren't
+ * scheduled, and this runs on every one of them. The key is the param-less
+ * prefix, which react-query matches every list variant by.
+ */
+function refreshSchedulesIfAny(): void {
+  const queryKey = getListSchedulesQueryKey();
+  const cached = queryClient.getQueriesData<unknown[]>({ queryKey });
+  if (!cached.some(([, data]) => Array.isArray(data) && data.length > 0)) return;
+  void queryClient.invalidateQueries({ queryKey });
 }
 
 export function handlePromptReceived(

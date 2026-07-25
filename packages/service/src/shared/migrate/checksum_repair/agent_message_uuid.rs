@@ -102,6 +102,7 @@ mod tests {
     use std::str::FromStr;
 
     const MESSAGE_DELIVERY_DURABILITY_VERSION: i64 = 20260713121500;
+    const SCHEDULES_VERSION: i64 = 20260724120000;
 
     #[tokio::test]
     async fn reconciles_initial_agent_message_uuid_migration() {
@@ -131,11 +132,37 @@ mod tests {
     }
 
     async fn remove_later_schema(pool: &SqlitePool) {
-        sqlx::query("DELETE FROM _sqlx_migrations WHERE version = ?")
+        // Rewind past the schedules migration too, restoring `scheduled_messages`
+        // in its post-durability shape. That migration folds the table into
+        // `schedules` and drops it, so without this the ALTERs below (and the
+        // re-run of the durability migration) would target a table that no
+        // longer exists.
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version IN (?, ?)")
             .bind(MESSAGE_DELIVERY_DURABILITY_VERSION)
+            .bind(SCHEDULES_VERSION)
             .execute(pool)
             .await
             .unwrap();
+        sqlx::raw_sql(
+            "DROP TABLE IF EXISTS schedules;
+             CREATE TABLE scheduled_messages (
+                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                 feature_id INTEGER NOT NULL,
+                 text TEXT NOT NULL,
+                 scheduled_at TEXT NOT NULL,
+                 status TEXT NOT NULL DEFAULT 'pending',
+                 error TEXT,
+                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                 claim_token TEXT,
+                 claimed_at TEXT,
+                 attempt_count INTEGER NOT NULL DEFAULT 0,
+                 FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
+             );",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
         for sql in [
             "ALTER TABLE agent_message_dispatches DROP COLUMN await_reply",
             "ALTER TABLE agent_message_dispatches DROP COLUMN link_to_current_session",

@@ -3,7 +3,7 @@ use crate::error::AppError;
 /// Validate `worktree_mode` against the allowed set and enforce the
 /// `reuse -> reuse_branch required` invariant. Returns the trimmed mode and
 /// the trimmed reuse branch when applicable.
-pub(super) fn validate_worktree_mode(
+pub(crate) fn validate_worktree_mode(
     mode: &Option<String>,
     reuse_branch: &Option<String>,
 ) -> Result<(Option<String>, Option<String>), AppError> {
@@ -32,7 +32,7 @@ pub(super) fn validate_worktree_mode(
     Ok((Some(mode.to_string()), branch))
 }
 
-pub(super) fn validate_reuse_branch(branch: &str) -> Result<String, AppError> {
+pub(crate) fn validate_reuse_branch(branch: &str) -> Result<String, AppError> {
     let branch = branch.trim();
     if branch.is_empty() {
         return Err(AppError::BadRequest(

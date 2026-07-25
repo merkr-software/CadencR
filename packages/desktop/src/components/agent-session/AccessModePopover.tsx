@@ -15,6 +15,12 @@ interface AccessModePopoverProps {
   onChange: (mode: AccessMode) => void;
   providerId?: string;
   options: readonly RuntimeProviderAccessModeOption[];
+  /** What picking a mode here does. Defaults to the live-session wording; the
+   *  schedule editor pins a mode for one rule instead of changing a running
+   *  conversation and its provider default. */
+  description?: string;
+  /** Badge beside the current mode, for the same reason. */
+  selectedHint?: string;
 }
 
 export function AccessModePopover({
@@ -24,6 +30,8 @@ export function AccessModePopover({
   onChange,
   providerId,
   options,
+  description,
+  selectedHint = "New default",
 }: AccessModePopoverProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
   const providerConfig = providerAccessModeConfig(providerId);
@@ -54,9 +62,13 @@ export function AccessModePopover({
         <div>
           <div className="text-sm font-semibold">{providerConfig.providerLabel} access mode</div>
           <p className="mt-1 text-muted-foreground">
-            This conversation is using {activeCopy?.label ?? activeMode.label}. Pick a mode below to
-            switch it for this conversation and set the default for new{" "}
-            {providerConfig.providerLabel} conversations.
+            {description ?? (
+              <>
+                This conversation is using {activeCopy?.label ?? activeMode.label}. Pick a mode
+                below to switch it for this conversation and set the default for new{" "}
+                {providerConfig.providerLabel} conversations.
+              </>
+            )}
           </p>
         </div>
         <div className="space-y-1.5">
@@ -88,7 +100,7 @@ export function AccessModePopover({
                       <>
                         <CheckIcon className="size-3 text-[var(--acc-green)]" />
                         <span className="text-[10px] font-normal text-muted-foreground">
-                          New default
+                          {selectedHint}
                         </span>
                       </>
                     )}

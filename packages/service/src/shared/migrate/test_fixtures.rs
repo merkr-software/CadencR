@@ -1,5 +1,37 @@
 use sqlx::SqlitePool;
 
+/// Declare the tables the schedules migration (20260724120000) FKs into.
+///
+/// Historical fixtures build deliberately minimal schemas, but every migration
+/// after their baseline still runs against them — so a fixture must provide
+/// whatever a later migration needs, the same way
+/// `create_pre_agent_message_index_schema` provides `features` and
+/// `custom_actions`. The schedules migration carries `scheduled_messages` rows
+/// into `schedules`, which references both of these.
+///
+/// Deliberately does NOT create `scheduled_messages`: fixtures baselined before
+/// 20260621120100 have that table created for them by that migration, and
+/// pre-creating it would make it fail. Later-baselined fixtures declare it
+/// themselves, in their own era-accurate shape.
+///
+/// `IF NOT EXISTS` so this can be applied uniformly.
+pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) {
+    sqlx::raw_sql(
+        r#"CREATE TABLE IF NOT EXISTS projects (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            path TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS features (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL DEFAULT 1
+        );"#,
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 pub(super) async fn create_pre_agent_message_index_schema(pool: &SqlitePool) {
     sqlx::raw_sql(
         r#"-- The pin_features migration (20260621120000) alters features, which

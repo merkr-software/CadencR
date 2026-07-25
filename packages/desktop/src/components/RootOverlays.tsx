@@ -5,6 +5,7 @@ import { FeatureDeleteDialog } from "@/components/FeatureDeleteDialog";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
 import { Toaster } from "@/components/ui/sonner";
+import { SchedulesShortcut } from "@/components/SchedulesShortcut";
 import { UnifiedAgentsShortcut } from "@/components/UnifiedAgentsShortcut";
 import { PostUpdateChangelogDialog } from "@/components/PostUpdateChangelogDialog";
 import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
@@ -76,6 +77,7 @@ export function RootOverlays({
         activeFeatureId={activeFeatureId}
       />
       <UnifiedAgentsShortcut />
+      <SchedulesShortcut />
       <KeyboardShortcutsModal open={shortcutsHelpOpen} onOpenChange={setShortcutsHelpOpen} />
       <Toaster position="top-center" />
       <PostUpdateChangelogDialog />

@@ -153,7 +153,8 @@ async fn create_schema(pool: &SqlitePool) {
         id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL,
         agent_type TEXT NOT NULL DEFAULT 'session', status TEXT NOT NULL DEFAULT 'idle',
         runtime_provider TEXT, runtime_session_id TEXT, claude_session_id TEXT,
-        model TEXT, permission_mode TEXT, thinking_effort TEXT,
+        model TEXT, permission_mode TEXT, codex_permission_mode TEXT, profile TEXT,
+        thinking_effort TEXT,
         has_file_changes INTEGER NOT NULL DEFAULT 0,
         input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0,
         context_window INTEGER NOT NULL DEFAULT 200000, started_at TEXT, ended_at TEXT

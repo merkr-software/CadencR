@@ -13,6 +13,9 @@ export interface WorktreeChipProps {
   onWorktreeModeChange?: (mode: WorktreeMode) => void;
   worktreeSelectedBranch?: string | null;
   onWorktreeBranchChange?: (next: string | null) => void;
+  /** Subset of behaviors to offer — see `WorktreeButtonGroup`. Defaults to all
+   *  four, i.e. the full session chip. */
+  worktreeModes?: readonly WorktreeMode[];
 }
 
 /**
@@ -29,6 +32,7 @@ export const WorktreeChip = memo(function WorktreeChip({
   onWorktreeModeChange,
   worktreeSelectedBranch,
   onWorktreeBranchChange,
+  worktreeModes,
 }: WorktreeChipProps) {
   if (
     worktreeProjectId == null ||
@@ -47,6 +51,7 @@ export const WorktreeChip = memo(function WorktreeChip({
       onModeChange={onWorktreeModeChange}
       selectedBranch={worktreeSelectedBranch ?? null}
       onSelectedBranchChange={onWorktreeBranchChange}
+      modes={worktreeModes}
     />
   );
 });

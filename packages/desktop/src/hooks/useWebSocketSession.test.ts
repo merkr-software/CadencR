@@ -9,6 +9,9 @@ vi.mock("@/api/generated", () => ({
   // envelope fires. Without it, `dispatchEnvelope` throws and the store logs
   // a noisy stack trace even though the tests still pass.
   getListFeaturesQueryKey: () => ["features", "list"],
+  // A canonical user message refreshes the schedules list (a fired
+  // schedule arrives as one), so the handler needs this key.
+  getListSchedulesQueryKey: () => ["/api/schedules"],
 }));
 
 import { useWebSocketSession } from "./useWebSocketSession";
