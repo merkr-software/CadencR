@@ -2960,6 +2960,59 @@ export interface UpsertProfileRequest {
   env: UpsertProfileRequestEnv;
 }
 
+/**
+ * A usage write that failed, surfaced to the user.
+
+Usage recording is deliberately fire-and-forget so a counter can never fail
+an agent turn — but "cannot fail the turn" is not the same as "may be
+swallowed". Failures are counted here and reported on the next
+`/api/usage-stats` read, so the Stats tab can tell the user its numbers are
+incomplete instead of quietly under-reporting.
+ */
+export interface UsageRecordingIssue {
+  /** Failed usage writes since the service started. */
+  failures: number;
+  /** Message from the most recent failure. */
+  last_error: string;
+}
+
+/**
+ * One bucket of the usage timeline: everything the user exchanged with a
+single provider / model / thinking-effort combination on one UTC day.
+
+`model_id` and `thinking_effort` are empty strings — never null — when the
+provider reported none; see the migration for why.
+ */
+export interface UsageStatsEntry {
+  /** UTC day, `YYYY-MM-DD`. */
+  day: string;
+  /** Words sent to the provider (user prompts). */
+  input_words: number;
+  model_id: string;
+  /** Words received from the provider (assistant text and thinking). */
+  output_words: number;
+  provider_id: string;
+  thinking_effort: string;
+}
+
+export type UsageStatsResponseRecordingIssue = null | UsageRecordingIssue;
+
+export interface UsageStatsResponse {
+  /** Size of the trailing window the entries were read from, in days. */
+  days: number;
+  /** Last (most recent) UTC day of the window, `YYYY-MM-DD`, as the database
+computed it. The client builds its day axis from this rather than from
+its own clock: a request straddling UTC midnight — or a skewed client
+clock — would otherwise shift the axis off the returned rows, dropping
+the oldest day and appending a blank one. */
+  end_day: string;
+  /** Flat buckets, oldest day first. The client pivots these into the
+per-provider and per-model timelines; the row count is bounded by
+days × providers × models × efforts. */
+  entries: UsageStatsEntry[];
+  recording_issue?: UsageStatsResponseRecordingIssue;
+}
+
 export type UserMessageDeliveryState =
   (typeof UserMessageDeliveryState)[keyof typeof UserMessageDeliveryState];
 
@@ -3433,6 +3486,13 @@ export type ListTerminalSessionsParams = {
    * Feature whose terminal sessions to list
    */
   feature_id: number;
+};
+
+export type GetUsageStatsParams = {
+  /**
+   * Trailing window in days (1-730, default 30)
+   */
+  days?: number;
 };
 
 export const getAgentCatalog = (params?: GetAgentCatalogParams, signal?: AbortSignal) => {
@@ -13875,6 +13935,59 @@ export function useListTerminalSessions<
   },
 ): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getListTerminalSessionsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const getUsageStats = (params?: GetUsageStatsParams, signal?: AbortSignal) => {
+  return customInstance<UsageStatsResponse>({
+    url: `/api/usage-stats`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetUsageStatsQueryKey = (params?: GetUsageStatsParams) => {
+  return [`/api/usage-stats`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetUsageStatsQueryOptions = <
+  TData = Awaited<ReturnType<typeof getUsageStats>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetUsageStatsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getUsageStats>>, TError, TData> },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetUsageStatsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getUsageStats>>> = ({ signal }) =>
+    getUsageStats(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getUsageStats>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetUsageStatsQueryResult = NonNullable<Awaited<ReturnType<typeof getUsageStats>>>;
+export type GetUsageStatsQueryError = ErrorType<unknown>;
+
+export function useGetUsageStats<
+  TData = Awaited<ReturnType<typeof getUsageStats>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetUsageStatsParams,
+  options?: { query?: UseQueryOptions<Awaited<ReturnType<typeof getUsageStats>>, TError, TData> },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetUsageStatsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

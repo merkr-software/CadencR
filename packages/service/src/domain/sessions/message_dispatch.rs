@@ -53,7 +53,14 @@ pub async fn mark_succeeded(
     message_id: i64,
     token: &str,
 ) -> Result<(), AppError> {
-    update_claim(pool, message_id, token, "dispatched", None).await
+    update_claim(pool, message_id, token, "dispatched", None).await?;
+    // This is the one moment a prompt is known to have actually reached the
+    // provider, and `update_claim` lets it happen exactly once per message
+    // (a stale or repeated claim errors out above). Counting the prompt's
+    // words here therefore cannot score a send that failed, and cannot
+    // double-count a retry.
+    crate::domain::usage_stats::record_dispatched_prompt(pool, message_id).await;
+    Ok(())
 }
 
 pub async fn mark_failed(

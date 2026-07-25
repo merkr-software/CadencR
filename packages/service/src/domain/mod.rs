@@ -49,6 +49,7 @@ pub mod settings;
 pub mod settings_allowlist;
 pub mod settings_store;
 pub mod terminal;
+pub mod usage_stats;
 pub mod workflow;
 pub mod workspace;
 pub mod ws_session;

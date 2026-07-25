@@ -11,6 +11,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
 use crate::domain::runtime_stream::{RuntimeUsageSnapshot, RuntimeUsageState};
 use crate::domain::session_status::{AgentStatus, SessionStatusBroadcaster};
+use crate::domain::usage_stats::TurnWordUsage;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{SessionEndedPayload, WsEnvelope};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -47,6 +48,11 @@ pub(super) struct StreamReaderTask {
 pub(super) struct StreamReaderState {
     pub(super) runtime_session_id: Option<String>,
     pub(super) usage_state: RuntimeUsageState,
+    /// Words the agent has produced since the last flush, for the long-lived
+    /// provider usage stats. Flushed on every turn-ending `Result` and once
+    /// more when the reader stops, so an interrupted or aborted turn still
+    /// contributes what it produced instead of being dropped.
+    pub(super) word_usage: TurnWordUsage,
     pub(super) last_runtime_activity: Instant,
     pub(super) last_provider_reconcile: Instant,
     pub(super) turn_state: StreamTurnState,
@@ -94,6 +100,7 @@ impl StreamReaderState {
         Self {
             runtime_session_id: None,
             usage_state: RuntimeUsageState::new(initial_usage),
+            word_usage: TurnWordUsage::default(),
             last_runtime_activity: Instant::now(),
             last_provider_reconcile: Instant::now(),
             turn_state: StreamTurnState::new(),
@@ -173,11 +180,34 @@ impl StreamReaderTask {
             }
         }
 
+        // Whatever the last turn produced after its final flush point (an
+        // interrupt, an abort, or a stream that ended without a `Result`) still
+        // counts as words the provider sent us.
+        self.flush_word_usage(&mut state).await;
+
         transition_active_to_pending_on_stream_end(
             &self.sdk_sessions,
             self.db_session_id,
             self.runtime_session_handle.as_ref(),
             self.cleanup_session_on_end,
+        )
+        .await;
+    }
+
+    /// Fold the words accumulated so far into the long-lived provider usage
+    /// stats.
+    ///
+    /// Awaits only the attribution lookup — which must happen while the session
+    /// still holds the model and effort that produced these words — and hands
+    /// the write itself to a background task. Runs once per turn, not per
+    /// delta, so it is not on the token hot path.
+    pub(super) async fn flush_word_usage(&self, state: &mut StreamReaderState) {
+        let words = state.word_usage.take();
+        crate::domain::usage_stats::record_session_words(
+            &self.write_pool,
+            self.db_session_id,
+            0,
+            words,
         )
         .await;
     }

@@ -138,6 +138,12 @@ async fn main() -> anyhow::Result<()> {
                     "recovered interrupted user shell context"
                 );
             }
+            // Import usage stats from conversations that predate the stats
+            // table, once per install. Backgrounded: on a large history the scan
+            // reads hundreds of megabytes of message text, and nothing else
+            // waits on it.
+            domain::usage_stats::spawn_backfill(&write_pool);
+
             let recovered =
                 domain::sessions::message_dispatch::recover_orphaned_claims(&write_pool).await?;
             if recovered > 0 {

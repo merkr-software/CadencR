@@ -32,6 +32,13 @@ impl StreamReaderTask {
     ) {
         state.last_runtime_activity = tokio::time::Instant::now();
         state.diagnostics.record(runtime_event.raw_json());
+        // Counted here, before any of the early returns below, so every text
+        // the provider emitted lands in the usage stats regardless of which
+        // branch handles the event.
+        state.word_usage.observe(&runtime_event);
+        if runtime_event.is_result() {
+            self.flush_word_usage(state).await;
+        }
         let interrupted_generation = if runtime_event.is_result() {
             self.take_interruption().await
         } else {

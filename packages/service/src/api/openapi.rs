@@ -32,6 +32,9 @@ use crate::domain::scheduled_messages::routes as scheduled_messages_routes;
 use crate::domain::sessions::models as sessions_models;
 use crate::domain::sessions::routes as sessions_routes;
 use crate::domain::terminal::routes as terminal_routes;
+use crate::domain::usage_stats::health as usage_stats_health;
+use crate::domain::usage_stats::models as usage_stats_models;
+use crate::domain::usage_stats::routes as usage_stats_routes;
 use crate::domain::workspace::models as workspace_models;
 use crate::domain::workspace::routes as workspace_routes;
 use crate::domain::ws_session::protocol as ws_protocol;
@@ -154,6 +157,7 @@ use crate::domain::ws_session::protocol as ws_protocol;
         claude_code_routes::delete_custom_model_handler,
         lsp_routes::open_session_handler,
         lsp_routes::list_servers_handler,
+        usage_stats_routes::get_usage_stats_handler,
         crate::domain::lsp::root::lsp_root_handler,
         imports_routes::list_claude_code_conversations_handler,
         imports_routes::list_provider_conversations_handler,
@@ -303,6 +307,9 @@ use crate::domain::ws_session::protocol as ws_protocol;
         lsp_routes::OpenLspSessionRequest,
         lsp_routes::OpenLspSessionResponse,
         lsp_routes::ListServersResponse,
+        usage_stats_health::UsageRecordingIssue,
+        usage_stats_models::UsageStatsEntry,
+        usage_stats_models::UsageStatsResponse,
         crate::domain::lsp::root::LspRootResponse,
         crate::domain::lsp::probe::ServerProbe,
         crate::domain::lsp::probe::ServerProbeStatus,
