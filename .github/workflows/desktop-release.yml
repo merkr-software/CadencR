@@ -40,7 +40,7 @@ jobs:
       - name: Enable pnpm from packageManager
         run: corepack enable
 
-      # actions/setup-node@v6.4.0
+      # actions/setup-node@v7.0.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: 22
