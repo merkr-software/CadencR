@@ -58,7 +58,7 @@ axum-server = { version = "0.8", features = ["tls-rustls"] }
 # is deterministic regardless of what else pulls rustls into the tree.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 subtle = "2.6"
-if-addrs = "0.13"
+if-addrs = "0.15"
 # Web Push (PWA/remote background notifications): VAPID signing + RFC 8291
 # payload encryption. `hyper-client` avoids the default isahc/libcurl backend;
 # hyper-tls uses native-tls, already pulled in by reqwest. `jwt-simple`
