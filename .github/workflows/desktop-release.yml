@@ -31,7 +31,7 @@ jobs:
       # unset, the cask-update step is skipped (see its `if` guard).
       HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
-      # actions/checkout@v6.0.2
+      # actions/checkout@v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
       - name: Test Homebrew cask update script
