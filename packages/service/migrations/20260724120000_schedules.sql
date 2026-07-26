@@ -94,13 +94,33 @@ CREATE INDEX idx_schedules_project ON schedules(project_id);
 -- The EXISTS guard is defensive: the old FK should have cascaded away orphans,
 -- but a legacy database that ran without `foreign_keys = ON` could still hold
 -- rows pointing at a deleted conversation, and those must not fail the insert.
+--
+-- A `pending` row's `next_run_at` is clamped forward to now rather than carried
+-- over verbatim. The old scheduler delivered every due row however late it was;
+-- the new one skips an occurrence more than `CATCH_UP_GRACE` (24h) past its
+-- slot, so an untouched timestamp would silently complete these one-shots
+-- without ever sending the prompt — a message the user is still owed, dropped
+-- by an upgrade. Clamping restores the old contract: an overdue row fires on
+-- the first tick after the upgrade, and a future instant keeps its own time.
+--
+-- `dispatching` rows deliberately do NOT get the clamp. The old claimer only
+-- scanned `pending`, so a row left in `dispatching` is one whose prompt may
+-- already have been sent before the process died. Within the grace window it
+-- still fires (as it would have before); past it, sending a day-old duplicate
+-- into a live conversation is worse than recording it skipped, which at least
+-- says so in the UI.
 INSERT INTO schedules (
     prompt, target_kind, feature_id, recurrence_kind, timezone,
     enabled, next_run_at, created_at, updated_at
 )
 SELECT
     sm.text, 'conversation', sm.feature_id, 'once', 'UTC',
-    1, sm.scheduled_at, sm.created_at, sm.updated_at
+    1,
+    CASE sm.status
+        WHEN 'pending' THEN MAX(sm.scheduled_at, datetime('now'))
+        ELSE sm.scheduled_at
+    END,
+    sm.created_at, sm.updated_at
 FROM scheduled_messages sm
 WHERE sm.status IN ('pending', 'dispatching')
   AND EXISTS (SELECT 1 FROM features f WHERE f.id = sm.feature_id);

@@ -37,13 +37,15 @@ async fn legacy_schema(pool: &SqlitePool) {
              FOREIGN KEY (feature_id) REFERENCES features(id) ON DELETE CASCADE
          );
          INSERT INTO projects (id, name, path) VALUES (1, 'p', '/tmp/p');
-         INSERT INTO features (id, project_id) VALUES (10, 1), (11, 1);
+         INSERT INTO features (id, project_id) VALUES (10, 1), (11, 1), (12, 1);
          INSERT INTO scheduled_messages (id, feature_id, text, scheduled_at, status) VALUES
              (1, 10, 'still queued',  '2099-01-01 09:00:00', 'pending'),
              (2, 11, 'mid dispatch',  '2000-01-01 09:00:00', 'dispatching'),
              (3, 10, 'already sent',  '2000-01-01 09:00:00', 'sent'),
              (4, 10, 'gave up',       '2000-01-01 09:00:00', 'failed'),
-             (5, 99, 'orphan',        '2099-01-01 09:00:00', 'pending');",
+             (5, 99, 'orphan',        '2099-01-01 09:00:00', 'pending'),
+             -- Never fired, and long past due: the upgrade must not swallow it.
+             (6, 12, 'overdue pending', '2000-01-01 09:00:00', 'pending');",
     )
     .execute(pool)
     .await
@@ -112,32 +114,58 @@ async fn migration_carries_over_only_undelivered_scheduled_messages() {
     .unwrap();
 
     // `sent`/`failed` are dead history and the orphan has no conversation to
-    // deliver into, so only the two live rows survive — as one-shot schedules
-    // keeping their original target instant.
+    // deliver into, so only the live rows survive, as one-shot schedules. A
+    // future instant is a real user choice and is carried over untouched; so is
+    // a `dispatching` row's, which may already have been delivered.
     assert_eq!(
-        carried,
-        vec![
-            (
-                "still queued".into(),
-                10,
-                "once".into(),
-                "2099-01-01 09:00:00".into(),
-                1
-            ),
-            (
-                "mid dispatch".into(),
-                11,
-                "once".into(),
-                "2000-01-01 09:00:00".into(),
-                1
-            ),
-        ]
+        carried[0],
+        (
+            "still queued".into(),
+            10,
+            "once".into(),
+            "2099-01-01 09:00:00".into(),
+            1
+        )
     );
+    assert_eq!(
+        carried[1],
+        (
+            "mid dispatch".into(),
+            11,
+            "once".into(),
+            "2000-01-01 09:00:00".into(),
+            1
+        )
+    );
+    assert_eq!(carried.len(), 3);
     let targets: Vec<String> = sqlx::query_scalar("SELECT DISTINCT target_kind FROM schedules")
         .fetch_all(&pool)
         .await
         .unwrap();
     assert_eq!(targets, vec!["conversation".to_string()]);
+}
+
+/// Regression: a message that never fired and came due long before the upgrade
+/// is still owed. Carrying its original instant over verbatim would put it
+/// outside `planner::CATCH_UP_GRACE`, so the first tick would mark the one-shot
+/// skipped and complete it without ever sending the prompt.
+#[tokio::test]
+async fn an_overdue_pending_message_is_still_delivered_after_the_upgrade() {
+    let pool = migrated_pool().await;
+
+    // Clamped to the migration's own clock: due immediately and well inside the
+    // grace window, rather than 26 years outside it.
+    let deliverable: bool = sqlx::query_scalar(
+        "SELECT next_run_at BETWEEN datetime('now', '-5 minutes') AND datetime('now', '+5 minutes')
+         FROM schedules WHERE prompt = 'overdue pending'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        deliverable,
+        "an overdue pending row kept a stale next_run_at"
+    );
 }
 
 #[tokio::test]
@@ -183,9 +211,15 @@ async fn deleting_a_conversation_removes_its_schedules_but_not_its_history_link(
             .fetch_all(&pool)
             .await
             .unwrap();
+    // The rules targeting other conversations are untouched, and `recurring`
+    // keeps its rule with only the history link cleared.
     assert_eq!(
         remaining,
-        vec![("mid dispatch".into(), None), ("recurring".into(), None),]
+        vec![
+            ("mid dispatch".into(), None),
+            ("overdue pending".into(), None),
+            ("recurring".into(), None),
+        ]
     );
 }
 
