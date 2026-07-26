@@ -77,6 +77,19 @@ export function useScheduleList(params: ListSchedulesParams = {}): {
   );
 }
 
+/**
+ * Fire a mutation from an event handler that has nothing to do with the result.
+ *
+ * The mutations below rethrow so callers that *do* care (the editor dialog,
+ * which stays open on failure) can await them. A `void`-ed call would leave that
+ * rejection unhandled — console noise in the app, a failed run in Vitest — even
+ * though `run` has already shown the user the toast. This consumes it, and only
+ * it: the reporting has already happened, so nothing is being swallowed.
+ */
+export function fireAndForget(promise: Promise<unknown>): void {
+  void promise.catch(() => {});
+}
+
 /** Every mutation shares this shape: run it, refresh every list variant, and
  *  surface a failure as a toast rather than a silent no-op. */
 async function run<T>(action: string, invalidate: () => void, call: () => Promise<T>): Promise<T> {

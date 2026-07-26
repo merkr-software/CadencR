@@ -8,13 +8,13 @@ import { ScheduleComposer } from "./ScheduleComposer";
 const {
   mockAgentCatalog,
   mockUseGetBranch,
-  mockUseListFeatures,
+  mockUseGetFeature,
   mockUseListBranches,
   mockUseGetPromptCommands,
 } = vi.hoisted(() => ({
   mockAgentCatalog: vi.fn(),
   mockUseGetBranch: vi.fn(),
-  mockUseListFeatures: vi.fn(),
+  mockUseGetFeature: vi.fn(),
   mockUseListBranches: vi.fn(),
   mockUseGetPromptCommands: vi.fn(),
 }));
@@ -55,7 +55,7 @@ vi.mock("@/api/agentRuntime", async (importOriginal) => ({
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   useGetBranch: (...args: unknown[]) => mockUseGetBranch(...args),
-  useListFeatures: (...args: unknown[]) => mockUseListFeatures(...args),
+  useGetFeature: (...args: unknown[]) => mockUseGetFeature(...args),
   useListBranches: (...args: unknown[]) => mockUseListBranches(...args),
   useGetPromptCommands: (...args: unknown[]) => mockUseGetPromptCommands(...args),
 }));
@@ -119,17 +119,15 @@ describe("ScheduleComposer", () => {
       isLoading: false,
     });
     mockUseListBranches.mockReturnValue({ data: [], isLoading: false, isError: false });
-    mockUseListFeatures.mockReturnValue({
-      data: [
-        {
-          id: 7,
-          title: "Ship schedules",
-          project_id: 1,
-          runtime_provider: "claude_code",
-          model_session: "haiku",
-          permission_mode: "plan",
-        },
-      ],
+    mockUseGetFeature.mockReturnValue({
+      data: {
+        id: 7,
+        title: "Ship schedules",
+        project_id: 1,
+        runtime_provider: "claude_code",
+        model_session: "haiku",
+        permission_mode: "plan",
+      },
       isLoading: false,
       isError: false,
     });
@@ -228,6 +226,27 @@ describe("ScheduleComposer", () => {
 
     expect(screen.getByRole("button", { name: /Permission mode: Plan/ })).toBeInTheDocument();
     expect(currentTarget().permission_mode).toBeUndefined();
+  });
+
+  // `project_id` is only required for `new_conversation` targets. The
+  // conversation's settings used to be looked up inside its project's feature
+  // list, so a target without one silently fell back to the project defaults —
+  // showing the wrong agent, model and mode for the run it describes.
+  it("resolves a conversation's settings when the target carries no project", () => {
+    render(<Harness initial={{ kind: "conversation", feature_id: 7 }} />);
+
+    expect(mockUseGetFeature).toHaveBeenCalledWith(7, expect.anything());
+    expect(screen.getByText("Haiku")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Permission mode: Plan/ })).toBeInTheDocument();
+  });
+
+  it("waits for the conversation before showing what the run is configured with", () => {
+    mockUseGetFeature.mockReturnValue({ data: undefined, isLoading: true, isError: false });
+    render(<Harness initial={{ kind: "conversation", project_id: 1, feature_id: 7 }} />);
+
+    expect(screen.getByLabelText("Loading schedule settings")).toBeInTheDocument();
+    // Nothing that would be replaced a moment later by the real value.
+    expect(screen.queryByText("Sonnet")).not.toBeInTheDocument();
   });
 
   it("gives the editor the provider's own commands and skills", () => {

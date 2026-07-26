@@ -23,7 +23,8 @@ import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { queryClient } from "@/lib/queryClient";
-import { getListSchedulesQueryKey } from "@/api/generated";
+import { getListSchedulesQueryKey, type Schedule } from "@/api/generated";
+import { isDue } from "@/lib/schedules/status";
 // Re-exported so the envelope dispatch table keeps importing `handleMessage`
 // from here; the implementation moved to `ws-message-envelope-handler.ts`.
 export { handleMessage } from "./ws-message-envelope-handler";
@@ -225,14 +226,28 @@ export function handleCanonicalUserMessage(
  * forward server-side, so refetching here moves the composer banner in lockstep
  * with the bubble appearing instead of waiting for the next poll.
  *
- * Guarded on something actually being cached: most user messages aren't
- * scheduled, and this runs on every one of them. The key is the param-less
- * prefix, which react-query matches every list variant by.
+ * Nothing in the canonical payload marks a message as scheduled, so the guard is
+ * on the cache instead: refetch only when a cached schedule is *armed* and
+ * already due — the one state in which a user message could plausibly be a
+ * schedule firing, and also the only state in which the cached rows are known
+ * stale. Every ordinary message (the overwhelming majority) leaves the cache
+ * alone, which matters because the key is the param-less prefix and react-query
+ * matches — and would refetch — every per-conversation and per-project variant
+ * under it.
+ *
+ * `isActive` is load-bearing, not decoration: pausing deliberately keeps
+ * `next_run_at` so the rule reads the same when it comes back, so a paused
+ * schedule is permanently in the past. Testing the timestamp alone would latch
+ * this on and refetch every list variant on every message from then on.
  */
 function refreshSchedulesIfAny(): void {
   const queryKey = getListSchedulesQueryKey();
-  const cached = queryClient.getQueriesData<unknown[]>({ queryKey });
-  if (!cached.some(([, data]) => Array.isArray(data) && data.length > 0)) return;
+  const cached = queryClient.getQueriesData<Schedule[]>({ queryKey });
+  const now = Date.now();
+  const anyDue = cached.some(
+    ([, data]) => Array.isArray(data) && data.some((schedule) => isDue(schedule, now)),
+  );
+  if (!anyDue) return;
   void queryClient.invalidateQueries({ queryKey });
 }
 

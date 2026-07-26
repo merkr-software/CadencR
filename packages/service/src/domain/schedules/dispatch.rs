@@ -8,12 +8,35 @@
 mod overrides;
 mod spawn;
 
+use std::time::Duration;
+
 use uuid::Uuid;
 
 use super::models::{Schedule, TargetKind};
 use crate::app_state::AppState;
 use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
+
+/// Deadlock backstop on one delivery, not a latency budget.
+///
+/// The scheduler fires schedules one at a time, so an await with no deadline is
+/// a single point of stall for every other schedule: a dispatch waiting on a
+/// wedged provider process or a half-open session handle would hold the tick
+/// indefinitely and nothing else would ever run.
+///
+/// Deliberately generous, because this does *not* only bound a hand-off. The
+/// prompt path provisions the working copy first — `git worktree add` against a
+/// large repo, on a cold checkout — and then spawns the provider process, both
+/// inside this future. A timeout drops that future mid-flight, so a value tuned
+/// to a healthy hand-off would cancel a slow-but-fine first run and (for
+/// `new_conversation`) send the caller down the rollback path, deleting a
+/// conversation whose worktree may already be half-written to disk. Anything
+/// that reaches this ceiling is wedged, not busy.
+///
+/// The tick is serial, so a backlog of wedged deliveries can still hold it for
+/// `MAX_RUNS_PER_TICK` × this. That is the accepted trade: each of those runs
+/// used to hang the loop forever.
+const DISPATCH_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Deliver a schedule's prompt, returning the conversation it landed in.
 ///
@@ -41,16 +64,38 @@ async fn deliver_to_conversation(
     })?;
     let session_id = resolve_or_create_session(state, feature_id).await?;
     overrides::apply(state, feature_id, session_id, schedule).await?;
-    dispatch_control_prompt_with_message_uuid(
+    deliver_prompt(state, feature_id, session_id, schedule, occurrence).await?;
+    Ok(feature_id)
+}
+
+/// Hand the prompt to the ordinary prompt path, under [`DISPATCH_TIMEOUT`].
+///
+/// A timeout is returned as an error like any other, so the caller's own
+/// cleanup runs and the scheduler records a failed run and rolls the rule
+/// forward instead of re-firing it on every tick.
+pub(super) async fn deliver_prompt(
+    state: &AppState,
+    feature_id: i64,
+    session_id: i64,
+    schedule: &Schedule,
+    occurrence: &str,
+) -> Result<(), AppError> {
+    let dispatch = dispatch_control_prompt_with_message_uuid(
         state,
         feature_id,
         session_id,
         &schedule.prompt,
         false,
         Some(message_uuid(schedule.id, occurrence)),
-    )
-    .await?;
-    Ok(feature_id)
+    );
+    match tokio::time::timeout(DISPATCH_TIMEOUT, dispatch).await {
+        Ok(result) => result,
+        Err(_) => Err(AppError::Internal(format!(
+            "delivering schedule {} timed out after {}s",
+            schedule.id,
+            DISPATCH_TIMEOUT.as_secs()
+        ))),
+    }
 }
 
 /// Stable per (schedule, occurrence) so a redelivery is recognisably the same
@@ -66,6 +111,16 @@ pub(super) fn message_uuid(schedule_id: i64, occurrence: &str) -> Uuid {
 /// spawned an agent — scheduling is keyed on the conversation precisely so the
 /// very first message of a brand-new one can be scheduled.
 ///
+/// Both statements run in one write-pool transaction. Reading from `read_pool`
+/// and writing to `write_pool` would let a manual run racing the dispatcher (or
+/// two manual runs) both miss the row and insert a second session for the same
+/// conversation, splitting its transcript in two.
+///
+/// sqlx begins deferred, so the SELECT takes only a read lock and the INSERT
+/// upgrades it. That is safe *because* `write_pool` is `max_connections(1)`,
+/// which serialises writers for us; if the write pool ever grows, this needs
+/// `BEGIN IMMEDIATE` or the upgrade becomes `SQLITE_BUSY`-prone.
+///
 /// Unlike the live prompt path this never forces an existing session to
 /// `paused`: dispatch drives status itself and must not disturb a session that
 /// is mid-turn.
@@ -73,23 +128,29 @@ pub(super) async fn resolve_or_create_session(
     state: &AppState,
     feature_id: i64,
 ) -> Result<i64, AppError> {
+    let mut tx = state.write_pool.begin().await?;
     if let Some((id,)) = sqlx::query_as::<_, (i64,)>(
         "SELECT id FROM agent_sessions WHERE feature_id = ? AND agent_type = 'session'
          ORDER BY id DESC LIMIT 1",
     )
     .bind(feature_id)
-    .fetch_optional(&state.read_pool)
+    .fetch_optional(&mut *tx)
     .await?
     {
+        // Committed rather than dropped: the common path is a hit, and dropping
+        // would queue a ROLLBACK on the one write connection every dispatch.
+        tx.commit().await?;
         return Ok(id);
     }
-    Ok(sqlx::query_scalar::<_, i64>(
+    let id = sqlx::query_scalar::<_, i64>(
         "INSERT INTO agent_sessions (feature_id, agent_type, status) VALUES (?, 'session', 'paused')
          RETURNING id",
     )
     .bind(feature_id)
-    .fetch_one(&state.write_pool)
-    .await?)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(id)
 }
 
 #[cfg(test)]

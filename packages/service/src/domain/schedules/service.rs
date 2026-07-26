@@ -21,8 +21,20 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
     let occurrence = format!("manual:{}", Utc::now().to_rfc3339());
     match dispatch::run(state, &schedule, &occurrence).await {
         Ok(feature_id) => {
-            repository::record_manual_run(&state.write_pool, id, "sent", None, Some(feature_id))
-                .await?;
+            // Logged, not propagated: the prompt has already been delivered, so
+            // failing the request would invite a retry that sends the user's
+            // conversation a second real message. Losing the history row is the
+            // lesser of the two, and the run itself still succeeded.
+            if let Err(error) =
+                repository::record_manual_run(&state.write_pool, id, "sent", None, Some(feature_id))
+                    .await
+            {
+                tracing::warn!(
+                    error = %error,
+                    schedule_id = id,
+                    "a manual run was delivered but its history row could not be written"
+                );
+            }
             Ok(ScheduleRunResult {
                 ran: true,
                 feature_id: Some(feature_id),

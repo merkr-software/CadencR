@@ -67,18 +67,23 @@ export function filterByState(schedules: Schedule[], state: ScheduleFilterState)
  * Group by project, preserving the incoming order (soonest run first) both
  * between groups and inside them — so the project with the next run sits at the
  * top of the page.
+ *
+ * Keyed on the project id, not its name: two checkouts of the same repo are two
+ * projects that happen to share a display name, and merging them would put a
+ * schedule under a heading that doesn't own it. It also gives the rendered
+ * sections a stable, unique React key.
  */
 export function groupByProject(schedules: Schedule[]): ScheduleGroup[] {
-  const groups = new Map<string, ScheduleGroup>();
+  const groups = new Map<number | null, ScheduleGroup>();
   for (const schedule of schedules) {
-    const label = schedule.context.project_name ?? UNGROUPED;
-    const existing = groups.get(label);
+    const projectId = schedule.context.project_id ?? null;
+    const existing = groups.get(projectId);
     if (existing) {
       existing.schedules.push(schedule);
     } else {
-      groups.set(label, {
-        label,
-        projectId: schedule.context.project_id ?? null,
+      groups.set(projectId, {
+        label: schedule.context.project_name ?? UNGROUPED,
+        projectId,
         schedules: [schedule],
       });
     }

@@ -17,13 +17,12 @@
 import { type ReactElement } from "react";
 import type { ScheduleTarget } from "@/api/generated";
 import { AccessModePopover } from "@/components/agent-session/AccessModePopover";
-import { ClaudeProfileCombobox } from "@/components/agent-session/ClaudeProfileCombobox";
 import { PermissionModeChip } from "@/components/agent-session/PermissionModeChip";
-import { useClaudeCodeProfiles, DEFAULT_CLAUDE_PROFILE_NAME } from "@/api/agentRuntime";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
 import { nextProviderMode } from "@/lib/provider-modes";
-import { PROVIDER_IDS } from "@/lib/providers";
-import { ScheduleModelChip } from "./ScheduleModelChip";
+import { ScheduleModelChip, type ScheduleChipProps } from "./ScheduleModelChip";
+import { ScheduleProfileChip } from "./ScheduleProfileChip";
 import { ScheduleWorktreeChip } from "./ScheduleWorktreeChip";
 import type { ScheduleRuntime } from "./useScheduleRuntime";
 
@@ -44,6 +43,11 @@ export function ScheduleSettingsBar({
   runtime,
   projectPath,
 }: ScheduleSettingsBarProps): ReactElement {
+  // Every chip below reads from `runtime`, and until it resolves those values
+  // are fallbacks. Showing them would tell the user this run is configured one
+  // way and then silently change the answer, so the row waits instead.
+  if (runtime.isResolving) return <ChipRowSkeleton />;
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <ScheduleModeChip target={target} onChange={onChange} runtime={runtime} />
@@ -59,17 +63,27 @@ export function ScheduleSettingsBar({
   );
 }
 
-interface ChipProps {
-  target: ScheduleTarget;
-  onChange: (next: ScheduleTarget) => void;
-  runtime: ScheduleRuntime;
+/** Placeholders in the chips' own sizes, so the row doesn't jump when the real
+ *  ones arrive. */
+function ChipRowSkeleton(): ReactElement {
+  return (
+    <div
+      className="flex flex-wrap items-center gap-1.5"
+      aria-busy="true"
+      aria-label="Loading schedule settings"
+    >
+      {[64, 96, 112, 72].map((width) => (
+        <Skeleton key={width} className="h-6 rounded-full" style={{ width }} />
+      ))}
+    </div>
+  );
 }
 
 /**
  * Clicking cycles, exactly as it does in the composer — the editor has no
  * Shift+Tab to bind, so the chip drops the shortcut hint and nothing else.
  */
-function ScheduleModeChip({ target, onChange, runtime }: ChipProps): ReactElement | null {
+function ScheduleModeChip({ target, onChange, runtime }: ScheduleChipProps): ReactElement | null {
   const enabledOptInModes = useEnabledOptInModes(runtime.providerId ?? "");
   return (
     <PermissionModeChip
@@ -94,7 +108,7 @@ function ScheduleModeChip({ target, onChange, runtime }: ChipProps): ReactElemen
 }
 
 /** Only rendered for providers that have an access axis at all. */
-function ScheduleAccessChip({ target, onChange, runtime }: ChipProps): ReactElement | null {
+function ScheduleAccessChip({ target, onChange, runtime }: ScheduleChipProps): ReactElement | null {
   const options = runtime.provider?.access_modes ?? [];
   if (options.length === 0) return null;
   return (
@@ -105,26 +119,6 @@ function ScheduleAccessChip({ target, onChange, runtime }: ChipProps): ReactElem
       options={options}
       description="Every run of this schedule uses the mode you pick here. It applies to this schedule only — conversations you start yourself keep their own."
       selectedHint="This schedule"
-    />
-  );
-}
-
-/** Claude bills per profile, so a schedule can run under a different one than
- *  the user is working in. Other providers have no equivalent. */
-function ScheduleProfileChip({ target, onChange, runtime }: ChipProps): ReactElement | null {
-  const isClaude = runtime.providerId === PROVIDER_IDS.CLAUDE_CODE;
-  const profiles = useClaudeCodeProfiles({ enabled: isClaude });
-  // Nothing to choose between when only the default profile exists.
-  if (!isClaude || (profiles.data?.profiles?.length ?? 0) === 0) return null;
-  return (
-    <ClaudeProfileCombobox
-      value={runtime.profile ?? profiles.data?.active ?? DEFAULT_CLAUDE_PROFILE_NAME}
-      profiles={profiles.data?.profiles ?? []}
-      isLoading={profiles.isLoading}
-      isError={profiles.isError}
-      onChange={(profile) => onChange({ ...target, profile })}
-      variant="compact"
-      label="Profile"
     />
   );
 }

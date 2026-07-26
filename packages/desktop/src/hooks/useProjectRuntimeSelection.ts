@@ -15,7 +15,14 @@ import { DEFAULT_PROVIDER, resolveRuntimeSelection, type RuntimeSelection } from
 
 const STALE_MS = 5 * 60 * 1000;
 
-export function useProjectRuntimeSelection(projectId: number | undefined): RuntimeSelection {
+export interface ProjectRuntimeSelection extends RuntimeSelection {
+  /** `true` until every settings layer has answered. Until then the selection
+   *  is a fallback, not the project's real default — a chip that presented it
+   *  as final would be showing the user the wrong model. */
+  isLoading: boolean;
+}
+
+export function useProjectRuntimeSelection(projectId: number | undefined): ProjectRuntimeSelection {
   const catalog = useAgentCatalog({ staleTime: STALE_MS });
   const projectModels = useGetProjectModelSettings(projectId ?? 0, {
     query: { enabled: projectId != null, staleTime: STALE_MS },
@@ -27,9 +34,17 @@ export function useProjectRuntimeSelection(projectId: number | undefined): Runti
   const workspaceModels = useGetWorkspaceModelSettings({ query: { staleTime: STALE_MS } });
   const workspaceProviders = useGetWorkspaceProviderSettings({ staleTime: STALE_MS });
 
+  // The project-scoped queries are disabled without a project, so their
+  // `isLoading` stays true forever — read them only when they can actually run.
+  const isLoading =
+    catalog.isLoading ||
+    workspaceModels.isLoading ||
+    workspaceProviders.isLoading ||
+    (projectId != null && (projectModels.isLoading || projectProviders.isLoading));
+
   return useMemo(
-    () =>
-      resolveRuntimeSelection({
+    () => ({
+      ...resolveRuntimeSelection({
         agentType: "session",
         providers: catalog.data?.providers,
         defaultProviderId: catalog.data?.default_provider ?? DEFAULT_PROVIDER,
@@ -38,8 +53,11 @@ export function useProjectRuntimeSelection(projectId: number | undefined): Runti
         projectModels: projectModels.data,
         projectProviders: projectProviders.data,
       }),
+      isLoading,
+    }),
     [
       catalog.data,
+      isLoading,
       projectModels.data,
       projectProviders.data,
       workspaceModels.data,

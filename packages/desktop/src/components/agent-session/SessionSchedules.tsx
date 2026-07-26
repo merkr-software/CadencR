@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState, type ReactElement } from "react";
 import { useListProjects, type Schedule } from "@/api/generated";
 import { ScheduleEditorDialog } from "@/components/schedules/ScheduleEditorDialog";
-import { useSchedules } from "@/hooks/useSchedules";
+import { fireAndForget, useSchedules } from "@/hooks/useSchedules";
 import { isActive } from "@/lib/schedules/status";
 import { SessionSchedulesBanner } from "./SessionSchedulesBanner";
 
@@ -69,8 +69,8 @@ export function useSessionSchedules(
     [onSaved, save],
   );
 
-  const cancel = useCallback((schedule: Schedule) => void remove(schedule.id), [remove]);
-  const sendNow = useCallback((schedule: Schedule) => void runNow(schedule.id), [runNow]);
+  const cancel = useCallback((schedule: Schedule) => fireAndForget(remove(schedule.id)), [remove]);
+  const sendNow = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule.id)), [runNow]);
 
   const element = featureId ? (
     <>

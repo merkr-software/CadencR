@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
-import { useSchedules } from "@/hooks/useSchedules";
+import { fireAndForget, useSchedules } from "@/hooks/useSchedules";
 import { nextRunAcross } from "@/lib/schedules/status";
 import { formatRelative } from "@/lib/schedules/format";
 import { cn } from "@/lib/utils";
@@ -55,10 +55,10 @@ export function SchedulesView(): ReactElement {
     setEditorOpen(true);
   }, []);
   const toggle = useCallback(
-    (schedule: Schedule) => void setEnabled(schedule.id, !schedule.enabled),
+    (schedule: Schedule) => fireAndForget(setEnabled(schedule.id, !schedule.enabled)),
     [setEnabled],
   );
-  const run = useCallback((schedule: Schedule) => void runNow(schedule.id), [runNow]);
+  const run = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule.id)), [runNow]);
 
   return (
     <div data-feature-chrome="standard" className="flex h-full flex-col bg-background">

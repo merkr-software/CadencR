@@ -66,7 +66,7 @@ export const ScheduleGroups = memo(function ScheduleGroups({
   return (
     <div className="flex flex-col gap-5">
       {groups.map((group) => (
-        <section key={group.label} className="flex flex-col gap-2">
+        <section key={group.projectId ?? "ungrouped"} className="flex flex-col gap-2">
           <h2 className="flex items-baseline gap-2 px-0.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {group.label}
             <span className="font-normal tabular-nums opacity-70">{group.schedules.length}</span>

@@ -4,8 +4,6 @@ import { ModelMetaChip } from "@/components/agent-session/ModelMetaChip";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
 import type { ScheduleRuntime } from "./useScheduleRuntime";
 
-const CATALOG_LOADING_LABEL = "Loading model…";
-
 export interface ScheduleChipProps {
   target: ScheduleTarget;
   onChange: (next: ScheduleTarget) => void;
@@ -28,12 +26,9 @@ export function ScheduleModelChip({ target, onChange, runtime }: ScheduleChipPro
       onOpenChange={setOpen}
       currentProviderId={runtime.providerId}
       currentModelId={runtime.modelId}
-      currentModelLabel={
-        runtime.isCatalogLoading
-          ? CATALOG_LOADING_LABEL
-          : (runtime.model?.label ?? runtime.modelId ?? "Model")
-      }
-      modelSelectionStatus={runtime.isCatalogLoading ? "catalog-loading" : "ready"}
+      // No loading label: the chip row doesn't mount until `isResolving`
+      // clears, and the catalog is one of the layers that gates it.
+      currentModelLabel={runtime.model?.label ?? runtime.modelId ?? "Model"}
       pickerProviders={runtime.pickerProviders}
       // Provider and model are written together from the one selection the
       // picker reports — a separate provider callback would race it.

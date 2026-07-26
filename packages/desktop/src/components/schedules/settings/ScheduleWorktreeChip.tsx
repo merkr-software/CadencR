@@ -1,6 +1,7 @@
 import { type ReactElement } from "react";
 import { useGetBranch, type ScheduleTarget } from "@/api/generated";
 import { WorktreeChip } from "@/components/agent-session/WorktreeChip";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   applyScheduleWorktree,
   scheduleWorktreeBranch,
@@ -29,13 +30,26 @@ export function ScheduleWorktreeChip({
   projectPath?: string;
 }): ReactElement {
   const projectId = target.project_id ?? undefined;
-  const { data: branch } = useGetBranch(
+  const { data: branch, isLoading } = useGetBranch(
     { project_id: projectId ?? 0 },
     { query: { enabled: projectId != null } },
   );
   const defaultBranch = branch?.branch ?? undefined;
   const mode = scheduleWorktreeMode(target);
   const selectedBranch = scheduleWorktreeBranch(target);
+
+  // Every choice this chip offers is phrased against the project's current
+  // branch, and picking one before it arrives writes the wrong base branch onto
+  // the target. Wait for it rather than offering a decision built on a blank.
+  if (projectId != null && isLoading) {
+    return (
+      <Skeleton
+        className="h-6 w-28 rounded-full"
+        aria-busy="true"
+        aria-label="Loading branch options"
+      />
+    );
+  }
 
   return (
     <WorktreeChip

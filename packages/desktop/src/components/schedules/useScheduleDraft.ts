@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Project, SaveScheduleRequest, Schedule, ScheduleTarget } from "@/api/generated";
 import {
   draftError,
@@ -98,19 +98,26 @@ function useDraftFields() {
     [],
   );
 
-  return {
-    name,
-    setName,
-    prompt,
-    setPrompt,
-    target,
-    setTarget,
-    recurrence,
-    setRecurrence,
-    now,
-    formKey,
-    load,
-  };
+  // A hook that returns a fresh literal breaks every downstream `useMemo` and
+  // `React.memo` (`frontend-performance.md`), and this one feeds the whole
+  // editor dialog. The identity is still per-keystroke — `name` and `prompt`
+  // are deps — but it holds across the renders those fields didn't cause.
+  return useMemo(
+    () => ({
+      name,
+      setName,
+      prompt,
+      setPrompt,
+      target,
+      setTarget,
+      recurrence,
+      setRecurrence,
+      now,
+      formKey,
+      load,
+    }),
+    [formKey, load, name, now, prompt, recurrence, target],
+  );
 }
 
 /** Form state and validation for {@link ScheduleEditorDialog}. */
@@ -194,7 +201,10 @@ export function useScheduleDraft({
     }
   }, [onDelete, onOpenChange, schedule]);
 
-  return { ...fields, busy, worktreeError, canSave, save, remove };
+  return useMemo(
+    () => ({ ...fields, busy, worktreeError, canSave, save, remove }),
+    [busy, canSave, fields, remove, save, worktreeError],
+  );
 }
 
 /** What stops a save, in the order the user can act on it. */

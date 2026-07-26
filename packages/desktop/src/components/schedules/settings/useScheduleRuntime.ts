@@ -11,12 +11,7 @@
  * settings, which the features list already carries.
  */
 import { useMemo } from "react";
-import {
-  useListFeatures,
-  type Feature,
-  type ScheduleTarget,
-  type TargetKind,
-} from "@/api/generated";
+import { useGetFeature, type Feature, type ScheduleTarget, type TargetKind } from "@/api/generated";
 import {
   useAgentCatalog,
   type RuntimeModelOption,
@@ -47,10 +42,10 @@ export interface ScheduleRuntime {
   thinkingLevel: ThinkingEffortLevel | undefined;
   accessMode: AccessMode;
   profile: string | undefined;
-  isCatalogLoading: boolean;
-  /** `true` once the conversation a `conversation` target names has loaded, so
-   *  chips don't flash the project's defaults before the real ones arrive. */
-  isTargetLoading: boolean;
+  /** `true` while any layer this resolves from is still in flight. Everything
+   *  below is a placeholder until it clears — the chip row shows a skeleton
+   *  rather than presenting a fallback as the run's real configuration. */
+  isResolving: boolean;
 }
 
 export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
@@ -59,7 +54,12 @@ export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
     () => availableCatalogProviders(catalog?.providers),
     [catalog?.providers],
   );
-  const projectDefault = useProjectRuntimeSelection(target.project_id ?? undefined);
+  // Only a target that creates the conversation inherits the project's
+  // defaults. Passing the id for a `conversation` target would fire both
+  // project-settings requests for a cascade `inheritedRuntime` then discards.
+  const projectDefault = useProjectRuntimeSelection(
+    target.kind === "conversation" ? undefined : (target.project_id ?? undefined),
+  );
   const conversation = useTargetedConversation(target);
 
   return useMemo(() => {
@@ -80,8 +80,12 @@ export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
       thinkingLevel: parseThinkingEffort(target.thinking_level ?? inherited.thinkingLevel),
       accessMode: parseAccessMode(target.access_mode ?? inherited.accessMode ?? undefined),
       profile: target.profile ?? inherited.profile,
-      isCatalogLoading: catalog === undefined,
-      isTargetLoading: conversation.isLoading,
+      isResolving:
+        catalog === undefined ||
+        conversation.isLoading ||
+        // A new conversation starts on the project's defaults, so those queries
+        // gate it; an existing one doesn't consult them at all.
+        (target.kind !== "conversation" && projectDefault.isLoading),
     };
   }, [catalog, catalogProviders, conversation, projectDefault, target]);
 }
@@ -154,26 +158,31 @@ function pickerProviders(
 }
 
 /**
- * The conversation a `conversation` target names, read from the list the target
- * picker already loaded — so its settings cost no extra request.
+ * The conversation a `conversation` target names.
+ *
+ * Fetched by id rather than found in the project's feature list: `project_id` is
+ * only required for `new_conversation` targets, so a conversation target that
+ * omits it (the composer's locked target, when the route didn't carry a project)
+ * would otherwise resolve to nothing and silently inherit the project defaults
+ * instead of the conversation's own agent, model, mode and profile.
  */
 function useTargetedConversation(target: ScheduleTarget): {
   feature: Feature | undefined;
   isLoading: boolean;
 } {
-  const projectId = target.project_id ?? undefined;
-  const enabled = projectId != null && target.kind === "conversation";
-  const { data: features, isLoading } = useListFeatures(
-    { project_id: projectId ?? 0 },
-    { query: { enabled } },
-  );
+  const featureId = target.feature_id ?? undefined;
+  const enabled = featureId != null && target.kind === "conversation";
+  // Held briefly: clicking through the conversation picker mounts this once per
+  // conversation, and orval's default of 0 would refetch each one on every
+  // revisit. A schedule's inherited settings don't change mid-edit.
+  const { data: feature, isLoading } = useGetFeature(featureId ?? 0, {
+    query: { enabled, staleTime: 60_000 },
+  });
   return useMemo(
     () => ({
-      feature: Array.isArray(features)
-        ? features.find((entry) => entry.id === target.feature_id)
-        : undefined,
+      feature: enabled ? feature : undefined,
       isLoading: enabled && isLoading,
     }),
-    [enabled, features, isLoading, target.feature_id],
+    [enabled, feature, isLoading],
   );
 }
