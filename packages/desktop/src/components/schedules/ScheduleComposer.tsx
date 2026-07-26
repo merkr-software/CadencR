@@ -72,7 +72,12 @@ export function ScheduleComposer({
           mentionProjectId={target.project_id ?? undefined}
           mentionFeatureId={target.feature_id ?? undefined}
           slashCommands={catalog.commands}
-          slashCommandsLoading={catalog.isLoading}
+          // The catalog request can't even start until the target resolves to a
+          // provider, and until then `usePromptCommands` is disabled — so it
+          // reports "not loading" while holding an empty list. Typing `/` in
+          // that window would show an empty menu as if the provider genuinely
+          // had no commands, so the resolve counts as part of the load.
+          slashCommandsLoading={runtime.isResolving || catalog.isLoading}
           promptCommandPolicy={{ ...catalog.policy, userShell: false }}
         />
       </div>

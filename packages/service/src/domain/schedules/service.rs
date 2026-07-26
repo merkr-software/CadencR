@@ -1,6 +1,6 @@
 use chrono::Utc;
 
-use super::models::ScheduleRunResult;
+use super::models::{ScheduleRanEvent, ScheduleRunResult};
 use super::{dispatch, repository};
 use crate::app_state::AppState;
 use crate::error::AppError;
@@ -19,7 +19,7 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
     // Distinct per invocation: a manual run is a genuinely new message, not a
     // redelivery of the occurrence the timer owns.
     let occurrence = format!("manual:{}", Utc::now().to_rfc3339());
-    match dispatch::run(state, &schedule, &occurrence).await {
+    let result = match dispatch::run(state, &schedule, &occurrence).await {
         Ok(feature_id) => {
             // Logged, not propagated: the prompt has already been delivered, so
             // failing the request would invite a retry that sends the user's
@@ -35,21 +35,29 @@ pub async fn run_now(state: &AppState, id: i64) -> Result<ScheduleRunResult, App
                     "a manual run was delivered but its history row could not be written"
                 );
             }
-            Ok(ScheduleRunResult {
+            ScheduleRunResult {
                 ran: true,
                 feature_id: Some(feature_id),
                 error: None,
-            })
+            }
         }
         Err(error) => {
             let message = error.to_string();
             repository::record_manual_run(&state.write_pool, id, "failed", Some(&message), None)
                 .await?;
-            Ok(ScheduleRunResult {
+            ScheduleRunResult {
                 ran: false,
                 feature_id: None,
                 error: Some(message),
-            })
+            }
         }
-    }
+    };
+
+    // A manual run leaves `next_run_at` alone but still writes a history row,
+    // so the caller's own refetch isn't enough — every other client (and every
+    // other device) is now showing a stale last-run badge.
+    let _ = state
+        .schedule_events_tx
+        .send(ScheduleRanEvent { schedule_id: id });
+    Ok(result)
 }

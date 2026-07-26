@@ -196,6 +196,22 @@ pub struct ScheduleDeleted {
     pub deleted: bool,
 }
 
+/// A completed run, broadcast to every connected client.
+///
+/// The frontend used to infer this from the canonical `user_message` a run
+/// produces: after every message it checked whether any cached schedule was
+/// armed and already past its instant. That guessed twice over — it fired on
+/// ordinary messages that merely arrived while a schedule was overdue, and it
+/// missed every run whose conversation the client didn't have open, which is
+/// the normal case for a schedule that creates its own.
+///
+/// Like [`crate::domain::feature_events`], it carries no `seq` and has no
+/// snapshot: it's a cue to refetch, not state to merge.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ScheduleRanEvent {
+    pub schedule_id: i64,
+}
+
 /// Result of a manual "run now".
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScheduleRunResult {

@@ -15,15 +15,16 @@ pub(super) async fn handle_app_action(
         "subscribe.session_status" => {
             handle_subscribe_session_status(envelope, sender, app_state).await
         }
-        "subscribe.feature_events" => handle_subscribe_feature_events(sender, app_state).await,
-        "subscribe.settings_events" => handle_subscribe_settings_events(sender, app_state).await,
+        "subscribe.feature_events" => handle_subscribe_feature_events(sender, app_state),
+        "subscribe.schedule_events" => handle_subscribe_schedule_events(sender, app_state),
+        "subscribe.settings_events" => handle_subscribe_settings_events(sender, app_state),
         "subscribe.forge_status" => {
             super::app_forge::subscribe_forge_status(envelope, sender, app_state).await
         }
         "forge_visibility" => {
             super::app_forge::update_forge_visibility(envelope, sender, app_state).await
         }
-        "subscribe.remote_events" => handle_subscribe_remote_events(sender, app_state).await,
+        "subscribe.remote_events" => handle_subscribe_remote_events(sender, app_state),
         "subscribe.file_watcher" => {
             handle_subscribe_file_watcher(envelope, sender, app_state).await
         }
@@ -196,117 +197,108 @@ async fn handle_subscribe_session_status(
     });
 }
 
-/// Subscribe the client to global feature-lifecycle events. There is no
-/// snapshot — the client already has the feature list via REST; each event is
-/// just a cue to refetch. Forwards every [`FeatureEvent`] as an
-/// `app/feature_event` envelope until the socket closes.
-async fn handle_subscribe_feature_events(sender: &WsSender, app_state: &AppState) {
-    let mut rx = app_state.feature_events_tx.subscribe();
+/// How a subscriber recovers when the broadcast channel drops events under it.
+enum OnLag {
+    /// Re-send a bare event. Safe for cues whose payload only narrows *what* to
+    /// refetch: the client falls back to refetching everything, which is still
+    /// correct, just broader.
+    ResendBare,
+    /// Drop it. For one-shot notifications, where synthesizing an event would
+    /// announce something that never happened.
+    Skip,
+}
+
+/// Forward a global broadcast channel to one client as `app/<action>` envelopes
+/// until the socket closes.
+///
+/// None of the `app`-domain cues carry a `seq` or a snapshot — each is a hint to
+/// refetch, not state to merge — so they differ only in the channel, the action
+/// name and what a lagged subscriber deserves. Keeping one loop is what stops
+/// four near-identical ones from drifting apart. `session_status` stays separate:
+/// it has a seq and re-snapshots on lag.
+fn forward_app_events<T: serde::Serialize + Clone + Send + 'static>(
+    sender: &WsSender,
+    mut rx: tokio::sync::broadcast::Receiver<T>,
+    action: &'static str,
+    on_lag: OnLag,
+) {
     let sender = sender.clone();
     tokio::spawn(async move {
         loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let update = WsEnvelope::new(
-                        "app",
-                        "feature_event",
-                        serde_json::to_value(&event).unwrap_or_else(|_| serde_json::json!({})),
-                    );
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
+            // Selected on rather than left to the send below: `WsSender` is
+            // unbounded, so a closed socket is only noticed when there is
+            // something to send. A channel that can be quiet for hours (a
+            // schedule that runs nightly) would otherwise park one task per
+            // disconnected client until its next event.
+            let payload = tokio::select! {
+                _ = sender.closed() => break,
+                received = rx.recv() => match received {
+                    Ok(event) => {
+                        serde_json::to_value(&event).unwrap_or_else(|_| serde_json::json!({}))
                     }
-                }
-                // A lagged client just needs to refetch — send a bare event so
-                // it invalidates regardless of which specific changes it missed.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    let update = WsEnvelope::new("app", "feature_event", serde_json::json!({}));
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => match on_lag {
+                        OnLag::ResendBare => serde_json::json!({}),
+                        OnLag::Skip => continue,
+                    },
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                },
+            };
+            let update = WsEnvelope::new("app", action, payload);
+            if sender
+                .send(Message::Text(String::from(update).into()))
+                .is_err()
+            {
+                break;
             }
         }
     });
 }
 
-/// Subscribe the client to settings-file change events. No snapshot — each
-/// event is a cue to refetch settings (the file changed on disk, via our own
-/// write or an external editor). Forwards every [`SettingsChangeEvent`] as an
-/// `app/settings_event` envelope until the socket closes.
-async fn handle_subscribe_settings_events(sender: &WsSender, app_state: &AppState) {
-    let mut rx = app_state.settings_events_tx.subscribe();
-    let sender = sender.clone();
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let update = WsEnvelope::new(
-                        "app",
-                        "settings_event",
-                        serde_json::to_value(&event).unwrap_or_else(|_| serde_json::json!({})),
-                    );
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                // A lagged client just refetches — send a bare event.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    let update = WsEnvelope::new("app", "settings_event", serde_json::json!({}));
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
+/// Global feature-lifecycle events. No snapshot — the client already has the
+/// feature list via REST; each event is just a cue to refetch.
+fn handle_subscribe_feature_events(sender: &WsSender, app_state: &AppState) {
+    forward_app_events(
+        sender,
+        app_state.feature_events_tx.subscribe(),
+        "feature_event",
+        OnLag::ResendBare,
+    );
 }
 
-/// Subscribe the client to remote device-connection events. Like
-/// `feature_events`, there is no snapshot — each event is a one-shot cue to
-/// show a "device connected" toast on the host. Only the host (loopback) UI
-/// subscribes; remote browsers deliberately don't, so a device never toasts
-/// for its own connection. Forwards every [`RemoteConnectedEvent`] as an
-/// `app/remote_connected` envelope until the socket closes.
-async fn handle_subscribe_remote_events(sender: &WsSender, app_state: &AppState) {
-    let mut rx = app_state.remote_events_tx.subscribe();
-    let sender = sender.clone();
-    tokio::spawn(async move {
-        loop {
-            match rx.recv().await {
-                Ok(event) => {
-                    let update = WsEnvelope::new(
-                        "app",
-                        "remote_connected",
-                        serde_json::to_value(&event).unwrap_or_else(|_| serde_json::json!({})),
-                    );
-                    if sender
-                        .send(Message::Text(String::from(update).into()))
-                        .is_err()
-                    {
-                        break;
-                    }
-                }
-                // A missed event just means a missed toast — skip it, don't
-                // synthesize a bogus connection.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
+/// Global "a schedule ran" events. A schedule fires on the server's clock, into
+/// a conversation the client need not have open, so this is the only thing that
+/// tells the schedules sidebar its rules moved.
+fn handle_subscribe_schedule_events(sender: &WsSender, app_state: &AppState) {
+    forward_app_events(
+        sender,
+        app_state.schedule_events_tx.subscribe(),
+        "schedule_event",
+        OnLag::ResendBare,
+    );
+}
+
+/// Settings-file change events — a settings JSON file changed on disk, via our
+/// own write or an external editor.
+fn handle_subscribe_settings_events(sender: &WsSender, app_state: &AppState) {
+    forward_app_events(
+        sender,
+        app_state.settings_events_tx.subscribe(),
+        "settings_event",
+        OnLag::ResendBare,
+    );
+}
+
+/// Remote device-connection events, which the host turns into a "device
+/// connected" toast. Only the host (loopback) UI subscribes, so a device never
+/// toasts for its own connection. A missed event is a missed toast, not stale
+/// state — hence [`OnLag::Skip`].
+fn handle_subscribe_remote_events(sender: &WsSender, app_state: &AppState) {
+    forward_app_events(
+        sender,
+        app_state.remote_events_tx.subscribe(),
+        "remote_connected",
+        OnLag::Skip,
+    );
 }
 
 /// Subscribe the client to file-system change events for an editor root.

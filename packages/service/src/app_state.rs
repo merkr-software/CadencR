@@ -21,6 +21,7 @@ use crate::domain::lsp::lifecycle::CrashTracker;
 use crate::domain::lsp::LspRegistry;
 use crate::domain::mcp::loopback::is_loopback_host;
 use crate::domain::push::PushNotifier;
+use crate::domain::schedules::models::ScheduleRanEvent;
 use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::terminal::service::PtyManager;
 use crate::domain::ws_session::handler::{new_sdk_sessions, ActiveTurnRegistry};
@@ -99,6 +100,10 @@ pub struct AppState {
     /// connected client subscribes once so a conversation created on one
     /// device shows up on the others without a manual refresh.
     pub feature_events_tx: FeatureEventBroadcaster,
+    /// Global "a schedule ran" broadcast. Subscribed once per client: a
+    /// schedule fires on the server's clock, into a conversation nobody need
+    /// have open, so nothing else tells the sidebar its rules moved.
+    pub schedule_events_tx: broadcast::Sender<ScheduleRanEvent>,
     /// PTY lifecycle manager for terminal sessions.
     pub pty_manager: PtyManager,
     /// Broadcast channel for file-system change events.
@@ -228,6 +233,7 @@ impl AppState {
     ) -> Self {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
+        let (schedule_events_tx, _) = broadcast::channel(64);
         let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
@@ -253,6 +259,7 @@ impl AppState {
                 Arc::new(std::sync::atomic::AtomicU64::new(0)),
             ),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
+            schedule_events_tx,
             pty_manager: PtyManager::new(),
             file_change_tx,
             settings_events_tx,
@@ -295,6 +302,7 @@ impl AppState {
     pub fn with_pool(pool: SqlitePool) -> Self {
         let (session_status_tx, _) = broadcast::channel(64);
         let (feature_events_tx, _) = broadcast::channel(64);
+        let (schedule_events_tx, _) = broadcast::channel(64);
         let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
@@ -314,6 +322,7 @@ impl AppState {
                 std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
             ),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
+            schedule_events_tx,
             pty_manager: PtyManager::new(),
             file_change_tx,
             settings_events_tx,

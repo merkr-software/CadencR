@@ -10,6 +10,7 @@ import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
 import { scheduleSettingsInvalidation } from "@/lib/settingsInvalidation";
 import { getListFeaturesQueryKey, type Feature } from "@/api/generated";
+import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
 import { useUnreadStore } from "@/stores/unread-store";
@@ -292,6 +293,14 @@ export function handleAppEnvelope(
     // the watcher echo, sibling settings files), and each refetch triggers a
     // re-render wave across every mounted ModelSelector/session composer.
     scheduleSettingsInvalidation(queryClient);
+    return true;
+  }
+  if (domain === "app" && action === "schedule_event") {
+    // A schedule ran: its `next_run_at`, run count and last-run badge all moved
+    // server-side, and nothing this client did says so. The conversation lists
+    // are deliberately left alone — a run that spawned one emits `Created` and
+    // a run into an existing one emits `Reordered`, both handled below.
+    invalidateScheduleLists(queryClient);
     return true;
   }
   if (domain === "app" && action === "feature_event") {

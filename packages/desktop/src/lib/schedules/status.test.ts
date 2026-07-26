@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Schedule } from "@/api/generated";
-import { isActive, isDue, nextRunAcross, scheduleState } from "./status";
-
-const NOW = Date.parse("2026-07-26T12:00:00Z");
+import { isActive, nextRunAcross, scheduleState } from "./status";
 
 function schedule(overrides: Partial<Schedule> = {}): Schedule {
   return {
@@ -28,37 +26,6 @@ describe("scheduleState", () => {
 
   it("calls a finished one-off done even though it is still enabled", () => {
     expect(scheduleState(schedule({ completed: true }))).toBe("completed");
-  });
-});
-
-describe("isDue", () => {
-  it("is true for an armed schedule whose run time has passed", () => {
-    expect(isDue(schedule({ next_run_at: "2026-07-26T09:00:00Z" }), NOW)).toBe(true);
-  });
-
-  it("is false while the run is still ahead", () => {
-    expect(isDue(schedule(), NOW)).toBe(false);
-  });
-
-  // Regression: pausing deliberately keeps `next_run_at` so the rule reads the
-  // same when it resumes, which leaves every paused schedule permanently in the
-  // past. A timestamp-only check latches on forever — and the WS handler that
-  // uses this then invalidates every schedule list variant on every message.
-  it("is false for a paused schedule stuck in the past", () => {
-    expect(isDue(schedule({ enabled: false, next_run_at: "2020-01-01T00:00:00Z" }), NOW)).toBe(
-      false,
-    );
-  });
-
-  it("is false for a completed schedule stuck in the past", () => {
-    expect(isDue(schedule({ completed: true, next_run_at: "2020-01-01T00:00:00Z" }), NOW)).toBe(
-      false,
-    );
-  });
-
-  it("is false when the timestamp is missing or unparseable", () => {
-    expect(isDue(schedule({ next_run_at: null }), NOW)).toBe(false);
-    expect(isDue(schedule({ next_run_at: "not a date" }), NOW)).toBe(false);
   });
 });
 

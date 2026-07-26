@@ -2,16 +2,16 @@
  * Reads and mutates schedules.
  *
  * Scheduling is server-side, so this holds no optimistic state (per the
- * no-optimistic-updates rule): every mutation re-reads from the backend. It
- * polls too, because a schedule firing changes the row without any client
- * action — the poll interval tightens as the soonest run approaches so the list
- * clears itself promptly, then relaxes.
+ * no-optimistic-updates rule): every mutation re-reads from the backend. A
+ * schedule firing changes the row without any client action, and the server
+ * says so directly — `app/schedule_event`, handled in
+ * `session-status-handlers.ts`. The slow poll below is only the fallback for
+ * when that socket is down.
  */
 import { useCallback, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
-  getListSchedulesQueryKey,
   useCreateSchedule,
   useDeleteSchedule,
   useListSchedules,
@@ -23,6 +23,7 @@ import {
   type Schedule,
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { isActive } from "@/lib/schedules/status";
 
 export interface UseSchedulesResult {
@@ -35,22 +36,21 @@ export interface UseSchedulesResult {
   runNow: (id: number) => Promise<void>;
 }
 
-/** The server scans every ~10s, so polling faster than that near a deadline can
- *  only re-read the same row; far from one, once a minute is plenty. */
+/**
+ * Safety net, not the mechanism.
+ *
+ * A run reaches us as a push, so this exists only to close the window where
+ * that socket is down. It replaced a ramp that tightened to 10s near a
+ * deadline: `SchedulesSidebarLink` is mounted app-wide, so that was a request
+ * every ten seconds, forever, for anyone holding an upcoming schedule.
+ *
+ * Still gated on having something armed — a list of finished rules can't change
+ * on its own. `Array.isArray` rather than a truthiness check, matching how
+ * `useScheduleList` reads the same cache entry: react-query hands this whatever
+ * is cached, which isn't guaranteed to be the list yet.
+ */
 function pollInterval(schedules: Schedule[] | undefined): number | false {
-  if (!schedules?.length) return false;
-  const upcoming = schedules
-    .filter(isActive)
-    .map((schedule) => new Date(schedule.next_run_at as string).getTime() - Date.now())
-    // Overdue rows sit here for up to a full dispatcher tick, and indefinitely
-    // if the service is wedged. Left negative they'd pin the app to the tightest
-    // interval forever, so they wait at the scan cadence like anything else.
-    .map((remaining) => Math.max(remaining, 0));
-  if (!upcoming.length) return false;
-  const soonest = Math.min(...upcoming);
-  if (soonest <= 30_000) return 10_000;
-  if (soonest <= 5 * 60_000) return 15_000;
-  return 60_000;
+  return Array.isArray(schedules) && schedules.some(isActive) ? 60_000 : false;
 }
 
 /** The read half, for surfaces that only display schedules (a count, a banner)
@@ -113,11 +113,10 @@ function useScheduleMutations(): Omit<UseSchedulesResult, "schedules" | "isLoadi
   const enabledMutation = useSetScheduleEnabled();
   const runMutation = useRunSchedule();
 
-  // Every list variant (all schedules, per-conversation, per-project) shows the
-  // same rows, so a change to one has to refresh them all. The param-less key
-  // is the shared prefix react-query matches them by.
+  // Shared with the `schedule_event` push handler, so a "Run now" click and the
+  // broadcast it triggers collapse into one refetch instead of racing.
   const invalidate = useCallback(() => {
-    void queryClient.invalidateQueries({ queryKey: getListSchedulesQueryKey() });
+    invalidateScheduleLists(queryClient);
   }, [queryClient]);
 
   const save = useCallback(

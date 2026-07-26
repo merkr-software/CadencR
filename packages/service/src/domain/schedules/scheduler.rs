@@ -13,7 +13,7 @@ use tracing::{info, warn};
 
 use super::planner::{self, DueAction};
 use super::repository::{self, ClaimedSchedule, RunOutcome};
-use super::{dispatch, models::Schedule};
+use super::{dispatch, models::Schedule, models::ScheduleRanEvent};
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -88,7 +88,14 @@ async fn run_claimed(state: &AppState, claimed: ClaimedSchedule) {
         repository::finish_run(&state.write_pool, schedule.id, &claim_token, outcome).await
     {
         warn!(error = %error, schedule_id = schedule.id, "failed to record schedule run");
+        return;
     }
+    // Announced only after the row is durable, so a client refetching on this
+    // cue can't read back the pre-run state. Every outcome is broadcast, not
+    // just `sent`: a failed or skipped run still advanced the rule.
+    let _ = state.schedule_events_tx.send(ScheduleRanEvent {
+        schedule_id: schedule.id,
+    });
 }
 
 async fn deliver(

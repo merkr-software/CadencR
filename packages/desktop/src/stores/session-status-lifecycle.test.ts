@@ -8,6 +8,7 @@ import { handleAppEnvelope } from "@/stores/session-status-handlers";
 import { transitionTurn } from "@/stores/ws-turn-lifecycle";
 import { startTurnTiming } from "@/stores/ws-turn-timing";
 import { getInvalidatePredicate } from "@/test-utils";
+import { resetScheduleInvalidationForTest } from "@/lib/schedules/invalidate";
 
 class MockWebSocket {
   static CLOSED = 3;
@@ -279,6 +280,44 @@ describe("session status lifecycle sync", () => {
       (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey?.[0],
     );
     expect(keys).not.toContain("/api/features/7");
+    invalidateSpy.mockRestore();
+  });
+
+  // Replaces a cache-shaped guess: the old code refetched after *any* canonical
+  // user message whose arrival happened to coincide with an overdue cached
+  // schedule, and never learned about a run whose conversation wasn't open.
+  it("refetches only the schedule lists when a schedule_event arrives", () => {
+    resetScheduleInvalidationForTest();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+
+    const handled = handleAppEnvelope("app", "schedule_event", { schedule_id: 3 });
+
+    expect(handled).toBe(true);
+    // The param-less prefix — every per-conversation and per-project variant
+    // hangs off it. The conversation lists are deliberately untouched: a run
+    // that spawns one emits `Created` and a run into an existing one emits
+    // `Reordered`, so invalidating here would just duplicate that, more broadly.
+    const keys = invalidateSpy.mock.calls.map(
+      (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey?.[0],
+    );
+    expect(keys).toEqual(["/api/schedules"]);
+    invalidateSpy.mockRestore();
+  });
+
+  // The scheduler fires up to MAX_RUNS_PER_TICK schedules per tick, and a
+  // "Run now" click reaches the same invalidation twice — once from the
+  // mutation, once from the broadcast echoing back.
+  it("coalesces a burst of schedule_events into one refetch", () => {
+    resetScheduleInvalidationForTest();
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+
+    for (let i = 0; i < 5; i++) {
+      handleAppEnvelope("app", "schedule_event", { schedule_id: i });
+    }
+
+    // Leading edge only — a lone event is never delayed, and the rest collapse
+    // into the trailing run after the settle window.
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
     invalidateSpy.mockRestore();
   });
 
