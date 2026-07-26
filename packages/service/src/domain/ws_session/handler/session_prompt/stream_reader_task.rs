@@ -11,7 +11,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
 use crate::domain::runtime_stream::{RuntimeUsageSnapshot, RuntimeUsageState};
 use crate::domain::session_status::{AgentStatus, SessionStatusBroadcaster};
-use crate::domain::usage_stats::TurnWordUsage;
+use crate::domain::usage_stats::{TurnWordUsage, UsageAttribution};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{SessionEndedPayload, WsEnvelope};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -53,6 +53,12 @@ pub(super) struct StreamReaderState {
     /// more when the reader stops, so an interrupted or aborted turn still
     /// contributes what it produced instead of being dropped.
     pub(super) word_usage: TurnWordUsage,
+    /// Provider/model/effort captured when the current batch of words started
+    /// arriving. The session row is mutable while a turn runs — switching model
+    /// mid-stream persists immediately — so reading it at flush time would file
+    /// the turn's output under a model that produced none of it, and split it
+    /// from its own prompt. Cleared by every flush.
+    pub(super) usage_attribution: Option<UsageAttribution>,
     pub(super) last_runtime_activity: Instant,
     pub(super) last_provider_reconcile: Instant,
     pub(super) turn_state: StreamTurnState,
@@ -101,6 +107,7 @@ impl StreamReaderState {
             runtime_session_id: None,
             usage_state: RuntimeUsageState::new(initial_usage),
             word_usage: TurnWordUsage::default(),
+            usage_attribution: None,
             last_runtime_activity: Instant::now(),
             last_provider_reconcile: Instant::now(),
             turn_state: StreamTurnState::new(),
@@ -194,22 +201,52 @@ impl StreamReaderTask {
         .await;
     }
 
-    /// Fold the words accumulated so far into the long-lived provider usage
-    /// stats.
+    /// Capture what this batch of words should be attributed to, the first time
+    /// the agent produces any.
     ///
-    /// Awaits only the attribution lookup — which must happen while the session
-    /// still holds the model and effort that produced these words — and hands
-    /// the write itself to a background task. Runs once per turn, not per
+    /// Taken here rather than at flush time because the session's model and
+    /// effort can change while the turn is still streaming. One small query per
+    /// turn — it stays `Some` until the flush that clears it, so the token path
+    /// only re-reads once a new batch starts.
+    pub(super) async fn capture_usage_attribution(&self, state: &mut StreamReaderState) {
+        if state.usage_attribution.is_some() || state.word_usage.pending() == 0 {
+            return;
+        }
+        state.usage_attribution =
+            crate::domain::usage_stats::snapshot_attribution(&self.write_pool, self.db_session_id)
+                .await;
+    }
+
+    /// Fold the words accumulated so far into the long-lived provider usage
+    /// stats, under the attribution captured when they started arriving.
+    ///
+    /// Hands the write itself to a background task; runs once per turn, not per
     /// delta, so it is not on the token hot path.
     pub(super) async fn flush_word_usage(&self, state: &mut StreamReaderState) {
         let words = state.word_usage.take();
-        crate::domain::usage_stats::record_session_words(
-            &self.write_pool,
-            self.db_session_id,
-            0,
-            words,
-        )
-        .await;
+        let attribution = state.usage_attribution.take();
+        if words == 0 {
+            return;
+        }
+        match attribution {
+            Some(attribution) => crate::domain::usage_stats::record_words_attributed(
+                &self.write_pool,
+                attribution,
+                0,
+                words,
+            ),
+            // No snapshot only if the words arrived without passing the capture
+            // point; the session's current attribution is the best answer left.
+            None => {
+                crate::domain::usage_stats::record_session_words(
+                    &self.write_pool,
+                    self.db_session_id,
+                    0,
+                    words,
+                )
+                .await
+            }
+        }
     }
 
     /// Seed the usage state from what the session already shows: the persisted

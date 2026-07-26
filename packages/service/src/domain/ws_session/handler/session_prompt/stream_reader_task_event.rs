@@ -36,6 +36,9 @@ impl StreamReaderTask {
         // the provider emitted lands in the usage stats regardless of which
         // branch handles the event.
         state.word_usage.observe(&runtime_event);
+        // Attribution is captured with the first words of the batch, not at the
+        // flush below: the model can be switched while this turn is streaming.
+        self.capture_usage_attribution(state).await;
         if runtime_event.is_result() {
             self.flush_word_usage(state).await;
         }

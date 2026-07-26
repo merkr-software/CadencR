@@ -1,0 +1,15 @@
+-- When the usage-stats import claimed its cutoff.
+--
+-- The cutoff alone says which *messages* the import covers, but not which of
+-- them it actually counted. A prompt persisted before the cutoff can still be
+-- sitting in `agent_message_dispatches` as `pending` or `error` — never
+-- delivered to a provider — and may be delivered minutes or months later, by
+-- the live recorder. Counting it in both places doubles it; counting it in
+-- neither loses it.
+--
+-- The claim instant is what separates the two: the import counts a prompt only
+-- if it had already been delivered when the import claimed, and the live
+-- recorder counts everything delivered after. Rows claimed before this column
+-- existed carry NULL, which is read as "unknown" and falls back to the
+-- delivery status alone.
+ALTER TABLE provider_usage_backfill ADD COLUMN claimed_at TEXT;

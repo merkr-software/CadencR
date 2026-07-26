@@ -40,9 +40,10 @@ where
 /// Wait for every in-flight usage write, bounded by [`DRAIN_TIMEOUT`].
 ///
 /// A drain that times out is reported rather than swallowed: the words really
-/// are lost, and the count is what tells the next `/api/usage-stats` read to
-/// warn that the numbers are incomplete.
-pub async fn flush() {
+/// are lost, and the count is persisted — this process is about to exit, so an
+/// in-memory counter would take the evidence with it — for the next start's
+/// `/api/usage-stats` read to warn that the numbers are incomplete.
+pub async fn flush(pool: &sqlx::SqlitePool) {
     let wait = async {
         loop {
             // Registered before the check, so a write that finishes in between
@@ -58,9 +59,12 @@ pub async fn flush() {
     if tokio::time::timeout(DRAIN_TIMEOUT, wait).await.is_err() {
         let lost = IN_FLIGHT.load(Ordering::SeqCst);
         warn!(lost, "usage writes were still in flight at shutdown");
-        health::record_failure(&format!(
-            "{lost} usage writes did not finish before shutdown"
-        ));
+        health::record_persisted_loss(
+            pool,
+            lost,
+            &format!("{lost} usage writes did not finish before shutdown"),
+        )
+        .await;
     }
 }
 
@@ -74,6 +78,12 @@ mod tests {
     // wall-clock bound would be at the mercy of the rest of the suite.
     #[tokio::test]
     async fn flush_waits_for_a_write_that_has_not_landed_yet() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         let (tx, rx) = tokio::sync::oneshot::channel::<()>();
         let landed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = landed.clone();
@@ -87,7 +97,7 @@ mod tests {
         assert!(!landed.load(Ordering::SeqCst));
         let _ = tx.send(());
 
-        flush().await;
+        flush(&pool).await;
 
         assert!(
             landed.load(Ordering::SeqCst),

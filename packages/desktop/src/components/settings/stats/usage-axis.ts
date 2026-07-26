@@ -1,3 +1,26 @@
+/**
+ * Where a key press moves the chart's single tab stop, or `null` for a key the
+ * chart does not own — which must keep bubbling, or Tab could never leave.
+ *
+ * Home/End included because a 90-day timeline is a long way to arrow across.
+ */
+export function nextFocusIndex(key: string, current: number, dayCount: number): number | null {
+  if (dayCount === 0) return null;
+  const last = dayCount - 1;
+  switch (key) {
+    case "ArrowLeft":
+      return Math.max(0, current - 1);
+    case "ArrowRight":
+      return Math.min(last, current + 1);
+    case "Home":
+      return 0;
+    case "End":
+      return last;
+    default:
+      return null;
+  }
+}
+
 /** Most x-axis labels a timeline can show before "Jun 20" starts colliding. */
 const MAX_TICKS = 6;
 

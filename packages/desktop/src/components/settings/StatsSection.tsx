@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useGetUsageStats } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,6 +25,9 @@ const METRIC_OPTIONS = [
   { value: "output", label: "Received", title: "Words the provider sent back" },
 ] as const satisfies readonly { value: UsageMetric; label: string; title: string }[];
 
+/** How often to re-ask while the historical import is still running. */
+const IMPORT_POLL_MS = 2000;
+
 const METRIC_UNIT: Record<UsageMetric, string> = {
   total: "words exchanged",
   input: "words sent",
@@ -36,7 +40,19 @@ export function StatsSection(): React.JSX.Element {
   const [providerFilter, setProviderFilter] = useState<string | null>(null);
 
   const windowDays = Number(range);
-  const { data, isLoading, error } = useGetUsageStats({ days: windowDays });
+  const { data, isLoading, error } = useGetUsageStats(
+    { days: windowDays },
+    {
+      query: {
+        // The one-time import of pre-existing conversations publishes every
+        // bucket in a single final transaction, so opening this tab while it
+        // runs shows an empty chart with nothing to invalidate it. Ask again
+        // until it lands.
+        refetchInterval: (data) => (data?.import_in_progress ? IMPORT_POLL_MS : false),
+      },
+    },
+  );
+  const importInProgress = data?.import_in_progress ?? false;
   const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
   // The backend computes the window's last day from the same clock that stamped
   // the rows; deriving it here would drift across UTC midnight.
@@ -78,6 +94,7 @@ export function StatsSection(): React.JSX.Element {
           <StatsBody
             isLoading={isLoading}
             error={error}
+            importInProgress={importInProgress}
             hasUsage={summary.totalInputWords + summary.totalOutputWords > 0}
           >
             <div className="space-y-5">
@@ -124,11 +141,13 @@ export function StatsSection(): React.JSX.Element {
 function StatsBody({
   isLoading,
   error,
+  importInProgress,
   hasUsage,
   children,
 }: {
   isLoading: boolean;
   error: unknown;
+  importInProgress: boolean;
   hasUsage: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
@@ -150,6 +169,20 @@ function StatsBody({
         <Skeleton className="h-[196px] rounded-lg" />
         <Skeleton className="h-[196px] rounded-lg" />
       </div>
+    );
+  }
+  // While the import runs the window really is empty, but "nothing here" would
+  // be the wrong story: the history is on its way and this view refreshes when
+  // it lands.
+  if (importInProgress && !hasUsage) {
+    return (
+      <p
+        className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-xs text-muted-foreground"
+        aria-busy="true"
+      >
+        <Loader2 className="size-3.5 animate-spin" aria-hidden />
+        Importing usage from your existing conversations…
+      </p>
     );
   }
   if (!hasUsage) {

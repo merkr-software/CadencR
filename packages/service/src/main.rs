@@ -139,10 +139,11 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             // Import usage stats from conversations that predate the stats
-            // table, once per install. Backgrounded: on a large history the scan
-            // reads hundreds of megabytes of message text, and nothing else
-            // waits on it.
-            domain::usage_stats::spawn_backfill(&write_pool);
+            // table, once per install. The boundary between history and live
+            // recording is claimed here, before the service can accept a
+            // prompt; the scan itself is backgrounded, since on a large history
+            // it reads hundreds of megabytes of message text.
+            domain::usage_stats::start_backfill(&write_pool).await;
 
             let recovered =
                 domain::sessions::message_dispatch::recover_orphaned_claims(&write_pool).await?;
@@ -228,6 +229,9 @@ async fn main() -> anyhow::Result<()> {
 
             let pty_manager = state.pty_manager.clone();
             let remote_for_shutdown = state.remote.clone();
+            // Shutdown drains the usage writes still in flight; a loss it can't
+            // drain is persisted, so it needs the write pool.
+            let write_pool_for_shutdown = state.write_pool.clone();
             let app = api::build_router(state).layer(build_cors_layer(config.frontend_port));
 
             let addr = format!("127.0.0.1:{}", config.port);
@@ -246,8 +250,12 @@ async fn main() -> anyhow::Result<()> {
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
-            .with_graceful_shutdown(shutdown_signal(pty_manager, remote_for_shutdown))
-            .await?;
+                .with_graceful_shutdown(shutdown_signal(
+                    pty_manager,
+                    remote_for_shutdown,
+                    write_pool_for_shutdown,
+                ))
+                .await?;
         }
     }
 
@@ -302,6 +310,7 @@ fn init_tracing(to_stderr: bool) {
 async fn shutdown_signal(
     pty_manager: domain::terminal::service::PtyManager,
     remote: std::sync::Arc<remote::RemoteController>,
+    write_pool: sqlx::SqlitePool,
 ) {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
@@ -333,7 +342,7 @@ async fn shutdown_signal(
 
     // After the runtimes, so the words of the turns they just ended are in
     // flight by the time we wait for them.
-    crate::domain::usage_stats::flush_pending_writes().await;
+    crate::domain::usage_stats::flush_pending_writes(&write_pool).await;
 
     tracing::info!("Runtime servers stopped.");
 }

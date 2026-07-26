@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { UsageChartData, UsageDay } from "./usage-stats-model";
 import {
@@ -8,7 +8,7 @@ import {
   seriesColor,
 } from "./usage-chart-palette";
 import { UsageChartTooltip } from "./UsageChartTooltip";
-import { axisTickIndexes } from "./usage-axis";
+import { axisTickIndexes, nextFocusIndex } from "./usage-axis";
 import { PLOT_HEIGHT_PX, segmentHeights } from "./usage-bar-heights";
 
 interface UsageTimelineChartProps {
@@ -31,6 +31,8 @@ function UsageTimelineChartImpl({
   emptyMessage,
 }: UsageTimelineChartProps): React.JSX.Element {
   const [hoveredDay, setHoveredDay] = useState<string | null>(null);
+  // Roving tab stop: only this column is tabbable, the arrow keys move it.
+  const [focusedIndex, setFocusedIndex] = useState(0);
 
   const labels = useMemo(
     () => new Map(data.series.map((series) => [series.key, series.label])),
@@ -46,6 +48,24 @@ function UsageTimelineChartImpl({
   );
   const axisTicks = useMemo(() => axisTickIndexes(data.days.length), [data.days.length]);
 
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const columns = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-day-column]")];
+      // Where focus *is*, not where the last render thought it was: two key
+      // presses within one frame would otherwise both move from the same stale
+      // index, and the second would jump backwards.
+      const current = columns.indexOf(document.activeElement as HTMLElement);
+      const next = nextFocusIndex(event.key, current, data.days.length);
+      if (next === null) return;
+      event.preventDefault();
+      setFocusedIndex(next);
+      // Move the real focus with the tab stop, so the reader hears the day it
+      // landed on rather than staying on the one it left.
+      columns[next]?.focus();
+    },
+    [data.days.length],
+  );
+
   if (data.max === 0) {
     return (
       <div className="grid h-[196px] place-items-center rounded-lg border border-dashed border-border/60 px-6 text-center text-xs text-muted-foreground">
@@ -59,13 +79,19 @@ function UsageTimelineChartImpl({
       <div className="flex gap-2">
         <YAxis max={data.max} />
         <div className="min-w-0 flex-1">
+          {/* One tab stop for the whole chart, arrow keys within it: a 90-day
+              timeline would otherwise put 90 stops between the reader and the
+              next control, twice over. */}
           <div
             className="relative flex items-end gap-[2px]"
             style={{ height: PLOT_HEIGHT_PX }}
+            role="group"
+            aria-label={`Daily ${metricLabel}. Use the left and right arrow keys to read each day.`}
             onMouseLeave={() => setHoveredDay(null)}
+            onKeyDown={onKeyDown}
           >
             <Gridlines />
-            {data.days.map((day) => (
+            {data.days.map((day, index) => (
               <DayColumn
                 key={day.day}
                 day={day}
@@ -73,6 +99,7 @@ function UsageTimelineChartImpl({
                 colors={colors}
                 dimmed={hoveredDay !== null && hoveredDay !== day.day}
                 metricLabel={metricLabel}
+                focusable={index === focusedIndex}
                 onHover={setHoveredDay}
               />
             ))}
@@ -134,6 +161,8 @@ interface DayColumnProps {
   colors: Map<string, string>;
   dimmed: boolean;
   metricLabel: string;
+  /** This column currently holds the chart's single tab stop. */
+  focusable: boolean;
   onHover: (day: string | null) => void;
 }
 
@@ -148,6 +177,7 @@ const DayColumn = memo(function DayColumn({
   colors,
   dimmed,
   metricLabel,
+  focusable,
   onHover,
 }: DayColumnProps): React.JSX.Element {
   // Bottom-up in stack order, so the largest series sits at the base.
@@ -162,10 +192,11 @@ const DayColumn = memo(function DayColumn({
       // The whole column is the hit target, not just the painted bar, so a
       // quiet day is as hoverable as a busy one.
       className="group relative flex h-full min-w-0 flex-1 cursor-default flex-col justify-end gap-[2px]"
+      data-day-column
       onMouseEnter={() => onHover(day.day)}
       onFocus={() => onHover(day.day)}
       onBlur={() => onHover(null)}
-      tabIndex={0}
+      tabIndex={focusable ? 0 : -1}
       role="img"
       aria-label={`${formatDayLabel(day.day)}: ${formatExactWords(day.total)} ${metricLabel}`}
     >

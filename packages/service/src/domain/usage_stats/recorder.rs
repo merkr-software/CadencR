@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
-use tracing::{error, warn};
+use sqlx::{Row, SqlitePool};
+use tracing::error;
 
 use super::backfill;
 use super::health;
@@ -8,8 +8,12 @@ use super::pending;
 use super::repository;
 use super::word_count::count_words;
 
-const SESSION_ATTRIBUTION_SQL: &str =
-    "SELECT runtime_provider, model, thinking_effort FROM agent_sessions WHERE id = ?";
+mod attribution;
+#[cfg(test)]
+mod test_fixtures;
+
+use attribution::resolve_session_attribution;
+pub use attribution::snapshot_attribution;
 
 const DISPATCHED_MESSAGE_SQL: &str = "SELECT session_id, content FROM agent_messages WHERE id = ?";
 
@@ -40,6 +44,24 @@ pub async fn record_session_words(
     spawn_upsert(write_pool, attribution, input_words, output_words);
 }
 
+/// Fold words into the stats under an attribution taken earlier in the turn.
+///
+/// A turn's output accumulates over its whole lifetime, and the session row is
+/// mutable while it runs — so the model that a flush would read is not
+/// necessarily the model that produced the words. Callers holding a snapshot
+/// from [`snapshot_attribution`] use this instead.
+pub fn record_words_attributed(
+    write_pool: &SqlitePool,
+    attribution: UsageAttribution,
+    input_words: u64,
+    output_words: u64,
+) {
+    if input_words == 0 && output_words == 0 {
+        return;
+    }
+    spawn_upsert(write_pool, attribution, input_words, output_words);
+}
+
 /// Count a prompt that has just been confirmed delivered to the provider.
 ///
 /// Called from the dispatch claim's success transition, which is the single
@@ -48,15 +70,15 @@ pub async fn record_session_words(
 /// score prompts that then failed to spawn a runtime, and — because the retry
 /// re-uses the already-inserted row — the correction could never be made.
 ///
-/// Messages the historical import owns are left to it: a prompt persisted
-/// before its cutoff but dispatched afterwards would otherwise be counted by
-/// both. See [`backfill::imported_cutoff`].
+/// Prompts the historical import counted are left to it — see
+/// [`backfill::owns_prompt`] for how the two counters divide the history
+/// between them.
 pub async fn record_dispatched_prompt(write_pool: &SqlitePool, message_id: i64) {
-    match backfill::imported_cutoff(write_pool).await {
-        Ok(Some(cutoff)) if message_id <= cutoff => return,
-        Ok(_) => {}
+    match backfill::owns_prompt(write_pool, message_id).await {
+        Ok(true) => return,
+        Ok(false) => {}
         Err(error) => {
-            report_failure(&error, "failed to read the usage stats import cutoff");
+            report_failure(&error, "failed to read the usage stats import boundary");
             return;
         }
     }
@@ -98,7 +120,7 @@ fn spawn_upsert(
 
 /// Log *and* remember the failure, so the next `/api/usage-stats` read can tell
 /// the user their numbers are incomplete rather than silently under-reporting.
-fn report_failure(error: &sqlx::Error, context: &str) {
+pub(super) fn report_failure(error: &sqlx::Error, context: &str) {
     error!(%error, "{context}");
     health::record_failure(&error.to_string());
 }
@@ -112,8 +134,6 @@ async fn dispatched_prompt(
     pool: &SqlitePool,
     message_id: i64,
 ) -> Result<Option<DispatchedPrompt>, sqlx::Error> {
-    use sqlx::Row;
-
     let Some(row) = sqlx::query(DISPATCHED_MESSAGE_SQL)
         .bind(message_id)
         .fetch_optional(pool)
@@ -127,106 +147,13 @@ async fn dispatched_prompt(
     }))
 }
 
-/// Resolve what a session's words should be attributed to. `None` when the row
-/// is gone or has no provider yet — there is nothing meaningful to chart.
-pub(super) async fn resolve_session_attribution(
-    pool: &SqlitePool,
-    session_id: i64,
-) -> Option<UsageAttribution> {
-    match session_attribution(pool, session_id).await {
-        Ok(Some(attribution)) => Some(attribution),
-        Ok(None) => {
-            warn!(
-                session_id,
-                "skipped usage stats: session row is gone or has no runtime provider"
-            );
-            None
-        }
-        Err(error) => {
-            report_failure(&error, "failed to resolve usage stats attribution");
-            None
-        }
-    }
-}
-
-async fn session_attribution(
-    pool: &SqlitePool,
-    session_id: i64,
-) -> Result<Option<UsageAttribution>, sqlx::Error> {
-    use sqlx::Row;
-
-    let Some(row) = sqlx::query(SESSION_ATTRIBUTION_SQL)
-        .bind(session_id)
-        .fetch_optional(pool)
-        .await?
-    else {
-        return Ok(None);
-    };
-
-    let provider_id: Option<String> = row.try_get("runtime_provider")?;
-    let Some(provider_id) = provider_id.filter(|value| !value.is_empty()) else {
-        return Ok(None);
-    };
-
-    Ok(Some(UsageAttribution {
-        provider_id,
-        model_id: row
-            .try_get::<Option<String>, _>("model")?
-            .unwrap_or_default(),
-        thinking_effort: row
-            .try_get::<Option<String>, _>("thinking_effort")?
-            .unwrap_or_default(),
-    }))
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{record_dispatched_prompt, record_session_words, resolve_session_attribution};
+    use super::test_fixtures::{pool_with_session, settle};
+    use super::{record_dispatched_prompt, record_session_words, record_words_attributed};
+    use crate::domain::usage_stats::models::UsageAttribution;
     use crate::domain::usage_stats::repository::list_window;
-    use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
-
-    async fn pool_with_session(
-        provider: Option<&str>,
-        model: Option<&str>,
-        effort: Option<&str>,
-    ) -> (SqlitePool, i64) {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-
-        sqlx::query("INSERT INTO projects (name, path) VALUES ('p', '/tmp/p')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO features (project_id, title) VALUES (1, 'test feature')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let session_id: i64 = sqlx::query_scalar(
-            "INSERT INTO agent_sessions
-                 (feature_id, agent_type, runtime_provider, model, thinking_effort)
-             VALUES (1, 'session', ?, ?, ?) RETURNING id",
-        )
-        .bind(provider)
-        .bind(model)
-        .bind(effort)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        (pool, session_id)
-    }
-
-    /// `record_session_words` spawns the write, so tests must let it land.
-    async fn settle() {
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-    }
 
     #[tokio::test]
     async fn attributes_words_to_the_sessions_provider_model_and_effort() {
@@ -273,6 +200,38 @@ mod tests {
         );
     }
 
+    /// A turn's output is filed under the model that produced it even when the
+    /// user switches model before the turn ends.
+    #[tokio::test]
+    async fn a_snapshot_survives_a_model_switch_mid_turn() {
+        let (pool, session_id) =
+            pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
+        let snapshot = super::snapshot_attribution(&pool, session_id)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "UPDATE agent_sessions SET model = 'haiku', thinking_effort = 'low' WHERE id = ?",
+        )
+        .bind(session_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        record_words_attributed(&pool, snapshot, 0, 40);
+        settle().await;
+
+        let entries = list_window(&pool, 30).await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            (
+                entries[0].model_id.as_str(),
+                entries[0].thinking_effort.as_str()
+            ),
+            ("opus", "high")
+        );
+        assert_eq!(entries[0].output_words, 40);
+    }
+
     #[tokio::test]
     async fn deleting_the_session_after_recording_does_not_drop_the_words() {
         let (pool, session_id) =
@@ -296,19 +255,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_model_and_effort_become_empty_strings() {
-        let (pool, session_id) = pool_with_session(Some("codex"), None, None).await;
-
-        record_session_words(&pool, session_id, 0, 7).await;
-        settle().await;
-
-        let entries = list_window(&pool, 30).await.unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].model_id, "");
-        assert_eq!(entries[0].thinking_effort, "");
-    }
-
-    #[tokio::test]
     async fn a_session_without_a_provider_records_nothing() {
         let (pool, session_id) = pool_with_session(None, None, None).await;
 
@@ -323,25 +269,19 @@ mod tests {
         let (pool, session_id) = pool_with_session(Some("claude_code"), None, None).await;
 
         record_session_words(&pool, session_id, 0, 0).await;
+        record_words_attributed(
+            &pool,
+            UsageAttribution {
+                provider_id: "claude_code".into(),
+                model_id: String::new(),
+                thinking_effort: String::new(),
+            },
+            0,
+            0,
+        );
+        let _ = session_id;
         settle().await;
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn a_deleted_session_records_nothing_but_does_not_error() {
-        let (pool, session_id) = pool_with_session(Some("cursor"), Some("auto"), None).await;
-        sqlx::query("DELETE FROM agent_sessions WHERE id = ?")
-            .bind(session_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        assert!(resolve_session_attribution(&pool, session_id)
-            .await
-            .is_none());
-        record_session_words(&pool, session_id, 1, 1).await;
-        settle().await;
         assert!(list_window(&pool, 30).await.unwrap().is_empty());
     }
 
@@ -349,14 +289,7 @@ mod tests {
     async fn a_dispatched_prompt_counts_its_own_words() {
         let (pool, session_id) =
             pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
-        let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO agent_messages (session_id, role, content, message_type)
-             VALUES (?, 'user', 'one two three four', 'user_message') RETURNING id",
-        )
-        .bind(session_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let message_id = prompt(&pool, session_id, "one two three four").await;
 
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
@@ -367,29 +300,15 @@ mod tests {
         assert_eq!(entries[0].output_words, 0, "a prompt is input only");
     }
 
-    /// A prompt left undispatched by a quit mid-turn is inside the historical
-    /// import's range; counting it here too would double it permanently.
+    /// A prompt the import already counted: persisted before its boundary and
+    /// delivered before it too.
     #[tokio::test]
-    async fn a_prompt_the_import_owns_is_left_to_the_import() {
+    async fn a_prompt_the_import_counted_is_left_to_the_import() {
         let (pool, session_id) =
             pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
-        let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO agent_messages (session_id, role, content, message_type)
-             VALUES (?, 'user', 'one two three four', 'user_message') RETURNING id",
-        )
-        .bind(session_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        // The import claimed a cutoff at or past this message, as it would on a
-        // start that found the prompt still pending.
-        sqlx::query(
-            "INSERT INTO provider_usage_backfill (id, version, cutoff_message_id) VALUES (1, 0, ?)",
-        )
-        .bind(message_id)
-        .execute(&pool)
-        .await
-        .unwrap();
+        let message_id = prompt(&pool, session_id, "one two three four").await;
+        dispatch(&pool, message_id, "dispatched", Some("2000-01-01 00:00:00")).await;
+        claim(&pool, message_id, "2026-07-25 12:00:00").await;
 
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
@@ -397,25 +316,16 @@ mod tests {
         assert!(list_window(&pool, 30).await.unwrap().is_empty());
     }
 
+    /// The counterpart the import deliberately skipped: persisted before the
+    /// boundary, but only delivered now, so the live path owns it.
     #[tokio::test]
-    async fn a_prompt_past_the_import_cutoff_is_counted_live() {
+    async fn a_prompt_the_import_skipped_is_counted_on_delivery() {
         let (pool, session_id) =
             pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
-        sqlx::query(
-            "INSERT INTO provider_usage_backfill (id, version, cutoff_message_id)
-             VALUES (1, 1, 0)",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let message_id: i64 = sqlx::query_scalar(
-            "INSERT INTO agent_messages (session_id, role, content, message_type)
-             VALUES (?, 'user', 'one two', 'user_message') RETURNING id",
-        )
-        .bind(session_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let message_id = prompt(&pool, session_id, "one two").await;
+        claim(&pool, message_id, "2026-07-25 12:00:00").await;
+        // Delivered after the claim, as a retry of a failed send would be.
+        dispatch(&pool, message_id, "dispatched", Some("2026-07-25 13:00:00")).await;
 
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
@@ -431,5 +341,47 @@ mod tests {
         settle().await;
 
         assert!(list_window(&pool, 30).await.unwrap().is_empty());
+    }
+
+    async fn prompt(pool: &SqlitePool, session_id: i64, content: &str) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO agent_messages (session_id, role, content, message_type)
+             VALUES (?, 'user', ?, 'user_message') RETURNING id",
+        )
+        .bind(session_id)
+        .bind(content)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn dispatch(
+        pool: &SqlitePool,
+        message_id: i64,
+        status: &str,
+        dispatched_at: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO agent_message_dispatches (message_id, status, dispatched_at)
+             VALUES (?, ?, ?)",
+        )
+        .bind(message_id)
+        .bind(status)
+        .bind(dispatched_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn claim(pool: &SqlitePool, cutoff: i64, claimed_at: &str) {
+        sqlx::query(
+            "INSERT INTO provider_usage_backfill (id, version, cutoff_message_id, claimed_at)
+             VALUES (1, 0, ?, ?)",
+        )
+        .bind(cutoff)
+        .bind(claimed_at)
+        .execute(pool)
+        .await
+        .unwrap();
     }
 }

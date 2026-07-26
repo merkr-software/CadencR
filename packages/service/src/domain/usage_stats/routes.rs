@@ -42,7 +42,8 @@ pub async fn get_usage_stats_handler(
         days,
         end_day,
         entries,
-        recording_issue: super::health::snapshot(),
+        recording_issue: super::health::snapshot(&state.read_pool).await,
+        import_in_progress: super::backfill::in_progress(&state.read_pool).await?,
     }))
 }
 

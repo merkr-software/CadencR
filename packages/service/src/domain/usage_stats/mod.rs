@@ -16,7 +16,10 @@ pub mod repository;
 pub mod routes;
 pub mod word_count;
 
-pub use backfill::spawn as spawn_backfill;
+pub use backfill::start as start_backfill;
+pub use models::UsageAttribution;
 pub use pending::flush as flush_pending_writes;
-pub use recorder::{record_dispatched_prompt, record_session_words};
+pub use recorder::{
+    record_dispatched_prompt, record_session_words, record_words_attributed, snapshot_attribution,
+};
 pub use word_count::TurnWordUsage;

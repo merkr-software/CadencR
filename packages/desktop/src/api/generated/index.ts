@@ -2970,7 +2970,8 @@ swallowed". Failures are counted here and reported on the next
 incomplete instead of quietly under-reporting.
  */
 export interface UsageRecordingIssue {
-  /** Failed usage writes since the service started. */
+  /** Failed usage writes: those seen since this start, plus any earlier run's
+writes that were lost at shutdown. */
   failures: number;
   /** Message from the most recent failure. */
   last_error: string;
@@ -3010,6 +3011,11 @@ the oldest day and appending a blank one. */
 per-provider and per-model timelines; the row count is bounded by
 days × providers × models × efforts. */
   entries: UsageStatsEntry[];
+  /** The one-time import of pre-existing conversations is still running, so
+this window is partial — usually empty — and worth asking for again. It
+publishes every bucket in one final transaction, so there is nothing to
+see until it flips false. */
+  import_in_progress: boolean;
   recording_issue?: UsageStatsResponseRecordingIssue;
 }
 

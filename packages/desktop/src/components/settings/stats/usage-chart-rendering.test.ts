@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTickIndexes } from "./usage-axis";
+import { axisTickIndexes, nextFocusIndex } from "./usage-axis";
 import { seriesColor, formatCompactWords, formatDayLabel } from "./usage-chart-palette";
 import { MAX_COLORED_SERIES } from "./usage-stats-model";
 import { MIN_SEGMENT_PX, SEGMENT_GAP_PX, segmentHeights } from "./usage-bar-heights";
@@ -27,6 +27,34 @@ describe("axisTickIndexes", () => {
   it("handles degenerate ranges", () => {
     expect(axisTickIndexes(0).size).toBe(0);
     expect([...axisTickIndexes(1)]).toEqual([0]);
+  });
+});
+
+describe("nextFocusIndex", () => {
+  it("walks day by day and stops at both ends", () => {
+    expect(nextFocusIndex("ArrowRight", 0, 30)).toBe(1);
+    expect(nextFocusIndex("ArrowLeft", 5, 30)).toBe(4);
+    expect(nextFocusIndex("ArrowLeft", 0, 30)).toBe(0);
+    expect(nextFocusIndex("ArrowRight", 29, 30)).toBe(29);
+  });
+
+  // -1 is "focus is not on a column yet"; either arrow should land on a real day.
+  it("starts at the first day when nothing is focused yet", () => {
+    expect(nextFocusIndex("ArrowRight", -1, 30)).toBe(0);
+    expect(nextFocusIndex("ArrowLeft", -1, 30)).toBe(0);
+  });
+
+  it("jumps to either end of a long range", () => {
+    expect(nextFocusIndex("Home", 45, 90)).toBe(0);
+    expect(nextFocusIndex("End", 45, 90)).toBe(89);
+  });
+
+  // Anything else has to keep bubbling, or Tab could never leave the chart.
+  it("ignores keys it does not own", () => {
+    for (const key of ["Tab", "Enter", " ", "ArrowUp", "a"]) {
+      expect(nextFocusIndex(key, 3, 30)).toBeNull();
+    }
+    expect(nextFocusIndex("ArrowRight", 0, 0)).toBeNull();
   });
 });
 

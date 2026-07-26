@@ -33,10 +33,15 @@ pub struct UsageStatsResponse {
     /// per-provider and per-model timelines; the row count is bounded by
     /// days × providers × models × efforts.
     pub entries: Vec<UsageStatsEntry>,
-    /// Present when at least one usage write has failed since startup, so the
-    /// UI can warn that these numbers are incomplete.
+    /// Present when at least one usage write has failed, so the UI can warn
+    /// that these numbers are incomplete.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recording_issue: Option<super::health::UsageRecordingIssue>,
+    /// The one-time import of pre-existing conversations is still running, so
+    /// this window is partial — usually empty — and worth asking for again. It
+    /// publishes every bucket in one final transaction, so there is nothing to
+    /// see until it flips false.
+    pub import_in_progress: bool,
 }
 
 /// What to attribute a batch of words to. Resolved from the session row at
@@ -58,6 +63,7 @@ mod tests {
             days: 30,
             end_day: "2026-07-25".into(),
             recording_issue: None,
+            import_in_progress: false,
             entries: vec![UsageStatsEntry {
                 day: "2026-07-25".into(),
                 provider_id: "claude_code".into(),

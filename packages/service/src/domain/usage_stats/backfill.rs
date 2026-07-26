@@ -6,8 +6,11 @@
 //! counts them with the same counter the live path uses, and folds them into
 //! the same per-day buckets.
 //!
-//! Runs in the background: on a large database the scan reads hundreds of
+//! The cutoff is claimed on the caller's path at startup; the scan itself runs
+//! in the background, because on a large database it reads hundreds of
 //! megabytes of message text, which must not sit in front of the app starting.
+//! Claiming first means the boundary between "history" and "live" is fixed
+//! before the service accepts its first prompt.
 
 use std::collections::HashMap;
 
@@ -17,74 +20,30 @@ use tracing::{info, warn};
 use super::health;
 use super::models::UsageAttribution;
 use super::repository;
-use super::word_count::count_words;
+
+pub mod ownership;
+mod scan;
+#[cfg(test)]
+pub(crate) mod test_fixtures;
+
+pub use ownership::owns_prompt;
 
 /// Raising this re-runs the import — see the migration for what else that needs.
 const VERSION: i64 = 1;
 
-/// Rows per scan query. Message text can be tens of kilobytes each, so this
-/// trades a few hundred queries against holding the whole history in memory.
-const BATCH_SIZE: i64 = 500;
-
 const CLAIM_SQL: &str = "
-    INSERT INTO provider_usage_backfill (id, version, cutoff_message_id)
-    VALUES (1, 0, (SELECT COALESCE(MAX(id), 0) FROM agent_messages))
+    INSERT INTO provider_usage_backfill (id, version, cutoff_message_id, claimed_at)
+    VALUES (1, 0, (SELECT COALESCE(MAX(id), 0) FROM agent_messages), datetime('now'))
     ON CONFLICT(id) DO NOTHING
 ";
 
 const MARKER_SQL: &str =
-    "SELECT version, cutoff_message_id FROM provider_usage_backfill WHERE id = 1";
-
-const CUTOFF_SQL: &str = "SELECT cutoff_message_id FROM provider_usage_backfill WHERE id = 1";
+    "SELECT version, cutoff_message_id, claimed_at FROM provider_usage_backfill WHERE id = 1";
 
 const FINISH_SQL: &str = "
     UPDATE provider_usage_backfill
     SET version = ?, messages_scanned = ?, completed_at = datetime('now')
     WHERE id = 1
-";
-
-/// Every message that carries countable prose, joined to what it should be
-/// attributed to. `date()` normalizes the two timestamp shapes the column has
-/// picked up over time, and returns NULL for anything unparseable.
-///
-/// `message_model` is the model that produced the message — finer-grained than
-/// the session's current model, so a session whose model was switched mid-way
-/// splits across both. User prompts carry no model of their own, so they borrow
-/// the one from the reply they drew: without that, every prompt would pile into
-/// a separate bucket (usually the session's `default`) and the model chart would
-/// show replies with no prompts beside them. That lookup is bounded by the same
-/// cutoff as the outer scan: the import runs alongside live traffic, and a
-/// session whose last message is still unanswered would otherwise attribute a
-/// historical prompt to whatever model the *next*, live turn happens to use.
-const SCAN_SQL: &str = "
-    SELECT m.id AS message_id,
-           date(m.created_at) AS day,
-           m.role AS role,
-           m.content AS content,
-           COALESCE(
-               NULLIF(m.model, ''),
-               (SELECT NULLIF(reply.model, '')
-                  FROM agent_messages reply
-                 WHERE reply.session_id = m.session_id
-                   AND reply.id > m.id
-                   AND reply.id <= ?
-                   AND reply.model IS NOT NULL
-                   AND reply.model <> ''
-                 ORDER BY reply.id ASC
-                 LIMIT 1)
-           ) AS message_model,
-           s.runtime_provider AS provider_id,
-           s.model AS session_model,
-           s.thinking_effort AS thinking_effort
-    FROM agent_messages m
-    JOIN agent_sessions s ON s.id = m.session_id
-    WHERE m.id > ?
-      AND m.id <= ?
-      AND m.message_type IN ('user_message', 'text', 'thinking')
-      AND s.runtime_provider IS NOT NULL
-      AND s.runtime_provider <> ''
-    ORDER BY m.id ASC
-    LIMIT ?
 ";
 
 /// Bucket key: UTC day, provider, model, thinking effort.
@@ -96,39 +55,56 @@ struct Bucket {
     output_words: u64,
 }
 
-/// Import historical usage unless it has already been imported.
+/// What the import covers: everything up to `cutoff_message_id` that had
+/// already been delivered at `claimed_at`.
+struct Claim {
+    cutoff_message_id: i64,
+    /// `None` only for a claim made before the column existed.
+    claimed_at: Option<String>,
+}
+
+/// Claim the import's boundary, then import the history behind it.
 ///
-/// Fire-and-forget: a failure leaves the marker unfinished so the next start
-/// retries, and is surfaced through [`health`] so the Stats tab can say the
-/// numbers are incomplete rather than quietly showing a short history.
-pub fn spawn(write_pool: &SqlitePool) {
+/// The claim is awaited so that no prompt can be dispatched before the boundary
+/// exists; the scan is spawned, because nothing waits on it. A failure leaves
+/// the marker unfinished so the next start retries, and is surfaced through
+/// [`health`] so the Stats tab can say the numbers are incomplete rather than
+/// quietly showing a short history.
+pub async fn start(write_pool: &SqlitePool) {
+    let claim = match claim(write_pool).await {
+        Ok(Some(claim)) => claim,
+        Ok(None) => return,
+        Err(error) => {
+            health::record_failure(&error.to_string());
+            warn!(%error, "failed to claim the historical usage stats import");
+            return;
+        }
+    };
+
     let pool = write_pool.clone();
     tokio::spawn(async move {
-        if let Err(error) = run(&pool).await {
+        if let Err(error) = import(&pool, &claim).await {
             health::record_failure(&error.to_string());
             warn!(%error, "failed to import historical provider usage stats");
         }
     });
 }
 
-/// The highest message id the import owns, or `None` before it has claimed one.
+/// Is an import claimed but not yet finished?
 ///
-/// This is what keeps the two counters from overlapping. A prompt persisted
-/// before the cutoff but only *dispatched* afterwards — one left `pending` by a
-/// quit mid-turn, or an `error` row a restart recovered — is inside the import's
-/// range and outside the live recorder's, so the recorder steps over it rather
-/// than adding a second copy of words the import already counted (or, on a
-/// retry, is about to).
-pub async fn imported_cutoff(pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
-    sqlx::query_scalar(CUTOFF_SQL).fetch_optional(pool).await
+/// The buckets are published in one final transaction, so until this turns
+/// false the Stats tab is looking at a partial — usually empty — history and
+/// should keep asking.
+pub async fn in_progress(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    let version: Option<i64> =
+        sqlx::query_scalar("SELECT version FROM provider_usage_backfill WHERE id = 1")
+            .fetch_optional(pool)
+            .await?;
+    Ok(version.is_some_and(|version| version < VERSION))
 }
 
-async fn run(write_pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let Some(cutoff_message_id) = claim(write_pool).await? else {
-        return Ok(());
-    };
-
-    let (buckets, messages_scanned) = collect(write_pool, cutoff_message_id).await?;
+async fn import(write_pool: &SqlitePool, claim: &Claim) -> Result<(), sqlx::Error> {
+    let (buckets, messages_scanned) = scan::collect(write_pool, claim).await?;
     let bucket_count = buckets.len();
     commit(write_pool, buckets, messages_scanned).await?;
 
@@ -141,13 +117,13 @@ async fn run(write_pool: &SqlitePool) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
-/// Claim the import, returning the message id to scan up to, or `None` when a
-/// previous run already finished.
+/// Claim the import, returning what it covers, or `None` when a previous run
+/// already finished.
 ///
-/// The cutoff is fixed on the *first* attempt and reused by every retry, so
+/// The boundary is fixed on the *first* attempt and reused by every retry, so
 /// turns taken while an attempt was failing stay outside the import and are
 /// only ever counted by the live recorder.
-async fn claim(write_pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
+async fn claim(write_pool: &SqlitePool) -> Result<Option<Claim>, sqlx::Error> {
     sqlx::query(CLAIM_SQL).execute(write_pool).await?;
 
     let row = sqlx::query(MARKER_SQL).fetch_one(write_pool).await?;
@@ -155,76 +131,10 @@ async fn claim(write_pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
     if version >= VERSION {
         return Ok(None);
     }
-    Ok(Some(row.try_get("cutoff_message_id")?))
-}
-
-/// Walk the history in id order, folding every message into its day bucket.
-async fn collect(
-    write_pool: &SqlitePool,
-    cutoff_message_id: i64,
-) -> Result<(HashMap<BucketKey, Bucket>, i64), sqlx::Error> {
-    let mut buckets: HashMap<BucketKey, Bucket> = HashMap::new();
-    let mut messages_scanned = 0_i64;
-    let mut last_id = 0_i64;
-
-    loop {
-        let rows = sqlx::query(SCAN_SQL)
-            .bind(cutoff_message_id)
-            .bind(last_id)
-            .bind(cutoff_message_id)
-            .bind(BATCH_SIZE)
-            .fetch_all(write_pool)
-            .await?;
-        if rows.is_empty() {
-            return Ok((buckets, messages_scanned));
-        }
-
-        for row in &rows {
-            last_id = row.try_get("message_id")?;
-            messages_scanned += 1;
-            absorb(&mut buckets, row)?;
-        }
-    }
-}
-
-/// Fold one message into its bucket. Rows we cannot place — an unparseable
-/// timestamp — are skipped rather than lumped onto an arbitrary day.
-fn absorb(
-    buckets: &mut HashMap<BucketKey, Bucket>,
-    row: &sqlx::sqlite::SqliteRow,
-) -> Result<(), sqlx::Error> {
-    let Some(day) = row.try_get::<Option<String>, _>("day")? else {
-        return Ok(());
-    };
-    let words = count_words(&row.try_get::<String, _>("content")?);
-    if words == 0 {
-        return Ok(());
-    }
-
-    // See `SCAN_SQL` for how a message's model is resolved; the session's own
-    // model is the last resort, for history written before the column existed.
-    let model_id = match non_empty(row.try_get("message_model")?) {
-        Some(model_id) => Some(model_id),
-        None => non_empty(row.try_get("session_model")?),
-    }
-    .unwrap_or_default();
-    // Thinking effort has no per-message record, so historical rows inherit the
-    // session's current effort. It is the one field the import can only
-    // approximate.
-    let thinking_effort = non_empty(row.try_get("thinking_effort")?).unwrap_or_default();
-    let key = (day, row.try_get("provider_id")?, model_id, thinking_effort);
-
-    let bucket = buckets.entry(key).or_default();
-    if row.try_get::<String, _>("role")? == "user" {
-        bucket.input_words += words;
-    } else {
-        bucket.output_words += words;
-    }
-    Ok(())
-}
-
-fn non_empty(value: Option<String>) -> Option<String> {
-    value.filter(|value| !value.is_empty())
+    Ok(Some(Claim {
+        cutoff_message_id: row.try_get("cutoff_message_id")?,
+        claimed_at: row.try_get("claimed_at")?,
+    }))
 }
 
 /// Write every bucket and the finished marker in one transaction, so a crash
@@ -259,213 +169,21 @@ async fn commit(
 }
 
 #[cfg(test)]
+/// Claim and import inline, for tests that want the whole thing to have
+/// happened by the time they assert.
+async fn run(write_pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let Some(claim) = claim(write_pool).await? else {
+        return Ok(());
+    };
+    import(write_pool, &claim).await
+}
+
+#[cfg(test)]
 mod tests {
-    use super::{run, VERSION};
+    use super::test_fixtures::{message, pool, session, today};
+    use super::{in_progress, run, VERSION};
     use crate::domain::usage_stats::repository::list_window;
-    use sqlx::sqlite::SqlitePoolOptions;
-    use sqlx::{Row, SqlitePool};
-
-    async fn pool() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        sqlx::query(
-            "INSERT INTO projects (id, name, path) VALUES (1, 'p', '/tmp/p');
-             INSERT INTO features (id, project_id, title) VALUES (1, 1, 'f');",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        pool
-    }
-
-    async fn session(pool: &SqlitePool, id: i64, provider: &str, model: &str, effort: &str) {
-        sqlx::query(
-            "INSERT INTO agent_sessions
-                 (id, feature_id, agent_type, runtime_provider, model, thinking_effort)
-             VALUES (?, 1, 'session', ?, ?, ?)",
-        )
-        .bind(id)
-        .bind(provider)
-        .bind(model)
-        .bind(effort)
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
-    async fn message(
-        pool: &SqlitePool,
-        session_id: i64,
-        role: &str,
-        message_type: &str,
-        content: &str,
-        created_at: &str,
-    ) {
-        insert_message(
-            pool,
-            session_id,
-            role,
-            message_type,
-            content,
-            created_at,
-            None,
-        )
-        .await;
-    }
-
-    /// A message stamped with the model that produced it, as assistant rows are.
-    async fn with_model(
-        pool: &SqlitePool,
-        session_id: i64,
-        role: &str,
-        message_type: &str,
-        content: &str,
-        created_at: &str,
-        model: &str,
-    ) {
-        insert_message(
-            pool,
-            session_id,
-            role,
-            message_type,
-            content,
-            created_at,
-            Some(model),
-        )
-        .await;
-    }
-
-    async fn insert_message(
-        pool: &SqlitePool,
-        session_id: i64,
-        role: &str,
-        message_type: &str,
-        content: &str,
-        created_at: &str,
-        model: Option<&str>,
-    ) {
-        sqlx::query(
-            "INSERT INTO agent_messages
-                 (session_id, role, message_type, content, created_at, model)
-             VALUES (?, ?, ?, ?, ?, ?)",
-        )
-        .bind(session_id)
-        .bind(role)
-        .bind(message_type)
-        .bind(content)
-        .bind(created_at)
-        .bind(model)
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
-    /// Today, in the same shape SQLite writes it, so imported rows land inside
-    /// the window `list_window` reads.
-    async fn today(pool: &SqlitePool) -> String {
-        sqlx::query_scalar("SELECT strftime('%Y-%m-%d %H:%M:%S', 'now')")
-            .fetch_one(pool)
-            .await
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn imports_prompts_and_replies_of_an_existing_conversation() {
-        let pool = pool().await;
-        let now = today(&pool).await;
-        session(&pool, 1, "claude_code", "opus", "high").await;
-        message(&pool, 1, "user", "user_message", "one two three", &now).await;
-        message(&pool, 1, "assistant", "text", "four five", &now).await;
-        message(&pool, 1, "assistant", "thinking", "six", &now).await;
-
-        run(&pool).await.unwrap();
-
-        let entries = list_window(&pool, 30).await.unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].input_words, 3);
-        assert_eq!(entries[0].output_words, 3, "text and thinking both count");
-        assert_eq!(entries[0].model_id, "opus");
-        assert_eq!(entries[0].thinking_effort, "high");
-    }
-
-    /// A prompt has no model of its own; charting it apart from the reply it
-    /// drew would show every model with replies but no prompts.
-    #[tokio::test]
-    async fn a_prompt_is_attributed_to_the_model_that_answered_it() {
-        let pool = pool().await;
-        let now = today(&pool).await;
-        // The session's *current* model is not what answered these prompts.
-        session(&pool, 1, "claude_code", "default", "high").await;
-        message(&pool, 1, "user", "user_message", "one two", &now).await;
-        with_model(&pool, 1, "assistant", "text", "three", &now, "opus").await;
-        message(&pool, 1, "user", "user_message", "four", &now).await;
-        with_model(&pool, 1, "assistant", "text", "five six", &now, "haiku").await;
-
-        run(&pool).await.unwrap();
-
-        let entries = list_window(&pool, 30).await.unwrap();
-        assert_eq!(entries.len(), 2, "one bucket per answering model");
-        let haiku = entries.iter().find(|e| e.model_id == "haiku").unwrap();
-        assert_eq!((haiku.input_words, haiku.output_words), (1, 2));
-        let opus = entries.iter().find(|e| e.model_id == "opus").unwrap();
-        assert_eq!((opus.input_words, opus.output_words), (2, 1));
-        assert!(
-            !entries.iter().any(|e| e.model_id == "default"),
-            "the session's fallback model must not collect the prompts"
-        );
-    }
-
-    #[tokio::test]
-    async fn skips_tool_traffic_and_sessions_without_a_provider() {
-        let pool = pool().await;
-        let now = today(&pool).await;
-        session(&pool, 1, "claude_code", "opus", "").await;
-        session(&pool, 2, "", "opus", "").await;
-        message(&pool, 1, "assistant", "tool_call", "a b c d e", &now).await;
-        message(&pool, 1, "tool", "tool_result", "f g h i j", &now).await;
-        message(&pool, 2, "user", "user_message", "k l m", &now).await;
-
-        run(&pool).await.unwrap();
-
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
-    }
-
-    #[tokio::test]
-    async fn splits_history_across_days_and_models() {
-        let pool = pool().await;
-        session(&pool, 1, "claude_code", "opus", "high").await;
-        // The ISO-8601 shape older rows carry, which `date()` must still parse.
-        message(
-            &pool,
-            1,
-            "user",
-            "user_message",
-            "one two",
-            "2026-07-20T10:00:00Z",
-        )
-        .await;
-        message(
-            &pool,
-            1,
-            "user",
-            "user_message",
-            "three",
-            "2026-07-21 10:00:00",
-        )
-        .await;
-
-        run(&pool).await.unwrap();
-
-        let entries = list_window(&pool, 3650).await.unwrap();
-        assert_eq!(entries.len(), 2, "one bucket per day");
-        assert_eq!(entries[0].day, "2026-07-20");
-        assert_eq!(entries[0].input_words, 2);
-        assert_eq!(entries[1].input_words, 1);
-    }
+    use sqlx::Row;
 
     #[tokio::test]
     async fn running_twice_does_not_double_count() {
@@ -488,13 +206,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_retry_keeps_the_cutoff_claimed_by_the_first_attempt() {
+    async fn a_retry_keeps_the_boundary_claimed_by_the_first_attempt() {
         let pool = pool().await;
         let now = today(&pool).await;
         session(&pool, 1, "claude_code", "opus", "").await;
         message(&pool, 1, "user", "user_message", "one two three", &now).await;
 
-        // Stand in for an attempt that claimed the cutoff and then died before
+        // Stand in for an attempt that claimed the boundary and then died before
         // writing anything.
         super::claim(&pool).await.unwrap();
 
@@ -524,5 +242,20 @@ mod tests {
             .unwrap();
         assert_eq!(row.try_get::<i64, _>("version").unwrap(), VERSION);
         assert_eq!(row.try_get::<i64, _>("messages_scanned").unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn reports_progress_from_claim_until_the_buckets_are_published() {
+        let pool = pool().await;
+        assert!(
+            !in_progress(&pool).await.unwrap(),
+            "nothing is running before the first claim"
+        );
+
+        super::claim(&pool).await.unwrap();
+        assert!(in_progress(&pool).await.unwrap());
+
+        run(&pool).await.unwrap();
+        assert!(!in_progress(&pool).await.unwrap());
     }
 }

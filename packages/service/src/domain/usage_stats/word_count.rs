@@ -1,56 +1,11 @@
-use std::collections::HashMap;
+use crate::domain::agents::adapter::{RuntimeContentDelta, RuntimeEvent, RuntimeStreamEvent};
 
-use crate::domain::agents::adapter::{
-    RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent, RuntimeStreamEvent,
-};
+mod counter;
+mod streams;
 
-/// Counts words across an arbitrary sequence of text chunks.
-///
-/// The agent stream arrives as token-sized deltas, so counting each chunk in
-/// isolation would score nearly every token as its own word. This keeps the
-/// "currently inside a word" flag across `push` calls, so a word split over
-/// several deltas is counted exactly once.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct WordCounter {
-    words: u64,
-    in_word: bool,
-}
-
-impl WordCounter {
-    /// Feed a chunk, returning how many *new* words it started. A word split
-    /// across chunks is counted by the chunk that opened it.
-    pub fn push(&mut self, text: &str) -> u64 {
-        let before = self.words;
-        for ch in text.chars() {
-            if ch.is_whitespace() {
-                self.in_word = false;
-            } else if !self.in_word {
-                self.in_word = true;
-                self.words += 1;
-            }
-        }
-        self.words - before
-    }
-}
-
-/// Which agent produced an event. The root agent is the empty string — a
-/// subagent is always keyed by the non-empty tool use id that launched it — so
-/// the map can be probed with a borrowed key and only allocates the first time
-/// a stream is seen. A turn can interleave several streams, so every piece of
-/// per-stream state is kept apart by this.
-const ROOT_STREAM: &str = "";
-
-/// Per-agent state within one turn.
-#[derive(Debug, Default)]
-struct StreamState {
-    /// This message cycle already streamed text, so the matching full assistant
-    /// message must not be counted again.
-    streamed_this_cycle: bool,
-    /// Word carry per open content block. Deltas are contiguous *within* a
-    /// block, but another block — or another agent's stream — can interleave
-    /// between them, so the carry cannot be global.
-    open_blocks: HashMap<u64, WordCounter>,
-}
+use counter::block_text;
+pub use counter::count_words;
+use streams::TurnStreams;
 
 /// Counts every word the agent produced during one turn, provider-neutrally.
 ///
@@ -68,12 +23,12 @@ struct StreamState {
 #[derive(Debug, Default)]
 pub struct TurnWordUsage {
     words: u64,
-    streams: HashMap<String, StreamState>,
+    streams: TurnStreams,
 }
 
 impl TurnWordUsage {
     pub fn observe(&mut self, event: &RuntimeEvent) {
-        let stream = event.parent_tool_use_id().unwrap_or(ROOT_STREAM);
+        let stream = event.parent_tool_use_id();
 
         if let Some(stream_event) = event.stream_event() {
             self.observe_stream_event(stream, stream_event);
@@ -82,7 +37,7 @@ impl TurnWordUsage {
         let Some(message) = event.assistant_message() else {
             return;
         };
-        if self.stream_mut(stream).streamed_this_cycle {
+        if self.streams.get_mut(stream).streamed_this_cycle() {
             return;
         }
         // Every block of a full message is a complete unit of text, so each is
@@ -94,13 +49,9 @@ impl TurnWordUsage {
         }
     }
 
-    fn observe_stream_event(&mut self, stream: &str, event: &RuntimeStreamEvent) {
+    fn observe_stream_event(&mut self, stream: Option<&str>, event: &RuntimeStreamEvent) {
         match event {
-            RuntimeStreamEvent::MessageStart { .. } => {
-                let state = self.stream_mut(stream);
-                state.streamed_this_cycle = false;
-                state.open_blocks.clear();
-            }
+            RuntimeStreamEvent::MessageStart { .. } => self.streams.get_mut(stream).start_cycle(),
             RuntimeStreamEvent::ContentBlockStart { index, block } => {
                 if let Some(text) = block_text(block) {
                     self.push_streamed(stream, *index, text);
@@ -113,35 +64,18 @@ impl TurnWordUsage {
                 }
                 RuntimeContentDelta::InputJson { .. } => {}
             },
-            // The block is finished; drop its carry so the next block that
-            // reuses this index starts a fresh word.
             RuntimeStreamEvent::ContentBlockStop { index } => {
-                self.stream_mut(stream).open_blocks.remove(index);
+                self.streams.get_mut(stream).close_block(*index)
             }
             RuntimeStreamEvent::Other => {}
         }
     }
 
-    fn push_streamed(&mut self, stream: &str, index: u64, text: &str) {
+    fn push_streamed(&mut self, stream: Option<&str>, index: u64, text: &str) {
         if text.is_empty() {
             return;
         }
-        let state = self.stream_mut(stream);
-        state.streamed_this_cycle = true;
-        let counted = state.open_blocks.entry(index).or_default().push(text);
-        self.words += counted;
-    }
-
-    fn stream_mut(&mut self, stream: &str) -> &mut StreamState {
-        // Probed borrowed and inserted owned, so the per-delta path allocates
-        // nothing once the stream has been seen.
-        if !self.streams.contains_key(stream) {
-            self.streams
-                .insert(stream.to_owned(), StreamState::default());
-        }
-        self.streams
-            .get_mut(stream)
-            .expect("stream state was just inserted")
+        self.words += self.streams.get_mut(stream).push_streamed(index, text);
     }
 
     /// Drain the accumulated total, resetting for the next turn.
@@ -153,26 +87,18 @@ impl TurnWordUsage {
     pub fn take(&mut self) -> u64 {
         std::mem::take(self).words
     }
-}
 
-/// The countable text of a content block, if it has any. Tool calls and
-/// unknown blocks carry no prose.
-fn block_text(block: &RuntimeContentBlock) -> Option<&str> {
-    match block {
-        RuntimeContentBlock::Text { text } => Some(text),
-        RuntimeContentBlock::Thinking { thinking } => Some(thinking),
-        RuntimeContentBlock::ToolUse { .. } | RuntimeContentBlock::Other => None,
+    /// Words counted since the last [`take`](Self::take). Lets the caller
+    /// notice the moment a batch starts, which is when it must capture what the
+    /// words will be attributed to.
+    pub fn pending(&self) -> u64 {
+        self.words
     }
-}
-
-/// Words in a single complete string (user prompts, which never stream).
-pub fn count_words(text: &str) -> u64 {
-    WordCounter::default().push(text)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{count_words, TurnWordUsage, WordCounter};
+    use super::TurnWordUsage;
     use crate::domain::agents::adapter::{
         RuntimeAssistantMessage, RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent,
         RuntimeEventKind, RuntimeEventMetadata, RuntimeStreamEvent,
@@ -227,24 +153,6 @@ mod tests {
             index: 0,
             delta: RuntimeContentDelta::Text { text: text.into() },
         })
-    }
-
-    #[test]
-    fn counts_plain_text() {
-        assert_eq!(count_words("hello brave new world"), 4);
-        assert_eq!(count_words("  padded \n\t words  "), 2);
-        assert_eq!(count_words(""), 0);
-        assert_eq!(count_words("   "), 0);
-    }
-
-    #[test]
-    fn does_not_split_a_word_across_chunks() {
-        let mut counter = WordCounter::default();
-        // Each chunk reports only the words it opened; "hello" belongs to the
-        // first, and the "ld" tail adds nothing to the word "wor" opened before.
-        assert_eq!(counter.push("hel"), 1);
-        assert_eq!(counter.push("lo wor"), 1);
-        assert_eq!(counter.push("ld"), 0);
     }
 
     #[test]
