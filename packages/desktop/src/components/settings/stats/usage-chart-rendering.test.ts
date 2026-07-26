@@ -86,6 +86,17 @@ describe("segmentHeights", () => {
     expect(heights[0]).toBeGreaterThan(PLOT * 0.8);
   });
 
+  it("draws nothing for a series with no usage that day", () => {
+    const [used, unused] = segmentHeights([100, 0], 100, PLOT);
+    expect(unused).toBe(0);
+    expect(used).toBeGreaterThan(0);
+  });
+
+  it("keeps the busiest day at the axis maximum when a series is empty", () => {
+    const heights = segmentHeights([100, 0, 0], 100, PLOT);
+    expect(stackHeight(heights)).toBeCloseTo(PLOT, 5);
+  });
+
   it("handles empty and zero-max stacks", () => {
     expect(segmentHeights([], 100, PLOT)).toEqual([]);
     expect(segmentHeights([5], 0, PLOT)).toEqual([0]);

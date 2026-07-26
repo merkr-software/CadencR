@@ -6,6 +6,7 @@ mod domain;
 mod error;
 mod remote;
 mod shared;
+mod shutdown;
 
 use axum::http::header::{HeaderName, CONTENT_TYPE};
 use axum::http::Method;
@@ -246,16 +247,18 @@ async fn main() -> anyhow::Result<()> {
                     tracing::warn!("set_nodelay failed: {err}");
                 }
             });
-            axum::serve(
+            // The usage drain runs after the HTTP drain, not inside it, so a
+            // request that is still finishing cannot enqueue usage nobody is
+            // waiting for.
+            let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
+            let server = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
-                .with_graceful_shutdown(shutdown_signal(
-                    pty_manager,
-                    remote_for_shutdown,
-                    write_pool_for_shutdown,
-                ))
-                .await?;
+            .with_graceful_shutdown(
+                shutdown::teardown_on_signal(pty_manager, remote_for_shutdown, drain_tx),
+            );
+            shutdown::serve_then_flush(server, drain_rx, write_pool_for_shutdown).await?;
         }
     }
 
@@ -305,44 +308,4 @@ fn init_tracing(to_stderr: bool) {
     } else {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     }
-}
-
-async fn shutdown_signal(
-    pty_manager: domain::terminal::service::PtyManager,
-    remote: std::sync::Arc<remote::RemoteController>,
-    write_pool: sqlx::SqlitePool,
-) {
-    let ctrl_c = async {
-        tokio::signal::ctrl_c()
-            .await
-            .expect("failed to install Ctrl+C handler");
-    };
-    #[cfg(unix)]
-    let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install SIGTERM handler")
-            .recv()
-            .await;
-    };
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {},
-        _ = terminate => {},
-    }
-    tracing::info!("Shutdown signal received, shutting down gracefully...");
-
-    // Drop the remote listener first so no new remote-driven work starts while
-    // we tear the rest down. Bounded so a hung remote WS can't block quit.
-    remote.stop().await;
-
-    pty_manager.kill_all();
-    crate::domain::agents::shutdown_runtime_servers().await;
-
-    // After the runtimes, so the words of the turns they just ended are in
-    // flight by the time we wait for them.
-    crate::domain::usage_stats::flush_pending_writes(&write_pool).await;
-
-    tracing::info!("Runtime servers stopped.");
 }

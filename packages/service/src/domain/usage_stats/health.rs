@@ -122,10 +122,12 @@ mod tests {
         pool
     }
 
-    // These tests share process-global state, so they are serialized behind one
-    // test rather than racing each other across the harness threads.
+    // `FAILURES`/`LAST_ERROR` are process-global and the harness runs test
+    // functions in parallel, so every scenario that touches them lives in this
+    // one function — a second test function would race `reset_for_test` against
+    // this one's assertions.
     #[tokio::test]
-    async fn counts_and_reports_failures() {
+    async fn counts_reports_and_outlives_failures() {
         let pool = pool().await;
         reset_for_test();
         assert!(
@@ -148,15 +150,9 @@ mod tests {
 
         reset_for_test();
         assert!(snapshot(&pool).await.is_none());
-    }
 
-    /// The point of persisting: the run that lost the writes is gone by the
-    /// time anyone reads the stats.
-    #[tokio::test]
-    async fn a_loss_from_an_earlier_run_still_warns_after_a_restart() {
-        let pool = pool().await;
-        reset_for_test();
-
+        // The point of persisting: the run that lost the writes is gone by the
+        // time anyone reads the stats.
         record_persisted_loss(&pool, 3, "3 usage writes did not finish before shutdown").await;
         // A fresh process: the in-memory counters know nothing.
         reset_for_test();

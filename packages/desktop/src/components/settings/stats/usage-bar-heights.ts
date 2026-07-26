@@ -19,7 +19,9 @@ export const MIN_SEGMENT_PX = 2;
  * Segments are scaled against the height that is actually left after the gaps,
  * so a day at `max` fills the plot exactly. Where the minimum floor lifts the
  * stack past that, the excess is taken back from the segments that have room
- * above the floor, in proportion to how much room each has.
+ * above the floor, in proportion to how much room each has. A zero-valued
+ * segment stays at zero — the floor exists to keep small usage visible, not to
+ * invent usage that never happened.
  */
 export function segmentHeights(
   values: number[],
@@ -30,7 +32,11 @@ export function segmentHeights(
   const available = Math.max(0, plotHeight - SEGMENT_GAP_PX * (values.length - 1));
   if (max <= 0 || available === 0) return values.map(() => 0);
 
-  const heights = values.map((value) => Math.max(MIN_SEGMENT_PX, (value / max) * available));
+  // The floor lifts small days off the axis, but only days that happened: a
+  // series with no usage must not be drawn as a colored sliver.
+  const heights = values.map((value) =>
+    value <= 0 ? 0 : Math.max(MIN_SEGMENT_PX, (value / max) * available),
+  );
   const overflow = heights.reduce((sum, height) => sum + height, 0) - available;
   if (overflow <= 0) return heights;
 

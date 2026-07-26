@@ -20,6 +20,12 @@ use super::health;
 /// SQLite write behind a busy writer, short enough never to hold up quit.
 const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// How long the "we lost writes" marker gets to land. The write pool has a
+/// busy timeout of its own and no acquire timeout, so an unbounded await here
+/// could blow through the shutdown budget the drain just respected — and the
+/// marker is only a warning, worth far less than a prompt quit.
+const MARKER_TIMEOUT: Duration = Duration::from_secs(1);
+
 static IN_FLIGHT: AtomicU64 = AtomicU64::new(0);
 static DRAINED: Notify = Notify::const_new();
 
@@ -59,12 +65,13 @@ pub async fn flush(pool: &sqlx::SqlitePool) {
     if tokio::time::timeout(DRAIN_TIMEOUT, wait).await.is_err() {
         let lost = IN_FLIGHT.load(Ordering::SeqCst);
         warn!(lost, "usage writes were still in flight at shutdown");
-        health::record_persisted_loss(
-            pool,
-            lost,
-            &format!("{lost} usage writes did not finish before shutdown"),
-        )
-        .await;
+        let reason = format!("{lost} usage writes did not finish before shutdown");
+        let marker = health::record_persisted_loss(pool, lost, &reason);
+        if tokio::time::timeout(MARKER_TIMEOUT, marker).await.is_err() {
+            // The database is the only place this warning could live, and it
+            // is the thing that is stalling — there is nothing left to try.
+            warn!(lost, "timed out recording the lost usage writes");
+        }
     }
 }
 
