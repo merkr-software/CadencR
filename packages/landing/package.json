@@ -25,7 +25,7 @@
     "@fontsource-variable/figtree": "^5.2.10",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@fontsource-variable/schibsted-grotesk": "^5.2.8",
-    "astro": "6.4.6"
+    "astro": "7.1.0"
   },
   "devDependencies": {
     "@cadencr/brand": "workspace:*",
