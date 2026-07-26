@@ -35,6 +35,8 @@ const CLAIM_SQL: &str = "
 const MARKER_SQL: &str =
     "SELECT version, cutoff_message_id FROM provider_usage_backfill WHERE id = 1";
 
+const CUTOFF_SQL: &str = "SELECT cutoff_message_id FROM provider_usage_backfill WHERE id = 1";
+
 const FINISH_SQL: &str = "
     UPDATE provider_usage_backfill
     SET version = ?, messages_scanned = ?, completed_at = datetime('now')
@@ -50,7 +52,10 @@ const FINISH_SQL: &str = "
 /// splits across both. User prompts carry no model of their own, so they borrow
 /// the one from the reply they drew: without that, every prompt would pile into
 /// a separate bucket (usually the session's `default`) and the model chart would
-/// show replies with no prompts beside them.
+/// show replies with no prompts beside them. That lookup is bounded by the same
+/// cutoff as the outer scan: the import runs alongside live traffic, and a
+/// session whose last message is still unanswered would otherwise attribute a
+/// historical prompt to whatever model the *next*, live turn happens to use.
 const SCAN_SQL: &str = "
     SELECT m.id AS message_id,
            date(m.created_at) AS day,
@@ -62,6 +67,7 @@ const SCAN_SQL: &str = "
                   FROM agent_messages reply
                  WHERE reply.session_id = m.session_id
                    AND reply.id > m.id
+                   AND reply.id <= ?
                    AND reply.model IS NOT NULL
                    AND reply.model <> ''
                  ORDER BY reply.id ASC
@@ -103,6 +109,18 @@ pub fn spawn(write_pool: &SqlitePool) {
             warn!(%error, "failed to import historical provider usage stats");
         }
     });
+}
+
+/// The highest message id the import owns, or `None` before it has claimed one.
+///
+/// This is what keeps the two counters from overlapping. A prompt persisted
+/// before the cutoff but only *dispatched* afterwards — one left `pending` by a
+/// quit mid-turn, or an `error` row a restart recovered — is inside the import's
+/// range and outside the live recorder's, so the recorder steps over it rather
+/// than adding a second copy of words the import already counted (or, on a
+/// retry, is about to).
+pub async fn imported_cutoff(pool: &SqlitePool) -> Result<Option<i64>, sqlx::Error> {
+    sqlx::query_scalar(CUTOFF_SQL).fetch_optional(pool).await
 }
 
 async fn run(write_pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -151,6 +169,7 @@ async fn collect(
 
     loop {
         let rows = sqlx::query(SCAN_SQL)
+            .bind(cutoff_message_id)
             .bind(last_id)
             .bind(cutoff_message_id)
             .bind(BATCH_SIZE)

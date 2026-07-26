@@ -331,5 +331,9 @@ async fn shutdown_signal(
     pty_manager.kill_all();
     crate::domain::agents::shutdown_runtime_servers().await;
 
+    // After the runtimes, so the words of the turns they just ended are in
+    // flight by the time we wait for them.
+    crate::domain::usage_stats::flush_pending_writes().await;
+
     tracing::info!("Runtime servers stopped.");
 }

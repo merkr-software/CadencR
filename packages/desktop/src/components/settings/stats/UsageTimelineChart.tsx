@@ -9,10 +9,7 @@ import {
 } from "./usage-chart-palette";
 import { UsageChartTooltip } from "./UsageChartTooltip";
 import { axisTickIndexes } from "./usage-axis";
-
-const PLOT_HEIGHT_PX = 156;
-/** Keeps a non-zero day from vanishing into a sub-pixel sliver. */
-const MIN_SEGMENT_PX = 2;
+import { PLOT_HEIGHT_PX, segmentHeights } from "./usage-bar-heights";
 
 interface UsageTimelineChartProps {
   data: UsageChartData;
@@ -153,6 +150,13 @@ const DayColumn = memo(function DayColumn({
   metricLabel,
   onHover,
 }: DayColumnProps): React.JSX.Element {
+  // Bottom-up in stack order, so the largest series sits at the base.
+  const stacked = [...day.segments].reverse();
+  const heights = segmentHeights(
+    stacked.map((segment) => segment.value),
+    max,
+  );
+
   return (
     <div
       // The whole column is the hit target, not just the painted bar, so a
@@ -165,19 +169,21 @@ const DayColumn = memo(function DayColumn({
       role="img"
       aria-label={`${formatDayLabel(day.day)}: ${formatExactWords(day.total)} ${metricLabel}`}
     >
-      {/* Bottom-up in stack order, so the largest series sits at the base. */}
-      {[...day.segments].reverse().map((segment, index) => (
+      {stacked.map((segment, index) => (
         <div
           key={segment.key}
           className={cn(
             "w-full transition-opacity duration-150",
             // Data-ends round; the segments below stay square so the stack
             // reads as one bar.
-            index === day.segments.length - 1 && "rounded-t-[4px]",
+            index === stacked.length - 1 && "rounded-t-[4px]",
             dimmed && "opacity-40",
           )}
           style={{
-            height: `max(${MIN_SEGMENT_PX}px, ${(segment.value / max) * 100}%)`,
+            height: heights[index],
+            // The heights already account for the gaps between them, so a
+            // flex shrink here would undo that and shorten the tallest day.
+            flexShrink: 0,
             backgroundColor: colors.get(segment.key),
           }}
         />

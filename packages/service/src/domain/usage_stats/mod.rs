@@ -10,11 +10,13 @@
 pub mod backfill;
 pub mod health;
 pub mod models;
+pub mod pending;
 pub mod recorder;
 pub mod repository;
 pub mod routes;
 pub mod word_count;
 
 pub use backfill::spawn as spawn_backfill;
+pub use pending::flush as flush_pending_writes;
 pub use recorder::{record_dispatched_prompt, record_session_words};
 pub use word_count::TurnWordUsage;

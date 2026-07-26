@@ -6,6 +6,7 @@ import {
   buildUsageChart,
   dayAxis,
   modelSeriesKey,
+  rankKeysByTotalWords,
   splitModelSeriesKey,
   type UsageChartData,
   type UsageMetric,
@@ -131,8 +132,8 @@ export function useUsageCharts({
 }
 
 /**
- * Keys present in the window, busiest first. Ties break on the key so the order
- * is stable, matching how `buildUsageChart` ranks its series.
+ * Keys present in the window, busiest first — ranked by the same helper
+ * `buildUsageChart` ranks its series with, so the two can't disagree.
  */
 function rankByTotalWords(
   entries: UsageStatsEntry[],
@@ -146,8 +147,5 @@ function rankByTotalWords(
     const key = keyOf(entry);
     totals.set(key, (totals.get(key) ?? 0) + entry.input_words + entry.output_words);
   }
-  return [...totals.entries()]
-    .filter(([, words]) => words > 0)
-    .sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB))
-    .map(([key]) => key);
+  return rankKeysByTotalWords(totals);
 }

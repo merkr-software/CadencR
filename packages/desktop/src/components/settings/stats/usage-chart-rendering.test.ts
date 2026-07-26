@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { axisTickIndexes } from "./usage-axis";
 import { seriesColor, formatCompactWords, formatDayLabel } from "./usage-chart-palette";
 import { MAX_COLORED_SERIES } from "./usage-stats-model";
+import { MIN_SEGMENT_PX, SEGMENT_GAP_PX, segmentHeights } from "./usage-bar-heights";
 
 describe("axisTickIndexes", () => {
   it("always labels the first and last day", () => {
@@ -26,6 +27,40 @@ describe("axisTickIndexes", () => {
   it("handles degenerate ranges", () => {
     expect(axisTickIndexes(0).size).toBe(0);
     expect([...axisTickIndexes(1)]).toEqual([0]);
+  });
+});
+
+describe("segmentHeights", () => {
+  const PLOT = 156;
+  const stackHeight = (heights: number[]): number =>
+    heights.reduce((sum, height) => sum + height, 0) + SEGMENT_GAP_PX * (heights.length - 1);
+
+  it("makes the busiest day reach the axis maximum, gaps included", () => {
+    for (const values of [[100], [60, 40], [50, 30, 15, 5]]) {
+      const max = values.reduce((sum, value) => sum + value, 0);
+      expect(stackHeight(segmentHeights(values, max, PLOT))).toBeCloseTo(PLOT, 5);
+    }
+  });
+
+  it("keeps a quiet day proportional to the busiest one", () => {
+    const [half] = segmentHeights([50], 100, PLOT);
+    expect(half).toBeCloseTo(PLOT / 2, 5);
+  });
+
+  it("never renders a non-zero day thinner than the floor", () => {
+    const heights = segmentHeights([1000, 1, 1, 1], 1003, PLOT);
+    for (const height of heights) expect(height).toBeGreaterThanOrEqual(MIN_SEGMENT_PX);
+  });
+
+  it("pays for the floor out of the segments that have room, not out of the plot", () => {
+    const heights = segmentHeights([1000, 1, 1, 1], 1003, PLOT);
+    expect(stackHeight(heights)).toBeLessThanOrEqual(PLOT + 0.001);
+    expect(heights[0]).toBeGreaterThan(PLOT * 0.8);
+  });
+
+  it("handles empty and zero-max stacks", () => {
+    expect(segmentHeights([], 100, PLOT)).toEqual([]);
+    expect(segmentHeights([5], 0, PLOT)).toEqual([0]);
   });
 });
 

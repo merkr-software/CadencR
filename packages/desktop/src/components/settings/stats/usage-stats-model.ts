@@ -105,6 +105,20 @@ export function dayAxis(days: number, endDay: string): string[] {
   return axis;
 }
 
+/**
+ * Keys that saw usage, busiest first. Ranking is on *total* words whatever
+ * metric is on screen, and ties break on the key so the order is stable.
+ *
+ * Shared so the chart's series order and the provider filter's order cannot
+ * drift apart: they are the same list, ranked once.
+ */
+export function rankKeysByTotalWords(totalWordsByKey: Map<string, number>): string[] {
+  return [...totalWordsByKey.entries()]
+    .filter(([, words]) => words > 0)
+    .sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB))
+    .map(([key]) => key);
+}
+
 interface BuildUsageChartParams {
   entries: UsageStatsEntry[];
   metric: UsageMetric;
@@ -155,10 +169,12 @@ export function buildUsageChart({
     perDay.set(entry.day, day);
   }
 
-  const rankOf = (running: SeriesTotals): number => running.inputWords + running.outputWords;
-  const ranked = [...totals.entries()]
-    .filter(([, running]) => rankOf(running) > 0)
-    .sort(([keyA, a], [keyB, b]) => rankOf(b) - rankOf(a) || keyA.localeCompare(keyB));
+  const ranking = rankKeysByTotalWords(
+    new Map(
+      [...totals].map(([key, running]) => [key, running.inputWords + running.outputWords] as const),
+    ),
+  );
+  const ranked = ranking.map((key) => [key, totals.get(key)!] as const);
 
   const colored = ranked.slice(0, MAX_COLORED_SERIES);
   const folded = ranked.slice(MAX_COLORED_SERIES);

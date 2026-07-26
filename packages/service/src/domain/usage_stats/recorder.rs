@@ -1,8 +1,10 @@
 use sqlx::SqlitePool;
 use tracing::{error, warn};
 
+use super::backfill;
 use super::health;
 use super::models::UsageAttribution;
+use super::pending;
 use super::repository;
 use super::word_count::count_words;
 
@@ -45,7 +47,19 @@ pub async fn record_session_words(
 /// succeeds exactly once per message. Counting at persist time instead would
 /// score prompts that then failed to spawn a runtime, and — because the retry
 /// re-uses the already-inserted row — the correction could never be made.
+///
+/// Messages the historical import owns are left to it: a prompt persisted
+/// before its cutoff but dispatched afterwards would otherwise be counted by
+/// both. See [`backfill::imported_cutoff`].
 pub async fn record_dispatched_prompt(write_pool: &SqlitePool, message_id: i64) {
+    match backfill::imported_cutoff(write_pool).await {
+        Ok(Some(cutoff)) if message_id <= cutoff => return,
+        Ok(_) => {}
+        Err(error) => {
+            report_failure(&error, "failed to read the usage stats import cutoff");
+            return;
+        }
+    }
     let dispatched = match dispatched_prompt(write_pool, message_id).await {
         Ok(Some(dispatched)) => dispatched,
         Ok(None) => return,
@@ -64,7 +78,8 @@ pub async fn record_dispatched_prompt(write_pool: &SqlitePool, message_id: i64) 
 }
 
 /// Hand the accumulated words to a background task. Separate from attribution
-/// on purpose — see [`record_session_words`].
+/// on purpose — see [`record_session_words`]. Tracked so shutdown can wait for
+/// it instead of dropping the last turn's words — see [`pending`].
 fn spawn_upsert(
     write_pool: &SqlitePool,
     attribution: UsageAttribution,
@@ -72,7 +87,7 @@ fn spawn_upsert(
     output_words: u64,
 ) {
     let pool = write_pool.clone();
-    tokio::spawn(async move {
+    pending::spawn_tracked(async move {
         if let Err(error) =
             repository::add_words(&pool, &attribution, input_words, output_words).await
         {
@@ -350,6 +365,62 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_words, 4);
         assert_eq!(entries[0].output_words, 0, "a prompt is input only");
+    }
+
+    /// A prompt left undispatched by a quit mid-turn is inside the historical
+    /// import's range; counting it here too would double it permanently.
+    #[tokio::test]
+    async fn a_prompt_the_import_owns_is_left_to_the_import() {
+        let (pool, session_id) =
+            pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
+        let message_id: i64 = sqlx::query_scalar(
+            "INSERT INTO agent_messages (session_id, role, content, message_type)
+             VALUES (?, 'user', 'one two three four', 'user_message') RETURNING id",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        // The import claimed a cutoff at or past this message, as it would on a
+        // start that found the prompt still pending.
+        sqlx::query(
+            "INSERT INTO provider_usage_backfill (id, version, cutoff_message_id) VALUES (1, 0, ?)",
+        )
+        .bind(message_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        record_dispatched_prompt(&pool, message_id).await;
+        settle().await;
+
+        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_prompt_past_the_import_cutoff_is_counted_live() {
+        let (pool, session_id) =
+            pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
+        sqlx::query(
+            "INSERT INTO provider_usage_backfill (id, version, cutoff_message_id)
+             VALUES (1, 1, 0)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let message_id: i64 = sqlx::query_scalar(
+            "INSERT INTO agent_messages (session_id, role, content, message_type)
+             VALUES (?, 'user', 'one two', 'user_message') RETURNING id",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        record_dispatched_prompt(&pool, message_id).await;
+        settle().await;
+
+        assert_eq!(list_window(&pool, 30).await.unwrap()[0].input_words, 2);
     }
 
     #[tokio::test]
