@@ -104,6 +104,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   clearDesktopBridgeOverrideForTests();
   setStoredMode(undefined);
 });
@@ -338,7 +339,8 @@ describe("notification mode from query cache", () => {
 });
 
 describe("listenForNotificationFallbacks", () => {
-  it("renders a toast with an Open action that routes through navigate", () => {
+  it("renders a toast with an Open action that routes through navigate", async () => {
+    vi.useFakeTimers();
     const cleanup = vi.fn();
     type FallbackCb = Parameters<CadencrDesktopBridge["onNotificationFallback"]>[0];
     const captured: FallbackCb[] = [];
@@ -376,6 +378,7 @@ describe("listenForNotificationFallbacks", () => {
       params: { sessionId: "ws-feature-9" },
       search: { cwd: "", featureId: 9, projectId: 2 },
     });
+    await vi.runAllTimersAsync();
 
     unsubscribe();
     expect(cleanup).toHaveBeenCalled();
