@@ -88,6 +88,18 @@ impl TurnWordUsage {
         std::mem::take(self).words
     }
 
+    /// Drain the words counted so far *without* ending the turn.
+    ///
+    /// Unlike [`take`](Self::take) this keeps the per-stream bookkeeping, so a
+    /// cycle that already streamed still suppresses the full message that
+    /// replays it and an open block keeps its mid-word carry. That is what
+    /// makes it safe to bank a long turn's words while it is still running,
+    /// instead of holding all of them until the turn ends — and losing them if
+    /// the process is stopped mid-turn.
+    pub fn drain(&mut self) -> u64 {
+        std::mem::take(&mut self.words)
+    }
+
     /// Words counted since the last [`take`](Self::take). Lets the caller
     /// notice the moment a batch starts, which is when it must capture what the
     /// words will be attributed to.
@@ -207,6 +219,33 @@ mod tests {
             text: "one two three".into(),
         }]));
         assert_eq!(usage.take(), 3);
+    }
+
+    #[test]
+    fn banking_a_running_turn_still_suppresses_the_replayed_full_message() {
+        let mut usage = TurnWordUsage::default();
+        usage.observe(&stream(message_start()));
+        usage.observe(&text_delta("one two three"));
+
+        // The turn is still streaming: the words are banked, the dedup state is
+        // not — otherwise the full message below would be counted twice.
+        assert_eq!(usage.drain(), 3);
+
+        usage.observe(&assistant(vec![RuntimeContentBlock::Text {
+            text: "one two three".into(),
+        }]));
+        assert_eq!(usage.take(), 0);
+    }
+
+    #[test]
+    fn banking_mid_block_does_not_split_a_word_in_two() {
+        let mut usage = TurnWordUsage::default();
+        usage.observe(&text_delta("half"));
+
+        assert_eq!(usage.drain(), 1, "the word is counted when it starts");
+
+        usage.observe(&text_delta("way there"));
+        assert_eq!(usage.take(), 1, "'halfway' is not counted a second time");
     }
 
     #[test]

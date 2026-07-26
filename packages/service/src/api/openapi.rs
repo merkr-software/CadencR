@@ -158,6 +158,7 @@ use crate::domain::ws_session::protocol as ws_protocol;
         lsp_routes::open_session_handler,
         lsp_routes::list_servers_handler,
         usage_stats_routes::get_usage_stats_handler,
+        usage_stats_routes::dismiss_usage_recording_issue_handler,
         crate::domain::lsp::root::lsp_root_handler,
         imports_routes::list_claude_code_conversations_handler,
         imports_routes::list_provider_conversations_handler,

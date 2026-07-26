@@ -32,6 +32,8 @@ const RECORD_LOSS_SQL: &str = "
         last_at = excluded.last_at
 ";
 
+const CLEAR_LOSSES_SQL: &str = "DELETE FROM usage_recording_losses";
+
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
 
@@ -62,6 +64,23 @@ pub async fn record_persisted_loss(pool: &SqlitePool, dropped_writes: u64, error
         // Nothing left to fall back on: the database is the thing that failed.
         tracing::error!(%error, "failed to persist the lost usage writes marker");
     }
+}
+
+/// Acknowledge every recording failure reported so far.
+///
+/// A shutdown loss is counted from what was still in flight when the process
+/// exited, which is the best guess available and can overstate it — a write can
+/// still land in the moment between the drain giving up and the process going
+/// away. Without a way to say "understood", one such guess would mark the stats
+/// incomplete forever, on data that is in fact complete. Dismissing clears both
+/// the persisted losses and this run's failures; a later failure warns again.
+pub async fn acknowledge(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query(CLEAR_LOSSES_SQL).execute(pool).await?;
+    FAILURES.store(0, Ordering::Relaxed);
+    *LAST_ERROR
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+    Ok(())
 }
 
 /// `None` when every usage write so far has succeeded, in this run and in every
@@ -108,7 +127,7 @@ pub(crate) fn reset_for_test() {
 
 #[cfg(test)]
 mod tests {
-    use super::{record_failure, record_persisted_loss, reset_for_test, snapshot};
+    use super::{acknowledge, record_failure, record_persisted_loss, reset_for_test, snapshot};
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
 
@@ -168,6 +187,24 @@ mod tests {
             snapshot(&pool).await.unwrap().failures,
             5,
             "losses accumulate across runs"
+        );
+
+        // A shutdown loss is an estimate, so the user has to be able to retire
+        // it — otherwise one bad guess marks the stats incomplete forever.
+        record_failure("disk full");
+        acknowledge(&pool).await.unwrap();
+        assert!(
+            snapshot(&pool).await.is_none(),
+            "dismissing clears this run's failures and every earlier run's"
+        );
+
+        record_failure("database is locked");
+        assert_eq!(
+            snapshot(&pool)
+                .await
+                .expect("a new failure warns again")
+                .failures,
+            1
         );
         reset_for_test();
     }

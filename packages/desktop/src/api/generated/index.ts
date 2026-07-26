@@ -14002,6 +14002,80 @@ export function useGetUsageStats<
   return query;
 }
 
+/**
+ * A loss counted at shutdown is an estimate of what did not land, so it can
+overstate the damage; without this the user would be stuck with a permanent
+"these totals may be incomplete" they cannot answer. A later failure raises
+it again.
+ * @summary Retire the recording warning the stats read reports.
+ */
+export const dismissUsageRecordingIssue = () => {
+  return customInstance<void>({ url: `/api/usage-stats/recording-issue`, method: "DELETE" });
+};
+
+export const getDismissUsageRecordingIssueMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissUsageRecordingIssue>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof dismissUsageRecordingIssue>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["dismissUsageRecordingIssue"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof dismissUsageRecordingIssue>>,
+    void
+  > = () => {
+    return dismissUsageRecordingIssue();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DismissUsageRecordingIssueMutationResult = NonNullable<
+  Awaited<ReturnType<typeof dismissUsageRecordingIssue>>
+>;
+
+export type DismissUsageRecordingIssueMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Retire the recording warning the stats read reports.
+ */
+export const useDismissUsageRecordingIssue = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof dismissUsageRecordingIssue>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof dismissUsageRecordingIssue>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationOptions = getDismissUsageRecordingIssueMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
 export const getWorkspaceModelSettings = (signal?: AbortSignal) => {
   return customInstance<ModelSettings>({
     url: `/api/workspace/model-settings`,

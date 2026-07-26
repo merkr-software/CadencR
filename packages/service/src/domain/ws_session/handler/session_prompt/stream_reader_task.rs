@@ -24,6 +24,12 @@ use super::stream_reader_turn_state::StreamTurnState;
 /// Debounce provider completion checks long enough for normal events to arrive.
 const PROVIDER_RECONCILE_IDLE: std::time::Duration = std::time::Duration::from_millis(750);
 
+/// How many words a still-running turn may hold before they are banked into the
+/// usage stats. Small enough that a quit mid-turn loses a sentence rather than
+/// an hour of output, large enough that a long turn costs a handful of writes
+/// instead of one per delta.
+const PARTIAL_FLUSH_WORDS: u64 = 250;
+
 pub(super) struct StreamReaderTask {
     pub db_session_id: i64,
     pub feature_id: i64,
@@ -224,10 +230,31 @@ impl StreamReaderTask {
     /// delta, so it is not on the token hot path.
     pub(super) async fn flush_word_usage(&self, state: &mut StreamReaderState) {
         let words = state.word_usage.take();
-        let attribution = state.usage_attribution.take();
+        self.record_word_usage(state, words).await;
+    }
+
+    /// Bank a long turn's words before it ends.
+    ///
+    /// The end-of-turn flush is the only one a well-behaved turn needs, but a
+    /// turn can run for many minutes, and a quit — or a crash — in the middle of
+    /// one would take every word it had produced so far with it, silently. This
+    /// bounds that loss to [`PARTIAL_FLUSH_WORDS`] per running turn, at one
+    /// extra background upsert per that many words.
+    pub(super) async fn flush_banked_word_usage(&self, state: &mut StreamReaderState) {
+        if state.word_usage.pending() < PARTIAL_FLUSH_WORDS {
+            return;
+        }
+        // Drained, not taken: the turn is still streaming, so the per-stream
+        // dedup state has to survive this flush.
+        let words = state.word_usage.drain();
+        self.record_word_usage(state, words).await;
+    }
+
+    async fn record_word_usage(&self, state: &mut StreamReaderState, words: u64) {
         if words == 0 {
             return;
         }
+        let attribution = state.usage_attribution.take();
         match attribution {
             Some(attribution) => crate::domain::usage_stats::record_words_attributed(
                 &self.write_pool,

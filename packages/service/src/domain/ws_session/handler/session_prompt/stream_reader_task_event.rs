@@ -41,6 +41,11 @@ impl StreamReaderTask {
         self.capture_usage_attribution(state).await;
         if runtime_event.is_result() {
             self.flush_word_usage(state).await;
+        } else {
+            // A turn that runs for minutes banks what it has produced as it
+            // goes, so a quit in the middle of it does not take the whole turn's
+            // words with it.
+            self.flush_banked_word_usage(state).await;
         }
         let interrupted_generation = if runtime_event.is_result() {
             self.take_interruption().await

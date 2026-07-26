@@ -1,5 +1,6 @@
 use axum::extract::{Query, State};
-use axum::routing::get;
+use axum::http::StatusCode;
+use axum::routing::{delete, get};
 use axum::{Json, Router};
 use serde::Deserialize;
 
@@ -47,12 +48,35 @@ pub async fn get_usage_stats_handler(
     }))
 }
 
+/// Retire the recording warning the stats read reports.
+///
+/// A loss counted at shutdown is an estimate of what did not land, so it can
+/// overstate the damage; without this the user would be stuck with a permanent
+/// "these totals may be incomplete" they cannot answer. A later failure raises
+/// it again.
+#[utoipa::path(
+    delete,
+    path = "/api/usage-stats/recording-issue",
+    responses((status = 204, description = "Warning dismissed"))
+)]
+pub async fn dismiss_usage_recording_issue_handler(
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    super::health::acknowledge(&state.write_pool).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 fn clamp_days(requested: Option<i64>) -> i64 {
     requested.unwrap_or(DEFAULT_DAYS).clamp(1, MAX_DAYS)
 }
 
 pub fn usage_stats_router() -> Router<AppState> {
-    Router::new().route("/api/usage-stats", get(get_usage_stats_handler))
+    Router::new()
+        .route("/api/usage-stats", get(get_usage_stats_handler))
+        .route(
+            "/api/usage-stats/recording-issue",
+            delete(dismiss_usage_recording_issue_handler),
+        )
 }
 
 #[cfg(test)]
