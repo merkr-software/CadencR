@@ -143,7 +143,7 @@ fn non_empty(value: Option<String>) -> Option<String> {
 mod tests {
     use super::super::run;
     use super::super::test_fixtures::{message, pool, session, today, with_model};
-    use crate::domain::usage_stats::repository::list_window;
+    use crate::domain::usage_stats::repository::list_recent;
     #[tokio::test]
     async fn imports_prompts_and_replies_of_an_existing_conversation() {
         let pool = pool().await;
@@ -155,7 +155,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_words, 3);
         assert_eq!(entries[0].output_words, 3, "text and thinking both count");
@@ -178,7 +178,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 2, "one bucket per answering model");
         let haiku = entries.iter().find(|e| e.model_id == "haiku").unwrap();
         assert_eq!((haiku.input_words, haiku.output_words), (1, 2));
@@ -202,7 +202,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     /// A prompt that never reached a provider is not usage. Counting it here
@@ -220,7 +220,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(
             entries[0].input_words, 3,
             "only the delivered prompt is imported"
@@ -239,7 +239,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -268,7 +268,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 3650).await.unwrap();
+        let entries = list_recent(&pool, 3650).await.unwrap();
         assert_eq!(entries.len(), 2, "one bucket per day");
         assert_eq!(entries[0].day, "2026-07-20");
         assert_eq!(entries[0].input_words, 2);

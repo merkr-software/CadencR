@@ -35,10 +35,11 @@ pub async fn get_usage_stats_handler(
     Query(query): Query<UsageStatsQuery>,
 ) -> Result<Json<UsageStatsResponse>, AppError> {
     let days = clamp_days(query.days);
-    // Read the window bound first: taking it after the rows could name a day the
-    // rows predate if the request straddles UTC midnight.
+    // One captured day anchors both ends of the window, so a request that
+    // straddles UTC midnight cannot pair one day's axis with another day's rows.
     let end_day = repository::end_day(&state.read_pool).await?;
-    let entries: Vec<UsageStatsEntry> = repository::list_window(&state.read_pool, days).await?;
+    let entries: Vec<UsageStatsEntry> =
+        repository::list_window(&state.read_pool, &end_day, days).await?;
     Ok(Json(UsageStatsResponse {
         days,
         end_day,

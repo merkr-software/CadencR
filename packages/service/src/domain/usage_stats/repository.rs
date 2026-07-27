@@ -18,10 +18,15 @@ const UPSERT_SQL: &str = "
         updated_at = datetime('now')
 ";
 
+/// Both bounds are derived from the caller's captured end day rather than from
+/// `now`, so the rows can never describe a window other than the one the client
+/// is told it is looking at — a request that straddles UTC midnight would
+/// otherwise pair yesterday's `end_day` with a window shifted a day later.
 const SELECT_WINDOW_SQL: &str = "
     SELECT day, provider_id, model_id, thinking_effort, input_words, output_words
     FROM provider_usage_stats
-    WHERE day >= date('now', ?)
+    WHERE day >= date(?, ?)
+      AND day <= ?
       AND (input_words > 0 OR output_words > 0)
     ORDER BY day ASC, provider_id ASC, model_id ASC, thinking_effort ASC
 ";
@@ -59,33 +64,48 @@ where
     Ok(())
 }
 
-/// Every bucket from the trailing `days`-day window, oldest first.
+/// Every bucket from the `days`-day window ending on `end_day`, oldest first.
 pub async fn list_window(
     read_pool: &SqlitePool,
+    end_day: &str,
     days: i64,
 ) -> Result<Vec<UsageStatsEntry>, sqlx::Error> {
-    // `days` counts today, so a 30-day window starts 29 days ago.
+    // `days` counts the end day itself, so a 30-day window starts 29 days back.
     let offset = format!("-{} days", days.saturating_sub(1).max(0));
     sqlx::query_as::<_, UsageStatsEntry>(SELECT_WINDOW_SQL)
+        .bind(end_day)
         .bind(offset)
+        .bind(end_day)
         .fetch_all(read_pool)
         .await
 }
 
 /// The window's last day, as SQLite sees "today" in UTC.
 ///
-/// Read from the same database that computed the `day` column on write and the
-/// `date('now', ?)` bound on read, so the axis the client draws can never drift
-/// off the rows it is drawing.
+/// Read from the same database that computed the `day` column on write, and
+/// then used as the anchor for both ends of the read window, so the axis the
+/// client draws can never drift off the rows it is drawing.
 pub async fn end_day(read_pool: &SqlitePool) -> Result<String, sqlx::Error> {
     sqlx::query_scalar("SELECT strftime('%Y-%m-%d', 'now')")
         .fetch_one(read_pool)
         .await
 }
 
+/// The trailing window ending today. Test-only sugar over [`list_window`],
+/// which takes an explicit end day so the API read can anchor both of the
+/// window's bounds to a single captured value.
+#[cfg(test)]
+pub(crate) async fn list_recent(
+    read_pool: &SqlitePool,
+    days: i64,
+) -> Result<Vec<UsageStatsEntry>, sqlx::Error> {
+    let end_day = end_day(read_pool).await?;
+    list_window(read_pool, &end_day, days).await
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{add_words, list_window};
+    use super::{add_words, list_recent, list_window};
     use crate::domain::usage_stats::models::UsageAttribution;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
@@ -98,6 +118,10 @@ mod tests {
             .unwrap();
         sqlx::migrate!("./migrations").run(&pool).await.unwrap();
         pool
+    }
+
+    async fn window(pool: &SqlitePool, days: i64) -> Vec<super::UsageStatsEntry> {
+        list_recent(pool, days).await.unwrap()
     }
 
     fn attribution(provider: &str, model: &str, effort: &str) -> UsageAttribution {
@@ -116,7 +140,7 @@ mod tests {
         add_words(&pool, &bucket, 10, 100).await.unwrap();
         add_words(&pool, &bucket, 5, 50).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = window(&pool, 30).await;
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_words, 15);
         assert_eq!(entries[0].output_words, 150);
@@ -133,7 +157,7 @@ mod tests {
             .await
             .unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = window(&pool, 30).await;
         assert_eq!(entries.len(), 2);
         // Ordered by effort ascending: "high" before "low".
         assert_eq!(entries[0].thinking_effort, "high");
@@ -147,7 +171,7 @@ mod tests {
         add_words(&pool, &unknown, 7, 0).await.unwrap();
         add_words(&pool, &unknown, 3, 0).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = window(&pool, 30).await;
         assert_eq!(entries.len(), 1, "NULL-vs-empty must not split the bucket");
         assert_eq!(entries[0].input_words, 10);
     }
@@ -163,7 +187,26 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
-        assert_eq!(list_window(&pool, 90).await.unwrap().len(), 1);
+        assert!(window(&pool, 30).await.is_empty());
+        assert_eq!(window(&pool, 90).await.len(), 1);
+    }
+
+    // The read hands the client an `end_day` and the rows behind it. A request
+    // that straddles UTC midnight must not answer with rows the axis it also
+    // returned has nowhere to draw.
+    #[tokio::test]
+    async fn window_stops_at_the_captured_end_day() {
+        let pool = pool().await;
+        let yesterday = sqlx::query_scalar::<_, String>("SELECT date('now', '-1 day')")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        add_words(&pool, &attribution("opencode", "auto", ""), 1, 1)
+            .await
+            .unwrap();
+
+        // Today's row is already past the window that ended yesterday.
+        assert!(list_window(&pool, &yesterday, 30).await.unwrap().is_empty());
+        assert_eq!(window(&pool, 30).await.len(), 1);
     }
 }

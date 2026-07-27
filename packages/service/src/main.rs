@@ -247,18 +247,23 @@ async fn main() -> anyhow::Result<()> {
                     tracing::warn!("set_nodelay failed: {err}");
                 }
             });
-            // The usage drain runs after the HTTP drain, not inside it, so a
-            // request that is still finishing cannot enqueue usage nobody is
-            // waiting for.
+            // Shutdown ordering lives in `shutdown`: the signal future only
+            // closes the listener, then the teardown and the HTTP drain run
+            // together, and the usage drain runs last.
             let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
             let server = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
-            .with_graceful_shutdown(
-                shutdown::teardown_on_signal(pty_manager, remote_for_shutdown, drain_tx),
-            );
-            shutdown::serve_then_flush(server, drain_rx, write_pool_for_shutdown).await?;
+            .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx));
+            shutdown::serve_then_flush(
+                server,
+                drain_rx,
+                pty_manager,
+                remote_for_shutdown,
+                write_pool_for_shutdown,
+            )
+            .await?;
         }
     }
 

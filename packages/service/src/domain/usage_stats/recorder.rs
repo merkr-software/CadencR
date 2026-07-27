@@ -152,7 +152,7 @@ mod tests {
     use super::test_fixtures::{pool_with_session, settle};
     use super::{record_dispatched_prompt, record_session_words, record_words_attributed};
     use crate::domain::usage_stats::models::UsageAttribution;
-    use crate::domain::usage_stats::repository::list_window;
+    use crate::domain::usage_stats::repository::list_recent;
     use sqlx::SqlitePool;
 
     #[tokio::test]
@@ -163,7 +163,7 @@ mod tests {
         record_session_words(&pool, session_id, 12, 340).await;
         settle().await;
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].provider_id, "claude_code");
         assert_eq!(entries[0].model_id, "claude-opus-5");
@@ -188,7 +188,7 @@ mod tests {
         .unwrap();
         settle().await;
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(
             (
@@ -220,7 +220,7 @@ mod tests {
         record_words_attributed(&pool, snapshot, 0, 40);
         settle().await;
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(
             (
@@ -245,7 +245,7 @@ mod tests {
             .unwrap();
         settle().await;
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(
             entries.len(),
             1,
@@ -261,7 +261,7 @@ mod tests {
         record_session_words(&pool, session_id, 5, 5).await;
         settle().await;
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -282,7 +282,7 @@ mod tests {
         let _ = session_id;
         settle().await;
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -294,7 +294,7 @@ mod tests {
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].input_words, 4);
         assert_eq!(entries[0].output_words, 0, "a prompt is input only");
@@ -313,7 +313,7 @@ mod tests {
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     /// The counterpart the import deliberately skipped: persisted before the
@@ -330,7 +330,7 @@ mod tests {
         record_dispatched_prompt(&pool, message_id).await;
         settle().await;
 
-        assert_eq!(list_window(&pool, 30).await.unwrap()[0].input_words, 2);
+        assert_eq!(list_recent(&pool, 30).await.unwrap()[0].input_words, 2);
     }
 
     #[tokio::test]
@@ -340,7 +340,7 @@ mod tests {
         record_dispatched_prompt(&pool, 999_999).await;
         settle().await;
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
     }
 
     async fn prompt(pool: &SqlitePool, session_id: i64, content: &str) -> i64 {

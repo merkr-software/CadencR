@@ -182,7 +182,7 @@ async fn run(write_pool: &SqlitePool) -> Result<(), sqlx::Error> {
 mod tests {
     use super::test_fixtures::{message, pool, session, today};
     use super::{in_progress, run, VERSION};
-    use crate::domain::usage_stats::repository::list_window;
+    use crate::domain::usage_stats::repository::list_recent;
     use sqlx::Row;
 
     #[tokio::test]
@@ -195,7 +195,7 @@ mod tests {
         run(&pool).await.unwrap();
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(entries[0].input_words, 3);
         let version: i64 =
             sqlx::query_scalar("SELECT version FROM provider_usage_backfill WHERE id = 1")
@@ -222,7 +222,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        let entries = list_window(&pool, 30).await.unwrap();
+        let entries = list_recent(&pool, 30).await.unwrap();
         assert_eq!(
             entries[0].input_words, 3,
             "only messages that predate the claim are imported"
@@ -235,7 +235,7 @@ mod tests {
 
         run(&pool).await.unwrap();
 
-        assert!(list_window(&pool, 30).await.unwrap().is_empty());
+        assert!(list_recent(&pool, 30).await.unwrap().is_empty());
         let row = sqlx::query("SELECT version, messages_scanned FROM provider_usage_backfill")
             .fetch_one(&pool)
             .await
