@@ -26,8 +26,15 @@ export function ScheduleProfileChip({
 }: ScheduleChipProps): ReactElement | null {
   const isClaude = runtime.providerId === PROVIDER_IDS.CLAUDE_CODE;
   const profiles = useClaudeCodeProfiles({ enabled: isClaude });
-  // Nothing to choose between when only the default profile exists.
-  if (!isClaude || (profiles.data?.profiles?.length ?? 0) === 0) return null;
+  if (!isClaude) return null;
+  // Nothing to choose between when only the default profile exists — but that
+  // is only knowable once the query answers. Folding the unresolved case into
+  // the same check reads as "no profiles" while the fetch is in flight, so the
+  // chip would pop in when it settled, and a failure would be indistinguishable
+  // from a provider that simply has none. Deferring to the combobox lets it
+  // show its own loading and error states, as it does in the composer.
+  const isResolved = !profiles.isLoading && !profiles.isError;
+  if (isResolved && (profiles.data?.profiles?.length ?? 0) === 0) return null;
   return (
     <ClaudeProfileCombobox
       value={runtime.profile ?? profiles.data?.active ?? DEFAULT_CLAUDE_PROFILE_NAME}
