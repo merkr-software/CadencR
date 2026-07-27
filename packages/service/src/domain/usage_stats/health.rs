@@ -32,6 +32,12 @@ const RECORD_LOSS_SQL: &str = "
         last_at = excluded.last_at
 ";
 
+const RETRACT_LOSS_SQL: &str = "
+    UPDATE usage_recording_losses
+    SET dropped_writes = MAX(dropped_writes - ?, 0)
+    WHERE id = 1
+";
+
 const CLEAR_LOSSES_SQL: &str = "DELETE FROM usage_recording_losses";
 
 static FAILURES: AtomicU64 = AtomicU64::new(0);
@@ -63,6 +69,26 @@ pub async fn record_persisted_loss(pool: &SqlitePool, dropped_writes: u64, error
     {
         // Nothing left to fall back on: the database is the thing that failed.
         tracing::error!(%error, "failed to persist the lost usage writes marker");
+    }
+}
+
+/// Take back writes marked as lost that turned out to land after all.
+///
+/// The counterpart to marking a loss before it is certain: shutdown claims the
+/// writes it is about to wait for, then gives back whatever the drain actually
+/// delivered. Failing here leaves a warning about words that were in fact
+/// recorded — the harmless direction, and one the user can dismiss.
+pub async fn retract_persisted_loss(pool: &SqlitePool, writes: u64) {
+    if writes == 0 {
+        return;
+    }
+    let retracted = i64::try_from(writes).unwrap_or(i64::MAX);
+    if let Err(error) = sqlx::query(RETRACT_LOSS_SQL)
+        .bind(retracted)
+        .execute(pool)
+        .await
+    {
+        tracing::warn!(%error, "failed to retract the lost usage writes marker");
     }
 }
 
