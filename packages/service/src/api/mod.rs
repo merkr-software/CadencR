@@ -136,7 +136,6 @@ fn compression_layer() -> tower_http::compression::CompressionLayer {
 /// remote-access control endpoints (enable/disable/status/pairing-code/revoke),
 /// which a remote device can therefore never reach.
 pub fn build_router(state: AppState) -> Router {
-    let limiter = std::sync::Arc::new(middleware::RateLimiter::default());
     build_api_routes()
         .route("/api/browser-bridge", put(register_browser_bridge))
         .merge(crate::domain::mcp::control::control_router())
@@ -145,8 +144,6 @@ pub fn build_router(state: AppState) -> Router {
             state.clone(),
             middleware::auth_middleware,
         ))
-        .layer(axum::middleware::from_fn(middleware::rate_limit_middleware))
-        .layer(axum::Extension(limiter))
         .layer(compression_layer())
         .with_state(state)
 }

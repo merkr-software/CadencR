@@ -141,6 +141,10 @@ pub struct SessionErrorPayload {
     /// mode in the cycle without re-querying state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
+    /// Delay requested after a transient rate-limit response. Clients use this
+    /// instead of immediately feeding a reconnect storm.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
