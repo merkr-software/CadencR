@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use crate::domain::agents::adapter::{
-    RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeUsage,
+    RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimeTokenUsage,
+    RuntimeTokenUsageEntry, RuntimeUsage,
 };
 
 /// Forward a `RuntimeEventKind::Result` envelope to the message channel
@@ -32,16 +33,64 @@ pub async fn emit_turn_result(
         context_window,
         raw,
     };
-    let event = RuntimeEvent::new(metadata, RuntimeEventKind::Result);
+    let token_usage = accounting_token_usage(response);
+    let event = RuntimeEvent::new(metadata, RuntimeEventKind::Result).with_token_usage(token_usage);
     if let Err(error) = tx.send(Ok(event)).await {
         tracing::debug!(%error, "failed to forward ACP turn result; channel closed");
     }
 }
 
+/// Parse the draft ACP end-turn usage shape. `totalTokens` is authoritative
+/// when present: cache and thought categories differ across providers in
+/// whether they overlap input/output, while the total always describes the
+/// actual number the provider wants clients to report.
+fn accounting_token_usage(response: &Value) -> Option<RuntimeTokenUsage> {
+    let usage = response.get("usage")?;
+    let input = usage_field(usage, "inputTokens", "input_tokens");
+    let output = usage_field(usage, "outputTokens", "output_tokens");
+    let thought = usage_field(usage, "thoughtTokens", "thought_tokens");
+    let cached_read = usage_field(usage, "cachedReadTokens", "cached_read_tokens");
+    let cached_write = usage_field(usage, "cachedWriteTokens", "cached_write_tokens");
+    let input_with_cache = input
+        .saturating_add(cached_read)
+        .saturating_add(cached_write);
+
+    let (input_tokens, output_tokens) =
+        match usage_field_optional(usage, "totalTokens", "total_tokens") {
+            Some(total) if total > 0 => {
+                let input_tokens = input_with_cache.min(total);
+                (input_tokens, total.saturating_sub(input_tokens))
+            }
+            _ => (input_with_cache, output.saturating_add(thought)),
+        };
+    if input_tokens == 0 && output_tokens == 0 {
+        return None;
+    }
+    Some(RuntimeTokenUsage::delta(
+        None,
+        vec![RuntimeTokenUsageEntry {
+            model_id: None,
+            input_tokens,
+            output_tokens,
+        }],
+    ))
+}
+
+fn usage_field(usage: &Value, camel: &str, snake: &str) -> u64 {
+    usage_field_optional(usage, camel, snake).unwrap_or(0)
+}
+
+fn usage_field_optional(usage: &Value, camel: &str, snake: &str) -> Option<u64> {
+    usage
+        .get(camel)
+        .or_else(|| usage.get(snake))
+        .and_then(Value::as_u64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::emit_turn_result;
-    use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+    use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeTokenUsage};
     use serde_json::json;
     use tokio::sync::mpsc;
 
@@ -95,6 +144,12 @@ mod tests {
             "session/prompt usage is per-turn accounting, not a context-budget snapshot",
         );
         assert_eq!(event.context_window(), Some(200_000));
+        let tokens = event.token_usage().expect("end-turn token usage");
+        let RuntimeTokenUsage::Delta { entries, .. } = tokens else {
+            panic!("expected per-turn usage");
+        };
+        assert_eq!(entries[0].input_tokens, 10_653);
+        assert_eq!(entries[0].output_tokens, 16);
     }
 
     #[tokio::test]

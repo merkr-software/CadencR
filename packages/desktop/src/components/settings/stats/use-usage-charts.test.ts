@@ -10,8 +10,8 @@ function entry(partial: Partial<UsageStatsEntry> & { provider_id: string }): Usa
     day: END_DAY,
     model_id: "opus",
     thinking_effort: "high",
-    input_words: 10,
-    output_words: 100,
+    input_tokens: 10,
+    output_tokens: 100,
     ...partial,
   };
 }
@@ -29,10 +29,10 @@ function render(entries: UsageStatsEntry[], selectedProviderId: string | null = 
 }
 
 describe("useUsageCharts", () => {
-  it("ranks providers by total words and follows the busiest one by default", () => {
+  it("ranks providers by total tokens and follows the busiest one by default", () => {
     const charts = render([
-      entry({ provider_id: "codex_cli", input_words: 1, output_words: 1 }),
-      entry({ provider_id: "claude_code", input_words: 50, output_words: 500 }),
+      entry({ provider_id: "codex_cli", input_tokens: 1, output_tokens: 1 }),
+      entry({ provider_id: "claude_code", input_tokens: 50, output_tokens: 500 }),
     ]);
 
     expect(charts.providerIds).toEqual(["claude_code", "codex_cli"]);
@@ -44,7 +44,7 @@ describe("useUsageCharts", () => {
 
   it("keeps the user's pick while it still has usage", () => {
     const entries = [
-      entry({ provider_id: "claude_code", input_words: 50, output_words: 500 }),
+      entry({ provider_id: "claude_code", input_tokens: 50, output_tokens: 500 }),
       entry({ provider_id: "codex_cli" }),
     ];
 
@@ -59,13 +59,13 @@ describe("useUsageCharts", () => {
 
   it("reports window totals that include providers folded into Other", () => {
     const entries = Array.from({ length: 6 }, (_, index) =>
-      entry({ provider_id: `provider_${index}`, input_words: 1, output_words: 2 }),
+      entry({ provider_id: `provider_${index}`, input_tokens: 1, output_tokens: 2 }),
     );
 
     const { summary } = render(entries);
 
-    expect(summary.totalInputWords).toBe(6);
-    expect(summary.totalOutputWords).toBe(12);
+    expect(summary.totalInputTokens).toBe(6);
+    expect(summary.totalOutputTokens).toBe(12);
   });
 
   it("names the busiest model and effort pairing across every provider", () => {
@@ -75,7 +75,7 @@ describe("useUsageCharts", () => {
         provider_id: "codex_cli",
         model_id: "gpt-5.5",
         thinking_effort: "high",
-        output_words: 900,
+        output_tokens: 900,
       }),
     ]);
 
@@ -88,6 +88,6 @@ describe("useUsageCharts", () => {
     expect(charts.providerIds).toEqual([]);
     expect(charts.activeProviderId).toBeNull();
     expect(charts.summary.topModel).toBeNull();
-    expect(charts.summary.totalOutputWords).toBe(0);
+    expect(charts.summary.totalOutputTokens).toBe(0);
   });
 });

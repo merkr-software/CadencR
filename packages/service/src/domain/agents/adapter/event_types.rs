@@ -3,7 +3,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use serde_json::Value;
 
-use super::config::RuntimeUsage;
+use super::config::{RuntimeTokenUsage, RuntimeUsage};
 use super::permission::RuntimeSlashCommand;
 
 #[derive(Debug, Clone)]
@@ -24,6 +24,10 @@ pub struct RuntimeEvent {
     /// the turn looking like a clean stop with no output (issue #78). `None`
     /// for a successful result and for every non-result event.
     pub(super) result_error: Option<RuntimeResultError>,
+    /// Provider-native token accounting, kept separate from
+    /// `metadata.usage` because that field is the current context-window
+    /// snapshot rather than consumption.
+    pub(super) token_usage: Option<RuntimeTokenUsage>,
 }
 
 /// Provider-neutral detail of a turn-ending result that reported failure.

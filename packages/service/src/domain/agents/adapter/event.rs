@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::config::RuntimeUsage;
+use super::config::{RuntimeTokenUsage, RuntimeUsage};
 use super::event_types::{
     BackgroundAgentSignal, RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEvent,
     RuntimeEventKind, RuntimeEventMetadata, RuntimeInitEvent, RuntimeProviderError,
@@ -16,6 +16,7 @@ impl RuntimeEvent {
             kind,
             background_agent: None,
             result_error: None,
+            token_usage: None,
         }
     }
 
@@ -43,6 +44,15 @@ impl RuntimeEvent {
     /// error. `None` for a successful result and every non-result event.
     pub fn result_error(&self) -> Option<&RuntimeResultError> {
         self.result_error.as_ref()
+    }
+
+    pub fn with_token_usage(mut self, usage: Option<RuntimeTokenUsage>) -> Self {
+        self.token_usage = usage.filter(|usage| !usage.is_zero());
+        self
+    }
+
+    pub fn token_usage(&self) -> Option<&RuntimeTokenUsage> {
+        self.token_usage.as_ref()
     }
 
     pub fn session_id(&self) -> Option<&str> {

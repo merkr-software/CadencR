@@ -2,9 +2,9 @@ import { memo, useCallback, useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import type { UsageChartData, UsageDay } from "./usage-stats-model";
 import {
-  formatCompactWords,
+  formatCompactTokens,
   formatDayLabel,
-  formatExactWords,
+  formatExactNumber,
   seriesColor,
 } from "./usage-chart-palette";
 import { UsageChartTooltip } from "./UsageChartTooltip";
@@ -13,7 +13,7 @@ import { PLOT_HEIGHT_PX, segmentHeights } from "./usage-bar-heights";
 
 interface UsageTimelineChartProps {
   data: UsageChartData;
-  /** Names the measure the bar heights encode, e.g. "words exchanged". */
+  /** Names the measure the bar heights encode, e.g. "tokens exchanged". */
   metricLabel: string;
   emptyMessage: string;
 }
@@ -137,8 +137,8 @@ function YAxis({ max }: { max: number }): React.JSX.Element {
       style={{ height: PLOT_HEIGHT_PX }}
       aria-hidden
     >
-      <span>{formatCompactWords(max)}</span>
-      <span>{formatCompactWords(max / 2)}</span>
+      <span>{formatCompactTokens(max)}</span>
+      <span>{formatCompactTokens(max / 2)}</span>
       <span>0</span>
     </div>
   );
@@ -198,7 +198,7 @@ const DayColumn = memo(function DayColumn({
       onBlur={() => onHover(null)}
       tabIndex={focusable ? 0 : -1}
       role="img"
-      aria-label={`${formatDayLabel(day.day)}: ${formatExactWords(day.total)} ${metricLabel}`}
+      aria-label={`${formatDayLabel(day.day)}: ${formatExactNumber(day.total)} ${metricLabel}`}
     >
       {stacked.map((segment, index) => (
         <div

@@ -201,6 +201,14 @@ pub struct ModelUsageInfo {
     pub cost_usd: Option<f64>,
 }
 
+impl ModelUsageInfo {
+    pub fn total_input_tokens(&self) -> u64 {
+        self.input_tokens
+            .saturating_add(self.cache_read_input_tokens)
+            .saturating_add(self.cache_creation_input_tokens)
+    }
+}
+
 // ── AssistantMessageBody ─────────────────────────────────────────────────────
 
 /// Full assistant message body (emitted after a stream turn completes).

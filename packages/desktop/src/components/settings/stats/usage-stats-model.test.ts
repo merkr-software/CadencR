@@ -18,8 +18,8 @@ function entry(overrides: Partial<UsageStatsEntry> = {}): UsageStatsEntry {
     provider_id: "claude_code",
     model_id: "opus",
     thinking_effort: "high",
-    input_words: 10,
-    output_words: 90,
+    input_tokens: 10,
+    output_tokens: 90,
     ...overrides,
   };
 }
@@ -29,7 +29,7 @@ const identity = (key: string): string => key;
 
 describe("metricValue", () => {
   it("splits the exchange into sent, received, and their sum", () => {
-    const row = entry({ input_words: 3, output_words: 7 });
+    const row = entry({ input_tokens: 3, output_tokens: 7 });
     expect(metricValue(row, "input")).toBe(3);
     expect(metricValue(row, "output")).toBe(7);
     expect(metricValue(row, "total")).toBe(10);
@@ -112,8 +112,8 @@ describe("buildUsageChart", () => {
   it("sums buckets that differ only by model into one provider series", () => {
     const chart = buildUsageChart({
       entries: [
-        entry({ model_id: "opus", input_words: 1, output_words: 2 }),
-        entry({ model_id: "sonnet", input_words: 3, output_words: 4 }),
+        entry({ model_id: "opus", input_tokens: 1, output_tokens: 2 }),
+        entry({ model_id: "sonnet", input_tokens: 3, output_tokens: 4 }),
       ],
       metric: "total",
       seriesKeyOf: byProvider,
@@ -124,8 +124,8 @@ describe("buildUsageChart", () => {
     expect(chart.series).toHaveLength(1);
     expect(chart.series[0]).toMatchObject({
       key: "claude_code",
-      inputWords: 4,
-      outputWords: 6,
+      inputTokens: 4,
+      outputTokens: 6,
       value: 10,
     });
     expect(chart.max).toBe(10);
@@ -134,7 +134,7 @@ describe("buildUsageChart", () => {
 
   it("charts only the selected metric but still reports both halves", () => {
     const chart = buildUsageChart({
-      entries: [entry({ input_words: 10, output_words: 90 })],
+      entries: [entry({ input_tokens: 10, output_tokens: 90 })],
       metric: "input",
       seriesKeyOf: byProvider,
       labelOf: identity,
@@ -142,15 +142,15 @@ describe("buildUsageChart", () => {
     });
 
     expect(chart.max).toBe(10);
-    expect(chart.series[0].inputWords).toBe(10);
-    expect(chart.series[0].outputWords).toBe(90);
+    expect(chart.series[0].inputTokens).toBe(10);
+    expect(chart.series[0].outputTokens).toBe(90);
   });
 
-  it("ranks series by total words regardless of the charted metric", () => {
+  it("ranks series by total tokens regardless of the charted metric", () => {
     // "quiet" sends far more than it receives; "loud" is the bigger overall.
     const entries = [
-      entry({ provider_id: "loud", input_words: 1, output_words: 500 }),
-      entry({ provider_id: "quiet", input_words: 100, output_words: 1 }),
+      entry({ provider_id: "loud", input_tokens: 1, output_tokens: 500 }),
+      entry({ provider_id: "quiet", input_tokens: 100, output_tokens: 1 }),
     ];
     const forEachMetric = (["total", "input", "output"] as const).map(
       (metric) =>
@@ -164,8 +164,8 @@ describe("buildUsageChart", () => {
   it("assigns one palette slot per series in rank order", () => {
     const chart = buildUsageChart({
       entries: [
-        entry({ provider_id: "a", input_words: 0, output_words: 5 }),
-        entry({ provider_id: "b", input_words: 0, output_words: 50 }),
+        entry({ provider_id: "a", input_tokens: 0, output_tokens: 5 }),
+        entry({ provider_id: "b", input_tokens: 0, output_tokens: 50 }),
       ],
       metric: "total",
       seriesKeyOf: byProvider,
@@ -182,13 +182,13 @@ describe("buildUsageChart", () => {
   it("folds everything past the palette into one Other bucket", () => {
     const FOLDED_COUNT = 3;
     // Descending, so p0 ranks first and the last FOLDED_COUNT entries fold.
-    const wordsFor = (index: number): number => 100 - index;
+    const tokensFor = (index: number): number => 100 - index;
     const entries = Array.from({ length: MAX_COLORED_SERIES + FOLDED_COUNT }, (_, index) =>
-      entry({ provider_id: `p${index}`, input_words: 0, output_words: wordsFor(index) }),
+      entry({ provider_id: `p${index}`, input_tokens: 0, output_tokens: tokensFor(index) }),
     );
     const expectedFoldedTotal = Array.from({ length: FOLDED_COUNT }, (_, offset) =>
-      wordsFor(MAX_COLORED_SERIES + offset),
-    ).reduce((sum, words) => sum + words, 0);
+      tokensFor(MAX_COLORED_SERIES + offset),
+    ).reduce((sum, tokens) => sum + tokens, 0);
 
     const chart = buildUsageChart({
       entries,

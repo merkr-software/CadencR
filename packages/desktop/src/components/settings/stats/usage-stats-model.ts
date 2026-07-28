@@ -17,8 +17,8 @@ export interface UsageSeries {
   label: string;
   /** Palette slot `0…MAX_COLORED_SERIES-1`, or `-1` for the "Other" bucket. */
   colorIndex: number;
-  inputWords: number;
-  outputWords: number;
+  inputTokens: number;
+  outputTokens: number;
   /** The metric currently being charted — what the bar heights encode. */
   value: number;
 }
@@ -41,9 +41,9 @@ export interface UsageChartData {
 }
 
 export function metricValue(entry: UsageStatsEntry, metric: UsageMetric): number {
-  if (metric === "input") return entry.input_words;
-  if (metric === "output") return entry.output_words;
-  return entry.input_words + entry.output_words;
+  if (metric === "input") return entry.input_tokens;
+  if (metric === "output") return entry.output_tokens;
+  return entry.input_tokens + entry.output_tokens;
 }
 
 /**
@@ -106,15 +106,15 @@ export function dayAxis(days: number, endDay: string): string[] {
 }
 
 /**
- * Keys that saw usage, busiest first. Ranking is on *total* words whatever
+ * Keys that saw usage, busiest first. Ranking is on *total* tokens whatever
  * metric is on screen, and ties break on the key so the order is stable.
  *
  * Shared so the chart's series order and the provider filter's order cannot
  * drift apart: they are the same list, ranked once.
  */
-export function rankKeysByTotalWords(totalWordsByKey: Map<string, number>): string[] {
-  return [...totalWordsByKey.entries()]
-    .filter(([, words]) => words > 0)
+export function rankKeysByTotalTokens(totalTokensByKey: Map<string, number>): string[] {
+  return [...totalTokensByKey.entries()]
+    .filter(([, tokens]) => tokens > 0)
     .sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB))
     .map(([key]) => key);
 }
@@ -130,16 +130,16 @@ interface BuildUsageChartParams {
 }
 
 interface SeriesTotals {
-  inputWords: number;
-  outputWords: number;
+  inputTokens: number;
+  outputTokens: number;
   value: number;
 }
 
 /**
  * Pivot flat per-day buckets into a stacked-bar timeline.
  *
- * Series are ranked — and therefore colored — by *total* words exchanged, never
- * by the metric currently on screen. Toggling Sent / Received / Total changes
+ * Series are ranked — and therefore colored — by *total* tokens exchanged, never
+ * by the metric currently on screen. Toggling Input / Output / Total changes
  * the bar heights, not who owns which hue, so the eye can follow one provider
  * across all three views.
  */
@@ -158,9 +158,9 @@ export function buildUsageChart({
     const key = seriesKeyOf(entry);
     if (key === null || !inWindow.has(entry.day)) continue;
 
-    const running = totals.get(key) ?? { inputWords: 0, outputWords: 0, value: 0 };
-    running.inputWords += entry.input_words;
-    running.outputWords += entry.output_words;
+    const running = totals.get(key) ?? { inputTokens: 0, outputTokens: 0, value: 0 };
+    running.inputTokens += entry.input_tokens;
+    running.outputTokens += entry.output_tokens;
     running.value += metricValue(entry, metric);
     totals.set(key, running);
 
@@ -169,9 +169,11 @@ export function buildUsageChart({
     perDay.set(entry.day, day);
   }
 
-  const ranking = rankKeysByTotalWords(
+  const ranking = rankKeysByTotalTokens(
     new Map(
-      [...totals].map(([key, running]) => [key, running.inputWords + running.outputWords] as const),
+      [...totals].map(
+        ([key, running]) => [key, running.inputTokens + running.outputTokens] as const,
+      ),
     ),
   );
   const ranked = ranking.map((key) => [key, totals.get(key)!] as const);
@@ -191,8 +193,8 @@ export function buildUsageChart({
       key: OTHER_SERIES_KEY,
       label: `Other (${folded.length})`,
       colorIndex: -1,
-      inputWords: folded.reduce((sum, [, running]) => sum + running.inputWords, 0),
-      outputWords: folded.reduce((sum, [, running]) => sum + running.outputWords, 0),
+      inputTokens: folded.reduce((sum, [, running]) => sum + running.inputTokens, 0),
+      outputTokens: folded.reduce((sum, [, running]) => sum + running.outputTokens, 0),
       value: folded.reduce((sum, [, running]) => sum + running.value, 0),
     });
   }

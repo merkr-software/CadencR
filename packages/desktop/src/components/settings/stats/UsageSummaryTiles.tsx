@@ -1,11 +1,11 @@
 import type { ReactNode } from "react";
 import { ArrowDownLeft, ArrowUpRight } from "lucide-react";
-import { formatCompactWords, formatExactWords } from "./usage-chart-palette";
+import { formatCompactTokens, formatExactNumber } from "./usage-chart-palette";
 
 export interface UsageSummary {
-  totalInputWords: number;
-  totalOutputWords: number;
-  /** Display label of the provider with the most words exchanged. */
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  /** Display label of the provider with the most tokens exchanged. */
   topProvider: string | null;
   /** Display label of the busiest model + thinking level pairing. */
   topModel: string | null;
@@ -20,15 +20,15 @@ export function UsageSummaryTiles({ summary }: { summary: UsageSummary }): React
   return (
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
       <Tile
-        label="Words sent"
-        value={formatCompactWords(summary.totalInputWords)}
-        title={`${formatExactWords(summary.totalInputWords)} words sent`}
+        label="Input tokens"
+        value={formatCompactTokens(summary.totalInputTokens)}
+        title={`${formatExactNumber(summary.totalInputTokens)} input tokens`}
         icon={<ArrowUpRight className="size-3.5" />}
       />
       <Tile
-        label="Words received"
-        value={formatCompactWords(summary.totalOutputWords)}
-        title={`${formatExactWords(summary.totalOutputWords)} words received`}
+        label="Output tokens"
+        value={formatCompactTokens(summary.totalOutputTokens)}
+        title={`${formatExactNumber(summary.totalOutputTokens)} output tokens`}
         icon={<ArrowDownLeft className="size-3.5" />}
       />
       <Tile label="Top provider" value={summary.topProvider ?? "—"} name />

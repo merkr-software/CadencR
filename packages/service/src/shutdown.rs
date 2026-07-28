@@ -10,10 +10,6 @@
 //!    while axum drains the requests it had already accepted. Concurrently: the
 //!    teardown is what lets a live agent stream end, so serialising them would
 //!    guarantee the drain runs out its grace period on every quit.
-//! 3. Flush the usage writes, once nothing can enqueue any more. Draining them
-//!    inside axum's shutdown future — before the HTTP drain — would let a
-//!    request that is still finishing hand off words nobody is waiting for, and
-//!    lose them without even counting them as lost.
 
 use std::future::Future;
 use std::time::Duration;
@@ -22,7 +18,7 @@ use tokio::sync::oneshot;
 
 /// How long the requests axum already accepted get to finish once the listener
 /// is closed. A connection that never closes on its own — an idle WebSocket —
-/// must not hold the usage drain hostage, so the wait is bounded.
+/// must not hold shutdown hostage, so the wait is bounded.
 const DRAIN_GRACE: Duration = Duration::from_secs(3);
 
 /// The future handed to `with_graceful_shutdown`. It resolves as soon as the
@@ -36,26 +32,21 @@ pub async fn stop_admitting_on_signal(drain_started: oneshot::Sender<()>) {
     let _ = drain_started.send(());
 }
 
-/// Serve until shutdown, then tear down background work and flush the usage
-/// writes.
-///
-/// The flush waits for the HTTP drain (bounded by [`DRAIN_GRACE`]) so the words
-/// of the very last request are already in flight by the time we wait for them.
-pub async fn serve_then_flush<S>(
+/// Serve until shutdown while tearing down background work alongside the
+/// bounded HTTP drain.
+pub async fn serve_then_shutdown<S>(
     server: S,
     drain_started: oneshot::Receiver<()>,
     pty_manager: crate::domain::terminal::service::PtyManager,
     remote: std::sync::Arc<crate::remote::RemoteController>,
-    write_pool: sqlx::SqlitePool,
 ) -> std::io::Result<()>
 where
     S: std::future::IntoFuture<Output = std::io::Result<()>>,
 {
-    serve_then_flush_within(
+    serve_then_shutdown_within(
         server,
         drain_started,
         stop_background_work(pty_manager, remote),
-        write_pool,
         DRAIN_GRACE,
     )
     .await
@@ -78,13 +69,12 @@ async fn stop_background_work(
     tracing::info!("Runtime servers stopped.");
 }
 
-/// [`serve_then_flush`] with the teardown and grace period spelled out, so a
+/// [`serve_then_shutdown`] with the teardown and grace period spelled out, so a
 /// test can assert the ordering without real processes or the real timeout.
-async fn serve_then_flush_within<S, T>(
+async fn serve_then_shutdown_within<S, T>(
     server: S,
     drain_started: oneshot::Receiver<()>,
     teardown: T,
-    write_pool: sqlx::SqlitePool,
     grace: Duration,
 ) -> std::io::Result<()>
 where
@@ -105,7 +95,7 @@ where
         result = &mut server => Some(result),
     };
 
-    let served = match stopped_on_its_own {
+    match stopped_on_its_own {
         Some(result) => {
             teardown.await;
             result
@@ -120,10 +110,7 @@ where
                 Ok(())
             })
         }
-    };
-
-    crate::domain::usage_stats::flush_pending_writes(&write_pool).await;
-    served
+    }
 }
 
 async fn wait_for_signal() {
@@ -150,25 +137,14 @@ async fn wait_for_signal() {
 
 #[cfg(test)]
 mod tests {
-    use super::serve_then_flush_within;
+    use super::serve_then_shutdown_within;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
     use tokio::sync::oneshot;
 
-    async fn pool() -> sqlx::SqlitePool {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
-        pool
-    }
-
     #[tokio::test]
-    async fn tears_down_background_work_while_the_drain_runs_and_flushes_after() {
-        let pool = pool().await;
+    async fn tears_down_background_work_while_the_drain_runs() {
         let (drain_tx, drain_rx) = oneshot::channel();
         let (finish_tx, finish_rx) = oneshot::channel();
         let server = async move {
@@ -178,11 +154,10 @@ mod tests {
         let torn_down = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&torn_down);
 
-        let served = tokio::spawn(serve_then_flush_within(
+        let served = tokio::spawn(serve_then_shutdown_within(
             server,
             drain_rx,
             async move { flag.store(true, Ordering::Relaxed) },
-            pool,
             Duration::from_secs(30),
         ));
         drain_tx.send(()).unwrap();
@@ -195,9 +170,8 @@ mod tests {
             torn_down.load(Ordering::Relaxed),
             "background work is torn down while the drain is still running"
         );
-        // …while the flush must, or the last request's words are counted after
-        // nobody is left to write them.
-        assert!(!served.is_finished(), "the flush waited for the drain");
+        // The server still waits for the accepted request to finish.
+        assert!(!served.is_finished(), "the server waited for the drain");
 
         finish_tx.send(()).unwrap();
         served.await.unwrap().unwrap();
@@ -210,17 +184,15 @@ mod tests {
     #[tokio::test]
     async fn tears_down_even_when_the_drain_finishes_instantly() {
         for _ in 0..20 {
-            let pool = pool().await;
             let (drain_tx, drain_rx) = oneshot::channel();
             let torn_down = Arc::new(AtomicBool::new(false));
             let flag = Arc::clone(&torn_down);
             drain_tx.send(()).unwrap();
 
-            serve_then_flush_within(
+            serve_then_shutdown_within(
                 std::future::ready(Ok(())),
                 drain_rx,
                 async move { flag.store(true, Ordering::Relaxed) },
-                pool,
                 Duration::from_secs(30),
             )
             .await
@@ -235,7 +207,6 @@ mod tests {
 
     #[tokio::test]
     async fn tears_down_when_the_server_stops_without_a_signal() {
-        let pool = pool().await;
         let (_drain_tx, drain_rx) = oneshot::channel();
         let torn_down = Arc::new(AtomicBool::new(false));
         let flag = Arc::clone(&torn_down);
@@ -243,11 +214,10 @@ mod tests {
         // A listener error ends the server with no shutdown signal at all; the
         // processes it spawned still have to go.
         let failed = std::future::ready(Err(std::io::Error::other("listener died")));
-        let served = serve_then_flush_within(
+        let served = serve_then_shutdown_within(
             failed,
             drain_rx,
             async move { flag.store(true, Ordering::Relaxed) },
-            pool,
             Duration::from_secs(30),
         )
         .await;
@@ -258,20 +228,18 @@ mod tests {
 
     #[tokio::test]
     async fn does_not_wait_forever_on_a_connection_that_never_closes() {
-        let pool = pool().await;
         let (drain_tx, drain_rx) = oneshot::channel();
 
-        let served = tokio::spawn(serve_then_flush_within(
+        let served = tokio::spawn(serve_then_shutdown_within(
             std::future::pending::<std::io::Result<()>>(),
             drain_rx,
             std::future::ready(()),
-            pool,
             Duration::from_millis(20),
         ));
         drain_tx.send(()).unwrap();
 
-        // A connection that never closes: the grace period expires, and the
-        // flush still runs rather than shutdown hanging on it.
+        // A connection that never closes: the grace period expires rather than
+        // hanging shutdown forever.
         assert!(served.await.unwrap().is_ok());
     }
 }

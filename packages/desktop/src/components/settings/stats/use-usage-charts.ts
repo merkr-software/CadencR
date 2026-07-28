@@ -6,7 +6,7 @@ import {
   buildUsageChart,
   dayAxis,
   modelSeriesKey,
-  rankKeysByTotalWords,
+  rankKeysByTotalTokens,
   splitModelSeriesKey,
   type UsageChartData,
   type UsageMetric,
@@ -66,7 +66,7 @@ export function useUsageCharts({
   const axis = useMemo(() => dayAxis(windowDays, endDay), [windowDays, endDay]);
 
   const providerIds = useMemo(
-    () => rankByTotalWords(entries, axis, (entry) => entry.provider_id),
+    () => rankByTotalTokens(entries, axis, (entry) => entry.provider_id),
     [entries, axis],
   );
   // Resolving the fallback here rather than syncing it into state keeps the
@@ -103,11 +103,11 @@ export function useUsageCharts({
     [entries, metric, axis, activeProviderId],
   );
 
-  // Ranked by total words, so the tile agrees with the chart order whichever
+  // Ranked by total tokens, so the tile agrees with the chart order whichever
   // metric is on screen.
   const topModelKey = useMemo(
     () =>
-      rankByTotalWords(entries, axis, (entry) =>
+      rankByTotalTokens(entries, axis, (entry) =>
         modelSeriesKey(entry.model_id, entry.thinking_effort),
       )[0],
     [entries, axis],
@@ -117,8 +117,8 @@ export function useUsageCharts({
     () => ({
       // Every in-window row lands in exactly one series — including the folded
       // "Other" — so the series totals are the window totals.
-      totalInputWords: providerChart.series.reduce((total, s) => total + s.inputWords, 0),
-      totalOutputWords: providerChart.series.reduce((total, s) => total + s.outputWords, 0),
+      totalInputTokens: providerChart.series.reduce((total, s) => total + s.inputTokens, 0),
+      totalOutputTokens: providerChart.series.reduce((total, s) => total + s.outputTokens, 0),
       topProvider: providerChart.series[0]?.label ?? null,
       topModel: topModelKey === undefined ? null : modelLabel(topModelKey),
     }),
@@ -135,7 +135,7 @@ export function useUsageCharts({
  * Keys present in the window, busiest first — ranked by the same helper
  * `buildUsageChart` ranks its series with, so the two can't disagree.
  */
-function rankByTotalWords(
+function rankByTotalTokens(
   entries: UsageStatsEntry[],
   axis: string[],
   keyOf: (entry: UsageStatsEntry) => string,
@@ -145,7 +145,7 @@ function rankByTotalWords(
   for (const entry of entries) {
     if (!inWindow.has(entry.day)) continue;
     const key = keyOf(entry);
-    totals.set(key, (totals.get(key) ?? 0) + entry.input_words + entry.output_words);
+    totals.set(key, (totals.get(key) ?? 0) + entry.input_tokens + entry.output_tokens);
   }
-  return rankKeysByTotalWords(totals);
+  return rankKeysByTotalTokens(totals);
 }

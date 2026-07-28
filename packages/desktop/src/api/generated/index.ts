@@ -2961,17 +2961,14 @@ export interface UpsertProfileRequest {
 }
 
 /**
- * A usage write that failed, surfaced to the user.
+ * Provider usage data operations that failed, surfaced to the user.
 
-Usage recording is deliberately fire-and-forget so a counter can never fail
-an agent turn — but "cannot fail the turn" is not the same as "may be
-swallowed". Failures are counted here and reported on the next
-`/api/usage-stats` read, so the Stats tab can tell the user its numbers are
-incomplete instead of quietly under-reporting.
+Recording is awaited so writes preserve provider event order, but a stats
+failure must never fail an agent turn. Failures are counted here and
+reported on the next `/api/usage-stats` read instead of being swallowed.
  */
 export interface UsageRecordingIssue {
-  /** Failed usage writes: those seen since this start, plus any earlier run's
-writes that were lost at shutdown. */
+  /** Failed provider usage operations seen since this service start. */
   failures: number;
   /** Message from the most recent failure. */
   last_error: string;
@@ -2987,11 +2984,11 @@ provider reported none; see the migration for why.
 export interface UsageStatsEntry {
   /** UTC day, `YYYY-MM-DD`. */
   day: string;
-  /** Words sent to the provider (user prompts). */
-  input_words: number;
+  /** Provider-reported input and cache tokens. */
+  input_tokens: number;
   model_id: string;
-  /** Words received from the provider (assistant text and thinking). */
-  output_words: number;
+  /** Provider-reported output and thought/reasoning tokens. */
+  output_tokens: number;
   provider_id: string;
   thinking_effort: string;
 }
@@ -3011,11 +3008,6 @@ the oldest day and appending a blank one. */
 per-provider and per-model timelines; the row count is bounded by
 days × providers × models × efforts. */
   entries: UsageStatsEntry[];
-  /** The one-time import of pre-existing conversations is still running, so
-this window is partial — usually empty — and worth asking for again. It
-publishes every bucket in one final transaction, so there is nothing to
-see until it flips false. */
-  import_in_progress: boolean;
   recording_issue?: UsageStatsResponseRecordingIssue;
 }
 
@@ -14003,10 +13995,8 @@ export function useGetUsageStats<
 }
 
 /**
- * A loss counted at shutdown is an estimate of what did not land, so it can
-overstate the damage; without this the user would be stuck with a permanent
-"these totals may be incomplete" they cannot answer. A later failure raises
-it again.
+ * Acknowledge the current service run's recording failures. A later failure
+raises the warning again.
  * @summary Retire the recording warning the stats read reports.
  */
 export const dismissUsageRecordingIssue = () => {

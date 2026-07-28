@@ -1,11 +1,11 @@
 import type { UsageDay } from "./usage-stats-model";
-import { formatDayLabel, formatExactWords } from "./usage-chart-palette";
+import { formatDayLabel, formatExactNumber } from "./usage-chart-palette";
 
 interface UsageChartTooltipProps {
   day: UsageDay;
   labels: Map<string, string>;
   colors: Map<string, string>;
-  /** What the numbers count, e.g. "words exchanged". */
+  /** What the numbers count, e.g. "tokens exchanged". */
   unit: string;
 }
 
@@ -32,7 +32,7 @@ export function UsageChartTooltip({
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
         <span className="font-medium text-foreground">{formatDayLabel(day.day)}</span>
         <span className="text-[11px] text-muted-foreground">
-          {formatExactWords(day.total)} {unit}
+          {formatExactNumber(day.total)} {unit}
         </span>
       </div>
       {day.segments.length === 0 ? (
@@ -52,7 +52,7 @@ export function UsageChartTooltip({
                 </span>
               </span>
               <span className="shrink-0 tabular-nums text-foreground">
-                {formatExactWords(segment.value)}
+                {formatExactNumber(segment.value)}
               </span>
             </li>
           ))}

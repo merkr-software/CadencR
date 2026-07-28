@@ -1,4 +1,4 @@
-//! What a session's words are filed under: provider, model, thinking effort.
+//! What a session's tokens are filed under: provider, model, thinking effort.
 
 use sqlx::{Row, SqlitePool};
 use tracing::warn;
@@ -9,20 +9,20 @@ use crate::domain::usage_stats::models::UsageAttribution;
 const SESSION_ATTRIBUTION_SQL: &str =
     "SELECT runtime_provider, model, thinking_effort FROM agent_sessions WHERE id = ?";
 
-/// Take the attribution a turn's words should be filed under, at the moment the
-/// turn produces its first word.
+/// Take the attribution a turn's tokens should be filed under, at the moment the
+/// turn produces its first provider event.
 ///
 /// Streamed output accumulates across a whole turn, and the session row is
 /// mutable while that turn runs: the user can switch model or thinking effort
 /// mid-stream and it is persisted immediately. Resolving attribution at flush
 /// time would then file a turn's output under a model that produced none of it,
 /// and split it from its own prompt — so callers snapshot here, early, and pass
-/// the snapshot to [`super::record_words_attributed`].
+/// the snapshot to [`super::record_runtime_usage`].
 pub async fn snapshot_attribution(pool: &SqlitePool, session_id: i64) -> Option<UsageAttribution> {
     resolve_session_attribution(pool, session_id).await
 }
 
-/// Resolve what a session's words should be attributed to. `None` when the row
+/// Resolve what a session's tokens should be attributed to. `None` when the row
 /// is gone or has no provider yet — there is nothing meaningful to chart.
 pub(super) async fn resolve_session_attribution(
     pool: &SqlitePool,

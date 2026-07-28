@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { axisTickIndexes, nextFocusIndex } from "./usage-axis";
-import { seriesColor, formatCompactWords, formatDayLabel } from "./usage-chart-palette";
+import { seriesColor, formatCompactTokens, formatDayLabel } from "./usage-chart-palette";
 import { MAX_COLORED_SERIES } from "./usage-stats-model";
 import { MIN_SEGMENT_PX, SEGMENT_GAP_PX, segmentHeights } from "./usage-bar-heights";
 
@@ -122,9 +122,9 @@ describe("seriesColor", () => {
 });
 
 describe("formatting", () => {
-  it("compacts large word counts", () => {
-    expect(formatCompactWords(1_234_000)).toMatch(/1\.2M/);
-    expect(formatCompactWords(0)).toBe("0");
+  it("compacts large token counts", () => {
+    expect(formatCompactTokens(1_234_000)).toMatch(/1\.2M/);
+    expect(formatCompactTokens(0)).toBe("0");
   });
 
   it("labels a day in UTC, not the local zone", () => {

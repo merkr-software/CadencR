@@ -1,5 +1,5 @@
 import type { UsageSeries } from "./usage-stats-model";
-import { formatCompactWords, formatExactWords, seriesColor } from "./usage-chart-palette";
+import { formatCompactTokens, formatExactNumber, seriesColor } from "./usage-chart-palette";
 
 /**
  * Always rendered when a chart has any series — identity must never rest on
@@ -15,9 +15,9 @@ export function UsageChartLegend({ series }: { series: UsageSeries[] }): React.J
         <li
           key={entry.key}
           className="flex items-center gap-1.5 text-[11px]"
-          title={`${entry.label} — ${formatExactWords(entry.inputWords)} sent, ${formatExactWords(
-            entry.outputWords,
-          )} received`}
+          title={`${entry.label} — ${formatExactNumber(entry.inputTokens)} input, ${formatExactNumber(
+            entry.outputTokens,
+          )} output`}
         >
           <span
             aria-hidden
@@ -25,7 +25,7 @@ export function UsageChartLegend({ series }: { series: UsageSeries[] }): React.J
             style={{ backgroundColor: seriesColor(entry.colorIndex) }}
           />
           <span className="text-muted-foreground">{entry.label}</span>
-          <span className="tabular-nums text-foreground">{formatCompactWords(entry.value)}</span>
+          <span className="tabular-nums text-foreground">{formatCompactTokens(entry.value)}</span>
         </li>
       ))}
     </ul>

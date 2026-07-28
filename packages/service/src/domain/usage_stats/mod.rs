@@ -1,25 +1,18 @@
-//! Long-lived record of how many words the user has exchanged with each
+//! Long-lived record of provider-reported token usage for each
 //! provider / model / thinking-effort combination.
 //!
-//! Deliberately decoupled from conversations: words are folded into a per-day
+//! Deliberately decoupled from conversations: tokens are folded into a per-day
 //! bucket keyed only by (provider, model, effort), so archiving a feature or
 //! deleting a conversation never erases the history behind the settings Stats
-//! tab. Recording is fire-and-forget (see [`recorder::record_session_words`])
-//! because it sits on the agent's streaming hot path.
+//! tab. Recording happens when the provider publishes native usage metadata,
+//! separately from the context-window snapshot used by the live usage bar.
 
-pub mod backfill;
 pub mod health;
+pub mod history_import;
 pub mod models;
-pub mod pending;
 pub mod recorder;
 pub mod repository;
 pub mod routes;
-pub mod word_count;
 
-pub use backfill::start as start_backfill;
 pub use models::UsageAttribution;
-pub use pending::flush as flush_pending_writes;
-pub use recorder::{
-    record_dispatched_prompt, record_session_words, record_words_attributed, snapshot_attribution,
-};
-pub use word_count::TurnWordUsage;
+pub use recorder::{record_runtime_usage, snapshot_attribution};

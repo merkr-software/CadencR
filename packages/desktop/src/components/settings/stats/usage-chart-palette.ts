@@ -45,13 +45,13 @@ const DAY = new Intl.DateTimeFormat(undefined, {
 });
 
 /** Axis and tile figures: "12.3K". */
-export function formatCompactWords(words: number): string {
-  return COMPACT.format(words);
+export function formatCompactTokens(tokens: number): string {
+  return COMPACT.format(tokens);
 }
 
-/** Tooltips and titles, where the precise number is worth the width. */
-export function formatExactWords(words: number): string {
-  return EXACT.format(words);
+/** Tooltips, titles, and counters where the precise value is worth the width. */
+export function formatExactNumber(value: number): string {
+  return EXACT.format(value);
 }
 
 /** "Jul 25" — short enough for a dense x-axis. */

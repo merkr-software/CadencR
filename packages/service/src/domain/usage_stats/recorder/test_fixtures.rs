@@ -38,10 +38,3 @@ pub(super) async fn pool_with_session(
 
     (pool, session_id)
 }
-
-/// `record_*` spawns the write, so tests must let it land.
-pub(super) async fn settle() {
-    for _ in 0..50 {
-        tokio::task::yield_now().await;
-    }
-}

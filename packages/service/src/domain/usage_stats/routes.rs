@@ -44,26 +44,21 @@ pub async fn get_usage_stats_handler(
         days,
         end_day,
         entries,
-        recording_issue: super::health::snapshot(&state.read_pool).await,
-        import_in_progress: super::backfill::in_progress(&state.read_pool).await?,
+        recording_issue: super::health::snapshot(),
     }))
 }
 
 /// Retire the recording warning the stats read reports.
 ///
-/// A loss counted at shutdown is an estimate of what did not land, so it can
-/// overstate the damage; without this the user would be stuck with a permanent
-/// "these totals may be incomplete" they cannot answer. A later failure raises
-/// it again.
+/// Acknowledge the current service run's recording failures. A later failure
+/// raises the warning again.
 #[utoipa::path(
     delete,
     path = "/api/usage-stats/recording-issue",
     responses((status = 204, description = "Warning dismissed"))
 )]
-pub async fn dismiss_usage_recording_issue_handler(
-    State(state): State<AppState>,
-) -> Result<StatusCode, AppError> {
-    super::health::acknowledge(&state.write_pool).await?;
+pub async fn dismiss_usage_recording_issue_handler() -> Result<StatusCode, AppError> {
+    super::health::acknowledge();
     Ok(StatusCode::NO_CONTENT)
 }
 

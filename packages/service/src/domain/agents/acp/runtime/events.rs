@@ -159,6 +159,10 @@ mod tests {
         assert_eq!(usage.input_tokens, 10_653);
         assert_eq!(usage.output_tokens, 0);
         assert_eq!(event.context_window(), Some(200_000));
+        assert!(
+            event.token_usage().is_none(),
+            "context occupancy is not accounting for providers with end-turn usage",
+        );
     }
     #[test]
     fn unknown_variant_falls_back_to_other_without_panicking() {
@@ -242,6 +246,7 @@ mod tests {
             .usage()
             .expect("session_info_update must surface usage");
         assert_eq!(usage.input_tokens, 4242);
+        assert!(event.token_usage().is_none());
     }
     #[tokio::test]
     async fn mirror_session_info_update_writes_current_model() {

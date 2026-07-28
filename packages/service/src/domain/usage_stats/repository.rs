@@ -2,19 +2,19 @@ use sqlx::SqlitePool;
 
 use super::models::{UsageAttribution, UsageStatsEntry};
 
-/// Add words to one day's bucket for a provider / model / effort combination.
+/// Add tokens to one day's bucket for a provider / model / effort combination.
 ///
 /// Upsert rather than append: the table holds one row per bucket per UTC day,
 /// so it stays bounded however heavily the app is used. A NULL `day` bind means
 /// "today", computed in SQLite so it always matches the `date('now')` window the
-/// read query uses; the backfill importer binds the message's own day instead.
+/// read query uses.
 const UPSERT_SQL: &str = "
     INSERT INTO provider_usage_stats
-        (day, provider_id, model_id, thinking_effort, input_words, output_words, updated_at)
+        (day, provider_id, model_id, thinking_effort, input_tokens, output_tokens, updated_at)
     VALUES (COALESCE(?, strftime('%Y-%m-%d', 'now')), ?, ?, ?, ?, ?, datetime('now'))
     ON CONFLICT(day, provider_id, model_id, thinking_effort) DO UPDATE SET
-        input_words = input_words + excluded.input_words,
-        output_words = output_words + excluded.output_words,
+        input_tokens = input_tokens + excluded.input_tokens,
+        output_tokens = output_tokens + excluded.output_tokens,
         updated_at = datetime('now')
 ";
 
@@ -23,31 +23,58 @@ const UPSERT_SQL: &str = "
 /// is told it is looking at — a request that straddles UTC midnight would
 /// otherwise pair yesterday's `end_day` with a window shifted a day later.
 const SELECT_WINDOW_SQL: &str = "
-    SELECT day, provider_id, model_id, thinking_effort, input_words, output_words
+    SELECT day, provider_id, model_id, thinking_effort, input_tokens, output_tokens
     FROM provider_usage_stats
     WHERE day >= date(?, ?)
       AND day <= ?
-      AND (input_words > 0 OR output_words > 0)
+      AND (input_tokens > 0 OR output_tokens > 0)
     ORDER BY day ASC, provider_id ASC, model_id ASC, thinking_effort ASC
 ";
 
-pub async fn add_words(
-    write_pool: &SqlitePool,
-    attribution: &UsageAttribution,
-    input_words: u64,
-    output_words: u64,
-) -> Result<(), sqlx::Error> {
-    add_words_on_day(write_pool, None, attribution, input_words, output_words).await
+pub(super) fn as_i64(value: u64) -> i64 {
+    i64::try_from(value).unwrap_or(i64::MAX)
 }
 
-/// [`add_words`] against an explicit day and any executor, so the backfill can
-/// import historical days inside its own transaction.
-pub(super) async fn add_words_on_day<'e, E>(
+pub(super) async fn claim_event<'e, E>(
+    executor: E,
+    session_id: i64,
+    provider_id: &str,
+    event_id: &str,
+) -> Result<bool, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let result = sqlx::query(
+        "INSERT OR IGNORE INTO provider_usage_events
+             (session_id, provider_id, event_id)
+         VALUES (?, ?, ?)",
+    )
+    .bind(session_id)
+    .bind(provider_id)
+    .bind(event_id)
+    .execute(executor)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+#[cfg(test)]
+pub async fn add_tokens(
+    write_pool: &SqlitePool,
+    attribution: &UsageAttribution,
+    input_tokens: u64,
+    output_tokens: u64,
+) -> Result<(), sqlx::Error> {
+    add_tokens_on_day(write_pool, None, attribution, input_tokens, output_tokens).await
+}
+
+/// Add tokens through any SQLite executor so the recorder can keep the bucket
+/// update and its idempotency checkpoint in one transaction.
+pub(super) async fn add_tokens_on_day<'e, E>(
     executor: E,
     day: Option<&str>,
     attribution: &UsageAttribution,
-    input_words: u64,
-    output_words: u64,
+    input_tokens: u64,
+    output_tokens: u64,
 ) -> Result<(), sqlx::Error>
 where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
@@ -57,8 +84,8 @@ where
         .bind(&attribution.provider_id)
         .bind(&attribution.model_id)
         .bind(&attribution.thinking_effort)
-        .bind(input_words as i64)
-        .bind(output_words as i64)
+        .bind(as_i64(input_tokens))
+        .bind(as_i64(output_tokens))
         .execute(executor)
         .await?;
     Ok(())
@@ -105,7 +132,7 @@ pub(crate) async fn list_recent(
 
 #[cfg(test)]
 mod tests {
-    use super::{add_words, list_recent, list_window};
+    use super::{add_tokens, list_recent, list_window};
     use crate::domain::usage_stats::models::UsageAttribution;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::SqlitePool;
@@ -137,23 +164,23 @@ mod tests {
         let pool = pool().await;
         let bucket = attribution("claude_code", "claude-opus-5", "high");
 
-        add_words(&pool, &bucket, 10, 100).await.unwrap();
-        add_words(&pool, &bucket, 5, 50).await.unwrap();
+        add_tokens(&pool, &bucket, 10, 100).await.unwrap();
+        add_tokens(&pool, &bucket, 5, 50).await.unwrap();
 
         let entries = window(&pool, 30).await;
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].input_words, 15);
-        assert_eq!(entries[0].output_words, 150);
+        assert_eq!(entries[0].input_tokens, 15);
+        assert_eq!(entries[0].output_tokens, 150);
         assert_eq!(entries[0].thinking_effort, "high");
     }
 
     #[tokio::test]
     async fn keeps_effort_levels_of_the_same_model_apart() {
         let pool = pool().await;
-        add_words(&pool, &attribution("claude_code", "opus", "high"), 1, 2)
+        add_tokens(&pool, &attribution("claude_code", "opus", "high"), 1, 2)
             .await
             .unwrap();
-        add_words(&pool, &attribution("claude_code", "opus", "low"), 3, 4)
+        add_tokens(&pool, &attribution("claude_code", "opus", "low"), 3, 4)
             .await
             .unwrap();
 
@@ -161,25 +188,25 @@ mod tests {
         assert_eq!(entries.len(), 2);
         // Ordered by effort ascending: "high" before "low".
         assert_eq!(entries[0].thinking_effort, "high");
-        assert_eq!(entries[1].output_words, 4);
+        assert_eq!(entries[1].output_tokens, 4);
     }
 
     #[tokio::test]
     async fn upserts_across_empty_model_and_effort() {
         let pool = pool().await;
         let unknown = attribution("codex", "", "");
-        add_words(&pool, &unknown, 7, 0).await.unwrap();
-        add_words(&pool, &unknown, 3, 0).await.unwrap();
+        add_tokens(&pool, &unknown, 7, 0).await.unwrap();
+        add_tokens(&pool, &unknown, 3, 0).await.unwrap();
 
         let entries = window(&pool, 30).await;
         assert_eq!(entries.len(), 1, "NULL-vs-empty must not split the bucket");
-        assert_eq!(entries[0].input_words, 10);
+        assert_eq!(entries[0].input_tokens, 10);
     }
 
     #[tokio::test]
     async fn window_excludes_days_older_than_the_range() {
         let pool = pool().await;
-        add_words(&pool, &attribution("cursor", "auto", ""), 1, 1)
+        add_tokens(&pool, &attribution("cursor", "auto", ""), 1, 1)
             .await
             .unwrap();
         sqlx::query("UPDATE provider_usage_stats SET day = date('now', '-40 days')")
@@ -201,7 +228,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
-        add_words(&pool, &attribution("opencode", "auto", ""), 1, 1)
+        add_tokens(&pool, &attribution("opencode", "auto", ""), 1, 1)
             .await
             .unwrap();
 

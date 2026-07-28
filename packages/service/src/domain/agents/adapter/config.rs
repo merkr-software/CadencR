@@ -16,6 +16,58 @@ impl RuntimeUsage {
     }
 }
 
+/// One provider/model slice inside a token-usage report.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeTokenUsageEntry {
+    /// Provider-native model id when the report contains a per-model split.
+    /// Otherwise the recorder uses the session's captured model.
+    pub model_id: Option<String>,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Provider-native accounting attached to a runtime event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RuntimeTokenUsage {
+    /// Final usage for one completed turn. `event_id` makes replay idempotent.
+    Delta {
+        /// The stream reader fills this from the canonical prompt receipt when
+        /// ACP omits a provider-native id.
+        event_id: Option<String>,
+        entries: Vec<RuntimeTokenUsageEntry>,
+    },
+    /// Monotonic session/thread totals. The recorder persists a checkpoint and
+    /// adds only the increase since the previous event.
+    Cumulative { entry: RuntimeTokenUsageEntry },
+}
+
+impl RuntimeTokenUsage {
+    pub fn delta(event_id: Option<String>, entries: Vec<RuntimeTokenUsageEntry>) -> Self {
+        Self::Delta { event_id, entries }
+    }
+
+    pub fn cumulative(entry: RuntimeTokenUsageEntry) -> Self {
+        Self::Cumulative { entry }
+    }
+
+    pub fn set_event_id_if_missing(&mut self, fallback: Option<String>) {
+        if let Self::Delta { event_id, .. } = self {
+            if event_id.is_none() {
+                *event_id = fallback;
+            }
+        }
+    }
+
+    pub fn is_zero(&self) -> bool {
+        match self {
+            Self::Delta { entries, .. } => entries
+                .iter()
+                .all(|entry| entry.input_tokens == 0 && entry.output_tokens == 0),
+            Self::Cumulative { entry } => entry.input_tokens == 0 && entry.output_tokens == 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RuntimePermissionMode {
     Default,

@@ -235,10 +235,6 @@ pub(crate) async fn persist_and_publish_user_message(
             )
             .await?
     };
-    // Usage stats are NOT recorded here. Persisting a prompt does not mean it
-    // reached the provider — branch setup, MCP attachment, or the runtime spawn
-    // can still fail — so the count is taken at the dispatch claim's success
-    // transition instead (`message_dispatch::mark_succeeded`).
     let delivery = publish_user_message(
         request.feature_senders,
         request.owner,

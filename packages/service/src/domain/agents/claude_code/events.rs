@@ -1,5 +1,6 @@
 mod classification;
 mod mapping;
+mod token_usage;
 
 use serde_json::Value;
 
@@ -8,19 +9,20 @@ use classification::classify_message;
 pub(super) use mapping::{
     context_window_for_model_from_raw, init_model_context_window, model_usage_windows,
 };
+use token_usage::claude_token_usage;
 
 pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEvent {
     let background_agent = super::background_agents::background_agent_signal(&msg);
+    let token_usage = claude_token_usage(&msg);
+    let raw = serde_json::to_value(&msg).unwrap_or(Value::Null);
     let metadata = RuntimeEventMetadata {
         session_id: msg.session_id().map(ToOwned::to_owned),
         usage: msg.usage().map(|usage| RuntimeUsage {
-            input_tokens: usage.input_tokens
-                + usage.cache_creation_input_tokens.unwrap_or(0)
-                + usage.cache_read_input_tokens.unwrap_or(0),
+            input_tokens: usage.total_input_tokens(),
             output_tokens: usage.output_tokens,
         }),
         context_window: msg.result_context_window(),
-        raw: serde_json::to_value(&msg).unwrap_or(Value::Null),
+        raw,
     };
 
     let (kind, result_error) = classify_message(msg);
@@ -28,6 +30,7 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
     RuntimeEvent::new(metadata, kind)
         .with_background_agent(background_agent)
         .with_result_error(result_error)
+        .with_token_usage(token_usage)
 }
 
 #[cfg(test)]
@@ -169,7 +172,13 @@ mod tests {
             "usage": { "input_tokens": 1, "output_tokens": 1 },
             "permission_denials": [],
             "modelUsage": {
-                "claude-opus-4-7[1m]": { "contextWindow": 1000000 }
+                "claude-opus-4-7[1m]": {
+                    "inputTokens": 100,
+                    "outputTokens": 20,
+                    "cacheReadInputTokens": 30,
+                    "cacheCreationInputTokens": 5,
+                    "contextWindow": 1000000
+                }
             }
         }))
         .unwrap();

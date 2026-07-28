@@ -90,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
                 app_version: config.app_version.as_deref(),
             })
             .await?;
+            domain::usage_stats::history_import::run_once(&write_pool).await;
             let read_pool = db::create_read_pool(&db_path).await?;
 
             // Resolve the JSON settings dir, migrate legacy SQLite settings into
@@ -139,13 +140,6 @@ async fn main() -> anyhow::Result<()> {
                     "recovered interrupted user shell context"
                 );
             }
-            // Import usage stats from conversations that predate the stats
-            // table, once per install. The boundary between history and live
-            // recording is claimed here, before the service can accept a
-            // prompt; the scan itself is backgrounded, since on a large history
-            // it reads hundreds of megabytes of message text.
-            domain::usage_stats::start_backfill(&write_pool).await;
-
             let recovered =
                 domain::sessions::message_dispatch::recover_orphaned_claims(&write_pool).await?;
             if recovered > 0 {
@@ -230,9 +224,6 @@ async fn main() -> anyhow::Result<()> {
 
             let pty_manager = state.pty_manager.clone();
             let remote_for_shutdown = state.remote.clone();
-            // Shutdown drains the usage writes still in flight; a loss it can't
-            // drain is persisted, so it needs the write pool.
-            let write_pool_for_shutdown = state.write_pool.clone();
             let app = api::build_router(state).layer(build_cors_layer(config.frontend_port));
 
             let addr = format!("127.0.0.1:{}", config.port);
@@ -248,22 +239,15 @@ async fn main() -> anyhow::Result<()> {
                 }
             });
             // Shutdown ordering lives in `shutdown`: the signal future only
-            // closes the listener, then the teardown and the HTTP drain run
-            // together, and the usage drain runs last.
+            // closes the listener, then teardown and the HTTP drain run together.
             let (drain_tx, drain_rx) = tokio::sync::oneshot::channel();
             let server = axum::serve(
                 listener,
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
             .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx));
-            shutdown::serve_then_flush(
-                server,
-                drain_rx,
-                pty_manager,
-                remote_for_shutdown,
-                write_pool_for_shutdown,
-            )
-            .await?;
+            shutdown::serve_then_shutdown(server, drain_rx, pty_manager, remote_for_shutdown)
+                .await?;
         }
     }
 

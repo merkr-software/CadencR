@@ -32,20 +32,15 @@ impl StreamReaderTask {
     ) {
         state.last_runtime_activity = tokio::time::Instant::now();
         state.diagnostics.record(runtime_event.raw_json());
-        // Counted here, before any of the early returns below, so every text
-        // the provider emitted lands in the usage stats regardless of which
-        // branch handles the event.
-        state.word_usage.observe(&runtime_event);
-        // Attribution is captured with the first words of the batch, not at the
-        // flush below: the model can be switched while this turn is streaming.
-        self.capture_usage_attribution(state).await;
+        // Provider-native token reports are recorded before any early return
+        // below. Context-window usage remains on the separate `usage_state`
+        // path and is never mistaken for consumption, except for Cursor's
+        // explicit provider fallback.
+        self.capture_usage_attribution(state, &runtime_event).await;
+        self.record_token_usage(state, &runtime_event).await;
         if runtime_event.is_result() {
-            self.flush_word_usage(state).await;
-        } else {
-            // A turn that runs for minutes banks what it has produced as it
-            // goes, so a quit in the middle of it does not take the whole turn's
-            // words with it.
-            self.flush_banked_word_usage(state).await;
+            state.usage_attribution = None;
+            state.usage_attribution_captured = false;
         }
         let interrupted_generation = if runtime_event.is_result() {
             self.take_interruption().await

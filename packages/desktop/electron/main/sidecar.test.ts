@@ -73,6 +73,13 @@ describe("parsePhaseLine", () => {
     });
   });
 
+  it("recognizes the one-time usage history import", () => {
+    expect(parsePhaseLine("CADENCR_PHASE importing_usage")).toEqual({
+      phase: "importing_usage",
+      detail: undefined,
+    });
+  });
+
   it("recognizes backup_failed with reason", () => {
     expect(parsePhaseLine("CADENCR_PHASE backup_failed disk full")).toEqual({
       phase: "backup_failed",

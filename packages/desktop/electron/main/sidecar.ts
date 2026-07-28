@@ -25,6 +25,7 @@ export type SidecarPhase =
   | "backing_up"
   | "backup_failed"
   | "migrating"
+  | "importing_usage"
   | "loading_app";
 
 export interface SidecarStatusUpdate {
@@ -308,6 +309,8 @@ export function parsePhaseLine(line: string): SidecarStatusUpdate | null {
       return { phase: "backup_failed", detail: detail || undefined };
     case "migrating":
       return { phase: "migrating", detail: detail || undefined };
+    case "importing_usage":
+      return { phase: "importing_usage", detail: detail || undefined };
     default:
       return null;
   }

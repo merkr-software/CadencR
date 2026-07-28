@@ -45,6 +45,7 @@ export type SplashPhase =
   | "backing_up"
   | "backup_failed"
   | "migrating"
+  | "importing_usage"
   | "loading_app";
 
 interface PhaseCopy {
@@ -81,6 +82,10 @@ const PHASE_COPY: Record<SplashPhase, PhaseCopy> = {
   migrating: {
     title: "Updating your database",
     detail: "Applying schema changes. This may take a moment.",
+  },
+  importing_usage: {
+    title: "Importing usage history",
+    detail: "Reading the last 30 days of provider token usage. This only happens once.",
   },
   loading_app: { title: "Almost there", detail: "Loading your workspace…" },
 };

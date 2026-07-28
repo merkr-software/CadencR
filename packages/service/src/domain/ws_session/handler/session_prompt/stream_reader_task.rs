@@ -11,7 +11,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
 use crate::domain::runtime_stream::{RuntimeUsageSnapshot, RuntimeUsageState};
 use crate::domain::session_status::{AgentStatus, SessionStatusBroadcaster};
-use crate::domain::usage_stats::{TurnWordUsage, UsageAttribution};
+use crate::domain::usage_stats::UsageAttribution;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{SessionEndedPayload, WsEnvelope};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
@@ -23,12 +23,6 @@ use super::stream_reader_turn_state::StreamTurnState;
 
 /// Debounce provider completion checks long enough for normal events to arrive.
 const PROVIDER_RECONCILE_IDLE: std::time::Duration = std::time::Duration::from_millis(750);
-
-/// How many words a still-running turn may hold before they are banked into the
-/// usage stats. Small enough that a quit mid-turn loses a sentence rather than
-/// an hour of output, large enough that a long turn costs a handful of writes
-/// instead of one per delta.
-const PARTIAL_FLUSH_WORDS: u64 = 250;
 
 pub(super) struct StreamReaderTask {
     pub db_session_id: i64,
@@ -54,17 +48,14 @@ pub(super) struct StreamReaderTask {
 pub(super) struct StreamReaderState {
     pub(super) runtime_session_id: Option<String>,
     pub(super) usage_state: RuntimeUsageState,
-    /// Words the agent has produced since the last flush, for the long-lived
-    /// provider usage stats. Flushed on every turn-ending `Result` and once
-    /// more when the reader stops, so an interrupted or aborted turn still
-    /// contributes what it produced instead of being dropped.
-    pub(super) word_usage: TurnWordUsage,
-    /// Provider/model/effort captured when the current batch of words started
-    /// arriving. The session row is mutable while a turn runs — switching model
-    /// mid-stream persists immediately — so reading it at flush time would file
-    /// the turn's output under a model that produced none of it, and split it
-    /// from its own prompt. Cleared by every flush.
+    /// Provider/model/effort captured when the current turn starts producing
+    /// events. The session row is mutable while a turn runs, so reading it only
+    /// when the final token report arrives could file usage under the next
+    /// model. Cleared at every Result boundary.
     pub(super) usage_attribution: Option<UsageAttribution>,
+    /// Distinguishes an attribution lookup that found nothing from one that has
+    /// not run yet, avoiding a database read for every event in the turn.
+    pub(super) usage_attribution_captured: bool,
     pub(super) last_runtime_activity: Instant,
     pub(super) last_provider_reconcile: Instant,
     pub(super) turn_state: StreamTurnState,
@@ -112,8 +103,8 @@ impl StreamReaderState {
         Self {
             runtime_session_id: None,
             usage_state: RuntimeUsageState::new(initial_usage),
-            word_usage: TurnWordUsage::default(),
             usage_attribution: None,
+            usage_attribution_captured: false,
             last_runtime_activity: Instant::now(),
             last_provider_reconcile: Instant::now(),
             turn_state: StreamTurnState::new(),
@@ -193,11 +184,6 @@ impl StreamReaderTask {
             }
         }
 
-        // Whatever the last turn produced after its final flush point (an
-        // interrupt, an abort, or a stream that ended without a `Result`) still
-        // counts as words the provider sent us.
-        self.flush_word_usage(&mut state).await;
-
         transition_active_to_pending_on_stream_end(
             &self.sdk_sessions,
             self.db_session_id,
@@ -207,73 +193,41 @@ impl StreamReaderTask {
         .await;
     }
 
-    /// Capture what this batch of words should be attributed to, the first time
-    /// the agent produces any.
-    ///
-    /// Taken here rather than at flush time because the session's model and
-    /// effort can change while the turn is still streaming. One small query per
-    /// turn — it stays `Some` until the flush that clears it, so the token path
-    /// only re-reads once a new batch starts.
-    pub(super) async fn capture_usage_attribution(&self, state: &mut StreamReaderState) {
-        if state.usage_attribution.is_some() || state.word_usage.pending() == 0 {
+    /// Capture what this turn's provider token report should be attributed to.
+    pub(super) async fn capture_usage_attribution(
+        &self,
+        state: &mut StreamReaderState,
+        event: &RuntimeEvent,
+    ) {
+        let starts_turn = event.stream_event().is_some()
+            || event.assistant_message().is_some()
+            || event.turn_started_source().is_some()
+            || event.token_usage().is_some();
+        if state.usage_attribution_captured || !starts_turn {
             return;
         }
         state.usage_attribution =
             crate::domain::usage_stats::snapshot_attribution(&self.write_pool, self.db_session_id)
                 .await;
+        state.usage_attribution_captured = true;
     }
 
-    /// Fold the words accumulated so far into the long-lived provider usage
-    /// stats, under the attribution captured when they started arriving.
-    ///
-    /// Hands the write itself to a background task; runs once per turn, not per
-    /// delta, so it is not on the token hot path.
-    pub(super) async fn flush_word_usage(&self, state: &mut StreamReaderState) {
-        let words = state.word_usage.take();
-        self.record_word_usage(state, words).await;
-    }
-
-    /// Bank a long turn's words before it ends.
-    ///
-    /// The end-of-turn flush is the only one a well-behaved turn needs, but a
-    /// turn can run for many minutes, and a quit — or a crash — in the middle of
-    /// one would take every word it had produced so far with it, silently. This
-    /// bounds that loss to [`PARTIAL_FLUSH_WORDS`] per running turn, at one
-    /// extra background upsert per that many words.
-    pub(super) async fn flush_banked_word_usage(&self, state: &mut StreamReaderState) {
-        if state.word_usage.pending() < PARTIAL_FLUSH_WORDS {
+    pub(super) async fn record_token_usage(
+        &self,
+        state: &mut StreamReaderState,
+        event: &RuntimeEvent,
+    ) {
+        let Some(mut usage) = event.token_usage().cloned() else {
             return;
-        }
-        // Drained, not taken: the turn is still streaming, so the per-stream
-        // dedup state has to survive this flush.
-        let words = state.word_usage.drain();
-        self.record_word_usage(state, words).await;
-    }
-
-    async fn record_word_usage(&self, state: &mut StreamReaderState, words: u64) {
-        if words == 0 {
-            return;
-        }
-        let attribution = state.usage_attribution.take();
-        match attribution {
-            Some(attribution) => crate::domain::usage_stats::record_words_attributed(
-                &self.write_pool,
-                attribution,
-                0,
-                words,
-            ),
-            // No snapshot only if the words arrived without passing the capture
-            // point; the session's current attribution is the best answer left.
-            None => {
-                crate::domain::usage_stats::record_session_words(
-                    &self.write_pool,
-                    self.db_session_id,
-                    0,
-                    words,
-                )
-                .await
-            }
-        }
+        };
+        usage.set_event_id_if_missing(state.received_prompt_message_uuids.first().cloned());
+        crate::domain::usage_stats::record_runtime_usage(
+            &self.write_pool,
+            self.db_session_id,
+            state.usage_attribution.clone(),
+            usage,
+        )
+        .await;
     }
 
     /// Seed the usage state from what the session already shows: the persisted

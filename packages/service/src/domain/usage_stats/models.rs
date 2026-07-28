@@ -13,10 +13,10 @@ pub struct UsageStatsEntry {
     pub provider_id: String,
     pub model_id: String,
     pub thinking_effort: String,
-    /// Words sent to the provider (user prompts).
-    pub input_words: i64,
-    /// Words received from the provider (assistant text and thinking).
-    pub output_words: i64,
+    /// Provider-reported input and cache tokens.
+    pub input_tokens: i64,
+    /// Provider-reported output and thought/reasoning tokens.
+    pub output_tokens: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -37,14 +37,9 @@ pub struct UsageStatsResponse {
     /// that these numbers are incomplete.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recording_issue: Option<super::health::UsageRecordingIssue>,
-    /// The one-time import of pre-existing conversations is still running, so
-    /// this window is partial — usually empty — and worth asking for again. It
-    /// publishes every bucket in one final transaction, so there is nothing to
-    /// see until it flips false.
-    pub import_in_progress: bool,
 }
 
-/// What to attribute a batch of words to. Resolved from the session row at
+/// What to attribute a batch of tokens to. Resolved from the session row at
 /// record time so the numbers survive the session being deleted afterwards.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsageAttribution {
@@ -63,14 +58,13 @@ mod tests {
             days: 30,
             end_day: "2026-07-25".into(),
             recording_issue: None,
-            import_in_progress: false,
             entries: vec![UsageStatsEntry {
                 day: "2026-07-25".into(),
                 provider_id: "claude_code".into(),
                 model_id: String::new(),
                 thinking_effort: String::new(),
-                input_words: 12,
-                output_words: 345,
+                input_tokens: 12,
+                output_tokens: 345,
             }],
         };
 
@@ -79,7 +73,7 @@ mod tests {
         assert!(json.contains("\"end_day\":\"2026-07-25\""));
         assert!(json.contains("\"model_id\":\"\""));
         assert!(json.contains("\"thinking_effort\":\"\""));
-        assert!(json.contains("\"output_words\":345"));
+        assert!(json.contains("\"output_tokens\":345"));
         assert!(
             !json.contains("recording_issue"),
             "a healthy response stays quiet"
