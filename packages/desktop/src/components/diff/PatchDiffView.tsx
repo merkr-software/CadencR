@@ -25,6 +25,13 @@ import { parseUnifiedDiff } from "@/lib/parse-unified-diff";
 import type { PrThreadLine } from "@/lib/pr-review-threads";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
+import {
+  countTextLines,
+  recordPierreCleaned,
+  recordPierreCreated,
+  recordPierreRenderCompleted,
+  recordPierreRenderStarted,
+} from "@/lib/diff-render-diagnostics";
 
 import { DIFF_UNSAFE_CSS } from "./patch-diff-css";
 import type { ActiveWidget, CommentCallbacks, CommentLineData } from "./diff-comment-decorations";
@@ -87,7 +94,9 @@ function cleanUpManagedPierreHost<LAnnotation>(
   instance: PierreDiffInstance<LAnnotation> | null,
   container: HTMLElement | null,
 ): void {
+  const cleanupStartedAt = performance.now();
   instance?.cleanUp();
+  if (instance) recordPierreCleaned(instance.__id, performance.now() - cleanupStartedAt);
   // Clear managed shadow DOM so StrictMode cannot retain an orphaned virtualized placeholder.
   container?.shadowRoot?.replaceChildren();
 }
@@ -183,6 +192,8 @@ function SafePatchDiff<LAnnotation>({
           )
         : new PierreFileDiff(currentOptions, undefined, true);
       instanceRef.current = instance;
+      recordPierreCreated(instance.__id, patch.length, countTextLines(patch));
+      recordPierreRenderStarted(instance.__id);
       instance.hydrate({
         fileDiff: fileDiffRef.current,
         fileContainer: node,
@@ -214,9 +225,11 @@ function SafePatchDiff<LAnnotation>({
       // capture the OLD visible-line anchor before it renders the new target.
       virtualizedInstance.prepareCodeViewItem(fileDiff, virtualizedInstance.top ?? 0);
       virtualizedInstance.setLineAnnotations(lineAnnotations ?? []);
+      recordPierreRenderStarted(instance.__id);
       virtualizedInstance.rerender();
       return;
     }
+    recordPierreRenderStarted(instance.__id);
     instance.render({ forceRender, fileDiff, lineAnnotations });
   }, [fileDiff, lineAnnotations, options, virtualizer]);
   const getHoveredLine = useCallback(() => instanceRef.current?.getHoveredLine(), []);
@@ -339,6 +352,9 @@ function PatchDiffViewImpl({
       onGutterUtilityClick: onAddComment ? handleAddComment : undefined,
       onLineClick:
         !CAN_HOVER && onAddComment ? (line) => revealGutterUtility(line.numberElement) : undefined,
+      onPostRender: (_node, instance, phase) => {
+        if (phase !== "unmount") recordPierreRenderCompleted(instance.__id);
+      },
       unsafeCSS: DIFF_UNSAFE_CSS,
     }),
     [

@@ -236,9 +236,9 @@ function AgentVirtuoso({
       computeItemKey={computeItemKey}
       initialTopMostItemIndex={{ index: "LAST", align: "end" }}
       defaultItemHeight={40}
-      increaseViewportBy={{ top: 1600, bottom: 800 }}
-      minOverscanItemCount={{ top: 12, bottom: 8 }}
-      overscan={{ main: 800, reverse: 800 }}
+      increaseViewportBy={{ top: 600, bottom: 400 }}
+      minOverscanItemCount={{ top: 4, bottom: 3 }}
+      overscan={{ main: 300, reverse: 300 }}
       components={VIRTUOSO_COMPONENTS}
       context={context}
       followOutput={followOutput}

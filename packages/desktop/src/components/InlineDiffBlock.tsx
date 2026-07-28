@@ -1,15 +1,16 @@
-import { useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ChevronRightIcon, PencilIcon, FilePlusIcon } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import { useControllableBoolean } from "@/hooks/useControllableBoolean";
 import { cn, toRelativePath } from "@/lib/utils";
 import { NumStat } from "@/components/NumStat";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { PatchDiffView } from "@/components/diff/PatchDiffView";
+import { InlineDiffBody } from "@/components/InlineDiffBody";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { createUnifiedPatch } from "@/lib/create-unified-patch";
 import { firstChangedNewLine } from "@/lib/diff-line";
 import { countPatchStats } from "@/lib/patch-stats";
+import { isLargeDiff, isLargeDiffByLines } from "@/lib/diff-thresholds";
 
 interface InlineDiffBlockProps {
   filePath: string;
@@ -21,11 +22,12 @@ interface InlineDiffBlockProps {
   toolName?: string;
   onOpenFileInEditor?: (filePath: string, lineNumber?: number) => void;
   /**
-   * Controlled expand state. When provided, the diff body is hidden while
-   * `expanded === false`; clicking the header toggles `onExpandedChange`. When
-   * omitted, the diff stays fully expanded (legacy behavior).
+   * Expansion policy for ordinary diffs. Crash-risk large diffs always begin
+   * locally collapsed and require an explicit click, regardless of this value.
+   * When omitted, ordinary diffs stay fully expanded (legacy behavior).
    */
   expanded?: boolean;
+  /** Reports ordinary diff policy changes; large-diff disclosure stays local. */
   onExpandedChange?: (next: boolean) => void;
 }
 
@@ -120,20 +122,31 @@ export function InlineDiffBlock({
   const contextOpenFileInEditor = useOpenDiffInEditor();
   const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
   const displayPath = useMemo(() => toRelativePath(filePath, basePath), [filePath, basePath]);
-  // When controlled, the parent decides visibility. When uncontrolled (the
-  // legacy callsite), the block stays expanded — matching pre-existing
-  // behavior so non-verbosity callers don't suddenly hide their diffs.
-  const { value: isExpanded, toggle: toggleExpanded } = useControllableBoolean({
-    value: expanded,
-    onChange: onExpandedChange,
-    defaultValue: true,
-  });
-
   const patch = useMemo(
     () => createUnifiedPatch({ filePath: displayPath, oldContent, newContent }),
     [displayPath, oldContent, newContent],
   );
   const stats = useMemo(() => countPatchStats(patch), [patch]);
+  const isLarge =
+    isLargeDiff(oldContent.length, newContent.length) ||
+    isLargeDiffByLines(stats.additions, stats.deletions);
+  // When controlled, the parent decides visibility. When uncontrolled (the
+  // legacy callsite), the block stays expanded — matching pre-existing
+  // behavior so non-verbosity callers don't suddenly hide their diffs.
+  const { value: policyExpanded, toggle: togglePolicyExpanded } = useControllableBoolean({
+    value: expanded,
+    onChange: onExpandedChange,
+    defaultValue: true,
+  });
+  const [largeExpanded, setLargeExpanded] = useState(false);
+  const isExpanded = isLarge ? largeExpanded : policyExpanded;
+  const toggleExpanded = useCallback((): void => {
+    if (!isLarge) {
+      togglePolicyExpanded();
+      return;
+    }
+    setLargeExpanded((previous) => !previous);
+  }, [isLarge, togglePolicyExpanded]);
 
   if (oldContent === newContent) {
     return (
@@ -160,14 +173,12 @@ export function InlineDiffBlock({
       />
 
       <CollapsibleSection open={isExpanded}>
-        <PatchDiffView
+        <InlineDiffBody
+          isLarge={isLarge}
           patch={patch}
-          mode="unified"
-          className="cadencr-patch-diff-inline max-h-[500px] overflow-auto"
-          themeAppearance={theme.appearance}
+          patchLines={additions + deletions}
           themeId={theme.id}
-          disableFileHeader
-          hunkSeparators="simple"
+          themeAppearance={theme.appearance}
         />
       </CollapsibleSection>
     </div>

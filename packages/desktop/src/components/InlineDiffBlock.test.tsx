@@ -238,6 +238,44 @@ describe("InlineDiffBlock controlled expand API", () => {
   });
 });
 
+describe("InlineDiffBlock large diff safety", () => {
+  const oldContent = Array.from({ length: 751 }, (_, index) => `old line ${index}`).join("\n");
+  const newContent = Array.from({ length: 751 }, (_, index) => `new line ${index}`).join("\n");
+
+  it("keeps a large diff collapsed even when transcript verbosity requests expansion", () => {
+    render(
+      <InlineDiffBlock
+        filePath="generated.ts"
+        oldContent={oldContent}
+        newContent={newContent}
+        expanded
+      />,
+    );
+
+    expect(screen.queryByTestId("diff-view")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Expand diff" })).toBeInTheDocument();
+  });
+
+  it("uses a plain-text renderer when the user explicitly expands a large diff", async () => {
+    const onExpandedChange = vi.fn();
+    const { user } = render(
+      <InlineDiffBlock
+        filePath="generated.ts"
+        oldContent={oldContent}
+        newContent={newContent}
+        expanded
+        onExpandedChange={onExpandedChange}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expand diff" }));
+
+    expect(screen.getByText(/Large diff shown without syntax highlighting/)).toBeInTheDocument();
+    expect(screen.queryByTestId("diff-view")).not.toBeInTheDocument();
+    expect(onExpandedChange).not.toHaveBeenCalled();
+  });
+});
+
 it("uses the theme-owned file-change identity for edit tool-call headers", () => {
   render(
     <InlineDiffBlock
