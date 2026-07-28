@@ -2800,6 +2800,61 @@ describe("useWebSocketSession", () => {
     expect(result.current.isConnected).toBe(true);
   });
 
+  it("deduplicates reconnect errors across a flapping active session", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    renderHook(() => useWebSocketSession("flapping-id"));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const firstWs = getWs();
+    act(() => {
+      firstWs.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-session-1" },
+      });
+      firstWs.simulateMessage({
+        domain: "session",
+        action: "message",
+        payload: {
+          blocks: [
+            {
+              type: "assistant",
+              uuid: "u1",
+              session_id: "srv-session-1",
+              parent_tool_use_id: null,
+              error: null,
+              message: {
+                id: "msg1",
+                model: "test-model",
+                content: [{ type: "text", text: "working" }],
+                stop_reason: null,
+              },
+            },
+          ],
+        },
+      });
+      firstWs.fireEvent("close", { code: 1006, reason: "" });
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(1_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const secondWs = getWs();
+    act(() => {
+      secondWs.fireEvent("close", { code: 1006, reason: "" });
+    });
+
+    const reconnectErrors = useWsSessionStore
+      .getState()
+      .sessions["flapping-id"].blocks.filter((block) => block.errorCode === "WS_RECONNECTING");
+    expect(reconnectErrors).toHaveLength(1);
+  });
+
   it("creates separate connections for different sessionIds", async () => {
     const { result: r1 } = renderHook(() => useWebSocketSession("session-a"));
     const { result: r2 } = renderHook(() => useWebSocketSession("session-b"));

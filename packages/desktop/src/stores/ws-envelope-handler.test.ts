@@ -6,6 +6,12 @@ import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { useGitStatusStore } from "./useGitStatusStore";
+import {
+  clearRateLimit,
+  forceReconnect,
+  registerReconnector,
+  unregisterReconnector,
+} from "@/lib/ws-reconnect";
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), success: vi.fn() },
@@ -101,6 +107,36 @@ describe("handleEnvelope turn_complete", () => {
       "The agent sent an invalid turn-complete update. The conversation was not changed.",
     );
     warnSpy.mockRestore();
+  });
+});
+
+describe("handleEnvelope RATE_LIMITED", () => {
+  it("holds reconnects without turning the agent turn into an error", () => {
+    vi.mocked(toast.error).mockClear();
+    const connect = vi.fn();
+    registerReconnector("rate-limited-test", connect);
+    const session = createSessionEntry();
+    session.lifecycle = transitionTurn(session.lifecycle, { type: "prompt_sent" });
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: {
+        code: "RATE_LIMITED",
+        message: "WebSocket message rate exceeded",
+        retry_after_ms: 5_000,
+      },
+    });
+    forceReconnect("rate-limited-test");
+
+    expect(connect).not.toHaveBeenCalled();
+    expect(ctx.getSession("s1").lifecycle.phase).toBe("active");
+    expect(ctx.getSession("s1").blocks).toHaveLength(0);
+    expect(toast.error).toHaveBeenCalledWith("WebSocket message rate exceeded");
+
+    unregisterReconnector("rate-limited-test");
+    clearRateLimit();
   });
 });
 

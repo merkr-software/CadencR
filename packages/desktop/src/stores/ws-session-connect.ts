@@ -1,16 +1,22 @@
 import { createWsConnection, type WsConnection } from "@/lib/ws-connection";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
-import { registerReconnector, resetReconnectState, scheduleReconnect } from "@/lib/ws-reconnect";
+import {
+  isRateLimited,
+  notifyRateLimited,
+  registerReconnector,
+  resetReconnectState,
+  scheduleReconnect,
+  WS_RATE_LIMIT_RETRY_MS,
+} from "@/lib/ws-reconnect";
 import {
   reportManualReconnectRequired,
   useConnectionStatusStore,
 } from "@/stores/connection-status-store";
 import { flushStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
-import { makeErrorBlock } from "./ws-session-store-helpers";
+import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { createSessionEntry, type SessionEntry, updateSession } from "./ws-session-types";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
-import { blocksPatchWithDerived } from "./ws-message-processing";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { handleSocketMessage, type SocketHandlerDeps } from "./ws-session-socket-handler";
 
@@ -51,7 +57,11 @@ function handleConnectionOpen(context: SessionConnectionContext): void {
   void resyncMessagesOnReconnect(ctx, context.sessionId);
 }
 
-function handleConnectionClose(context: SessionConnectionContext, intentional: boolean): void {
+function handleConnectionClose(
+  context: SessionConnectionContext,
+  intentional: boolean,
+  event: CloseEvent,
+): void {
   if (!isCurrentConnection(context) || intentional) return;
   const { ctx, rejectPendingRequests } = context.deps;
   const { get, set } = ctx;
@@ -60,14 +70,16 @@ function handleConnectionClose(context: SessionConnectionContext, intentional: b
   const session = get().sessions[context.sessionId];
   if (session) rejectPendingRequests(session);
   const wasRunning = session != null && isTurnActive(session.lifecycle);
-  const closedDerived = wasRunning
-    ? blocksPatchWithDerived(session.streamingState, [
-        ...session.blocks,
-        makeErrorBlock(session, "Connection lost while streaming. Reconnecting…", {
+  const alreadyReportedReconnect = session?.blocks.at(-1)?.errorCode === "WS_RECONNECTING";
+  const closedDerived =
+    wasRunning && !alreadyReportedReconnect
+      ? appendErrorBlockPatch(session, "Connection lost while streaming. Reconnecting…", {
+          code: "WS_RECONNECTING",
           idPrefix: "ws-err-close",
-        }),
-      ])
-    : { blocks: session?.blocks ?? [] };
+        })
+      : { blocks: session?.blocks ?? [] };
+  const retryAfterMs = event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : null;
+  if (retryAfterMs != null && !isRateLimited()) notifyRateLimited(retryAfterMs);
   set(
     updateSession(get(), context.sessionId, {
       conn: null,
@@ -81,7 +93,20 @@ function handleConnectionClose(context: SessionConnectionContext, intentional: b
   );
   useConnectionStatusStore
     .getState()
-    .reportSource(context.reconnectKey, "reconnecting", "Session WebSocket lost");
+    .reportSource(
+      context.reconnectKey,
+      "reconnecting",
+      retryAfterMs == null
+        ? `Session WebSocket closed (${event.code})`
+        : `Session WebSocket rate limited; retrying in ${Math.ceil(retryAfterMs / 1000)}s`,
+    );
+  if (event.code && event.code !== 1000) {
+    console.warn("Session WebSocket closed unexpectedly", {
+      code: event.code,
+      reason: event.reason || "no reason",
+      sessionId: context.sessionId,
+    });
+  }
   scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId));
 }
 
@@ -113,7 +138,7 @@ function createSessionConnection(context: SessionConnectionContext): WsConnectio
     url: getWsUrl(),
     protocols: getWsProtocols(),
     onOpen: () => handleConnectionOpen(context),
-    onClose: (intentional) => handleConnectionClose(context, intentional),
+    onClose: (intentional, event) => handleConnectionClose(context, intentional, event),
     onError: (intentional) => handleConnectionError(context, intentional),
     onMessage: (data) => {
       if (!isCurrentConnection(context)) return;

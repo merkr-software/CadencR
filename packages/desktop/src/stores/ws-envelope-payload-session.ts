@@ -73,6 +73,7 @@ export function parseErrorPayload(payload: unknown): {
   code?: string;
   message?: string;
   mode?: string;
+  retryAfterMs?: number;
   receivedPromptMessageUuids: string[];
 } | null {
   const record = asRecord(payload);
@@ -83,6 +84,7 @@ export function parseErrorPayload(payload: unknown): {
     // Optional context attached to permission-mode rejections so the FE
     // can skip the rejected mode in the Shift+Tab cycle.
     mode: optionalString(record, "mode"),
+    retryAfterMs: optionalNumber(record, "retry_after_ms"),
     receivedPromptMessageUuids: (
       optionalArray(record, "received_prompt_message_uuids") ?? []
     ).filter((value): value is string => typeof value === "string"),

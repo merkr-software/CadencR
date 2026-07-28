@@ -102,7 +102,7 @@ describe("createWsConnection", () => {
     const onClose = vi.fn();
     createWsConnection({ url: "ws://x", onClose, onMessage: vi.fn() });
     lastWs().simulateClose();
-    expect(onClose).toHaveBeenCalledWith(false);
+    expect(onClose).toHaveBeenCalledWith(false, expect.anything());
   });
 
   it("calls onClose with intentional=true after close() is called", () => {
@@ -110,7 +110,7 @@ describe("createWsConnection", () => {
     const conn = createWsConnection({ url: "ws://x", onClose, onMessage: vi.fn() });
     lastWs().simulateOpen();
     conn.close();
-    expect(onClose).toHaveBeenCalledWith(true);
+    expect(onClose).toHaveBeenCalledWith(true, expect.anything());
   });
 
   it("calls onError with intentional flag", () => {

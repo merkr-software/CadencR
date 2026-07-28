@@ -11,6 +11,7 @@ import { type PermissionMode } from "@/types/permission-mode";
 import { makeErrorBlock } from "./ws-session-store-helpers";
 import { markPendingPromptsFailed, markPromptsReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
+import { notifyRateLimited, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
 
 /**
  * Error codes whose user mistake originates outside the agent stream (e.g. a
@@ -27,6 +28,12 @@ const COMPACT_PRE_START_ERROR_CODES = new Set([
 
 export function handleError(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseErrorPayload(payload);
+
+  if (p?.code === "RATE_LIMITED") {
+    notifyRateLimited(p.retryAfterMs ?? WS_RATE_LIMIT_RETRY_MS);
+    toast.error(p.message ?? "WebSocket message rate exceeded. Reconnecting shortly.");
+    return;
+  }
 
   if (p?.code && TOAST_ERROR_CODES.has(p.code) && p.message) {
     toast.error(p.message);

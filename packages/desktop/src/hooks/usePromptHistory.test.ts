@@ -65,6 +65,26 @@ describe("usePromptHistory", () => {
     expect(result.current.historyIndex).toBe(0);
   });
 
+  it("preserves loaded history when a reconnect fetch times out", async () => {
+    mockSendRequest.mockResolvedValueOnce({ entries: ["first"] });
+    const { result, rerender } = renderHook(() => usePromptHistory(1, "ws-test-1"));
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    mockIsConnected.mockReturnValue(false);
+    rerender();
+    mockSendRequest.mockResolvedValueOnce(null as never);
+    mockIsConnected.mockReturnValue(true);
+    rerender();
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(result.current.navigateUp("draft")).toBe("first");
+  });
+
   it("navigateUp goes to older entries", async () => {
     mockSendRequest.mockResolvedValue({ entries: ["first", "second", "third"] });
     const { result } = renderHook(() => usePromptHistory(1, "ws-test-1"));

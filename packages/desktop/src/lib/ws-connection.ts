@@ -8,7 +8,7 @@ export interface WsConnectionOptions {
   /** Forwarded to `new WebSocket(url, protocols)`; see `getWsProtocols`. */
   protocols?: string[];
   onOpen?: () => void;
-  onClose?: (intentional: boolean) => void;
+  onClose?: (intentional: boolean, event: CloseEvent) => void;
   onError?: (intentional: boolean) => void;
   onMessage: (data: string) => void;
 }
@@ -30,7 +30,7 @@ export function createWsConnection(options: WsConnectionOptions): WsConnection {
   ws.addEventListener("open", () => options.onOpen?.());
   ws.addEventListener("message", (e) => options.onMessage(e.data as string));
   ws.addEventListener("error", () => options.onError?.(intentionalClose));
-  ws.addEventListener("close", () => options.onClose?.(intentionalClose));
+  ws.addEventListener("close", (event) => options.onClose?.(intentionalClose, event));
 
   const conn: WsConnection = {
     send(data: string): boolean {

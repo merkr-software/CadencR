@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   RECONNECT_INTERVAL_MS,
   RECONNECT_MAX_MS,
+  RECONNECT_STABLE_MS,
   AUTO_RECONNECT_TIMEOUT_MS,
   scheduleReconnect,
   resetReconnectState,
@@ -140,7 +141,7 @@ describe("ws-reconnect", () => {
     expect(connect).toHaveBeenCalledOnce();
   });
 
-  it("resetReconnectState clears the failure count so the next retry uses the base delay", () => {
+  it("resets the failure count only after a stable connection interval", () => {
     const connect = vi.fn();
 
     scheduleReconnect("test", connect);
@@ -150,10 +151,27 @@ describe("ws-reconnect", () => {
     expect(connect).toHaveBeenCalledTimes(2);
 
     resetReconnectState("test");
+    vi.advanceTimersByTime(RECONNECT_STABLE_MS);
 
     scheduleReconnect("test", connect);
     vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
     expect(connect).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps exponential backoff when a connection flaps before stability", () => {
+    const connect = vi.fn();
+    scheduleReconnect("test", connect);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    expect(connect).toHaveBeenCalledOnce();
+
+    resetReconnectState("test");
+    vi.advanceTimersByTime(RECONNECT_STABLE_MS - 1);
+    scheduleReconnect("test", connect);
+
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    expect(connect).toHaveBeenCalledOnce();
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    expect(connect).toHaveBeenCalledTimes(2);
   });
 
   it("notifyRateLimited defers retries until the Retry-After window passes", () => {
@@ -163,6 +181,20 @@ describe("ws-reconnect", () => {
     // First failure would normally fire at 1s, but the rate-limit hold wins.
     scheduleReconnect("test", connect);
     vi.advanceTimersByTime(4999);
+    expect(connect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(connect).toHaveBeenCalledOnce();
+  });
+
+  it("defers a retry that was already scheduled when rate limiting arrives", () => {
+    const connect = vi.fn();
+    scheduleReconnect("test", connect);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS / 2);
+
+    notifyRateLimited(5000);
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS / 2);
+    expect(connect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(4499);
     expect(connect).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
     expect(connect).toHaveBeenCalledOnce();

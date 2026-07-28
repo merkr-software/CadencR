@@ -41,12 +41,12 @@ export function createWsSessionTransportActions(deps: TransportActionDeps): Tran
       // (it early-returns on `intentional`), so resolve in-flight requests now
       // rather than leaving permission/worktree calls hanging until the timeout.
       if (session) rejectPendingRequests(session);
-      if (!session?.conn) return;
-
-      if (session.serverSessionId) {
-        session.conn.sendJson(createDestroy(session.serverSessionId));
+      if (session?.conn) {
+        if (session.serverSessionId) {
+          session.conn.sendJson(createDestroy(session.serverSessionId));
+        }
+        session.conn.close();
       }
-      session.conn.close();
 
       const { [sessionId]: _, ...rest } = get().sessions;
       set({ sessions: rest });

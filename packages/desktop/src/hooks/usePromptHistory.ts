@@ -79,8 +79,8 @@ export function usePromptHistory(projectId: number, wsSessionId?: string) {
   useEffect(() => {
     if (!wsSessionId || !projectId || !isConnected) return;
     void sendRequest(wsSessionId, createHistoryGet(projectId)).then((payload) => {
-      const data = payload as HistoryResultPayload;
-      setHistory(data.entries ?? []);
+      const data = payload as HistoryResultPayload | null;
+      if (data) setHistory(data.entries ?? []);
     });
   }, [wsSessionId, projectId, isConnected, sendRequest]);
 

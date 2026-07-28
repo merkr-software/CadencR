@@ -33,6 +33,7 @@ import type { DisplayRowMode } from "@/components/agentStreamDisplay";
 import { parseAccessMode, type AccessMode } from "@/types/access-mode";
 import { parsePermissionMode } from "@/types/permission-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";
+import { retainWsSession } from "@/hooks/ws-session-retention";
 
 export interface UseWebSocketSessionReturn {
   blocks: AgentBlockData[];
@@ -153,8 +154,9 @@ export function useWebSocketSession(
   const liveStatus = useSessionStatus(sessionDbId)?.status ?? null;
 
   useEffect(() => {
+    const release = retainWsSession(sessionId);
     useWsSessionStore.getState().connect(sessionId);
-    // Connections are cached; no disconnect on unmount.
+    return release;
   }, [sessionId]);
 
   usePersistedSessionLoader(session, sessionId, featureId, options);
