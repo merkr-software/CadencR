@@ -9,6 +9,7 @@ mod shared;
 
 use axum::http::header::{HeaderName, CONTENT_TYPE};
 use axum::http::Method;
+use axum::serve::ListenerExt;
 use clap::Parser;
 use std::path::PathBuf;
 use tower_http::cors::CorsLayer;
@@ -227,57 +228,24 @@ async fn main() -> anyhow::Result<()> {
             info!("Cadencr service listening on {addr}");
 
             let listener = tokio::net::TcpListener::bind(&addr).await?;
-            // Wrap in a `Listener` that disables Nagle's algorithm on every
-            // accepted connection. Nagle is the default on `tokio::net::TcpStream`
-            // and silently coalesces small frames for ~200 ms — which turns
-            // a real-time WebSocket stream (commit output, agent output) into
-            // a "dump everything at the end" feed. We never want that here.
-            axum::serve(NoDelayListener(listener), app)
-                .with_graceful_shutdown(shutdown_signal(pty_manager, remote_for_shutdown))
-                .await?;
+            // Disable Nagle's algorithm on every accepted connection. Nagle is
+            // the default on `tokio::net::TcpStream` and silently coalesces
+            // small frames for ~200 ms, which destroys real-time WS streaming.
+            let listener = listener.tap_io(|stream| {
+                if let Err(err) = stream.set_nodelay(true) {
+                    tracing::warn!("set_nodelay failed: {err}");
+                }
+            });
+            axum::serve(
+                listener,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .with_graceful_shutdown(shutdown_signal(pty_manager, remote_for_shutdown))
+            .await?;
         }
     }
 
     Ok(())
-}
-
-/// `tokio::net::TcpListener` wrapper that disables Nagle's algorithm on every
-/// accepted connection. Without this, small WebSocket frames (single
-/// command-output chunks, agent stream lines) sit in the OS TCP buffer for
-/// up to ~200 ms before being flushed, which destroys the live-streaming UX
-/// the commit dialog and agent panes depend on.
-struct NoDelayListener(tokio::net::TcpListener);
-
-impl axum::serve::Listener for NoDelayListener {
-    type Io = tokio::net::TcpStream;
-    type Addr = std::net::SocketAddr;
-
-    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
-        loop {
-            match self.0.accept().await {
-                Ok((stream, addr)) => {
-                    // Best-effort: a `set_nodelay` failure on a localhost
-                    // TCP stream is exotic and not worth aborting the
-                    // connection over — log it and continue.
-                    if let Err(err) = stream.set_nodelay(true) {
-                        tracing::warn!("set_nodelay failed: {err}");
-                    }
-                    return (stream, addr);
-                }
-                Err(err) => {
-                    // Mirror axum's own retry-with-backoff behavior on
-                    // transient accept errors; without this an EMFILE / per-
-                    // process FD exhaustion would tight-loop.
-                    tracing::warn!("accept failed: {err}");
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-            }
-        }
-    }
-
-    fn local_addr(&self) -> std::io::Result<Self::Addr> {
-        self.0.local_addr()
-    }
 }
 
 fn build_cors_layer(frontend_port: u16) -> CorsLayer {

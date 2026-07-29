@@ -2,9 +2,11 @@
 //!
 //! The pairing endpoint is pre-auth and brute-forceable (a short pairing code
 //! is the only secret), so it gets a tight bucket; everything else gets a loose
-//! bucket that bounds general abuse. State is in-memory and lives for the life
-//! of one listener (each router receives its own limiter), keyed by source IP
-//! from `ConnectInfo<SocketAddr>`.
+//! bucket that bounds general abuse. Loopback requests carrying the per-launch
+//! credential use a separate bucket so anonymous local traffic cannot starve
+//! the authenticated renderer. State is in-memory and lives for the life of one
+//! listener (each router receives its own limiter), keyed by source IP from
+//! `ConnectInfo<SocketAddr>`.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -15,9 +17,13 @@ use axum::extract::{ConnectInfo, Request};
 use axum::http::Method;
 use axum::middleware::Next;
 use axum::response::Response;
-use axum::Extension;
+use axum::{extract::State, Extension};
 
-use super::response::too_many_requests;
+use super::auth::{is_websocket_upgrade, AUTH_HEADER, MCP_CONTROL_HEADER};
+use super::response::{connection_metadata_unavailable, too_many_requests};
+use super::ws::validate_ws_token;
+use crate::app_state::AppState;
+use crate::shared::security::constant_time_str_eq;
 
 const WINDOW: Duration = Duration::from_secs(60);
 /// Pairing-code attempts per IP per window. A code is single-use and expires in
@@ -36,6 +42,7 @@ const GENERAL_LIMIT: u32 = 6000;
 enum Bucket {
     Pair,
     General,
+    LoopbackAuthenticated,
 }
 
 struct Window {
@@ -55,7 +62,7 @@ impl RateLimiter {
     fn check(&self, ip: IpAddr, bucket: Bucket, now: Instant) -> Result<(), u64> {
         let limit = match bucket {
             Bucket::Pair => PAIR_LIMIT,
-            Bucket::General => GENERAL_LIMIT,
+            Bucket::General | Bucket::LoopbackAuthenticated => GENERAL_LIMIT,
         };
         let mut windows = self.windows.lock().expect("rate-limit mutex poisoned");
         // Bound map growth: drop windows that have fully elapsed.
@@ -93,22 +100,67 @@ pub async fn rate_limit_middleware(
     } else {
         Bucket::General
     };
-    let ip = client_ip(&request);
+    apply_limit(&limiter, bucket, request, next).await
+}
+
+/// Loopback middleware with credential-isolated buckets. The rate limit still
+/// runs before auth so rejected requests and tokenless upgrades are bounded,
+/// but they cannot consume the renderer's authenticated allowance.
+pub async fn loopback_rate_limit_middleware(
+    State(state): State<AppState>,
+    Extension(limiter): Extension<std::sync::Arc<RateLimiter>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let bucket = if has_valid_loopback_credential(&request, &state) {
+        Bucket::LoopbackAuthenticated
+    } else {
+        Bucket::General
+    };
+    apply_limit(&limiter, bucket, request, next).await
+}
+
+async fn apply_limit(
+    limiter: &RateLimiter,
+    bucket: Bucket,
+    request: Request,
+    next: Next,
+) -> Response {
+    let Some(ip) = client_ip(&request) else {
+        tracing::error!("rate limiter missing peer connection metadata");
+        return connection_metadata_unavailable();
+    };
     if let Err(retry_after) = limiter.check(ip, bucket, Instant::now()) {
         return too_many_requests(retry_after);
     }
     next.run(request).await
 }
 
+fn has_valid_loopback_credential(request: &Request, state: &AppState) -> bool {
+    if is_websocket_upgrade(request) {
+        return validate_ws_token(request.headers(), &state.auth_token).is_ok();
+    }
+
+    let (header, expected) = if request.uri().path().starts_with("/internal/mcp/") {
+        (MCP_CONTROL_HEADER, state.mcp_control_token.as_str())
+    } else {
+        (AUTH_HEADER, state.auth_token.as_str())
+    };
+    request
+        .headers()
+        .get(header)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|presented| constant_time_str_eq(presented, expected))
+}
+
 /// Source IP from the connection info axum injects via
-/// `into_make_service_with_connect_info`. Falls back to an unspecified address
-/// (all such requests then share one bucket) if it's somehow absent.
-fn client_ip(request: &Request) -> IpAddr {
+/// `into_make_service_with_connect_info`. Missing metadata is a server wiring
+/// error rather than a shared fallback bucket that one caller could exhaust.
+fn client_ip(request: &Request) -> Option<IpAddr> {
     request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(addr)| addr.ip())
-        .unwrap_or(IpAddr::from([0, 0, 0, 0]))
 }
 
 #[cfg(test)]
@@ -161,6 +213,9 @@ mod tests {
         // A different IP and a different bucket are unaffected.
         assert!(limiter.check(ip(2), Bucket::Pair, now).is_ok());
         assert!(limiter.check(ip(1), Bucket::General, now).is_ok());
+        assert!(limiter
+            .check(ip(1), Bucket::LoopbackAuthenticated, now)
+            .is_ok());
     }
 
     #[test]

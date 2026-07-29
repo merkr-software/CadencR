@@ -254,7 +254,12 @@ pub async fn start_test_server() -> TestServer {
     let app = api::build_router(state).layer(tower_http::cors::CorsLayer::permissive());
 
     tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     let mut default_headers = HeaderMap::new();
