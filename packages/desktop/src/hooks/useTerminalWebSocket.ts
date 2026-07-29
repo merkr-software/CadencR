@@ -8,6 +8,7 @@ import {
   unregisterReconnector,
   resetReconnectState,
   forceReconnect,
+  WS_RATE_LIMIT_RETRY_MS,
 } from "@/lib/ws-reconnect";
 import {
   reportManualReconnectRequired,
@@ -223,14 +224,17 @@ function useTerminalConnector(
             .getState()
             .reportSource(reconnectKey, "reconnecting", "Terminal WebSocket error");
         },
-        onClose: (intentional) => {
+        onClose: (intentional, event) => {
           setIsConnected(false);
           if (intentional) return;
           refs.optionsRef.current.onError("Connection lost. Reconnecting…");
           useConnectionStatusStore
             .getState()
             .reportSource(reconnectKey, "reconnecting", "Terminal WebSocket dropped");
-          scheduleReconnect(reconnectKey, reconnect);
+          scheduleReconnect(reconnectKey, reconnect, {
+            minimumDelayMs:
+              event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
+          });
         },
       });
     },

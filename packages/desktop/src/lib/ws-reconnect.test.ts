@@ -186,6 +186,22 @@ describe("ws-reconnect", () => {
     expect(connect).toHaveBeenCalledOnce();
   });
 
+  it("honors a per-connection minimum delay without globally holding other sockets", () => {
+    const connect = vi.fn();
+    const other = vi.fn();
+
+    scheduleReconnect("test", connect, { minimumDelayMs: 5000 });
+    scheduleReconnect("other", other);
+
+    vi.advanceTimersByTime(RECONNECT_INTERVAL_MS);
+    expect(other).toHaveBeenCalledOnce();
+    expect(connect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(3999);
+    expect(connect).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(connect).toHaveBeenCalledOnce();
+  });
+
   it("defers a retry that was already scheduled when rate limiting arrives", () => {
     const connect = vi.fn();
     scheduleReconnect("test", connect);

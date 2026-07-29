@@ -25,12 +25,14 @@ mod outbound;
 
 use outbound::{
     retryable_close, spawn_outbound_bridge, spawn_socket_sender, OutboundBridgeExit,
-    OUTBOUND_SOCKET_CAPACITY, OUTBOUND_SOCKET_SEND_TIMEOUT,
+    OUTBOUND_SOCKET_CAPACITY, OUTBOUND_SOCKET_SEND_TIMEOUT, RETRY_CLOSE_SEND_TIMEOUT,
 };
 
 const MAX_INBOUND_MESSAGES_PER_SECOND: u16 = 120;
 const INBOUND_RATE_RETRY_AFTER_MS: u64 = 5_000;
-const GRACEFUL_CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+const GRACEFUL_CLOSE_SEND_TIMEOUT: Duration =
+    Duration::from_secs(RETRY_CLOSE_SEND_TIMEOUT.as_secs() + 1);
+const GRACEFUL_CLOSE_ECHO_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct InboundRateLimit {
     window_started: Instant,
@@ -60,13 +62,13 @@ async fn finish_graceful_close(
     ws_stream: &mut futures::stream::SplitStream<WebSocket>,
 ) {
     if !matches!(
-        tokio::time::timeout(GRACEFUL_CLOSE_TIMEOUT, send_task).await,
+        tokio::time::timeout(GRACEFUL_CLOSE_SEND_TIMEOUT, send_task).await,
         Ok(Ok(()))
     ) {
         return;
     }
     // Wait for the close echo; dropping immediately produces code 1006.
-    let _ = tokio::time::timeout(GRACEFUL_CLOSE_TIMEOUT, async {
+    let _ = tokio::time::timeout(GRACEFUL_CLOSE_ECHO_TIMEOUT, async {
         while let Some(message) = ws_stream.next().await {
             match message {
                 Ok(Message::Close(_)) | Err(_) => break,
@@ -145,7 +147,9 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
     let mut graceful_close_requested = false;
 
     // A separate priority channel lets overload shutdown bypass the full data
-    // queue and interrupt a stalled normal send with a retryable close.
+    // queue and cancel an in-progress normal `send`. The framed socket may
+    // still need to flush bytes it already accepted before it can enqueue the
+    // close, so graceful teardown gives that bounded flush time to recover.
     let (mut send_task, close_tx) = spawn_socket_sender(ws_sink, socket_rx);
 
     // Inbound loop: read messages from client. We `select!` against the

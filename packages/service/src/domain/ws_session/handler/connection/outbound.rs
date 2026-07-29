@@ -10,7 +10,7 @@ use tracing::{debug, warn};
 
 pub(super) const OUTBOUND_SOCKET_CAPACITY: usize = 256;
 pub(super) const OUTBOUND_SOCKET_SEND_TIMEOUT: Duration = Duration::from_secs(5);
-const RETRY_CLOSE_SEND_TIMEOUT: Duration = Duration::from_millis(500);
+pub(super) const RETRY_CLOSE_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum OutboundBridgeExit {
@@ -221,6 +221,107 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert!(matches!(
             messages.first(),
+            Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "overloaded"
+        ));
+    }
+
+    struct RecoveringBlockedSink {
+        blocked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        waker: std::sync::Arc<std::sync::Mutex<Option<std::task::Waker>>>,
+        recorded: std::sync::Arc<std::sync::Mutex<Vec<Message>>>,
+        normal_started: Option<oneshot::Sender<()>>,
+    }
+
+    impl Sink<Message> for RecoveringBlockedSink {
+        type Error = std::convert::Infallible;
+
+        fn poll_ready(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            if self.blocked.load(std::sync::atomic::Ordering::SeqCst) {
+                *self.waker.lock().expect("blocked sink waker poisoned") = Some(cx.waker().clone());
+                std::task::Poll::Pending
+            } else {
+                std::task::Poll::Ready(Ok(()))
+            }
+        }
+
+        fn start_send(
+            mut self: std::pin::Pin<&mut Self>,
+            message: Message,
+        ) -> Result<(), Self::Error> {
+            if matches!(message, Message::Text(_)) {
+                self.blocked
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                if let Some(started) = self.normal_started.take() {
+                    let _ = started.send(());
+                }
+            }
+            self.recorded
+                .lock()
+                .expect("recording sink poisoned")
+                .push(message);
+            Ok(())
+        }
+
+        fn poll_flush(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            self.poll_ready(cx)
+        }
+
+        fn poll_close(
+            self: std::pin::Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Result<(), Self::Error>> {
+            self.poll_ready(cx)
+        }
+    }
+
+    #[tokio::test]
+    async fn priority_close_waits_for_a_blocked_sink_to_recover() {
+        let blocked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let waker = std::sync::Arc::new(std::sync::Mutex::new(None::<std::task::Waker>));
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let (normal_started_tx, normal_started_rx) = oneshot::channel();
+        let sink = RecoveringBlockedSink {
+            blocked: blocked.clone(),
+            waker: waker.clone(),
+            recorded: recorded.clone(),
+            normal_started: Some(normal_started_tx),
+        };
+        let (socket_tx, socket_rx) = mpsc::channel(1);
+        let (close_tx, close_rx) = mpsc::channel(1);
+        let sender = tokio::spawn(run_socket_sender(sink, socket_rx, close_rx));
+
+        socket_tx
+            .send(Message::Text("blocked event".into()))
+            .await
+            .expect("queue normal message");
+        normal_started_rx.await.expect("normal send starts");
+        close_tx
+            .send(retryable_close("overloaded"))
+            .await
+            .expect("request priority close");
+
+        // This exceeds the old 500 ms close-send timeout. A temporarily
+        // blocked peer still gets the 1013 frame when it resumes draining
+        // within the new bounded grace period.
+        tokio::time::sleep(Duration::from_millis(750)).await;
+        blocked.store(false, std::sync::atomic::Ordering::SeqCst);
+        if let Some(waker) = waker.lock().expect("blocked sink waker poisoned").take() {
+            waker.wake();
+        }
+
+        tokio::time::timeout(Duration::from_secs(1), sender)
+            .await
+            .expect("sender finishes after sink recovery")
+            .expect("sender task succeeds");
+        let messages = recorded.lock().expect("recording sink poisoned");
+        assert!(matches!(
+            messages.last(),
             Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "overloaded"
         ));
     }

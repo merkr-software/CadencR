@@ -55,6 +55,11 @@ interface ReconnectorOptions {
   onManualRequired?: (key: string) => void;
 }
 
+interface ScheduleReconnectOptions extends ReconnectorOptions {
+  /** Per-attempt floor used when a close signal implies reconnect pressure. */
+  minimumDelayMs?: number;
+}
+
 interface ForceReconnectOptions {
   bypassManualPause?: boolean;
 }
@@ -103,7 +108,7 @@ function pauseForManualReconnect(key: string, entry: ReconnectEntry): void {
 export function scheduleReconnect(
   key: string,
   connect: () => void,
-  options?: ReconnectorOptions,
+  options?: ScheduleReconnectOptions,
 ): void {
   const entry = getOrCreate(key);
   entry.connect = connect;
@@ -124,7 +129,11 @@ export function scheduleReconnect(
 
   entry.failures += 1;
   // Wait at least the backoff, and never retry before a 429's Retry-After.
-  const delay = Math.max(backoffDelayMs(entry.failures), rateLimitedUntil - now);
+  const delay = Math.max(
+    backoffDelayMs(entry.failures),
+    rateLimitedUntil - now,
+    options?.minimumDelayMs ?? 0,
+  );
 
   const attemptConnect = (): void => {
     const rateLimitDelay = rateLimitedUntil - Date.now();

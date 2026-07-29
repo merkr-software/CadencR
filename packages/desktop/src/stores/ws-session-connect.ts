@@ -107,7 +107,9 @@ function handleConnectionClose(
       sessionId: context.sessionId,
     });
   }
-  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId));
+  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId), {
+    minimumDelayMs: event.code === 1006 ? WS_RATE_LIMIT_RETRY_MS : (retryAfterMs ?? undefined),
+  });
 }
 
 function handleConnectionError(context: SessionConnectionContext, intentional: boolean): void {
@@ -130,7 +132,12 @@ function handleConnectionError(context: SessionConnectionContext, intentional: b
   useConnectionStatusStore
     .getState()
     .reportSource(context.reconnectKey, "reconnecting", "Session WebSocket error");
-  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId));
+  // A blocked transport can prevent the backend's 1013 frame from reaching
+  // the browser, which then reports only an error/1006. Preserve the same
+  // bounded retry floor instead of immediately feeding another connection.
+  scheduleReconnect(context.reconnectKey, () => get().connect(context.sessionId), {
+    minimumDelayMs: WS_RATE_LIMIT_RETRY_MS,
+  });
 }
 
 function createSessionConnection(context: SessionConnectionContext): WsConnection {
