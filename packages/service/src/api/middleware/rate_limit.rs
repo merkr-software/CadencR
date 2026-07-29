@@ -1,10 +1,10 @@
-//! Per-IP fixed-window rate limiting for the remote (network) listener.
+//! Per-IP fixed-window rate limiting for loopback and remote listeners.
 //!
 //! The pairing endpoint is pre-auth and brute-forceable (a short pairing code
 //! is the only secret), so it gets a tight bucket; everything else gets a loose
 //! bucket that bounds general abuse. State is in-memory and lives for the life
-//! of one listener (a fresh limiter is created each time remote access is
-//! enabled), keyed by source IP from `ConnectInfo<SocketAddr>`.
+//! of one listener (each router receives its own limiter), keyed by source IP
+//! from `ConnectInfo<SocketAddr>`.
 
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -23,13 +23,13 @@ const WINDOW: Duration = Duration::from_secs(60);
 /// Pairing-code attempts per IP per window. A code is single-use and expires in
 /// ~120s, so a legitimate device needs only one or two attempts.
 const PAIR_LIMIT: u32 = 5;
-/// All other remote requests per IP per window, counted *before* auth (this
-/// layer wraps `remote_auth_middleware`), so SPA assets and rejected tokens
-/// count too. A phone opening the app bursts well past a "reasonable" steady
-/// rate — hashed chunks and fonts, agent catalog, per-project settings, git
-/// stats, WS handshakes — and tripping this only produced 429s the client
-/// retried into. Sized as a runaway backstop rather than a traffic policy;
-/// pairing brute-force is bounded separately by `PAIR_LIMIT`.
+/// All other requests per IP per window, counted *before* listener-specific
+/// auth, so SPA assets and rejected tokens count too. A client opening the app
+/// bursts well past a "reasonable" steady rate — hashed chunks and fonts,
+/// agent catalog, per-project settings, git stats, WS handshakes — and tripping
+/// this only produced 429s the client retried into. Sized as a runaway backstop
+/// rather than a traffic policy; pairing brute-force is bounded separately by
+/// `PAIR_LIMIT`.
 const GENERAL_LIMIT: u32 = 6000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
