@@ -10,7 +10,7 @@ import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { createUnifiedPatch } from "@/lib/create-unified-patch";
 import { firstChangedNewLine } from "@/lib/diff-line";
 import { countPatchStats } from "@/lib/patch-stats";
-import { isLargeDiff, isLargeDiffByLines } from "@/lib/diff-thresholds";
+import { isLargeDiff, isLargeDiffByLines, utf8ByteLength } from "@/lib/diff-thresholds";
 
 interface InlineDiffBlockProps {
   filePath: string;
@@ -127,9 +127,12 @@ export function InlineDiffBlock({
     [displayPath, oldContent, newContent],
   );
   const stats = useMemo(() => countPatchStats(patch), [patch]);
+  const [oldBytes, newBytes] = useMemo(
+    () => [utf8ByteLength(oldContent), utf8ByteLength(newContent)],
+    [oldContent, newContent],
+  );
   const isLarge =
-    isLargeDiff(oldContent.length, newContent.length) ||
-    isLargeDiffByLines(stats.additions, stats.deletions);
+    isLargeDiff(oldBytes, newBytes) || isLargeDiffByLines(stats.additions, stats.deletions);
   // When controlled, the parent decides visibility. When uncontrolled (the
   // legacy callsite), the block stays expanded — matching pre-existing
   // behavior so non-verbosity callers don't suddenly hide their diffs.

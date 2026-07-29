@@ -1,13 +1,14 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useMemo, useRef } from "react";
 import { FileWarningIcon } from "lucide-react";
 import { PatchDiffView } from "@/components/diff/PatchDiffView";
 import { useInViewport } from "@/hooks/useInViewport";
 import {
   recordHeavyInlineMounted,
   recordHeavyInlineUnmounted,
+  recordHeavyInlineUpdated,
   recordHeavyInlineVisible,
 } from "@/lib/diff-render-diagnostics";
-import { formatBytes } from "@/lib/diff-thresholds";
+import { formatBytes, utf8ByteLength } from "@/lib/diff-thresholds";
 import type { ThemeAppearance, ThemeId } from "@/lib/themes";
 
 interface InlineDiffBodyProps {
@@ -21,12 +22,13 @@ interface InlineDiffBodyProps {
 // Unlike the Git diff's opt-in progressive renderer, this path deliberately
 // avoids mounting Pierre at all after the user expands a crash-risk inline diff.
 function LargeInlineDiff({ patch, patchLines }: Pick<InlineDiffBodyProps, "patch" | "patchLines">) {
+  const patchBytes = useMemo(() => utf8ByteLength(patch), [patch]);
   return (
     <div className="max-h-[500px] overflow-auto bg-[var(--editor-bg)]">
       <div className="sticky top-0 flex items-center gap-2 border-b border-[var(--editor-border)] bg-[var(--editor-bg)] px-3 py-2 text-xs text-[var(--editor-comment)]">
         <FileWarningIcon className="size-3.5 shrink-0" />
         <span>
-          Large diff shown without syntax highlighting (about {formatBytes(patch.length)},{" "}
+          Large diff shown without syntax highlighting (about {formatBytes(patchBytes)},{" "}
           {patchLines.toLocaleString()} changed lines)
         </span>
       </div>
@@ -53,8 +55,12 @@ export function InlineDiffBody({
 
   useEffect(() => {
     if (!isLarge) return;
-    recordHeavyInlineMounted(blockId, patch.length, patchLines);
+    recordHeavyInlineMounted(blockId);
     return () => recordHeavyInlineUnmounted(blockId);
+  }, [blockId, isLarge]);
+
+  useEffect(() => {
+    if (isLarge) recordHeavyInlineUpdated(blockId, patch.length, patchLines);
   }, [blockId, isLarge, patch.length, patchLines]);
 
   useEffect(() => {

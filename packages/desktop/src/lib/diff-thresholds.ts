@@ -21,10 +21,16 @@ export const LARGE_DIFF_BYTES = 200_000;
  */
 export const LARGE_DIFF_LINES = 1_500;
 
+const utf8Encoder = new TextEncoder();
+
+/** Return the encoded UTF-8 byte length used by backend size thresholds. */
+export function utf8ByteLength(text: string): number {
+  return utf8Encoder.encode(text).byteLength;
+}
+
 /**
  * True when either side's byte size is large enough that auto-rendering
- * would jank the UI. Pass content lengths in characters or bytes — the
- * threshold is generous enough that the difference is irrelevant.
+ * would jank the UI.
  */
 export function isLargeDiff(oldLen: number, newLen: number): boolean {
   return Math.max(oldLen, newLen) >= LARGE_DIFF_BYTES;

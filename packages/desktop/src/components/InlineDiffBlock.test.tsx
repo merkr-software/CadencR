@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
+import { getDiffRenderDiagnostics } from "@/lib/diff-render-diagnostics";
 import { InlineDiffBlock } from "./InlineDiffBlock";
 
 const mocks = vi.hoisted(() => ({
@@ -273,6 +274,51 @@ describe("InlineDiffBlock large diff safety", () => {
     expect(screen.getByText(/Large diff shown without syntax highlighting/)).toBeInTheDocument();
     expect(screen.queryByTestId("diff-view")).not.toBeInTheDocument();
     expect(onExpandedChange).not.toHaveBeenCalled();
+  });
+
+  it("uses UTF-8 bytes to classify and label multibyte content", async () => {
+    const cjkContent = "界".repeat(70_000);
+    const { user } = render(
+      <InlineDiffBlock
+        filePath="translations.txt"
+        oldContent=""
+        newContent={cjkContent}
+        expanded
+      />,
+    );
+
+    expect(screen.queryByTestId("diff-view")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Expand diff" }));
+    expect(screen.getByText(/about 205\.\d KB/)).toBeInTheDocument();
+  });
+
+  it("does not count streamed large-patch updates as remounts", async () => {
+    const before = getDiffRenderDiagnostics();
+    const { user, rerender } = render(
+      <InlineDiffBlock
+        filePath="generated.ts"
+        oldContent={oldContent}
+        newContent={newContent}
+        expanded
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Expand diff" }));
+    const afterMount = getDiffRenderDiagnostics();
+
+    rerender(
+      <InlineDiffBlock
+        filePath="generated.ts"
+        oldContent={oldContent}
+        newContent={`${newContent}\nstreamed tail`}
+        expanded
+      />,
+    );
+    const afterUpdate = getDiffRenderDiagnostics();
+
+    expect(afterMount.heavyInlineMounts - before.heavyInlineMounts).toBe(1);
+    expect(afterUpdate.heavyInlineMounts).toBe(afterMount.heavyInlineMounts);
+    expect(afterUpdate.heavyInlineMounted).toBe(afterMount.heavyInlineMounted);
+    expect(afterUpdate.heavyInlineVisible).toBe(afterMount.heavyInlineVisible);
   });
 });
 

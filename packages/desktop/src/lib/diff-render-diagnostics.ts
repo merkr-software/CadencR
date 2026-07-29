@@ -89,13 +89,18 @@ export function recordPierreCleaned(instanceId: string, cleanupMs: number): void
   }
 }
 
-export function recordHeavyInlineMounted(
+export function recordHeavyInlineMounted(blockId: string): void {
+  mountedHeavyInline.add(blockId);
+  heavyInlineMounts += 1;
+}
+
+/** Update maxima without changing the block's mount or visibility lifecycle. */
+export function recordHeavyInlineUpdated(
   blockId: string,
   patchChars: number,
   patchLines: number,
 ): void {
-  mountedHeavyInline.add(blockId);
-  heavyInlineMounts += 1;
+  if (!mountedHeavyInline.has(blockId)) return;
   maxPatchChars = Math.max(maxPatchChars, patchChars);
   maxPatchLines = Math.max(maxPatchLines, patchLines);
 }
