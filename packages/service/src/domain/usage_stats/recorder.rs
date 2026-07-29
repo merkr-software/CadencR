@@ -5,11 +5,10 @@ use crate::domain::agents::adapter::{RuntimeTokenUsage, RuntimeTokenUsageEntry};
 
 use super::health;
 use super::models::UsageAttribution;
+use super::pending;
 use super::repository;
 
 mod attribution;
-#[cfg(test)]
-mod test_fixtures;
 
 use attribution::resolve_session_attribution;
 pub use attribution::snapshot_attribution;
@@ -20,30 +19,36 @@ pub use attribution::snapshot_attribution;
 /// model switch cannot file completed usage under the next model. Writes are
 /// awaited because usage events are sparse (not token-stream deltas), and the
 /// transaction must preserve cumulative counter ordering while atomically
-/// updating the durable checkpoint and daily bucket.
+/// updating the durable checkpoint and daily bucket. The database future also
+/// runs on a tracked task so shutdown can finish it if the stream reader that
+/// was awaiting it gets cancelled.
 pub async fn record_runtime_usage(
     write_pool: &SqlitePool,
     session_id: i64,
     attribution: Option<UsageAttribution>,
     usage: RuntimeTokenUsage,
 ) {
-    if usage.is_zero() {
+    if usage.is_noop() {
         return;
     }
-    let attribution = match attribution {
-        Some(attribution) => attribution,
-        None => {
-            let Some(attribution) = resolve_session_attribution(write_pool, session_id).await
-            else {
-                return;
-            };
-            attribution
-        }
-    };
+    let write_pool = write_pool.clone();
+    pending::run_tracked(async move {
+        let attribution = match attribution {
+            Some(attribution) => attribution,
+            None => {
+                let Some(attribution) = resolve_session_attribution(&write_pool, session_id).await
+                else {
+                    return;
+                };
+                attribution
+            }
+        };
 
-    if let Err(error) = persist_usage(write_pool, session_id, &attribution, &usage).await {
-        report_failure(&error, "failed to record provider token usage");
-    }
+        if let Err(error) = persist_usage(&write_pool, session_id, &attribution, &usage).await {
+            report_failure(&error, "failed to record provider token usage");
+        }
+    })
+    .await;
 }
 
 async fn persist_usage(
@@ -168,8 +173,8 @@ pub(super) fn report_failure(error: &sqlx::Error, context: &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::attribution::pool_with_session;
     use super::record_runtime_usage;
-    use super::test_fixtures::pool_with_session;
     use crate::domain::agents::adapter::{RuntimeTokenUsage, RuntimeTokenUsageEntry};
     use crate::domain::usage_stats::repository::list_recent;
 
@@ -249,7 +254,7 @@ mod tests {
     async fn a_cumulative_counter_reset_does_not_inflate_usage() {
         let (pool, session_id) = pool_with_session(Some("cursor"), Some("auto"), None).await;
         let attribution = super::snapshot_attribution(&pool, session_id).await;
-        for total in [100, 25, 40] {
+        for total in [100, 0, 40] {
             record_runtime_usage(
                 &pool,
                 session_id,
@@ -260,7 +265,7 @@ mod tests {
         }
 
         let rows = list_recent(&pool, 30).await.unwrap();
-        assert_eq!(rows[0].input_tokens, 115);
+        assert_eq!(rows[0].input_tokens, 140);
     }
 
     #[tokio::test]

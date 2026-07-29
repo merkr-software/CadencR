@@ -58,12 +58,14 @@ impl RuntimeTokenUsage {
         }
     }
 
-    pub fn is_zero(&self) -> bool {
+    pub fn is_noop(&self) -> bool {
         match self {
             Self::Delta { entries, .. } => entries
                 .iter()
                 .all(|entry| entry.input_tokens == 0 && entry.output_tokens == 0),
-            Self::Cumulative { entry } => entry.input_tokens == 0 && entry.output_tokens == 0,
+            // A zero cumulative snapshot is a meaningful counter reset. The
+            // recorder must persist it so a later increase starts from zero.
+            Self::Cumulative { .. } => false,
         }
     }
 }

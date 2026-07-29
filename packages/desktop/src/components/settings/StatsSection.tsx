@@ -5,12 +5,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
+import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBanner";
 import { UsageSegmentedControl } from "@/components/settings/stats/UsageSegmentedControl";
 import { UsageSummaryTiles } from "@/components/settings/stats/UsageSummaryTiles";
 import { UsageChartBlock } from "@/components/settings/stats/UsageChartBlock";
 import { providerLabel, useUsageCharts } from "@/components/settings/stats/use-usage-charts";
 import { resolveEndDay, type UsageMetric } from "@/components/settings/stats/usage-stats-model";
 import { UsageRecordingWarning } from "@/components/settings/stats/UsageRecordingWarning";
+import { cn } from "@/lib/utils";
 
 const RANGE_OPTIONS = [
   { value: "7", label: "7d", title: "Last 7 days" },
@@ -121,7 +123,7 @@ export function StatsSection(): React.JSX.Element {
   );
 }
 
-function StatsBody({
+export function StatsBody({
   isLoading,
   error,
   hasUsage,
@@ -132,14 +134,14 @@ function StatsBody({
   hasUsage: boolean;
   children: React.ReactNode;
 }): React.JSX.Element {
-  if (error) {
+  if (error && !hasUsage) {
     return (
       <p className="rounded-lg border border-[color-mix(in_oklab,var(--acc-red)_35%,transparent)] bg-[color-mix(in_oklab,var(--acc-red)_5%,var(--card))] px-3 py-2.5 text-xs text-foreground">
         Could not load usage stats. {apiErrorMessage(error, "Please try again.")}
       </p>
     );
   }
-  if (isLoading) {
+  if (isLoading && !hasUsage) {
     return (
       <div className="space-y-5" aria-busy="true" aria-label="Loading usage stats">
         <div className="grid grid-cols-2 gap-2 lg:grid-cols-4">
@@ -159,5 +161,14 @@ function StatsBody({
       </p>
     );
   }
-  return <>{children}</>;
+  if (!error) return <>{children}</>;
+  return (
+    <div className="space-y-4">
+      <p role="status" className={cn(WARNING_BANNER_CLASS, "text-xs text-foreground")}>
+        Could not refresh usage stats. Showing the last loaded data.{" "}
+        {apiErrorMessage(error, "Please try again.")}
+      </p>
+      {children}
+    </div>
+  );
 }

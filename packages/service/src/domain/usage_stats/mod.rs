@@ -10,9 +10,11 @@
 pub mod health;
 pub mod history_import;
 pub mod models;
+mod pending;
 pub mod recorder;
 pub mod repository;
 pub mod routes;
 
 pub use models::UsageAttribution;
+pub use pending::flush as flush_pending_writes;
 pub use recorder::{record_runtime_usage, snapshot_attribution};

@@ -1,3 +1,4 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
@@ -5,16 +6,25 @@ use serde_json::Value;
 use super::types::{truncate_title, ImportedConversation, ImportedMessage};
 use crate::domain::agents::codex::function_tool_name as codex_function_tool_name;
 
-pub fn codex_sessions_dir() -> Option<PathBuf> {
-    if let Some(home) = std::env::var_os("CODEX_HOME") {
-        return Some(PathBuf::from(home).join("sessions"));
-    }
-    Some(dirs::home_dir()?.join(".codex").join("sessions"))
+pub(crate) fn codex_sessions_dir() -> Option<PathBuf> {
+    resolve_codex_sessions_dir(std::env::var_os("CODEX_HOME"), dirs::home_dir())
 }
 
-pub fn list_rollout_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
+fn resolve_codex_sessions_dir(
+    codex_home: Option<OsString>,
+    home: Option<PathBuf>,
+) -> Option<PathBuf> {
+    codex_home
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .map(|path| path.join("sessions"))
+        .or_else(|| home.map(|path| path.join(".codex").join("sessions")))
+}
+
+pub(crate) fn list_rollout_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut out = Vec::new();
     collect_rollouts(root, &mut out)?;
+    out.sort();
     Ok(out)
 }
 
@@ -145,14 +155,20 @@ fn collect_rollouts(dir: &Path, out: &mut Vec<PathBuf>) -> std::io::Result<()> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
         Err(err) => return Err(err),
     };
-    for entry in entries.flatten() {
+    for entry in entries {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
-        if path.is_dir() {
+        if file_type.is_dir() {
             collect_rollouts(&path, out)?;
-        } else if path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
+        } else if file_type.is_file()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
         {
             out.push(path);
         }
@@ -340,6 +356,14 @@ fn fallback_id_from_path(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blank_codex_home_falls_back_to_the_user_home() {
+        assert_eq!(
+            resolve_codex_sessions_dir(Some(OsString::new()), Some(PathBuf::from("/home/cadencr"))),
+            Some(PathBuf::from("/home/cadencr/.codex/sessions"))
+        );
+    }
 
     fn write_rollout(lines: &[&str]) -> tempfile::NamedTempFile {
         let file = tempfile::NamedTempFile::new().unwrap();

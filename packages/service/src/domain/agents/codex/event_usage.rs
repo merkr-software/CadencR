@@ -38,7 +38,7 @@ pub(super) fn usage_event(params: Value) -> RuntimeEvent {
 
 fn cumulative_token_usage(token_usage: &Value) -> Option<RuntimeTokenUsage> {
     let total = token_usage.get("total")?;
-    let entry = RuntimeTokenUsageEntry {
+    Some(RuntimeTokenUsage::cumulative(RuntimeTokenUsageEntry {
         model_id: None,
         input_tokens: total
             .get("inputTokens")
@@ -48,9 +48,7 @@ fn cumulative_token_usage(token_usage: &Value) -> Option<RuntimeTokenUsage> {
             .get("outputTokens")
             .and_then(Value::as_u64)
             .unwrap_or(0),
-    };
-    (entry.input_tokens > 0 || entry.output_tokens > 0)
-        .then(|| RuntimeTokenUsage::cumulative(entry))
+    }))
 }
 
 fn context_usage(last: &Value, context_window: Option<u64>) -> (RuntimeUsage, Option<u64>) {
@@ -167,5 +165,31 @@ mod tests {
         };
         assert_eq!(entry.input_tokens, 1200);
         assert_eq!(entry.output_tokens, 30);
+    }
+
+    #[test]
+    fn zero_cumulative_snapshot_is_preserved_as_a_counter_reset() {
+        let event = usage_event(json!({
+            "threadId": "thread",
+            "tokenUsage": {
+                "last": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "totalTokens": 0
+                },
+                "total": {
+                    "inputTokens": 0,
+                    "outputTokens": 0,
+                    "totalTokens": 0
+                }
+            }
+        }));
+
+        let accounting = event.token_usage().expect("counter reset accounting");
+        let RuntimeTokenUsage::Cumulative { entry } = accounting else {
+            panic!("expected cumulative accounting");
+        };
+        assert_eq!((entry.input_tokens, entry.output_tokens), (0, 0));
+        assert!(!accounting.is_noop());
     }
 }

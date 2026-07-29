@@ -10,6 +10,8 @@
 //!    while axum drains the requests it had already accepted. Concurrently: the
 //!    teardown is what lets a live agent stream end, so serialising them would
 //!    guarantee the drain runs out its grace period on every quit.
+//! 3. Flush tracked provider-usage writes after the drain and teardown have
+//!    finished, including a final write detached from a cancelled stream task.
 
 use std::future::Future;
 use std::time::Duration;
@@ -95,7 +97,7 @@ where
         result = &mut server => Some(result),
     };
 
-    match stopped_on_its_own {
+    let served = match stopped_on_its_own {
         Some(result) => {
             teardown.await;
             result
@@ -110,7 +112,9 @@ where
                 Ok(())
             })
         }
-    }
+    };
+    crate::domain::usage_stats::flush_pending_writes().await;
+    served
 }
 
 async fn wait_for_signal() {

@@ -47,7 +47,7 @@ impl RuntimeEvent {
     }
 
     pub fn with_token_usage(mut self, usage: Option<RuntimeTokenUsage>) -> Self {
-        self.token_usage = usage.filter(|usage| !usage.is_zero());
+        self.token_usage = usage.filter(|usage| !usage.is_noop());
         self
     }
 

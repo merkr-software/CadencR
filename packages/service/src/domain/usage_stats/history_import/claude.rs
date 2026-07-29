@@ -43,9 +43,18 @@ fn collect_session_files(
         std::fs::read_dir(directory).with_context(|| format!("read {}", directory.display()))?;
     for entry in entries {
         let entry = entry.with_context(|| format!("read entry in {}", directory.display()))?;
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("read file type for {}", entry.path().display()))?;
+        if file_type.is_symlink() {
+            continue;
+        }
         let path = entry.path();
-        if path.is_dir() {
+        if file_type.is_dir() {
             collect_session_files(&path, expected, files_by_session)?;
+            continue;
+        }
+        if !file_type.is_file() {
             continue;
         }
         let Some(session_id) = path
@@ -69,7 +78,7 @@ fn scan_session(
     events: &mut Vec<HistoryEvent>,
 ) -> anyhow::Result<()> {
     let file = std::fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
-    let mut seen_message_ids = HashSet::new();
+    let mut events_by_message_id = HashMap::<String, HistoryEvent>::new();
     for line in BufReader::new(file).lines() {
         let Ok(line) = line else {
             continue;
@@ -77,11 +86,14 @@ fn scan_session(
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        let Some(event) = history_event(&value, source, window, &mut seen_message_ids) else {
+        let Some((message_id, event)) = history_event(&value, source, window) else {
             continue;
         };
-        events.push(event);
+        events_by_message_id.insert(message_id, event);
     }
+    let mut session_events = events_by_message_id.into_values().collect::<Vec<_>>();
+    session_events.sort_by(|left, right| left.event_id.cmp(&right.event_id));
+    events.extend(session_events);
     Ok(())
 }
 
@@ -89,8 +101,7 @@ fn history_event(
     value: &Value,
     source: &SessionSource,
     window: &ImportWindow,
-    seen_message_ids: &mut HashSet<String>,
-) -> Option<HistoryEvent> {
+) -> Option<(String, HistoryEvent)> {
     if value.get("type").and_then(Value::as_str) != Some("assistant") {
         return None;
     }
@@ -100,9 +111,6 @@ fn history_event(
     }
     let message = value.get("message")?;
     let message_id = message.get("id")?.as_str()?.to_string();
-    if !seen_message_ids.insert(message_id.clone()) {
-        return None;
-    }
     let usage = message.get("usage")?;
     let input_tokens = token(usage, "input_tokens")
         .saturating_add(token(usage, "cache_read_input_tokens"))
@@ -111,19 +119,22 @@ fn history_event(
     if input_tokens == 0 && output_tokens == 0 {
         return None;
     }
-    Some(HistoryEvent {
-        session_id: source.session_id,
-        event_id: format!("history:claude:{message_id}"),
-        day: timestamp.date_naive().to_string(),
-        model_id: message
-            .get("model")
-            .and_then(Value::as_str)
-            .unwrap_or(&source.model_id)
-            .to_string(),
-        thinking_effort: source.thinking_effort.clone(),
-        input_tokens,
-        output_tokens,
-    })
+    Some((
+        message_id.clone(),
+        HistoryEvent {
+            session_id: source.session_id,
+            event_id: format!("history:claude:{message_id}"),
+            day: timestamp.date_naive().to_string(),
+            model_id: message
+                .get("model")
+                .and_then(Value::as_str)
+                .unwrap_or(&source.model_id)
+                .to_string(),
+            thinking_effort: source.thinking_effort.clone(),
+            input_tokens,
+            output_tokens,
+        },
+    ))
 }
 
 fn token(usage: &Value, field: &str) -> u64 {
@@ -137,7 +148,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deduplicates_streamed_assistant_rows_and_includes_cache_tokens() {
+    fn uses_the_final_streamed_assistant_row_and_includes_cache_tokens() {
         let root = tempfile::tempdir().unwrap();
         let source = SessionSource {
             session_id: 7,
@@ -147,12 +158,15 @@ mod tests {
         };
         let directory = root.path().join("encoded-project").join("nested");
         std::fs::create_dir_all(&directory).unwrap();
-        let line = r#"{"type":"assistant","timestamp":"2026-07-20T12:00:00Z","message":{"id":"msg-1","model":"claude-opus","usage":{"input_tokens":10,"cache_read_input_tokens":20,"cache_creation_input_tokens":30,"output_tokens":4}}}"#;
+        let first = r#"{"type":"assistant","timestamp":"2026-07-20T12:00:00Z","message":{"id":"msg-1","model":"claude-opus","usage":{"input_tokens":5,"cache_read_input_tokens":10,"cache_creation_input_tokens":15,"output_tokens":8}}}"#;
+        let final_snapshot = r#"{"type":"assistant","timestamp":"2026-07-20T12:00:01Z","message":{"id":"msg-1","model":"claude-opus","usage":{"input_tokens":10,"cache_read_input_tokens":20,"cache_creation_input_tokens":30,"output_tokens":4}}}"#;
         std::fs::write(
             directory.join("session-1.jsonl"),
-            format!("{line}\n{line}\n"),
+            format!("{first}\n{final_snapshot}\n"),
         )
         .unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(root.path(), directory.join("cycle")).unwrap();
         let window = ImportWindow {
             cutoff_at: Utc.with_ymd_and_hms(2026, 7, 28, 0, 0, 0).unwrap(),
             start_day: chrono::NaiveDate::from_ymd_opt(2026, 6, 29).unwrap(),

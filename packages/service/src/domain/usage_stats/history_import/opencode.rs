@@ -4,11 +4,14 @@ use std::time::Duration;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
+use futures::TryStreamExt;
 use serde_json::Value;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use sqlx::{Row, SqlitePool};
+use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 
 use super::types::{HistoryEvent, ImportBatch, ImportWindow, SessionSource};
+
+const SESSION_QUERY_CHUNK: usize = 500;
 
 pub async fn scan(
     databases: &[PathBuf],
@@ -42,36 +45,48 @@ async fn scan_database(
         .expect("midnight is valid")
         .and_utc()
         .timestamp_millis();
-    let rows = sqlx::query(
-        "SELECT id, session_id, time_created, data
-         FROM message
-         WHERE time_created >= ? AND time_created <= ?
-         ORDER BY time_created ASC, id ASC",
-    )
-    .bind(start_millis)
-    .bind(window.cutoff_at.timestamp_millis())
-    .fetch_all(&pool)
-    .await
-    .with_context(|| format!("query {}", database.display()))?;
-    for row in rows {
-        let session_id: String = row.try_get("session_id")?;
-        let Some(source) = sources.get(session_id.as_str()) else {
-            continue;
-        };
-        let message_id: String = row.try_get("id")?;
-        let timestamp = row
-            .try_get::<i64, _>("time_created")
-            .ok()
-            .and_then(DateTime::<Utc>::from_timestamp_millis);
-        let data = row
-            .try_get::<String, _>("data")
-            .ok()
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-        let (Some(timestamp), Some(data)) = (timestamp, data) else {
-            continue;
-        };
-        if let Some(event) = history_event(&data, &message_id, source, timestamp) {
-            batch.events.push(event);
+    let session_ids = sources.keys().copied().collect::<Vec<_>>();
+    for session_ids in session_ids.chunks(SESSION_QUERY_CHUNK) {
+        let mut query = QueryBuilder::<Sqlite>::new(
+            "SELECT id, session_id, time_created, data
+             FROM message
+             WHERE time_created >= ",
+        );
+        query
+            .push_bind(start_millis)
+            .push(" AND time_created <= ")
+            .push_bind(window.cutoff_at.timestamp_millis())
+            .push(" AND session_id IN (");
+        let mut separated = query.separated(", ");
+        for session_id in session_ids {
+            separated.push_bind(session_id);
+        }
+        separated.push_unseparated(") ORDER BY time_created ASC, id ASC");
+        let mut rows = query.build().fetch(&pool);
+        while let Some(row) = rows
+            .try_next()
+            .await
+            .with_context(|| format!("query {}", database.display()))?
+        {
+            let session_id: String = row.try_get("session_id")?;
+            let Some(source) = sources.get(session_id.as_str()) else {
+                continue;
+            };
+            let message_id: String = row.try_get("id")?;
+            let timestamp = row
+                .try_get::<i64, _>("time_created")
+                .ok()
+                .and_then(DateTime::<Utc>::from_timestamp_millis);
+            let data = row
+                .try_get::<String, _>("data")
+                .ok()
+                .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
+            let (Some(timestamp), Some(data)) = (timestamp, data) else {
+                continue;
+            };
+            if let Some(event) = history_event(&data, &message_id, source, timestamp) {
+                batch.events.push(event);
+            }
         }
     }
     Ok(())

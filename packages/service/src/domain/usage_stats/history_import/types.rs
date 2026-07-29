@@ -65,13 +65,7 @@ impl HistoryLocations {
         let claude_projects_root = home
             .as_ref()
             .map(|path| path.join(".claude").join("projects"));
-        let codex_sessions_root = std::env::var_os("CODEX_HOME")
-            .map(PathBuf::from)
-            .map(|path| path.join("sessions"))
-            .or_else(|| {
-                home.as_ref()
-                    .map(|path| path.join(".codex").join("sessions"))
-            });
+        let codex_sessions_root = crate::domain::imports::codex_sessions_dir();
         let opencode_databases = home
             .as_ref()
             .map(|path| opencode_databases(&path.join(".local").join("share").join("opencode")))

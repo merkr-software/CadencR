@@ -73,9 +73,46 @@ async fn session_attribution(
 }
 
 #[cfg(test)]
+pub(super) async fn pool_with_session(
+    provider: Option<&str>,
+    model: Option<&str>,
+    effort: Option<&str>,
+) -> (SqlitePool, i64) {
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+
+    sqlx::query("INSERT INTO projects (name, path) VALUES ('p', '/tmp/p')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO features (project_id, title) VALUES (1, 'test feature')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let session_id = sqlx::query_scalar(
+        "INSERT INTO agent_sessions
+             (feature_id, agent_type, runtime_provider, model, thinking_effort)
+         VALUES (1, 'session', ?, ?, ?) RETURNING id",
+    )
+    .bind(provider)
+    .bind(model)
+    .bind(effort)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    (pool, session_id)
+}
+
+#[cfg(test)]
 mod tests {
-    use super::{resolve_session_attribution, snapshot_attribution};
-    use crate::domain::usage_stats::recorder::test_fixtures::pool_with_session;
+    use super::{pool_with_session, resolve_session_attribution, snapshot_attribution};
 
     #[tokio::test]
     async fn reads_the_sessions_provider_model_and_effort() {
