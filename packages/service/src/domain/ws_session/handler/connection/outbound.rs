@@ -25,6 +25,25 @@ pub(super) fn retryable_close(reason: &'static str) -> CloseFrame {
     }
 }
 
+pub(super) struct PriorityShutdown {
+    before_close: Option<Message>,
+    close: CloseFrame,
+}
+
+pub(super) fn retryable_shutdown(reason: &'static str) -> PriorityShutdown {
+    PriorityShutdown {
+        before_close: None,
+        close: retryable_close(reason),
+    }
+}
+
+pub(super) fn retryable_error_shutdown(error: Message, reason: &'static str) -> PriorityShutdown {
+    PriorityShutdown {
+        before_close: Some(error),
+        close: retryable_close(reason),
+    }
+}
+
 pub(super) fn spawn_outbound_bridge(
     outbound_rx: mpsc::UnboundedReceiver<Message>,
     socket_tx: mpsc::Sender<Message>,
@@ -73,7 +92,7 @@ fn spawn_outbound_bridge_with_timeout(
 pub(super) fn spawn_socket_sender<S>(
     sink: S,
     socket_rx: mpsc::Receiver<Message>,
-) -> (tokio::task::JoinHandle<()>, mpsc::Sender<CloseFrame>)
+) -> (tokio::task::JoinHandle<()>, mpsc::Sender<PriorityShutdown>)
 where
     S: Sink<Message> + Unpin + Send + 'static,
     S::Error: Display + Send + 'static,
@@ -86,7 +105,7 @@ where
 async fn run_socket_sender<S>(
     mut sink: S,
     mut socket_rx: mpsc::Receiver<Message>,
-    mut close_rx: mpsc::Receiver<CloseFrame>,
+    mut close_rx: mpsc::Receiver<PriorityShutdown>,
 ) where
     S: Sink<Message> + Unpin,
     S::Error: Display,
@@ -94,9 +113,9 @@ async fn run_socket_sender<S>(
     loop {
         let message = tokio::select! {
             biased;
-            close = close_rx.recv() => {
-                if let Some(frame) = close {
-                    send_retry_close(&mut sink, frame).await;
+            shutdown = close_rx.recv() => {
+                if let Some(shutdown) = shutdown {
+                    send_priority_shutdown(&mut sink, shutdown).await;
                 }
                 break;
             }
@@ -108,9 +127,9 @@ async fn run_socket_sender<S>(
         let close_after_send = matches!(message, Message::Close(_));
         tokio::select! {
             biased;
-            close = close_rx.recv() => {
-                if let Some(frame) = close {
-                    send_retry_close(&mut sink, frame).await;
+            shutdown = close_rx.recv() => {
+                if let Some(shutdown) = shutdown {
+                    send_priority_shutdown(&mut sink, shutdown).await;
                 }
                 break;
             }
@@ -127,20 +146,21 @@ async fn run_socket_sender<S>(
     }
 }
 
-async fn send_retry_close<S>(sink: &mut S, frame: CloseFrame)
+async fn send_priority_shutdown<S>(sink: &mut S, shutdown: PriorityShutdown)
 where
     S: Sink<Message> + Unpin,
     S::Error: Display,
 {
-    match tokio::time::timeout(
-        RETRY_CLOSE_SEND_TIMEOUT,
-        sink.send(Message::Close(Some(frame))),
-    )
-    .await
-    {
+    let send = async {
+        if let Some(message) = shutdown.before_close {
+            sink.send(message).await?;
+        }
+        sink.send(Message::Close(Some(shutdown.close))).await
+    };
+    match tokio::time::timeout(RETRY_CLOSE_SEND_TIMEOUT, send).await {
         Ok(Ok(())) => {}
-        Ok(Err(error)) => debug!(%error, "WebSocket retry close send failed"),
-        Err(_) => warn!("WebSocket retry close send timed out"),
+        Ok(Err(error)) => debug!(%error, "WebSocket priority shutdown send failed"),
+        Err(_) => warn!("WebSocket priority shutdown send timed out"),
     }
 }
 
@@ -198,7 +218,7 @@ mod tests {
             .expect("queue normal message");
         let (close_tx, close_rx) = mpsc::channel(1);
         close_tx
-            .send(retryable_close("overloaded"))
+            .send(retryable_shutdown("overloaded"))
             .await
             .expect("queue priority close");
 
@@ -302,7 +322,7 @@ mod tests {
             .expect("queue normal message");
         normal_started_rx.await.expect("normal send starts");
         close_tx
-            .send(retryable_close("overloaded"))
+            .send(retryable_shutdown("overloaded"))
             .await
             .expect("request priority close");
 
@@ -323,6 +343,43 @@ mod tests {
         assert!(matches!(
             messages.last(),
             Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "overloaded"
+        ));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_error_precedes_priority_close() {
+        let (_socket_tx, socket_rx) = mpsc::channel(1);
+        let (close_tx, close_rx) = mpsc::channel(1);
+        close_tx
+            .send(retryable_error_shutdown(
+                Message::Text("rate limited".into()),
+                "rate-limited",
+            ))
+            .await
+            .expect("queue priority shutdown");
+
+        let recorded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let recorded_for_sink = recorded.clone();
+        let sink = Box::pin(futures::sink::unfold((), move |(), message| {
+            let recorded = recorded_for_sink.clone();
+            async move {
+                recorded
+                    .lock()
+                    .expect("recording sink poisoned")
+                    .push(message);
+                Ok::<_, std::convert::Infallible>(())
+            }
+        }));
+
+        run_socket_sender(sink, socket_rx, close_rx).await;
+
+        let messages = recorded.lock().expect("recording sink poisoned");
+        assert!(
+            matches!(messages.first(), Some(Message::Text(text)) if text.as_str() == "rate limited")
+        );
+        assert!(matches!(
+            messages.get(1),
+            Some(Message::Close(Some(frame))) if frame.code == 1013 && frame.reason == "rate-limited"
         ));
     }
 }

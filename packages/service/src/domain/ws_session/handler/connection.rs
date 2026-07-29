@@ -24,8 +24,9 @@ use super::types::{QueryState, SdkSessions};
 mod outbound;
 
 use outbound::{
-    retryable_close, spawn_outbound_bridge, spawn_socket_sender, OutboundBridgeExit,
-    OUTBOUND_SOCKET_CAPACITY, OUTBOUND_SOCKET_SEND_TIMEOUT, RETRY_CLOSE_SEND_TIMEOUT,
+    retryable_error_shutdown, retryable_shutdown, spawn_outbound_bridge, spawn_socket_sender,
+    OutboundBridgeExit, OUTBOUND_SOCKET_CAPACITY, OUTBOUND_SOCKET_SEND_TIMEOUT,
+    RETRY_CLOSE_SEND_TIMEOUT,
 };
 
 const MAX_INBOUND_MESSAGES_PER_SECOND: u16 = 120;
@@ -174,7 +175,7 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                             timeout_ms = OUTBOUND_SOCKET_SEND_TIMEOUT.as_millis(),
                             "WebSocket peer did not drain the outbound queue before timeout"
                         );
-                        if close_tx.send(retryable_close("overloaded")).await.is_err() {
+                        if close_tx.send(retryable_shutdown("overloaded")).await.is_err() {
                             debug!("WebSocket sender closed before overload close could be requested");
                         }
                         graceful_close_requested = true;
@@ -205,10 +206,13 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                                 })
                                 .unwrap(),
                             );
-                            let _ = outbound_tx
-                                .send(Message::Text(String::from(err_env).into()));
-                            let _ = outbound_tx
-                                .send(Message::Close(Some(retryable_close("rate-limited"))));
+                            let shutdown = retryable_error_shutdown(
+                                Message::Text(String::from(err_env).into()),
+                                "rate-limited",
+                            );
+                            if close_tx.send(shutdown).await.is_err() {
+                                debug!("WebSocket sender closed before rate-limit shutdown could be requested");
+                            }
                             graceful_close_requested = true;
                             break;
                         }
