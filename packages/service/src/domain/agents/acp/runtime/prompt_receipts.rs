@@ -71,7 +71,7 @@ impl PendingPromptReceipts {
             .iter()
             .position(|receipt| receipt.matches_observed(observed_message_id, &observed_text))?;
         let receipt = pending.receipts.remove(idx)?;
-        Some(receipt.into_event())
+        Some(receipt.into_event(None))
     }
 
     pub fn acknowledge_client_message_id(&self, client_message_id: &str) -> Option<RuntimeEvent> {
@@ -81,7 +81,7 @@ impl PendingPromptReceipts {
             .iter()
             .position(|receipt| receipt.client_message_id == client_message_id)?;
         let receipt = pending.receipts.remove(idx)?;
-        Some(receipt.into_event())
+        Some(receipt.into_event(None))
     }
 
     pub fn discard_client_message_id(&self, client_message_id: &str) {
@@ -109,7 +109,7 @@ impl PendingPromptReceipts {
                 && pending.agent_message_generation > receipt.enqueue_agent_message_generation
         });
         let receipt = pending.receipts.remove(idx?)?;
-        Some(receipt.into_event())
+        Some(receipt.into_event(Some(message_id)))
     }
 }
 
@@ -130,8 +130,11 @@ impl PendingPromptReceipt {
             || observed_text.contains(&self.expected_text)
     }
 
-    fn into_event(self) -> RuntimeEvent {
-        RuntimeEvent::prompt_received_event(self.client_message_id)
+    fn into_event(self, provider_message_id: Option<&str>) -> RuntimeEvent {
+        RuntimeEvent::prompt_received_event_with_provider_message_id(
+            self.client_message_id,
+            provider_message_id.map(ToOwned::to_owned),
+        )
     }
 }
 
@@ -310,5 +313,11 @@ mod tests {
             .expect("receipt");
 
         assert_eq!(event.prompt_received_client_message_id(), Some("client-1"));
+        assert_eq!(event.provider_message_id(), Some("assistant-after"));
+        assert_eq!(
+            event.raw_json()["provider_message_id"],
+            "assistant-after",
+            "history and live accounting share the provider message identity"
+        );
     }
 }

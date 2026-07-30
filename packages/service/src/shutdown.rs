@@ -41,17 +41,24 @@ pub async fn serve_then_shutdown<S>(
     drain_started: oneshot::Receiver<()>,
     pty_manager: crate::domain::terminal::service::PtyManager,
     remote: std::sync::Arc<crate::remote::RemoteController>,
+    write_pool: sqlx::SqlitePool,
 ) -> std::io::Result<()>
 where
     S: std::future::IntoFuture<Output = std::io::Result<()>>,
 {
-    serve_then_shutdown_within(
+    let served = serve_then_shutdown_within(
         server,
         drain_started,
         stop_background_work(pty_manager, remote),
         DRAIN_GRACE,
     )
-    .await
+    .await;
+    // The HTTP drain has ended, so no accepted prompt can register a reader
+    // behind this snapshot. Closing and joining readers first lets them consume
+    // final provider events; only then is the pending-write set complete.
+    crate::domain::ws_session::stream_readers::shutdown(&write_pool).await;
+    crate::domain::usage_stats::flush_pending_writes(&write_pool).await;
+    served
 }
 
 /// Everything that keeps running after the listener closes. Nothing here is
@@ -113,7 +120,6 @@ where
             })
         }
     };
-    crate::domain::usage_stats::flush_pending_writes().await;
     served
 }
 

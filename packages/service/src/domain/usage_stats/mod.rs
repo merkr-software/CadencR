@@ -15,6 +15,7 @@ pub mod recorder;
 pub mod repository;
 pub mod routes;
 
+pub(crate) use models::provider_message_event_id;
 pub use models::UsageAttribution;
 pub use pending::flush as flush_pending_writes;
 pub use recorder::{record_runtime_usage, snapshot_attribution};

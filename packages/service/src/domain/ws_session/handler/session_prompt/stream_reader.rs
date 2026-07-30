@@ -24,6 +24,7 @@ pub(crate) fn spawn_stream_reader(
     app_state: AppState,
     cleanup_session_on_end: bool,
 ) {
+    let shutdown_runtime = runtime_session_handle.clone();
     let task = StreamReaderTask {
         db_session_id,
         feature_id,
@@ -39,7 +40,7 @@ pub(crate) fn spawn_stream_reader(
         app_state,
         cleanup_session_on_end,
     };
-    tokio::spawn(async move {
+    crate::domain::ws_session::stream_readers::spawn(shutdown_runtime, async move {
         task.run().await;
     });
 }

@@ -37,14 +37,19 @@ pub async fn get_usage_stats_handler(
     let days = clamp_days(query.days);
     // One captured day anchors both ends of the window, so a request that
     // straddles UTC midnight cannot pair one day's axis with another day's rows.
-    let end_day = repository::end_day(&state.read_pool).await?;
-    let entries: Vec<UsageStatsEntry> =
-        repository::list_window(&state.read_pool, &end_day, days).await?;
+    let stats = async {
+        let end_day = repository::end_day(&state.read_pool).await?;
+        let entries: Vec<UsageStatsEntry> =
+            repository::list_window(&state.read_pool, &end_day, days).await?;
+        Ok::<_, sqlx::Error>((end_day, entries))
+    };
+    let ((end_day, entries), recording_issue) =
+        tokio::try_join!(stats, super::health::snapshot(&state.read_pool))?;
     Ok(Json(UsageStatsResponse {
         days,
         end_day,
         entries,
-        recording_issue: super::health::snapshot(),
+        recording_issue,
     }))
 }
 
@@ -57,8 +62,10 @@ pub async fn get_usage_stats_handler(
     path = "/api/usage-stats/recording-issue",
     responses((status = 204, description = "Warning dismissed"))
 )]
-pub async fn dismiss_usage_recording_issue_handler() -> Result<StatusCode, AppError> {
-    super::health::acknowledge();
+pub async fn dismiss_usage_recording_issue_handler(
+    State(state): State<AppState>,
+) -> Result<StatusCode, AppError> {
+    super::health::acknowledge(&state.write_pool).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

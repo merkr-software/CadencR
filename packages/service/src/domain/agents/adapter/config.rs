@@ -31,9 +31,11 @@ pub struct RuntimeTokenUsageEntry {
 pub enum RuntimeTokenUsage {
     /// Final usage for one completed turn. `event_id` makes replay idempotent.
     Delta {
-        /// The stream reader fills this from the canonical prompt receipt when
-        /// ACP omits a provider-native id.
+        /// Provider-native result/request identity.
         event_id: Option<String>,
+        /// Correlation identity shared with history import. Claimed alongside
+        /// `event_id` without replacing the provider-native replay key.
+        correlation_id: Option<String>,
         entries: Vec<RuntimeTokenUsageEntry>,
     },
     /// Monotonic session/thread totals. The recorder persists a checkpoint and
@@ -43,15 +45,28 @@ pub enum RuntimeTokenUsage {
 
 impl RuntimeTokenUsage {
     pub fn delta(event_id: Option<String>, entries: Vec<RuntimeTokenUsageEntry>) -> Self {
-        Self::Delta { event_id, entries }
+        Self::Delta {
+            event_id,
+            correlation_id: None,
+            entries,
+        }
     }
 
     pub fn cumulative(entry: RuntimeTokenUsageEntry) -> Self {
         Self::Cumulative { entry }
     }
 
-    pub fn set_event_id_if_missing(&mut self, fallback: Option<String>) {
-        if let Self::Delta { event_id, .. } = self {
+    /// Add a history/live correlation key while preserving the provider's own
+    /// replay identity. `fallback` is used only when the provider supplied no
+    /// event id at all.
+    pub fn correlate_event_id(&mut self, correlation: Option<String>, fallback: Option<String>) {
+        if let Self::Delta {
+            event_id,
+            correlation_id,
+            ..
+        } = self
+        {
+            *correlation_id = correlation.filter(|id| Some(id) != event_id.as_ref());
             if event_id.is_none() {
                 *event_id = fallback;
             }

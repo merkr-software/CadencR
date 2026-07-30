@@ -80,7 +80,10 @@ mod tests {
             }
         })))
         .unwrap();
-        let RuntimeTokenUsage::Delta { event_id, entries } = usage else {
+        let RuntimeTokenUsage::Delta {
+            event_id, entries, ..
+        } = usage
+        else {
             panic!("expected per-turn usage");
         };
 

@@ -150,7 +150,7 @@ fn history_event(
     };
     Some(HistoryEvent {
         session_id: source.session_id,
-        event_id: format!("history:opencode:{message_id}"),
+        event_id: crate::domain::usage_stats::provider_message_event_id(message_id),
         day: timestamp.date_naive().to_string(),
         model_id,
         thinking_effort: data
@@ -240,6 +240,6 @@ mod tests {
         assert_eq!(event.output_tokens, 15);
         assert_eq!(event.model_id, "openai/gpt-5.6");
         assert_eq!(event.thinking_effort, "high");
-        assert_eq!(event.event_id, "history:opencode:msg-1");
+        assert_eq!(event.event_id, "provider-message:msg-1");
     }
 }

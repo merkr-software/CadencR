@@ -3,9 +3,12 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use super::types::{parse_timestamp, HistoryEvent, ImportBatch, ImportWindow, SessionSource};
+use super::types::{
+    parse_timestamp, HistoryEvent, ImportBatch, ImportWindow, SessionCheckpoint, SessionSource,
+};
 
 pub fn scan(
     root: &Path,
@@ -29,7 +32,7 @@ pub fn scan(
         let Some(path) = files_by_session.get(&source.runtime_session_id) else {
             continue;
         };
-        scan_session(path, source, window, &mut batch.events)?;
+        scan_session(path, source, window, &mut batch)?;
     }
     Ok(batch)
 }
@@ -75,10 +78,10 @@ fn scan_session(
     path: &Path,
     source: &SessionSource,
     window: &ImportWindow,
-    events: &mut Vec<HistoryEvent>,
+    batch: &mut ImportBatch,
 ) -> anyhow::Result<()> {
     let file = std::fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
-    let mut events_by_message_id = HashMap::<String, HistoryEvent>::new();
+    let mut usage_by_message_id = HashMap::<String, ClaudeUsageRow>::new();
     for line in BufReader::new(file).lines() {
         let Ok(line) = line else {
             continue;
@@ -86,27 +89,63 @@ fn scan_session(
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
-        let Some((message_id, event)) = history_event(&value, source, window) else {
+        let Some((message_id, usage)) = usage_row(&value, source, window) else {
             continue;
         };
-        events_by_message_id.insert(message_id, event);
+        usage_by_message_id.insert(message_id, usage);
     }
-    let mut session_events = events_by_message_id.into_values().collect::<Vec<_>>();
+    let totals = usage_by_message_id
+        .values()
+        .fold((0u64, 0u64), |totals, usage| {
+            (
+                totals.0.saturating_add(usage.input_tokens),
+                totals.1.saturating_add(usage.output_tokens),
+            )
+        });
+    if totals != (0, 0) {
+        batch.checkpoints.push(SessionCheckpoint {
+            session_id: source.session_id,
+            input_tokens: totals.0,
+            output_tokens: totals.1,
+        });
+    }
+    let mut session_events = usage_by_message_id
+        .into_iter()
+        .filter(|(_, usage)| usage.timestamp.date_naive() >= window.start_day)
+        .map(|(message_id, usage)| HistoryEvent {
+            session_id: source.session_id,
+            event_id: crate::domain::usage_stats::provider_message_event_id(&message_id),
+            day: usage.timestamp.date_naive().to_string(),
+            model_id: usage.model_id,
+            thinking_effort: source.thinking_effort.clone(),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
+        })
+        .collect::<Vec<_>>();
     session_events.sort_by(|left, right| left.event_id.cmp(&right.event_id));
-    events.extend(session_events);
+    batch.events.extend(session_events);
     Ok(())
 }
 
-fn history_event(
+struct ClaudeUsageRow {
+    timestamp: DateTime<Utc>,
+    model_id: String,
+    input_tokens: u64,
+    output_tokens: u64,
+}
+
+fn usage_row(
     value: &Value,
     source: &SessionSource,
     window: &ImportWindow,
-) -> Option<(String, HistoryEvent)> {
+) -> Option<(String, ClaudeUsageRow)> {
     if value.get("type").and_then(Value::as_str) != Some("assistant") {
         return None;
     }
     let timestamp = parse_timestamp(value.get("timestamp")?.as_str()?)?;
-    if !window.contains(timestamp) {
+    // Pre-window rows seed the cumulative checkpoint, but only compact usage
+    // rows are retained until the final in-window event projection.
+    if timestamp > window.cutoff_at {
         return None;
     }
     let message = value.get("message")?;
@@ -120,17 +159,14 @@ fn history_event(
         return None;
     }
     Some((
-        message_id.clone(),
-        HistoryEvent {
-            session_id: source.session_id,
-            event_id: format!("history:claude:{message_id}"),
-            day: timestamp.date_naive().to_string(),
+        message_id,
+        ClaudeUsageRow {
+            timestamp,
             model_id: message
                 .get("model")
                 .and_then(Value::as_str)
                 .unwrap_or(&source.model_id)
                 .to_string(),
-            thinking_effort: source.thinking_effort.clone(),
             input_tokens,
             output_tokens,
         },
@@ -178,5 +214,13 @@ mod tests {
         assert_eq!(batch.events[0].input_tokens, 60);
         assert_eq!(batch.events[0].output_tokens, 4);
         assert_eq!(batch.events[0].model_id, "claude-opus");
+        assert_eq!(
+            batch.checkpoints,
+            vec![SessionCheckpoint {
+                session_id: 7,
+                input_tokens: 60,
+                output_tokens: 4,
+            }]
+        );
     }
 }

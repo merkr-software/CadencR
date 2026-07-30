@@ -31,6 +31,7 @@ mod stream_reader_task_error;
 mod stream_reader_task_event;
 mod stream_reader_task_lifecycle;
 mod stream_reader_turn_state;
+mod stream_reader_usage;
 mod user_message_delivery;
 mod user_shell;
 mod user_shell_context;

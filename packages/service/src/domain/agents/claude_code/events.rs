@@ -14,6 +14,10 @@ use token_usage::claude_token_usage;
 pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEvent {
     let background_agent = super::background_agents::background_agent_signal(&msg);
     let token_usage = claude_token_usage(&msg);
+    let provider_message_id = match &msg {
+        claude_agent_sdk_rs::SdkMessage::Assistant { message, .. } => Some(message.id.clone()),
+        _ => None,
+    };
     let raw = serde_json::to_value(&msg).unwrap_or(Value::Null);
     let metadata = RuntimeEventMetadata {
         session_id: msg.session_id().map(ToOwned::to_owned),
@@ -31,6 +35,7 @@ pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEv
         .with_background_agent(background_agent)
         .with_result_error(result_error)
         .with_token_usage(token_usage)
+        .with_provider_message_id(provider_message_id)
 }
 
 #[cfg(test)]
@@ -65,6 +70,29 @@ mod tests {
             }
             other => panic!("unexpected stream mapping: {other:?}"),
         }
+    }
+
+    #[test]
+    fn normalize_event_exposes_typed_assistant_message_identity() {
+        let message: claude_agent_sdk_rs::SdkMessage = serde_json::from_value(json!({
+            "type": "assistant",
+            "uuid": "event-1",
+            "session_id": "session-1",
+            "parent_tool_use_id": null,
+            "message": {
+                "id": "assistant-1",
+                "content": [],
+                "model": "claude-opus",
+                "stop_reason": "end_turn",
+                "usage": { "input_tokens": 10, "output_tokens": 2 }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            normalize_event(message).provider_message_id(),
+            Some("assistant-1")
+        );
     }
 
     #[test]

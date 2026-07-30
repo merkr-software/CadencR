@@ -17,6 +17,7 @@ impl RuntimeEvent {
             background_agent: None,
             result_error: None,
             token_usage: None,
+            provider_message_id: None,
         }
     }
 
@@ -53,6 +54,15 @@ impl RuntimeEvent {
 
     pub fn token_usage(&self) -> Option<&RuntimeTokenUsage> {
         self.token_usage.as_ref()
+    }
+
+    pub fn with_provider_message_id(mut self, message_id: Option<String>) -> Self {
+        self.provider_message_id = message_id;
+        self
+    }
+
+    pub fn provider_message_id(&self) -> Option<&str> {
+        self.provider_message_id.as_deref()
     }
 
     pub fn session_id(&self) -> Option<&str> {
@@ -257,16 +267,25 @@ impl RuntimeEvent {
     }
 
     pub fn prompt_received_event(client_message_id: String) -> Self {
+        Self::prompt_received_event_with_provider_message_id(client_message_id, None)
+    }
+
+    pub fn prompt_received_event_with_provider_message_id(
+        client_message_id: String,
+        provider_message_id: Option<String>,
+    ) -> Self {
         Self::new(
             RuntimeEventMetadata {
                 raw: serde_json::json!({
                     "type": "prompt_received",
                     "client_message_id": client_message_id,
+                    "provider_message_id": provider_message_id.clone(),
                 }),
                 ..RuntimeEventMetadata::default()
             },
             RuntimeEventKind::PromptReceived { client_message_id },
         )
+        .with_provider_message_id(provider_message_id)
     }
 
     /// Convenience constructor for stream-status events. Emitters don't

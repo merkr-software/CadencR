@@ -45,7 +45,16 @@ pub async fn record_runtime_usage(
         };
 
         if let Err(error) = persist_usage(&write_pool, session_id, &attribution, &usage).await {
+            let message = format!("failed to record provider token usage: {error}");
             report_failure(&error, "failed to record provider token usage");
+            if let Err(marker_error) = health::record_persisted_loss(&write_pool, 1, &message).await
+            {
+                tracing::error!(
+                    %marker_error,
+                    "failed to persist provider token usage loss"
+                );
+                health::record_failure(&message);
+            }
         }
     })
     .await;
@@ -69,8 +78,15 @@ async fn persist_usage(
     }
 
     match usage {
-        RuntimeTokenUsage::Delta { event_id, entries } => {
-            if let Some(event_id) = event_id {
+        RuntimeTokenUsage::Delta {
+            event_id,
+            correlation_id,
+            entries,
+        } => {
+            for event_id in [event_id.as_ref(), correlation_id.as_ref()]
+                .into_iter()
+                .flatten()
+            {
                 if !repository::claim_event(
                     &mut *tx,
                     session_id,
@@ -164,11 +180,10 @@ fn nonnegative(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
 }
 
-/// Log *and* remember the failure, so the next `/api/usage-stats` read can tell
-/// the user their numbers are incomplete rather than silently under-reporting.
+/// Log the primary database error. The caller persists the user-facing loss
+/// marker and falls back to process memory only if that marker also fails.
 pub(super) fn report_failure(error: &sqlx::Error, context: &str) {
     error!(%error, "{context}");
-    health::record_failure(&error.to_string());
 }
 
 #[cfg(test)]

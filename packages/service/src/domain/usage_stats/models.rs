@@ -48,6 +48,10 @@ pub struct UsageAttribution {
     pub thinking_effort: String,
 }
 
+pub(crate) fn provider_message_event_id(message_id: &str) -> String {
+    format!("provider-message:{message_id}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{UsageStatsEntry, UsageStatsResponse};

@@ -224,6 +224,7 @@ async fn main() -> anyhow::Result<()> {
 
             let pty_manager = state.pty_manager.clone();
             let remote_for_shutdown = state.remote.clone();
+            let write_pool_for_shutdown = state.write_pool.clone();
             let app = api::build_router(state).layer(build_cors_layer(config.frontend_port));
 
             let addr = format!("127.0.0.1:{}", config.port);
@@ -246,8 +247,14 @@ async fn main() -> anyhow::Result<()> {
                 app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
             )
             .with_graceful_shutdown(shutdown::stop_admitting_on_signal(drain_tx));
-            shutdown::serve_then_shutdown(server, drain_rx, pty_manager, remote_for_shutdown)
-                .await?;
+            shutdown::serve_then_shutdown(
+                server,
+                drain_rx,
+                pty_manager,
+                remote_for_shutdown,
+                write_pool_for_shutdown,
+            )
+            .await?;
         }
     }
 

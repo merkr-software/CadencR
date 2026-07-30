@@ -28,6 +28,9 @@ pub struct RuntimeEvent {
     /// `metadata.usage` because that field is the current context-window
     /// snapshot rather than consumption.
     pub(super) token_usage: Option<RuntimeTokenUsage>,
+    /// Stable provider assistant-message identity, when the adapter exposes
+    /// one. History import uses the same identity to correlate replayed usage.
+    pub(super) provider_message_id: Option<String>,
 }
 
 /// Provider-neutral detail of a turn-ending result that reported failure.

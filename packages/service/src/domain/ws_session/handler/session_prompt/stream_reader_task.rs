@@ -9,7 +9,7 @@ use crate::domain::agents::adapter::{
     RuntimeError, RuntimeEvent, RuntimeMessageRx, RuntimeSessionWeakHandle,
 };
 use crate::domain::agents::{runtime_adapter, runtime_session_finished};
-use crate::domain::runtime_stream::{RuntimeUsageSnapshot, RuntimeUsageState};
+use crate::domain::runtime_stream::RuntimeUsageState;
 use crate::domain::session_status::{AgentStatus, SessionStatusBroadcaster};
 use crate::domain::usage_stats::UsageAttribution;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
@@ -56,6 +56,9 @@ pub(super) struct StreamReaderState {
     /// Distinguishes an attribution lookup that found nothing from one that has
     /// not run yet, avoiding a database read for every event in the turn.
     pub(super) usage_attribution_captured: bool,
+    /// First provider assistant-message id observed in this turn. Provider
+    /// histories use this same id, closing replay overlap at the import cutoff.
+    pub(super) provider_usage_event_id: Option<String>,
     pub(super) last_runtime_activity: Instant,
     pub(super) last_provider_reconcile: Instant,
     pub(super) turn_state: StreamTurnState,
@@ -96,24 +99,6 @@ enum ReaderAction {
     Event(RuntimeEvent),
     Error(RuntimeError),
     Closed,
-}
-
-impl StreamReaderState {
-    fn new(initial_usage: RuntimeUsageSnapshot) -> Self {
-        Self {
-            runtime_session_id: None,
-            usage_state: RuntimeUsageState::new(initial_usage),
-            usage_attribution: None,
-            usage_attribution_captured: false,
-            last_runtime_activity: Instant::now(),
-            last_provider_reconcile: Instant::now(),
-            turn_state: StreamTurnState::new(),
-            live_background_agents: HashSet::new(),
-            message_seq: 0,
-            received_prompt_message_uuids: Vec::new(),
-            diagnostics: super::stream_diagnostics::StreamDiagnostics::new(),
-        }
-    }
 }
 
 /// The owner connection has gone. The orphaned runtime is closed only once the
@@ -191,67 +176,6 @@ impl StreamReaderTask {
             self.cleanup_session_on_end,
         )
         .await;
-    }
-
-    /// Capture what this turn's provider token report should be attributed to.
-    pub(super) async fn capture_usage_attribution(
-        &self,
-        state: &mut StreamReaderState,
-        event: &RuntimeEvent,
-    ) {
-        let starts_turn = event.stream_event().is_some()
-            || event.assistant_message().is_some()
-            || event.turn_started_source().is_some()
-            || event.token_usage().is_some();
-        if state.usage_attribution_captured || !starts_turn {
-            return;
-        }
-        state.usage_attribution =
-            crate::domain::usage_stats::snapshot_attribution(&self.write_pool, self.db_session_id)
-                .await;
-        state.usage_attribution_captured = true;
-    }
-
-    pub(super) async fn record_token_usage(
-        &self,
-        state: &mut StreamReaderState,
-        event: &RuntimeEvent,
-    ) {
-        let Some(mut usage) = event.token_usage().cloned() else {
-            return;
-        };
-        usage.set_event_id_if_missing(state.received_prompt_message_uuids.first().cloned());
-        crate::domain::usage_stats::record_runtime_usage(
-            &self.write_pool,
-            self.db_session_id,
-            state.usage_attribution.clone(),
-            usage,
-        )
-        .await;
-    }
-
-    /// Seed the usage state from what the session already shows: the persisted
-    /// token totals plus the best known window. Carrying the totals (rather
-    /// than starting at zero) is what lets a window-only update be emitted
-    /// mid-flight without blanking the bar.
-    async fn initial_usage_snapshot(&self) -> RuntimeUsageSnapshot {
-        let row = WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id).await;
-        let persisted = |value: Option<i64>| value.and_then(|v| u64::try_from(v).ok()).unwrap_or(0);
-
-        let context_window = match self.provider_context_window {
-            Some(cw) if cw > 0 => Some(cw),
-            _ => row
-                .as_ref()
-                .and_then(|row| row.context_window)
-                .and_then(|cw| u64::try_from(cw).ok())
-                .filter(|cw| *cw > 0),
-        };
-
-        RuntimeUsageSnapshot {
-            input_tokens: persisted(row.as_ref().and_then(|row| row.input_tokens)),
-            output_tokens: persisted(row.as_ref().and_then(|row| row.output_tokens)),
-            context_window,
-        }
     }
 
     async fn next_action(&mut self, state: &mut StreamReaderState) -> ReaderAction {
