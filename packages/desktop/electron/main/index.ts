@@ -24,7 +24,9 @@ import type { BrowserManager } from "./browser-manager";
 import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
 import { installDefaultRendererCrashRecovery } from "./renderer-crash-recovery";
+import { configureLinuxOzonePlatform } from "./linux-ozone-platform";
 import { installCsp, rendererLoadTarget, secureWebContents } from "./renderer-window-security";
+import { windowIconOption } from "./app-icon";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
@@ -116,7 +118,14 @@ function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    titleBarStyle: "hiddenInset",
+    ...(process.platform === "linux"
+      ? { frame: false }
+      : { titleBarStyle: "hiddenInset" as const }),
+    ...windowIconOption({
+      appPath: app.getAppPath(),
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+    }),
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -243,6 +252,8 @@ if (!app.isPackaged) {
   devProfile = resolveDevProfile(app.getPath("appData"), loadDevEnv);
   app.setPath("userData", devProfile.userDataPath);
 }
+
+configureLinuxOzonePlatform(app.commandLine, process.platform);
 
 if (!app.requestSingleInstanceLock()) {
   app.quit();

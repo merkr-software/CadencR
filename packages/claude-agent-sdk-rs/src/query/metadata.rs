@@ -12,9 +12,10 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+use crate::discovery::find_cli;
 use crate::error::SdkError;
 use crate::options::Options;
-use crate::transport::{find_cli, CliProcess};
+use crate::transport::CliProcess;
 
 use super::wire::{
     build_control_request, build_success_ack, control_request_subtype, write_to_stdin,

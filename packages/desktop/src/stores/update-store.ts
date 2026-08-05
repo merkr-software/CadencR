@@ -9,7 +9,12 @@ export type UpdateStatus =
   | "downloading"
   | "downloaded"
   | "up-to-date"
-  | "error";
+  | "error"
+  /**
+   * In-app updates are disabled for an unrecognized/custom Linux install.
+   * Official AppImage, DEB, and RPM packages all use electron-updater.
+   */
+  | "unsupported";
 
 interface UpdateState {
   status: UpdateStatus;
@@ -21,6 +26,8 @@ interface UpdateState {
   /** Download percent, 0–100. */
   progress: number;
   error: string | null;
+  /** Human-readable explanation when `status === "unsupported"`. */
+  unsupportedMessage: string | null;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
   applyEvent: (event: UpdateEvent) => void;
@@ -33,6 +40,7 @@ export const useUpdateStore = create<UpdateState>((set) => ({
   changelogLoading: false,
   progress: 0,
   error: null,
+  unsupportedMessage: null,
   checkForUpdates: async () => {
     set({ status: "checking", error: null });
     try {
@@ -83,6 +91,16 @@ export const useUpdateStore = create<UpdateState>((set) => ({
         return;
       case "error":
         set({ status: "error", error: event.message });
+        return;
+      case "unsupported":
+        // Init-time announce + every check-for-updates call both fire this,
+        // so the same payload can arrive multiple times. Returning `prev`
+        // unchanged short-circuits Zustand's subscriber notification.
+        set((prev) =>
+          prev.status === "unsupported" && prev.unsupportedMessage === event.message
+            ? prev
+            : { ...prev, status: "unsupported", unsupportedMessage: event.message, error: null },
+        );
         return;
     }
   },

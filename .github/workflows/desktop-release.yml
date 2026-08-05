@@ -10,31 +10,64 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: macos-14
-    timeout-minutes: 60
+  prepare-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      # afterSign hook gates on this; opt in for tagged releases only.
-      CADENCR_NOTARIZE_APP: "true"
-      # Apple ID credentials consumed by build/notarize-app.cjs and
-      # scripts/notarize-artifacts.mjs.
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      # electron-builder reads CSC_LINK + CSC_KEY_PASSWORD to import the
-      # Developer ID Application certificate from a base64-encoded .p12.
-      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
-      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-      # GitHub publish provider — needs write access to releases.
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # PAT with write access to the merkr-software/homebrew-cadencr tap. When
-      # unset, the cask-update step is skipped (see its `if` guard).
-      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
+      - name: Verify release tag matches desktop version
+        run: |
+          node -e "const pkg=require('./packages/desktop/package.json'); const expected='v'+pkg.version; const actual=process.env.GITHUB_REF_NAME; if (actual !== expected) { console.error('Release tag '+actual+' does not match desktop version '+expected); process.exit(1); }"
+
+      - name: Create draft GitHub release
+        run: |
+          releases_file="$RUNNER_TEMP/existing-releases.tsv"
+          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | [.id, .draft, (.assets | length)] | @tsv" \
+            > "$releases_file"
+
+          while IFS=$'\t' read -r release_id is_draft asset_count; do
+            [ -n "$release_id" ] || continue
+            if [ "$is_draft" != "true" ] && [ "$asset_count" != "0" ]; then
+              echo "Release $GITHUB_REF_NAME already exists with assets. Refusing to overwrite it." >&2
+              exit 1
+            fi
+            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -X DELETE
+          done < "$releases_file"
+
+          scripts/release-notes.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/release-notes.md"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "${GITHUB_REF_NAME#v}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
+
+  build:
+    needs: prepare-release
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, ubuntu-latest]
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       # actions/checkout@v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Test Homebrew cask update script
+        if: matrix.os == 'macos-14'
         run: env -u BASH_ENV bash scripts/update-homebrew-cask.test.sh
 
       - name: Enable pnpm from packageManager
@@ -49,10 +82,16 @@ jobs:
       - name: Install Rust stable toolchain
         run: rustup toolchain install stable --profile minimal
 
-      - name: Verify release tag matches desktop version
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Install Linux build dependencies
+        if: matrix.os == 'ubuntu-latest'
         run: |
-          node -e "const pkg=require('./packages/desktop/package.json'); const expected='v'+pkg.version; const actual=process.env.GITHUB_REF_NAME; if (actual !== expected) { console.error('Release tag '+actual+' does not match desktop version '+expected); process.exit(1); }"
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -69,25 +108,11 @@ jobs:
       - name: Build renderer + main bundles
         run: pnpm --filter @cadencr/desktop exec electron-vite build
 
-      - name: Prepare GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          releases_file="$RUNNER_TEMP/existing-releases.tsv"
-          gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | [.id, .draft, (.assets | length)] | @tsv" \
-            > "$releases_file"
-
-          while IFS=$'\t' read -r release_id is_draft asset_count; do
-            [ -n "$release_id" ] || continue
-            if [ "$is_draft" != "true" ] && [ "$asset_count" != "0" ]; then
-              echo "Release $GITHUB_REF_NAME already exists with assets. Refusing to overwrite it." >&2
-              exit 1
-            fi
-
-            gh api "repos/$GITHUB_REPOSITORY/releases/$release_id" -X DELETE
-          done < "$releases_file"
-
       - name: Import Developer ID certificate
+        if: matrix.os == 'macos-14'
+        env:
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
         run: |
           certificate_path="$RUNNER_TEMP/developer-id.p12"
           keychain_path="$RUNNER_TEMP/cadencr-build-signing.keychain-db"
@@ -109,10 +134,13 @@ jobs:
           echo "CSC_KEYCHAIN=$keychain_path" >> "$GITHUB_ENV"
           echo "CADENCR_MAC_CODESIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
 
-      - name: Build, sign, and notarize desktop app
-        # GitHub release creation/upload is handled explicitly in later steps.
-        # Letting electron-builder publish directly can race multi-target macOS
-        # uploads into duplicate releases for the same tag.
+      - name: Build, sign, and notarize macOS desktop app
+        if: matrix.os == 'macos-14'
+        env:
+          CADENCR_NOTARIZE_APP: "true"
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           pnpm --filter @cadencr/desktop exec electron-builder \
             --config electron-builder.yml \
@@ -120,8 +148,8 @@ jobs:
             --arm64 --x64 \
             --publish never
 
-      - name: Verify local desktop release assets
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Verify local macOS release assets
+        if: matrix.os == 'macos-14'
         run: |
           version="${GITHUB_REF_NAME#v}"
           dist_dir="packages/desktop/dist-electron"
@@ -136,39 +164,20 @@ jobs:
             "Cadencr-${version}-arm64-mac.zip.blockmap"
             "latest-mac.yml"
           )
-
           for asset in "${expected_assets[@]}"; do
-            if [ ! -f "$dist_dir/$asset" ]; then
-              echo "Missing release asset: $dist_dir/$asset" >&2
-              exit 1
-            fi
+            test -f "$dist_dir/$asset" || { echo "Missing release asset: $dist_dir/$asset" >&2; exit 1; }
           done
-
           grep -F "Cadencr-${version}-mac.zip" "$dist_dir/latest-mac.yml" >/dev/null
           grep -F "Cadencr-${version}-arm64-mac.zip" "$dist_dir/latest-mac.yml" >/dev/null
           grep -F "Cadencr-${version}.dmg" "$dist_dir/latest-mac.yml" >/dev/null
           grep -F "Cadencr-${version}-arm64.dmg" "$dist_dir/latest-mac.yml" >/dev/null
 
-      - name: Extract GitHub release notes
-        if: startsWith(github.ref, 'refs/tags/')
-        run: scripts/release-notes.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/release-notes.md"
-
-      - name: Create draft GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
-        run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --draft \
-            --title "${GITHUB_REF_NAME#v}" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
-
-      - name: Upload GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload macOS release assets
+        if: matrix.os == 'macos-14'
         run: |
           version="${GITHUB_REF_NAME#v}"
           dist_dir="packages/desktop/dist-electron"
-          gh release upload "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
             "$dist_dir/Cadencr-${version}.dmg" \
             "$dist_dir/Cadencr-${version}.dmg.blockmap" \
             "$dist_dir/Cadencr-${version}-mac.zip" \
@@ -179,8 +188,86 @@ jobs:
             "$dist_dir/Cadencr-${version}-arm64-mac.zip.blockmap" \
             "$dist_dir/latest-mac.yml"
 
+      - name: Build Linux AppImage, deb, and rpm
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          pnpm --filter @cadencr/desktop exec electron-builder \
+            --config electron-builder.yml \
+            --linux \
+            --x64 \
+            --publish never
+
+      - name: Smoke-test AppImage, deb, and rpm Linux artifacts
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          set -euo pipefail
+          cd packages/desktop/dist-electron
+          APPIMAGE="$(ls *.AppImage | head -n1)"
+          DEB="$(ls *.deb | head -n1)"
+          RPM="$(ls *.rpm | head -n1)"
+
+          chmod +x "$APPIMAGE"
+          rm -rf squashfs-root
+          "./$APPIMAGE" --appimage-extract > /dev/null
+          APPIMAGE_SIDECAR="squashfs-root/resources/cadencr-service"
+          test -x "$APPIMAGE_SIDECAR"
+          "$APPIMAGE_SIDECAR" --help > /dev/null
+
+          docker run --rm -v "$PWD:/pkg:ro" debian:12 bash -eu -c "
+            apt-get update -qq
+            apt-get install -y -q /pkg/$DEB
+            SIDECAR=\$(dpkg -L cadencr | grep -E '/cadencr-service\$' | head -n1)
+            PACKAGE_TYPE=\$(dpkg -L cadencr | grep -E '/resources/package-type\$' | head -n1)
+            test -n \"\$SIDECAR\" && test -x \"\$SIDECAR\"
+            test \"\$(cat \"\$PACKAGE_TYPE\")\" = deb
+            \"\$SIDECAR\" --help > /dev/null
+          "
+          docker run --rm -v "$PWD:/pkg:ro" fedora:40 bash -eu -c "
+            dnf install -y -q /pkg/$RPM
+            SIDECAR=\$(rpm -ql cadencr | grep -E '/cadencr-service\$' | head -n1)
+            PACKAGE_TYPE=\$(rpm -ql cadencr | grep -E '/resources/package-type\$' | head -n1)
+            test -n \"\$SIDECAR\" && test -x \"\$SIDECAR\"
+            test \"\$(cat \"\$PACKAGE_TYPE\")\" = rpm
+            \"\$SIDECAR\" --help > /dev/null
+          "
+
+          grep -Eq 'url: .*\.AppImage$' latest-linux.yml
+          grep -Eq 'url: .*\.deb$' latest-linux.yml
+          grep -Eq 'url: .*\.rpm$' latest-linux.yml
+
+      - name: Upload Linux release assets
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          shopt -s nullglob
+          dist_dir="packages/desktop/dist-electron"
+          assets=(
+            "$dist_dir"/*.AppImage
+            "$dist_dir"/*.AppImage.blockmap
+            "$dist_dir"/*.deb
+            "$dist_dir"/*.rpm
+            "$dist_dir"/latest-linux.yml
+          )
+          if [ "${#assets[@]}" -lt 4 ]; then
+            echo "Missing one or more Linux release artifacts" >&2
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${assets[@]}"
+
+  publish-release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+    steps:
+      # actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+
       - name: Verify uploaded GitHub release assets
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           version="${GITHUB_REF_NAME#v}"
           expected_assets=(
@@ -193,36 +280,29 @@ jobs:
             "Cadencr-${version}-arm64-mac.zip"
             "Cadencr-${version}-arm64-mac.zip.blockmap"
             "latest-mac.yml"
+            "latest-linux.yml"
           )
 
           is_draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
-          if [ "$is_draft" != "true" ]; then
-            echo "Release $GITHUB_REF_NAME must still be draft before final publication" >&2
-            exit 1
-          fi
-
+          test "$is_draft" = "true" || { echo "Release must remain draft until verification finishes" >&2; exit 1; }
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' \
             > "$RUNNER_TEMP/uploaded-release-assets.txt"
 
           for asset in "${expected_assets[@]}"; do
-            if ! grep -Fxq "$asset" "$RUNNER_TEMP/uploaded-release-assets.txt"; then
-              echo "Uploaded GitHub release is missing asset: $asset" >&2
-              exit 1
-            fi
+            grep -Fxq "$asset" "$RUNNER_TEMP/uploaded-release-assets.txt" || { echo "Uploaded release is missing: $asset" >&2; exit 1; }
           done
+          grep -Eq '\.AppImage$' "$RUNNER_TEMP/uploaded-release-assets.txt"
+          grep -Eq '\.AppImage\.blockmap$' "$RUNNER_TEMP/uploaded-release-assets.txt"
+          grep -Eq '\.deb$' "$RUNNER_TEMP/uploaded-release-assets.txt"
+          grep -Eq '\.rpm$' "$RUNNER_TEMP/uploaded-release-assets.txt"
 
       - name: Publish GitHub release
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           gh release edit "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
             --draft=false \
             --latest
 
       - name: Update Homebrew cask
-        # Pushes the refreshed cask to the merkr-software/homebrew-cadencr tap.
-        # Skipped until the HOMEBREW_TAP_TOKEN secret (write access to that repo)
-        # is configured.
-        if: startsWith(github.ref, 'refs/tags/') && env.HOMEBREW_TAP_TOKEN != ''
+        if: env.HOMEBREW_TAP_TOKEN != ''
         run: scripts/update-homebrew-cask.sh "$GITHUB_REF_NAME"

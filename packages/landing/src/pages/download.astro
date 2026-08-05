@@ -11,9 +11,15 @@ import {
 import { SITE_URL, ORG_REF } from "@/lib/seo";
 
 const defaultDownload = selectRecommendedDownload({ os: "macos", arch: "unknown" });
-const pageTitle = "Download CadencR for macOS — agent IDE for Claude Code, OpenCode, and Codex";
+const macAssets = DOWNLOAD_ASSETS.filter((asset) => asset.os === "macos");
+const linuxAssets = DOWNLOAD_ASSETS.filter((asset) => asset.os === "linux");
+const downloadGroups = [
+  { title: "macOS", note: "Apple Silicon and Intel", assets: macAssets },
+  { title: "Linux", note: "x86-64 · AppImage, DEB, RPM", assets: linuxAssets },
+];
+const pageTitle = "Download CadencR for macOS and Linux — agent IDE";
 const pageDescription =
-  "Download the latest CadencR desktop build for macOS. CadencR is the local IDE for supervising Claude Code, OpenCode, and Codex agent sessions.";
+  "Download CadencR for macOS or Linux. Choose Apple Silicon or Intel on macOS, or AppImage, DEB, or RPM on Linux x86-64.";
 
 const softwareApplication = {
   "@type": "SoftwareApplication",
@@ -22,7 +28,7 @@ const softwareApplication = {
   alternateName: ["Cadencr", "Cadencr IDE"],
   applicationCategory: "DeveloperApplication",
   applicationSubCategory: "IDE",
-  operatingSystem: "macOS",
+  operatingSystem: ["macOS", "Linux"],
   softwareVersion: DISPLAY_VERSION,
   description: pageDescription,
   downloadUrl: defaultDownload?.url ?? LATEST_RELEASE_URL,
@@ -54,8 +60,8 @@ const structuredData = [softwareApplication, breadcrumbs];
           Get CadencR for your machine.
         </h1>
         <p class="mt-4 max-w-[620px] text-sm leading-[1.65] text-muted-foreground [text-wrap:pretty]">
-          CadencR currently ships for macOS. We try to detect the right build automatically,
-          and you can always choose another target manually below.
+          CadencR ships for macOS and Linux. We detect a recommended build in your browser,
+          and every available target remains listed below.
         </p>
       </div>
 
@@ -101,7 +107,7 @@ const structuredData = [softwareApplication, breadcrumbs];
 
   <section class="py-14">
     <div class="mx-auto grid max-w-[1160px] grid-cols-1 gap-8 px-4 sm:px-6 lg:grid-cols-[1fr_0.85fr]">
-      <div>
+      <div class="min-w-0">
         <div class="mb-5 flex items-end justify-between gap-4">
           <div>
             <p class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-primary">
@@ -110,39 +116,83 @@ const structuredData = [softwareApplication, breadcrumbs];
             <h2 class="mt-2 text-[26px] font-semibold tracking-[-0.018em]">Choose a build</h2>
           </div>
         </div>
-        <div class="grid gap-3">
-          {DOWNLOAD_ASSETS.map((asset) => (
-            <a
-              id={asset.href.slice(1)}
-              href={asset.url}
-              class="group soft-panel grid gap-3 p-4 transition-colors hover:bg-accent sm:grid-cols-[1fr_auto] sm:items-center"
-              data-download-asset={asset.assetName}
-            >
-              <span>
-                <span class="block text-sm font-medium">{asset.label}</span>
-                <span class="mt-1 block font-mono text-[11px] text-muted-foreground">{asset.assetName}</span>
-              </span>
-              <span class="inline-flex items-center gap-2 whitespace-nowrap font-mono text-[11px] text-muted-foreground group-hover:text-foreground [&_svg]:h-[14px] [&_svg]:w-[14px] [&_svg]:shrink-0">
-                {asset.size}
-                <DownloadIcon />
-              </span>
-            </a>
-          ))}
+        <div class="grid gap-6">
+          {
+            downloadGroups.map((group) => (
+              <section aria-labelledby={`downloads-${group.title.toLowerCase()}`}>
+                <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <h3 id={`downloads-${group.title.toLowerCase()}`} class="text-base font-semibold">
+                    {group.title}
+                  </h3>
+                  <p class="font-mono text-[10.5px] text-muted-foreground">{group.note}</p>
+                </div>
+                <div class="grid gap-3">
+                  {group.assets.map((asset) => (
+                    <a
+                      id={asset.href.slice(1)}
+                      href={asset.url}
+                      class="group soft-panel grid gap-3 p-4 transition-colors hover:bg-accent sm:grid-cols-[1fr_auto] sm:items-center"
+                      data-download-asset={asset.assetName}
+                    >
+                      <span class="min-w-0">
+                        <span class="block text-sm font-medium">{asset.label}</span>
+                        <span class="mt-1 block truncate font-mono text-[11px] text-muted-foreground">
+                          {asset.assetName}
+                        </span>
+                      </span>
+                      <span class="inline-flex items-center gap-2 whitespace-nowrap font-mono text-[11px] text-muted-foreground group-hover:text-foreground [&_svg]:h-[14px] [&_svg]:w-[14px] [&_svg]:shrink-0">
+                        {asset.size}
+                        <DownloadIcon />
+                      </span>
+                    </a>
+                  ))}
+                </div>
+              </section>
+            ))
+          }
         </div>
       </div>
 
-      <aside class="self-start rounded-2xl bg-sidebar p-6 shadow-md">
+      <aside id="install" class="self-start rounded-2xl bg-sidebar p-6 shadow-md">
         <p class="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-primary">
-          Coming next
+          Installation
         </p>
         <h2 class="mt-2 text-[24px] font-semibold tracking-[-0.018em]">
-          Linux and Windows builds are coming next.
+          Install the build you downloaded.
         </h2>
-        <p class="mt-3 text-[13.5px] leading-[1.65] text-muted-foreground">
-          The app already runs as an Electron desktop shell with a Rust sidecar. The next
-          distribution work is predictable packaging, update behavior, and installer flows
-          for Linux and Windows.
+        <div class="mt-5 grid gap-5 text-[13px] leading-[1.6] text-muted-foreground">
+          <section>
+            <h3 class="font-semibold text-foreground">macOS</h3>
+            <p class="mt-1">Open the DMG and drag CadencR to Applications, or install with Homebrew:</p>
+            <code class="mt-2 block overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] text-foreground">brew install --cask merkr-software/cadencr/cadencr</code>
+          </section>
+          <section>
+            <h3 class="font-semibold text-foreground">Linux AppImage</h3>
+            <code class="mt-2 block overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] text-foreground">
+              <span class="block">chmod +x Cadencr-*.AppImage</span>
+              <span class="block">./Cadencr-*.AppImage</span>
+            </code>
+          </section>
+          <section>
+            <h3 class="font-semibold text-foreground">Ubuntu, Debian, Mint, Pop!_OS</h3>
+            <code class="mt-2 block overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] text-foreground">sudo apt install ./Cadencr-*-amd64.deb</code>
+          </section>
+          <section>
+            <h3 class="font-semibold text-foreground">Fedora, RHEL, Rocky, AlmaLinux</h3>
+            <code class="mt-2 block overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] text-foreground">sudo dnf install ./Cadencr-*.rpm</code>
+          </section>
+          <section>
+            <h3 class="font-semibold text-foreground">openSUSE and SLES</h3>
+            <code class="mt-2 block overflow-x-auto rounded-lg bg-background p-3 font-mono text-[11px] text-foreground">sudo zypper install ./Cadencr-*.rpm</code>
+          </section>
+        </div>
+        <p class="mt-5 text-[12.5px] leading-[1.6] text-muted-foreground">
+          Official Linux packages update through CadencR. DEB and RPM installs may request
+          administrator authentication. Linux builds currently require x86-64; Windows is coming next.
         </p>
+        <a href={`${import.meta.env.BASE_URL}docs/installation/`} class="mt-4 inline-flex text-[13px] font-medium text-primary hover:underline">
+          Read the complete installation guide →
+        </a>
       </aside>
     </div>
   </section>
@@ -150,7 +200,12 @@ const structuredData = [softwareApplication, breadcrumbs];
 
 
 
-<script id="download-assets-json" type="application/json" set:html={JSON.stringify(DOWNLOAD_ASSETS)}></script>
+<script
+  is:inline
+  id="download-assets-json"
+  type="application/json"
+  set:html={JSON.stringify(DOWNLOAD_ASSETS)}
+></script>
 <script>
   import { archFromRenderer, normalizeArch, preferredMacArch, resolveMacArch } from "@/lib/downloads";
   import type { DetectedArch, DetectedOs } from "@/lib/downloads";
@@ -158,7 +213,7 @@ const structuredData = [softwareApplication, breadcrumbs];
   interface BrowserDownloadAsset {
     arch: DetectedArch;
     label: string;
-    os: "macos";
+    os: "linux" | "macos";
     url: string;
   }
   interface NavigatorUserAgentData {
@@ -215,30 +270,41 @@ const structuredData = [softwareApplication, breadcrumbs];
     return "unknown";
   }
 
-  async function detectArchitecture(): Promise<DetectedArch> {
-    // The GPU renderer reflects the physical machine and survives Rosetta, so
-    // when it's definitive skip the userAgentData round-trip entirely.
+  async function detectArchitecture(os: DetectedOs): Promise<DetectedArch> {
     const renderer = archFromRenderer(gpuRenderer());
-    if (renderer !== "unknown") return renderer;
-    return resolveMacArch({ renderer, userAgentData: await archFromUserAgentData() });
+    const userAgentData = await archFromUserAgentData();
+    if (os === "macos") return resolveMacArch({ renderer, userAgentData });
+    if (userAgentData !== "unknown") return userAgentData;
+    const userAgent = normalizeArch(navigator.userAgent);
+    return userAgent !== "unknown" ? userAgent : renderer;
   }
 
   function chooseDownload(os: DetectedOs, arch: DetectedArch): BrowserDownloadAsset | undefined {
-    if (os !== "macos") return undefined;
-    const wanted = preferredMacArch(arch);
-    return downloads.find((asset) => asset.arch === wanted);
+    if (os === "linux") {
+      if (arch === "arm64") return undefined;
+      return downloads.find((asset) => asset.os === "linux" && asset.url.endsWith(".AppImage"));
+    }
+    if (os === "macos") {
+      const wanted = preferredMacArch(arch);
+      return downloads.find((asset) => asset.os === "macos" && asset.arch === wanted);
+    }
+    return undefined;
   }
 
   function describeDetection(os: DetectedOs, arch: DetectedArch): string {
     if (os === "macos") return `Detected macOS${arch === "unknown" ? "" : ` (${arch})`}.`;
-    if (os === "linux") return "Detected Linux. Native Linux builds are planned next.";
+    if (os === "linux") {
+      return arch === "arm64"
+        ? "Detected Linux (ARM64). Linux downloads currently require x86-64."
+        : `Detected Linux${arch === "unknown" ? "" : " (x86-64)"}.`;
+    }
     if (os === "windows") return "Detected Windows. Native Windows builds are planned next.";
     return "Could not determine your operating system. Choose a target manually below.";
   }
 
   async function updateRecommendedDownload(): Promise<void> {
     const os = detectOs(browserPlatform(), navigator.userAgent);
-    const arch = await detectArchitecture();
+    const arch = await detectArchitecture(os);
     const recommendation = chooseDownload(os, arch);
     const title = document.querySelector<HTMLElement>("[data-download-title]");
     const copy = document.querySelector<HTMLElement>("[data-download-copy]");
@@ -248,20 +314,30 @@ const structuredData = [softwareApplication, breadcrumbs];
 
     if (detection) detection.textContent = describeDetection(os, arch);
     if (!recommendation) {
-      if (title) title.textContent = os === "unknown" ? "Choose your build" : "Coming soon for your OS";
+      if (title) {
+        title.textContent = os === "linux" ? "Linux ARM64 is not available yet" : os === "unknown" ? "Choose your build" : "Coming soon for your OS";
+      }
       if (copy) {
-        copy.textContent = "CadencR currently ships for macOS. Linux and Windows builds are planned next.";
+        copy.textContent = os === "linux"
+          ? "Current Linux packages target x86-64. ARM64 users can build from source while native artifacts are planned."
+          : "CadencR currently ships for macOS and Linux. Windows builds are planned next.";
       }
       if (label) label.textContent = "View available downloads";
-      if (primary) primary.href = "#macos-arm64-dmg";
+      if (primary) {
+        primary.href = "https://github.com/merkr-software/CadencR/releases/latest";
+      }
       return;
     }
 
     if (title) title.textContent = recommendation.label;
     if (copy) {
-      copy.textContent = "Recommended for this browser. You can still choose another macOS target below.";
+      copy.textContent = os === "linux"
+        ? "The portable AppImage is recommended for Linux. Native DEB and RPM packages are available below."
+        : "Recommended for this browser. You can still choose another macOS target below.";
     }
-    if (label) label.textContent = `Download ${recommendation.label.replace("macOS ", "")}`;
+    if (label) {
+      label.textContent = `Download ${recommendation.label.replace("macOS ", "").replace("Linux x86-64 ", "")}`;
+    }
     if (primary) primary.href = recommendation.url;
   }
 

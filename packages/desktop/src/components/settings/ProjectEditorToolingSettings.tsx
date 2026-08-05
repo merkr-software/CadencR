@@ -24,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatCompactCombo } from "@/lib/shortcuts/format";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { LabeledControl } from "./LabeledControl";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 
@@ -32,6 +34,10 @@ interface ToolingOption {
   label: string;
   description: string;
 }
+
+const FORMAT_DOCUMENT_COMBO = formatCompactCombo(
+  getRegistryShortcut("editor-format-document").keys,
+);
 
 const TS_SERVER_OPTIONS: readonly ToolingOption[] = [
   {
@@ -53,14 +59,22 @@ const FORMATTER_OPTIONS: readonly ToolingOption[] = [
   {
     value: "off",
     label: "Off",
-    description: "No formatter — “Format document” (⌘⇧I) does nothing.",
+    description: `No formatter — “Format document” (${FORMAT_DOCUMENT_COMBO}) does nothing.`,
   },
-  { value: "biome", label: "Biome", description: "biome format, via “Format document” (⌘⇧I)." },
-  { value: "oxfmt", label: "oxfmt", description: "oxc formatter, via “Format document” (⌘⇧I)." },
+  {
+    value: "biome",
+    label: "Biome",
+    description: `biome format, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
+  },
+  {
+    value: "oxfmt",
+    label: "oxfmt",
+    description: `oxc formatter, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
+  },
   {
     value: "prettier",
     label: "Prettier",
-    description: "prettier --stdin-filepath, via “Format document” (⌘⇧I).",
+    description: `prettier --stdin-filepath, via “Format document” (${FORMAT_DOCUMENT_COMBO}).`,
   },
 ];
 

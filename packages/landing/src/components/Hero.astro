@@ -36,7 +36,7 @@ const [latestNews] = (await getCollection("news")).sort(
       <p class="hero-rise fig-label">
         <span class="fig-no">Desktop IDE</span>
         <span aria-hidden="true">·</span>
-        <span>macOS</span>
+        <span>macOS + Linux</span>
         <span aria-hidden="true">·</span>
         <span>{DISPLAY_VERSION}</span>
       </p>
@@ -57,7 +57,7 @@ const [latestNews] = (await getCollection("news")).sort(
       <div class="hero-rise hero-rise-3 mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button href={`${base}download/`} size="lg" class="h-11 gap-2.5 px-5 text-sm">
           <DownloadIcon />
-          Download for Mac
+          Download CadencR
         </Button>
         <Button
           href="https://github.com/merkr-software/cadencr"
@@ -71,7 +71,7 @@ const [latestNews] = (await getCollection("news")).sort(
       </div>
 
       <div class="hero-rise hero-rise-3 mt-4 flex items-center gap-2 text-[13px] text-muted-foreground">
-        <span>or</span>
+        <span>macOS:</span>
         <button
           type="button"
           class="hero-brew group inline-flex items-center gap-2 rounded-lg bg-accent/70 px-3 py-1.5 font-mono text-[12.5px] text-foreground transition-colors hover:bg-accent"

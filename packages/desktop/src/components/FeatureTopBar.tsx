@@ -244,6 +244,7 @@ function FeatureHeaderChrome({
         // platform constant `SidebarHeader` keys its height on).
         data-feature-header
         data-mac-controls={HAS_MAC_WINDOW_CONTROLS ? "true" : undefined}
+        data-window-control-safe
         className={cn(
           draggable && "titlebar-drag",
           "flex items-center gap-3 px-3 md:px-6",

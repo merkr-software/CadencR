@@ -20,6 +20,8 @@ files:
   - "!out/renderer/**"
   - package.json
 extraResources:
+  - from: icons/512x512.png
+    to: icons/512x512.png
   - from: resources/bin/cadencr-service
     to: cadencr-service
   # The built SPA on the real filesystem — loaded directly by the packaged
@@ -45,6 +47,51 @@ mac:
       arch:
         - arm64
         - x64
+
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Development
+  icon: icons/
+  synopsis: Desktop shell for driving local AI coding agents
+  executableName: cadencr
+
+# Distro packages. electron-updater uses the package identity emitted by
+# electron-builder to download and install the matching DEB or RPM release.
+# Dependency lists are pinned explicitly (rather than relying on
+# electron-builder defaults) so a future Electron bump cannot silently drop
+# required libraries.
+deb:
+  packageName: cadencr
+  artifactName: Cadencr-${version}-${arch}.${ext}
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libdrm2
+    - libgbm1
+    - libxkbcommon0
+  priority: optional
+rpm:
+  packageName: cadencr
+  artifactName: Cadencr-${version}-${arch}.${ext}
+  depends:
+    - gtk3
+    - libXScrnSaver
+    - libXtst
+    - libnotify
+    - nss
+    - xdg-utils
+    - at-spi2-atk
+    - libdrm
+    - mesa-libgbm
+    - libxkbcommon
 
 dmg:
   sign: true

@@ -1,6 +1,8 @@
 import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from "electron";
 import pkg from "electron-updater";
+import { join } from "node:path";
 import { assertTrustedSender } from "./ipc";
+import { detectLinuxInstallType, type LinuxInstallType } from "./linux-install-type";
 import { sendToWindow } from "./safe-send";
 
 // `electron-updater` ships as CommonJS; the `autoUpdater` named export is on
@@ -23,11 +25,33 @@ type UpdateChannel =
   | { channel: "update:not-available"; version: string }
   | { channel: "update:error"; message: string }
   | { channel: "update:download-progress"; percent: number; bytesPerSecond: number }
-  | { channel: "update:downloaded"; version: string };
+  | { channel: "update:downloaded"; version: string }
+  | { channel: "update:unsupported"; reason: "unsupported-install"; message: string };
 
 let initialized = false;
 let registered = false;
 let intervalHandle: NodeJS.Timeout | null = null;
+let unsupportedAnnounceTimeout: NodeJS.Timeout | null = null;
+
+/**
+ * Returns the Linux install type when electron-updater cannot service this
+ * build. Official AppImage, DEB, and RPM packages all update from GitHub
+ * Releases; only unrecognized/custom Linux packages are unsupported.
+ */
+let cachedUnsupported: LinuxInstallType | null | undefined;
+function unsupportedInstall(): LinuxInstallType | null {
+  if (cachedUnsupported !== undefined) return cachedUnsupported;
+  if (process.platform !== "linux") return (cachedUnsupported = null);
+  const packageTypePath =
+    typeof process.resourcesPath === "string"
+      ? join(process.resourcesPath, "package-type")
+      : undefined;
+  const installType = detectLinuxInstallType(process.env, packageTypePath);
+  return (cachedUnsupported = installType === "unknown" ? installType : null);
+}
+
+const UNSUPPORTED_INSTALL_MESSAGE =
+  "This Linux build is not an official AppImage, DEB, or RPM package. Download an official build from GitHub Releases to enable in-app updates.";
 
 interface InitOptions {
   getMainWindow: () => BrowserWindow | null;
@@ -46,6 +70,15 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
       });
       return;
     }
+    const unsupported = unsupportedInstall();
+    if (unsupported) {
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "unsupported-install",
+        message: UNSUPPORTED_INSTALL_MESSAGE,
+      });
+      return;
+    }
     void autoUpdater.checkForUpdates().catch((error: unknown) => {
       sendUpdate(getMainWindow, { channel: "update:error", message: errorMessage(error) });
     });
@@ -53,9 +86,21 @@ export function registerAutoUpdaterIpc({ getMainWindow, prepareInstallUpdate }: 
   ipcMain.handle("app:install-update", async (event: IpcMainInvokeEvent) => {
     assertTrustedSender(event, getMainWindow);
     if (!app.isPackaged) return;
+    const unsupported = unsupportedInstall();
+    if (unsupported) {
+      // Renderer should never reach this path because the install button is
+      // hidden, but surface the same explanation rather than silently no-op.
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "unsupported-install",
+        message: UNSUPPORTED_INSTALL_MESSAGE,
+      });
+      return;
+    }
     try {
       await prepareInstallUpdate?.();
-      // `quitAndInstall(isSilent, isForceRunAfter)` — silent install, relaunch.
+      // Keep the installer interactive so DEB/RPM builds can request elevation,
+      // then relaunch Cadencr after the package has been replaced.
       autoUpdater.quitAndInstall(false, true);
     } catch (error: unknown) {
       const message = errorMessage(error);
@@ -78,6 +123,26 @@ export function initAutoUpdater({ getMainWindow }: InitOptions): void {
   initialized = true;
   if (!app.isPackaged) {
     console.info("[updater] dev build — skipping auto-update setup");
+    return;
+  }
+
+  const unsupported = unsupportedInstall();
+  if (unsupported) {
+    console.info(`[updater] linux ${unsupported} install — auto-update disabled`);
+    // Push the state to the renderer once the window exists. We defer with the
+    // same delay as the first update check so the splash can hand off first.
+    // Defer the announce so the renderer's `useAutoUpdateBridge` effect has
+    // mounted and called `onUpdateEvent` before we fire — otherwise the IPC
+    // message is delivered to nobody. Tracked so `shutdownAutoUpdater` can
+    // cancel it if the app quits within the delay window.
+    unsupportedAnnounceTimeout = setTimeout(() => {
+      unsupportedAnnounceTimeout = null;
+      sendUpdate(getMainWindow, {
+        channel: "update:unsupported",
+        reason: "unsupported-install",
+        message: UNSUPPORTED_INSTALL_MESSAGE,
+      });
+    }, FIRST_CHECK_DELAY_MS);
     return;
   }
 
@@ -140,6 +205,10 @@ export function shutdownAutoUpdater(): void {
   if (intervalHandle) {
     clearInterval(intervalHandle);
     intervalHandle = null;
+  }
+  if (unsupportedAnnounceTimeout) {
+    clearTimeout(unsupportedAnnounceTimeout);
+    unsupportedAnnounceTimeout = null;
   }
 }
 

@@ -66,7 +66,15 @@ export const desktop = {
     },
 
     // ─── Electron app icons (icons/, referenced by electron-builder) ───────
+    // Linux packages consume the PNG directory and select the closest size.
+    { path: "icons/16x16.png", kind: "png", size: 16, svg: appSmall },
+    { path: "icons/32x32.png", kind: "png", size: 32, svg: appSmall },
+    { path: "icons/48x48.png", kind: "png", size: 48, svg: appStandard },
+    { path: "icons/64x64.png", kind: "png", size: 64, svg: appStandard },
     { path: "icons/128x128.png", kind: "png", size: 128, svg: appStandard },
+    { path: "icons/256x256.png", kind: "png", size: 256, svg: appStandard },
+    { path: "icons/512x512.png", kind: "png", size: 512, svg: appStandard },
+    { path: "icons/icon.png", kind: "png", size: 512, svg: appStandard },
     {
       path: "icons/icon.ico",
       kind: "ico",

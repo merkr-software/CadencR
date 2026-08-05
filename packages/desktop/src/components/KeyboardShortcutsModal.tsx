@@ -4,6 +4,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { comboSearchText, formatCombo, PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
 import { SHORTCUTS_BY_SCOPE, TOTAL_SHORTCUTS, type Shortcut } from "@/lib/shortcuts/registry";
+import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
+
+const COMMAND_PALETTE_COMBO = formatCombo(getRegistryShortcut("command-palette").keys).join(" ");
 
 interface KeyboardShortcutsModalProps {
   open: boolean;
@@ -45,7 +48,7 @@ export function KeyboardShortcutsModal({ open, onOpenChange }: KeyboardShortcuts
               autoFocus
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search shortcuts — try “zoom”, “git”, or “⌘ k”…"
+              placeholder={`Search shortcuts — try “zoom”, “git”, or “${COMMAND_PALETTE_COMBO}”…`}
               className="h-8 pl-8 pr-32 text-sm"
               aria-label="Search shortcuts"
             />

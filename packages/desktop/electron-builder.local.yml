@@ -11,6 +11,8 @@ files:
   - "!out/renderer/**"
   - package.json
 extraResources:
+  - from: icons/512x512.png
+    to: icons/512x512.png
   - from: resources/bin/cadencr-service
     to: cadencr-service
   # The built SPA on the real filesystem — loaded directly by the packaged
@@ -42,3 +44,42 @@ mac:
     - target: zip
       arch:
         - arm64
+
+linux:
+  target:
+    - AppImage
+    - deb
+    - rpm
+  category: Development
+  icon: icons/
+  synopsis: Desktop shell for driving local AI coding agents
+  executableName: cadencr
+
+# Keep local builder in sync with the production config so smoke-testing
+# distro packages doesn't require touching CI. See electron-builder.yml for
+# the rationale behind the explicit depends lists.
+deb:
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libdrm2
+    - libgbm1
+    - libxkbcommon0
+  priority: optional
+rpm:
+  depends:
+    - gtk3
+    - libXScrnSaver
+    - libXtst
+    - libnotify
+    - nss
+    - xdg-utils
+    - at-spi2-atk
+    - libdrm
+    - mesa-libgbm
+    - libxkbcommon

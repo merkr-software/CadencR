@@ -55,7 +55,7 @@ pub async fn attach_to_existing_branch(
         });
     }
 
-    // Build a fresh path under ~/.cadencr/worktrees/<project>/<safe-branch>
+    // Build a fresh path under <worktrees-root>/<project>/<safe-branch>
     // and run `git worktree add <path> <branch>` (no `-b` — branch exists).
     let path_str = compute_worktree_path(project_name, branch).await?;
     run_git_safe_refs(
@@ -142,9 +142,9 @@ mod tests {
         //
         // Both worktrees live inside dedicated tempdirs so they get cleaned up
         // automatically on Drop, even if the test panics mid-way. The
-        // project_name is randomized so that the fallback `~/.cadencr/worktrees/
-        // <project>/<branch>` path (only hit when something goes wrong) can't
-        // collide with leftovers from a prior failed run.
+        // project_name is randomized so that the fallback
+        // `<worktrees-root>/<project>/<branch>` path (only hit when something
+        // goes wrong) can't collide with leftovers from a prior failed run.
         let project = tempfile::tempdir().unwrap();
         let donor_parent = tempfile::tempdir().unwrap();
         init_repo(project.path()).await;
@@ -186,12 +186,8 @@ mod tests {
             .current_dir(project.path())
             .status()
             .await;
-        if let Ok(home) = std::env::var("HOME") {
-            let _ = std::fs::remove_dir_all(
-                std::path::Path::new(&home)
-                    .join(".cadencr/worktrees")
-                    .join(&project_name),
-            );
+        if let Ok(root) = crate::shared::app_paths::worktrees_dir() {
+            let _ = std::fs::remove_dir_all(root.join(&project_name));
         }
     }
 

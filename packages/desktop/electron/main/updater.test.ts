@@ -12,6 +12,10 @@ const updaterState = vi.hoisted(() => ({
   on: vi.fn(),
 }));
 
+vi.mock("./linux-install-type", () => ({
+  detectLinuxInstallType: vi.fn(() => "deb"),
+}));
+
 vi.mock("electron", () => ({
   app: {
     get isPackaged() {
@@ -75,7 +79,7 @@ describe("auto-updater IPC", () => {
     updaterState.on.mockClear();
   });
 
-  it("runs install preparation before quitAndInstall", async () => {
+  it("runs install preparation before quitAndInstall for a Linux deb package", async () => {
     const calls: string[] = [];
 
     registerAutoUpdaterIpc({
@@ -91,7 +95,12 @@ describe("auto-updater IPC", () => {
     expect(handler).toBeDefined();
     await handler?.(trustedEvent());
 
+    const checkHandler = electronState.handlers.get("app:check-for-updates");
+    expect(checkHandler).toBeDefined();
+    await checkHandler?.(trustedEvent());
+
     expect(calls).toEqual(["prepare", "quitAndInstall"]);
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
+    expect(updaterState.checkForUpdates).toHaveBeenCalledOnce();
   });
 });

@@ -84,7 +84,17 @@ export type UpdateEvent =
   | { kind: "not-available"; version: string }
   | { kind: "error"; message: string }
   | { kind: "download-progress"; percent: number; bytesPerSecond: number }
-  | { kind: "downloaded"; version: string };
+  | { kind: "downloaded"; version: string }
+  | {
+      /**
+       * In-app updates are unavailable because this Linux build is not an
+       * official AppImage, DEB, or RPM package. The renderer should render
+       * `message` instead of offering a non-working update action.
+       */
+      kind: "unsupported";
+      reason: "unsupported-install";
+      message: string;
+    };
 
 export interface RendererErrorReportPayload {
   source: "error" | "unhandledrejection" | "react-boundary";
@@ -98,6 +108,7 @@ export interface RendererErrorReportPayload {
 
 export interface CadencrDesktopBridge {
   isElectron: boolean;
+  usesCustomWindowControls?: boolean;
   runtimeConfig: () => Promise<RuntimeConfig>;
   readFileBase64: (handle: string) => Promise<string>;
   suppressNextNativeContextMenu?: () => void;
@@ -119,6 +130,8 @@ export interface CadencrDesktopBridge {
   setLinkHoverContext: (context: LinkHoverContext | null) => Promise<void>;
   /** Fired when the user picks an open action from the native link menu. */
   onOpenLinkFromMenu: (cb: (payload: LinkMenuOpenPayload) => void) => () => void;
+  readClipboardText?: () => Promise<string>;
+  writeClipboardText?: (text: string) => Promise<void>;
   pickDirectory: () => Promise<string | null>;
   /**
    * Prompt the user to pick an image file (project icon). Resolves to the
@@ -139,6 +152,9 @@ export interface CadencrDesktopBridge {
   onCloseRequested: (cb: () => void) => () => void;
   confirmClose: () => Promise<void>;
   requestQuit: () => Promise<void>;
+  windowMinimize?: () => Promise<void>;
+  windowToggleMaximize?: () => Promise<void>;
+  windowClose?: () => Promise<void>;
   reportRendererError?: (payload: RendererErrorReportPayload) => Promise<void>;
   setZoom: (factor: number) => Promise<void>;
   currentTheme: () => Promise<DesktopTheme>;
@@ -245,6 +261,7 @@ function unavailable(name: string): Promise<never> {
 
 const browserBridge: CadencrBrowserBridge = {
   isElectron: false,
+  usesCustomWindowControls: false,
   runtimeConfig: () => unavailable("runtimeConfig"),
   readFileBase64: () => unavailable("readFileBase64"),
   suppressNextNativeContextMenu: () => undefined,
@@ -278,6 +295,8 @@ const browserBridge: CadencrBrowserBridge = {
   // no-op and the menu never fires.
   setLinkHoverContext: () => Promise.resolve(),
   onOpenLinkFromMenu: () => () => undefined,
+  readClipboardText: () => navigator.clipboard.readText(),
+  writeClipboardText: (text: string) => navigator.clipboard.writeText(text),
   pickDirectory: () => unavailable("pickDirectory"),
   pickImageFile: () => unavailable("pickImageFile"),
   showSaveDialog: () => unavailable("showSaveDialog"),
@@ -290,6 +309,9 @@ const browserBridge: CadencrBrowserBridge = {
   onCloseRequested: () => () => undefined,
   confirmClose: () => Promise.resolve(),
   requestQuit: () => Promise.resolve(),
+  windowMinimize: () => unavailable("windowMinimize"),
+  windowToggleMaximize: () => unavailable("windowToggleMaximize"),
+  windowClose: () => unavailable("windowClose"),
   reportRendererError: () => Promise.resolve(),
   setZoom: () => Promise.resolve(),
   currentTheme: () => Promise.resolve(browserTheme()),

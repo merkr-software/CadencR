@@ -1,0 +1,106 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Install CadencR on macOS and Linux"
+description: "Download, install, update, and uninstall CadencR on supported macOS and Linux systems."
+---
+
+CadencR ships native desktop builds for macOS and Linux. Start on the [download page](/download/), which recommends a build for the browser you are using.
+
+## Supported systems
+
+| Platform | Builds                          |
+| -------- | ------------------------------- |
+| macOS    | Apple Silicon and Intel DMG/ZIP |
+| Linux    | x86-64 AppImage, DEB, and RPM   |
+
+Linux ARM64 and native Windows packages are not available yet.
+
+## macOS
+
+### Homebrew
+
+```bash
+brew install --cask merkr-software/cadencr/cadencr
+```
+
+### DMG
+
+1. Download the DMG for Apple Silicon or Intel.
+2. Open the DMG.
+3. Drag CadencR into **Applications**.
+4. Launch CadencR from Applications.
+
+## Linux AppImage
+
+The AppImage is portable, requires no administrator access, and works across most glibc-based x86-64 distributions.
+
+```bash
+chmod +x Cadencr-*.AppImage
+./Cadencr-*.AppImage
+```
+
+You can keep it in a stable location such as `~/Applications/Cadencr.AppImage`. To uninstall it, delete the AppImage file.
+
+## Ubuntu, Debian, Mint, and Pop!\_OS
+
+Download the `amd64.deb` asset, then run:
+
+```bash
+sudo apt install ./Cadencr-*-amd64.deb
+```
+
+Launch CadencR from the application menu or with:
+
+```bash
+cadencr
+```
+
+Uninstall the package with:
+
+```bash
+sudo apt remove cadencr
+```
+
+## Fedora, RHEL, Rocky, and AlmaLinux
+
+Download the `x86_64.rpm` asset, then run:
+
+```bash
+sudo dnf install ./Cadencr-*.rpm
+```
+
+Uninstall the package with:
+
+```bash
+sudo dnf remove cadencr
+```
+
+## openSUSE and SLES
+
+Use the same RPM asset with Zypper:
+
+```bash
+sudo zypper install ./Cadencr-*.rpm
+```
+
+Uninstall the package with:
+
+```bash
+sudo zypper remove cadencr
+```
+
+## Updates
+
+Official AppImage, DEB, and RPM builds check GitHub Releases for updates from inside CadencR.
+
+- AppImage updates replace the portable application directly.
+- DEB and RPM updates download the matching system package and may request administrator authentication before installation.
+- If an automatic installation fails, download the newest package and repeat the installation command above.
+
+## User data
+
+Uninstalling the application does not delete your projects or CadencR data. On Linux, CadencR follows the XDG Base Directory convention:
+
+- Data: `$XDG_DATA_HOME/cadencr`, normally `~/.local/share/cadencr`
+- Configuration: `$XDG_CONFIG_HOME/cadencr`, normally `~/.config/cadencr`
+- Cache and logs: `$XDG_CACHE_HOME/cadencr`, normally `~/.cache/cadencr`
