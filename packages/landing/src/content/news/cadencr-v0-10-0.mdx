@@ -1,0 +1,57 @@
+---
+title: "CadencR v0.10.0 polishes the everyday workflow"
+date: 2026-08-02
+summary: "CadencR v0.10.0 brings a broad quality-of-life pass to conversations, Git, schedules, usage tracking, images, sub-agents, mobile sessions, and the small details that keep daily agent work moving."
+author: "Raphaël - RLE - Le Minor"
+tags: ["release", "quality-of-life", "desktop", "git"]
+---
+
+import DocScreenshot from "@/components/docs/DocScreenshot.astro";
+import portManagementScreenshot from "@/assets/news/v0.10.0/port-management.png";
+import statsScreenshot from "@/assets/news/v0.10.0/stats.png";
+
+Some releases are about one headline feature. **CadencR v0.10.0 is about making the whole app feel better every day.**
+
+This release brings together dozens of quality-of-life improvements across conversations, Git workflows, agent controls, schedules, images, mobile sessions, and the sidebar. Individually, each change removes a small interruption. Together, they make CadencR faster to read, easier to trust, and more comfortable to keep open throughout a full coding session.
+
+## Less hunting, less rebuilding context
+
+CadencR now shows the ports opened by each conversation directly in the sidebar, so a preview server is easy to find. Reference another conversation with `@@` and you can reuse its live worktree before sending, instead of locating the branch and checkout by hand.
+
+<DocScreenshot
+  src={portManagementScreenshot}
+  alt="CadencR conversation sidebar showing listening-port badges and a popover that lists the servers attributed to the selected conversation"
+  caption="See which ports belong to each conversation, then open or copy them directly from the sidebar."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Prompt images also behave more like part of the conversation: unsent attachments survive conversation switches, screenshots render as images rather than encoded payloads, and the new viewer supports zoom, pan, copy, save, and keyboard navigation.
+
+Git work received the same attention. Pushes now make Plain, Force with lease, and Force modes explicit, show the exact command, and can continue in the background with live output ready when you return. Stash diffs, untracked-file statistics, view controls, shortcuts, and small visual details are more accurate and predictable.
+
+## Better visibility into recurring work
+
+The new Usage Stats view records provider-native token totals by provider, model, and thinking effort, keeps the history when conversations are archived, and imports recent local provider history on first launch.
+
+<DocScreenshot
+  src={statsScreenshot}
+  alt="CadencR Usage Stats showing 30 days of input and output tokens grouped by provider, model, and thinking level"
+  caption="Understand where agent usage goes without losing the history when a conversation is archived or deleted."
+  bordered={false}
+  rounded
+  elevated
+/>
+
+Schedules have grown from one-shot messages into recurring work. A schedule can run once, at an interval, or on a daily, weekly, or monthly cadence; post into an existing conversation or start a new one; and use the same references, commands, skills, models, modes, and profiles as the regular prompt composer.
+
+Codex users can also enable Fast mode directly beside the model and thinking controls, with the choice persisted across the conversation lifecycle.
+
+## A calmer app under load
+
+Long streaming conversations now do less repeated Markdown and diff work, oversized tool payloads stay bounded without losing their structure, and Task or Agent sub-agent activity is presented as a cleaner, expandable timeline.
+
+The release also fixes running mobile conversations that could surface repeated React errors, restores OpenCode Task sub-agent visibility, and smooths the visual boundary between the transcript and composer.
+
+**CadencR v0.10.0 is available now.** [Download the release or read the complete changelog](https://github.com/merkr-software/CadencR/releases/tag/v0.10.0).

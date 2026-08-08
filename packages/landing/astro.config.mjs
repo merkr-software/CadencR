@@ -7,6 +7,10 @@ export default defineConfig({
   site: "https://cadencr.com",
   base: "/",
   trailingSlash: "ignore",
+  // Preserve Astro 6 whitespace behavior while moving to Astro 7's stricter
+  // compiler. The new `"jsx"` default can remove meaningful spacing between
+  // adjacent inline elements.
+  compressHTML: true,
   integrations: [
     mdx({ gfm: true }),
     sitemap({

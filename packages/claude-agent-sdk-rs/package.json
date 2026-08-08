@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/claude-agent-sdk-rs",
   "private": true,
-  "version": "0.9.1",
+  "version": "0.10.0",
   "description": "Rust SDK wrapping the Claude Code CLI — used by Cadencr to stream and control Claude sessions.",
   "license": "Apache-2.0",
   "scripts": {

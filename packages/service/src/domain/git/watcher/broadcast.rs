@@ -133,11 +133,20 @@ mod tests {
     async fn subscribed_fixture() -> WatchFixture {
         let dir = tempfile::tempdir().unwrap();
         git_init(dir.path());
-        Command::new("git")
-            .args(["commit", "--allow-empty", "-m", "init", "-q"])
+        let commit_status = Command::new("git")
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "--allow-empty",
+                "-m",
+                "init",
+                "-q",
+            ])
             .current_dir(dir.path())
             .status()
             .unwrap();
+        assert!(commit_status.success(), "fixture commit should succeed");
         let canonical = std::fs::canonicalize(dir.path()).unwrap();
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .connect(":memory:")
@@ -186,23 +195,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn confirm_after_write_emits_once_and_later_fs_events_still_refresh() {
+    async fn confirm_after_write_supersedes_queued_fs_event_and_later_events_refresh() {
         let mut fixture = subscribed_fixture().await;
         let original_generation = fixture.write_generation.load(Ordering::Relaxed);
         fixture
             .fs_event_tx
             .send(RecomputePing::FsEvent(original_generation))
             .unwrap();
-        tokio::time::timeout(std::time::Duration::from_secs(3), fixture.rx.recv())
-            .await
-            .expect("baseline fs event should recompute")
-            .expect("subscriber should remain connected");
-
-        fixture
-            .fs_event_tx
-            .send(RecomputePing::FsEvent(original_generation))
-            .unwrap();
-        tokio::task::yield_now().await;
         fixture
             .registry
             .confirm_after_write(&fixture.canonical, &fixture.state)
@@ -215,13 +214,16 @@ mod tests {
             matches!(confirmation, Message::Text(text) if text.contains("\"action\":\"status\""))
         );
 
-        let duplicate_wait = std::time::Duration::from_millis(1_500);
-        tokio::time::sleep(duplicate_wait).await;
+        tokio::task::yield_now().await;
         assert!(matches!(
             fixture.rx.try_recv(),
             Err(mpsc::error::TryRecvError::Empty)
         ));
 
+        let dedupe_wait = std::time::Duration::from_millis(
+            u64::try_from(debouncer::NUDGE_DEDUPE_MS).unwrap() + 50,
+        );
+        tokio::time::sleep(dedupe_wait).await;
         let current_generation = fixture.write_generation.load(Ordering::Relaxed);
         fixture
             .fs_event_tx

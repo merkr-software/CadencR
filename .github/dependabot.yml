@@ -14,6 +14,11 @@ updates:
       # majors) are reviewed and merged deliberately rather than bundled into
       # one large group PR.
       npm-and-yarn:
+        # Keep this group limited to scheduled version updates. Security
+        # updates must remain independent so Dependabot updates each pnpm
+        # workspace dependency from the root lockfile instead of trying to
+        # refresh a cross-directory group from workspace subdirectories.
+        applies-to: version-updates
         patterns:
           - '*'
         update-types:

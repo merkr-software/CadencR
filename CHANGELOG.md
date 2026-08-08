@@ -1,5 +1,38 @@
 # Changelog
 
+## v0.10.0 - 2026-08-02
+
+Previous release: v0.9.1 - 2026-07-30
+
+### ✨ Added
+
+- [**Desktop**] Added durable Usage Stats with provider-native token totals that survive conversation archival or deletion, import the previous 30 days from local Claude, Codex, and OpenCode histories, break activity down by provider, model, and thinking effort, and warn visibly if shutdown or recording failures may have left totals incomplete.
+- [**Desktop**] Replaced one-shot scheduled messages with recurring schedules that run once, at intervals, daily, weekly, or monthly in the user's timezone; schedules can post into an existing conversation or start a new conversation with its own worktree behavior, and use the full prompt composer with file and conversation references, commands, skills, model, thinking, mode, access, and profile controls. Existing undelivered scheduled messages carry over, including overdue messages that were still pending.
+- [**provider:codex**] Added a persistent Fast mode control beside the session's model and thinking controls, using Codex priority service tier when supported and switching safely for new, resumed, compacted, and already-running conversations.
+- [**Desktop**] Added a prompt-time action and keyboard shortcut to reuse the live worktree from an `@@`-referenced conversation, so follow-up work can continue on that conversation's branch without manually locating or recreating its checkout.
+- [**Desktop**] Added explicit Plain, Force with lease, and Force push modes with the exact Git command shown before execution, keyboard submission, live output, and the ability to send a running push to the background and reopen it later.
+- [**Desktop**] Added live port badges to sidebar conversations, attributing listening servers started by a conversation's terminal, active agent, or worktree so running previews can be found without searching transcripts or processes.
+- [**Desktop**] Added a full-screen prompt-image viewer with zoom, pan, copy, save, and keyboard navigation, while keeping unsent image attachments when switching conversations and restoring them when returning to the draft.
+
+### 🔧 Changed
+
+- [**Desktop**] Made long, streaming conversations substantially lighter by parsing only the active Markdown block, bounding oversized message and tool payloads without breaking their structured data, and letting the browser skip off-screen diff painting while preserving measured row heights.
+- [**Desktop**] Redesigned Task and Agent sub-agent activity as a compact timeline with scannable action rows, expandable reasoning and output, and full-history detail when opened.
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed prompt screenshots appearing as truncated walls of base64 instead of images, including live-send, reload, reconciliation, and retry paths; retries now fail visibly rather than silently dropping an attachment that is no longer available.
+- [**Desktop**] Fixed stash selections showing no changes, stashes with untracked files appearing empty, merge and root commits reporting incorrect file lists, and untracked files lacking added-line counts in Changes and commit or stash dialogs.
+- [**provider:opencode**] Fixed Task sub-agents disappearing after OpenCode changed their ACP tool kind, while handling the new task output envelope and tightening child-session pairing so parallel sub-agents remain attached to the correct action.
+- [**Desktop**] Fixed running conversations on mobile repeatedly surfacing React nested-update errors during heavy agent streaming.
+- [**Desktop**] Fixed archive-cleanup shortcuts conflicting with Git-tab bindings, and made branch deletion validate the feature's actual target before removing a branch.
+- [**Desktop**] Fixed Git view-mode labels clipping their descenders and kept the file-list toggle visible but disabled, with an explanatory label and tooltip, in views where the toggle does not apply.
+- [**Desktop**] Fixed the transcript-to-composer boundary showing a visible seam in translucent themes and short conversations losing auto-scroll behavior near the composer.
+
+### 🔒 Security
+
+- [**dependencies**] Updated Astro, Sharp, PostCSS, and affected transitive packages to patched releases, completed the Astro 7 compatibility migration, and tightened pnpm overrides so security pins stay confined to compatible package lines and the one affected consumer.
+
 ## v0.9.1 - 2026-07-30
 
 Previous release: v0.9.0 - 2026-07-28
