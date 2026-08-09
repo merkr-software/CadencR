@@ -95,7 +95,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.4.0",
-    "electron": "42.5.0",
+    "electron": "42.5.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "hast-util-to-jsx-runtime": "^2.3.6",

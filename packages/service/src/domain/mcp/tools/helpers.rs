@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 
 /// Extract a required i64 parameter from JSON args, returning a clear error if missing.
 #[allow(dead_code)]
@@ -44,12 +44,12 @@ pub fn pinned_feature_id(args: &serde_json::Value, pinned: i64) -> Result<i64, S
 
 /// Wraps text in a successful tool result
 pub fn text_result(text: &str) -> CallToolResult {
-    CallToolResult::success(vec![Content::text(text)])
+    CallToolResult::success(vec![ContentBlock::text(text)])
 }
 
 /// Wraps error message in an error tool result
 pub fn error_result(msg: &str) -> CallToolResult {
-    CallToolResult::error(vec![Content::text(msg)])
+    CallToolResult::error(vec![ContentBlock::text(msg)])
 }
 
 #[allow(dead_code)]

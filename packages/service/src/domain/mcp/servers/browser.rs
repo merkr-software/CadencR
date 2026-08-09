@@ -4,8 +4,8 @@ use std::sync::Arc;
 use rmcp::{
     handler::server::ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, Content, ErrorData, ListToolsResult,
-        PaginatedRequestParams, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
+        ListToolsResult, PaginatedRequestParams, ServerInfo, Tool,
     },
     service::{RequestContext, RoleServer},
 };
@@ -233,8 +233,8 @@ fn bridge_result(response: BrowserBridgeResponse) -> CallToolResult {
         // every subsequent turn, permanently wedging the conversation. The desktop
         // bridge already guards this, but enforce it at the MCP boundary too.
         Some(image) if !image.data.is_empty() => CallToolResult::success(vec![
-            Content::image(image.data, image.mime_type),
-            Content::text(response.text),
+            ContentBlock::image(image.data, image.mime_type),
+            ContentBlock::text(response.text),
         ]),
         _ => text_result(&response.text),
     }
@@ -281,18 +281,14 @@ impl ServerHandler for BrowserServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult {
-            meta: None,
-            tools: tools(),
-            next_cursor: None,
-        }))
+        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
     }
 
     fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + Send + '_ {
+    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
         async move {
             let args = request
                 .arguments
@@ -300,9 +296,13 @@ impl ServerHandler for BrowserServer {
                 .map(|m| serde_json::Value::Object(m.clone()))
                 .unwrap_or(serde_json::Value::Null);
             if let Err(e) = pinned_feature_id(&args, self.ctx.feature_id) {
-                return Ok(error_result(&e));
+                return Ok(error_result(&e).into());
             }
-            Ok(run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id).await)
+            Ok(
+                run_browser_tool(request.name.as_ref(), args, self.ctx.feature_id)
+                    .await
+                    .into(),
+            )
         }
     }
 }

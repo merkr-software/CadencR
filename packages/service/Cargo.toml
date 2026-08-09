@@ -31,10 +31,10 @@ rand = "0.10"
 futures = "0.3"
 uuid = { version = "1", features = ["v4", "v5"] }
 async-trait = "0.1"
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
-rmcp = { version = "1", features = ["server", "transport-streamable-http-server", "transport-io", "elicitation"] }
+rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-io", "elicitation"] }
 dashmap = "6"
 libc = "0.2"
 portable-pty = "0.9"

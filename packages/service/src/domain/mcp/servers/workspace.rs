@@ -4,8 +4,8 @@ use std::sync::Arc;
 use rmcp::{
     handler::server::ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, ErrorData, ListToolsResult, PaginatedRequestParams,
-        ServerInfo, Tool,
+        CallToolRequestParams, CallToolResponse, ErrorData, ListToolsResult,
+        PaginatedRequestParams, ServerInfo, Tool,
     },
     service::{RequestContext, RoleServer},
 };
@@ -180,25 +180,25 @@ impl ServerHandler for WorkspaceServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult {
-            meta: None,
-            tools: tools(),
-            next_cursor: None,
-        }))
+        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
     }
 
     fn call_tool(
         &self,
         request: CallToolRequestParams,
         _context: RequestContext<RoleServer>,
-    ) -> impl Future<Output = Result<CallToolResult, ErrorData>> + Send + '_ {
+    ) -> impl Future<Output = Result<CallToolResponse, ErrorData>> + Send + '_ {
         async move {
             let args = request
                 .arguments
                 .as_ref()
                 .map(|m| serde_json::Value::Object(m.clone()))
                 .unwrap_or(serde_json::Value::Null);
-            Ok(run_workspace_tool(request.name.as_ref(), args, self.ctx.clone()).await)
+            Ok(
+                run_workspace_tool(request.name.as_ref(), args, self.ctx.clone())
+                    .await
+                    .into(),
+            )
         }
     }
 }
