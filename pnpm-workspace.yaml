@@ -9,6 +9,14 @@ minimumReleaseAge: 20160
 minimumReleaseAgeStrict: true
 minimumReleaseAgeIgnoreMissingTime: false
 minimumReleaseAgeExclude:
+  # Security update (PR #182): mermaid 11.16.1 is the first patched version for
+  # GHSA-3rrr-jr9j-h3q3, GHSA-6x64-9x62-f2gx, GHSA-c4c3-pg64-4m4v,
+  # GHSA-rhh3-jpg6-66xh, and GHSA-2v8p-3f2j-5mp7. Its fresh d3/iconify
+  # transitives also trip the age gate. Keep these exceptions exact and remove
+  # them after 2026-08-18T15:10:00Z, when the newest package is 14 days old.
+  - "mermaid@11.16.1"
+  - "@types/d3-geo@3.1.1"
+  - "tinyexec@1.3.0"
   # Emergency security fix for CVE-2026-44705; tmp <0.2.6 is vulnerable.
   - "tmp@0.2.6"
   # Security fixes needed for the v0.10.0 build. These exact versions are
