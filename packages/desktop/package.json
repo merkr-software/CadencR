@@ -107,7 +107,7 @@
     "lexical": "^0.46.0",
     "lowlight": "^3.3.0",
     "lucide-react": "^0.563.0",
-    "mermaid": "^11.16.0",
+    "mermaid": "^11.16.1",
     "msw": "^2",
     "orval": "7.21.0",
     "oxlint": "^1.71.0",
