@@ -111,7 +111,7 @@
     "msw": "^2",
     "orval": "7.21.0",
     "oxlint": "^1.71.0",
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "qrcode.react": "^4.2.0",
     "radix-ui": "^1.6.0",
     "react": "^19.2.7",
