@@ -3,7 +3,7 @@ import { customInstance } from "./client";
 import { AGENT_TYPES, type AgentTypeSetting } from "../shared/models";
 import type { AccessMode } from "@/types/access-mode";
 import type { PermissionMode } from "@/types/permission-mode";
-import type { ModelCatalogEntry, UpsertCustomModelRequest } from "./generated";
+import type { ModelCatalogEntry, ProviderOrigin, UpsertCustomModelRequest } from "./generated";
 
 export type RuntimeModelOption = {
   [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
@@ -13,6 +13,7 @@ export interface RuntimeProviderOption {
   id: string;
   label: string;
   status: "available" | "unavailable" | "coming_soon";
+  origin: ProviderOrigin;
   status_message?: string;
   models: RuntimeModelOption[];
   modes?: RuntimeProviderModeOption[];

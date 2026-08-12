@@ -1,5 +1,11 @@
 import type { CommandsListPayload } from "@/lib/ws-envelope";
 import type { McpServerStatus } from "./ws-session-types";
+import type {
+  RuntimeSessionConfigChoices,
+  RuntimeSessionConfigOption,
+  RuntimeSessionConfigSelectOption,
+  SessionConfigSnapshotPayload,
+} from "@/api/generated";
 
 import {
   asRecord,
@@ -91,6 +97,101 @@ export function parseRuntimeSessionIdPayload(
   const record = asRecord(payload);
   if (!record) return null;
   return { runtime_session_id: optionalString(record, "runtime_session_id") };
+}
+
+export function parseSessionConfigSnapshotPayload(
+  payload: unknown,
+): SessionConfigSnapshotPayload | null {
+  const record = asRecord(payload);
+  const config = record ? asRecord(record.config) : null;
+  const rawOptions = config ? optionalArray(config, "options") : undefined;
+  const sessionId = record ? optionalString(record, "session_id") : undefined;
+  if (!sessionId || !rawOptions) return null;
+  const options = rawOptions.map(parseSessionConfigOption);
+  if (options.some((option) => option === null)) return null;
+  return {
+    session_id: sessionId,
+    config: { options: options as RuntimeSessionConfigOption[] },
+  };
+}
+
+function parseSessionConfigOption(value: unknown): RuntimeSessionConfigOption | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const id = optionalString(record, "id");
+  const name = optionalString(record, "name");
+  const type = optionalString(record, "type");
+  if (!id || !name) return null;
+  const common = {
+    id,
+    name,
+    description: optionalString(record, "description"),
+    category: optionalString(record, "category"),
+    ...(record._meta !== undefined ? { _meta: record._meta } : {}),
+  };
+  if (type === "boolean") {
+    const currentValue = optionalBoolean(record, "current_value");
+    return currentValue == null
+      ? null
+      : { ...common, type: "boolean", current_value: currentValue };
+  }
+  if (type !== "select") return null;
+  const currentValue = optionalString(record, "current_value");
+  const choices = parseSessionConfigChoices(record.choices);
+  return currentValue == null || !choices
+    ? null
+    : { ...common, type: "select", current_value: currentValue, choices };
+}
+
+function parseSessionConfigChoices(value: unknown): RuntimeSessionConfigChoices | null {
+  const record = asRecord(value);
+  const layout = record ? optionalString(record, "layout") : undefined;
+  if (!record || !layout) return null;
+  if (layout === "ungrouped") {
+    const options = parseSessionConfigSelectOptions(record.options);
+    return options ? { layout, options } : null;
+  }
+  if (layout !== "grouped") return null;
+  const rawGroups = optionalArray(record, "groups");
+  if (!rawGroups) return null;
+  const groups = rawGroups.map((value) => {
+    const group = asRecord(value);
+    const id = group ? optionalString(group, "id") : undefined;
+    const name = group ? optionalString(group, "name") : undefined;
+    const options = group ? parseSessionConfigSelectOptions(group.options) : null;
+    return id && name && options
+      ? {
+          id,
+          name,
+          options,
+          ...(group?._meta !== undefined ? { _meta: group._meta } : {}),
+        }
+      : null;
+  });
+  if (groups.some((group) => group === null)) return null;
+  return { layout, groups: groups.filter((group) => group !== null) };
+}
+
+function parseSessionConfigSelectOptions(
+  value: unknown,
+): RuntimeSessionConfigSelectOption[] | null {
+  if (!Array.isArray(value)) return null;
+  const options = value.map((entry) => {
+    const option = asRecord(entry);
+    const name = option ? optionalString(option, "name") : undefined;
+    const optionValue = option ? optionalString(option, "value") : undefined;
+    return option && name && optionValue !== undefined
+      ? {
+          name,
+          value: optionValue,
+          description: optionalString(option, "description"),
+          ...(option?._meta !== undefined ? { _meta: option._meta } : {}),
+        }
+      : null;
+  });
+  return options.some((option) => option === null)
+    ? null
+    : options.filter((option) => option !== null);
 }
 
 export function parseMcpServersPayload(payload: unknown): { mcpServers: McpServerStatus[] } | null {

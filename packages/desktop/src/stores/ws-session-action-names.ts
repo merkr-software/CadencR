@@ -45,6 +45,7 @@ export const SESSION_ACTION = {
   featureAutonaming: "feature.autonaming",
   branchRewound: "branch.rewound",
   branchForked: "branch.forked",
+  configSnapshot: "config.snapshot",
   ended: "ended",
   turnComplete: "turn_complete",
 } as const;

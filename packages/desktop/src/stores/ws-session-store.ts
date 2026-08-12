@@ -30,6 +30,7 @@ import type { SocketHandlerDeps } from "./ws-session-socket-handler";
 import { connectSession } from "./ws-session-connect";
 import { createWsSessionSimpleActions } from "./ws-session-simple-actions";
 import { createWsSessionTransportActions } from "./ws-session-transport-actions";
+import { createWsSessionConfigActions } from "./ws-session-config-actions";
 
 import { blocksPatchWithDerived } from "./ws-message-processing";
 export type { PermissionMode, PendingPlanApproval } from "./ws-session-types";
@@ -327,6 +328,7 @@ function createWsSessionStore(set: WsStoreSet, get: WsStoreGet): WsSessionStore 
       sourceKey: wsSessionSourceKey,
       rejectPendingRequests,
     }),
+    ...createWsSessionConfigActions(ctx),
     ...createPromptActions(set, get),
     ...createPermissionActions(set, get),
     ...createWsSessionSimpleActions({

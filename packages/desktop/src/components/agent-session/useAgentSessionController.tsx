@@ -170,6 +170,7 @@ function useAgentSessionMeta(props: AgentSessionProps, base: AgentSessionBase) {
     !!props.onPermissionModeToggle ||
     !!props.onAccessModeChange ||
     !!props.onModelChange ||
+    !!props.sessionConfigControls ||
     showClaudeProfileSelector ||
     !!props.showReadOnlyModel ||
     (showWorktreeChip && !isNarrow);

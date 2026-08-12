@@ -8,6 +8,7 @@ import type {
   WsEnvelope,
 } from "@/lib/ws-envelope";
 import type { AccessMode } from "@/types/access-mode";
+import type { RuntimeSessionConfigValue } from "@/api/generated";
 import type {
   PermissionMode,
   PersistedStatePayload,
@@ -96,6 +97,12 @@ export interface WsSessionStore {
   approvePlan: (sessionId: string) => void;
   requestPlanChanges: (sessionId: string, feedback: string) => void;
   closeGate: (sessionId: string, reason: GateCloseReason) => void;
+  requestSessionConfig: (sessionId: string) => Promise<void>;
+  setSessionConfigOption: (
+    sessionId: string,
+    configId: string,
+    value: RuntimeSessionConfigValue,
+  ) => Promise<void>;
 
   sendRequest: (sessionId: string, envelope: WsEnvelope) => Promise<unknown>;
 

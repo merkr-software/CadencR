@@ -20,6 +20,8 @@ import { META_BAR_CHIP } from "./meta-bar-chip-styles";
 import { AccessModePopover } from "./AccessModePopover";
 import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
 import type { ModelSelectionStatus } from "./useAgentSessionModelState";
+import { SessionConfigPopover } from "./SessionConfigPopover";
+import type { SessionConfigControls } from "./types";
 
 export interface MetaBarProps {
   showAutoScrollChip: boolean;
@@ -96,6 +98,7 @@ export interface MetaBarProps {
   isRunning?: boolean;
   onPause?: () => void;
   onModelSelected?: () => void;
+  sessionConfigControls?: SessionConfigControls;
   /**
    * Vertical density. `"session"` (default) is the roomier row that hangs under
    * the agent stream; `"standalone"` tightens it for a container that already
@@ -242,7 +245,9 @@ function MetaBarTrailing({ props, state }: { props: MetaBarProps; state: MetaBar
     !!props.onAccessModeChange &&
     (props.providerAccessModes?.length ?? 0) > 0;
   const hasSession = !props.secondaryBelow && !!props.runtimeSessionId && !!props.onPause;
-  if (!hasProfile && !hasAccess && !hasSession) return null;
+  const configControls = props.sessionConfigControls;
+  const hasConfig = !!configControls && configControls.supported !== false;
+  if (!hasProfile && !hasAccess && !hasSession && !hasConfig) return null;
   return (
     <div className="ml-auto flex items-center gap-1.5">
       {hasProfile && props.claudeProfile && props.onClaudeProfileChange && (
@@ -270,6 +275,17 @@ function MetaBarTrailing({ props, state }: { props: MetaBarProps; state: MetaBar
             options={props.providerAccessModes ?? []}
           />
         )}
+      {hasConfig && configControls ? (
+        <SessionConfigPopover
+          config={configControls.config}
+          loading={configControls.loading}
+          supported={configControls.supported}
+          error={configControls.error}
+          pendingId={configControls.pendingId}
+          onRefresh={configControls.onRefresh}
+          onChange={configControls.onChange}
+        />
+      ) : null}
       {hasSession && props.runtimeSessionId && props.onPause && (
         <SessionInfoChip
           runtimeProvider={props.runtimeProvider}

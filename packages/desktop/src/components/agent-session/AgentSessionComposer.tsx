@@ -177,6 +177,7 @@ function AgentSessionMeta(
       isRunning={session.status === "agent"}
       onPause={session.onStop}
       onModelSelected={() => props.promptBarRef.current?.focusInput()}
+      sessionConfigControls={session.sessionConfigControls}
     />
   );
 }

@@ -433,3 +433,57 @@ describe("MetaBar secondaryBelow", () => {
     expect(screen.getByText("0/1")).toBeInTheDocument();
   });
 });
+
+describe("MetaBar negotiated session configuration", () => {
+  it("renders opaque ACP options and waits for an authoritative update", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    renderChip({
+      sessionConfigControls: {
+        supported: true,
+        loading: false,
+        error: null,
+        pendingId: null,
+        config: {
+          options: [
+            {
+              id: "safe_mode",
+              name: "Safe mode",
+              description: "Use conservative behavior",
+              category: "_fixture",
+              type: "boolean",
+              current_value: false,
+            },
+          ],
+        },
+        onRefresh: vi.fn(),
+        onChange,
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Session configuration" }));
+    const toggle = screen.getByRole("switch", { name: "Safe mode" });
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText("_fixture")).toBeInTheDocument();
+
+    await user.click(toggle);
+
+    expect(onChange).toHaveBeenCalledWith("safe_mode", true);
+    expect(toggle).not.toBeChecked();
+  });
+
+  it("does not render a configuration chip after the runtime declines it", () => {
+    renderChip({
+      sessionConfigControls: {
+        supported: false,
+        loading: false,
+        error: null,
+        pendingId: null,
+        config: null,
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+    expect(screen.queryByRole("button", { name: "Session configuration" })).toBeNull();
+  });
+});

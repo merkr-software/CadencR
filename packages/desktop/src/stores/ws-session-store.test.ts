@@ -3827,4 +3827,115 @@ describe("ws-session-store", () => {
       expect(updatedChild.toolArgs).toBe(validArgs);
     });
   });
+
+  describe("negotiated session configuration", () => {
+    it("loads and updates authoritative snapshots without optimistic state", async () => {
+      const { store, ws } = await connectInitializedSession();
+      const load = store.requestSessionConfig("s1");
+      const getRequest = lastSentEnvelope(ws, "config.get");
+      expect(useWsSessionStore.getState().sessions.s1.sessionConfigLoading).toBe(true);
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "config.snapshot",
+        ref: getRequest.id as string,
+        payload: {
+          session_id: "srv-1",
+          config: {
+            options: [
+              {
+                id: "safe_mode",
+                name: "Safe mode",
+                category: "_fixture",
+                type: "boolean",
+                current_value: false,
+              },
+              {
+                id: "model",
+                name: "Model",
+                type: "select",
+                current_value: "small",
+                choices: {
+                  layout: "grouped",
+                  groups: [
+                    {
+                      id: "fixture",
+                      name: "Fixture",
+                      options: [{ name: "Small", value: "small" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      });
+      await load;
+      let session = useWsSessionStore.getState().sessions.s1;
+      expect(session.sessionConfigSupported).toBe(true);
+      expect(session.sessionConfig?.options).toHaveLength(2);
+
+      const update = store.setSessionConfigOption("s1", "safe_mode", true);
+      const setRequest = lastSentEnvelope(ws, "config.set");
+      session = useWsSessionStore.getState().sessions.s1;
+      expect(session.pendingSessionConfigId).toBe("safe_mode");
+      expect(session.sessionConfig?.options[0]).toMatchObject({ current_value: false });
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "config.snapshot",
+        ref: setRequest.id as string,
+        payload: {
+          session_id: "srv-1",
+          config: {
+            options: [
+              {
+                id: "safe_mode",
+                name: "Safe mode",
+                type: "boolean",
+                current_value: true,
+              },
+            ],
+          },
+        },
+      });
+      await update;
+      session = useWsSessionStore.getState().sessions.s1;
+      expect(session.pendingSessionConfigId).toBeNull();
+      expect(session.sessionConfig?.options[0]).toMatchObject({ current_value: true });
+    });
+
+    it("hides a runtime that explicitly declines configuration", async () => {
+      const { store, ws } = await connectInitializedSession();
+      const load = store.requestSessionConfig("s1");
+      const request = lastSentEnvelope(ws, "config.get");
+      ws.simulateMessage({
+        domain: "session",
+        action: "error",
+        ref: request.id as string,
+        payload: {
+          code: "SESSION_CONFIG_UNSUPPORTED",
+          message: "not supported",
+        },
+      });
+      await load;
+      const session = useWsSessionStore.getState().sessions.s1;
+      expect(session.sessionConfigSupported).toBe(false);
+      expect(session.sessionConfigError).toBeNull();
+    });
+  });
+
+  it("applies provider-advertised command updates without a request ref", async () => {
+    const { ws } = await connectInitializedSession();
+    ws.simulateMessage({
+      domain: "commands",
+      action: "updated",
+      payload: {
+        commands: [{ name: "review", description: "Review changes", kind: "command" }],
+      },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.slashCommands).toEqual([
+      { name: "review", description: "Review changes", kind: "command" },
+    ]);
+  });
 });
