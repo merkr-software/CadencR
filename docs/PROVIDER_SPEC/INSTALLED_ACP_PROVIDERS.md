@@ -1,11 +1,15 @@
-# Installed ACP providers (local descriptors)
+# Installed code-backed providers (local substrate)
 
-> - **Status:** Backend contract and live session configuration bridge implemented; desktop closure deferred (`docs/PLUGIN_STRATEGY.md` §3)
-> - **Last reviewed:** 2026-08-10
+> - **Status:** Backend/developer substrate implemented; general-purpose desktop installation deliberately withdrawn
+> - **Last reviewed:** 2026-08-12
 > - **Code:** `packages/service/src/domain/agents/providers/installed/`
+> - **Executable contract:** [`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md)
 
-An ACP agent joins Cadencr's provider list by dropping a descriptor file next to
-the settings — no Rust, no TypeScript, no SDK crate.
+A provider joins the runtime registry through a descriptor, but the descriptor
+is only identity and host launch policy. The referenced executable must contain
+provider-specific code implementing Cadencr's mandatory pre-session `models`
+command and its live ACP v1 mapping. Pointing Cadencr at an arbitrary ACP
+executable is not sufficient.
 
 ## Where descriptors live
 
@@ -58,8 +62,8 @@ values may contain credentials.
   "installation": {
     "enabled": true, // default true
     "executable": {
-      "command": "/opt/acme/bin/acme", // absolute path, required
-      "args": ["acp"], // argument vector, never a shell string
+      "command": "/opt/acme/bin/cadencr-acme-provider", // absolute path, required
+      "args": ["--region", "eu"], // appended provider args, never a shell string
       "env": { "ACME_REGION": "eu" }, // literal env for the child
     },
   },
@@ -92,44 +96,54 @@ The vendored upstream snapshots live at
 the original JSON, making schema drift or data loss an explicit source change.
 
 **A descriptor may not declare capabilities.** No models, modes, permission
-maps, thought levels, or auth methods. Those are owned by the protocol and
-discovered through `initialize` and `session/new`; a descriptor field claiming
-one would override what the agent actually negotiated. Such a field is not
-quietly dropped — an `agent` entry carrying one is rejected outright with
-`DESCRIPTOR_SCHEMA_VIOLATION`, because a silently ignored `"models"` key looks
-honored and is not.
+maps, thought levels, or auth methods. Models come from executable code through
+the required `models --format acp-config-options-v1` command; session state and
+all other capabilities come from `initialize` and `session/new`. Such a
+descriptor field is rejected with `DESCRIPTOR_SCHEMA_VIOLATION`, because a
+silently ignored `"models"` key looks honored and is not.
 
 ## What this build does and does not do
 
-| Supported                                                                                      | Deferred                                                     |
-| ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| ACP v1, negotiated by the shared client                                                        | ACP v2                                                       |
-| An explicitly selected local executable                                                        | Downloads, archive extraction, checksums                     |
-| Startup loading plus durable add/enable/disable/remove HTTP operations                         | Hot activation / reload                                      |
-| Explicit `restart_required` activation semantics                                               | Marketplace publishing and desktop UI                        |
-| Strict v1 validation and lossless typed round-trip                                             | Registry ingestion/export workflow                           |
-| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set      | Desktop controls and installed-provider diagnostics          |
-| Opaque option IDs and authoritative replacement from each `session/set_config_option` response | Migration of legacy model/mode/effort controls to the bridge |
+| Supported                                                                                       | Deferred                                                        |
+| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Code-backed `models` discovery plus ACP v1 runtime                                              | ACP v2                                                          |
+| An explicitly selected local provider-package executable                                       | Downloadable package/archive installation                       |
+| Startup loading plus durable add/enable/disable/remove HTTP operations                          | Hot activation / reload                                         |
+| Explicit `restart_required` activation semantics                                               | General-purpose desktop provider installation                   |
+| Strict descriptor validation and lossless typed round-trip                                      | Registry ingestion/export workflow                              |
+| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set       | Richer ACP configuration types beyond the v1 baseline           |
+| Pre-prompt validation that live ACP still contains and confirms the selected model              | Signed marketplace distribution, assets, and conformance runner |
+| Opaque option IDs and authoritative replacement from `session/set_config_option`                | Category-specific placement and built-in-control migration      |
 
-## Requirements on the agent
+## Requirements on the provider executable
+
+Before ACP starts, the executable must satisfy the command contract in
+[`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md). Cadencr only marks an installed
+provider available when `models` returns a verified non-empty model catalog and
+a default belonging to that catalog. Discovery failures remain visible as an
+unavailable provider; they never fall through to a speculative first prompt.
 
 The runtime baseline from `BOUNDARIES.md` §"Minimum ACP v1 admission contract":
 `initialize` at protocol version 1, `session/new`, `session/prompt`,
 `session/cancel`, and `session/update`, with standard JSON-RPC errors for
 optional methods it does not implement. Optional capabilities widen what the
-workspace can offer; they are never an admission requirement. The current
-startup scan does not preflight this handshake: an executable that fails it is
-accepted by the loader and fails visibly when first spawned. A bounded
-conformance probe remains Phase 8 work.
+workspace can offer; they are never an admission requirement. Model discovery
+is preflighted on catalog access. Full ACP handshake conformance remains future
+package-admission work.
 The client advertises ACP v1 boolean configuration support. Options returned by
 `session/new` or `session/load` become the live provider-neutral snapshot, and a
 successful `session/set_config_option` response replaces that snapshot with its
 complete `configOptions` list. Descriptors still cannot declare any of these
-values.
-`packages/service/tests/fixtures/fake_acp_agent.py` is a working minimal
-example. `tests/installed_acp_provider_test.rs` exercises it through the
-runtime registry and the authenticated HTTP + real WebSocket host surfaces,
-including interruption of an active turn.
+values. For code-backed installed providers, the selected pre-session model is
+checked against the live ACP selector, applied, and confirmed before
+`session/prompt` is allowed.
+`packages/service/tests/fixtures/fake_acp_agent.py` provides both a minimal
+baseline and a rich deterministic ACP v1 mode. The rich mode exercises commands,
+select/boolean configuration, permissions, plans, usage/cost, shell and edit
+tools, diffs, and an MCP-shaped tool call. `tests/installed_acp_provider_test.rs`
+drives those modes through the runtime registry and the authenticated HTTP +
+real WebSocket host surfaces, including interruption of an active turn. Durable
+resume and ACP v2 lifecycle remain separate, deferred coverage.
 
 ## Descriptor lifecycle API
 
@@ -154,6 +168,19 @@ different launch configuration before that restart.
 The diagnostics route rescans descriptor files, so durable changes are visible
 immediately while its `registered` field continues to report the current
 process registry.
+
+## Desktop exposure
+
+The free-form **Add local ACP provider** dialog is intentionally not shipped.
+Model discovery and native-to-ACP mapping require provider-owned code, while a
+simple path/arguments/environment form falsely implies that any ACP executable
+is sufficient. The lifecycle API remains a loopback-only developer and future
+installer substrate until signed code-and-assets packages exist.
+
+Installed providers still carry `origin: "installed_local"` in the service
+catalog. Shared desktop/runtime code may use this provider-neutral origin and
+generic session-configuration snapshots; it must never add a `pi` or other
+provider-ID branch.
 
 Lifecycle-specific refusal codes use the standard `{ error, code }` envelope:
 
