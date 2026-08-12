@@ -48,6 +48,7 @@ mod session_spawn_integration_tests;
 pub(crate) mod slash_command_snapshots;
 mod spawn_initial_config;
 mod spawn_initial_mode;
+#[cfg(test)]
 pub mod standard_hooks;
 pub mod stream_events;
 mod terminal_enrich;
@@ -63,4 +64,5 @@ pub mod turn_lifecycle;
 pub mod turn_result;
 
 pub use session_spawn::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
+#[cfg(test)]
 pub use standard_hooks::StandardAcpHooks;

@@ -93,7 +93,7 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
             _ => "build".to_string(),
         })
     }
-    fn model_config_id(&self) -> Option<&'static str> {
+    fn model_config_id(&self) -> Option<&str> {
         Some("model")
     }
     fn thinking_effort_config_id(&self) -> Option<String> {

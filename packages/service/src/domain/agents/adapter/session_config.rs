@@ -14,6 +14,18 @@ pub struct RuntimeSessionConfigSnapshot {
 }
 
 impl RuntimeSessionConfigSnapshot {
+    pub fn select_current_value(&self, config_id: &str) -> Option<&str> {
+        self.options
+            .iter()
+            .find(|option| option.id == config_id)
+            .and_then(|option| match &option.kind {
+                RuntimeSessionConfigKind::Select { current_value, .. } => {
+                    Some(current_value.as_str())
+                }
+                RuntimeSessionConfigKind::Boolean { .. } => None,
+            })
+    }
+
     pub fn validate_value(
         &self,
         config_id: &str,

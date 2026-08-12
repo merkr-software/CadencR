@@ -100,8 +100,15 @@ pub trait AcpProviderHooks: Send + Sync {
     }
 
     /// Provider config id for model changes over `session/set_config_option`.
-    fn model_config_id(&self) -> Option<&'static str> {
+    fn model_config_id(&self) -> Option<&str> {
         None
+    }
+
+    /// Require a preselected catalog model to exist in live ACP configuration
+    /// and be confirmed before the first prompt. Built-ins retain their legacy
+    /// fallbacks; code-backed installed providers opt into the strict contract.
+    fn requires_verified_model_selection(&self) -> bool {
+        false
     }
 
     /// Observe live session config options (retain aliases for later set_config_option).

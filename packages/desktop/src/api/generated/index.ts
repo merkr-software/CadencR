@@ -132,7 +132,7 @@ reachable via `GET /api/sessions/messages/{id}/full`. */
 
 export interface AgentCatalogResponse {
   default_provider: string;
-  providers: ProviderCatalogEntry[];
+  providers: ProviderCatalogResponseEntry[];
 }
 
 export type AgentMessageOriginCreatedAt = string | null;
@@ -2304,6 +2304,15 @@ export interface ProviderCatalogEntry {
   status_message?: ProviderCatalogEntryStatusMessage;
 }
 
+export type ProviderCatalogResponseEntryAllOf = {
+  origin: ProviderOrigin;
+};
+
+/**
+ * A runtime catalog entry plus the host-owned source of its registration.
+ */
+export type ProviderCatalogResponseEntry = ProviderCatalogEntry & ProviderCatalogResponseEntryAllOf;
+
 /**
  * One descriptor file: a Cadencr host envelope wrapping a portable entry.
 
@@ -2339,6 +2348,20 @@ export interface ProviderModeCatalogEntry {
   id: string;
   label: string;
 }
+
+/**
+ * How a provider became available to this Cadencr process.
+
+This is host-owned metadata rather than an ACP capability: installed agents
+cannot claim to be built-ins in their descriptor or handshake.
+ */
+export type ProviderOrigin = (typeof ProviderOrigin)[keyof typeof ProviderOrigin];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ProviderOrigin = {
+  built_in: "built_in",
+  installed_local: "installed_local",
+} as const;
 
 export type ProviderSetOkPayloadAccessMode = string | null;
 

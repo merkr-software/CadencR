@@ -20,6 +20,7 @@ use std::sync::{Arc, OnceLock};
 use cli_discovery::DiscoverySpec;
 
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
+use crate::domain::agents::runtime::ProviderOrigin;
 
 mod builtin_metadata;
 use builtin_metadata::{claude_metadata, codex_metadata, cursor_metadata, opencode_metadata};
@@ -146,6 +147,7 @@ pub struct RegisteredProvider {
     id: Cow<'static, str>,
     adapter: ProviderAdapterHandle,
     metadata: ProviderRegistrationMetadata,
+    origin: ProviderOrigin,
 }
 
 impl RegisteredProvider {
@@ -154,7 +156,13 @@ impl RegisteredProvider {
             id: id.into(),
             adapter,
             metadata: ProviderRegistrationMetadata::default(),
+            origin: ProviderOrigin::BuiltIn,
         }
+    }
+
+    pub fn installed_local(mut self) -> Self {
+        self.origin = ProviderOrigin::InstalledLocal;
+        self
     }
 
     fn with_metadata(mut self, metadata: ProviderRegistrationMetadata) -> Self {
@@ -172,6 +180,10 @@ impl RegisteredProvider {
 
     pub fn metadata(&self) -> &ProviderRegistrationMetadata {
         &self.metadata
+    }
+
+    pub fn origin(&self) -> ProviderOrigin {
+        self.origin
     }
 }
 
@@ -388,6 +400,7 @@ mod tests {
         builtin_provider_identifiers, provider_identifier_key, provider_registry,
         ProviderAdapterHandle, ProviderRegistry, RegisteredProvider,
     };
+    use crate::domain::agents::runtime::ProviderOrigin;
 
     /// Parity freeze: the registry exposes exactly the providers the static
     /// `ADAPTERS` slice used to, in the same order. Ordering is user-visible.
@@ -397,6 +410,20 @@ mod tests {
             provider_registry().provider_ids(),
             vec!["claude_code", "codex_cli", "cursor", "opencode"]
         );
+    }
+
+    #[test]
+    fn registry_owns_provider_origin() {
+        assert!(provider_registry()
+            .iter()
+            .all(|provider| provider.origin() == ProviderOrigin::BuiltIn));
+
+        let installed = RegisteredProvider::new(
+            "cursor",
+            ProviderAdapterHandle::owned(crate::domain::agents::cursor::CursorAdapter),
+        )
+        .installed_local();
+        assert_eq!(installed.origin(), ProviderOrigin::InstalledLocal);
     }
 
     /// Every registered id must be the id its adapter advertises, otherwise

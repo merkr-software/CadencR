@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """A deterministic ACP v1 agent, used as an installed-provider fixture.
 
-By default this is the *minimum admission contract* from
-`docs/PROVIDER_SPEC/BOUNDARIES.md` and nothing more: `initialize` at protocol
-version 1, `session/new`,
+By default this is the code-backed provider admission contract from
+`docs/PROVIDER_SPEC/BOUNDARIES.md`: a pre-session `models` command plus
+`initialize` at protocol version 1, `session/new`,
 `session/prompt` with streaming `session/update` notifications,
 `session/cancel`, and a standard JSON-RPC "method not found" for every optional
 method it does not implement. It advertises no optional capability, so a test
 against it proves the generic path works without any provider-specific help.
 
-`--session-config` adds one ACP v1 boolean option and implements
-`session/set_config_option`. This keeps the default admission fixture minimal
-while letting the same deterministic process test the optional configuration
-bridge.
+Every runtime session advertises the same model selector returned by `models`
+and implements `session/set_config_option`, because Cadencr must confirm an
+explicit model before the first prompt. `--session-config` remains accepted for
+older fixtures and also enables the extra fake boolean option.
+
+`--rich` implies session configuration and emits a representative v1 stream:
+commands, plans, usage, shell and edit tools, a permission request, a diff, and
+an MCP-shaped tool. The fixture remains provider-neutral — every shape is a
+standard ACP v1 message rather than a Cadencr extension.
 
 Behavior is keyed off the prompt text so a test can drive it exactly:
 
@@ -34,21 +39,38 @@ CHUNKS = ["Hello ", "from ", "the ", "fake ", "ACP ", "agent."]
 
 _write_lock = threading.Lock()
 _cancelled = threading.Event()
-_session_config_enabled = "--session-config" in sys.argv
+_rich_enabled = "--rich" in sys.argv
+_extra_session_config_enabled = "--session-config" in sys.argv or _rich_enabled
 _safe_mode = False
+_model = "fake-small"
+_responses = {}
+_responses_condition = threading.Condition()
 
 
 def config_options():
-    return [
-        {
+    options = []
+    if _extra_session_config_enabled:
+        options.append({
             "id": "safe_mode",
             "name": "Safe mode",
             "description": "Use conservative behavior",
             "category": "_fake",
             "type": "boolean",
             "currentValue": _safe_mode,
-        }
-    ]
+        })
+    options.append({
+            "id": "model",
+            "name": "Model",
+            "description": "Model selected by the fake ACP session",
+            "category": "model",
+            "type": "select",
+            "currentValue": _model,
+            "options": [
+                {"value": "fake-small", "name": "Fake Small"},
+                {"value": "fake-large", "name": "Fake Large"},
+            ],
+        })
+    return options
 
 
 def send(message):
@@ -83,6 +105,143 @@ def stream_chunk(text):
     )
 
 
+def session_update(update):
+    notify("session/update", {"sessionId": SESSION_ID, "update": update})
+
+
+def request_permission():
+    request_id = "rich-permission-1"
+    send(
+        {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": "session/request_permission",
+            "params": {
+                "sessionId": SESSION_ID,
+                "toolCall": {
+                    "toolCallId": "rich-bash-1",
+                    "title": "Bash",
+                    "kind": "execute",
+                    "rawInput": {"command": "printf rich-acp"},
+                },
+                "options": [
+                    {
+                        "optionId": "allow-once",
+                        "name": "Allow once",
+                        "kind": "allow_once",
+                    },
+                    {
+                        "optionId": "allow-always",
+                        "name": "Always allow",
+                        "kind": "allow_always",
+                    },
+                    {
+                        "optionId": "deny",
+                        "name": "Deny",
+                        "kind": "reject_once",
+                    },
+                ],
+            },
+        }
+    )
+    with _responses_condition:
+        _responses_condition.wait_for(lambda: request_id in _responses, timeout=10)
+        return _responses.pop(request_id, None)
+
+
+def run_rich_turn(request_id):
+    session_update(
+        {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": [
+                {"name": "review", "description": "Review the current changes"},
+                {"name": "summarize", "description": "Summarize the session"},
+            ],
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "plan",
+            "entries": [
+                {"content": "Inspect the workspace", "status": "completed"},
+                {"content": "Apply the change", "status": "in_progress"},
+            ],
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "usage_update",
+            "used": 321,
+            "size": 8192,
+            "cost": {"amount": 0.001, "currency": "USD"},
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "rich-bash-1",
+            "title": "Run a safe fixture command",
+            "kind": "execute",
+            "rawInput": {"command": "printf rich-acp"},
+        }
+    )
+    response = request_permission()
+    if response is None or response.get("error") is not None:
+        reply_error(request_id, -32000, "permission response missing")
+        return
+    session_update(
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "rich-bash-1",
+            "status": "completed",
+            "content": [{"type": "text", "text": "rich-acp"}],
+        }
+    )
+    diff = {
+        "type": "diff",
+        "path": "fixture.txt",
+        "oldText": "before\n",
+        "newText": "after\n",
+    }
+    session_update(
+        {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "rich-edit-1",
+            "title": "Edit fixture.txt",
+            "kind": "edit",
+            "content": [diff],
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "rich-edit-1",
+            "status": "completed",
+            "content": [diff],
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "tool_call",
+            "toolCallId": "rich-mcp-1",
+            "toolName": "mcp__fixture__lookup",
+            "title": "Fixture lookup",
+            "kind": "other",
+            "rawInput": {"query": "ACP"},
+        }
+    )
+    session_update(
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "rich-mcp-1",
+            "status": "completed",
+            "content": [{"type": "text", "text": "MCP result"}],
+        }
+    )
+    stream_chunk("Rich ACP turn complete.")
+    reply(request_id, {"stopReason": "end_turn"})
+
+
 def prompt_text(params):
     blocks = params.get("prompt") or []
     return " ".join(
@@ -97,6 +256,9 @@ def run_turn(request_id, params):
     clearing it here would race with — and swallow — a cancel that arrives while
     the thread is still spinning up.
     """
+    if _rich_enabled and "rich" in prompt_text(params):
+        run_rich_turn(request_id)
+        return
     if "hang" in prompt_text(params):
         stream_chunk(CHUNKS[0])
         _cancelled.wait()
@@ -111,7 +273,7 @@ def run_turn(request_id, params):
 
 
 def main():
-    global _safe_mode
+    global _model, _safe_mode
     turn = None
     for line in sys.stdin:
         line = line.strip()
@@ -125,6 +287,12 @@ def main():
         params = request.get("params") or {}
         request_id = request.get("id")
 
+        if method is None and request_id is not None:
+            with _responses_condition:
+                _responses[str(request_id)] = request
+                _responses_condition.notify_all()
+            continue
+
         if method == "initialize":
             reply(
                 request_id,
@@ -136,16 +304,18 @@ def main():
             )
         elif method == "session/new":
             result = {"sessionId": SESSION_ID}
-            if _session_config_enabled:
-                result["configOptions"] = config_options()
+            result["configOptions"] = config_options()
             reply(request_id, result)
-        elif method == "session/set_config_option" and _session_config_enabled:
-            if params.get("configId") != "safe_mode" or not isinstance(
-                params.get("value"), bool
-            ):
+        elif method == "session/set_config_option":
+            config_id = params.get("configId")
+            value = params.get("value")
+            if config_id == "safe_mode" and isinstance(value, bool):
+                _safe_mode = value
+            elif config_id == "model" and value in ("fake-small", "fake-large"):
+                _model = value
+            else:
                 reply_error(request_id, -32602, "invalid config option")
                 continue
-            _safe_mode = params["value"]
             reply(request_id, {"configOptions": config_options()})
         elif method == "session/prompt":
             _cancelled.clear()
@@ -164,4 +334,11 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    command = sys.argv[1] if len(sys.argv) > 1 else None
+    if command == "models":
+        print(json.dumps(config_options()))
+    elif command == "run":
+        main()
+    else:
+        print("expected provider command `models` or `run`", file=sys.stderr)
+        raise SystemExit(2)

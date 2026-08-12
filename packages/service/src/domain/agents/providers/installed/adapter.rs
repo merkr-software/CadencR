@@ -1,26 +1,19 @@
-//! The provider-neutral ACP adapter.
+//! The provider-neutral runtime adapter for code-backed provider packages.
 //!
-//! One adapter type serves every installed agent: it is parameterised by a
-//! [`HostInstallation`], not written per provider. Adding an agent is a
-//! descriptor file, never a Rust change.
-//!
-//! What it deliberately does *not* advertise is as important as what it does.
-//! Models, modes, access modes, compaction, slash commands, worktree config
-//! paths, and durable resume are all either negotiated over ACP per session or
-//! genuinely absent from the protocol, so the catalog entry leaves them empty
-//! and the trait defaults (which decline) stand. Filling them from descriptor
-//! data would make marketplace JSON authoritative over `initialize` — exactly
-//! the inversion `docs/PROVIDER_SPEC/BOUNDARIES.md` forbids. As negotiated
-//! capabilities become part of the catalog, they arrive from the session, not
-//! from here.
+//! The descriptor supplies identity and an executable, never model data. The
+//! executable owns provider-specific discovery/parsing through its mandatory
+//! `models` command; ACP remains the live session protocol.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::domain::agents::acp::runtime::permission_events::parse_acp_permission_request;
-use crate::domain::agents::acp::runtime::StandardAcpHooks;
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
 use crate::domain::agents::acp::AcpClientInfo;
 use crate::domain::agents::adapter::{
@@ -29,15 +22,99 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::runtime::{ProviderCatalogEntry, ProviderStatus};
 
+use super::hooks::InstalledAcpHooks;
 use super::installation::HostInstallation;
+use super::model_discovery::{discover_models, DiscoveredModels};
+
+const CATALOG_TTL: Duration = Duration::from_secs(30);
+const MAX_CACHED_WORKSPACES: usize = 16;
+
+#[derive(Clone)]
+struct CatalogCacheEntry {
+    fetched_at: Instant,
+    discovered: DiscoveredModels,
+}
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
+    catalog_cache: RwLock<HashMap<PathBuf, CatalogCacheEntry>>,
+    catalog_refreshes: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
 }
 
 impl GenericAcpAdapter {
     pub fn new(installation: Arc<HostInstallation>) -> Self {
-        Self { installation }
+        Self {
+            installation,
+            catalog_cache: RwLock::new(HashMap::new()),
+            catalog_refreshes: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn discover_for_cwd(&self, cwd: &Path) -> Result<DiscoveredModels, RuntimeError> {
+        if let Some(discovered) = self.fresh_cache(cwd).await {
+            return Ok(discovered);
+        }
+        let refresh = self.refresh_lock(cwd).await;
+        let _refresh = refresh.lock().await;
+        if let Some(discovered) = self.fresh_cache(cwd).await {
+            return Ok(discovered);
+        }
+        let executable = self.installation.launchable().map_err(RuntimeError::new)?;
+        let discovered = discover_models(executable, cwd)
+            .await
+            .map_err(|error| RuntimeError::new(format!("model discovery failed: {error}")))?;
+        let mut cache = self.catalog_cache.write().await;
+        if cache.len() >= MAX_CACHED_WORKSPACES && !cache.contains_key(cwd) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.fetched_at)
+                .map(|(path, _)| path.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            cwd.to_path_buf(),
+            CatalogCacheEntry {
+                fetched_at: Instant::now(),
+                discovered: discovered.clone(),
+            },
+        );
+        Ok(discovered)
+    }
+
+    async fn fresh_cache(&self, cwd: &Path) -> Option<DiscoveredModels> {
+        self.catalog_cache
+            .read()
+            .await
+            .get(cwd)
+            .filter(|entry| entry.fetched_at.elapsed() < CATALOG_TTL)
+            .map(|entry| entry.discovered.clone())
+    }
+
+    async fn refresh_lock(&self, cwd: &Path) -> Arc<Mutex<()>> {
+        let mut refreshes = self.catalog_refreshes.lock().await;
+        refreshes.retain(|_, refresh| refresh.strong_count() > 0);
+        if let Some(refresh) = refreshes.get(cwd).and_then(Weak::upgrade) {
+            return refresh;
+        }
+        let refresh = Arc::new(Mutex::new(()));
+        refreshes.insert(cwd.to_path_buf(), Arc::downgrade(&refresh));
+        refresh
+    }
+
+    fn discovered_catalog(&self, discovered: DiscoveredModels) -> ProviderCatalogEntry {
+        let agent = self.installation.agent();
+        ProviderCatalogEntry {
+            id: agent.id.clone(),
+            label: agent.name.clone(),
+            status: ProviderStatus::Available,
+            status_message: None,
+            models: discovered.models,
+            modes: Vec::new(),
+            access_modes: Vec::new(),
+            default_model: Some(discovered.default_model),
+        }
     }
 }
 
@@ -54,18 +131,33 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
                 agent.name.clone(),
                 &quarantine.message,
             ),
-            None => ProviderCatalogEntry {
-                id: agent.id.clone(),
-                label: agent.name.clone(),
-                status: ProviderStatus::Available,
-                status_message: None,
-                // Models, modes, and access modes are session-negotiated ACP
-                // state. An empty list is the honest answer before `initialize`.
-                models: Vec::new(),
-                modes: Vec::new(),
-                access_modes: Vec::new(),
-                default_model: None,
-            },
+            None => ProviderCatalogEntry::unavailable(
+                agent.id.clone(),
+                agent.name.clone(),
+                "provider model discovery has not completed",
+            ),
+        }
+    }
+
+    async fn catalog_entry_live_for_cwd(&self, cwd: Option<&Path>) -> ProviderCatalogEntry {
+        if self.installation.quarantine().is_some() {
+            return self.catalog_entry();
+        }
+        let fallback_cwd;
+        let cwd = match cwd {
+            Some(cwd) => cwd,
+            None => {
+                fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+                &fallback_cwd
+            }
+        };
+        match self.discover_for_cwd(cwd).await {
+            Ok(discovered) => self.discovered_catalog(discovered),
+            Err(error) => ProviderCatalogEntry::unavailable(
+                self.installation.provider_id(),
+                self.installation.agent().name.clone(),
+                error.to_string(),
+            ),
         }
     }
 
@@ -103,8 +195,30 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
         let executable = self.installation.launchable().map_err(RuntimeError::new)?;
+        if config.cwd.as_os_str().is_empty() {
+            return Err(RuntimeError::new(
+                "an ACP session needs a workspace directory",
+            ));
+        }
+        let selected_model = config.model.as_deref().ok_or_else(|| {
+            RuntimeError::new("installed providers require an explicit model before session start")
+        })?;
+        let discovered = self.discover_for_cwd(&config.cwd).await?;
+        if !discovered
+            .models
+            .iter()
+            .any(|model| model.id == selected_model)
+        {
+            return Err(RuntimeError::new(format!(
+                "selected model `{selected_model}` is not in the provider's current model catalog"
+            )));
+        }
         let mut command = tokio::process::Command::new(&executable.command);
-        command.args(&executable.args);
+        command
+            .arg("run")
+            .arg("--protocol")
+            .arg("acp-v1")
+            .args(&executable.args);
         command.current_dir(&config.cwd);
         for (key, value) in &executable.env {
             command.env(key, value);
@@ -125,7 +239,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             // Context window is reported by the agent through `usage_update`;
             // there is nothing to pre-seed it from.
             context_window: None,
-            hooks: Arc::new(StandardAcpHooks),
+            hooks: Arc::new(InstalledAcpHooks::new(discovered.config_id)),
         })
         .await
     }
@@ -160,20 +274,39 @@ mod tests {
         let entry = adapter(&runnable_binary(dir.path())).catalog_entry();
         assert_eq!(entry.id, "acme-agent");
         assert_eq!(entry.label, "acme-agent agent");
-        assert_eq!(entry.status, ProviderStatus::Available);
-        assert!(entry.status_message.is_none());
+        assert_eq!(entry.status, ProviderStatus::Unavailable);
+        assert!(entry
+            .status_message
+            .expect("cold catalogs explain why they are unavailable")
+            .contains("model discovery"));
     }
 
-    /// Everything the ACP session negotiates must stay empty in the catalog —
-    /// a descriptor may not pre-declare models, modes, or a default model.
-    #[test]
-    fn negotiated_state_is_absent_from_the_catalog_entry() {
+    #[tokio::test]
+    async fn live_catalog_comes_from_the_provider_models_command() {
         let dir = tempfile::tempdir().unwrap();
-        let entry = adapter(&runnable_binary(dir.path())).catalog_entry();
-        assert!(entry.models.is_empty());
+        let entry = adapter(&runnable_binary(dir.path()))
+            .catalog_entry_live_for_cwd(Some(dir.path()))
+            .await;
+        assert_eq!(entry.status, ProviderStatus::Available);
+        assert_eq!(entry.models.len(), 1);
+        assert_eq!(entry.models[0].id, "fixture/default");
         assert!(entry.modes.is_empty());
         assert!(entry.access_modes.is_empty());
-        assert!(entry.default_model.is_none());
+        assert_eq!(entry.default_model.as_deref(), Some("fixture/default"));
+    }
+
+    #[tokio::test]
+    async fn model_catalog_cache_keeps_independent_workspaces() {
+        let binary_dir = tempfile::tempdir().unwrap();
+        let first_cwd = tempfile::tempdir().unwrap();
+        let second_cwd = tempfile::tempdir().unwrap();
+        let adapter = adapter(&runnable_binary(binary_dir.path()));
+
+        adapter.discover_for_cwd(first_cwd.path()).await.unwrap();
+        adapter.discover_for_cwd(second_cwd.path()).await.unwrap();
+
+        assert!(adapter.fresh_cache(first_cwd.path()).await.is_some());
+        assert!(adapter.fresh_cache(second_cwd.path()).await.is_some());
     }
 
     #[test]

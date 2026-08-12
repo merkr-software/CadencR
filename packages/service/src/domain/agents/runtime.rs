@@ -14,6 +14,17 @@ pub enum ProviderStatus {
     ComingSoon,
 }
 
+/// How a provider became available to this Cadencr process.
+///
+/// This is host-owned metadata rather than an ACP capability: installed agents
+/// cannot claim to be built-ins in their descriptor or handshake.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderOrigin {
+    BuiltIn,
+    InstalledLocal,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ModelCatalogEntry {
     pub id: String,
@@ -100,7 +111,23 @@ pub struct ProviderModeCatalogEntry {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AgentCatalogResponse {
     pub default_provider: String,
-    pub providers: Vec<ProviderCatalogEntry>,
+    pub providers: Vec<ProviderCatalogResponseEntry>,
+}
+
+/// A runtime catalog entry plus the host-owned source of its registration.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ProviderCatalogResponseEntry {
+    #[serde(flatten)]
+    pub provider: ProviderCatalogEntry,
+    pub origin: ProviderOrigin,
+}
+
+impl std::ops::Deref for ProviderCatalogResponseEntry {
+    type Target = ProviderCatalogEntry;
+
+    fn deref(&self) -> &Self::Target {
+        &self.provider
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

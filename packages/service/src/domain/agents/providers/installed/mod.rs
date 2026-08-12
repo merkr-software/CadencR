@@ -2,10 +2,10 @@
 //!
 //! This is the second half of the runtime registry: `registry.rs` made the
 //! provider list something built at startup, and this module supplies the
-//! entries that are not compiled in. An installed provider is a descriptor file
-//! plus a [`GenericAcpAdapter`] built from it — no Rust, TypeScript, or SDK
-//! crate changes, which is the whole point (`docs/PROVIDER_SPEC/BOUNDARIES.md`
-//! Phase 1, "adding one must require no Rust or TypeScript source change").
+//! entries that are not compiled in. An installed provider is a descriptor plus
+//! a code-backed provider executable behind one [`GenericAcpAdapter`]. The host
+//! stays provider-neutral, while provider authors own model discovery and any
+//! native-to-ACP mapping inside that executable.
 //!
 //! Scope of this increment, deliberately narrow:
 //!
@@ -13,18 +13,22 @@
 //!   routes mutate durable files but activation is explicitly restart-gated;
 //! - the launch target is an **explicitly selected local executable**; nothing
 //!   is downloaded, extracted, or checksummed here;
-//! - the protocol is **ACP v1**, negotiated by the shared client.
+//! - the executable must implement the versioned `models` and `run` commands;
+//! - the runtime protocol is **ACP v1**, negotiated by the shared client.
 //!
 //! Three sources of truth stay separate, as the boundary plan requires: the
 //! portable registry entry (`descriptor.rs`), the host-local installation
-//! record (`installation.rs`), and the capabilities the agent negotiates over
-//! ACP (owned by `acp/runtime/`, never by a descriptor field).
+//! record (`installation.rs`), the pre-session model projection owned by the
+//! provider binary, and live capabilities negotiated over ACP. Descriptors
+//! never declare models or session capabilities.
 
 pub mod adapter;
 pub mod descriptor;
+mod hooks;
 pub mod installation;
 pub mod lifecycle;
 pub mod loader;
+mod model_discovery;
 pub mod rejection;
 pub mod routes;
 #[cfg(test)]
@@ -91,6 +95,7 @@ pub fn installed_registrations() -> Vec<RegisteredProvider> {
                 installation.provider_id().to_string(),
                 ProviderAdapterHandle::owned(GenericAcpAdapter::new(installation.clone())),
             )
+            .installed_local()
         })
         .collect()
 }

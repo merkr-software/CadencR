@@ -222,6 +222,8 @@ use crate::domain::ws_session::routes as ws_routes;
         themes_models::DeleteThemeResponse,
         crate::domain::themes::workspace::ThemeWorkspace,
         crate::domain::agents::runtime::AgentCatalogResponse,
+        crate::domain::agents::runtime::ProviderCatalogResponseEntry,
+        crate::domain::agents::runtime::ProviderOrigin,
         crate::domain::agents::runtime::ProviderCatalogEntry,
         crate::domain::agents::runtime::ModelCatalogEntry,
         crate::domain::agents::runtime::ProviderStatus,

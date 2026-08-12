@@ -33,7 +33,17 @@ pub fn descriptor(value: serde_json::Value) -> ProviderDescriptor {
 /// descriptor pointing at it resolves without a quarantine.
 pub fn runnable_binary(dir: &Path) -> String {
     let path = dir.join("agent-bin");
-    std::fs::write(&path, b"#!/bin/sh\nexit 0\n").expect("write test binary");
+    std::fs::write(
+        &path,
+        br###"#!/bin/sh
+if [ "$1" = "models" ]; then
+  printf '%s\n' '[{"id":"model","name":"Model","category":"model","type":"select","currentValue":"fixture/default","options":[{"value":"fixture/default","name":"Fixture Default"}]}]'
+  exit 0
+fi
+exit 0
+"###,
+    )
+    .expect("write test binary");
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

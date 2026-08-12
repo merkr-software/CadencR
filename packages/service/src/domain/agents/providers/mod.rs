@@ -9,7 +9,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use super::adapter::AgentRuntimeAdapter;
-use super::runtime::{AgentCatalogResponse, ModelCatalogEntry, ProviderStatus};
+use super::runtime::{
+    AgentCatalogResponse, ModelCatalogEntry, ProviderCatalogResponseEntry, ProviderStatus,
+};
 
 const LEGACY_OWNERSHIP_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -110,7 +112,7 @@ pub async fn provider_catalog_live_for_cwd(
     cwd: Option<&Path>,
     profile: Option<&str>,
 ) -> AgentCatalogResponse {
-    let providers = provider_catalog_entries_live_for_cwd(read_pool, cwd, profile)
+    let providers = provider_catalog_entries_with_origin_live_for_cwd(read_pool, cwd, profile)
         .await
         .into_iter()
         .filter(|provider| provider.status == ProviderStatus::Available)
@@ -137,9 +139,30 @@ pub async fn provider_catalog_entries_live_for_cwd(
     cwd: Option<&Path>,
     profile: Option<&str>,
 ) -> Vec<super::runtime::ProviderCatalogEntry> {
-    futures::future::join_all(provider_registry().adapters().map(|adapter| async move {
-        provider_catalog_entry_live_for_settings(read_pool, cwd, profile, adapter.as_adapter())
-            .await
+    provider_catalog_entries_with_origin_live_for_cwd(read_pool, cwd, profile)
+        .await
+        .into_iter()
+        .map(|entry| entry.provider)
+        .collect()
+}
+
+async fn provider_catalog_entries_with_origin_live_for_cwd(
+    read_pool: &SqlitePool,
+    cwd: Option<&Path>,
+    profile: Option<&str>,
+) -> Vec<ProviderCatalogResponseEntry> {
+    futures::future::join_all(provider_registry().iter().map(|registered| async move {
+        let provider = provider_catalog_entry_live_for_settings(
+            read_pool,
+            cwd,
+            profile,
+            registered.adapter().as_adapter(),
+        )
+        .await;
+        ProviderCatalogResponseEntry {
+            provider,
+            origin: registered.origin(),
+        }
     }))
     .await
 }
@@ -157,7 +180,26 @@ pub(super) async fn provider_catalog_entry_live_for_settings(
     if !extra.is_empty() {
         entry.models = merge_extra_models(entry.models, extra);
     }
+    enforce_available_catalog_invariant(&mut entry);
     entry
+}
+
+fn enforce_available_catalog_invariant(entry: &mut super::runtime::ProviderCatalogEntry) {
+    if entry.status != ProviderStatus::Available {
+        return;
+    }
+    let valid_default = entry
+        .default_model
+        .as_ref()
+        .is_some_and(|default| entry.models.iter().any(|model| model.id == *default));
+    if !entry.models.is_empty() && valid_default {
+        return;
+    }
+    entry.status = ProviderStatus::Unavailable;
+    entry.status_message = Some(
+        "provider did not supply a verified non-empty model catalog and valid default model"
+            .to_string(),
+    );
 }
 
 pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -> Option<String> {
@@ -215,10 +257,27 @@ pub async fn runtime_session_finished_text(
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_extra_models, notify_worktree_created_for_all_providers, provider_registry,
-        resolve_effective_provider, runtime_adapter,
+        enforce_available_catalog_invariant, merge_extra_models,
+        notify_worktree_created_for_all_providers, provider_registry, resolve_effective_provider,
+        runtime_adapter,
     };
-    use crate::domain::agents::runtime::ModelCatalogEntry;
+    use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
+
+    fn available_catalog(
+        models: Vec<ModelCatalogEntry>,
+        default_model: Option<&str>,
+    ) -> ProviderCatalogEntry {
+        ProviderCatalogEntry {
+            id: "provider".to_string(),
+            label: "Provider".to_string(),
+            status: ProviderStatus::Available,
+            status_message: None,
+            models,
+            modes: Vec::new(),
+            access_modes: Vec::new(),
+            default_model: default_model.map(str::to_string),
+        }
+    }
 
     #[test]
     fn merge_extra_models_appends_new_entries() {
@@ -236,6 +295,24 @@ mod tests {
         let merged = merge_extra_models(base, extra);
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].label, "Opus (gateway)");
+    }
+
+    #[test]
+    fn available_catalog_requires_models_and_a_valid_default() {
+        for mut entry in [
+            available_catalog(Vec::new(), None),
+            available_catalog(vec![ModelCatalogEntry::alias("m1", "M1")], None),
+            available_catalog(vec![ModelCatalogEntry::alias("m1", "M1")], Some("missing")),
+        ] {
+            enforce_available_catalog_invariant(&mut entry);
+            assert_eq!(entry.status, ProviderStatus::Unavailable);
+            assert!(entry.status_message.is_some());
+        }
+
+        let mut valid = available_catalog(vec![ModelCatalogEntry::alias("m1", "M1")], Some("m1"));
+        enforce_available_catalog_invariant(&mut valid);
+        assert_eq!(valid.status, ProviderStatus::Available);
+        assert!(valid.status_message.is_none());
     }
 
     #[test]
