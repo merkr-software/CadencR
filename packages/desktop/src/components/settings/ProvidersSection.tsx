@@ -7,6 +7,7 @@ import { ProviderAccessModeSetting } from "./ProviderAccessModeSetting";
 import { CustomModelsSection } from "./CustomModelsSection";
 import { DangerousModeToggle } from "./DangerousModeToggle";
 import { ProfilesSection } from "./ProfilesSection";
+import { ProviderDevelopmentCard } from "./ProviderDevelopmentCard";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsSection } from "./SettingsSection";
 import { SettingsSubsection } from "./SettingsSubsection";
@@ -20,11 +21,8 @@ const PROVIDER_TABS: ProviderId[] = [
 
 export function ProvidersSection(): React.JSX.Element {
   return (
-    <SettingsSection
-      id="providers"
-      title="CLI Providers"
-      subtitle="Binaries · Profiles · Permission modes"
-    >
+    <SettingsSection id="providers" title="Providers" subtitle="Built-ins · Developer connectors">
+      <ProviderDevelopmentCard />
       <SettingsCard padded={false}>
         <Tabs defaultValue={PROVIDER_IDS.CLAUDE_CODE}>
           <TabsList aria-label="Provider" className="px-2">

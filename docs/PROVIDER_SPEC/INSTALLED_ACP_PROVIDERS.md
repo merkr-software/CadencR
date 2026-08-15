@@ -1,6 +1,6 @@
 # Installed code-backed providers (local substrate)
 
-> - **Status:** Backend/developer substrate implemented; general-purpose desktop installation deliberately withdrawn
+> - **Status:** Backend and developer-project substrate implemented; general-purpose desktop installation deliberately withdrawn
 > - **Last reviewed:** 2026-08-12
 > - **Code:** `packages/service/src/domain/agents/providers/installed/`
 > - **Executable contract:** [`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md)
@@ -10,6 +10,13 @@ is only identity and host launch policy. The referenced executable must contain
 provider-specific code implementing Cadencr's mandatory pre-session `models`
 command and its live ACP v1 mapping. Pointing Cadencr at an arbitrary ACP
 executable is not sufficient.
+
+Developers can create this substrate from Settings → Providers → **Add
+provider**. That flow creates an ordinary Git-backed Cadencr project with
+`README.md` and `INSTRUCTION.md`, plus a local descriptor targeting the
+project's `bin/provider` build output. It does not download or admit third-party
+code, and it does not change the user's ordinary pane or worktree layout. See
+[`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md#developer-workspace-generator).
 
 ## Where descriptors live
 

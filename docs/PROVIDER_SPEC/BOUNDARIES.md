@@ -317,11 +317,12 @@ The first shippable increment (ladder step 2, "bring your own agent") is:
   does not perform);
 - the fake minimal ACP v1 executable test from Phase 9 (**implemented**).
 
-The local descriptor slice is a backend substrate, not a complete user-facing
-step 2b. A free-form executable UI is deliberately excluded: ACP v1 exposes
-models too late for Cadencr's pre-session selection requirement, so a provider
-must ship code implementing the executable contract in
-`PROVIDER_PACKAGE.md`. The backend now provides these contract foundations:
+The local descriptor slice plus developer workspace generator are an authoring
+substrate, not marketplace installation. A free-form executable UI is
+deliberately excluded: ACP v1 exposes models too late for Cadencr's pre-session
+selection requirement, so a provider must ship code implementing the
+executable contract in `PROVIDER_PACKAGE.md`. The backend and local developer
+flow now provide these contract foundations:
 
 1. **Schema profiles are explicit (closed).** The local profile permits an
    omitted `distribution`; `AcpAgentEntry::validate_registry_entry` requires and
@@ -344,6 +345,12 @@ must ship code implementing the executable contract in
    executable must return an ACP v1 model select option through `models`; the
    catalog refuses empty/invalid results. After `session/new`, Cadencr validates,
    applies, and confirms the chosen model before the first prompt.
+5. **Provider authors get an ordinary workspace.** Settings → Providers →
+   **Add provider** creates a normal Git-backed user project and `ws-session`
+   conversation with no layout or worktree overrides. Its `README.md` and
+   `INSTRUCTION.md` specify the full connector deliverables; a restart-gated
+   descriptor targets the project's stable `bin/provider` output. This creates
+   no marketplace distribution or trust claim.
 
 Phases 3, 4, and 6 (the canonical event model) are a separately tracked
 workstream with their own migration plan. Phase 2's v2 client is deferred until
@@ -363,7 +370,7 @@ desktop, canonical persistence/DTOs, and the distribution installer remain futur
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | Local provider backend                | Shipped: startup descriptors, generic adapter, mandatory code-backed model discovery, direct ACP execution, quarantine, diagnostics, restart-gated loopback lifecycle API, and authenticated HTTP/WS integration tests         | Preserve this path while later slices add signed code-and-assets distribution                                                                    |
 | Built-in regression guardrails        | `FEATURES.md` is an ACP-grounded coverage ledger and focused Claude/Codex catalog fixtures freeze later UI work; complete stream/workflow golden suites remain open                                                           | Extend executable parity only for each later refactor's blast radius before removing its legacy path                                            |
-| Installed-provider desktop            | Catalog origin and generic live configuration exist; the free-form local executable installer was withdrawn because provider admission requires code                                                                        | Ship only after the package installer can install validated code plus assets                                                                     |
+| Installed-provider desktop            | Catalog origin and generic live configuration exist; **Add provider** creates a local code-authoring project, while the free-form executable installer remains withdrawn                                                     | Add general installation only after the package installer can install validated code plus assets                                                 |
 | Models and live configuration         | Provider binaries return pre-session ACP model options; live ACP select/boolean snapshots remain authoritative and model choice is reconciled before prompting                                                               | Add conformance probing and migrate legacy built-in model/mode/effort controls                                                                   |
 | Canonical events and ACP v2           | Started: the stream-event slice now produces stable message/block operations and a turn-bounded materialized projection before the unchanged legacy WS projection; persistence and most event families remain legacy          | Keep v2 deferred; migrate one typed event family at a time, then version the desktop DTO and persistence                                        |
 | Marketplace distribution/security     | Local absolute executables only; schema validation, launch hardening, quarantine, and API redaction exist                                                                                                                     | Downloads, integrity, signing, blocklist, process policy, install history, and conformance probing are still required before remote agents ship |
@@ -380,11 +387,13 @@ the current baseline. Recommended increments are:
 2. [x] reconcile the selected model against live ACP before the first prompt;
 3. [x] provide a Rust command harness and Pi reference provider while keeping Pi
    knowledge out of shared code;
-4. [ ] define the signed code-and-assets archive format and installer; do not
+4. [x] create an ordinary Git-backed provider-authoring workspace with a
+   complete agent instruction contract and restart-gated local descriptor;
+5. [ ] define the signed code-and-assets archive format and installer; do not
    restore a free-form arbitrary-executable UI;
-5. [ ] continue the started Phase 3/4/6 canonical-event workstream beyond the
+6. [ ] continue the started Phase 3/4/6 canonical-event workstream beyond the
    stream-content slice into persistence and versioned desktop DTOs;
-6. [ ] add remote registry ingestion, downloads, integrity, signing, blocklist, and
+7. [ ] add remote registry ingestion, downloads, integrity, signing, blocklist, and
    sandbox/process policy only as a later security-gated distribution slice.
    ACP v2 remains deferred while its specification is draft.
 
@@ -819,6 +828,10 @@ The provider boundary is complete when all of the following are true:
 - [x] The provider supplies a verified model list before session creation, then
       appears in the backend catalog, initializes, confirms the selected model,
       streams a prompt, and cancels through the generic host path.
+- [x] A developer can create a normal Git-backed provider project from the
+      desktop, hand its complete `INSTRUCTION.md` contract to their usual agent,
+      build at a stable local path, and restart Cadencr to test it without a
+      Cadencr source change.
 - [ ] A user can install, inspect, enable, disable, update, and remove a signed
       provider package containing code plus assets from the desktop. The former
       arbitrary-executable form is intentionally not an acceptance target.

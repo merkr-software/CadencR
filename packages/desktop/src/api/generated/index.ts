@@ -669,6 +669,16 @@ export interface CreateProjectRequest {
 }
 
 /**
+ * The stable identity and human label for a new provider connector project.
+ */
+export interface CreateProviderWorkspaceRequest {
+  /** Human-readable name used in the project and scaffold. */
+  display_name: string;
+  /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
+  provider_id: string;
+}
+
+/**
  * Id of the user theme being duplicated, when there is one. Its asset
 files are copied into the new theme's folder — a texture the user can
 see is part of what they picked, so it has to come along.
@@ -2392,6 +2402,14 @@ export const ProviderStatus = {
   unavailable: "unavailable",
   coming_soon: "coming_soon",
 } as const;
+
+/**
+ * The ordinary Cadencr project and conversation created for provider work.
+ */
+export interface ProviderWorkspace {
+  feature_id: number;
+  project_id: number;
+}
 
 export interface PushBody {
   feature_id: number;
@@ -5052,6 +5070,81 @@ export const useSetProviderEnabled = <TError = ErrorType<void>, TContext = unkno
   TContext
 > => {
   const mutationOptions = getSetProviderEnabledMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const createProviderWorkspace = (
+  createProviderWorkspaceRequest: CreateProviderWorkspaceRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ProviderWorkspace>({
+    url: `/api/agents/provider-workspaces`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: createProviderWorkspaceRequest,
+    signal,
+  });
+};
+
+export const getCreateProviderWorkspaceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createProviderWorkspace>>,
+    TError,
+    { data: CreateProviderWorkspaceRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createProviderWorkspace>>,
+  TError,
+  { data: CreateProviderWorkspaceRequest },
+  TContext
+> => {
+  const mutationKey = ["createProviderWorkspace"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createProviderWorkspace>>,
+    { data: CreateProviderWorkspaceRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createProviderWorkspace(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateProviderWorkspaceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createProviderWorkspace>>
+>;
+export type CreateProviderWorkspaceMutationBody = CreateProviderWorkspaceRequest;
+export type CreateProviderWorkspaceMutationError = ErrorType<void>;
+
+export const useCreateProviderWorkspace = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof createProviderWorkspace>>,
+      TError,
+      { data: CreateProviderWorkspaceRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof createProviderWorkspace>>,
+  TError,
+  { data: CreateProviderWorkspaceRequest },
+  TContext
+> => {
+  const mutationOptions = getCreateProviderWorkspaceMutationOptions(options);
 
   return useMutation(mutationOptions, queryClient);
 };

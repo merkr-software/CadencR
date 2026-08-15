@@ -169,6 +169,40 @@ same executable contract and passes the same conformance tests.
 This provider-specific knowledge lives entirely in `packages/pi-provider/`.
 Neither the registry, generic adapter, catalog, nor desktop branches on `pi`.
 
+## Developer workspace generator
+
+Settings → Providers → **Add provider** creates the local authoring workflow;
+it is not a marketplace installer. Cadencr creates:
+
+- an ordinary `kind=user` project under
+  `~/.cadencr/provider-workspaces/<provider-id>/`;
+- an ordinary `ws-session` conversation with no forced pane layout, worktree
+  mode, provider, or model;
+- a Git repository with an initial Cadencr-authored commit;
+- `README.md` for the developer and `INSTRUCTION.md` containing the executable,
+  model discovery, ACP v1, testing, and security requirements for their agent;
+- a restart-gated local descriptor targeting the stable generated build output
+  `bin/provider` (`bin/provider.exe` on Windows).
+
+The developer asks their normal configured agent to read `INSTRUCTION.md` and
+implement the connector. If their normal worktree workflow was used, they merge
+the changes back into the project checkout and build the stable executable
+there. They must restart Cadencr between connector changes before testing:
+provider registration is fixed for the service process lifetime, and hot reload
+is deliberately unsupported.
+
+The generated repository is language-neutral. Rust and
+`cadencr-provider-sdk` are the supported reference path, but another language
+is compatible when its executable implements this same command and ACP v1
+contract. No arbitrary executable, argument, or environment form is exposed to
+normal users.
+
+The checked-in authoring template at
+`packages/service/src/domain/agents/providers/development/templates/INSTRUCTION.md`
+is the exact file copied into new repositories. Keep changes to the executable
+contract synchronized with that template so provider authors and the public
+specification receive the same requirements.
+
 ## Marketplace package work still required
 
 The executable contract does not yet define the downloadable archive format.

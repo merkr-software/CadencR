@@ -38,9 +38,22 @@ pub async fn install_descriptor(
     descriptor.validate().map_err(descriptor_error)?;
     let provider_id = descriptor.agent.id.as_str();
     let path = descriptor_path(directory, provider_id)?;
-    ensure_id_available(directory, provider_id, &path, active_provider_ids)?;
+    ensure_descriptor_id_available(directory, provider_id, active_provider_ids)?;
     HostInstallation::from_descriptor(descriptor.clone(), &path).map_err(descriptor_error)?;
     write_descriptor(&path, &descriptor)
+}
+
+/// Refuse a reserved or already-claimed identity before a multi-resource
+/// developer workflow creates a project. Installation checks again while
+/// holding its lifecycle lock, so this is an early validation seam rather than
+/// a replacement for the authoritative write-time check.
+pub fn ensure_descriptor_id_available(
+    directory: &Path,
+    provider_id: &str,
+    active_provider_ids: &[String],
+) -> Result<(), AppError> {
+    let path = descriptor_path(directory, provider_id)?;
+    ensure_id_available(directory, provider_id, &path, active_provider_ids)
 }
 
 pub async fn set_descriptor_enabled(

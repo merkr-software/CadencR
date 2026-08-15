@@ -28,6 +28,8 @@ target/
 packages/service/cadencr-settings/
 # Same, for user-authored plugin content (themes today).
 packages/service/plugins/
+# Developer-created provider repositories live beside the dev settings dir.
+packages/service/provider-workspaces/
 
 # Local agent permissions and personal machine paths
 .claude/settings.local.json
