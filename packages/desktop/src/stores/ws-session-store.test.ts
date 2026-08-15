@@ -751,6 +751,27 @@ describe("ws-session-store", () => {
     });
   });
 
+  it("does not replay a built-in permission mode to an installed ACP provider", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+
+    store.sendPrompt("s1", "hello");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "pi-acp" },
+    });
+
+    const sent = ws.sent.map((raw) => JSON.parse(raw));
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({
+      action: "prompt.send",
+      payload: { session_id: "srv-1", text: "hello" },
+    });
+  });
+
   it("setPersistedState sets blocks and lifecycle", () => {
     // Ensure session exists first
     useWsSessionStore.getState().connect("s1");
@@ -1493,6 +1514,50 @@ describe("ws-session-store", () => {
     expect(usage?.inputTokens).toBe(1000);
     expect(usage?.outputTokens).toBe(200);
     expect(usage?.contextWindow).toBe(1_000_000);
+  });
+
+  it("model.set.ok invalidates an active negotiated session configuration", async () => {
+    const { ws } = await connectInitializedSession();
+    ws.simulateMessage({
+      domain: "session",
+      action: "runtime_session_id",
+      payload: { runtime_session_id: "runtime-1" },
+    });
+    ws.simulateMessage({
+      domain: "session",
+      action: "config.snapshot",
+      payload: {
+        session_id: "srv-1",
+        config: {
+          options: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              current_value: "opus",
+              choices: {
+                layout: "ungrouped",
+                options: [{ name: "Opus", value: "opus" }],
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.sessionConfigSupported).toBe(true);
+    ws.simulateMessage({
+      domain: "session",
+      action: "model.set.ok",
+      payload: { provider: "claude_code", model: "sonnet" },
+    });
+
+    const session = useWsSessionStore.getState().sessions.s1;
+    expect(session.currentModelId).toBe("sonnet");
+    expect(session.sessionConfig).toBeNull();
+    expect(session.sessionConfigSupported).toBeNull();
+    expect(session.sessionConfigLoading).toBe(false);
+    expect(session.sessionConfigError).toBeNull();
   });
 
   it("clears optimistic thinking effort when initialized payload omits it", async () => {

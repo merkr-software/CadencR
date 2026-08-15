@@ -4,6 +4,7 @@ import { createModeSet, createPromptSend } from "@/lib/ws-envelope";
 import type { QueuedPrompt } from "./ws-session-types";
 import { blocksPatchWithDerived } from "./ws-block-mutations";
 import type { AgentBlockData } from "@/components/AgentBlock";
+import { getProviderModes } from "@/lib/provider-modes";
 export { buildSlashCommandsKey } from "@/lib/slash-command-key";
 
 /**
@@ -73,7 +74,15 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
   // `options.permission_mode` on the still-pending `SdkHandle`, and this
   // envelope is emitted before any queued `prompt.send` so the spawn picks
   // up the corrected mode.
-  envelopes.push(createModeSet(session.serverSessionId, session.permissionMode));
+  // Installed ACP providers intentionally expose no host-owned permission
+  // modes: permissions are negotiated by the ACP runtime, not declared by a
+  // package descriptor. Avoid replaying the built-in frontend fallback
+  // (`acceptEdits`) to such providers after initialization. An empty provider
+  // is kept for older `session.initialized` payloads, where preserving the
+  // existing replay behavior is safer than dropping a legitimate selection.
+  if (!session.runtimeProvider || getProviderModes(session.runtimeProvider).length > 0) {
+    envelopes.push(createModeSet(session.serverSessionId, session.permissionMode));
+  }
   for (const prompt of session.queuedPrompts) {
     envelopes.push(
       createPromptSend(session.serverSessionId, prompt.text, {

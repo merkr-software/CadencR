@@ -486,4 +486,39 @@ describe("MetaBar negotiated session configuration", () => {
     });
     expect(screen.queryByRole("button", { name: "Session configuration" })).toBeNull();
   });
+
+  it("keeps model and thinking changes on their durable primary controls", () => {
+    renderChip({
+      sessionConfigControls: {
+        supported: true,
+        loading: false,
+        error: null,
+        pendingId: null,
+        config: {
+          options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "model-1",
+              choices: { layout: "ungrouped", options: [] },
+            },
+            {
+              id: "thought_level",
+              name: "Thinking",
+              category: "thought_level",
+              type: "select",
+              current_value: "high",
+              choices: { layout: "ungrouped", options: [] },
+            },
+          ],
+        },
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+
+    expect(screen.queryByRole("button", { name: "Session configuration" })).toBeNull();
+  });
 });

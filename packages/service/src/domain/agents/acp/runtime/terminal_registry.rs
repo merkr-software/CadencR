@@ -21,10 +21,9 @@ use tokio::task::JoinHandle;
 
 use super::terminal_io::{
     build_output_payload, exit_signal, spawn_pumps, ExitInfo, TerminalOutput,
+    DEFAULT_TERMINAL_OUTPUT_LIMIT,
 };
 use super::terminal_sandbox::{apply_restricted_env, parse_acp_env, resolve_sandboxed_cwd};
-
-const DEFAULT_OUTPUT_LIMIT: usize = 1024 * 1024; // 1 MiB
 
 #[derive(Default)]
 pub struct TerminalRegistry {
@@ -88,7 +87,7 @@ impl TerminalRegistry {
             .get("outputByteLimit")
             .and_then(Value::as_u64)
             .map(|n| n as usize)
-            .unwrap_or(DEFAULT_OUTPUT_LIMIT);
+            .unwrap_or(DEFAULT_TERMINAL_OUTPUT_LIMIT);
 
         let command_line = if args.is_empty() {
             command.to_string()

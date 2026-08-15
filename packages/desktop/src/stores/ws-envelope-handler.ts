@@ -320,6 +320,9 @@ function handleModelSetOk(ctx: StoreAccessors, sessionId: string, payload: unkno
       currentModelId: p.model,
       runtimeProvider: p.provider,
       contextUsage: nextUsage,
+      ...(session.runtimeSessionId && session.sessionConfigSupported === true
+        ? createSessionConfigState()
+        : {}),
     }),
   );
 }

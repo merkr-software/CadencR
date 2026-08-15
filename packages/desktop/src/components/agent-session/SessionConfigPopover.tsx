@@ -38,7 +38,8 @@ export function SessionConfigPopover({
   onChange,
 }: SessionConfigPopoverProps): React.JSX.Element | null {
   if (supported === false) return null;
-  const options = config?.options ?? [];
+  const options = config?.options.filter((option) => !isDedicatedControl(option)) ?? [];
+  if (!loading && !error && options.length === 0) return null;
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -61,8 +62,8 @@ export function SessionConfigPopover({
         <div>
           <p className="text-sm font-semibold">Session configuration</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            These controls come directly from the active ACP session. Changes apply only after the
-            provider confirms them.
+            Additional controls from the active ACP session. Model and thinking use the main session
+            controls so every change remains durable.
           </p>
         </div>
         {loading ? (
@@ -80,11 +81,6 @@ export function SessionConfigPopover({
             </Button>
           </div>
         ) : null}
-        {!loading && !error && options.length === 0 ? (
-          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            This session does not expose any configurable options.
-          </p>
-        ) : null}
         {options.length > 0 ? (
           <div className="max-h-80 space-y-3 overflow-y-auto pr-1">
             {options.map((option) => (
@@ -101,6 +97,10 @@ export function SessionConfigPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+function isDedicatedControl(option: RuntimeSessionConfigOption): boolean {
+  return option.category === "model" || option.category === "thought_level";
 }
 
 function SessionConfigField({

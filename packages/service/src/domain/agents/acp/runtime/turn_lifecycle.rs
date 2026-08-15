@@ -48,6 +48,17 @@ impl PromptCancel {
 }
 
 const CANCEL_GRACE: Duration = Duration::from_millis(150);
+const EVENT_BARRIER_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub async fn await_event_loop_barrier(client: &AcpClient) -> Result<(), RuntimeError> {
+    let barrier = client
+        .enqueue_event_barrier()
+        .map_err(|error| RuntimeError::new(format!("could not fence ACP events: {error}")))?;
+    tokio::time::timeout(EVENT_BARRIER_TIMEOUT, barrier.notified())
+        .await
+        .map_err(|_| RuntimeError::new("ACP event loop did not drain before turn completion"))?;
+    Ok(())
+}
 
 #[allow(clippy::too_many_arguments)]
 pub async fn drive_initial_prompt(
@@ -80,6 +91,7 @@ pub async fn drive_initial_prompt(
         false,
     );
     let response = request_prompt_with_cancel(client, params, prompt_cancel).await?;
+    await_event_loop_barrier(client).await?;
     if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
         finalize_turn(
             tx,
@@ -170,6 +182,7 @@ pub async fn finalize_turn(
 mod tests {
     use super::{drive_initial_prompt, finalize_turn, EventIndexer, PromptCancel, PromptTurnLock};
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
+    use crate::domain::agents::acp::runtime::test_support::spawn_event_barrier_acker;
     use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
     use crate::domain::agents::adapter::RuntimePermissionMode;
     use serde_json::{json, Value};
@@ -307,6 +320,7 @@ mod tests {
         // sends, the second blocks on the lock until the first response
         // returns and its drain runs.
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
         let session_id = Arc::new(RwLock::new(Some("s-1".to_string())));
         let model = Arc::new(RwLock::new(None));
         let effort = Arc::new(RwLock::new(None));

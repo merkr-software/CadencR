@@ -6,7 +6,7 @@ use serde_json::Value;
 #[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Command;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Notify};
 
 #[cfg(test)]
 use crate::domain::agents::acp::client_spawn::spawn_acp_with_streams;
@@ -57,6 +57,15 @@ impl AcpClient {
 
     pub fn subscribe(&self) -> broadcast::Receiver<AcpEvent> {
         self.inner.events.subscribe()
+    }
+
+    pub(crate) fn enqueue_event_barrier(&self) -> Result<Arc<Notify>, AcpError> {
+        let barrier = Arc::new(Notify::new());
+        self.inner
+            .events
+            .send(AcpEvent::EventBarrier(Arc::clone(&barrier)))
+            .map_err(|_| AcpError::Protocol("ACP runtime event loop is unavailable".to_string()))?;
+        Ok(barrier)
     }
 
     pub fn client_info(&self) -> &AcpClientInfo {

@@ -1,18 +1,18 @@
 # Cadencr Provider Capability Coverage Ledger
 
 > - **Status:** Current built-in coverage and regression reference
-> - **Last reviewed:** 2026-08-09 against `v0.11.0`
+> - **Last reviewed:** 2026-08-15 against `v0.12.0`
 > - **Public provider contract:** ACP v1, as defined by [`BOUNDARIES.md`](./BOUNDARIES.md)
 
 This document records which user-visible capabilities each built-in provider
 currently delivers. It is **not** a marketplace admission checklist and it does
 not require an ACP provider to implement every feature below. A third-party
 provider is admitted through the minimum ACP v1 contract in `BOUNDARIES.md`.
-The current `GenericAcpAdapter` covers local descriptor identity and the baseline
-ACP v1 session path. Provider-neutral desktop controls for negotiated models,
-modes, authentication, and other configuration remain deferred work, so a ✅ in
-this built-in ledger does not claim that an installed provider exposes the same
-control today.
+The current `GenericAcpAdapter` covers local descriptor identity, mandatory
+pre-session model discovery, selected-model reconciliation, negotiated ACP
+configuration, and the baseline ACP v1 session path. The Pi column below records
+live validation of a locally authored `pi-acp` connector; it is evidence for the
+generic host path, not a first-party support or marketplace-admission promise.
 
 Claude Code and Codex remain the rich parity references. Their native protocols
 may expose more detail than ACP v1, but that detail must be translated inside the
@@ -40,29 +40,53 @@ types and must not branch on provider identity.
 
 ## Coverage matrix
 
-| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor | OpenCode |
-| --- | ---------------------------------------- | ---------------------------- | ----------- | ----- | ------ | -------- |
-| 1   | Session modes                            | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 2   | Thinking                                 | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 3   | Partial / streaming messages             | ACP baseline                 | ✅          | ✅    | ✅     | ✅       |
-| 4   | Bash tool calls + outputs                | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 5   | Edits / Writes / Patch                   | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 6   | Sub-agents                               | Contained built-in extension | ✅          | ✅    | 🟡     | ✅       |
-| 7   | Todo                                     | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 8   | Thinking level changes                   | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       |
-| 9   | Model selection changes                  | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅     | ✅       |
-| 11  | MCP                                      | ACP optional capability      | ✅          | ✅    | 🟡     | ❌       |
-| 12  | Plan approval                            | Contained built-in extension | ✅          | ✅    | ✅     | ❌       |
-| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌     | ✅       |
-| 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ✅     | ✅       |
-| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       |
-| 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅     | ✅       |
-| 17  | Durable session resume/load              | ACP optional capability      | ✅          | ✅    | ✅     | ❌       |
+| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor | OpenCode | Pi via local ACP |
+| --- | ---------------------------------------- | ---------------------------- | ----------- | ----- | ------ | -------- | ---------------- |
+| 1   | Session modes                            | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
+| 2   | Thinking                                 | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 3   | Partial / streaming messages             | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 4   | Bash tool calls + outputs                | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 5   | Edits / Writes / Patch                   | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 6   | Sub-agents                               | Contained built-in extension | ✅          | ✅    | 🟡     | ✅       | ❌               |
+| 7   | Todo                                     | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
+| 8   | Thinking level changes                   | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
+| 9   | Model selection changes                  | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
+| 11  | MCP                                      | ACP optional capability      | ✅          | ✅    | 🟡     | ❌       | ❌               |
+| 12  | Plan approval                            | Contained built-in extension | ✅          | ✅    | ✅     | ❌       | ❌               |
+| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌     | ✅       | 🟡               |
+| 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ✅     | ✅       | 🟡               |
+| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | 🟡               |
+| 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
+| 17  | Durable session resume/load              | ACP optional capability      | ✅          | ✅    | ✅     | ❌       | ❌               |
 
 Detailed evidence and limitations remain in
 [`CLAUDE_CODE.md`](./CLAUDE_CODE.md), [`CODEX.md`](./CODEX.md),
 [`CURSOR.md`](./CURSOR.md), and [`OPENCODE.md`](./OPENCODE.md).
+
+### Pi local ACP validation notes
+
+The Pi column was exercised end to end in the development app with a generated
+provider workspace and a code-backed `pi-acp` connector:
+
+- seven Pi models were discovered before session creation, and the user had to
+  select a model before the first prompt;
+- model-specific thinking levels, including `max` where supported, were
+  negotiated and could be changed between turns;
+- text and thinking streamed separately; Bash output, file writes, reads,
+  structured diffs, image input, cancellation, and serialized live follow-up
+  all completed successfully;
+- Pi slash commands become available after the ACP session handshake. Session
+  statistics, naming, export, steering, follow-up mode, and auto-compaction were
+  exercised. A small-session compaction correctly reported that there was
+  nothing to compact; a successful large-context compaction was not forced;
+- `pi-acp` does not advertise session modes, ACP permission requests,
+  sub-agents, or structured todos. It accepts MCP server parameters but does not
+  forward them to Pi. It exposes usage through `/session`, but does not emit the
+  ACP usage updates needed by Cadencr's context meter;
+- Pi can persist sessions, but the generic installed-provider host does not yet
+  invoke ACP session loading after a service restart. Cadencr keeps the visible
+  transcript, while Pi's runtime context starts fresh.
 
 ---
 

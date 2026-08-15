@@ -16,6 +16,7 @@ mod tests {
     use super::super::session_config::{snapshot_from_options, AcpSessionConfigState};
     use super::super::session_permissions::SessionPermissions;
     use super::super::terminal_registry::TerminalRegistry;
+    use super::super::test_support::spawn_event_barrier_acker;
     use super::super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
     use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
     use crate::domain::agents::adapter::{
@@ -441,6 +442,7 @@ mod tests {
     #[tokio::test]
     async fn interrupt_unblocks_prompt_turn_when_agent_never_replies() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
         let negotiated = super::super::lifecycle::NegotiatedSession {
             session_id: "s-cancel".to_string(),
             model: None,

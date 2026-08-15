@@ -148,12 +148,13 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        if let Ok(_guard) = self.prompt_turn_lock.try_lock() {
-            return self.prompt_input(content, client_message_id, true).await;
-        }
-
-        tracing::debug!("ACP prompt turn already active; sending follow-up as steering prompt");
-        self.prompt_input(content, client_message_id, false).await
+        // ACP v1 has no portable steering request. A second `session/prompt`
+        // while the first is active is agent-defined: Pi queues it, while other
+        // agents may reject or merge it. Serialise turns at the host boundary so
+        // every accepted user message gets one authoritative turn result and the
+        // frontend cannot remain stuck in `agent` after a queued follow-up.
+        let _guard = self.prompt_turn_lock.lock().await;
+        self.prompt_input(content, client_message_id, true).await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {
