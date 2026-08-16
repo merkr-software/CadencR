@@ -57,6 +57,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         ProviderCatalogEntry {
             id: "claude_code".to_string(),
             label: "Claude".to_string(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models,
@@ -351,6 +352,7 @@ fn provider_catalog_entry_from_models(models: Vec<ModelCatalogEntry>) -> Provide
     ProviderCatalogEntry {
         id: "claude_code".to_string(),
         label: "Claude".to_string(),
+        icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
         models,

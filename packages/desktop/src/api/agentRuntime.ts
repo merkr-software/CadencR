@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { customInstance } from "./client";
 import { AGENT_TYPES, type AgentTypeSetting } from "../shared/models";
 import type { AccessMode } from "@/types/access-mode";
 import type { PermissionMode } from "@/types/permission-mode";
 import type { ModelCatalogEntry, ProviderOrigin, UpsertCustomModelRequest } from "./generated";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 
 export type RuntimeModelOption = {
   [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
@@ -15,6 +17,7 @@ export interface RuntimeProviderOption {
   status: "available" | "unavailable" | "coming_soon";
   origin: ProviderOrigin;
   status_message?: string;
+  icon_data?: string;
   models: RuntimeModelOption[];
   modes?: RuntimeProviderModeOption[];
   access_modes?: RuntimeProviderAccessModeOption[];
@@ -77,7 +80,7 @@ export function useAgentCatalog(extras?: QueryExtras) {
   // different model ids), so `profile` is part of the cache key — switching the
   // prompt-area profile selector refetches the catalog for that profile rather
   // than serving the active profile's stale models.
-  return useQuery({
+  const query = useQuery({
     queryKey: ["agent-catalog", cwd ?? null, profile ?? null],
     queryFn: () =>
       customInstance<AgentCatalog>({
@@ -90,6 +93,11 @@ export function useAgentCatalog(extras?: QueryExtras) {
     gcTime: AGENT_CATALOG_GC_MS,
     ...queryExtras,
   });
+  // Also runs for a hydrated cache hit, where `queryFn` may not execute.
+  useEffect(() => {
+    if (query.data) setProviderCatalogMetadata(query.data.providers);
+  }, [query.data]);
+  return query;
 }
 
 export function useGetWorkspaceProviderSettings(arg: boolean | QueryExtras = true) {

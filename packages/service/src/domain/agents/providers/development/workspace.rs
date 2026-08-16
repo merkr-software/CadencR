@@ -7,8 +7,8 @@ use serde_json::Map;
 use sqlx::SqlitePool;
 
 use crate::domain::agents::providers::installed::descriptor::{
-    validate_provider_id, AcpAgentEntry, HostInstallationSpec, LocalExecutableSpec,
-    ProviderDescriptor, SUPPORTED_SCHEMA_VERSION,
+    validate_provider_id, AcpAgentEntry, HostInstallationSpec, LocalAssetsSpec,
+    LocalExecutableSpec, ProviderDescriptor, SUPPORTED_SCHEMA_VERSION,
 };
 use crate::domain::agents::providers::installed::{descriptors_dir, lifecycle};
 use crate::domain::agents::providers::provider_registry;
@@ -79,7 +79,7 @@ async fn create_with_roots(
     // identity that permanently blocks its own workspace.
     lifecycle::install_descriptor(
         &roots.descriptors,
-        descriptor(provider_id, &display_name, &executable),
+        descriptor(provider_id, &display_name, &directory, &executable),
         &active_provider_ids,
     )
     .await?;
@@ -219,7 +219,12 @@ async fn ensure_project_and_feature(
     Ok((project_id, feature_id))
 }
 
-fn descriptor(provider_id: &str, display_name: &str, executable: &Path) -> ProviderDescriptor {
+fn descriptor(
+    provider_id: &str,
+    display_name: &str,
+    directory: &Path,
+    executable: &Path,
+) -> ProviderDescriptor {
     ProviderDescriptor {
         schema_version: SUPPORTED_SCHEMA_VERSION,
         agent: AcpAgentEntry {
@@ -231,7 +236,10 @@ fn descriptor(provider_id: &str, display_name: &str, executable: &Path) -> Provi
             website: None,
             authors: Vec::new(),
             license: None,
-            icon: None,
+            // ACP Registry repositories own a root `icon.svg`. Keep that
+            // portable relative reference; the host asset root below resolves
+            // and inlines it without exposing a filesystem path to the UI.
+            icon: Some("icon.svg".to_string()),
             distribution: None,
             extra: Map::new(),
         },
@@ -241,6 +249,9 @@ fn descriptor(provider_id: &str, display_name: &str, executable: &Path) -> Provi
                 command: executable.to_string_lossy().into_owned(),
                 args: Vec::new(),
                 env: BTreeMap::new(),
+            }),
+            assets: Some(LocalAssetsSpec {
+                directory: directory.to_string_lossy().into_owned(),
             }),
         },
     }
@@ -267,9 +278,23 @@ mod tests {
 
     #[test]
     fn descriptor_points_at_the_stable_build_output() {
-        let descriptor = descriptor("pi-connector", "Pi", Path::new("/tmp/pi/bin/provider"));
+        let descriptor = descriptor(
+            "pi-connector",
+            "Pi",
+            Path::new("/tmp/pi"),
+            Path::new("/tmp/pi/bin/provider"),
+        );
         let executable = descriptor.installation.executable.unwrap();
         assert_eq!(executable.command, "/tmp/pi/bin/provider");
+        assert_eq!(descriptor.agent.icon.as_deref(), Some("icon.svg"));
+        assert_eq!(
+            descriptor
+                .installation
+                .assets
+                .as_ref()
+                .map(|assets| assets.directory.as_str()),
+            Some("/tmp/pi")
+        );
         assert!(descriptor.agent.distribution.is_none());
         assert!(descriptor.agent.extra.is_empty());
     }

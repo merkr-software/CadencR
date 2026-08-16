@@ -401,6 +401,7 @@ mod tests {
             crate::domain::agents::runtime::ProviderCatalogEntry {
                 id: "dummy".to_string(),
                 label: "Dummy".to_string(),
+                icon_data: None,
                 status: crate::domain::agents::runtime::ProviderStatus::Available,
                 status_message: None,
                 models: vec![],

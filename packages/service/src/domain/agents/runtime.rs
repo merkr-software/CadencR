@@ -70,6 +70,10 @@ impl ModelCatalogEntry {
 pub struct ProviderCatalogEntry {
     pub id: String,
     pub label: String,
+    /// Connector-owned icon bytes, inlined as a bounded `data:image/...` URL.
+    /// Built-ins omit this and keep using their bundled renderer assets.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_data: Option<String>,
     pub status: ProviderStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_message: Option<String>,
@@ -90,6 +94,7 @@ impl ProviderCatalogEntry {
         Self {
             id: id.into(),
             label: label.into(),
+            icon_data: None,
             status: ProviderStatus::Unavailable,
             status_message: Some(message.into()),
             models: Vec::new(),

@@ -9,17 +9,20 @@ You are working in the complete source repository for Cadencr provider `__PROVID
 - A documented build command that produces `__EXECUTABLE__` on this machine and marks it executable where the OS requires it.
 - Automated tests for model parsing, malformed provider output, empty model lists, duplicate model IDs, and the ACP runtime launch path.
 - User-facing setup/authentication notes in `README.md`. Never commit credentials or generated secrets.
+- A connector-owned `icon.svg` at the repository root. Use the provider's real
+  mark when licensing permits it; never add the provider to Cadencr's static
+  frontend asset maps or modify the parent Cadencr source tree.
 - A passing local validation of all three commands below.
 
 ## Executable contract
 
 Cadencr launches the executable directly, never through a shell. Implement exactly these entry points:
 
-| Command | Required behavior |
-| --- | --- |
-| `version` | Print one connector version string to `stdout` and exit `0`. |
+| Command                                                       | Required behavior                                                                                  |
+| ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `version`                                                     | Print one connector version string to `stdout` and exit `0`.                                       |
 | `models --format acp-config-options-v1 --cwd <absolute-path>` | Discover and parse the provider-native models, print one JSON array described below, and exit `0`. |
-| `run --protocol acp-v1` | Run an ACP v1 JSON-RPC agent over `stdin`/`stdout` until the session ends. |
+| `run --protocol acp-v1`                                       | Run an ACP v1 JSON-RPC agent over `stdin`/`stdout` until the session ends.                         |
 
 Additional connector arguments may appear after Cadencr's reserved arguments. Treat them as an argument vector; never interpolate arguments, paths, or credentials into a shell command.
 
@@ -93,3 +96,8 @@ Run these from the repository root after building:
 Then verify the `run` entry point with an ACP v1 client or an automated protocol fixture. Confirm `git status` contains only intentional source/documentation changes; generated binaries under `bin/` are ignored.
 
 Finally, tell the user to restart Cadencr before testing the connector. Cadencr's provider registry is fixed for the process lifetime, so hot reload is intentionally unsupported.
+
+The host descriptor already points `agent.icon` at this repository's
+`icon.svg`. Cadencr reads at most 128 KiB, verifies that the resolved file stays
+inside this repository, and sends only an inlined image to the renderer. Do not
+embed an absolute path, remote tracking URL, or image bytes in connector source.

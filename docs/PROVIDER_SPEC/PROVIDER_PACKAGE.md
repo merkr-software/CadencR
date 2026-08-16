@@ -1,6 +1,6 @@
 # Cadencr code-backed provider package contract
 
-> - **Status:** Local v1 contract implemented; marketplace packaging and signing are future work
+> - **Status:** Local v1 code-and-icon contract implemented; marketplace packaging and signing are future work
 > - **Contract version:** `acp-config-options-v1` + `acp-v1`
 > - **Reference SDK:** `packages/provider-plugin-sdk-rs/`
 > - **Reference provider:** `packages/pi-provider/`
@@ -26,23 +26,23 @@ model identifiers, aliases, and parsing stay in the package executable.
 Cadencr invokes the installed executable directly, never through a shell.
 Descriptor arguments are appended after the reserved command arguments.
 
-| Command | Purpose | Required result |
-| --- | --- | --- |
-| `models --format acp-config-options-v1 --cwd <absolute-path> [provider-args...]` | Discover models before session creation | One JSON array on `stdout`; exit `0` |
-| `run --protocol acp-v1 [provider-args...]` | Start the live agent | ACP v1 JSON-RPC over `stdin`/`stdout` |
-| `version` | Report package implementation version | One version string on `stdout` |
+| Command                                                                          | Purpose                                 | Required result                       |
+| -------------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------- |
+| `models --format acp-config-options-v1 --cwd <absolute-path> [provider-args...]` | Discover models before session creation | One JSON array on `stdout`; exit `0`  |
+| `run --protocol acp-v1 [provider-args...]`                                       | Start the live agent                    | ACP v1 JSON-RPC over `stdin`/`stdout` |
+| `version`                                                                        | Report package implementation version   | One version string on `stdout`        |
 
 Diagnostics belong on `stderr`. The `models` command must not write logs,
 progress, or banners to `stdout`.
 
 ### Resource limits
 
-| Limit | Host behavior |
-| --- | --- |
-| `models` duration | Terminated after 10 seconds |
-| `stdout` | Rejected above 1 MiB |
-| `stderr` | Drained and bounded; contents are never returned by the API |
-| Shell interpolation | Forbidden |
+| Limit               | Host behavior                                               |
+| ------------------- | ----------------------------------------------------------- |
+| `models` duration   | Terminated after 10 seconds                                 |
+| `stdout`            | Rejected above 1 MiB                                        |
+| `stderr`            | Drained and bounded; contents are never returned by the API |
+| Shell interpolation | Forbidden                                                   |
 
 ## `models` output
 
@@ -180,7 +180,10 @@ it is not a marketplace installer. Cadencr creates:
   mode, provider, or model;
 - a Git repository with an initial Cadencr-authored commit;
 - `README.md` for the developer and `INSTRUCTION.md` containing the executable,
-  model discovery, ACP v1, testing, and security requirements for their agent;
+  model discovery, ACP v1, icon, testing, and security requirements for their agent;
+- a descriptor prepared to load a connector-owned root `icon.svg`, which the
+  implementing agent adds inside the connector repository rather than to
+  Cadencr's source tree;
 - a restart-gated local descriptor targeting the stable generated build output
   `bin/provider` (`bin/provider.exe` on Windows).
 
@@ -203,6 +206,20 @@ is the exact file copied into new repositories. Keep changes to the executable
 contract synchronized with that template so provider authors and the public
 specification receive the same requirements.
 
+### Local icon contract
+
+The connector repository owns its branding. Provider authors add `icon.svg` at
+the repository root; they never add an ID, import, or asset to Cadencr's source
+tree. The generated descriptor already declares `agent.icon: "icon.svg"` and an
+absolute host-only `installation.assets.directory` pointing at that repository.
+
+On startup, Cadencr canonicalizes both paths, refuses symlink/path escapes,
+accepts only Chromium-renderable image extensions, caps the file at 128 KiB,
+and exposes only a base64 `data:image/...` value through the provider catalog.
+The renderer never receives the local directory. A missing or invalid icon is a
+packaging diagnostic from `GET /api/agents/installed-providers` with a neutral
+UI fallback; it does not make an otherwise runnable connector unavailable.
+
 ## Marketplace package work still required
 
 The executable contract does not yet define the downloadable archive format.
@@ -211,7 +228,7 @@ Before public marketplace installation, the package layer still needs:
 - signed identity and publisher metadata;
 - platform-specific binary and asset entries;
 - hashes, extraction policy, permissions, and quarantine rules;
-- an icon/license/readme asset contract;
+- signed archive placement, hashes, and lifecycle for icon/license/readme assets;
 - conformance execution before activation;
 - atomic install, upgrade, rollback, and uninstall semantics.
 

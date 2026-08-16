@@ -34,6 +34,7 @@ pub(super) fn catalog_entry() -> ProviderCatalogEntry {
     ProviderCatalogEntry {
         id: PROVIDER_ID.to_string(),
         label: PROVIDER_LABEL.to_string(),
+        icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
         models: vec![model_entry("auto", "Auto")],
@@ -102,6 +103,7 @@ fn catalog_from_models(models: Vec<cursor_agent_sdk_rs::CursorModel>) -> Provide
     ProviderCatalogEntry {
         id: PROVIDER_ID.to_string(),
         label: PROVIDER_LABEL.to_string(),
+        icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
         models: models

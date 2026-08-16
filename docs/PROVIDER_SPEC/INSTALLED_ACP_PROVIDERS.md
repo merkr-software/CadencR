@@ -1,7 +1,7 @@
 # Installed code-backed providers (local substrate)
 
 > - **Status:** Backend and developer-project substrate implemented; general-purpose desktop installation deliberately withdrawn
-> - **Last reviewed:** 2026-08-12
+> - **Last reviewed:** 2026-08-16
 > - **Code:** `packages/service/src/domain/agents/providers/installed/`
 > - **Executable contract:** [`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md)
 
@@ -50,7 +50,9 @@ values may contain credentials.
     "website": "https://acme.dev",
     "authors": ["Acme"],
     "license": "MIT",
-    "icon": "https://acme.dev/icon.svg",
+    // Local developer packages use the ACP Registry repository convention:
+    // the portable entry names a relative package asset.
+    "icon": "icon.svg",
 
     // Optional only in Cadencr's hand-written local profile. The strict ACP
     // Registry validation profile requires this field.
@@ -68,6 +70,9 @@ values may contain credentials.
   // Cadencr host policy. Never part of the portable entry.
   "installation": {
     "enabled": true, // default true
+    "assets": {
+      "directory": "/opt/acme", // absolute package root; never returned to the renderer
+    },
     "executable": {
       "command": "/opt/acme/bin/cadencr-acme-provider", // absolute path, required
       "args": ["--region", "eu"], // appended provider args, never a shell string
@@ -111,16 +116,17 @@ silently ignored `"models"` key looks honored and is not.
 
 ## What this build does and does not do
 
-| Supported                                                                                       | Deferred                                                        |
-| ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Code-backed `models` discovery plus ACP v1 runtime                                              | ACP v2                                                          |
-| An explicitly selected local provider-package executable                                       | Downloadable package/archive installation                       |
-| Startup loading plus durable add/enable/disable/remove HTTP operations                          | Hot activation / reload                                         |
-| Explicit `restart_required` activation semantics                                               | General-purpose desktop provider installation                   |
-| Strict descriptor validation and lossless typed round-trip                                      | Registry ingestion/export workflow                              |
-| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set       | Richer ACP configuration types beyond the v1 baseline           |
-| Pre-prompt validation that live ACP still contains and confirms the selected model              | Signed marketplace distribution, assets, and conformance runner |
-| Opaque option IDs and authoritative replacement from `session/set_config_option`                | Category-specific placement and built-in-control migration      |
+| Supported                                                                                 | Deferred                                                        |
+| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Code-backed `models` discovery plus ACP v1 runtime                                        | ACP v2                                                          |
+| An explicitly selected local provider-package executable                                  | Downloadable package/archive installation                       |
+| Startup loading plus durable add/enable/disable/remove HTTP operations                    | Hot activation / reload                                         |
+| Explicit `restart_required` activation semantics                                          | General-purpose desktop provider installation                   |
+| Strict descriptor validation and lossless typed round-trip                                | Registry ingestion/export workflow                              |
+| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set | Richer ACP configuration types beyond the v1 baseline           |
+| Connector-owned `icon.svg`, bounded and inlined from its host-declared package root       | Signed/downloaded marketplace asset installation                |
+| Pre-prompt validation that live ACP still contains and confirms the selected model        | Signed marketplace distribution, assets, and conformance runner |
+| Opaque option IDs and authoritative replacement from `session/set_config_option`          | Category-specific placement and built-in-control migration      |
 
 ## Requirements on the provider executable
 
@@ -191,10 +197,10 @@ provider-ID branch.
 
 Lifecycle-specific refusal codes use the standard `{ error, code }` envelope:
 
-| Code                         | Meaning                                                                            |
-| ---------------------------- | ---------------------------------------------------------------------------------- |
+| Code                         | Meaning                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `PROVIDER_ALREADY_INSTALLED` | The normalized id has a descriptor, belongs to a built-in id/alias, or is still active in this process |
-| `PROVIDER_NOT_INSTALLED`     | No valid descriptor exists at that id's path                                       |
+| `PROVIDER_NOT_INSTALLED`     | No valid descriptor exists at that id's path                                                           |
 
 Descriptor validation failures reuse the stable rejection codes below.
 
@@ -207,16 +213,16 @@ deliberately distinct:
 **Rejected** — never becomes a provider, because its identity or shape could not
 be trusted:
 
-| Code                           | Meaning                                                    |
-| ------------------------------ | ---------------------------------------------------------- |
-| `DESCRIPTOR_UNREADABLE`        | The file (or the directory) could not be read              |
-| `DESCRIPTOR_INVALID_JSON`      | Not valid JSON                                             |
-| `DESCRIPTOR_SCHEMA_VIOLATION`  | JSON, but not a valid host envelope / ACP registry entry   |
-| `UNSUPPORTED_SCHEMA_VERSION`   | `schema_version` is from a newer build                     |
-| `DESCRIPTOR_IDENTITY_MISMATCH` | File name and `agent.id` disagree                          |
+| Code                           | Meaning                                                                         |
+| ------------------------------ | ------------------------------------------------------------------------------- |
+| `DESCRIPTOR_UNREADABLE`        | The file (or the directory) could not be read                                   |
+| `DESCRIPTOR_INVALID_JSON`      | Not valid JSON                                                                  |
+| `DESCRIPTOR_SCHEMA_VIOLATION`  | JSON, but not a valid host envelope / ACP registry entry                        |
+| `UNSUPPORTED_SCHEMA_VERSION`   | `schema_version` is from a newer build                                          |
+| `DESCRIPTOR_IDENTITY_MISMATCH` | File name and `agent.id` disagree                                               |
 | `DUPLICATE_PROVIDER_ID`        | A built-in id/alias or earlier descriptor owns the normalized public identifier |
-| `UNSUPPORTED_DISTRIBUTION`     | No `installation.executable`; this build downloads nothing |
-| `INVALID_EXECUTABLE_PATH`      | The command is empty or not absolute                       |
+| `UNSUPPORTED_DISTRIBUTION`     | No `installation.executable`; this build downloads nothing                      |
+| `INVALID_EXECUTABLE_PATH`      | The command is empty or not absolute                                            |
 
 **Quarantined** — a valid install that cannot run right now. It stays registered
 and renders as unavailable with the reason attached, instead of disappearing.

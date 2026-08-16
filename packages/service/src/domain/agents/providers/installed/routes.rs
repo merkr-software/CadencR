@@ -42,6 +42,9 @@ pub struct InstalledProviderEntry {
     pub name: String,
     pub version: String,
     pub description: String,
+    /// A non-fatal packaging problem that prevented the declared icon from
+    /// loading. Runtime availability is independent from visual metadata.
+    pub icon_issue: Option<String>,
     pub source_path: String,
     pub enabled: bool,
     /// Whether the provider actually joined the runtime registry this boot.
@@ -214,6 +217,7 @@ fn entry(installation: &HostInstallation, registered: bool) -> InstalledProvider
         name: agent.name.clone(),
         version: agent.version.clone(),
         description: agent.description.clone(),
+        icon_issue: installation.icon_issue().map(str::to_string),
         source_path: installation.source_path().display().to_string(),
         enabled: installation.enabled(),
         registered,

@@ -6,6 +6,7 @@ import cursorLogo from "../../assets/providers/cursor.png";
 import cursorMonoLogo from "../../assets/providers/cursor-mono.png";
 import opencodeLogo from "../../assets/providers/opencode.png";
 import opencodeMonoLogo from "../../assets/providers/opencode-mono.png";
+import { getCatalogProviderMetadata } from "./provider-catalog-registry";
 
 export const PROVIDER_IDS = {
   CLAUDE_CODE: "claude_code",
@@ -35,6 +36,7 @@ export interface ProviderMetadata {
   id: string;
   label: string;
   iconSrc: string | null;
+  isMonochrome: boolean;
 }
 
 /** Map provider IDs to their bundled icon assets. */
@@ -62,23 +64,31 @@ const PROVIDER_LABELS: Partial<Record<string, string>> = {
 };
 
 /**
- * Get provider metadata. Returns icon from the local asset map and label from
- * the optional catalog data (falls back to the canonical label map, then the
- * provider ID). New providers only need an icon asset + one entry in each map.
+ * Get provider metadata. Built-ins use bundled assets; installed providers use
+ * the connector-owned icon supplied by the runtime catalog. Labels fall back
+ * from catalog data to the canonical built-in map, then to the provider ID.
  */
 export function getProviderMetadata(
   providerId?: string | null,
   catalogLabel?: string | null,
   variant: ProviderIconVariant = "color",
+  catalogMetadata = getCatalogProviderMetadata(providerId),
 ): ProviderMetadata | null {
   if (!providerId) {
     return null;
   }
   const icons = variant === "mono" ? PROVIDER_MONO_ICONS : PROVIDER_ICONS;
+  const bundledIcon = icons[providerId as ProviderId];
   return {
     id: providerId,
-    label: catalogLabel ?? PROVIDER_LABELS[providerId] ?? formatProviderId(providerId),
-    iconSrc: icons[providerId as ProviderId] ?? PROVIDER_ICONS[providerId as ProviderId] ?? null,
+    label:
+      catalogLabel ??
+      catalogMetadata?.label ??
+      PROVIDER_LABELS[providerId] ??
+      formatProviderId(providerId),
+    iconSrc:
+      bundledIcon ?? catalogMetadata?.iconData ?? PROVIDER_ICONS[providerId as ProviderId] ?? null,
+    isMonochrome: variant === "mono" && bundledIcon != null,
   };
 }
 

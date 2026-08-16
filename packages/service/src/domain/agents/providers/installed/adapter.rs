@@ -105,16 +105,30 @@ impl GenericAcpAdapter {
 
     fn discovered_catalog(&self, discovered: DiscoveredModels) -> ProviderCatalogEntry {
         let agent = self.installation.agent();
-        ProviderCatalogEntry {
+        self.with_icon(ProviderCatalogEntry {
             id: agent.id.clone(),
             label: agent.name.clone(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models: discovered.models,
             modes: Vec::new(),
             access_modes: Vec::new(),
             default_model: Some(discovered.default_model),
-        }
+        })
+    }
+
+    fn unavailable_catalog(&self, message: impl AsRef<str>) -> ProviderCatalogEntry {
+        self.with_icon(ProviderCatalogEntry::unavailable(
+            self.installation.provider_id(),
+            self.installation.agent().name.clone(),
+            message.as_ref(),
+        ))
+    }
+
+    fn with_icon(&self, mut entry: ProviderCatalogEntry) -> ProviderCatalogEntry {
+        entry.icon_data = self.installation.icon_data().map(str::to_string);
+        entry
     }
 }
 
@@ -124,18 +138,9 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
     /// the host's compatibility check. A quarantined install stays in the
     /// catalog as unavailable with its reason attached rather than vanishing.
     fn catalog_entry(&self) -> ProviderCatalogEntry {
-        let agent = self.installation.agent();
         match self.installation.quarantine() {
-            Some(quarantine) => ProviderCatalogEntry::unavailable(
-                agent.id.clone(),
-                agent.name.clone(),
-                &quarantine.message,
-            ),
-            None => ProviderCatalogEntry::unavailable(
-                agent.id.clone(),
-                agent.name.clone(),
-                "provider model discovery has not completed",
-            ),
+            Some(quarantine) => self.unavailable_catalog(&quarantine.message),
+            None => self.unavailable_catalog("provider model discovery has not completed"),
         }
     }
 
@@ -153,11 +158,7 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         };
         match self.discover_for_cwd(cwd).await {
             Ok(discovered) => self.discovered_catalog(discovered),
-            Err(error) => ProviderCatalogEntry::unavailable(
-                self.installation.provider_id(),
-                self.installation.agent().name.clone(),
-                error.to_string(),
-            ),
+            Err(error) => self.unavailable_catalog(error.to_string()),
         }
     }
 
@@ -279,6 +280,28 @@ mod tests {
             .status_message
             .expect("cold catalogs explain why they are unavailable")
             .contains("model discovery"));
+    }
+
+    #[test]
+    fn catalog_carries_a_connector_owned_icon_without_a_local_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("icon.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        let mut value = descriptor_json("acme-agent", &runnable_binary(dir.path()));
+        value["agent"]["icon"] = json!("icon.svg");
+        value["installation"]["assets"] = json!({ "directory": dir.path().to_string_lossy() });
+        let installation =
+            HostInstallation::from_descriptor(descriptor(value), Path::new("/p/acme-agent.json"))
+                .expect("valid descriptor");
+
+        let entry = GenericAcpAdapter::new(Arc::new(installation)).catalog_entry();
+
+        assert!(entry
+            .icon_data
+            .is_some_and(|data| data.starts_with("data:image/svg+xml;base64,")));
     }
 
     #[tokio::test]

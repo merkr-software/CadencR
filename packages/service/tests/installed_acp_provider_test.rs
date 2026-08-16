@@ -317,11 +317,16 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     let providers = home.path().join("providers");
     std::fs::create_dir_all(&providers).expect("providers dir");
     let agent = fixture_agent();
-    write_descriptor(
-        &providers,
-        "fake-acp-agent.json",
-        &descriptor(PROVIDER_ID, &agent),
-    );
+    std::fs::write(
+        home.path().join("icon.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    )
+    .expect("provider icon");
+    let mut primary_descriptor = descriptor(PROVIDER_ID, &agent);
+    primary_descriptor["agent"]["icon"] = json!("icon.svg");
+    primary_descriptor["installation"]["assets"] =
+        json!({ "directory": home.path().to_string_lossy() });
+    write_descriptor(&providers, "fake-acp-agent.json", &primary_descriptor);
     let mut config_descriptor = descriptor(CONFIG_PROVIDER_ID, &agent);
     config_descriptor["installation"]["executable"]["args"] = json!(["--session-config"]);
     write_descriptor(&providers, "fake-config-acp-agent.json", &config_descriptor);
@@ -367,6 +372,10 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         .expect("the installed provider should resolve");
     let cold_entry = adapter.catalog_entry();
     assert_eq!(cold_entry.label, "Fake ACP Agent");
+    assert!(cold_entry
+        .icon_data
+        .as_deref()
+        .is_some_and(|icon| icon.starts_with("data:image/svg+xml;base64,")));
     assert_eq!(cold_entry.status, ProviderStatus::Unavailable);
     let entry = adapter.catalog_entry_live_for_cwd(Some(home.path())).await;
     assert_eq!(entry.status, ProviderStatus::Available);
@@ -423,6 +432,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         .expect("fake provider diagnostics");
     assert!(fake.registered);
     assert!(fake.quarantine_code.is_none());
+    assert!(fake.icon_issue.is_none());
     let catalog: Value = server
         .client
         .get(format!("{}/api/agent-catalog", server.base_url))
@@ -444,6 +454,13 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         .iter()
         .filter(|entry| entry["id"] == "claude_code" || entry["id"] == "codex_cli")
         .all(|entry| entry["origin"] == "built_in"));
+    assert!(catalog["providers"]
+        .as_array()
+        .expect("provider catalog")
+        .iter()
+        .find(|entry| entry["id"] == PROVIDER_ID)
+        .and_then(|entry| entry["icon_data"].as_str())
+        .is_some_and(|icon| icon.starts_with("data:image/svg+xml;base64,")));
     let quarantined = diagnostics
         .installed
         .iter()

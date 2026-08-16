@@ -23,6 +23,7 @@
 //! never declare models or session capabilities.
 
 pub mod adapter;
+mod assets;
 pub mod descriptor;
 mod hooks;
 pub mod installation;

@@ -175,6 +175,11 @@ pub struct HostInstallationSpec {
     /// downloading a distribution is a later increment.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub executable: Option<LocalExecutableSpec>,
+    /// Root of connector-owned package assets. `agent.icon` is resolved as a
+    /// relative path below this directory and inlined by the host; the renderer
+    /// never receives an arbitrary local filesystem path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assets: Option<LocalAssetsSpec>,
 }
 
 impl Default for HostInstallationSpec {
@@ -182,6 +187,7 @@ impl Default for HostInstallationSpec {
         Self {
             enabled: true,
             executable: None,
+            assets: None,
         }
     }
 }
@@ -215,6 +221,13 @@ pub struct LocalExecutableSpec {
     /// `env` shape. Values are redacted from logs and never leave the service.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
+}
+
+/// Host-local root for connector-owned assets such as the registry `icon`.
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LocalAssetsSpec {
+    pub directory: String,
 }
 
 impl AcpDistribution {
@@ -510,6 +523,29 @@ mod tests {
             agent["distribution"] = distribution;
             serde_json::from_value::<AcpAgentEntry>(agent)
                 .expect_err("nested optional schema properties reject null");
+        }
+    }
+
+    #[test]
+    fn local_icon_assets_require_an_absolute_root_and_contained_image_path() {
+        for (directory, icon) in [
+            ("relative/root", "icon.svg"),
+            ("/package", "../secret.svg"),
+            ("/package", "/tmp/icon.svg"),
+            ("/package", "icon.txt"),
+        ] {
+            let mut agent = valid_agent();
+            agent["icon"] = json!(icon);
+            let error = descriptor(json!({
+                "schema_version": 1,
+                "agent": agent,
+                "installation": {
+                    "assets": { "directory": directory }
+                }
+            }))
+            .validate()
+            .expect_err("unsafe local icon metadata must be rejected");
+            assert_eq!(error.code, RejectionCode::DescriptorSchemaViolation);
         }
     }
 

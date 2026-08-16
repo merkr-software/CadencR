@@ -97,6 +97,7 @@ It is an ordinary Cadencr project: use your normal agent, panes, Git workflow, a
 | --- | --- |
 | `.cadencr-provider-workspace` | Marks this Cadencr-owned repository so an interrupted creation can be retried safely |
 | `INSTRUCTION.md` | Complete executable, model discovery, ACP v1, and validation contract for the implementing agent |
+| `icon.svg` | Connector-owned provider logo loaded by Cadencr from this repository |
 | `{executable}` | Stable local build output launched directly by Cadencr |
 | `bin/.gitkeep` | Keeps the build-output directory in Git without committing generated binaries |
 
@@ -127,10 +128,12 @@ mod tests {
             "run --protocol acp-v1",
             "version",
             "session/set_config_option",
+            "icon.svg",
             "restart Cadencr",
         ] {
             assert!(instruction.contains(required), "missing {required}");
         }
+        assert!(instruction.starts_with("# Implement the Pi provider connector"));
         assert!(!instruction.contains("__PROVIDER_ID__"));
         assert!(!instruction.contains("__DISPLAY_NAME__"));
         assert!(!instruction.contains("__EXECUTABLE__"));

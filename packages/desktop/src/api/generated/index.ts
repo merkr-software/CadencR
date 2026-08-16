@@ -1554,12 +1554,15 @@ that grabbed our port before we could bind. */
   status: string;
 }
 
+export type HostInstallationSpecAssets = null | LocalAssetsSpec;
+
 export type HostInstallationSpecExecutable = null | LocalExecutableSpec;
 
 /**
  * Host-local installation policy. Never part of the portable entry.
  */
 export interface HostInstallationSpec {
+  assets?: HostInstallationSpecAssets;
   /** A disabled install stays on disk and stays visible, but does not join
 the runtime registry. */
   enabled?: boolean;
@@ -1618,6 +1621,12 @@ export interface ImportedRecord {
 }
 
 /**
+ * A non-fatal packaging problem that prevented the declared icon from
+loading. Runtime availability is independent from visual metadata.
+ */
+export type InstalledProviderEntryIconIssue = string | null;
+
+/**
  * Stable SCREAMING_SNAKE code when the install cannot launch; `null` when
 it can. This is the only availability signal — the catalog's
 `unavailable` status is derived from the same fact.
@@ -1636,6 +1645,9 @@ export interface InstalledProviderEntry {
 argument can carry a credential (`--token …`) and, unlike a fixed set of
 env names, there is no generic way to redact one safely. */
   executable: string;
+  /** A non-fatal packaging problem that prevented the declared icon from
+loading. Runtime availability is independent from visual metadata. */
+  icon_issue?: InstalledProviderEntryIconIssue;
   /** Catalog id, owned by the portable ACP registry entry. */
   id: string;
   name: string;
@@ -1722,6 +1734,13 @@ export interface ListImportConversationsResponse {
 
 export interface ListServersResponse {
   servers: ServerProbe[];
+}
+
+/**
+ * Host-local root for connector-owned assets such as the registry `icon`.
+ */
+export interface LocalAssetsSpec {
+  directory: string;
 }
 
 /**
@@ -2301,11 +2320,20 @@ canonical `session.user_message` event. */
 
 export type ProviderCatalogEntryDefaultModel = string | null;
 
+/**
+ * Connector-owned icon bytes, inlined as a bounded `data:image/...` URL.
+Built-ins omit this and keep using their bundled renderer assets.
+ */
+export type ProviderCatalogEntryIconData = string | null;
+
 export type ProviderCatalogEntryStatusMessage = string | null;
 
 export interface ProviderCatalogEntry {
   access_modes?: ProviderModeCatalogEntry[];
   default_model?: ProviderCatalogEntryDefaultModel;
+  /** Connector-owned icon bytes, inlined as a bounded `data:image/...` URL.
+Built-ins omit this and keep using their bundled renderer assets. */
+  icon_data?: ProviderCatalogEntryIconData;
   id: string;
   label: string;
   models: ModelCatalogEntry[];

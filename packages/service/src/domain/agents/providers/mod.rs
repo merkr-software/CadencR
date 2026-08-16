@@ -271,6 +271,7 @@ mod tests {
         ProviderCatalogEntry {
             id: "provider".to_string(),
             label: "Provider".to_string(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models,
