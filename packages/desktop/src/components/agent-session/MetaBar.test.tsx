@@ -487,6 +487,53 @@ describe("MetaBar negotiated session configuration", () => {
     expect(screen.queryByRole("button", { name: "Session configuration" })).toBeNull();
   });
 
+  it("does not render a configuration chip for an inactive persisted runtime", () => {
+    renderChip({
+      sessionConfigControls: {
+        supported: false,
+        loading: false,
+        error: null,
+        pendingId: null,
+        config: null,
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+
+    expect(screen.queryByRole("button", { name: "Session configuration" })).toBeNull();
+  });
+
+  it("keeps initial loading and actionable failures visible", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderChip({
+      sessionConfigControls: {
+        supported: null,
+        loading: true,
+        error: null,
+        pendingId: null,
+        config: null,
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+    expect(screen.getByRole("button", { name: "Session configuration" })).toBeInTheDocument();
+
+    unmount();
+    renderChip({
+      sessionConfigControls: {
+        supported: null,
+        loading: false,
+        error: "Configuration request failed",
+        pendingId: null,
+        config: null,
+        onRefresh: vi.fn(),
+        onChange: vi.fn(),
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Session configuration" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Configuration request failed");
+  });
+
   it("keeps model and thinking changes on their durable primary controls", () => {
     renderChip({
       sessionConfigControls: {

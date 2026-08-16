@@ -3988,6 +3988,25 @@ describe("ws-session-store", () => {
       expect(session.sessionConfigSupported).toBe(false);
       expect(session.sessionConfigError).toBeNull();
     });
+
+    it("treats a persisted inactive runtime as unavailable without surfacing a dead retry", async () => {
+      const { store, ws } = await connectInitializedSession();
+      const load = store.requestSessionConfig("s1");
+      const request = lastSentEnvelope(ws, "config.get");
+      ws.simulateMessage({
+        domain: "session",
+        action: "error",
+        ref: request.id as string,
+        payload: {
+          code: "SESSION_NOT_ACTIVE",
+          message: "Session configuration is available after the runtime starts",
+        },
+      });
+      await load;
+      const session = useWsSessionStore.getState().sessions.s1;
+      expect(session.sessionConfigSupported).toBe(false);
+      expect(session.sessionConfigError).toBeNull();
+    });
   });
 
   it("applies provider-advertised command updates without a request ref", async () => {

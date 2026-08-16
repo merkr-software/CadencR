@@ -20,7 +20,7 @@ import { META_BAR_CHIP } from "./meta-bar-chip-styles";
 import { AccessModePopover } from "./AccessModePopover";
 import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
 import type { ModelSelectionStatus } from "./useAgentSessionModelState";
-import { SessionConfigPopover } from "./SessionConfigPopover";
+import { SessionConfigPopover, shouldShowSessionConfig } from "./SessionConfigPopover";
 import type { SessionConfigControls } from "./types";
 
 export interface MetaBarProps {
@@ -246,7 +246,14 @@ function MetaBarTrailing({ props, state }: { props: MetaBarProps; state: MetaBar
     (props.providerAccessModes?.length ?? 0) > 0;
   const hasSession = !props.secondaryBelow && !!props.runtimeSessionId && !!props.onPause;
   const configControls = props.sessionConfigControls;
-  const hasConfig = !!configControls && configControls.supported !== false;
+  const hasConfig =
+    configControls != null &&
+    shouldShowSessionConfig(
+      configControls.config,
+      configControls.loading,
+      configControls.supported,
+      configControls.error,
+    );
   if (!hasProfile && !hasAccess && !hasSession && !hasConfig) return null;
   return (
     <div className="ml-auto flex items-center gap-1.5">

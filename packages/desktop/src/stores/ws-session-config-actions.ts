@@ -53,14 +53,15 @@ function applyConfigResponse(
 ): void {
   const error = parseErrorPayload(payload);
   if (error?.message || error?.code || payload === null) {
-    const unsupported = error?.code === "SESSION_CONFIG_UNSUPPORTED";
+    const unavailable =
+      error?.code === "SESSION_CONFIG_UNSUPPORTED" || error?.code === "SESSION_NOT_ACTIVE";
     ctx.set(
       updateSession(ctx.get(), sessionId, {
         sessionConfigLoading: false,
-        sessionConfigSupported: unsupported
+        sessionConfigSupported: unavailable
           ? false
           : ctx.getSession(sessionId).sessionConfigSupported,
-        sessionConfigError: unsupported
+        sessionConfigError: unavailable
           ? null
           : (error?.message ?? "Session configuration timed out."),
         pendingSessionConfigId: null,

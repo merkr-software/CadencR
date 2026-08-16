@@ -37,9 +37,8 @@ export function SessionConfigPopover({
   onRefresh,
   onChange,
 }: SessionConfigPopoverProps): React.JSX.Element | null {
-  if (supported === false) return null;
-  const options = config?.options.filter((option) => !isDedicatedControl(option)) ?? [];
-  if (!loading && !error && options.length === 0) return null;
+  if (!shouldShowSessionConfig(config, loading, supported, error)) return null;
+  const options = additionalSessionConfigOptions(config);
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -97,6 +96,29 @@ export function SessionConfigPopover({
       </PopoverContent>
     </Popover>
   );
+}
+
+export function hasAdditionalSessionConfigOptions(
+  config: RuntimeSessionConfigSnapshot | null,
+): boolean {
+  return config?.options.some((option) => !isDedicatedControl(option)) ?? false;
+}
+
+export function shouldShowSessionConfig(
+  config: RuntimeSessionConfigSnapshot | null,
+  loading: boolean,
+  supported: boolean | null,
+  error: string | null,
+): boolean {
+  if (supported === false) return false;
+  if (loading || error) return true;
+  return supported === true && hasAdditionalSessionConfigOptions(config);
+}
+
+function additionalSessionConfigOptions(
+  config: RuntimeSessionConfigSnapshot | null,
+): RuntimeSessionConfigOption[] {
+  return config?.options.filter((option) => !isDedicatedControl(option)) ?? [];
 }
 
 function isDedicatedControl(option: RuntimeSessionConfigOption): boolean {
