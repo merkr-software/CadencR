@@ -87,4 +87,4 @@ tower = { version = "0.5", features = ["util"] }
 # Dev-dependency features don't leak into the shipped binary, which keeps
 # native-tls.
 reqwest = { version = "0.12", features = ["rustls-tls"] }
-tokio-tungstenite = "0.29"
+tokio-tungstenite = "0.30"
