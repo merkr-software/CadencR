@@ -5,9 +5,10 @@ mod project_schema;
 mod send_message_schema;
 pub mod workspace;
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
-use rmcp::model::{Implementation, ServerCapabilities, ServerInfo};
+use rmcp::model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo};
 
 use self::{browser::BrowserServer, project::ProjectServer, workspace::WorkspaceServer};
 use super::context::McpContext;
@@ -101,9 +102,30 @@ pub fn mcp_server_name(agent_type: AgentType) -> String {
     format!("cadencr-{}", agent_type.short_name())
 }
 
+/// Highest MCP protocol version the Cadencr servers negotiate.
+///
+/// `2026-07-28` is deliberately excluded from negotiation: rmcp 3.1.1 tags
+/// results for that version with `resultType` but omits the `ttlMs` and
+/// `cacheScope` fields that SEP-2549 makes mandatory on `tools/list`, so
+/// spec-conformant clients (Claude Code >= 2.1.232) reject the response and
+/// the session ends up with zero tools (issue #208). Re-allow it only once
+/// rmcp emits conformant cacheable results.
+const PINNED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
+
+fn supported_protocol_versions() -> Cow<'static, [ProtocolVersion]> {
+    const SUPPORTED: &[ProtocolVersion] = &[
+        ProtocolVersion::V_2024_11_05,
+        ProtocolVersion::V_2025_03_26,
+        ProtocolVersion::V_2025_06_18,
+        ProtocolVersion::V_2025_11_25,
+    ];
+    Cow::Borrowed(SUPPORTED)
+}
+
 fn server_info(name: &str) -> ServerInfo {
     let caps = ServerCapabilities::builder().enable_tools().build();
-    let info = ServerInfo::new(caps).with_server_info(Implementation::new(name, "1.0.0"));
+    let mut info = ServerInfo::new(caps).with_server_info(Implementation::new(name, "1.0.0"));
+    info.protocol_version = PINNED_PROTOCOL_VERSION;
     if name == "cadencr-project" {
         return info.with_instructions(
             "CadencR project orchestration is reactive. Inter-agent messages, gates, and awaited replies steer active turns by default. After spawning with follow or requesting a reply, wait for automatically delivered <cadencr-gate> and <cadencr-reply> events; do not poll session tails, status, or pending gates. Queueing is opt-in through delivery=next_turn only.",
@@ -142,6 +164,17 @@ mod tests {
     #[test]
     fn required_tools_rejects_legacy_prefix() {
         assert!(cadencr_mcp_required_tools("legacy-session").is_empty());
+    }
+
+    #[test]
+    fn negotiation_never_offers_2026_07_28() {
+        let versions = super::supported_protocol_versions();
+        assert!(!versions.contains(&rmcp::model::ProtocolVersion::V_2026_07_28));
+        assert!(versions.contains(&super::PINNED_PROTOCOL_VERSION));
+        assert!(
+            server_info("cadencr-project").protocol_version
+                < rmcp::model::ProtocolVersion::V_2026_07_28
+        );
     }
 
     #[test]

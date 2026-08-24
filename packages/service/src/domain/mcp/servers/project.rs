@@ -31,6 +31,12 @@ impl ServerHandler for ProjectServer {
         server_info("cadencr-project")
     }
 
+    fn supported_protocol_versions(
+        &self,
+    ) -> std::borrow::Cow<'static, [rmcp::model::ProtocolVersion]> {
+        super::supported_protocol_versions()
+    }
+
     fn list_tools(
         &self,
         _request: Option<PaginatedRequestParams>,

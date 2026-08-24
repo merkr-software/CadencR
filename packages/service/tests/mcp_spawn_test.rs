@@ -41,6 +41,43 @@ async fn test_mcp_stdio_server_responds_to_tools_list() {
     shutdown_mcp_process(process).await;
 }
 
+/// Regression test for issue #208: a client requesting protocol `2026-07-28`
+/// must be negotiated down to the pinned version, and `tools/list` must keep
+/// the legacy wire shape (no top-level `resultType`). rmcp 3.1.1 tags
+/// `2026-07-28` results with `resultType` but omits the SEP-2549-mandatory
+/// `ttlMs`/`cacheScope`, which spec-conformant clients such as Claude Code
+/// reject — leaving the session with zero tools.
+#[tokio::test]
+async fn test_mcp_negotiates_below_2026_07_28_and_keeps_legacy_result_shape() {
+    let (_tmp, db_path) = setup_browser_test_db().await;
+    let Some(mut process) = spawn_mcp_process(&db_path, "browser") else {
+        return;
+    };
+
+    let init_req = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"#;
+    write_json_line(&mut process.stdin, init_req).await;
+    let mut line = String::new();
+    process.reader.read_line(&mut line).await.unwrap();
+    let init_resp: serde_json::Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(init_resp["result"]["protocolVersion"], "2025-11-25");
+
+    let initialized = r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#;
+    write_json_line(&mut process.stdin, initialized).await;
+
+    let tools_req = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+    write_json_line(&mut process.stdin, tools_req).await;
+    let mut tools_line = String::new();
+    process.reader.read_line(&mut tools_line).await.unwrap();
+    let tools_resp: serde_json::Value = serde_json::from_str(&tools_line).unwrap();
+    assert!(
+        tools_resp["result"].get("resultType").is_none(),
+        "tools/list must keep the legacy wire shape, got: {tools_resp}"
+    );
+    assert!(!tools_resp["result"]["tools"].as_array().unwrap().is_empty());
+
+    shutdown_mcp_process(process).await;
+}
+
 async fn setup_browser_test_db() -> (tempfile::TempDir, PathBuf) {
     let tmp = tempfile::TempDir::new().unwrap();
     let db_path = tmp.path().join("test.db");
