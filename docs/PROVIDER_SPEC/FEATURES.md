@@ -51,14 +51,14 @@ types and must not branch on provider identity.
 | 7   | Todo                                     | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
 | 8   | Thinking level changes                   | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
 | 9   | Model selection changes                  | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
+| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | 🟡               |
 | 11  | MCP                                      | ACP optional capability      | ✅          | ✅    | 🟡     | ❌       | ❌               |
 | 12  | Plan approval                            | Contained built-in extension | ✅          | ✅    | ✅     | ❌       | ❌               |
-| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌     | ✅       | 🟡               |
+| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌     | ✅       | ✅               |
 | 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ✅     | ✅       | 🟡               |
-| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | 🟡               |
+| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
 | 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 17  | Durable session resume/load              | ACP optional capability      | ✅          | ✅    | ✅     | ❌       | ❌               |
+| 17  | Durable session resume/load              | ACP optional capability      | ✅          | ✅    | ✅     | ❌       | ✅               |
 
 Detailed evidence and limitations remain in
 [`CLAUDE_CODE.md`](./CLAUDE_CODE.md), [`CODEX.md`](./CODEX.md),
@@ -66,27 +66,28 @@ Detailed evidence and limitations remain in
 
 ### Pi local ACP validation notes
 
-The Pi column was exercised end to end in the development app with a generated
-provider workspace and a code-backed `pi-acp` connector:
+The Pi column is implemented by the generated provider workspace's code-backed
+native `pi --mode rpc` connector; it does not use `pi-acp`:
 
 - seven Pi models were discovered before session creation, and the user had to
   select a model before the first prompt;
 - model-specific thinking levels, including `max` where supported, were
   negotiated and could be changed between turns;
-- text and thinking streamed separately; Bash output, file writes, reads,
-  structured diffs, image input, cancellation, and serialized live follow-up
-  all completed successfully;
+- text and thinking stream separately; Pi's real tool lifecycle, image input,
+  cancellation, and serialized live follow-up map into standard ACP updates;
 - Pi slash commands become available after the ACP session handshake. Session
   statistics, naming, export, steering, follow-up mode, and auto-compaction were
   exercised. A small-session compaction correctly reported that there was
   nothing to compact; a successful large-context compaction was not forced;
-- `pi-acp` does not advertise session modes, ACP permission requests,
-  sub-agents, or structured todos. It accepts MCP server parameters but does not
-  forward them to Pi. It exposes usage through `/session`, but does not emit the
-  ACP usage updates needed by Cadencr's context meter;
-- Pi can persist sessions, but the generic installed-provider host does not yet
-  invoke ACP session loading after a service restart. Cadencr keeps the visible
-  transcript, while Pi's runtime context starts fresh.
+- Pi RPC does not expose session modes, sub-agents, structured todos, plan
+  events, or dynamic MCP registration. A bundled Pi extension bridges
+  mutating/custom-tool confirmation to ACP permissions; "always allow" is not
+  yet cached as a durable connector policy;
+- `get_session_stats` drives context and cost updates. Durable sessions keep
+  Pi's native session ID and load through a newly spawned
+  `pi --mode rpc --session <id>` process. Automated fake-RPC and real-Pi QA
+  restart both connector and Pi processes before asking the second turn to
+  recall prior context.
 
 ---
 
@@ -219,9 +220,7 @@ provider's plan/todo primitive to a JSON input shape of:
 
 ```json
 {
-  "todos": [
-    { "content": "...", "status": "pending|in_progress|completed", "activeForm": "..." }
-  ]
+  "todos": [{ "content": "...", "status": "pending|in_progress|completed", "activeForm": "..." }]
 }
 ```
 

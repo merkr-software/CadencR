@@ -46,6 +46,14 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         runtime_session_id.map(ToOwned::to_owned)
     }
 
+    /// Resolve a newly observed runtime ID that is safe to persist for a later
+    /// process. Providers whose resume support is negotiated at runtime can
+    /// reject persistence without discarding an already-stored ID that must
+    /// fail visibly during the next handshake.
+    fn persistable_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        self.resolve_resume_session_id(runtime_session_id)
+    }
+
     /// Static catalog entry (available immediately at startup).
     ///
     /// Model entries are owned by this adapter. Shared legacy resolution uses
@@ -424,6 +432,10 @@ mod tests {
     async fn adapter_defaults_are_provider_neutral() {
         let adapter = DummyAdapter;
         assert!(adapter.is_valid_resume_session_id("anything"));
+        assert_eq!(
+            adapter.persistable_resume_session_id(Some("anything")),
+            Some("anything".to_string())
+        );
         assert!(adapter
             .parse_permission_request(&json!({"type": "none"}))
             .is_none());

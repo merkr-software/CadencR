@@ -3,6 +3,7 @@
 use agent_client_protocol::schema::v1::SessionConfigOption;
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
@@ -14,13 +15,18 @@ use crate::domain::agents::adapter::RuntimePermissionMode;
 pub struct InstalledAcpHooks {
     model_config_id: String,
     thinking_effort_config_id: RwLock<Option<String>>,
+    capabilities: std::sync::Arc<InstalledAcpCapabilities>,
 }
 
 impl InstalledAcpHooks {
-    pub fn new(model_config_id: String) -> Self {
+    pub fn new(
+        model_config_id: String,
+        capabilities: std::sync::Arc<InstalledAcpCapabilities>,
+    ) -> Self {
         Self {
             model_config_id,
             thinking_effort_config_id: RwLock::new(None),
+            capabilities,
         }
     }
 
@@ -34,6 +40,31 @@ impl InstalledAcpHooks {
         self.thinking_effort_config_id
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+/// Process-local memory of the latest connector handshake. Stored resume IDs
+/// remain independently valid inputs so a capability downgrade fails visibly
+/// instead of silently starting a new session.
+pub(super) struct InstalledAcpCapabilities {
+    durable_resume: AtomicBool,
+}
+
+impl Default for InstalledAcpCapabilities {
+    fn default() -> Self {
+        Self {
+            durable_resume: AtomicBool::new(false),
+        }
+    }
+}
+
+impl InstalledAcpCapabilities {
+    pub(super) fn supports_durable_resume(&self) -> bool {
+        self.durable_resume.load(Ordering::Acquire)
+    }
+
+    fn observe_durable_resume(&self, supported: bool) {
+        self.durable_resume.store(supported, Ordering::Release);
     }
 }
 
@@ -59,6 +90,14 @@ impl AcpProviderHooks for InstalledAcpHooks {
         true
     }
 
+    fn supports_durable_resume(&self) -> bool {
+        self.capabilities.supports_durable_resume()
+    }
+
+    fn observe_durable_resume_capability(&self, supported: bool) {
+        self.capabilities.observe_durable_resume(supported);
+    }
+
     fn observe_session_config_options(&self, options: &[SessionConfigOption]) {
         // ACP v1 `configOptions` responses are complete snapshots. Clearing an
         // absent selector prevents a later durable change from targeting a
@@ -73,21 +112,34 @@ impl AcpProviderHooks for InstalledAcpHooks {
 
 #[cfg(test)]
 mod tests {
-    use super::InstalledAcpHooks;
+    use super::{InstalledAcpCapabilities, InstalledAcpHooks};
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use agent_client_protocol::schema::v1::SessionConfigOption;
     use serde_json::json;
+    use std::sync::Arc;
+
+    fn hooks(model_config_id: &str) -> InstalledAcpHooks {
+        InstalledAcpHooks::new(
+            model_config_id.to_string(),
+            Arc::new(InstalledAcpCapabilities::default()),
+        )
+    }
 
     #[test]
     fn installed_hooks_require_the_discovered_model_selector() {
-        let hooks = InstalledAcpHooks::new("model-picker".to_string());
+        let hooks = hooks("model-picker");
         assert_eq!(hooks.model_config_id(), Some("model-picker"));
         assert!(hooks.requires_verified_model_selection());
+        assert!(!hooks.supports_durable_resume());
+        hooks.observe_durable_resume_capability(true);
+        assert!(hooks.supports_durable_resume());
+        hooks.observe_durable_resume_capability(false);
+        assert!(!hooks.supports_durable_resume());
     }
 
     #[test]
     fn installed_hooks_apply_the_negotiated_thinking_selector() {
-        let hooks = InstalledAcpHooks::new("model".to_string());
+        let hooks = hooks("model");
         let options: Vec<SessionConfigOption> = serde_json::from_value(json!([
             {
                 "id": "model",

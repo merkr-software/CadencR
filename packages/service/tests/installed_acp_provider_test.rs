@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use cadencr_service::domain::agents::adapter::{
-    AgentRuntimeAdapter, RuntimeSessionConfigKind, RuntimeSessionConfigValue,
+    AgentRuntimeAdapter, AgentRuntimeSession, RuntimeSessionConfigKind, RuntimeSessionConfigValue,
+    RuntimeSpawnConfig,
 };
 use cadencr_service::domain::agents::providers::installed;
 use cadencr_service::domain::agents::providers::installed::rejection::{
@@ -49,6 +50,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 const PROVIDER_ID: &str = "fake-acp-agent";
 const CONFIG_PROVIDER_ID: &str = "fake-config-acp-agent";
 const RICH_PROVIDER_ID: &str = "fake-rich-acp-agent";
+const DURABLE_PROVIDER_ID: &str = "fake-durable-acp-agent";
 const QUARANTINED_PROVIDER_ID: &str = "quarantined-acp-agent";
 const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -195,6 +197,23 @@ async fn collect_ws_turn(socket: &mut TestWebSocket) -> (String, SessionEndedPay
     }
 }
 
+async fn collect_runtime_turn(session: &mut dyn AgentRuntimeSession) -> String {
+    let mut receiver = session.take_message_rx();
+    tokio::time::timeout(EVENT_TIMEOUT, async {
+        let mut events = String::new();
+        while let Some(event) = receiver.recv().await {
+            let event = event.expect("durable ACP runtime event");
+            events.push_str(&event.raw_json().to_string());
+            if event.is_result() {
+                return events;
+            }
+        }
+        panic!("durable ACP runtime closed before its result");
+    })
+    .await
+    .expect("durable ACP runtime turn timed out")
+}
+
 async fn next_ws_text(socket: &mut TestWebSocket) -> String {
     let deadline = event_deadline();
     loop {
@@ -333,6 +352,15 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     let mut rich_descriptor = descriptor(RICH_PROVIDER_ID, &agent);
     rich_descriptor["installation"]["executable"]["args"] = json!(["--rich"]);
     write_descriptor(&providers, "fake-rich-acp-agent.json", &rich_descriptor);
+    let durable_state = home.path().join("durable-session.json");
+    let mut durable_descriptor = descriptor(DURABLE_PROVIDER_ID, &agent);
+    durable_descriptor["installation"]["executable"]["args"] =
+        json!(["--durable", durable_state.to_string_lossy()]);
+    write_descriptor(
+        &providers,
+        "fake-durable-acp-agent.json",
+        &durable_descriptor,
+    );
     // A second descriptor claiming a built-in id must lose to the built-in.
     write_descriptor(&providers, "cursor.json", &descriptor("cursor", &agent));
     // Disabled entries reserve names too, and aliases are part of the built-in
@@ -362,6 +390,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
             "opencode",
             PROVIDER_ID,
             CONFIG_PROVIDER_ID,
+            DURABLE_PROVIDER_ID,
             RICH_PROVIDER_ID,
             QUARANTINED_PROVIDER_ID,
         ],
@@ -389,6 +418,79 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     );
     assert_eq!(entry.default_model.as_deref(), Some("fake-small"));
     assert!(entry.modes.is_empty());
+
+    // A connector that advertises ACP `session/load` keeps provider-owned
+    // context when Cadencr replaces the subprocess. This is the same spawn
+    // path used after a desktop/service restart, without keeping the first
+    // runtime alive as an accidental source of continuity.
+    let durable_adapter = registry
+        .adapter(DURABLE_PROVIDER_ID)
+        .expect("durable installed provider should resolve");
+    let runtime_config = RuntimeSpawnConfig {
+        cwd: home.path().to_path_buf(),
+        model: Some("fake-small".to_string()),
+        ..RuntimeSpawnConfig::default()
+    };
+    let mut first_runtime = durable_adapter
+        .spawn(
+            json!("remember this across a subprocess restart"),
+            runtime_config,
+        )
+        .await
+        .expect("durable provider first spawn");
+    collect_runtime_turn(first_runtime.as_mut()).await;
+    let durable_session_id = first_runtime
+        .session_id()
+        .await
+        .expect("durable provider session id");
+    assert_eq!(
+        durable_adapter
+            .persistable_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
+    );
+    first_runtime.close().await;
+
+    // Recreate the adapter too: after a service restart its process-local
+    // capability cache is unknown until the replacement connector completes
+    // `initialize`, while the DB-owned resume id is already available.
+    let durable_installation = installed::startup_load()
+        .installations
+        .iter()
+        .find(|installation| installation.provider_id() == DURABLE_PROVIDER_ID)
+        .expect("durable installed provider installation")
+        .clone();
+    let restarted_adapter = installed::GenericAcpAdapter::new(durable_installation);
+    let mut resumed_runtime = restarted_adapter
+        .spawn(
+            json!("recall the value from the previous subprocess"),
+            RuntimeSpawnConfig {
+                cwd: home.path().to_path_buf(),
+                model: Some("fake-small".to_string()),
+                resume_session_id: Some(durable_session_id.clone()),
+                ..RuntimeSpawnConfig::default()
+            },
+        )
+        .await
+        .expect("durable provider resumed spawn");
+    let resumed_events = collect_runtime_turn(resumed_runtime.as_mut()).await;
+    resumed_runtime.close().await;
+    assert!(
+        resumed_events.contains("durable-host-memory"),
+        "resumed ACP runtime lost connector-owned context: {resumed_events}"
+    );
+    assert_eq!(
+        restarted_adapter
+            .resolve_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
+    );
+    assert_eq!(
+        restarted_adapter
+            .persistable_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
+    );
     // The colliding descriptor was refused, and `cursor` still resolves to the
     // built-in adapter.
     let rejections = &installed::startup_load().rejections;
@@ -446,7 +548,11 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         .as_array()
         .expect("provider catalog")
         .iter()
-        .filter(|entry| entry["id"] == PROVIDER_ID || entry["id"] == RICH_PROVIDER_ID)
+        .filter(|entry| {
+            entry["id"] == PROVIDER_ID
+                || entry["id"] == RICH_PROVIDER_ID
+                || entry["id"] == DURABLE_PROVIDER_ID
+        })
         .all(|entry| entry["origin"] == "installed_local"));
     assert!(catalog["providers"]
         .as_array()
@@ -569,7 +675,10 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     .await
     .expect("persisted session");
     assert_eq!(persisted.0, PROVIDER_ID);
-    assert_eq!(persisted.1.as_deref(), Some("fake-acp-session-1"));
+    assert!(
+        persisted.1.is_none(),
+        "an agent that advertised loadSession=false must not leave an unusable resume id"
+    );
 
     // Cancellation crosses the same public WebSocket boundary. Wait for the
     // first chunk so the interrupt cannot race session/prompt startup.

@@ -2,6 +2,7 @@ use tracing::info;
 
 use crate::domain::agents::adapter::{RuntimeSessionWeakHandle, RuntimeSpawnConfig};
 
+use super::super::session_init_resume::persistable_resume_session_id_for_provider;
 use super::super::{QueryState, SdkSessions};
 
 pub(super) async fn transition_active_to_pending_on_stream_end(
@@ -35,6 +36,10 @@ pub(super) async fn transition_active_to_pending_on_stream_end(
     }
     let q = query.read().await;
     let runtime_session_id = q.session_id().await;
+    let resume_session_id = persistable_resume_session_id_for_provider(
+        &handle.runtime_provider,
+        runtime_session_id.as_deref(),
+    );
     handle.runtime_control_endpoint = q.runtime_control_endpoint();
     drop(q);
 
@@ -45,7 +50,7 @@ pub(super) async fn transition_active_to_pending_on_stream_end(
         model: handle.desired_model.clone(),
         thinking_effort: handle.desired_thinking_effort.clone(),
         system_prompt: handle.config.system_prompt.clone(),
-        resume_session_id: runtime_session_id,
+        resume_session_id,
         allow_bypass_permissions: handle.config.allow_bypass_permissions,
         env: handle.config.env.clone(),
         ..RuntimeSpawnConfig::default()

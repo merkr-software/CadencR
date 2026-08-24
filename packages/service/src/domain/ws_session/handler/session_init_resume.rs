@@ -1,5 +1,12 @@
 use crate::domain::agents::runtime_adapter;
 
+pub(super) fn persistable_resume_session_id_for_provider(
+    provider_id: &str,
+    runtime_session_id: Option<&str>,
+) -> Option<String> {
+    runtime_adapter(provider_id)?.persistable_resume_session_id(runtime_session_id)
+}
+
 pub(super) fn resume_session_id_for_provider(
     provider_id: &str,
     row_runtime_provider: Option<&str>,
@@ -8,8 +15,7 @@ pub(super) fn resume_session_id_for_provider(
     if row_runtime_provider.is_some() && row_runtime_provider != Some(provider_id) {
         return None;
     }
-    let adapter = runtime_adapter(provider_id)?;
-    adapter.resolve_resume_session_id(runtime_session_id)
+    runtime_adapter(provider_id)?.resolve_resume_session_id(runtime_session_id)
 }
 
 #[cfg(test)]

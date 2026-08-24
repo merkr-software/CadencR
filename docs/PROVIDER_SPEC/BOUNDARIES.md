@@ -768,10 +768,11 @@ the current baseline. Recommended increments are:
       and quarantine response. The WebSocket assertion covers initialization,
       streamed content, terminal completion, cancellation, and persisted
       provider/runtime ids.
-- [~] Add a rich ACP fixture to exercise permissions, plans, tools, diffs, MCP,
+- [~] Add rich ACP fixtures to exercise permissions, plans, tools, diffs, MCP,
   usage/cost, configuration, commands, resume, and v2 lifecycle behavior. The
-  deterministic v1 rich mode covers every listed family except durable resume
-  and v2; those remain explicitly deferred.
+  deterministic v1 rich and durable modes cover every listed v1 family,
+  including a real subprocess replacement through `session/load`; v2 remains
+  explicitly deferred.
 
 ## Allowed and forbidden dependencies
 
@@ -856,7 +857,7 @@ The provider boundary is complete when all of the following are true:
 - [~] The provider-ID and dependency boundary checks pass in CI. Enforcement is
   active in `pnpm lint`; temporary named-dependency and desktop exceptions remain.
 - [~] The generic v1 fixture, v2 draft fixture, and all built-in parity suites pass.
-  The minimal and rich generic v1 modes pass; durable resume, the v2 draft, and
+  The minimal, rich, and durable generic v1 modes pass; the v2 draft and
   built-in golden parity suites remain incomplete.
 - [ ] Installation, first launch, interaction, restart, disable, and uninstall are
       verified in the running desktop application.

@@ -172,8 +172,18 @@ impl StreamReaderTask {
         else {
             return;
         };
+        let durable =
+            super::super::session_init_resume::persistable_resume_session_id_for_provider(
+                &self.runtime_provider,
+                Some(&runtime_sid),
+            )
+            .is_some();
         state.runtime_session_id = Some(runtime_sid.clone());
         state.usage_state.set_root_session_id(runtime_sid.as_str());
+        if !durable {
+            send_runtime_session_id(&self.sender, runtime_sid.as_str());
+            return;
+        }
         info!(self.db_session_id, runtime_session_id = %runtime_sid, "stream_reader: persisting runtime session_id to DB");
         WsSessionPersistence::persist_runtime_session_id_static(
             &self.write_pool,

@@ -31,6 +31,7 @@ order, with no timing dependence.
 """
 
 import json
+import os
 import sys
 import threading
 
@@ -40,11 +41,35 @@ CHUNKS = ["Hello ", "from ", "the ", "fake ", "ACP ", "agent."]
 _write_lock = threading.Lock()
 _cancelled = threading.Event()
 _rich_enabled = "--rich" in sys.argv
+_durable_enabled = "--durable" in sys.argv
 _extra_session_config_enabled = "--session-config" in sys.argv or _rich_enabled
 _safe_mode = False
 _model = "fake-small"
 _responses = {}
 _responses_condition = threading.Condition()
+_state_path = None
+_memory = ""
+
+if _durable_enabled:
+    durable_index = sys.argv.index("--durable")
+    if durable_index + 1 >= len(sys.argv):
+        print("--durable requires a state path", file=sys.stderr)
+        raise SystemExit(2)
+    _state_path = sys.argv[durable_index + 1]
+def persist_memory():
+    if _state_path is None:
+        return
+    with open(_state_path, "w", encoding="utf-8") as state_file:
+        json.dump({"sessionId": SESSION_ID, "memory": _memory}, state_file)
+
+
+def load_memory():
+    global _memory
+    with open(_state_path, encoding="utf-8") as state_file:
+        state = json.load(state_file)
+    if state.get("sessionId") != SESSION_ID:
+        raise ValueError("durable session identity mismatch")
+    _memory = state.get("memory", "")
 
 
 def config_options():
@@ -256,10 +281,19 @@ def run_turn(request_id, params):
     clearing it here would race with — and swallow — a cancel that arrives while
     the thread is still spinning up.
     """
-    if _rich_enabled and "rich" in prompt_text(params):
+    global _memory
+    text = prompt_text(params)
+    if _durable_enabled and "remember" in text:
+        _memory = "durable-host-memory"
+        persist_memory()
+    if _durable_enabled and "recall" in text:
+        stream_chunk(_memory)
+        reply(request_id, {"stopReason": "end_turn"})
+        return
+    if _rich_enabled and "rich" in text:
         run_rich_turn(request_id)
         return
-    if "hang" in prompt_text(params):
+    if "hang" in text:
         stream_chunk(CHUNKS[0])
         _cancelled.wait()
         reply(request_id, {"stopReason": "cancelled"})
@@ -273,7 +307,7 @@ def run_turn(request_id, params):
 
 
 def main():
-    global _model, _safe_mode
+    global _memory, _model, _safe_mode
     turn = None
     for line in sys.stdin:
         line = line.strip()
@@ -298,14 +332,27 @@ def main():
                 request_id,
                 {
                     "protocolVersion": 1,
-                    "agentCapabilities": {"loadSession": False},
+                    "agentCapabilities": {"loadSession": _durable_enabled},
                     "agentInfo": {"name": "fake-acp-agent", "version": "1.0.0"},
                 },
             )
         elif method == "session/new":
+            if _durable_enabled:
+                _memory = ""
             result = {"sessionId": SESSION_ID}
             result["configOptions"] = config_options()
             reply(request_id, result)
+        elif method == "session/load":
+            if not _durable_enabled:
+                reply_error(request_id, -32601, "method not found: session/load")
+            elif params.get("sessionId") != SESSION_ID or not os.path.exists(_state_path):
+                reply_error(request_id, -32000, "durable session not found")
+            else:
+                try:
+                    load_memory()
+                    reply(request_id, {"configOptions": config_options()})
+                except (OSError, ValueError, json.JSONDecodeError) as error:
+                    reply_error(request_id, -32000, f"durable session invalid: {error}")
         elif method == "session/set_config_option":
             config_id = params.get("configId")
             value = params.get("value")

@@ -150,13 +150,15 @@ complete `configOptions` list. Descriptors still cannot declare any of these
 values. For code-backed installed providers, the selected pre-session model is
 checked against the live ACP selector, applied, and confirmed before
 `session/prompt` is allowed.
-`packages/service/tests/fixtures/fake_acp_agent.py` provides both a minimal
-baseline and a rich deterministic ACP v1 mode. The rich mode exercises commands,
+`packages/service/tests/fixtures/fake_acp_agent.py` provides minimal, rich, and
+durable deterministic ACP v1 modes. The rich mode exercises commands,
 select/boolean configuration, permissions, plans, usage/cost, shell and edit
-tools, diffs, and an MCP-shaped tool call. `tests/installed_acp_provider_test.rs`
-drives those modes through the runtime registry and the authenticated HTTP +
-real WebSocket host surfaces, including interruption of an active turn. Durable
-resume and ACP v2 lifecycle remain separate, deferred coverage.
+tools, diffs, and an MCP-shaped tool call. The durable mode persists context and
+requires `session/load` after the first subprocess is closed.
+`tests/installed_acp_provider_test.rs` drives those modes through the runtime
+registry and the authenticated HTTP + real WebSocket host surfaces, including
+interruption of an active turn and subprocess-restart resume. ACP v2 lifecycle
+remains separate, deferred coverage.
 
 ## Descriptor lifecycle API
 

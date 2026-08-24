@@ -82,6 +82,7 @@ Do not invent values. Omit metadata the native provider does not expose.
 - Accept `session/set_config_option` for the selected model and return the complete authoritative option snapshot.
 - Do not require a speculative `session/prompt` to discover models. Cadencr aborts before the first prompt if live reconciliation fails.
 - Preserve ACP streaming, tool calls, permission requests, plan updates, terminal output, cancellation, and errors when the native provider supplies them.
+- If the native provider can restore context across process restarts, advertise `agentCapabilities.loadSession: true` and implement ACP `session/load` for the exact opaque ID returned by `session/new`. Reject a missing/stale ID instead of creating fresh context, and test the path with two separate connector processes. Do not put this capability in the descriptor.
 - Keep provider-specific flags, aliases, event parsing, and native protocol details inside this repository.
 
 ## Local acceptance checklist

@@ -22,7 +22,7 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::agents::runtime::{ProviderCatalogEntry, ProviderStatus};
 
-use super::hooks::InstalledAcpHooks;
+use super::hooks::{InstalledAcpCapabilities, InstalledAcpHooks};
 use super::installation::HostInstallation;
 use super::model_discovery::{discover_models, DiscoveredModels};
 
@@ -37,6 +37,7 @@ struct CatalogCacheEntry {
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
+    capabilities: Arc<InstalledAcpCapabilities>,
     catalog_cache: RwLock<HashMap<PathBuf, CatalogCacheEntry>>,
     catalog_refreshes: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
 }
@@ -45,6 +46,7 @@ impl GenericAcpAdapter {
     pub fn new(installation: Arc<HostInstallation>) -> Self {
         Self {
             installation,
+            capabilities: Arc::new(InstalledAcpCapabilities::default()),
             catalog_cache: RwLock::new(HashMap::new()),
             catalog_refreshes: Mutex::new(HashMap::new()),
         }
@@ -162,16 +164,21 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         }
     }
 
-    /// `session/load` is an optional ACP capability that is only known after
-    /// `initialize`. Declining resume up front means a follow-up prompt starts
-    /// a fresh ACP session instead of failing the spawn outright against an
-    /// agent that never advertised it.
-    fn is_valid_resume_session_id(&self, _session_id: &str) -> bool {
-        false
+    fn is_valid_resume_session_id(&self, session_id: &str) -> bool {
+        !session_id.is_empty()
     }
 
-    fn resolve_resume_session_id(&self, _runtime_session_id: Option<&str>) -> Option<String> {
-        None
+    fn resolve_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        runtime_session_id
+            .filter(|session_id| self.is_valid_resume_session_id(session_id))
+            .map(ToOwned::to_owned)
+    }
+
+    fn persistable_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        self.capabilities
+            .supports_durable_resume()
+            .then(|| self.resolve_resume_session_id(runtime_session_id))
+            .flatten()
     }
 
     /// Read back the runtime's own provider-neutral permission envelope so
@@ -240,7 +247,10 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
             // Context window is reported by the agent through `usage_update`;
             // there is nothing to pre-seed it from.
             context_window: None,
-            hooks: Arc::new(InstalledAcpHooks::new(discovered.config_id)),
+            hooks: Arc::new(InstalledAcpHooks::new(
+                discovered.config_id,
+                Arc::clone(&self.capabilities),
+            )),
         })
         .await
     }
@@ -363,14 +373,19 @@ mod tests {
         );
     }
 
-    /// The trait defaults are the honest answers for a generic agent; assert
-    /// them so a later edit cannot quietly claim a capability ACP negotiates.
+    /// A stored ID survives capability discovery so an unsupported resume
+    /// fails in the ACP handshake, while new IDs are persisted only after the
+    /// connector advertised `loadSession`.
     #[tokio::test]
-    async fn declines_every_capability_acp_does_not_guarantee() {
+    async fn separates_stored_resume_validation_from_persistence() {
         let dir = tempfile::tempdir().unwrap();
         let adapter = adapter(&runnable_binary(dir.path()));
-        assert!(!adapter.is_valid_resume_session_id("ses-1"));
-        assert_eq!(adapter.resolve_resume_session_id(Some("ses-1")), None);
+        assert!(adapter.is_valid_resume_session_id("ses-1"));
+        assert_eq!(
+            adapter.resolve_resume_session_id(Some("ses-1")).as_deref(),
+            Some("ses-1")
+        );
+        assert_eq!(adapter.persistable_resume_session_id(Some("ses-1")), None);
         assert!(adapter.session_branching().is_none());
         assert!(adapter.compaction_strategy().is_none());
         assert!(!adapter.supports_builtin_compact_command());

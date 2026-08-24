@@ -116,14 +116,17 @@ pub(crate) async fn handle_suspend(
         }
         sid
     };
-    if let Some(sid) = cli_sid.as_deref() {
+    if let Some(sid) = super::super::session_init_resume::persistable_resume_session_id_for_provider(
+        &runtime_provider,
+        cli_sid.as_deref(),
+    ) {
         // Persist so resume survives a subprocess death during suspend.
         // DB is the source of truth for resume IDs across restarts.
         WsSessionPersistence::persist_runtime_session_id_static(
             &app_state.write_pool,
             db_session_id,
             &runtime_provider,
-            sid,
+            &sid,
         )
         .await;
     }

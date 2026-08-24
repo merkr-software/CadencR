@@ -261,6 +261,11 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
+    /// Observe the handshake-owned ACP `loadSession` flag. Installed provider
+    /// adapters use this to avoid persisting unusable IDs while still allowing
+    /// a stored ID to be probed after the host process restarts.
+    fn observe_durable_resume_capability(&self, _supported: bool) {}
+
     /// Provider-specific hook for `AskUserQuestion`-style tool calls. Returns
     /// `Some(event)` to short-circuit the normal `tool_call` start mapping.
     fn tool_call_start_override(

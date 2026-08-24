@@ -111,6 +111,24 @@ Any missing selector, stale model, refusal, or mismatched response aborts the
 session before `session/prompt`. Cadencr never sends a speculative first prompt
 to discover what models exist.
 
+## Durable ACP v1 resume
+
+Durable resume remains handshake-owned rather than descriptor-owned. A
+connector that can restore context across a newly spawned process:
+
+1. advertises `agentCapabilities.loadSession: true` from `initialize`;
+2. returns an opaque, stable ID from `session/new`;
+3. implements `session/load` for that ID and workspace;
+4. returns the same complete configuration snapshot shape as `session/new`;
+5. rejects missing, stale, or mismatched IDs instead of silently creating a new
+   native session.
+
+The installed-provider adapter remembers the negotiated capability. It persists
+resume IDs only after a connector advertised support, while an ID already stored
+before a Cadencr restart is rechecked against the new handshake before load.
+Changing a connector from resumable to non-resumable therefore fails visibly;
+Cadencr never substitutes empty provider context for a requested resume.
+
 ## Rust SDK
 
 The SDK supplies the command parser and ACP v1 output types. Provider authors

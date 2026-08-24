@@ -71,6 +71,7 @@ pub async fn negotiate_session(
         .map_err(|e| RuntimeError::new(format!("ACP initialize response invalid: {e}")))?;
     hooks.authenticate(client, &init_value).await?;
     let capabilities = parse_agent_capabilities(&init_value);
+    hooks.observe_durable_resume_capability(capabilities.load_session);
 
     let resume_id = config.resume_session_id.as_deref();
     if let Some(resume_id) = resume_id {
