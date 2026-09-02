@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/brand",
   "private": true,
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Cadencr brand source of truth — Index Dots geometry, Emerald Reserve tokens, and every generated icon and social asset in the repo.",
   "license": "Apache-2.0",
   "type": "module",

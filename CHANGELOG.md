@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.11.5 - 2026-09-02
+
+Previous release: v0.11.4 - 2026-08-31
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed long agent streams filling the transcript with repeated React error `#185` cards; streaming Markdown updates now stay off React's nested-update path while preserving the latest content when a stream stops or restarts — [@baptou12](https://github.com/baptou12).
+- [**Desktop**] Fixed agent-provided `file://` links failing when clicked; common documents and media now open in their default app while executable, script, shortcut, unknown, missing, directory, remote-host, and unsafe-scheme targets remain blocked with visible errors — [@baptou12](https://github.com/baptou12).
+
 ## v0.11.4 - 2026-08-31
 
 Previous release: v0.11.3 - 2026-08-18

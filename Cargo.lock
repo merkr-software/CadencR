@@ -708,7 +708,7 @@ checksum = "1e748733b7cbc798e1434b6ac524f0c1ff2ab456fe201501e6497c8417a4fc33"
 
 [[package]]
 name = "cadencr-service"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -896,7 +896,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "claude-agent-sdk-rs"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "async-trait",
  "bon",
@@ -918,7 +918,7 @@ dependencies = [
 
 [[package]]
 name = "cli-discovery"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "bon",
  "futures",
@@ -957,7 +957,7 @@ dependencies = [
 
 [[package]]
 name = "codex-app-server-sdk-rs"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "bon",
  "cli-discovery",
@@ -1203,7 +1203,7 @@ dependencies = [
 
 [[package]]
 name = "cursor-agent-sdk-rs"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "bon",
  "cli-discovery",
@@ -3010,7 +3010,7 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "opencode-sdk-rs"
-version = "0.11.4"
+version = "0.11.5"
 dependencies = [
  "axum",
  "bon",

@@ -1,7 +1,7 @@
 {
   "name": "@cadencr/opencode-sdk-rs",
   "private": true,
-  "version": "0.11.4",
+  "version": "0.11.5",
   "description": "Rust SDK wrapping the OpenCode CLI — used by Cadencr to stream and control OpenCode sessions.",
   "license": "Apache-2.0",
   "scripts": {
