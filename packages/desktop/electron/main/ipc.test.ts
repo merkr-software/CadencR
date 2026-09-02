@@ -153,7 +153,7 @@ describe("ipc validators", () => {
     expect(electronState.openExternal).toHaveBeenCalledTimes(1);
   });
 
-  it("opens clicked file:// links with the default app, rejecting non-files", async () => {
+  it("opens safe clicked file:// links with the default app, rejecting non-files", async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cadencr-link-"));
     const file = path.join(dir, "spec.html");
     await fs.writeFile(file, "<html></html>", "utf8");
@@ -173,6 +173,18 @@ describe("ipc validators", () => {
     );
     expect(electronState.openPath).toHaveBeenCalledTimes(1);
     expect(electronState.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("rejects executable, shortcut, and unknown local file types", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cadencr-link-"));
+    for (const name of ["run.command", "run.exe", "launch.desktop", "unknown.custom", "README"]) {
+      const file = path.join(dir, name);
+      await fs.writeFile(file, "content", "utf8");
+      await expect(openExternalLink(pathToFileURL(file).href)).rejects.toThrow(
+        /cannot be opened from links/,
+      );
+    }
+    expect(electronState.openPath).not.toHaveBeenCalled();
   });
 
   it("surfaces shell.openPath failures for file:// links", async () => {

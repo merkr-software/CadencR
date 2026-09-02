@@ -22,6 +22,7 @@ import {
 import { sendToWindow } from "./safe-send";
 import { appendRendererErrorLog } from "./renderer-error-log";
 import { setLinkHoverContext, suppressNextNativeContextMenu } from "./context-menu";
+import { assertOpenableLocalFile } from "./openable-local-file";
 
 const MAX_READ_FILE_BYTES = 16 * 1024 * 1024;
 const MAX_FILE_HANDLES = 128;
@@ -258,6 +259,7 @@ export async function openExternalLink(rawUrl: unknown): Promise<void> {
       throw new Error("file:// links with a remote host cannot be opened.");
     }
     const canonical = await canonicalFilePath(fileURLToPath(parsed));
+    assertOpenableLocalFile(canonical);
     const failure = await shell.openPath(canonical);
     if (failure) throw new Error(failure);
     return;
