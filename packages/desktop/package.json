@@ -109,7 +109,7 @@
     "lucide-react": "^0.563.0",
     "mermaid": "^11.16.1",
     "msw": "^2",
-    "orval": "7.21.0",
+    "orval": "8.22.0",
     "oxlint": "^1.71.0",
     "postcss": "8.5.23",
     "qrcode.react": "^4.2.0",
