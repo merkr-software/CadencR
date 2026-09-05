@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
@@ -7,36 +6,9 @@ use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, Pt
 use tokio::sync::{broadcast, watch};
 use tracing::{info, warn};
 
-const SCROLLBACK_CAP: usize = 50 * 1024; // 50KB
-
-/// Ring buffer that keeps the last ~50KB of terminal output.
-pub struct ScrollbackBuffer {
-    buf: VecDeque<u8>,
-}
-
-impl ScrollbackBuffer {
-    fn new() -> Self {
-        Self {
-            buf: VecDeque::with_capacity(SCROLLBACK_CAP),
-        }
-    }
-
-    pub fn append(&mut self, data: &[u8]) {
-        let overflow = (self.buf.len() + data.len()).saturating_sub(SCROLLBACK_CAP);
-        if overflow > 0 {
-            self.buf.drain(..overflow);
-        }
-        self.buf.extend(data);
-    }
-
-    pub fn contents(&self) -> String {
-        let (a, b) = self.buf.as_slices();
-        let mut v = Vec::with_capacity(a.len() + b.len());
-        v.extend_from_slice(a);
-        v.extend_from_slice(b);
-        String::from_utf8_lossy(&v).into_owned()
-    }
-}
+mod output;
+use output::publish_output;
+pub use output::ScrollbackBuffer;
 
 /// What a PTY is used for. Every PTY lives in the same `PtyManager` map keyed
 /// only by feature, so listing/killing "a feature's terminals" must filter on
@@ -71,6 +43,16 @@ pub struct PtyHandle {
     pub kind: PtyKind,
 }
 
+impl PtyHandle {
+    /// Output publication takes this same lock, making replay and subscription
+    /// one boundary: bytes appear either in scrollback or in the receiver.
+    pub(crate) fn subscribe_with_scrollback(&self) -> (String, broadcast::Receiver<String>) {
+        let scrollback = self.scrollback.lock().unwrap_or_else(|e| e.into_inner());
+        let receiver = self.data_tx.subscribe();
+        (scrollback.contents(), receiver)
+    }
+}
+
 /// A live PTY belonging to a feature, surfaced so another client can attach.
 pub struct PtySession {
     pub pty_id: String,
@@ -87,6 +69,7 @@ pub(super) struct PtyReconnect {
     pub alive: bool,
     pub scrollback: String,
     pub cwd: String,
+    pub data_rx: broadcast::Receiver<String>,
 }
 
 /// Manages all PTY sessions. Stored in AppState.
@@ -185,20 +168,16 @@ impl PtyManager {
         let data_tx_reader = data_tx;
         tokio::task::spawn_blocking(move || {
             let mut buf = [0u8; 4096];
+            let mut decoder = output::Utf8Output::default();
             loop {
                 let n = match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => n,
                     Err(_) => break,
                 };
-                let data = String::from_utf8_lossy(&buf[..n]).into_owned();
-                scrollback
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .append(&buf[..n]);
-                // send() only fails when there are no receivers — that's fine
-                let _ = data_tx_reader.send(data);
+                publish_output(&scrollback, &data_tx_reader, decoder.push(&buf[..n]));
             }
+            publish_output(&scrollback, &data_tx_reader, decoder.finish());
         });
 
         // Child watcher task: signals alive channel and schedules cleanup.
@@ -212,7 +191,7 @@ impl PtyManager {
                 Err(_) => -1,
             };
             info!(pty_id = %pid, exit_code, "PTY child exited");
-            let _ = alive_tx.send(Some(exit_code));
+            alive_tx.send_replace(Some(exit_code));
 
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_secs(300)).await;
@@ -344,16 +323,13 @@ impl PtyManager {
             return None;
         }
         let alive = handle.alive.borrow().is_none();
-        let scrollback = handle
-            .scrollback
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .contents();
+        let (scrollback, data_rx) = handle.subscribe_with_scrollback();
         Some(PtyReconnect {
             handle: Arc::clone(handle.value()),
             alive,
             scrollback,
             cwd: handle.cwd.clone(),
+            data_rx,
         })
     }
 
@@ -387,6 +363,55 @@ impl PtyManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn exit_status_survives_without_a_subscriber() {
+        let manager = PtyManager::new();
+        let mut command = CommandBuilder::new("/bin/sh");
+        command.args(["-c", "exit 7"]);
+        let (_, handle) = manager
+            .create_pty_with_command(1, command, &temp_existing_dir(), 80, 24, PtyKind::Neovim)
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while handle.alive.borrow().is_none() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("exit must be retained without watch receivers");
+        assert_eq!(*handle.alive.subscribe().borrow(), Some(7));
+    }
+
+    #[tokio::test]
+    async fn output_snapshot_and_subscription_do_not_overlap() {
+        let manager = PtyManager::new();
+        let (id, handle) = manager.create_pty(1, &temp_existing_dir(), 80, 24).unwrap();
+        // Serialize this deterministic publisher with the real reader just as
+        // an actual read is serialized with a concurrent reconnect snapshot.
+        publish_output(
+            &handle.scrollback,
+            &handle.data_tx,
+            "before-snapshot".to_string(),
+        );
+        let reconnect = manager.reconnect_for_feature(&id, 1).unwrap();
+        let snapshot = reconnect.scrollback;
+        let mut receiver = reconnect.data_rx;
+        publish_output(
+            &handle.scrollback,
+            &handle.data_tx,
+            "after-snapshot".to_string(),
+        );
+        assert!(snapshot.contains("before-snapshot"));
+        assert!(!snapshot.contains("after-snapshot"));
+        let mut found_after = false;
+        while let Ok(chunk) = receiver.try_recv() {
+            assert!(!chunk.contains("before-snapshot"));
+            found_after |= chunk.contains("after-snapshot");
+        }
+        assert!(found_after);
+        manager.kill_pty(&id).unwrap();
+    }
 
     fn temp_existing_dir() -> String {
         std::env::temp_dir().to_string_lossy().into_owned()

@@ -254,17 +254,6 @@ chosen. */
   parse_error?: AlacrittyConfigResponseParseError;
 }
 
-export interface AnsiPalette {
-  black: string;
-  blue: string;
-  cyan: string;
-  green: string;
-  magenta: string;
-  red: string;
-  white: string;
-  yellow: string;
-}
-
 /**
  * A single TCP port held open by one of a feature's processes.
  */
@@ -275,6 +264,17 @@ export interface AllocatedPort {
   /** Executable name as reported by the OS (`node`, `vite`, `python3`, …). */
   process: string;
   source: PortSource;
+}
+
+export interface AnsiPalette {
+  black: string;
+  blue: string;
+  cyan: string;
+  green: string;
+  magenta: string;
+  red: string;
+  white: string;
+  yellow: string;
 }
 
 export interface ArchivedCleanupRunResponse {
@@ -11309,14 +11309,17 @@ export type OpenFileRouteMutationError = ErrorType<unknown>;
 /**
  * @summary POST /api/features/{feature_id}/neovim/open
  */
-export const useOpenFileRoute = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof openFileRoute>>,
-    TError,
-    { featureId: string; data: OpenFileRequest },
-    TContext
-  >;
-}): UseMutationResult<
+export const useOpenFileRoute = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof openFileRoute>>,
+      TError,
+      { featureId: string; data: OpenFileRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
   Awaited<ReturnType<typeof openFileRoute>>,
   TError,
   { featureId: string; data: OpenFileRequest },
@@ -11324,7 +11327,7 @@ export const useOpenFileRoute = <TError = ErrorType<unknown>, TContext = unknown
 > => {
   const mutationOptions = getOpenFileRouteMutationOptions(options);
 
-  return useMutation(mutationOptions);
+  return useMutation(mutationOptions, queryClient);
 };
 
 export const refreshSession = (featureId: number, signal?: AbortSignal) => {
@@ -18224,7 +18227,7 @@ export const getDetectRouteQueryOptions = <
   TData = Awaited<ReturnType<typeof detectRoute>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>;
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>>;
 }) => {
   const { query: queryOptions } = options ?? {};
 
@@ -18237,7 +18240,7 @@ export const getDetectRouteQueryOptions = <
     Awaited<ReturnType<typeof detectRoute>>,
     TError,
     TData
-  > & { queryKey: QueryKey };
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
 };
 
 export type DetectRouteQueryResult = NonNullable<Awaited<ReturnType<typeof detectRoute>>>;
@@ -18246,12 +18249,61 @@ export type DetectRouteQueryError = ErrorType<unknown>;
 export function useDetectRoute<
   TData = Awaited<ReturnType<typeof detectRoute>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof detectRoute>>,
+          TError,
+          Awaited<ReturnType<typeof detectRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useDetectRoute<
+  TData = Awaited<ReturnType<typeof detectRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof detectRoute>>,
+          TError,
+          Awaited<ReturnType<typeof detectRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useDetectRoute<
+  TData = Awaited<ReturnType<typeof detectRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useDetectRoute<
+  TData = Awaited<ReturnType<typeof detectRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getDetectRouteQueryOptions(options);
 
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
 
   query.queryKey = queryOptions.queryKey;
 
@@ -18262,7 +18314,7 @@ export const startRoute = (startRouteBody: number, signal?: AbortSignal) => {
   return customInstance<NeovimStartResponse>({
     url: `/api/neovim/start`,
     method: "POST",
-    headers: { "Content-Type": "text/plain" },
+    headers: { "Content-Type": "application/json" },
     data: startRouteBody,
     signal,
   });
@@ -18306,14 +18358,17 @@ export type StartRouteMutationResult = NonNullable<Awaited<ReturnType<typeof sta
 export type StartRouteMutationBody = number;
 export type StartRouteMutationError = ErrorType<void>;
 
-export const useStartRoute = <TError = ErrorType<void>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof startRoute>>,
-    TError,
-    { data: number },
-    TContext
-  >;
-}): UseMutationResult<
+export const useStartRoute = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof startRoute>>,
+      TError,
+      { data: number },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
   Awaited<ReturnType<typeof startRoute>>,
   TError,
   { data: number },
@@ -18321,14 +18376,14 @@ export const useStartRoute = <TError = ErrorType<void>, TContext = unknown>(opti
 > => {
   const mutationOptions = getStartRouteMutationOptions(options);
 
-  return useMutation(mutationOptions);
+  return useMutation(mutationOptions, queryClient);
 };
 
 export const stopRoute = (stopRouteBody: number, signal?: AbortSignal) => {
   return customInstance<void>({
     url: `/api/neovim/stop`,
     method: "POST",
-    headers: { "Content-Type": "text/plain" },
+    headers: { "Content-Type": "application/json" },
     data: stopRouteBody,
     signal,
   });
@@ -18372,22 +18427,20 @@ export type StopRouteMutationResult = NonNullable<Awaited<ReturnType<typeof stop
 export type StopRouteMutationBody = number;
 export type StopRouteMutationError = ErrorType<void>;
 
-export const useStopRoute = <TError = ErrorType<void>, TContext = unknown>(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof stopRoute>>,
-    TError,
-    { data: number },
-    TContext
-  >;
-}): UseMutationResult<
-  Awaited<ReturnType<typeof stopRoute>>,
-  TError,
-  { data: number },
-  TContext
-> => {
+export const useStopRoute = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof stopRoute>>,
+      TError,
+      { data: number },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof stopRoute>>, TError, { data: number }, TContext> => {
   const mutationOptions = getStopRouteMutationOptions(options);
 
-  return useMutation(mutationOptions);
+  return useMutation(mutationOptions, queryClient);
 };
 
 export const openapiSpec = (signal?: AbortSignal) => {
@@ -21822,7 +21875,7 @@ export const getAlacrittyConfigRouteQueryOptions = <
   TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
   TError = ErrorType<unknown>,
 >(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>;
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>>;
 }) => {
   const { query: queryOptions } = options ?? {};
 
@@ -21835,7 +21888,7 @@ export const getAlacrittyConfigRouteQueryOptions = <
     Awaited<ReturnType<typeof alacrittyConfigRoute>>,
     TError,
     TData
-  > & { queryKey: QueryKey };
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
 };
 
 export type AlacrittyConfigRouteQueryResult = NonNullable<
@@ -21843,6 +21896,55 @@ export type AlacrittyConfigRouteQueryResult = NonNullable<
 >;
 export type AlacrittyConfigRouteQueryError = ErrorType<unknown>;
 
+export function useAlacrittyConfigRoute<
+  TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+          TError,
+          Awaited<ReturnType<typeof alacrittyConfigRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAlacrittyConfigRoute<
+  TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+          TError,
+          Awaited<ReturnType<typeof alacrittyConfigRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useAlacrittyConfigRoute<
+  TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 /**
  * @summary `GET /api/terminal/alacritty-config` — the user's parsed Alacritty
 config (font, colors, cursor style, scrollback depth), or Alacritty's
@@ -21852,12 +21954,19 @@ own documented defaults when there's nothing to read.
 export function useAlacrittyConfigRoute<
   TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getAlacrittyConfigRouteQueryOptions(options);
 
-  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
 
   query.queryKey = queryOptions.queryKey;
 
@@ -21865,6 +21974,10 @@ export function useAlacrittyConfigRoute<
 }
 
 /**
+ * Shells only: the feature's Neovim PTY is `PtyKind::Neovim` and is left
+running, because this route is also the sidebar's "close activity" action on
+a feature the user still has open. Neovim teardown belongs to the paths that
+actually destroy the worktree (`delete_worktree`, `delete_feature`).
  * @summary Kill every live shell belonging to a feature. Used when archiving or deleting
 a feature so its terminals don't keep running in a worktree that may be about
 to be removed.

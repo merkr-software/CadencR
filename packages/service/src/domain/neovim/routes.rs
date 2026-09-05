@@ -12,7 +12,7 @@ use super::protocol::{NeovimDetectResponse, NeovimStartResponse, OpenFileRequest
 #[utoipa::path(
     post,
     path = "/api/neovim/start",
-    request_body = i64,
+    request_body(content = i64, content_type = "application/json"),
     responses(
         (status = 200, body = NeovimStartResponse),
         (status = 500, description = "Spawn failed")
@@ -29,7 +29,7 @@ pub async fn start_route(
 #[utoipa::path(
     post,
     path = "/api/neovim/stop",
-    request_body = i64,
+    request_body(content = i64, content_type = "application/json"),
     responses(
         (status = 200, description = "Stopped"),
         (status = 404, description = "Not running")
@@ -87,4 +87,23 @@ pub fn routes() -> Router<AppState> {
             "/api/features/{feature_id}/neovim/open",
             post(open_file_route),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use utoipa::OpenApi;
+
+    #[test]
+    fn lifecycle_client_requests_use_json() {
+        #[derive(OpenApi)]
+        #[openapi(paths(super::start_route, super::stop_route))]
+        struct Api;
+
+        let schema = serde_json::to_value(Api::openapi()).unwrap();
+        for path in ["/api/neovim/start", "/api/neovim/stop"] {
+            let content = &schema["paths"][path]["post"]["requestBody"]["content"];
+            assert!(content.get("application/json").is_some());
+            assert!(content.get("text/plain").is_none());
+        }
+    }
 }

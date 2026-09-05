@@ -13,7 +13,7 @@ use axum::{Extension, Router};
 use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
-use tracing::{info, warn};
+use tracing::info;
 
 use crate::api::middleware::authenticate_ws;
 use crate::app_state::AppState;
@@ -81,155 +81,153 @@ pub async fn neovim_ws_handler(
     // Present only on the remote listener; its absence means loopback.
     remote: Option<Extension<RemoteContext>>,
 ) -> Response {
-    let (selected_proto, _device_id) =
+    let (selected_proto, device_id) =
         match authenticate_ws(&headers, &app_state, remote.as_ref().map(|e| &e.0)).await {
             Ok(resolved) => resolved,
             Err(response) => return response,
         };
     ws.protocols([selected_proto])
-        .on_upgrade(move |socket| handle_socket(socket, app_state, query.feature_id))
+        .on_upgrade(move |socket| async move {
+            if let Some(device_id) = device_id {
+                let (guard, _) = app_state.remote.live().register(device_id);
+                tokio::select! {
+                    _ = handle_socket(socket, app_state, query.feature_id) => {}
+                    _ = guard.token.cancelled() => {
+                        info!(device_id, "remote neovim force-closed (device revoked)");
+                    }
+                }
+            } else {
+                handle_socket(socket, app_state, query.feature_id).await;
+            }
+        })
         .into_response()
 }
 
-async fn handle_socket(socket: WebSocket, app_state: AppState, feature_id: i64) {
-    let (mut sink, mut stream) = socket.split();
+type WsSink = futures::stream::SplitSink<WebSocket, Message>;
+type WsStream = futures::stream::SplitStream<WebSocket>;
 
-    // Auto-start the Neovim process for this feature if it isn't running yet.
-    // The HTTP `/api/neovim/start` route is still available for explicit
-    // management; attaching via WebSocket now lazily creates the process so
-    // the editor panel doesn't get stuck in a reconnect loop.
-    if app_state.neovim_manager.start(feature_id).await.is_err() {
-        let _ = sink
-            .send(Message::Text(
-                ServerMessage::Error {
-                    message: format!("failed to start neovim for feature {feature_id}"),
-                }
-                .to_json()
-                .into(),
-            ))
-            .await;
-        return;
-    }
+struct AttachedPty {
+    id: String,
+    handle: std::sync::Arc<crate::domain::terminal::service::PtyHandle>,
+    data: broadcast::Receiver<String>,
+}
 
-    let Some(pty_id) = app_state.neovim_manager.pty_id(feature_id).await else {
-        let _ = sink
-            .send(Message::Text(
-                ServerMessage::Error {
-                    message: format!("no neovim process running for feature {feature_id}"),
-                }
-                .to_json()
-                .into(),
-            ))
-            .await;
-        return;
-    };
+async fn send_error(sink: &mut WsSink, message: impl Into<String>) {
+    let _ = sink
+        .send(Message::Text(
+            ServerMessage::Error {
+                message: message.into(),
+            }
+            .to_json()
+            .into(),
+        ))
+        .await;
+}
 
-    let Some(handle) = app_state
+async fn attach_pty(
+    app_state: &AppState,
+    feature_id: i64,
+) -> Result<(AttachedPty, String), String> {
+    app_state
+        .neovim_manager
+        .ensure_started(feature_id)
+        .await
+        .map_err(|error| error.to_string())?;
+    let id = app_state
+        .neovim_manager
+        .pty_id(feature_id)
+        .await
+        .ok_or_else(|| format!("no neovim process running for feature {feature_id}"))?;
+    let handle = app_state
         .pty_manager
         .terminals
-        .get(&pty_id)
+        .get(&id)
         .map(|entry| entry.value().clone())
-    else {
-        let _ = sink
-            .send(Message::Text(
-                ServerMessage::Error {
-                    message: format!("neovim pty {pty_id} is gone"),
-                }
-                .to_json()
-                .into(),
-            ))
-            .await;
-        return;
-    };
+        .ok_or_else(|| format!("neovim pty {id} is gone"))?;
+    let (scrollback, data) = handle.subscribe_with_scrollback();
+    Ok((AttachedPty { id, handle, data }, scrollback))
+}
 
-    let scrollback = handle
-        .scrollback
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .contents();
-    let _ = sink
+async fn handle_socket(socket: WebSocket, app_state: AppState, feature_id: i64) {
+    let (mut sink, stream) = socket.split();
+    let (pty, scrollback) = match attach_pty(&app_state, feature_id).await {
+        Ok(pty) => pty,
+        Err(error) => {
+            send_error(&mut sink, error).await;
+            return;
+        }
+    };
+    if sink
         .send(Message::Text(
             ServerMessage::Attached { scrollback }.to_json().into(),
         ))
-        .await;
+        .await
+        .is_err()
+    {
+        return;
+    }
+    stream_pty(sink, stream, pty, &app_state.pty_manager).await;
+    info!(feature_id, "neovim ws client detached");
+}
 
-    let mut data_rx = handle.data_tx.subscribe();
-    // `data_tx`'s sender lives on the `PtyHandle`, which outlives the process
-    // by design (the 300s reconnect grace period) — so it never closes on its
-    // own when Neovim exits (`:q`/`:qa`, a crash), and waiting on it alone
-    // would sit forever for output that will never come. `alive` is what
-    // actually reports the exit — watched directly in the same loop so a
-    // dead process closes the socket instead of leaving the client attached
-    // to nothing.
-    let mut alive_rx = handle.alive.subscribe();
-    let pty_manager = app_state.pty_manager.clone();
-    let pty_id_for_input = pty_id.clone();
+async fn stream_pty(
+    mut sink: WsSink,
+    mut stream: WsStream,
+    mut pty: AttachedPty,
+    manager: &crate::domain::terminal::service::PtyManager,
+) {
+    let mut alive = pty.handle.alive.subscribe();
     loop {
+        if alive.borrow_and_update().is_some() {
+            send_error(&mut sink, "Neovim exited").await;
+            break;
+        }
         tokio::select! {
-            data = data_rx.recv() => {
-                match data {
-                    Ok(data) => {
-                        let message = ServerMessage::Data { data }.to_json();
-                        if sink.send(Message::Text(message.into())).await.is_err() {
-                            break;
-                        }
+            data = pty.data.recv() => match data {
+                Ok(data) => {
+                    if sink.send(Message::Text(ServerMessage::Data { data }.to_json().into())).await.is_err() {
+                        break;
                     }
-                    // A slow client that fell behind resyncs from the next frame;
-                    // Neovim repaints continuously, so dropping stale frames is safe.
-                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(broadcast::error::RecvError::Closed) => break,
                 }
-            }
-            changed = alive_rx.changed() => {
-                if changed.is_err() {
-                    // The PtyHandle itself was dropped (grace period expired) —
-                    // same outcome as an observed exit.
+                Err(broadcast::error::RecvError::Lagged(_)) => {
+                    // ANSI output contains deltas, not independently repaintable frames.
+                    send_error(&mut sink, "Neovim output fell behind; reconnect to restore the display").await;
                     break;
                 }
-                if alive_rx.borrow().is_none() {
-                    // `alive` also carries the initial "still running" value;
-                    // only a `Some` is an actual exit.
-                    continue;
-                }
-                let _ = sink
-                    .send(Message::Text(
-                        ServerMessage::Error {
-                            message: format!("neovim exited (feature {feature_id})"),
-                        }
-                        .to_json()
-                        .into(),
-                    ))
-                    .await;
-                break;
+                Err(broadcast::error::RecvError::Closed) => break,
+            },
+            changed = alive.changed() => {
+                if changed.is_err() { break; }
             }
             incoming = stream.next() => {
-                let Some(Ok(Message::Text(text))) = incoming else { break };
-                let Ok(message) = serde_json::from_str::<ClientMessage>(&text) else {
-                    warn!(feature_id, "unparseable neovim ws message");
-                    continue;
-                };
-                match message {
-                    ClientMessage::Write { data } => {
-                        if let Err(error) = pty_manager.write_pty(&pty_id_for_input, data.as_bytes()) {
-                            warn!(feature_id, %error, "failed to write to neovim pty");
-                            break;
+                match incoming {
+                    Some(Ok(Message::Text(text))) => {
+                        match handle_input(&text, &pty.id, manager) {
+                            Ok(true) => {}
+                            Ok(false) => break,
+                            Err(error) => { send_error(&mut sink, error).await; break; }
                         }
                     }
-                    ClientMessage::Resize { cols, rows } => {
-                        if let Err(error) = pty_manager.resize_pty(&pty_id_for_input, cols, rows) {
-                            warn!(feature_id, %error, "failed to resize neovim pty");
-                        }
-                    }
-                    ClientMessage::Detach => break,
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                    _ => break,
                 }
             }
         }
     }
+}
 
-    // Detaching never kills Neovim: the process is feature-scoped and outlives
-    // any single client, exactly like the editor panel being closed and
-    // reopened.
-    info!(feature_id, pty_id = %pty_id, "neovim ws client detached");
+fn handle_input(
+    text: &str,
+    pty_id: &str,
+    manager: &crate::domain::terminal::service::PtyManager,
+) -> Result<bool, String> {
+    let message = serde_json::from_str::<ClientMessage>(text).map_err(|error| error.to_string())?;
+    let result = match message {
+        ClientMessage::Write { data } => manager.write_pty(pty_id, data.as_bytes()),
+        ClientMessage::Resize { cols, rows } => manager.resize_pty(pty_id, cols, rows),
+        ClientMessage::Detach => return Ok(false),
+    };
+    result.map(|()| true).map_err(|error| error.to_string())
 }
 
 /// Register the Neovim websocket route.

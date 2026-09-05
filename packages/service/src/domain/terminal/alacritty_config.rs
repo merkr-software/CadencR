@@ -208,10 +208,9 @@ pub struct AlacrittyConfigResponse {
 /// caller can always render — see this task's "Technical constraint" for
 /// why none of these are modeled as an HTTP error.
 ///
-/// The `fallback_palette` is used to fill `colors.normal` when the user's
-/// config doesn't override it — unlike Alacritty's own defaults, this is
-/// the same palette the terminal panel already uses, so there's no visual
-/// discontinuity when switching between "no config" and "config exists" states.
+/// The fallback palette is included only when no usable config was loaded.
+/// Parsed configs preserve omitted colors so the renderer can inherit the
+/// currently selected Cadencr theme.
 pub fn read_alacritty_config_response(fallback_palette: AnsiPalette) -> AlacrittyConfigResponse {
     let Some(path) = default_config_path() else {
         return AlacrittyConfigResponse {
@@ -222,7 +221,9 @@ pub fn read_alacritty_config_response(fallback_palette: AnsiPalette) -> Alacritt
     };
     match parse_alacritty_config(&path) {
         Ok(Some(config)) => AlacrittyConfigResponse {
-            config: merge_with_fallback(config, &fallback_palette),
+            // Preserve omitted colors so the renderer can inherit its current
+            // Cadencr theme rather than treating our dark fallback as explicit.
+            config,
             found: true,
             parse_error: None,
         },

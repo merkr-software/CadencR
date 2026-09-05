@@ -176,6 +176,29 @@ pub(super) fn append_context(error: AppError, context: String) -> AppError {
             message: value,
         } => AppError::coded(status, code, message(value)),
         AppError::ServiceUnavailable(value) => AppError::ServiceUnavailable(message(value)),
+        AppError::NeovimSpawnError { detail } => AppError::NeovimSpawnError {
+            detail: message(detail),
+        },
+        error @ AppError::NeovimHandshakeTimeout => AppError::coded(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "NEOVIM_HANDSHAKE_TIMEOUT",
+            message(error.to_string()),
+        ),
+        error @ AppError::NeovimNotRunning { .. } => AppError::coded(
+            axum::http::StatusCode::NOT_FOUND,
+            "NEOVIM_NOT_RUNNING",
+            message(error.to_string()),
+        ),
+        error @ AppError::NeovimProcessNotRunning => AppError::coded(
+            axum::http::StatusCode::NOT_FOUND,
+            "NEOVIM_PROCESS_NOT_RUNNING",
+            message(error.to_string()),
+        ),
+        error @ AppError::NeovimFileNotFound { .. } => AppError::coded(
+            axum::http::StatusCode::NOT_FOUND,
+            "NEOVIM_FILE_NOT_FOUND",
+            message(error.to_string()),
+        ),
     }
 }
 

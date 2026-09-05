@@ -5,20 +5,20 @@ use std::sync::Arc;
 use portable_pty::CommandBuilder;
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
-use tracing::{debug, warn};
 
 use crate::domain::terminal::cwd::resolve_cwd;
 use crate::domain::terminal::service::{PtyKind, PtyManager};
 use crate::error::AppError;
 
+#[cfg(test)]
 use nvim_rs::rpc::handler::Dummy;
 
 use super::protocol::NeovimStartResponse;
 
-/// How long a first-time spawn may take before it is treated as failed. Kept
-/// wide because a fresh user config's plugin manager installs everything on
-/// its first launch, which routinely takes tens of seconds.
-const SPAWN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+mod file;
+mod lifecycle;
+pub use lifecycle::nvim_available;
+use lifecycle::{nvim_version, wait_for_socket, StartupPty};
 
 /// A running Neovim process for one feature: its PTY (display) and its
 /// control socket (programmatic file-open / cursor jumps).
@@ -60,10 +60,16 @@ impl NeovimManager {
 
     /// Start (or return the already-running) Neovim process for `feature_id`.
     pub async fn start(&self, feature_id: i64) -> Result<NeovimStartResponse, AppError> {
+        self.ensure_started(feature_id).await?;
+        Ok(NeovimStartResponse {
+            version: nvim_version().await,
+        })
+    }
+
+    /// WebSocket attachment needs a process, not a fresh version subprocess.
+    pub(crate) async fn ensure_started(&self, feature_id: i64) -> Result<(), AppError> {
         if self.is_running(feature_id).await {
-            return Ok(NeovimStartResponse {
-                version: nvim_version().await,
-            });
+            return Ok(());
         }
 
         let _spawn_guard = self.spawn_lock.lock().await;
@@ -71,9 +77,7 @@ impl NeovimManager {
         // Re-check under the lock: another task may have spawned this feature
         // while we waited.
         if self.is_running(feature_id).await {
-            return Ok(NeovimStartResponse {
-                version: nvim_version().await,
-            });
+            return Ok(());
         }
 
         let socket_dir = tempfile::tempdir().map_err(|e| AppError::NeovimSpawnError {
@@ -86,6 +90,9 @@ impl NeovimManager {
         let control_socket = socket_dir.path().join("nvim.sock");
 
         let mut cmd = CommandBuilder::new("nvim");
+        // Tests must not load or mutate the developer's plugins/instance state.
+        #[cfg(test)]
+        cmd.arg("--clean");
         cmd.arg("--listen");
         cmd.arg(&control_socket);
         // GUI-launched service processes (the Electron sidecar) don't inherit
@@ -105,7 +112,9 @@ impl NeovimManager {
                 detail: e.to_string(),
             })?;
 
-        wait_for_socket(&control_socket).await?;
+        let mut startup = StartupPty::new(self.pty_manager.clone(), pty_id.clone());
+        let mut alive = pty_handle.alive.subscribe();
+        wait_for_socket(&control_socket, &mut alive).await?;
 
         self.processes.lock().await.insert(
             feature_id,
@@ -115,6 +124,7 @@ impl NeovimManager {
                 _socket_dir: socket_dir,
             },
         );
+        startup.disarm();
 
         // `:q`/`:qa` (or a crash) exits the process without telling this
         // manager — nothing else observes `alive`. Without this, `is_running`
@@ -123,10 +133,11 @@ impl NeovimManager {
         // the entry it just inserted: a restart in between already replaced
         // it with a fresh pty_id, and that one owns the removal.
         let processes = self.processes.clone();
-        let mut alive = pty_handle.alive.subscribe();
         tokio::spawn(async move {
-            if alive.changed().await.is_err() {
-                return;
+            while alive.borrow_and_update().is_none() {
+                if alive.changed().await.is_err() {
+                    break;
+                }
             }
             let mut processes = processes.lock().await;
             if processes.get(&feature_id).map(|h| &h.pty_id) == Some(&pty_id) {
@@ -134,26 +145,24 @@ impl NeovimManager {
             }
         });
 
-        Ok(NeovimStartResponse {
-            version: nvim_version().await,
-        })
+        Ok(())
     }
 
     /// Kill the feature's Neovim process and forget it.
     pub async fn stop(&self, feature_id: i64) -> Result<(), AppError> {
-        let handle =
-            self.processes
-                .lock()
-                .await
-                .remove(&feature_id)
-                .ok_or(AppError::NeovimNotRunning {
-                    feature_id: feature_id.to_string(),
-                })?;
+        let _spawn_guard = self.spawn_lock.lock().await;
+        let mut processes = self.processes.lock().await;
+        let handle = processes
+            .get(&feature_id)
+            .ok_or(AppError::NeovimNotRunning {
+                feature_id: feature_id.to_string(),
+            })?;
         self.pty_manager
             .kill_pty(&handle.pty_id)
             .map_err(|e| AppError::NeovimSpawnError {
                 detail: format!("failed to kill neovim pty: {e}"),
             })?;
+        processes.remove(&feature_id);
         Ok(())
     }
 
@@ -200,64 +209,25 @@ impl NeovimManager {
             .await
             .ok_or(AppError::NeovimProcessNotRunning)?;
 
-        let (nvim, _io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+        let pty_id = self
+            .pty_id(feature_id)
             .await
-            .map_err(|e| AppError::NeovimSpawnError {
-                detail: format!("control socket unavailable: {e}"),
-            })?;
-
-        // Asked of Neovim rather than the filesystem: callers send paths
-        // relative to the project, and Neovim is the process actually running
-        // there — resolving them against the service's own working directory
-        // would reject every relative path. Needed because `:tab drop` opens an
-        // empty buffer for a missing path, where `:edit` used to fail.
-        //
-        // Passed as an RPC argument rather than interpolated into an expression,
-        // so no quoting rule applies to it at all.
-        let readable = call_str_fn(&nvim, "filereadable", path).await?;
-        if readable.as_i64() != Some(1) {
-            return Err(AppError::NeovimFileNotFound {
-                path: path.to_string(),
-            });
-        }
-
-        // Escaped by Neovim itself: the path is about to be interpolated into an
-        // Ex command line, where `|` starts a second command and a newline ends
-        // the line outright, on top of the space / `%` / `#` cases. `fnameescape`
-        // is the authority on that grammar, and all of these are legal
-        // characters in a POSIX filename.
-        let escaped = call_str_fn(&nvim, "fnameescape", path).await?;
-        let escaped = escaped.as_str().ok_or_else(|| AppError::NeovimSpawnError {
-            detail: "fnameescape() returned a non-string".to_string(),
-        })?;
-
-        // `:tab drop`, not `:edit`: `edit` replaces the current window's buffer,
-        // so every open from the file tree threw away the previous file. `drop`
-        // jumps to the file if it is already open and opens a new tab page
-        // otherwise — the same semantics the CodeMirror pane gives its tabs. An
-        // empty unnamed buffer is reused rather than leaving a blank first tab.
-        nvim.command(&format!("tab drop {escaped}"))
-            .await
-            .map_err(|_| AppError::NeovimFileNotFound {
-                path: path.to_string(),
-            })?;
-
-        let target_line = line.unwrap_or(1).max(1) as i64;
-        let target_col = col.unwrap_or(1).max(1) as i64 - 1;
-        let window = nvim
-            .get_current_win()
-            .await
-            .map_err(|e| AppError::NeovimSpawnError {
-                detail: e.to_string(),
-            })?;
-        window
-            .set_cursor((target_line, target_col))
-            .await
-            .map_err(|e| AppError::NeovimSpawnError {
-                detail: e.to_string(),
-            })?;
-
-        Ok(())
+            .ok_or(AppError::NeovimProcessNotRunning)?;
+        let cwd = self
+            .pty_manager
+            .terminals
+            .get(&pty_id)
+            .map(|handle| handle.cwd.clone())
+            .ok_or(AppError::NeovimProcessNotRunning)?;
+        let path = file::scoped_file_path(&cwd, path)?;
+        tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            file::open_file(&socket, &path, line, col),
+        )
+        .await
+        .map_err(|_| AppError::NeovimSpawnError {
+            detail: "Neovim file-open request timed out".to_string(),
+        })?
     }
 
     /// Current cursor position as Neovim reports it: (1-indexed line,
@@ -268,11 +238,12 @@ impl NeovimManager {
             .control_socket_path(feature_id)
             .await
             .ok_or(AppError::NeovimProcessNotRunning)?;
-        let (nvim, _io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+        let (nvim, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
             .await
             .map_err(|e| AppError::NeovimSpawnError {
                 detail: e.to_string(),
             })?;
+        let _io = file::RpcTask(io.abort_handle());
         let window = nvim
             .get_current_win()
             .await
@@ -295,11 +266,12 @@ impl NeovimManager {
             .control_socket_path(feature_id)
             .await
             .ok_or(AppError::NeovimProcessNotRunning)?;
-        let (nvim, _io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+        let (nvim, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
             .await
             .map_err(|e| AppError::NeovimSpawnError {
                 detail: e.to_string(),
             })?;
+        let _io = file::RpcTask(io.abort_handle());
         let tabs = nvim
             .list_tabpages()
             .await
@@ -331,86 +303,27 @@ async fn project_id_for_feature(pool: &SqlitePool, feature_id: i64) -> Result<i6
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id}")))
 }
 
-/// Poll until `nvim --listen` has created its socket, or the spawn ceiling
-/// elapses. Neovim creates the socket only once startup (including any
-/// first-time plugin installation) has progressed far enough to serve RPC.
-async fn wait_for_socket(path: &std::path::Path) -> Result<(), AppError> {
-    let deadline = tokio::time::Instant::now() + SPAWN_TIMEOUT;
-    while tokio::time::Instant::now() < deadline {
-        if path.exists() {
-            return Ok(());
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    Err(AppError::NeovimHandshakeTimeout)
-}
-
-/// Version string from `nvim --version`'s first line (e.g. "NVIM v0.10.2"),
-/// resolving PATH the same way the spawn path does so both agree on which
-/// binary is in play. Empty when nvim is unavailable.
-async fn nvim_version() -> String {
-    let mut cmd = tokio::process::Command::new("nvim");
-    cmd.arg("--version");
-    match cli_discovery::login_shell_path().await {
-        Some(login_path) => {
-            debug!(path = %login_path, "resolved login-shell PATH for nvim detection");
-            cmd.env("PATH", login_path);
-        }
-        None => {
-            debug!("no login-shell PATH resolved; falling back to inherited process PATH for nvim detection");
-        }
-    }
-    let output = match cmd.output().await {
-        Ok(output) => output,
-        Err(error) => {
-            warn!(%error, "failed to spawn `nvim --version`");
-            return String::new();
-        }
-    };
-    if !output.status.success() {
-        warn!(
-            status = %output.status,
-            stderr = %String::from_utf8_lossy(&output.stderr),
-            "`nvim --version` exited non-zero"
-        );
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .to_string()
-}
-
-/// Whether `nvim` is spawnable, resolving PATH the same way `start` does.
-pub async fn nvim_available() -> bool {
-    !nvim_version().await.is_empty()
-}
-
-/// Call a Neovim function taking a single string argument. Keeps the path out
-/// of any interpolated expression: it travels as a msgpack value, so neither
-/// vimscript string quoting nor Ex-command grammar can reinterpret it.
-async fn call_str_fn<W>(
-    nvim: &nvim_rs::Neovim<W>,
-    name: &str,
-    arg: &str,
-) -> Result<nvim_rs::Value, AppError>
-where
-    W: futures::AsyncWrite + Send + Unpin + 'static,
-{
-    nvim.call_function(name, vec![nvim_rs::Value::from(arg)])
-        .await
-        .map_err(|e| AppError::NeovimSpawnError {
-            detail: format!("{name}(): {e}"),
-        })
-}
-
 #[cfg(test)]
 pub(crate) mod tests {
-    use std::sync::Arc;
-    use tokio::sync::Mutex;
-
     use super::*;
+
+    struct TestManager(NeovimManager);
+
+    impl std::ops::Deref for TestManager {
+        type Target = NeovimManager;
+
+        fn deref(&self) -> &Self::Target {
+            &self.0
+        }
+    }
+
+    impl Drop for TestManager {
+        fn drop(&mut self) {
+            // Assertions may panic before stop(): never strand blocking PTY
+            // readers or real Neovim children in the test runtime.
+            self.0.pty_manager.kill_all();
+        }
+    }
 
     pub(crate) async fn nvim_available_test() -> bool {
         let Some(login_path) = cli_discovery::login_shell_path().await else {
@@ -427,7 +340,7 @@ pub(crate) mod tests {
     /// this module use, so `start`'s `resolve_cwd` call has something to
     /// resolve. All features share one project pointing at a real temp dir
     /// (there's no worktree row, so `resolve_cwd` falls back to it).
-    async fn test_manager() -> NeovimManager {
+    async fn test_manager() -> TestManager {
         use sqlx::sqlite::SqlitePoolOptions;
 
         let pool = SqlitePoolOptions::new()
@@ -464,7 +377,7 @@ pub(crate) mod tests {
                 .unwrap();
         }
 
-        NeovimManager::new(PtyManager::new(), pool)
+        TestManager(NeovimManager::new(PtyManager::new(), pool))
     }
 
     /// Absolute path of the buffer Neovim currently shows. Lets a test assert
@@ -472,15 +385,39 @@ pub(crate) mod tests {
     /// command returned without error.
     async fn current_buffer_name(manager: &NeovimManager, feature_id: i64) -> String {
         let socket = manager.control_socket_path(feature_id).await.unwrap();
-        let (nvim, _io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+        let (nvim, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
             .await
             .unwrap();
+        let _io = file::RpcTask(io.abort_handle());
         nvim.eval("expand('%:p')")
             .await
             .unwrap()
             .as_str()
             .unwrap()
             .to_string()
+    }
+
+    #[tokio::test]
+    async fn websocket_ensure_started_reuses_the_running_process() {
+        if !nvim_available_test().await {
+            eprintln!("SKIP: nvim binary not found");
+            return;
+        }
+        let manager = test_manager().await;
+        manager.ensure_started(1).await.unwrap();
+        let first = manager.pty_id(1).await.unwrap();
+        // Existing processes do not need the spawn lock or a version probe.
+        let _guard = manager.spawn_lock.lock().await;
+        for _ in 0..3 {
+            tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                manager.ensure_started(1),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            assert_eq!(manager.pty_id(1).await.as_deref(), Some(first.as_str()));
+        }
     }
 
     #[tokio::test]
@@ -606,63 +543,33 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn concurrent_first_time_spawns_do_not_overlap() {
+    async fn concurrent_starts_wait_for_shared_spawn_lock() {
         if !nvim_available_test().await {
             eprintln!("SKIP: nvim binary not found");
             return;
         }
-        let events: Arc<Mutex<Vec<(i64, &'static str, std::time::Instant)>>> =
-            Arc::new(Mutex::new(Vec::new()));
         let manager = test_manager().await;
-
-        let events_a = events.clone();
-        let manager_a = manager.clone();
-        let handle_a = tokio::spawn(async move {
-            events_a
-                .lock()
-                .await
-                .push((901, "start", std::time::Instant::now()));
-            manager_a.start(901).await.unwrap();
-            events_a
-                .lock()
-                .await
-                .push((901, "end", std::time::Instant::now()));
-        });
-
-        let events_b = events.clone();
-        let manager_b = manager.clone();
-        let handle_b = tokio::spawn(async move {
-            events_b
-                .lock()
-                .await
-                .push((902, "start", std::time::Instant::now()));
-            manager_b.start(902).await.unwrap();
-            events_b
-                .lock()
-                .await
-                .push((902, "end", std::time::Instant::now()));
-        });
-
-        let _ = tokio::join!(handle_a, handle_b);
-
-        let log = events.lock().await;
-        let at = |id: i64, kind: &str| {
-            log.iter()
-                .find(|(i, k, _)| *i == id && *k == kind)
-                .unwrap()
-                .2
-        };
-        let (first_end, second_start) = if at(901, "start") <= at(902, "start") {
-            (at(901, "end"), at(902, "start"))
-        } else {
-            (at(902, "end"), at(901, "start"))
-        };
+        let guard = manager.spawn_lock.lock().await;
+        let mut first = Box::pin(manager.start(901));
+        let mut second = Box::pin(manager.start(902));
         assert!(
-            second_start >= first_end - std::time::Duration::from_millis(50),
-            "spawns overlapped despite the spawn lock"
+            tokio::time::timeout(std::time::Duration::from_millis(100), async {
+                tokio::join!(&mut first, &mut second)
+            })
+            .await
+            .is_err()
         );
-        drop(log);
+        assert!(manager.pty_manager.terminals.is_empty());
+        drop(guard);
 
+        let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            tokio::join!(first, second)
+        })
+        .await
+        .expect("both starts should complete after releasing the shared spawn lock");
+        first.unwrap();
+        second.unwrap();
+        assert_ne!(manager.pty_id(901).await, manager.pty_id(902).await);
         manager.stop(901).await.unwrap();
         manager.stop(902).await.unwrap();
     }
@@ -686,6 +593,8 @@ pub(crate) mod tests {
             .open_file(11, first.to_str().unwrap(), None, None)
             .await
             .expect("open first file");
+        let first_count = manager.tab_page_count(11).await.unwrap();
+        assert_eq!(first_count, 1, "the initial empty buffer should be reused");
         manager
             .open_file(11, second.to_str().unwrap(), None, None)
             .await
@@ -695,7 +604,7 @@ pub(crate) mod tests {
         // first away and the pane never gained a tab.
         assert_eq!(
             manager.tab_page_count(11).await.unwrap(),
-            2,
+            first_count + 1,
             "each file should get its own tab page"
         );
 
@@ -705,7 +614,7 @@ pub(crate) mod tests {
             .expect("reopen the first file");
         assert_eq!(
             manager.tab_page_count(11).await.unwrap(),
-            2,
+            first_count + 1,
             "reopening an already-open file jumps to its tab instead of duplicating it"
         );
 
@@ -734,6 +643,58 @@ pub(crate) mod tests {
             position,
             (3, 1),
             "line stays 1-indexed, human column 2 becomes 0-indexed 1"
+        );
+        manager.stop(10).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn scheduled_plugin_focus_cannot_redirect_the_requested_cursor() {
+        if !nvim_available_test().await {
+            eprintln!("SKIP: nvim binary not found");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("cursor.txt");
+        std::fs::write(&path, "alpha\nbravo\ncharlie\n").unwrap();
+        let manager = test_manager().await;
+        manager.start(10).await.unwrap();
+        let socket = manager.control_socket_path(10).await.unwrap();
+        let (nvim, io) = nvim_rs::create::tokio::new_path(&socket, Dummy::new())
+            .await
+            .unwrap();
+        let _io = file::RpcTask(io.abort_handle());
+        nvim.exec_lua(
+            r#"
+            vim.api.nvim_create_autocmd('BufEnter', {
+                once = true,
+                callback = function()
+                    vim.schedule(function()
+                        vim.cmd('vnew')
+                        vim.api.nvim_buf_set_name(0, 'test-sidebar')
+                    end)
+                end,
+            })
+        "#,
+            vec![],
+        )
+        .await
+        .unwrap();
+        manager
+            .open_file(10, path.to_str().unwrap(), Some(3), Some(2))
+            .await
+            .unwrap();
+        let expected = std::fs::canonicalize(&path).unwrap();
+        let mut actual = None;
+        for window in nvim.list_wins().await.unwrap() {
+            let buffer = window.get_buf().await.unwrap();
+            if std::path::Path::new(&buffer.get_name().await.unwrap()) == expected {
+                actual = Some(window.get_cursor().await.unwrap());
+            }
+        }
+        assert_eq!(
+            actual,
+            Some((3, 1)),
+            "cursor belongs to the file, not the plugin sidebar"
         );
         manager.stop(10).await.unwrap();
     }
@@ -805,7 +766,7 @@ pub(crate) mod tests {
             let opened = current_buffer_name(&manager, 14).await;
             assert_eq!(
                 opened,
-                file.to_string_lossy(),
+                std::fs::canonicalize(&file).unwrap().to_string_lossy(),
                 "{name} opened the wrong buffer"
             );
         }
