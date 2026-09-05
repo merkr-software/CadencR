@@ -19,7 +19,7 @@ const KEYBOARD_INSET_THRESHOLD = 120;
  * viewport grows past a keyboard-sized threshold, we pin `--app-vh` to the
  * visible height (px) so the shell collapses to the area above the keyboard and
  * the focused input stays in view. The terminal's own ResizeObserver
- * (XTermInstance) refits the PTY to the smaller box, lifting the prompt clear.
+ * (TerminalCoreInstance) refits the PTY to the smaller box, lifting the prompt clear.
  *
  * Below the threshold we drop the override so the CSS unit takes back over.
  * That fallback is deliberate: it never regresses the iOS standalone case,

@@ -21,6 +21,7 @@ use crate::domain::lsp::lifecycle::CrashTracker;
 use crate::domain::lsp::LspRegistry;
 use crate::domain::maintenance::StorageMaintenanceBroadcaster;
 use crate::domain::mcp::loopback::is_loopback_host;
+use crate::domain::neovim::NeovimManager;
 use crate::domain::ports::cache::PortScanCache;
 use crate::domain::push::PushNotifier;
 use crate::domain::schedules::models::ScheduleRanEvent;
@@ -109,6 +110,8 @@ pub struct AppState {
     pub schedule_events_tx: broadcast::Sender<ScheduleRanEvent>,
     /// PTY lifecycle manager for terminal sessions.
     pub pty_manager: PtyManager,
+    /// Neovim RPC manager (stub — RPC surface removed; awaiting PTY migration).
+    pub neovim_manager: NeovimManager,
     /// Broadcast channel for file-system change events.
     pub file_change_tx: broadcast::Sender<FileChangeEvent>,
     /// Broadcast when a settings JSON file changes on disk (our own writes or an
@@ -118,6 +121,10 @@ pub struct AppState {
     /// live preview: the frontend re-fetches and re-injects the theme's tokens
     /// while the user edits the file.
     pub theme_events_tx: broadcast::Sender<crate::domain::themes::ThemesChangeEvent>,
+    /// Broadcast when `alacritty.toml` changes on disk. Drives the frontend
+    /// to re-fetch `GET /api/terminal/alacritty-config` live.
+    pub alacritty_config_events_tx:
+        broadcast::Sender<crate::domain::terminal::alacritty_config::AlacrittyConfigChangedEvent>,
     /// Broadcast when a remote device opens its first live socket. Subscribed
     /// host clients turn this into a "device connected" toast. Emitted once per
     /// device-connection (deduped at the live-session registry), not per socket.
@@ -215,6 +222,13 @@ pub struct AppState {
     /// Shared by the subscription endpoints and the push dispatcher. See
     /// `domain::push`.
     pub push: Arc<PushNotifier>,
+    /// Fallback ANSI palette used when no `alacritty.toml` exists or fails to
+    /// parse. Mirrors the Cadencr Dark theme's xterm palette (copied from
+    /// `packages/desktop/src/lib/themes/cadencr-dark.ts` lines 32-39) so the
+    /// terminal has consistent defaults whether or not the user has a config
+    /// file. The durable fix would be for the frontend to send its palette
+    /// with the request — right now the two will drift.
+    pub fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette,
 }
 
 impl AppState {
@@ -253,6 +267,7 @@ impl AppState {
         let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
+        let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
         let (forge_events_tx, _) = broadcast::channel(64);
@@ -265,8 +280,9 @@ impl AppState {
                 PushNotifier::ephemeral()
             }),
         );
+        let pty_manager = PtyManager::new();
         Self {
-            read_pool,
+            read_pool: read_pool.clone(),
             write_pool,
             db_path,
             browser_bridge: Arc::new(RwLock::new(BrowserBridgeConfig::from_env())),
@@ -278,10 +294,12 @@ impl AppState {
             ),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
             schedule_events_tx,
-            pty_manager: PtyManager::new(),
+            pty_manager: pty_manager.clone(),
+            neovim_manager: NeovimManager::new(pty_manager, read_pool),
             file_change_tx,
             settings_events_tx,
             theme_events_tx,
+            alacritty_config_events_tx,
             remote_events_tx,
             storage_maintenance_events_tx,
             file_watcher: crate::domain::editor::watcher::new_shared(),
@@ -312,6 +330,16 @@ impl AppState {
             import_jobs: ImportJobRegistry::new(),
             remote,
             push,
+            fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette {
+                black: "#1a1b1d".to_string(),
+                red: "#ec707b".to_string(),
+                green: "#8bcf67".to_string(),
+                yellow: "#e2b64d".to_string(),
+                blue: "#6d9bec".to_string(),
+                magenta: "#de7ca7".to_string(),
+                cyan: "#52bfd0".to_string(),
+                white: "#c6c8cc".to_string(),
+            },
         }
     }
 
@@ -328,12 +356,14 @@ impl AppState {
         let (file_change_tx, _) = broadcast::channel(16);
         let (settings_events_tx, _) = broadcast::channel(16);
         let (theme_events_tx, _) = broadcast::channel(16);
+        let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
         let (forge_events_tx, _) = broadcast::channel(64);
+        let pty_manager = PtyManager::new();
         Self {
             read_pool: pool.clone(),
-            write_pool: pool,
+            write_pool: pool.clone(),
             db_path: std::env::temp_dir()
                 .join("cadencr-test.db")
                 .to_string_lossy()
@@ -347,10 +377,12 @@ impl AppState {
             ),
             feature_events_tx: FeatureEventBroadcaster::new(feature_events_tx),
             schedule_events_tx,
-            pty_manager: PtyManager::new(),
+            pty_manager: pty_manager.clone(),
+            neovim_manager: NeovimManager::new(pty_manager, pool),
             file_change_tx,
             settings_events_tx,
             theme_events_tx,
+            alacritty_config_events_tx,
             remote_events_tx,
             storage_maintenance_events_tx,
             file_watcher: crate::domain::editor::watcher::new_shared(),
@@ -385,6 +417,16 @@ impl AppState {
                 data_dir: std::env::temp_dir().join("cadencr-remote-test"),
             })),
             push: Arc::new(PushNotifier::ephemeral()),
+            fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette {
+                black: "#1a1b1d".to_string(),
+                red: "#ec707b".to_string(),
+                green: "#8bcf67".to_string(),
+                yellow: "#e2b64d".to_string(),
+                blue: "#6d9bec".to_string(),
+                magenta: "#de7ca7".to_string(),
+                cyan: "#52bfd0".to_string(),
+                white: "#c6c8cc".to_string(),
+            },
         }
     }
 

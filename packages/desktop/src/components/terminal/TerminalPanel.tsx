@@ -9,7 +9,7 @@ import {
   type TerminalPanelHandle,
   type TerminalPanelProps,
 } from "./useTerminalPanelController";
-import { XTermInstance } from "./XTermInstance";
+import { TerminalCoreInstance } from "@/components/terminal-core";
 
 export type { TerminalPanelHandle } from "./useTerminalPanelController";
 
@@ -86,15 +86,13 @@ function TerminalPortals({
 }) {
   return controller.slots.activeSlots.map(({ leaf, slot }) =>
     createPortal(
-      <XTermInstance
+      <TerminalCoreInstance
         key={leaf.id}
         ref={(handle) => controller.focus.setPaneRef(leaf.id, handle)}
         featureId={props.featureId}
         projectId={props.projectId}
         existingPtyId={leaf.ptyId}
         requestedCwd={props.expectedCwd ?? undefined}
-        theme={controller.xtermPalette}
-        fontFamily={controller.monoFontFamily}
         initialCommand={leaf.initialCommand}
         onInitialCommandConsumed={() => controller.clearInitialCommand(props.featureId, leaf.id)}
         initialNotice={leaf.initialNotice}

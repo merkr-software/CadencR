@@ -27,6 +27,8 @@ use crate::domain::features::routes::features_router;
 use crate::domain::git::routes::git_router;
 use crate::domain::imports::routes::imports_router;
 use crate::domain::lsp::lsp_router;
+use crate::domain::neovim::routes::routes as neovim_routes;
+use crate::domain::neovim::ws::ws_routes as neovim_ws_routes;
 use crate::domain::ports::routes::ports_router;
 use crate::domain::projects::routes::projects_router;
 use crate::domain::schedules::routes::schedules_router;
@@ -198,6 +200,8 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(crate::domain::maintenance::routes::routes())
         .merge(themes_router())
         .merge(prompt_commands_router())
+        .merge(neovim_routes())
+        .merge(neovim_ws_routes())
         // VAPID public key — shared, so the frontend can fetch it on either
         // listener. Subscription management (device-keyed) is remote-only and
         // merged separately in `build_remote_router`.

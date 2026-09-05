@@ -29,6 +29,7 @@ import { mergeFileTreeEntries, useLazyIgnoredFileTreeEntries } from "./lazyIgnor
 import { useFileTreeAgentShortcut } from "./useFileTreeAgentShortcut";
 import { useFileTreeDraft, type DraftKind } from "./useFileTreeDraft";
 import { useFileTreeEntryActions } from "./useFileTreeEntryActions";
+import { type OpenInNeovim, useOpenFileInNeovim } from "./neovim/useOpenFileInNeovim";
 import { useTrackedTreeData } from "./useTrackedTreeData";
 
 export interface FileTreeProps {
@@ -100,6 +101,7 @@ function useFileTreeModel(
   data: FileTreeData,
   editor: EditorState,
   maxTabs: number,
+  openInNeovim: OpenInNeovim | undefined,
 ) {
   const mutations = useFileTreeMutations(props.projectId, props.featureId, data.lazyMode);
   const { model } = useCadencrFileTree({
@@ -140,8 +142,14 @@ function useFileTreeModel(
     onEntriesChange: data.setTrackedLazyEntries,
   });
   const onFileCreated = useCallback(
-    (fsPath: string) => editor.openFile(editor.activePaneId, fsPath, maxTabs),
-    [editor.activePaneId, editor.openFile, maxTabs],
+    (fsPath: string) => {
+      if (openInNeovim) {
+        openInNeovim(fsPath);
+      } else {
+        editor.openFile(editor.activePaneId, fsPath, maxTabs);
+      }
+    },
+    [editor.activePaneId, editor.openFile, maxTabs, openInNeovim],
   );
   const draft = useFileTreeDraft({
     model,
@@ -190,7 +198,12 @@ function useActiveFileReveal(
   }, [activeFilePath, data.lazyMode, data.paths, ensureDirLoaded, modelState.model]);
 }
 
-function useFileTreeMenu(editor: EditorState, modelState: FileTreeModelState, maxTabs: number) {
+function useFileTreeMenu(
+  editor: EditorState,
+  modelState: FileTreeModelState,
+  maxTabs: number,
+  openInNeovim: OpenInNeovim | undefined,
+) {
   const handleAction = useCallback(
     (
       action: "new-file" | "new-folder" | "open" | "copy-path" | "reveal" | "rename" | "delete",
@@ -205,7 +218,11 @@ function useFileTreeMenu(editor: EditorState, modelState: FileTreeModelState, ma
         modelState.draft.startCreate(kind, parentDir);
       } else if (action === "open") {
         context.close();
-        editor.openFile(editor.activePaneId, fsItemPath, maxTabs);
+        if (openInNeovim) {
+          openInNeovim(fsItemPath);
+        } else {
+          editor.openFile(editor.activePaneId, fsItemPath, maxTabs);
+        }
       } else if (action === "copy-path") {
         context.close();
         copyFilePath(fsItemPath);
@@ -220,7 +237,7 @@ function useFileTreeMenu(editor: EditorState, modelState: FileTreeModelState, ma
         modelState.trashPath(item.path);
       }
     },
-    [editor, maxTabs, modelState],
+    [editor, maxTabs, modelState, openInNeovim],
   );
   return useCallback(
     (item: FileTreeContextMenuItem, context: FileTreeContextMenuOpenContext) => (
@@ -230,7 +247,12 @@ function useFileTreeMenu(editor: EditorState, modelState: FileTreeModelState, ma
   );
 }
 
-function useFileTreeClick(editor: EditorState, modelState: FileTreeModelState, maxTabs: number) {
+function useFileTreeClick(
+  editor: EditorState,
+  modelState: FileTreeModelState,
+  maxTabs: number,
+  openInNeovim: OpenInNeovim | undefined,
+) {
   return useCallback(
     (event: React.MouseEvent<HTMLDivElement>): void => {
       if (event.button !== 0 || event.defaultPrevented) return;
@@ -244,9 +266,14 @@ function useFileTreeClick(editor: EditorState, modelState: FileTreeModelState, m
       if (!row || row.getAttribute("data-item-type") !== "file") return;
       const pierrePath = row.getAttribute("data-item-path");
       if (!pierrePath || modelState.draft.isDraftPath(pierrePath)) return;
-      editor.openFile(editor.activePaneId, fromPierrePath(pierrePath), maxTabs);
+      const fsPath = fromPierrePath(pierrePath);
+      if (openInNeovim) {
+        openInNeovim(fsPath);
+      } else {
+        editor.openFile(editor.activePaneId, fsPath, maxTabs);
+      }
     },
-    [editor, maxTabs, modelState.draft],
+    [editor, maxTabs, modelState.draft, openInNeovim],
   );
 }
 
@@ -276,10 +303,11 @@ export function useFileTreeController(props: FileTreeProps) {
   const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
   const maxTabs = useMemo(() => parseInt(maxTabsSetting ?? "10", 10), [maxTabsSetting]);
   const data = useFileTreeData(props.projectId, props.featureId);
-  const modelState = useFileTreeModel(props, data, editor, maxTabs);
+  const openInNeovim = useOpenFileInNeovim(props.featureId);
+  const modelState = useFileTreeModel(props, data, editor, maxTabs, openInNeovim);
   useActiveFileReveal(modelState, data, activeFilePath);
-  const renderContextMenu = useFileTreeMenu(editor, modelState, maxTabs);
-  const handleClick = useFileTreeClick(editor, modelState, maxTabs);
+  const renderContextMenu = useFileTreeMenu(editor, modelState, maxTabs, openInNeovim);
+  const handleClick = useFileTreeClick(editor, modelState, maxTabs, openInNeovim);
   const handleKeyDown = useFileTreeKeyboard(modelState);
   const containerRef = useRef<HTMLDivElement | null>(null);
   useFileTreeAgentShortcut(containerRef, props.featureId);

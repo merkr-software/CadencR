@@ -38,7 +38,7 @@ const AUTO_SAVE_DELAY_MS = 1500;
 
 function useEditorFileData(props: CodeMirrorEditorProps) {
   const language = useEditorLanguage(props.projectId, props.filePath);
-  const { value: vimModeSetting } = useDebouncedSetting("editor_vim_mode");
+  const { value: vimModeLevelSetting } = useDebouncedSetting("editor_vim_mode_level");
   const { value: autoSaveSetting } = useDebouncedSetting("editor_auto_save");
   const { value: gitBlameSetting } = useDebouncedSetting("editor_git_blame");
   const fileQuery = useReadFile(
@@ -96,13 +96,15 @@ function useEditorFileData(props: CodeMirrorEditorProps) {
     filePath: props.filePath,
     enabled: !largeFile.largeMode,
   });
+  const vimModeLevel = vimModeLevelSetting ?? "0";
   return {
     blame,
     fileQuery,
     gitGutter,
     isAutoSaveEnabled: (autoSaveSetting ?? "false") === "true",
     isBlameEnabled,
-    isVimEnabled: (vimModeSetting ?? "false") === "true",
+    // Level 1 keeps using @replit/codemirror-vim, unchanged from before this setting split.
+    isVimEnabled: vimModeLevel === "1",
     language,
     largeFile,
     lsp,

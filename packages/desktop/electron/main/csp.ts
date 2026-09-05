@@ -47,8 +47,8 @@ export function rendererCsp(
   developmentEndpoints: RendererCspDevelopmentEndpoints = resolveRendererCspDevelopment({}),
 ): string {
   const scriptSrc = isPackaged
-    ? "script-src 'self'"
-    : "script-src 'self' 'unsafe-eval' 'unsafe-inline'";
+    ? "script-src 'self' 'wasm-unsafe-eval'"
+    : "script-src 'self' 'unsafe-eval' 'unsafe-inline' 'wasm-unsafe-eval'";
   const connectUrls = connectSources(SIDECAR_URL);
   if (!isPackaged) {
     connectUrls.push(
@@ -56,7 +56,7 @@ export function rendererCsp(
       ...connectSources(developmentEndpoints.rendererUrl),
     );
   }
-  const connectSrc = `connect-src 'self' ${[...new Set(connectUrls)].join(" ")}`;
+  const connectSrc = `connect-src 'self' data: ${[...new Set(connectUrls)].join(" ")}`;
   return [
     "default-src 'self'",
     scriptSrc,

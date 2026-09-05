@@ -19,6 +19,7 @@ const LOGIN_ENV_SENTINEL: &str = "__CADENCR_LOGIN_ENV_START__";
 /// hands us `/usr/bin:/bin:/usr/sbin:/sbin`, the login shell hands us the
 /// user's real path including Homebrew, asdf, mise, etc.
 const ALWAYS_OVERRIDE: &[&str] = &[
+    "SHELL",
     "PATH",
     "MANPATH",
     "INFOPATH",
@@ -99,12 +100,15 @@ pub async fn hydrate_from_login_shell() -> usize {
         return 0;
     }
 
-    let shell = match std::env::var("SHELL") {
-        Ok(s) if !s.is_empty() => s,
-        _ => {
-            tracing::warn!("$SHELL not set; falling back to /bin/zsh for env hydration");
-            "/bin/zsh".to_string()
-        }
+    let shell = match dscl_login_shell().await {
+        Some(s) => s,
+        None => match std::env::var("SHELL") {
+            Ok(s) if !s.is_empty() => s,
+            _ => {
+                tracing::warn!("$SHELL not set and dscl lookup failed; falling back to /bin/zsh for env hydration");
+                "/bin/zsh".to_string()
+            }
+        },
     };
 
     let raw = match capture_login_shell_env(&shell).await {
@@ -115,9 +119,45 @@ pub async fn hydrate_from_login_shell() -> usize {
         }
     };
 
-    let parsed = parse_env_null_separated(&raw);
+    let mut parsed = parse_env_null_separated(&raw);
+    // `$SHELL` is inherited, never recomputed: `env -0` inside `shell -ilc`
+    // reports back whatever SHELL the process already had (launchd's, often
+    // `/bin/bash`), not the shell we just resolved and launched. Overwrite it
+    // explicitly so PTYs spawned via `CommandBuilder::new_default_prog()`
+    // actually get the user's configured login shell.
+    parsed.retain(|(key, _)| key != "SHELL");
+    parsed.push(("SHELL".to_string(), shell));
+
     let written = apply_env(parsed);
     written + crate::shared::ssh_env::hydrate_macos_ssh_auth_sock().await
+}
+
+/// Resolve the user's configured login shell from Directory Services — the
+/// source of truth macOS itself uses for Terminal.app. Independent of
+/// whatever `$SHELL` launchd happened to hand this process, which is why
+/// `capture_login_shell_env` alone can't fix a wrong value: it launches
+/// `$SHELL -ilc '...'`, which just re-runs the same wrong shell.
+async fn dscl_login_shell() -> Option<String> {
+    let user = std::env::var("USER").ok().filter(|s| !s.is_empty())?;
+    let output = tokio::process::Command::new("dscl")
+        .args([".", "-read", &format!("/Users/{user}"), "UserShell"])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_dscl_usershell_output(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// Parses `dscl`'s `UserShell: /opt/homebrew/bin/fish\n` output.
+fn parse_dscl_usershell_output(text: &str) -> Option<String> {
+    let shell = text.strip_prefix("UserShell:")?.trim().to_string();
+    if shell.is_empty() {
+        None
+    } else {
+        Some(shell)
+    }
 }
 
 /// Spawn `$SHELL -ilc '<sentinel>; env -0'`: `-0` preserves multiline values,
@@ -266,9 +306,25 @@ mod tests {
         assert!(is_blocked("_"));
         assert!(is_blocked("CADENCR_DB_PATH"));
         assert!(is_blocked("CADENCR_AUTH_TOKEN"));
+        assert!(!is_blocked("SHELL"));
         assert!(!is_blocked("PATH"));
         assert!(!is_blocked("GPG_TTY"));
         assert!(!is_blocked("HOME"));
+    }
+
+    #[test]
+    fn parses_dscl_usershell_output() {
+        assert_eq!(
+            parse_dscl_usershell_output("UserShell: /opt/homebrew/bin/fish\n"),
+            Some("/opt/homebrew/bin/fish".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_or_empty_dscl_output() {
+        assert_eq!(parse_dscl_usershell_output(""), None);
+        assert_eq!(parse_dscl_usershell_output("no such record"), None);
+        assert_eq!(parse_dscl_usershell_output("UserShell: \n"), None);
     }
 
     #[test]

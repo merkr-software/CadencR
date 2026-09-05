@@ -277,6 +277,8 @@ vi.mock("@/api/generated", () => ({
     mutateAsync: vi.fn().mockResolvedValue({ success: true }),
     isPending: false,
   })),
+  useStartRoute: vi.fn(() => ({ mutateAsync: vi.fn().mockResolvedValue(undefined as never) })),
+  useOpenFileRoute: vi.fn(() => ({ mutateAsync: vi.fn().mockResolvedValue(undefined as never) })),
   getListBranchesQueryKey: vi.fn((params: { project_id: number }) => [
     "listBranches",
     params.project_id,

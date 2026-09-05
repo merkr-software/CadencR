@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use tracing::debug;
+
 use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::models::*;
@@ -117,6 +119,15 @@ pub async fn delete_worktree(
 
     if is_default_worktree_path(&project_path, &wt_path) {
         return Ok(default_worktree_blocked());
+    }
+
+    // A live Neovim has this worktree as its cwd (and may hold swap files in
+    // it), so `git worktree remove` would fail or leave residue. `/api/terminal/
+    // kill` deliberately spares the editor PTY, which makes this the last point
+    // where it can still be torn down. Errors are ignored: not running is the
+    // common case, and a stubborn process should not block the removal.
+    if let Err(error) = state.neovim_manager.stop(params.feature_id).await {
+        debug!(%error, feature_id = params.feature_id, "no neovim to stop before worktree removal");
     }
 
     match commands::remove_worktree(Path::new(&project_path), Path::new(&wt_path), params.force)

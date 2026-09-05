@@ -1,8 +1,13 @@
 import { StrictMode } from "react";
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@/test-utils";
+import { render, screen, fireEvent } from "@/test-utils";
 import { LinkRoutingContext, type LinkRouting } from "./links/LinkRoutingContext";
 import { Markdown } from "./Markdown";
+import { useOpenDiffInEditor } from "./diff/OpenDiffInEditorContext";
+
+vi.mock("./diff/OpenDiffInEditorContext", () => ({
+  useOpenDiffInEditor: vi.fn(),
+}));
 
 const words = (count: number): string =>
   Array.from({ length: count }, (_, i) => `word${i}`).join(" ");
@@ -224,6 +229,27 @@ describe("Markdown", () => {
       const spans = animatedSpans(container);
       expect(spans.length).toBeGreaterThan(20);
       expect(spans.filter((span) => span.style.getPropertyValue("--sd-delay") !== "")).toEqual([]);
+    });
+  });
+
+  describe("file references", () => {
+    it("renders a file:line reference as a clickable link", () => {
+      render(<Markdown content="see src/main.rs:42 for details" />);
+      expect(screen.getByText("src/main.rs:42")).toBeInTheDocument();
+    });
+
+    it("opens the file at the referenced line on click", () => {
+      const openInEditor = vi.fn();
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(openInEditor);
+      render(<Markdown content="see src/main.rs:42 for details" />);
+      fireEvent.click(screen.getByText("src/main.rs:42"));
+      expect(openInEditor).toHaveBeenCalledWith("src/main.rs", 42, undefined);
+    });
+
+    it("does nothing when rendered outside an editor context", () => {
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(undefined);
+      render(<Markdown content="see src/main.rs:42 for details" />);
+      expect(() => fireEvent.click(screen.getByText("src/main.rs:42"))).not.toThrow();
     });
   });
 });

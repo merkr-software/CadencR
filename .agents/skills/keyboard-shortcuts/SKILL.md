@@ -63,7 +63,7 @@ Pick one of the four in `useShortcut.ts`:
 |---|---|
 | `useShortcut(id, cb, opts?)` | Default. Form-aware via `react-hotkeys-hook`. |
 | `useScopedShortcut(id, cb, scope, opts?)` | Form-aware + gated on which feature-workspace tab has focus. |
-| `useGlobalShortcutById(id, cb, opts?)` | Capture-phase — fires before CodeMirror / xterm.js swallow the event. |
+| `useGlobalShortcutById(id, cb, opts?)` | Capture-phase — fires before CodeMirror / the terminal (celeritty) swallow the event. |
 | `useScopedGlobalShortcutById(id, cb, scope, opts?)` | Capture-phase + tab-focus gate. |
 
 Do **not** call `useGlobalShortcut(rawString, …)` directly from a feature

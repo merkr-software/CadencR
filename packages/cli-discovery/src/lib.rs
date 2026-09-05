@@ -173,11 +173,43 @@ pub fn select_best(candidates: &[Candidate]) -> Option<&Candidate> {
     })
 }
 
+/// Detect whether `nvim` is available on this machine.
+///
+/// Reuses the same discovery pipeline (env `$PATH` + cached login-shell
+/// `$PATH` + well-known dirs) as the agent-CLI probes above, so a `nvim`
+/// only visible from a login shell (e.g. installed via Homebrew but Cadencr
+/// launched from Finder/Dock) is found the same way `NeovimManager::start`
+/// will later resolve it when spawning the headless process.
+pub async fn detect_nvim() -> bool {
+    let spec = DiscoverySpec {
+        bin_name: "nvim".to_string(),
+        well_known_relative_to_home: vec![],
+        well_known_absolute: vec![
+            "/opt/homebrew/bin".to_string(),
+            "/usr/local/bin".to_string(),
+        ],
+        version_args: vec!["--version".to_string()],
+        version_must_contain: Some("NVIM".to_string()),
+    };
+    let candidates = discover_all(&spec, None).await;
+    select_best(&candidates).is_some()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tests_support::{dummy_spec, make_executable_with_body};
     use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn detect_nvim_returns_true_when_binary_available() {
+        let expected = std::process::Command::new("nvim")
+            .arg("--version")
+            .output()
+            .is_ok();
+        let detected = detect_nvim().await;
+        assert_eq!(detected, expected);
+    }
 
     #[test]
     fn select_best_picks_highest_version_then_highest_source() {

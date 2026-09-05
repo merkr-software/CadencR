@@ -2,6 +2,7 @@ use axum::extract::{Json, Path, Query, State};
 use axum::routing::{get, post, put};
 use axum::Router;
 use serde::Deserialize;
+use tracing::debug;
 
 use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
@@ -135,6 +136,13 @@ pub async fn delete_feature_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
+    // `/api/terminal/kill` spares the editor PTY on purpose (it doubles as the
+    // sidebar's "close activity" action), so a deleted feature would otherwise
+    // leave its Neovim running against rows that no longer exist. Not running is
+    // the common case, hence the ignored error.
+    if let Err(error) = state.neovim_manager.stop(id).await {
+        debug!(%error, feature_id = id, "no neovim to stop before feature deletion");
+    }
     service::delete_feature(&state.write_pool, &state.read_pool, id).await?;
     state
         .feature_events_tx

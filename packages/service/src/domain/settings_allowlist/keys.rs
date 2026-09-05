@@ -196,6 +196,8 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // canonical key constants to keep this allowlist in sync with their source.
     crate::remote::REMOTE_ENABLED_SETTING,
     crate::remote::REMOTE_TUNNEL_HOST_SETTING,
+    // Neovim Power Mode intensity (Phase 1a). One of "off", "basic", "arcade".
+    "editor_vim_mode_level",
 ];
 
 /// Prefixes whose suffix is a free-form `<provider>_<model-id>` identifier.
@@ -208,3 +210,18 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
 /// any non-empty suffix and reject only whitespace/control characters (which no
 /// real model id contains) rather than maintaining a brittle character set.
 pub(super) const WORKSPACE_MODEL_PREFIXES: &[&str] = &["thinking_effort_model_"];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn editor_vim_mode_level_is_in_workspace_allowlist() {
+        assert!(
+            WORKSPACE_ALLOWED_KEYS
+                .iter()
+                .any(|&k| k == "editor_vim_mode_level"),
+            "editor_vim_mode_level must be in WORKSPACE_ALLOWED_KEYS"
+        );
+    }
+}

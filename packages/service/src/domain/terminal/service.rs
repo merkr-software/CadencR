@@ -38,6 +38,17 @@ impl ScrollbackBuffer {
     }
 }
 
+/// What a PTY is used for. Every PTY lives in the same `PtyManager` map keyed
+/// only by feature, so listing/killing "a feature's terminals" must filter on
+/// this — otherwise a feature's Neovim process (its own PTY, tagged with the
+/// same `feature_id`) gets surfaced to a client asking for shell sessions to
+/// attach to, or killed by a "close all terminals" action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PtyKind {
+    Terminal,
+    Neovim,
+}
+
 /// Handle for a single PTY session.
 pub struct PtyHandle {
     pub master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
@@ -57,6 +68,7 @@ pub struct PtyHandle {
     /// new one — the broadcast channel already supports multiple subscribers.
     pub feature_id: i64,
     pub shell_process_group_leader: Option<i32>,
+    pub kind: PtyKind,
 }
 
 /// A live PTY belonging to a feature, surfaced so another client can attach.
@@ -98,6 +110,29 @@ impl PtyManager {
         cols: u16,
         rows: u16,
     ) -> anyhow::Result<(String, Arc<PtyHandle>)> {
+        self.create_pty_with_command(
+            feature_id,
+            CommandBuilder::new_default_prog(),
+            cwd,
+            cols,
+            rows,
+            PtyKind::Terminal,
+        )
+    }
+
+    /// Spawn a new PTY running `cmd`. The caller supplies the program and its
+    /// arguments; this method still applies the environment every Cadencr PTY
+    /// gets — working directory, `TERM`, and removal of the service launch
+    /// token — so a caller-supplied command can never inherit it.
+    pub fn create_pty_with_command(
+        &self,
+        feature_id: i64,
+        mut cmd: CommandBuilder,
+        cwd: &str,
+        cols: u16,
+        rows: u16,
+        kind: PtyKind,
+    ) -> anyhow::Result<(String, Arc<PtyHandle>)> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
             rows,
@@ -106,13 +141,10 @@ impl PtyManager {
             pixel_height: 0,
         })?;
 
-        let mut cmd = CommandBuilder::new_default_prog();
         cmd.cwd(cwd);
         cmd.env_remove(crate::shared::security::SERVICE_AUTH_TOKEN_ENV);
-        // Ensure the shell knows it's running inside an xterm-compatible terminal.
-        // Without this, programs (e.g. zsh-autosuggestions) emit wrong escape
-        // sequences, causing duplicate/garbled output.  node-pty set this
-        // automatically; portable_pty does not.
+        // Ensure the program knows it's running inside an xterm-compatible
+        // terminal. Without this, programs emit wrong escape sequences.
         cmd.env("TERM", "xterm-256color");
 
         let mut child = pair.slave.spawn_command(cmd)?;
@@ -142,6 +174,7 @@ impl PtyManager {
             cwd: cwd.to_string(),
             feature_id,
             shell_process_group_leader,
+            kind,
         });
 
         self.terminals.insert(pty_id.clone(), Arc::clone(&handle));
@@ -254,7 +287,9 @@ impl PtyManager {
             .terminals
             .iter()
             .filter(|entry| {
-                entry.value().feature_id == feature_id && entry.value().alive.borrow().is_none()
+                entry.value().feature_id == feature_id
+                    && entry.value().kind == PtyKind::Terminal
+                    && entry.value().alive.borrow().is_none()
             })
             .map(|entry| entry.key().clone())
             .collect::<Vec<_>>();
@@ -305,7 +340,7 @@ impl PtyManager {
         feature_id: i64,
     ) -> Option<PtyReconnect> {
         let handle = self.terminals.get(pty_id)?;
-        if handle.feature_id != feature_id {
+        if handle.feature_id != feature_id || handle.kind != PtyKind::Terminal {
             return None;
         }
         let alive = handle.alive.borrow().is_none();
@@ -336,7 +371,9 @@ impl PtyManager {
     pub fn feature_ptys(&self, feature_id: i64) -> Vec<PtySession> {
         self.terminals
             .iter()
-            .filter(|entry| entry.value().feature_id == feature_id)
+            .filter(|entry| {
+                entry.value().feature_id == feature_id && entry.value().kind == PtyKind::Terminal
+            })
             .map(|entry| PtySession {
                 pty_id: entry.key().clone(),
                 cwd: entry.value().cwd.clone(),
@@ -422,6 +459,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn feature_ptys_excludes_neovim_ptys() {
+        // A feature's Neovim process is spawned through this same manager
+        // (`NeovimManager::start` calls `create_pty_with_command` too), tagged
+        // with the same `feature_id` as its terminal shells. If it leaked into
+        // `feature_ptys`, a client listing "this feature's terminal sessions"
+        // to attach to would adopt Neovim's raw PTY as a shell — which is
+        // exactly what made a fresh Terminal tab show Neovim's own screen.
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let (shell_id, _) = manager.create_pty(7, &cwd, 80, 24).expect("spawn shell");
+        let mut nvim_cmd = CommandBuilder::new("/bin/sh");
+        nvim_cmd.arg("-c");
+        nvim_cmd.arg("sleep 60");
+        let (nvim_id, _) = manager
+            .create_pty_with_command(7, nvim_cmd, &cwd, 80, 24, PtyKind::Neovim)
+            .expect("spawn neovim-tagged pty");
+
+        let sessions = manager.feature_ptys(7);
+        assert_eq!(sessions.len(), 1, "only the terminal shell is listed");
+        assert_eq!(sessions[0].pty_id, shell_id);
+        assert!(!sessions.iter().any(|s| s.pty_id == nvim_id));
+
+        assert!(
+            manager.reconnect_for_feature(&nvim_id, 7).is_none(),
+            "reconnecting to a Neovim-tagged pty via the terminal socket must be refused"
+        );
+
+        manager.kill_all();
+    }
+
+    #[tokio::test]
     async fn kill_feature_ptys_only_kills_that_feature() {
         let manager = PtyManager::new();
         let cwd = temp_existing_dir();
@@ -442,6 +510,31 @@ mod tests {
 
         // The other feature's shell is untouched, so its child is still running.
         assert_eq!(manager.feature_ptys(99).len(), 1, "other feature untouched");
+
+        manager.kill_all();
+    }
+
+    #[tokio::test]
+    async fn kill_feature_ptys_leaves_neovim_running() {
+        // "Close all terminals" (sidebar action, feature archive/delete) must
+        // not take the feature's Neovim process down with it.
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let (_shell_id, _) = manager.create_pty(7, &cwd, 80, 24).expect("spawn shell");
+        let mut nvim_cmd = CommandBuilder::new("/bin/sh");
+        nvim_cmd.arg("-c");
+        nvim_cmd.arg("sleep 60");
+        let (nvim_id, _) = manager
+            .create_pty_with_command(7, nvim_cmd, &cwd, 80, 24, PtyKind::Neovim)
+            .expect("spawn neovim-tagged pty");
+
+        let killed = manager.kill_feature_ptys(7);
+        assert_eq!(killed, 1, "only the terminal shell is killed");
+        assert_eq!(
+            manager.get_cwd(&nvim_id),
+            Some(cwd.clone()),
+            "the neovim-tagged pty is still tracked, i.e. was never killed"
+        );
 
         manager.kill_all();
     }
@@ -501,6 +594,51 @@ mod tests {
         assert!(
             saw_login_shell,
             "PTY shell should be started as a login shell"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_pty_with_command_runs_the_supplied_program() {
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("printf 'CADENCR_CUSTOM_CMD=ran\\n'");
+
+        let (pty_id, handle) = manager
+            .create_pty_with_command(11, cmd, &cwd, 80, 24, PtyKind::Terminal)
+            .expect("custom-command PTY should spawn");
+
+        assert_eq!(handle.feature_id, 11);
+        let saw_output = wait_for_scrollback(&manager, &pty_id, "CADENCR_CUSTOM_CMD=ran").await;
+        manager.kill_all();
+        assert!(
+            saw_output,
+            "the supplied command should have run in the PTY"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_pty_with_command_still_scrubs_the_service_auth_token() {
+        let _guard = crate::shared::test_env::async_env_lock().lock().await;
+        let _auth =
+            crate::shared::test_env::EnvVarGuard::set("CADENCR_AUTH_TOKEN", "service-secret");
+
+        let manager = PtyManager::new();
+        let cwd = temp_existing_dir();
+        let mut cmd = CommandBuilder::new("/bin/sh");
+        cmd.arg("-c");
+        cmd.arg("printf 'AUTH=%s\\n' \"${CADENCR_AUTH_TOKEN-unset}\"");
+
+        let (pty_id, _) = manager
+            .create_pty_with_command(12, cmd, &cwd, 80, 24, PtyKind::Terminal)
+            .expect("custom-command PTY should spawn");
+
+        let scrubbed = wait_for_scrollback(&manager, &pty_id, "AUTH=unset").await;
+        manager.kill_all();
+        assert!(
+            scrubbed,
+            "a caller-supplied command must not inherit the service launch token"
         );
     }
 

@@ -12,14 +12,7 @@
     "src/**/*.{ts,tsx}"
   ],
   "ignoreBinaries": [
-    "oxlint",
     "oxfmt",
-    "vitest",
-    "tsc",
-    "knip",
-    "orval",
-    "electron-vite",
-    "electron-builder",
     "security",
     "spctl",
     "xcrun"
@@ -27,12 +20,9 @@
   "ignoreDependencies": [
     "autoprefixer",
     "postcss",
-    "oxlint",
     "tailwindcss",
-    "@vitest/coverage-v8",
-    "orval",
     "@fontsource-variable/inter",
-    "electron-builder",
+    "streamdown",
     "tw-animate-css"
   ],
   "tags": [

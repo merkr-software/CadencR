@@ -39,6 +39,7 @@ pub mod imports;
 pub mod lsp;
 pub mod maintenance;
 pub mod mcp;
+pub mod neovim;
 pub mod permission_bridge;
 pub mod ports;
 pub mod projects;

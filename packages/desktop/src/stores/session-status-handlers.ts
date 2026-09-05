@@ -10,7 +10,11 @@ import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
 import { scheduleSettingsInvalidation } from "@/lib/settingsInvalidation";
 import { scheduleThemeInvalidation } from "@/lib/themeInvalidation";
-import { getListFeaturesQueryKey, type Feature } from "@/api/generated";
+import {
+  getAlacrittyConfigRouteQueryKey,
+  getListFeaturesQueryKey,
+  type Feature,
+} from "@/api/generated";
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
@@ -301,6 +305,7 @@ export function handleAppEnvelope(
     scheduleSettingsInvalidation(queryClient);
     return true;
   }
+
   if (domain === "app" && action === "schedule_event") {
     // A schedule ran: its `next_run_at`, run count and last-run badge all moved
     // server-side, and nothing this client did says so. The conversation lists
@@ -318,6 +323,14 @@ export function handleAppEnvelope(
     // The same file holds the label the theme's project is named after, so the
     // sidebar's list is refetched with it.
     scheduleThemeInvalidation(queryClient);
+    return true;
+  }
+  if (domain === "app" && action === "alacritty_config_event") {
+    // `~/.config/alacritty/alacritty.toml` changed on disk. The envelope
+    // carries no payload — same "ping, then re-fetch" convention as
+    // settings_event — so this just invalidates the one query that reads it;
+    // `useTerminalOptions` re-resolves from the refetched response.
+    void queryClient.invalidateQueries({ queryKey: getAlacrittyConfigRouteQueryKey() });
     return true;
   }
   if (domain === "app" && action === "feature_event") {

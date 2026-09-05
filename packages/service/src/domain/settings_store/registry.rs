@@ -122,6 +122,9 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         "git_diff_view_mode" => {
             SettingSpec::new(ValueKind::Enum(&["unified", "split"]), Some("unified"))
         }
+        "editor_vim_mode_level" => {
+            SettingSpec::new(ValueKind::Enum(&["0", "1", "2", "3"]), Some("0"))
+        }
         "agent_stream_verbosity_mode" => SettingSpec::new(
             ValueKind::Enum(&["maximal", "auto_collapse", "collapsed", "compact"]),
             None,
@@ -249,6 +252,17 @@ mod tests {
             );
             assert!(project_spec(key).is_some(), "{key} missing project spec");
         }
+    }
+
+    #[test]
+    fn editor_vim_mode_level_accepts_0_to_3_and_rejects_others() {
+        let spec = workspace_spec("editor_vim_mode_level").expect("key must be registered");
+        assert_eq!(spec.default, Some("0"));
+        for valid in ["0", "1", "2", "3"] {
+            assert!(spec.is_valid(valid), "expected {valid} to be valid");
+        }
+        assert!(!spec.is_valid("4"));
+        assert!(!spec.is_valid("true"));
     }
 
     #[test]

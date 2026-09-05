@@ -255,6 +255,13 @@ async fn main() -> anyhow::Result<()> {
                 state.theme_events_tx.clone(),
             ));
 
+            // Watch alacritty.toml so external edits push a live refresh to
+            // connected clients, the same way the settings watcher above does
+            // for the settings directory.
+            domain::terminal::alacritty_config::start_watcher(
+                state.alacritty_config_events_tx.clone(),
+            );
+
             // Background Web Push dispatcher: turns agent finished / needs-input
             // transitions into native push for backgrounded remote PWAs. Cheap
             // when no subscriptions exist; runs for the process lifetime.

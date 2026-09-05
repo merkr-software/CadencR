@@ -56,4 +56,16 @@ export const TERMINAL_SHORTCUTS = [
     scope: "terminal",
   },
   { id: "terminal-close", keys: ["mod", "w"], description: "Close pane", scope: "terminal" },
+  {
+    id: "terminal-copy",
+    keys: ["mod", "c"],
+    description: "Copy selection",
+    scope: "terminal",
+  },
+  {
+    id: "terminal-paste",
+    keys: ["mod", "v"],
+    description: "Paste",
+    scope: "terminal",
+  },
 ] as const satisfies readonly Shortcut[];

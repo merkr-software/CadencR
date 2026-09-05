@@ -23,6 +23,8 @@ use crate::domain::features::routes as features_routes;
 use crate::domain::imports::models as imports_models;
 use crate::domain::imports::routes as imports_routes;
 use crate::domain::lsp::routes as lsp_routes;
+use crate::domain::neovim::protocol as neovim_protocol;
+use crate::domain::neovim::routes as neovim_routes;
 use crate::domain::ports::models as ports_models;
 use crate::domain::ports::routes as ports_routes;
 use crate::domain::projects::icon as projects_icon;
@@ -37,6 +39,7 @@ use crate::domain::schedules::recurrence as schedules_recurrence;
 use crate::domain::schedules::routes as schedules_routes;
 use crate::domain::sessions::models as sessions_models;
 use crate::domain::sessions::routes as sessions_routes;
+use crate::domain::terminal::alacritty_config as terminal_alacritty_config;
 use crate::domain::terminal::routes as terminal_routes;
 use crate::domain::themes::chrome as themes_chrome;
 use crate::domain::themes::models as themes_models;
@@ -162,6 +165,7 @@ use crate::domain::ws_session::routes as ws_routes;
         sessions_routes::get_message_preview_handler,
         terminal_routes::list_terminal_sessions_handler,
         terminal_routes::kill_terminal_sessions_handler,
+        terminal_routes::alacritty_config_route,
         super::get_agent_catalog,
         super::get_agent_selection,
         discovery_routes::binary_discovery_handler,
@@ -210,6 +214,10 @@ use crate::domain::ws_session::routes as ws_routes;
         push_routes::vapid_key_handler,
         push_routes::subscribe_handler,
         push_routes::unsubscribe_handler,
+        neovim_routes::start_route,
+        neovim_routes::stop_route,
+        neovim_routes::detect_route,
+        neovim_routes::open_file_route,
     ),
     components(schemas(
         HealthResponse,
@@ -393,9 +401,6 @@ use crate::domain::ws_session::routes as ws_routes;
         diff_comments_models::UpdateDiffCommentRequest,
         diff_comments_models::UpdatedResponse,
         diff_comments_models::DeletedResponse,
-        diff_comments_models::DiffViewedFile,
-        diff_comments_models::MarkViewedRequest,
-        diff_comments_routes::SuccessResponse,
         sessions_models::AgentSessionRow,
         sessions_models::AgentBlock,
         sessions_models::SessionState,
@@ -413,6 +418,17 @@ use crate::domain::ws_session::routes as ws_routes;
         sessions_models::RefreshSessionResponse,
         terminal_routes::TerminalSessionInfo,
         terminal_routes::KillTerminalsResponse,
+        terminal_alacritty_config::AlacrittyConfigResponse,
+        terminal_alacritty_config::AlacrittyConfig,
+        terminal_alacritty_config::FontConfig,
+        terminal_alacritty_config::FontFace,
+        terminal_alacritty_config::ColorsConfig,
+        terminal_alacritty_config::PrimaryColors,
+        terminal_alacritty_config::CursorColors,
+        terminal_alacritty_config::AnsiPalette,
+        terminal_alacritty_config::CursorConfig,
+        terminal_alacritty_config::CursorStyle,
+        terminal_alacritty_config::ScrollingConfig,
         claude_code_routes::ProfileView,
         claude_code_routes::ProfilesResponse,
         claude_code_routes::UpsertProfileRequest,
@@ -454,6 +470,9 @@ use crate::domain::ws_session::routes as ws_routes;
         push_models::PushUnsubscribeRequest,
         push_models::PushSubscriptionKeys,
         push_models::PushSubscriptionResponse,
+        neovim_protocol::NeovimStartResponse,
+        neovim_protocol::NeovimDetectResponse,
+        neovim_protocol::OpenFileRequest,
         ws_protocol::WsSessionAction,
         ws_protocol::PermissionDecision,
         ws_protocol::SessionInitPayload,

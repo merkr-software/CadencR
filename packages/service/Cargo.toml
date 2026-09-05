@@ -16,6 +16,7 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
+toml = "0.8"
 serde_json = "1"
 semver = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
@@ -40,7 +41,7 @@ reqwest = { version = "0.12", features = ["json", "stream"] }
 rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-io", "elicitation"] }
 dashmap = "6"
 libc = "0.2"
-portable-pty = "0.9"
+portable-pty = { path = "vendor/portable-pty" }
 percent-encoding = "2"
 ignore = "0.4"
 nucleo-matcher = "0.3"
@@ -74,6 +75,8 @@ if-addrs = "0.15"
 web-push = { version = "0.11", default-features = false, features = ["hyper-client"] }
 jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
 chrono-tz = { version = "0.10.4", features = ["serde"] }
+nvim-rs = { version = "0.6", features = ["use_tokio"] }
+rmpv = "1"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

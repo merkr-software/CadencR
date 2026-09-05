@@ -1,4 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+
+/**
+ * `@webgpu/types` (referenced globally in vite-env.d.ts for the terminal
+ * renderer) merges a `getContext("webgpu")` overload onto HTMLCanvasElement.
+ * TS collapses overloaded methods to their last signature when inferred
+ * generically, so `vi.spyOn(..., "getContext")` types as the WebGPU overload
+ * unless narrowed explicitly here.
+ */
+type GetContext2d = (contextId: "2d") => CanvasRenderingContext2D | null;
+
+function spyOnGetContext2d(): Mock<GetContext2d> {
+  return vi.spyOn(HTMLCanvasElement.prototype, "getContext") as unknown as Mock<GetContext2d>;
+}
 
 /** Make the next canvas 2d context return `widthFor(char)` from measureText. */
 function stubCanvasContext(widthFor: (char: string) => number): void {
@@ -6,7 +19,7 @@ function stubCanvasContext(widthFor: (char: string) => number): void {
     font: "",
     measureText: (text: string) => ({ width: widthFor(text) }),
   } as unknown as CanvasRenderingContext2D;
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx);
+  spyOnGetContext2d().mockReturnValue(ctx);
 }
 
 async function loadIsMonospace(): Promise<(family: string) => boolean> {
@@ -34,7 +47,7 @@ describe("isMonospace", () => {
   });
 
   it("returns false when no 2d context is available", async () => {
-    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    spyOnGetContext2d().mockReturnValue(null);
     const isMonospace = await loadIsMonospace();
     expect(isMonospace("Whatever")).toBe(false);
   });
@@ -44,10 +57,7 @@ describe("isMonospace", () => {
       font: "",
       measureText: () => ({ width: 9.6 }),
     } as unknown as CanvasRenderingContext2D;
-    const getContext = vi
-      .spyOn(HTMLCanvasElement.prototype, "getContext")
-      .mockReturnValueOnce(null)
-      .mockReturnValue(context);
+    const getContext = spyOnGetContext2d().mockReturnValueOnce(null).mockReturnValue(context);
     const isMonospace = await loadIsMonospace();
     const callsBeforeChecks = getContext.mock.calls.length;
 
@@ -57,7 +67,7 @@ describe("isMonospace", () => {
   });
 
   it("reuses one canvas context across font checks", async () => {
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    const getContext = spyOnGetContext2d().mockReturnValue({
       font: "",
       measureText: () => ({ width: 9.6 }),
     } as unknown as CanvasRenderingContext2D);

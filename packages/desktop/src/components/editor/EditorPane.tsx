@@ -7,12 +7,16 @@ import EditorSubTabs from "./EditorSubTabs";
 import { copyFilePath } from "./copyFilePath";
 import { clearPaneSearch } from "./editor-search/search-cache";
 import { useActiveConflict } from "./useAutoConflictResolution";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useVimModeLevel } from "@/hooks/useVimModeLevel";
+import NeovimMobileFallback from "./neovim/NeovimMobileFallback";
 
 const CodeMirrorEditor = lazy(() => import("./CodeMirrorEditor"));
 const ConflictResolverEditor = lazy(() => import("./ConflictResolverEditor"));
 const UntitledCodeMirrorEditor = lazy(() => import("./UntitledCodeMirrorEditor"));
 const ImageFileViewer = lazy(() => import("./ImageFileViewer"));
 const ExcalidrawEditor = lazy(() => import("./ExcalidrawEditor"));
+const NeovimPane = lazy(() => import("./neovim/NeovimPane"));
 
 interface EditorPaneProps {
   featureId: number;
@@ -206,6 +210,9 @@ export default function EditorPane({
     openUntitledBuffer,
     paneId,
   });
+  const vimModeLevel = useVimModeLevel();
+  const isMobile = useIsMobile();
+  const isFullNeovim = vimModeLevel === "2" && !isMobile;
   return (
     <div
       className="flex flex-col h-full"
@@ -213,24 +220,33 @@ export default function EditorPane({
         if (!isActive) setActivePane(featureId, paneId);
       }}
     >
-      <EditorSubTabs featureId={featureId} paneId={paneId} projectId={projectId} />
-      <div className="flex-1 overflow-hidden">
-        {activeFilePath ? (
-          <EditorPaneContent
-            activeConflict={activeConflict}
-            activeFilePath={activeFilePath}
-            controls={controls}
-            featureId={featureId}
-            onEditorViewChange={onEditorViewChange}
-            paneId={paneId}
-            projectId={projectId}
-          />
-        ) : (
-          <div className="flex items-center justify-center h-full px-4 text-muted-foreground text-sm text-center text-balance">
-            Open a file from the sidebar, press CMD+N for a new buffer, or use CMD+P
+      {isFullNeovim ? (
+        <Suspense fallback={suspenseFallback}>
+          <NeovimPane featureId={featureId} />
+        </Suspense>
+      ) : (
+        <>
+          {vimModeLevel === "2" && isMobile && <NeovimMobileFallback />}
+          <EditorSubTabs featureId={featureId} paneId={paneId} projectId={projectId} />
+          <div className="flex-1 overflow-hidden">
+            {activeFilePath ? (
+              <EditorPaneContent
+                activeConflict={activeConflict}
+                activeFilePath={activeFilePath}
+                controls={controls}
+                featureId={featureId}
+                onEditorViewChange={onEditorViewChange}
+                paneId={paneId}
+                projectId={projectId}
+              />
+            ) : (
+              <div className="flex items-center justify-center h-full px-4 text-muted-foreground text-sm text-center text-balance">
+                Open a file from the sidebar, press CMD+N for a new buffer, or use CMD+P
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

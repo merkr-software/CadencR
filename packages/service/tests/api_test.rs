@@ -376,3 +376,6 @@ async fn test_terminal_ws_rejects_cross_origin() {
     .unwrap();
     assert_eq!(resp.status(), reqwest::StatusCode::FORBIDDEN);
 }
+
+// Neovim level-2 HTTP routes (start/stop/push/pull) were removed along with
+// the RPC-driven editor surface; PTY-based routes land in a follow-up plan.

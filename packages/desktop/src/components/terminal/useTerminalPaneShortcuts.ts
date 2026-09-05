@@ -1,12 +1,12 @@
 import type { RefObject } from "react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import type { SplitOrientation } from "@/hooks/useTerminalState";
-import type { XTermInstanceHandle } from "./XTermInstance";
+import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
 
 interface UseTerminalPaneShortcutsParams {
   hotkeysEnabled: boolean;
   resolvedActivePaneId: string | null;
-  paneRefs: RefObject<Map<string, XTermInstanceHandle>>;
+  paneRefs: RefObject<Map<string, TerminalCoreInstanceHandle>>;
   onSplit: (orientation: SplitOrientation) => void;
   onNavigate: (direction: "left" | "right" | "up" | "down") => void;
   onClose: (paneId: string) => void;
@@ -137,4 +137,52 @@ export function useTerminalPaneShortcuts({
   useTerminalSplitShortcuts(onSplit, options);
   useTerminalNavigationShortcuts(onNavigate, options);
   useTerminalActionShortcuts({ resolvedActivePaneId, paneRefs, onClose, options });
+}
+
+interface UseTerminalCopyPasteShortcutsParams {
+  hotkeysEnabled: boolean;
+  resolvedActivePaneId: string | null;
+  onCopy: (paneId: string) => void;
+  onPaste: (paneId: string) => void;
+}
+
+/**
+ * Copy/paste live outside `useTerminalPaneShortcuts` because the callbacks
+ * (`copyPaneSelection`/`pasteIntoPane`) are only defined once the terminal
+ * store's clipboard actions exist, in a later hook than the split/navigate/
+ * close set — see `useTerminalPanelController`'s `runtime` vs `layout` split.
+ *
+ * The terminal draws to a WebGPU canvas, not a DOM text node, so there is no
+ * browser selection for the OS's native Cmd+C/Cmd+V to act on — these are
+ * what actually move bytes for a terminal pane.
+ */
+export function useTerminalCopyPasteShortcuts({
+  hotkeysEnabled,
+  resolvedActivePaneId,
+  onCopy,
+  onPaste,
+}: UseTerminalCopyPasteShortcutsParams): void {
+  const options = { enabled: hotkeysEnabled };
+  useScopedGlobalShortcutById(
+    "terminal-copy",
+    (event) => {
+      if (!resolvedActivePaneId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCopy(resolvedActivePaneId);
+    },
+    "terminal",
+    options,
+  );
+  useScopedGlobalShortcutById(
+    "terminal-paste",
+    (event) => {
+      if (!resolvedActivePaneId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onPaste(resolvedActivePaneId);
+    },
+    "terminal",
+    options,
+  );
 }

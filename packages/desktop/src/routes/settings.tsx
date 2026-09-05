@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useShortcut } from "@/hooks/useShortcut";
-import { ArrowLeft, ChevronRight, Files, History, Keyboard, Save, Settings2 } from "lucide-react";
+import { ArrowLeft, ChevronRight, Files, History, Save, Settings2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -34,6 +34,8 @@ import { IconTile } from "@/components/settings/IconTile";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { APP_VERSION } from "@/lib/app-version";
 import { RuntimeSettingsSection } from "@/components/settings/RuntimeSettingsSection";
+import { RadioCardGroup, type RadioCardOption } from "@/components/settings/RadioCardGroup";
+import { parseVimModeLevel, type VimModeLevel } from "@/lib/vim-mode-level";
 
 export const Route = createFileRoute("/settings")({
   component: SettingsPage,
@@ -248,12 +250,34 @@ function MaxOpenTabsControl(): React.JSX.Element {
   );
 }
 
+function useVimModeLevelOptions(): RadioCardOption<VimModeLevel>[] {
+  return [
+    {
+      value: "0",
+      label: "Off",
+      description: "Standard editing, no vim motions.",
+    },
+    {
+      value: "1",
+      label: "Vim motion",
+      description: "Modal editing via the built-in vim emulation.",
+    },
+    {
+      value: "2",
+      label: "Full Neovim",
+      description:
+        "A real Neovim instance with your own config, plugins and UI, rendered in the editor panel.",
+    },
+  ];
+}
+
 function EditorSection(): React.JSX.Element {
-  const vimMode = useDebouncedSetting("editor_vim_mode");
+  const vimModeLevel = useDebouncedSetting("editor_vim_mode_level");
   const autoSave = useDebouncedSetting("editor_auto_save");
   const gitBlame = useDebouncedSetting("editor_git_blame");
+  const vimModeLevelOptions = useVimModeLevelOptions();
 
-  const isVimEnabled = (vimMode.value ?? "false") === "true";
+  const currentVimModeLevel = parseVimModeLevel(vimModeLevel.value);
   const isAutoSaveEnabled = (autoSave.value ?? "false") === "true";
   const isGitBlameEnabled = (gitBlame.value ?? "false") === "true";
 
@@ -272,15 +296,19 @@ function EditorSection(): React.JSX.Element {
         >
           <LspServerList />
         </SettingsSubsection>
-        <SettingsSubsection padded={false}>
-          <SettingsSwitchRow
-            icon={<Keyboard className="size-4" />}
-            iconTint="cyan"
-            label="Vim motions"
-            description="Modal editing in the built-in code editor."
-            checked={isVimEnabled}
-            onCheckedChange={(checked) => vimMode.setValue(checked ? "true" : "false")}
+        <SettingsSubsection
+          title="Vim mode"
+          description="Choose how vim motions apply to the built-in code editor."
+        >
+          <RadioCardGroup<VimModeLevel>
+            ariaLabel="Vim mode level"
+            value={currentVimModeLevel}
+            onChange={(next) => vimModeLevel.setValue(next)}
+            options={vimModeLevelOptions}
+            layout="stack"
           />
+        </SettingsSubsection>
+        <SettingsSubsection padded={false}>
           <SettingsSwitchRow
             icon={<Save className="size-4" />}
             iconTint="green"

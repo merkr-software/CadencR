@@ -21,6 +21,10 @@ import { CodeBlockShell } from "@/components/CodeBlockShell";
 import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
 import { useLinkRouting, type LinkRouting } from "@/components/links/LinkRoutingContext";
 import { parseConversationReferenceHref } from "@/components/prompt-editor/conversation-reference";
+import { parseFileReferenceHref } from "@/components/prompt-editor/file-reference";
+import { fileReferenceRemarkPlugin } from "@/components/prompt-editor/file-reference-remark-plugin";
+import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
+import { defaultRemarkPlugins } from "streamdown";
 import "./dracula-highlight.css";
 
 type RehypePlugins = NonNullable<StreamdownProps["rehypePlugins"]>;
@@ -43,6 +47,15 @@ function MarkdownLink({
   children: React.ReactNode;
 }): ReactElement {
   const routing = useLinkRouting();
+  const openInEditor = useOpenDiffInEditor();
+  const fileReference = href ? parseFileReferenceHref(href) : null;
+  if (href && fileReference !== null) {
+    return (
+      <FileReferenceLink reference={fileReference} openInEditor={openInEditor}>
+        {children}
+      </FileReferenceLink>
+    );
+  }
   const conversationFeatureId = href ? parseConversationReferenceHref(href) : null;
   if (href && conversationFeatureId !== null) {
     return (
@@ -106,6 +119,29 @@ function ConversationReferenceLink({
           aria-label="Opening conversation"
         />
       )}
+    </a>
+  );
+}
+
+function FileReferenceLink({
+  reference,
+  openInEditor,
+  children,
+}: {
+  reference: { path: string; line?: number; col?: number };
+  openInEditor: ReturnType<typeof useOpenDiffInEditor>;
+  children: React.ReactNode;
+}): ReactElement {
+  return (
+    <a
+      href="#"
+      className="rounded-sm font-semibold text-[var(--acc-cyan)] underline decoration-[var(--acc-cyan)]/50 underline-offset-2 hover:bg-[var(--acc-cyan)]/10"
+      onClick={(event) => {
+        event.preventDefault();
+        openInEditor?.(reference.path, reference.line, reference.col);
+      }}
+    >
+      {children}
     </a>
   );
 }
@@ -364,7 +400,9 @@ function preprocessContent(raw: string): string {
 }
 
 const markdownUrlTransform: UrlTransform = (url, key, node) =>
-  parseConversationReferenceHref(url) === null ? defaultUrlTransform(url, key, node) : url;
+  parseConversationReferenceHref(url) === null && parseFileReferenceHref(url) === null
+    ? defaultUrlTransform(url, key, node)
+    : url;
 
 /**
  * Sanitization schema for raw HTML embedded in markdown. Agent output (which
@@ -379,7 +417,7 @@ const sanitizeSchema: typeof defaultSchema = {
   ...defaultSchema,
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "cadencr-conversation"],
+    href: [...(defaultSchema.protocols?.href ?? []), "cadencr-conversation", "cadencr-file"],
   },
 };
 
@@ -397,6 +435,15 @@ const sanitizeSchema: typeof defaultSchema = {
 const RAW_HTML_PLUGINS: RehypePlugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
 /** Prose has no `<`, so it skips the parse5 re-parse and the sanitize walk. */
 const NO_RAW_HTML_PLUGINS: RehypePlugins = [];
+
+/**
+ * Module constant for the same reason RAW_HTML_PLUGINS is: Streamdown caches
+ * its compiled processor on plugin-array identity, so a fresh array per
+ * render would defeat that cache on every streaming tick. Spreading
+ * `defaultRemarkPlugins` is required — passing `remarkPlugins` replaces
+ * Streamdown's own defaults (GFM, etc.) rather than extending them.
+ */
+const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), fileReferenceRemarkPlugin];
 
 export const Markdown = memo(function Markdown({
   content,
@@ -431,6 +478,7 @@ export const Markdown = memo(function Markdown({
         animated={isStreaming ? STREAM_ANIMATION : false}
         isAnimating={isStreaming}
         rehypePlugins={content.includes("<") ? RAW_HTML_PLUGINS : NO_RAW_HTML_PLUGINS}
+        remarkPlugins={REMARK_PLUGINS}
         components={components}
         urlTransform={markdownUrlTransform}
         controls={false}

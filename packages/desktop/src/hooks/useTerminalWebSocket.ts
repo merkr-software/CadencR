@@ -109,12 +109,25 @@ export interface UseTerminalWebSocketOptions {
   onExit: (code: number) => void;
   onReady: (ptyId: string, cwd: string) => void;
   onReconnected: (scrollback: string, alive: boolean, cwd: string | null) => void;
-  onError: (message: string) => void;
+  /**
+   * `kind` separates a refusal from the backend (`"protocol"` — e.g. it can't
+   * attach to the PTY we asked for) from losing the socket (`"transport"`),
+   * which already has a reconnect scheduled and needs no other recovery.
+   */
+  onError: (message: string, kind: "protocol" | "transport") => void;
 }
 
 interface UseTerminalWebSocketReturn {
   /** Initiate the WebSocket connection. Call after terminal is fitted to pass accurate dimensions. */
   connect: (cols: number, rows: number) => void;
+  /** Close the WebSocket without sending a kill signal to the backend — the PTY is left alive for a future reconnect. */
+  disconnect: () => void;
+  /**
+   * Drop the remembered PTY id so the next `connect` spawns a fresh shell
+   * instead of trying to reattach. Used when the backend tells us the PTY we
+   * were holding on to is gone.
+   */
+  forgetPty: () => void;
   write: (data: string) => void;
   resize: (cols: number, rows: number) => void;
   kill: () => void;
@@ -172,11 +185,11 @@ function handleTerminalMessage(data: string, refs: TerminalConnectionRefs): void
         if (!message.alive) refs.latestPtyIdRef.current = undefined;
         break;
       case "error":
-        callbacks.onError(message.message);
+        callbacks.onError(message.message, "protocol");
         break;
     }
   } catch {
-    refs.optionsRef.current.onError("Failed to parse terminal message");
+    refs.optionsRef.current.onError("Failed to parse terminal message", "protocol");
   }
 }
 
@@ -227,7 +240,7 @@ function useTerminalConnector(
         onClose: (intentional, event) => {
           setIsConnected(false);
           if (intentional) return;
-          refs.optionsRef.current.onError("Connection lost. Reconnecting…");
+          refs.optionsRef.current.onError("Connection lost. Reconnecting…", "transport");
           useConnectionStatusStore
             .getState()
             .reportSource(reconnectKey, "reconnecting", "Terminal WebSocket dropped");
@@ -319,7 +332,16 @@ function useTerminalSocketActions(connector: TerminalConnector) {
       console.warn("[terminal] dropped kill");
     }
   }, [refs.connRef]);
-  return useMemo(() => ({ connect, kill, resize, write }), [connect, kill, resize, write]);
+  const disconnect = useCallback(() => {
+    refs.connRef.current?.close(1000, "unmount");
+  }, [refs]);
+  const forgetPty = useCallback(() => {
+    refs.latestPtyIdRef.current = undefined;
+  }, [refs]);
+  return useMemo(
+    () => ({ connect, disconnect, forgetPty, kill, resize, write }),
+    [connect, disconnect, forgetPty, kill, resize, write],
+  );
 }
 
 export function useTerminalWebSocket(

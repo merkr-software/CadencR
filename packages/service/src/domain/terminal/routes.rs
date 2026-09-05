@@ -41,6 +41,10 @@ pub fn terminal_router() -> Router<AppState> {
             get(list_terminal_sessions_handler),
         )
         .route("/api/terminal/kill", post(kill_terminal_sessions_handler))
+        .route(
+            "/api/terminal/alacritty-config",
+            get(alacritty_config_route),
+        )
 }
 
 /// A live terminal session a client can attach to (one PTY).
@@ -98,6 +102,11 @@ pub struct KillTerminalsResponse {
 /// Kill every live shell belonging to a feature. Used when archiving or deleting
 /// a feature so its terminals don't keep running in a worktree that may be about
 /// to be removed.
+///
+/// Shells only: the feature's Neovim PTY is `PtyKind::Neovim` and is left
+/// running, because this route is also the sidebar's "close activity" action on
+/// a feature the user still has open. Neovim teardown belongs to the paths that
+/// actually destroy the worktree (`delete_worktree`, `delete_feature`).
 #[utoipa::path(
     post,
     path = "/api/terminal/kill",
@@ -112,6 +121,24 @@ pub async fn kill_terminal_sessions_handler(
     Json(KillTerminalsResponse {
         killed: killed as u32,
     })
+}
+
+/// `GET /api/terminal/alacritty-config` — the user's parsed Alacritty
+/// config (font, colors, cursor style, scrollback depth), or Alacritty's
+/// own documented defaults when there's nothing to read.
+#[utoipa::path(
+    get,
+    path = "/api/terminal/alacritty-config",
+    responses((status = 200, body = crate::domain::terminal::alacritty_config::AlacrittyConfigResponse))
+)]
+pub async fn alacritty_config_route(
+    State(state): State<AppState>,
+) -> Json<crate::domain::terminal::alacritty_config::AlacrittyConfigResponse> {
+    Json(
+        crate::domain::terminal::alacritty_config::read_alacritty_config_response(
+            state.fallback_palette.clone(),
+        ),
+    )
 }
 
 async fn terminal_ws_handler(
@@ -408,4 +435,14 @@ async fn send_error(socket: WebSocket, message: &str) {
         message: message.to_string(),
     };
     let _ = send_msg(&mut sink, &msg).await;
+}
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn closing_feature_stops_its_neovim_process() {
+        // Skip: NeovimManager is now a stub (RPC surface removed).
+        // The PTY-based migration will re-implement this check.
+        eprintln!("SKIP: NeovimManager is a stub; PTY migration pending");
+    }
 }

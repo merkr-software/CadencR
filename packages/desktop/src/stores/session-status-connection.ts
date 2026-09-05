@@ -63,6 +63,7 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.schedule_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.settings_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.theme_events", {})));
+  ws.send(JSON.stringify(createEnvelope("app", "subscribe.alacritty_config_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.storage_maintenance_events", {})));
   connection.unsubscribeForgeVisibility = subscribeForgeStatus(ws);
   void hydratePrStatuses();

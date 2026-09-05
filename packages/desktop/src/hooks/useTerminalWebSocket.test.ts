@@ -215,7 +215,7 @@ describe("useTerminalWebSocket", () => {
     renderAndConnect({ onError });
     act(() => lastWs().simulateOpen());
     act(() => lastWs().simulateMessage({ type: "error", message: "bad" }));
-    expect(onError).toHaveBeenCalledWith("bad");
+    expect(onError).toHaveBeenCalledWith("bad", "protocol");
   });
 
   it("sends write/resize/kill JSON when WS is open", () => {
@@ -270,7 +270,7 @@ describe("useTerminalWebSocket", () => {
       renderAndConnect({ onError });
       act(() => lastWs().simulateOpen());
       act(() => lastWs().simulateClose(1006));
-      expect(onError).toHaveBeenCalledWith("Connection lost. Reconnecting…");
+      expect(onError).toHaveBeenCalledWith("Connection lost. Reconnecting…", "transport");
     });
   });
 
@@ -314,7 +314,7 @@ describe("useTerminalWebSocket", () => {
     renderAndConnect({ onError });
     act(() => lastWs().simulateOpen());
     act(() => lastWs().simulateRawMessage("not json"));
-    expect(onError).toHaveBeenCalledWith("Failed to parse terminal message");
+    expect(onError).toHaveBeenCalledWith("Failed to parse terminal message", "protocol");
   });
 
   it("closes WS on unmount", () => {
@@ -323,5 +323,15 @@ describe("useTerminalWebSocket", () => {
     act(() => ws.simulateOpen());
     unmount();
     expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+  });
+
+  it("exposes disconnect() that closes the WS without sending kill", () => {
+    const { result } = renderAndConnect();
+    const ws = lastWs();
+    act(() => ws.simulateOpen());
+    act(() => result.current.disconnect());
+    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
+    const sent = ws.sent.map((s) => JSON.parse(s));
+    expect(sent).not.toEqual(expect.arrayContaining([{ type: "kill" }]));
   });
 });

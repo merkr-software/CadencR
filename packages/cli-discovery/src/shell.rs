@@ -21,16 +21,22 @@ pub async fn login_shell_path() -> Option<String> {
 #[cfg(unix)]
 async fn resolve_login_shell_path() -> Option<String> {
     let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty())?;
-    let output = tokio::time::timeout(
+    let spawn_result = tokio::time::timeout(
         Duration::from_secs(3),
         Command::new(&shell)
-            .args(["-ilc", "echo $PATH"])
+            .args(["-ilc", "printenv PATH"])
             .env_remove("CLAUDECODE")
             .output(),
     )
-    .await
-    .ok()?
-    .ok()?;
+    .await;
+    let Ok(spawn_result) = spawn_result else {
+        warn!(shell = %shell, "login shell timed out after 3s while resolving PATH");
+        return None;
+    };
+    let Ok(output) = spawn_result else {
+        warn!(shell = %shell, "failed to spawn login shell while resolving PATH");
+        return None;
+    };
 
     if !output.status.success() {
         warn!(
@@ -52,4 +58,28 @@ async fn resolve_login_shell_path() -> Option<String> {
 #[cfg(not(unix))]
 async fn resolve_login_shell_path() -> Option<String> {
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for the fish bug: `echo $PATH` prints fish's list
+    /// variable space-separated, not colon-separated, silently breaking
+    /// every `split_paths()` consumer. `printenv PATH` reads the actual
+    /// exported environment variable, which is always colon-separated
+    /// POSIX form regardless of which shell exported it.
+    #[tokio::test]
+    async fn resolved_path_is_colon_separated_when_shell_is_available() {
+        let Some(path) = login_shell_path().await else {
+            // No $SHELL in this environment (e.g. some CI runners) — the
+            // function's own contract is "absence is benign", nothing to
+            // assert against.
+            return;
+        };
+        assert!(
+            !path.contains(' ') || path.contains(':'),
+            "resolved PATH should be colon-separated (or contain no spaces at all), got: {path}"
+        );
+    }
 }

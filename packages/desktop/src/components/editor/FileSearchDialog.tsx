@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/command";
 import { useFileSearch, type FileMatchResult } from "@/api/generated";
 import { useEditorState } from "@/hooks/useEditorState";
+import { useOpenFileInNeovim } from "./neovim/useOpenFileInNeovim";
 import { FileSymbolIcon } from "./file-icons";
 
 interface FileSearchDialogProps {
@@ -29,6 +30,10 @@ export default function FileSearchDialog({
   onOpenChange,
 }: FileSearchDialogProps) {
   const { activePaneId, openFile } = useEditorState(featureId);
+  // Defined only when the editor pane is actually showing Neovim, which owns
+  // its own buffers — opening a tab in the store would be invisible there.
+  // Mirrors the file tree, the other entry point into "open this file".
+  const openInNeovim = useOpenFileInNeovim(featureId);
   const { value: maxTabsSetting } = useDebouncedSetting("editor_max_tabs");
   const maxTabs = parseInt(maxTabsSetting ?? "10", 10);
 
@@ -48,7 +53,8 @@ export default function FileSearchDialog({
   }, [open]);
 
   function handleSelect(filePath: string) {
-    openFile(activePaneId ?? "main", filePath, maxTabs);
+    if (openInNeovim) openInNeovim(filePath);
+    else openFile(activePaneId ?? "main", filePath, maxTabs);
     onOpenChange(false);
   }
 

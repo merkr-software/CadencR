@@ -18,10 +18,12 @@ This is a curated, human-maintained summary focused on frameworks users see or i
 | Zustand — state | https://github.com/pmndrs/zustand | MIT |
 | CodeMirror 6 — editor | https://codemirror.net | MIT |
 | Lexical — rich text | https://lexical.dev | MIT |
-| xterm.js — terminal | https://xtermjs.org | MIT |
+| celeritty — WebGPU terminal | https://github.com/edjubert/celeritty | MIT |
 | Astro — landing site | https://astro.build | MIT |
 
 Cadencr also uses component patterns from **shadcn/ui** (https://ui.shadcn.com, MIT), which is vendored as source rather than installed as a dependency.
+
+celeritty's WASM bundle compiles in **alacritty_terminal** (https://github.com/alacritty/alacritty, Apache-2.0), vendored under celeritty's `crates/terminal-core/vendor/` for its ANSI/VTE parsing.
 
 ## Backend service (Rust)
 
@@ -34,7 +36,7 @@ Cadencr also uses component patterns from **shadcn/ui** (https://ui.shadcn.com, 
 | utoipa — OpenAPI | https://github.com/juhaku/utoipa | Apache-2.0 OR MIT |
 | tracing — structured logging | https://github.com/tokio-rs/tracing | MIT |
 | rmcp — MCP server transport | https://github.com/modelcontextprotocol/rust-sdk | Apache-2.0 OR MIT |
-| portable-pty — PTY wrapper | https://github.com/wez/wezterm | MIT |
+| portable-pty — PTY wrapper (vendored, `packages/service/vendor/`) | https://github.com/wez/wezterm | MIT |
 | ignore / nucleo-matcher | https://github.com/BurntSushi/ripgrep, https://github.com/helix-editor/nucleo | Unlicense OR MIT, MIT |
 
 ## Tooling (dev-only)

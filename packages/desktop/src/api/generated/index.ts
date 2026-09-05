@@ -221,6 +221,50 @@ export interface AgentSessionRow {
   was_compacted: number;
 }
 
+export interface AlacrittyConfig {
+  colors?: ColorsConfig;
+  cursor?: CursorConfig;
+  font?: FontConfig;
+  scrolling?: ScrollingConfig;
+}
+
+/**
+ * Set only when the file exists but failed to parse — `config` is then
+defaults, not the user's real settings, and the frontend should
+surface this (Plan 3), not silently show defaults as if they were
+chosen.
+ */
+export type AlacrittyConfigResponseParseError = string | null;
+
+/**
+ * `GET /api/terminal/alacritty-config` response.
+ */
+export interface AlacrittyConfigResponse {
+  /** Always populated: either the user's real config, or Alacritty's own
+documented defaults (see `AlacrittyConfig`'s `Default` impls) when
+there's nothing to read or it failed to parse. */
+  config: AlacrittyConfig;
+  /** `true` when `~/.config/alacritty/alacritty.toml` exists and parsed
+successfully. */
+  found: boolean;
+  /** Set only when the file exists but failed to parse — `config` is then
+defaults, not the user's real settings, and the frontend should
+surface this (Plan 3), not silently show defaults as if they were
+chosen. */
+  parse_error?: AlacrittyConfigResponseParseError;
+}
+
+export interface AnsiPalette {
+  black: string;
+  blue: string;
+  cyan: string;
+  green: string;
+  magenta: string;
+  red: string;
+  white: string;
+  yellow: string;
+}
+
 /**
  * A single TCP port held open by one of a feature's processes.
  */
@@ -382,6 +426,17 @@ export const CiState = {
 
 export interface ClaudeCodeSuccessResponse {
   ok: boolean;
+}
+
+export type ColorsConfigBright = null | AnsiPalette;
+
+export type ColorsConfigNormal = null | AnsiPalette;
+
+export interface ColorsConfig {
+  bright?: ColorsConfigBright;
+  cursor?: CursorColors;
+  normal?: ColorsConfigNormal;
+  primary?: PrimaryColors;
 }
 
 export interface CommandsGetPayload {
@@ -719,6 +774,32 @@ export interface CreateWorktreeBody {
 export interface CreateWorktreeResponse {
   branch: string;
   worktree_path: string;
+}
+
+export type CursorColorsCursor = string | null;
+
+/**
+ * Verbatim from the file: either a hex color or the sentinel strings
+`"CellBackground"`/`"CellForeground"`. Not validated or resolved
+here — that's the consumer's job (Plan 3).
+ */
+export type CursorColorsText = string | null;
+
+export interface CursorColors {
+  cursor?: CursorColorsCursor;
+  /** Verbatim from the file: either a hex color or the sentinel strings
+`"CellBackground"`/`"CellForeground"`. Not validated or resolved
+here — that's the consumer's job (Plan 3). */
+  text?: CursorColorsText;
+}
+
+export interface CursorConfig {
+  style?: CursorStyle;
+}
+
+export interface CursorStyle {
+  blinking?: string;
+  shape?: string;
 }
 
 /**
@@ -1241,6 +1322,20 @@ export interface FileTreeEntry {
   is_gitignored: boolean;
   name: string;
   path: string;
+}
+
+export interface FontConfig {
+  normal?: FontFace;
+  size?: number;
+}
+
+export type FontFaceFamily = string | null;
+
+export type FontFaceStyle = string | null;
+
+export interface FontFace {
+  family?: FontFaceFamily;
+  style?: FontFaceStyle;
 }
 
 export type ForgeAuthSource = (typeof ForgeAuthSource)[keyof typeof ForgeAuthSource];
@@ -2228,6 +2323,14 @@ export interface MovePathResponse {
   new_path: string;
 }
 
+export interface NeovimDetectResponse {
+  available: boolean;
+}
+
+export interface NeovimStartResponse {
+  version: string;
+}
+
 export type NewProjectBranchPayloadBase = string | null;
 
 /**
@@ -2240,6 +2343,28 @@ project's current HEAD; `Some(ref)` forks from that ref.
  */
 export interface NewProjectBranchPayload {
   base?: NewProjectBranchPayloadBase;
+}
+
+/**
+ * @minimum 0
+ */
+export type OpenFileRequestCol = number | null;
+
+/**
+ * @minimum 0
+ */
+export type OpenFileRequestLine = number | null;
+
+/**
+ * Request to open a file in a feature's Neovim. `line` and `col` are
+1-indexed, matching how a `file.rs:240:2` reference reads.
+ */
+export interface OpenFileRequest {
+  /** @minimum 0 */
+  col?: OpenFileRequestCol;
+  /** @minimum 0 */
+  line?: OpenFileRequestLine;
+  path: string;
 }
 
 /**
@@ -2474,6 +2599,15 @@ in the UI surfaces that show them (Git sub-tab, sidebar menu, header). */
   title: string;
   updated_at: string;
   url: string;
+}
+
+export type PrimaryColorsBackground = string | null;
+
+export type PrimaryColorsForeground = string | null;
+
+export interface PrimaryColors {
+  background?: PrimaryColorsBackground;
+  foreground?: PrimaryColorsForeground;
 }
 
 export type ProfileChangedPayloadModel = string | null;
@@ -3420,6 +3554,11 @@ export const Scope = {
   global: "global",
   project: "project",
 } as const;
+
+export interface ScrollingConfig {
+  /** @minimum 0 */
+  history?: number;
+}
 
 /**
  * Where each half of the selection came from. `ProviderDefault` means no level
@@ -11109,6 +11248,85 @@ export function useGetMessagePreview<
   return query;
 }
 
+/**
+ * Opens a file in the feature's Neovim session and moves the cursor to the
+requested position. `line` and `col` are 1-indexed.
+ * @summary POST /api/features/{feature_id}/neovim/open
+ */
+export const openFileRoute = (
+  featureId: string,
+  openFileRequest: OpenFileRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<void>({
+    url: `/api/features/${featureId}/neovim/open`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: openFileRequest,
+    signal,
+  });
+};
+
+export const getOpenFileRouteMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openFileRoute>>,
+    TError,
+    { featureId: string; data: OpenFileRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof openFileRoute>>,
+  TError,
+  { featureId: string; data: OpenFileRequest },
+  TContext
+> => {
+  const mutationKey = ["openFileRoute"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof openFileRoute>>,
+    { featureId: string; data: OpenFileRequest }
+  > = (props) => {
+    const { featureId, data } = props ?? {};
+
+    return openFileRoute(featureId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type OpenFileRouteMutationResult = NonNullable<Awaited<ReturnType<typeof openFileRoute>>>;
+export type OpenFileRouteMutationBody = OpenFileRequest;
+export type OpenFileRouteMutationError = ErrorType<unknown>;
+
+/**
+ * @summary POST /api/features/{feature_id}/neovim/open
+ */
+export const useOpenFileRoute = <TError = ErrorType<unknown>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof openFileRoute>>,
+    TError,
+    { featureId: string; data: OpenFileRequest },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof openFileRoute>>,
+  TError,
+  { featureId: string; data: OpenFileRequest },
+  TContext
+> => {
+  const mutationOptions = getOpenFileRouteMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
 export const refreshSession = (featureId: number, signal?: AbortSignal) => {
   return customInstance<RefreshSessionResponse>({
     url: `/api/features/${featureId}/refresh`,
@@ -17994,6 +18212,184 @@ export const useOpenSession = <TError = ErrorType<void>, TContext = unknown>(
   return useMutation(mutationOptions, queryClient);
 };
 
+export const detectRoute = (signal?: AbortSignal) => {
+  return customInstance<NeovimDetectResponse>({ url: `/api/neovim/detect`, method: "GET", signal });
+};
+
+export const getDetectRouteQueryKey = () => {
+  return [`/api/neovim/detect`] as const;
+};
+
+export const getDetectRouteQueryOptions = <
+  TData = Awaited<ReturnType<typeof detectRoute>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getDetectRouteQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof detectRoute>>> = ({ signal }) =>
+    detectRoute(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof detectRoute>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type DetectRouteQueryResult = NonNullable<Awaited<ReturnType<typeof detectRoute>>>;
+export type DetectRouteQueryError = ErrorType<unknown>;
+
+export function useDetectRoute<
+  TData = Awaited<ReturnType<typeof detectRoute>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof detectRoute>>, TError, TData>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getDetectRouteQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const startRoute = (startRouteBody: number, signal?: AbortSignal) => {
+  return customInstance<NeovimStartResponse>({
+    url: `/api/neovim/start`,
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    data: startRouteBody,
+    signal,
+  });
+};
+
+export const getStartRouteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startRoute>>,
+    TError,
+    { data: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof startRoute>>,
+  TError,
+  { data: number },
+  TContext
+> => {
+  const mutationKey = ["startRoute"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof startRoute>>, { data: number }> = (
+    props,
+  ) => {
+    const { data } = props ?? {};
+
+    return startRoute(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StartRouteMutationResult = NonNullable<Awaited<ReturnType<typeof startRoute>>>;
+export type StartRouteMutationBody = number;
+export type StartRouteMutationError = ErrorType<void>;
+
+export const useStartRoute = <TError = ErrorType<void>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof startRoute>>,
+    TError,
+    { data: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof startRoute>>,
+  TError,
+  { data: number },
+  TContext
+> => {
+  const mutationOptions = getStartRouteMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
+export const stopRoute = (stopRouteBody: number, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/neovim/stop`,
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    data: stopRouteBody,
+    signal,
+  });
+};
+
+export const getStopRouteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopRoute>>,
+    TError,
+    { data: number },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof stopRoute>>,
+  TError,
+  { data: number },
+  TContext
+> => {
+  const mutationKey = ["stopRoute"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof stopRoute>>, { data: number }> = (
+    props,
+  ) => {
+    const { data } = props ?? {};
+
+    return stopRoute(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type StopRouteMutationResult = NonNullable<Awaited<ReturnType<typeof stopRoute>>>;
+export type StopRouteMutationBody = number;
+export type StopRouteMutationError = ErrorType<void>;
+
+export const useStopRoute = <TError = ErrorType<void>, TContext = unknown>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof stopRoute>>,
+    TError,
+    { data: number },
+    TContext
+  >;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof stopRoute>>,
+  TError,
+  { data: number },
+  TContext
+> => {
+  const mutationOptions = getStopRouteMutationOptions(options);
+
+  return useMutation(mutationOptions);
+};
+
 export const openapiSpec = (signal?: AbortSignal) => {
   return customInstance<void>({ url: `/api/openapi.json`, method: "GET", signal });
 };
@@ -21404,6 +21800,69 @@ export const useRunArchivedCleanup = <TError = ErrorType<void>, TContext = unkno
 
   return useMutation(mutationOptions, queryClient);
 };
+
+/**
+ * @summary `GET /api/terminal/alacritty-config` — the user's parsed Alacritty
+config (font, colors, cursor style, scrollback depth), or Alacritty's
+own documented defaults when there's nothing to read.
+ */
+export const alacrittyConfigRoute = (signal?: AbortSignal) => {
+  return customInstance<AlacrittyConfigResponse>({
+    url: `/api/terminal/alacritty-config`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getAlacrittyConfigRouteQueryKey = () => {
+  return [`/api/terminal/alacritty-config`] as const;
+};
+
+export const getAlacrittyConfigRouteQueryOptions = <
+  TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getAlacrittyConfigRouteQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof alacrittyConfigRoute>>> = ({ signal }) =>
+    alacrittyConfigRoute(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type AlacrittyConfigRouteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof alacrittyConfigRoute>>
+>;
+export type AlacrittyConfigRouteQueryError = ErrorType<unknown>;
+
+/**
+ * @summary `GET /api/terminal/alacritty-config` — the user's parsed Alacritty
+config (font, colors, cursor style, scrollback depth), or Alacritty's
+own documented defaults when there's nothing to read.
+ */
+
+export function useAlacrittyConfigRoute<
+  TData = Awaited<ReturnType<typeof alacrittyConfigRoute>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<Awaited<ReturnType<typeof alacrittyConfigRoute>>, TError, TData>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getAlacrittyConfigRouteQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
 
 /**
  * @summary Kill every live shell belonging to a feature. Used when archiving or deleting

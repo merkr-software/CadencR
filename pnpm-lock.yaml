@@ -65,12 +65,18 @@ importers:
       '@fontsource-variable/figtree':
         specifier: ^5.2.10
         version: 5.2.10
+      celeritty:
+        specifier: 1.0.1
+        version: 1.0.1
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
       electron-updater:
         specifier: ^6.8.9
         version: 6.8.9
+      streamdown:
+        specifier: ^2.5.0
+        version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
     devDependencies:
       '@cadencr/brand':
         specifier: workspace:*
@@ -198,6 +204,9 @@ importers:
       '@testing-library/user-event':
         specifier: ^14.6.1
         version: 14.6.1(@testing-library/dom@10.4.1)
+      '@types/mdast':
+        specifier: 4.0.4
+        version: 4.0.4
       '@types/node':
         specifier: ^22.10.0
         version: 22.19.17
@@ -216,15 +225,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 4.1.9
         version: 4.1.9(vitest@4.1.9)
-      '@xterm/addon-fit':
-        specifier: ^0.11.0
-        version: 0.11.0
-      '@xterm/addon-web-links':
-        specifier: ^0.12.0
-        version: 0.12.0
-      '@xterm/xterm':
-        specifier: ^6.0.0
-        version: 6.0.0
+      '@webgpu/types':
+        specifier: ^0.1.71
+        version: 0.1.71
       anser:
         specifier: ^2.3.5
         version: 2.3.5
@@ -324,12 +327,12 @@ importers:
       rehype-sanitize:
         specifier: ^6.0.0
         version: 6.0.0
+      remark-parse:
+        specifier: ^11.0.0
+        version: 11.0.0
       sonner:
         specifier: ^2.0.7
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
-      streamdown:
-        specifier: 2.5.0
-        version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       tailwind-merge:
         specifier: ^3.6.0
         version: 3.6.0
@@ -342,6 +345,12 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.9.3
+      unified:
+        specifier: 11.0.5
+        version: 11.0.5
+      unist-util-visit:
+        specifier: 5.1.0
+        version: 5.1.0
       vite:
         specifier: 6.4.3
         version: 6.4.3(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.32.0)(sass@1.51.0)(yaml@2.9.0)
@@ -4432,18 +4441,12 @@ packages:
   '@vscode/l10n@0.0.18':
     resolution: {integrity: sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==}
 
+  '@webgpu/types@0.1.71':
+    resolution: {integrity: sha512-mMy8/ODcKhab808co15eW+yN+HgXoQxRQHTiBV9Mrvl1r0ufnid7YOcI+gi4eUWSWl9ezD6TW2KXccrL8HCh2A==}
+
   '@xmldom/xmldom@0.8.13':
     resolution: {integrity: sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw==}
     engines: {node: '>=10.0.0'}
-
-  '@xterm/addon-fit@0.11.0':
-    resolution: {integrity: sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g==}
-
-  '@xterm/addon-web-links@0.12.0':
-    resolution: {integrity: sha512-4Smom3RPyVp7ZMYOYDoC/9eGJJJqYhnPLGGqJ6wOBfB8VxPViJNSKdgRYb8NpaM6YSelEKbA2SStD7lGyqaobw==}
-
-  '@xterm/xterm@6.0.0':
-    resolution: {integrity: sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==}
 
   abbrev@4.0.0:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
@@ -4744,6 +4747,10 @@ packages:
 
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
+
+  celeritty@1.0.1:
+    resolution: {integrity: sha512-8EPSnBG6iDUDq4w+BOUDFDrtAXwuM2Me1a3jQ2fTZ+/0U8LGtf8aDK6SzRtRwjZFnrKZLOestkNOYQjqdo+Q6w==}
+    engines: {node: '>=22.18.0 <23.0.0'}
 
   chai@6.2.2:
     resolution: {integrity: sha512-NUPRluOfOiTKBKvWPtSD4PhFvWCqOi0BGStNWs57X9js7XGTprSmFoz5F0tWhR4WPjNeR9jXqdC7/UpSJTnlRg==}
@@ -12690,13 +12697,9 @@ snapshots:
 
   '@vscode/l10n@0.0.18': {}
 
+  '@webgpu/types@0.1.71': {}
+
   '@xmldom/xmldom@0.8.13': {}
-
-  '@xterm/addon-fit@0.11.0': {}
-
-  '@xterm/addon-web-links@0.12.0': {}
-
-  '@xterm/xterm@6.0.0': {}
 
   abbrev@4.0.0: {}
 
@@ -13118,6 +13121,8 @@ snapshots:
   canvas-roundrect-polyfill@0.0.1: {}
 
   ccount@2.0.1: {}
+
+  celeritty@1.0.1: {}
 
   chai@6.2.2: {}
 

@@ -21,6 +21,9 @@ pub(super) async fn handle_app_action(
             super::app_notifications::subscribe_settings_events(sender, app_state)
         }
         "subscribe.theme_events" => handle_subscribe_theme_events(sender, app_state),
+        "subscribe.alacritty_config_events" => {
+            handle_subscribe_alacritty_config_events(sender, app_state).await
+        }
         "subscribe.forge_status" => {
             super::app_forge::subscribe_forge_status(envelope, sender, app_state).await
         }
@@ -296,6 +299,43 @@ fn handle_subscribe_theme_events(sender: &WsSender, app_state: &AppState) {
         "theme_event",
         OnLag::ResendBare,
     );
+}
+
+/// Subscribe the client to `alacritty.toml` change events. No snapshot — each
+/// event is a cue to re-fetch `GET /api/terminal/alacritty-config`. Forwards
+/// every [`AlacrittyConfigChangedEvent`] as an `app/alacritty_config_event`
+/// envelope until the socket closes.
+async fn handle_subscribe_alacritty_config_events(sender: &WsSender, app_state: &AppState) {
+    let mut rx = app_state.alacritty_config_events_tx.subscribe();
+    let sender = sender.clone();
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(_event) => {
+                    let update =
+                        WsEnvelope::new("app", "alacritty_config_event", serde_json::json!({}));
+                    if sender
+                        .send(Message::Text(String::from(update).into()))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                // A lagged client just refetches — send a bare event.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    let update =
+                        WsEnvelope::new("app", "alacritty_config_event", serde_json::json!({}));
+                    if sender
+                        .send(Message::Text(String::from(update).into()))
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
 }
 
 /// Subscribe the client to file-system change events for an editor root.

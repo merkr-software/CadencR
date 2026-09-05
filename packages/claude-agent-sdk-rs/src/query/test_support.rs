@@ -29,9 +29,17 @@ pub(super) fn write_mock_cli(dir: &Path, script: &str) -> PathBuf {
 pub(super) fn mock_mcp_servers() -> std::collections::HashMap<String, McpServerConfig> {
     let mut servers = std::collections::HashMap::new();
     servers.insert(
-        "test-mcp".to_string(),
+        "chrome-devtools".to_string(),
         McpServerConfig::Stdio {
-            command: "test-mcp".to_string(),
+            command: "chrome-devtools".to_string(),
+            args: None,
+            env: None,
+        },
+    );
+    servers.insert(
+        "ios-simulator".to_string(),
+        McpServerConfig::Stdio {
+            command: "ios-simulator".to_string(),
             args: None,
             env: None,
         },

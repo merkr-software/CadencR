@@ -17,11 +17,13 @@ import {
   type SplitOrientation,
   type TerminalPanelState,
 } from "@/hooks/useTerminalState";
-import { useTheme } from "@/hooks/useTheme";
-import { useMonoFont } from "@/lib/fonts/mono-font-setting";
 import { useWorktreeTerminalAutoSwitch } from "@/hooks/useWorktreeTerminalAutoSwitch";
-import type { XTermInstanceHandle } from "./XTermInstance";
-import { useTerminalPaneShortcuts } from "./useTerminalPaneShortcuts";
+import { useMonoFont } from "@/lib/fonts/mono-font-setting";
+import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
+import {
+  useTerminalCopyPasteShortcuts,
+  useTerminalPaneShortcuts,
+} from "./useTerminalPaneShortcuts";
 
 export interface TerminalPanelProps {
   featureId: number;
@@ -73,8 +75,18 @@ function useTerminalSlots(leaves: TerminalLeaves) {
     }
   }, [leaves]);
   const registerPlaceholder = useCallback((id: string, element: HTMLDivElement | null): void => {
-    if (element) placeholderRefs.current.set(id, element);
-    else placeholderRefs.current.delete(id);
+    if (!element) {
+      placeholderRefs.current.delete(id);
+      return;
+    }
+    placeholderRefs.current.set(id, element);
+    // Attach as soon as the anchor exists rather than waiting for the effect
+    // below: that one only re-runs when `activeSlots` changes identity, so an
+    // anchor mounting in a later commit never gets its slot. Split panes do
+    // exactly that — they render inside a ResizablePanelGroup instead of
+    // directly — which left them blank on remount.
+    const slot = slotsRef.current.get(id);
+    if (slot && slot.parentNode !== element) element.appendChild(slot);
   }, []);
   useLayoutEffect(() => {
     for (const { leaf, slot } of activeSlots) {
@@ -86,13 +98,16 @@ function useTerminalSlots(leaves: TerminalLeaves) {
 }
 
 function useTerminalPaneFocus(leaves: TerminalLeaves) {
-  const paneRefs = useRef<Map<string, XTermInstanceHandle>>(new Map());
+  const paneRefs = useRef<Map<string, TerminalCoreInstanceHandle>>(new Map());
   const [activePaneId, setActivePaneId] = useState<string | null>(null);
   const [ctrlArmed, setCtrlArmed] = useState(false);
-  const setPaneRef = useCallback((paneId: string, handle: XTermInstanceHandle | null): void => {
-    if (handle) paneRefs.current.set(paneId, handle);
-    else paneRefs.current.delete(paneId);
-  }, []);
+  const setPaneRef = useCallback(
+    (paneId: string, handle: TerminalCoreInstanceHandle | null): void => {
+      if (handle) paneRefs.current.set(paneId, handle);
+      else paneRefs.current.delete(paneId);
+    },
+    [],
+  );
   const setActivePane = useCallback((paneId: string): void => {
     setActivePaneId(paneId);
     for (const [id, handle] of paneRefs.current) {
@@ -232,14 +247,25 @@ function useTerminalRuntimeActions(
   focus: PaneFocus,
   layout: LayoutActions,
 ) {
-  const { expectedCwd, featureId } = props;
+  const { expectedCwd, featureId, hotkeysEnabled = true } = props;
   const dismissCwdWarning = useTerminalStore((state) => state.dismissCwdWarning);
   const replaceLeafWithFresh = useTerminalStore((state) => state.replaceLeafWithFresh);
   const copyPaneSelection = useCallback(
-    (paneId: string): void => {
-      focus.paneRefs.current.get(paneId)?.focus();
-      if (document.execCommand("copy")) toast.success("Terminal selection copied");
-      else toast.error("No terminal selection to copy");
+    async (paneId: string): Promise<void> => {
+      // No DOM selection to hand `execCommand` — the terminal draws to a
+      // WebGPU canvas, so the text lives only in celeritty's own selection
+      // buffer.
+      const text = focus.paneRefs.current.get(paneId)?.getSelection() ?? null;
+      if (!text) {
+        toast.error("No terminal selection to copy");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success("Terminal selection copied");
+      } catch {
+        toast.error("Failed to copy to clipboard");
+      }
     },
     [focus.paneRefs],
   );
@@ -247,13 +273,21 @@ function useTerminalRuntimeActions(
     async (paneId: string): Promise<void> => {
       try {
         const text = await navigator.clipboard.readText();
-        if (text) focus.paneRefs.current.get(paneId)?.write(text);
+        // `write` is local-only injection (used for initialNotice) and never
+        // reaches the shell — `paste` sends it through the PTY, as if typed.
+        if (text) focus.paneRefs.current.get(paneId)?.paste(text);
       } catch {
         toast.error("Failed to paste from clipboard");
       }
     },
     [focus.paneRefs],
   );
+  useTerminalCopyPasteShortcuts({
+    hotkeysEnabled,
+    resolvedActivePaneId: focus.resolvedActivePaneId,
+    onCopy: copyPaneSelection,
+    onPaste: pasteIntoPane,
+  });
   const restartPane = useCallback(
     (paneId: string): void => {
       focus.paneRefs.current.get(paneId)?.markForKill();
@@ -309,8 +343,6 @@ export function useTerminalPanelController(
   const slots = useTerminalSlots(leaves);
   const layout = useTerminalLayoutActions(props, leaves, focus);
   const runtime = useTerminalRuntimeActions(props, leaves, focus, layout);
-  const { theme } = useTheme();
-  const { resolved: monoFontFamily } = useMonoFont();
   const setPtyId = useTerminalStore((state) => state.setPtyId);
   const setPaneCwd = useTerminalStore((state) => state.setPaneCwd);
   const clearInitialCommand = useTerminalStore((state) => state.clearInitialCommand);
@@ -324,6 +356,7 @@ export function useTerminalPanelController(
     [focus.activeIndex, focus.focusFirstPane, focus.focusPaneByIndex],
   );
   const isMobile = useIsMobile();
+  const { family: monoFontFamily } = useMonoFont();
   return useMemo(
     () => ({
       clearInitialCommand,
@@ -337,7 +370,6 @@ export function useTerminalPanelController(
       setPaneCwd,
       setPtyId,
       slots,
-      xtermPalette: theme.xterm,
     }),
     [
       clearInitialCommand,
@@ -351,7 +383,6 @@ export function useTerminalPanelController(
       setPaneCwd,
       setPtyId,
       slots,
-      theme.xterm,
     ],
   );
 }

@@ -92,12 +92,13 @@ fn is_bearer_exempt(path: &str) -> bool {
 
 /// The WebSocket routes that self-authenticate via `middleware::authenticate_ws`.
 /// Kept in sync with the `get(...)` WS handlers: `/ws` (agent stream),
-/// `/api/terminal/ws`, and the LSP connect upgrade
+/// `/api/terminal/ws`, `/api/neovim/ws`, and the LSP connect upgrade
 /// (`/api/lsp/sessions/{session_id}/connect`). A WS upgrade to any other path is
 /// not exempt, so a new socket route must be added here deliberately.
 fn is_known_ws_path(path: &str) -> bool {
     path == "/ws"
         || path == "/api/terminal/ws"
+        || path == "/api/neovim/ws"
         || (path.starts_with("/api/lsp/sessions/") && path.ends_with("/connect"))
 }
 
@@ -124,6 +125,7 @@ mod tests {
     fn only_the_known_ws_routes_are_exempt() {
         assert!(is_known_ws_path("/ws"));
         assert!(is_known_ws_path("/api/terminal/ws"));
+        assert!(is_known_ws_path("/api/neovim/ws"));
         assert!(is_known_ws_path("/api/lsp/sessions/abc-123/connect"));
         // A future WS route is NOT auto-exempt — it must be added here, which is
         // the prompt to also wire it through `authenticate_ws`.

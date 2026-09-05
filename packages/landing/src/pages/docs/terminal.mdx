@@ -62,6 +62,8 @@ The terminal has its own small keyboard scope inside a feature workspace:
 | <kbd>⌘ <ShiftIcon /> D</kbd> | Split vertically                     |
 | <kbd>⌘ ⌥</kbd> + arrows      | Focus the neighbouring terminal pane |
 | <kbd>⌘ W</kbd>               | Close the focused pane               |
+| <kbd>⌘ C</kbd>               | Copy the current selection           |
+| <kbd>⌘ V</kbd>               | Paste into the focused pane          |
 
 <DocCallout title="Heads up: opposite of the editor" variant="note">
   In the terminal, <kbd>⌘ D</kbd> splits **horizontally** and{" "}
@@ -75,6 +77,10 @@ The terminal has its own small keyboard scope inside a feature workspace:
 ### Working directory awareness
 
 Each terminal pane is launched in the feature's worktree. If something inside the shell drifts the cwd elsewhere (for example, a misbehaving `cd` in a script), CadencR shows a small cwd warning so you do not accidentally run commands against the wrong checkout.
+
+### Matching your own terminal
+
+CadencR's terminal reads your `~/.config/alacritty/alacritty.toml` if you have one, so the font, colors, cursor, and scrollback depth already match the terminal you use outside the app. No file? CadencR falls back to its own defaults — nothing to configure.
 
 ## When not to use it
 
