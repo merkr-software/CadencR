@@ -1,7 +1,7 @@
 # Cadencr Provider Capability Coverage Ledger
 
 > - **Status:** Current built-in coverage and regression reference
-> - **Last reviewed:** 2026-08-15 against `v0.12.0`
+> - **Last reviewed:** 2026-08-26 against `v0.12.0`
 > - **Public provider contract:** ACP v1, as defined by [`BOUNDARIES.md`](./BOUNDARIES.md)
 
 This document records which user-visible capabilities each built-in provider
@@ -11,8 +11,10 @@ provider is admitted through the minimum ACP v1 contract in `BOUNDARIES.md`.
 The current `GenericAcpAdapter` covers local descriptor identity, mandatory
 pre-session model discovery, selected-model reconciliation, negotiated ACP
 configuration, and the baseline ACP v1 session path. The Pi column below records
-live validation of a locally authored `pi-acp` connector; it is evidence for the
-generic host path, not a first-party support or marketplace-admission promise.
+live validation of the independent `cadencr-plugin-provider-pi` connector, which
+maps native `pi --mode rpc` directly to ACP without `pi-acp`; it is evidence for
+the generic host path, not a first-party support or marketplace-admission
+promise.
 
 Claude Code and Codex remain the rich parity references. Their native protocols
 may expose more detail than ACP v1, but that detail must be translated inside the
@@ -40,7 +42,7 @@ types and must not branch on provider identity.
 
 ## Coverage matrix
 
-| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor | OpenCode | Pi via local ACP |
+| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor | OpenCode | Pi external ACP |
 | --- | ---------------------------------------- | ---------------------------- | ----------- | ----- | ------ | -------- | ---------------- |
 | 1   | Session modes                            | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
 | 2   | Thinking                                 | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
@@ -58,16 +60,17 @@ types and must not branch on provider identity.
 | 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ✅     | ✅       | 🟡               |
 | 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
 | 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 17  | Durable session resume/load              | ACP optional capability      | ✅          | ✅    | ✅     | ❌       | ✅               |
+| 17  | Durable session restore                  | ACP optional capability      | ✅          | ✅    | ✅     | ❌       | ✅               |
 
 Detailed evidence and limitations remain in
 [`CLAUDE_CODE.md`](./CLAUDE_CODE.md), [`CODEX.md`](./CODEX.md),
 [`CURSOR.md`](./CURSOR.md), and [`OPENCODE.md`](./OPENCODE.md).
 
-### Pi local ACP validation notes
+### Pi external ACP validation notes
 
-The Pi column is implemented by the generated provider workspace's code-backed
-native `pi --mode rpc` connector; it does not use `pi-acp`:
+The Pi column is implemented by the separately versioned
+`cadencr-plugin-provider-pi` connector using native `pi --mode rpc`; it does not
+use `pi-acp` and no Pi-specific implementation is compiled into Cadencr:
 
 - seven Pi models were discovered before session creation, and the user had to
   select a model before the first prompt;
@@ -409,15 +412,22 @@ new one. Routing identifiers used:
 This live-session routing is distinct from durable recovery after the provider
 process or Cadencr restarts.
 
-## 17. Durable session resume/load
+## 17. Durable session restore and close
 
 A provider that advertises durable resume accepts a stored session through
 `RuntimeSpawnConfig.resume_session_id` (Claude Code `--resume`, Codex
-`thread/resume`, or ACP `session/load`). Resume MUST be transparent: shared code
-asks for the session id, and the adapter handles whether to spawn fresh, resume,
-or attach to an already-running process. Providers that do not advertise this
-optional capability must start a new provider session without deleting Cadencr's
-local transcript.
+`thread/resume`, or ACP). The installed-provider host prefers
+`sessionCapabilities.resume` plus `session/resume`, then uses legacy
+`loadSession` plus `session/load` as a compatibility fallback. An explicit
+resume that neither path supports MUST fail
+visibly rather than start a fresh provider session. Shared code asks for the
+session id; the adapter owns the provider-native restore details, and Cadencr's
+local transcript remains intact.
+
+When `sessionCapabilities.close` is advertised, Cadencr MUST send a bounded
+`session/close` before terminating the provider process. Close failure cannot
+leave the child unowned. Resume and close are negotiated runtime capabilities,
+not descriptor or marketplace fields.
 
 History replay (re-running prior turns) is NOT a v1 requirement.
 
@@ -428,16 +438,25 @@ History replay (re-running prior turns) is NOT a v1 requirement.
 ### Marketplace or local ACP provider
 
 An ACP-speaking provider does **not** add Rust, TypeScript, or a provider SDK to
-Cadencr. It supplies a validated ACP Registry entry plus host installation data,
-and the existing `GenericAcpAdapter` launches it as an external process. Admission
-depends on the minimum ACP v1 contract and host policy in `BOUNDARIES.md`, not on
-implementing every row in this ledger.
+Cadencr. It ships independently versioned executable mapping code implementing
+`models --format acp-config-options-v1` and `run --protocol acp-v1`, plus a
+validated ACP Registry entry and host installation data. The existing
+`GenericAcpAdapter` launches it as an external process. Admission depends on the
+minimum ACP v1 contract and host policy in `BOUNDARIES.md`, not on implementing
+every row in this ledger.
 
-Capability data belongs to ACP `initialize`, `session/new`, and later standard
+Capability data belongs to ACP `initialize`, session setup, and later standard
 updates; it must not be copied into the marketplace descriptor as a second source
 of truth. The current generic adapter does not yet project every optional
-negotiated model, mode, authentication, or configuration control into the desktop.
-That provider-neutral bridge is tracked separately in `BOUNDARIES.md`.
+negotiated model, mode, or configuration control into the desktop. Provider
+account authentication is not such a control: the user preconfigures the native
+CLI, and Cadencr neither stores credentials nor brokers ACP authentication for
+marketplace connectors. The remaining provider-neutral bridge is tracked in
+`BOUNDARIES.md`.
+
+The package/install/conformance backend must be complete before normal-user
+installation ships. The marketplace browser and install/manage UI is explicitly
+deferred until then.
 
 ### First-party built-in integration
 

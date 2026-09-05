@@ -1,9 +1,9 @@
 # Cadencr code-backed provider package contract
 
-> - **Status:** Local v1 code-and-icon contract implemented; marketplace packaging and signing are future work
+> - **Status:** Local v1 code-and-icon plus managed package/install/conformance backend implemented; release trust pins and marketplace UI deferred
 > - **Contract version:** `acp-config-options-v1` + `acp-v1`
 > - **Reference SDK:** `packages/provider-plugin-sdk-rs/`
-> - **Reference provider:** `packages/pi-provider/`
+> - **External reference provider:** `cadencr-plugin-provider-pi` — native `pi --mode rpc`, no `pi-acp`
 
 ## Why providers require code
 
@@ -20,6 +20,24 @@ A provider package must include executable code that owns both mappings:
 
 The host remains provider-neutral. Provider-specific CLI flags, RPC calls,
 model identifiers, aliases, and parsing stay in the package executable.
+
+## Provider account configuration
+
+Provider-account authentication is wholly outside Cadencr. Before installing or
+running a connector, the user configures and authenticates the provider's native
+CLI using that provider's own commands and credential storage. Cadencr does not:
+
+- collect, store, copy, broker, or render provider credentials;
+- invoke ACP authentication methods for generic installed/marketplace connectors;
+- admit or reject a package based on an advertised authentication method;
+- put credentials or provider-account authentication policy in the package,
+  descriptor, argument vector, or environment.
+
+The connector's `README.md` may document the native prerequisite command, and
+`models` or `run` must return an actionable error when native configuration is
+missing. Cadencr's own loopback API token and package/index signature and
+checksum verification are independent host-security mechanisms and remain
+required.
 
 ## Required executable interface
 
@@ -113,21 +131,26 @@ to discover what models exist.
 
 ## Durable ACP v1 resume
 
-Durable resume remains handshake-owned rather than descriptor-owned. A
-connector that can restore context across a newly spawned process:
+Durable resume remains handshake-owned rather than descriptor-owned. The host
+persists resume IDs only after the connector advertised stable resume or legacy
+load, rechecks a stored ID against a newly spawned connector, and fails visibly
+rather than silently creating empty provider context. It uses this precedence:
 
-1. advertises `agentCapabilities.loadSession: true` from `initialize`;
-2. returns an opaque, stable ID from `session/new`;
-3. implements `session/load` for that ID and workspace;
-4. returns the same complete configuration snapshot shape as `session/new`;
-5. rejects missing, stale, or mismatched IDs instead of silently creating a new
-   native session.
+1. return an opaque, stable ID from `session/new`;
+2. prefer `sessionCapabilities.resume` plus `session/resume` when advertised;
+3. fall back to legacy `loadSession` plus `session/load` for compatible agents;
+4. reject missing, stale, workspace-mismatched, or unsupported IDs instead of
+   calling `session/new`;
+5. return the same complete configuration snapshot shape as `session/new` from
+   either restore method;
+6. advertise `sessionCapabilities.close` and implement `session/close` when the
+   connector can release an active native session cleanly.
 
-The installed-provider adapter remembers the negotiated capability. It persists
-resume IDs only after a connector advertised support, while an ID already stored
-before a Cadencr restart is rechecked against the new handshake before load.
-Changing a connector from resumable to non-resumable therefore fails visibly;
-Cadencr never substitutes empty provider context for a requested resume.
+Cadencr will send an advertised close request with a bounded timeout before it
+drains and terminates the connector process. Resume and close support never
+appears in the descriptor. `session/resume` is preferred because it restores
+provider context without transcript replay; Cadencr already owns the visible
+transcript.
 
 ## Rust SDK
 
@@ -175,17 +198,29 @@ same executable contract and passes the same conformance tests.
 
 ## Pi reference mapping
 
-`cadencr-pi-provider` demonstrates a non-ACP discovery source:
+The independent reference connector owns the ACP server and maps native
+`pi --mode rpc` directly; it does not use `pi-acp`:
 
-- `models` launches `pi --mode rpc --no-session` in the requested workspace;
-- it sends `get_available_models` and `get_state`;
-- it maps Pi model IDs to the exact `${provider}/${id}` values used by
-  `pi-acp`'s live `model` selector;
-- `run` delegates ACP stdio to `pi-acp`;
-- `CADENCR_PI_PATH` and `CADENCR_PI_ACP_PATH` can override the two binaries.
+- `models` launches `pi --mode rpc --no-session --no-approve` in the requested
+  workspace, calls `get_available_models` and `get_state`, and emits the exact
+  `${provider}/${id}` values accepted by its live ACP model selector;
+- `run` starts the connector's ACP v1 stdio server, and each ACP session owns a
+  persistent Pi RPC child in the requested workspace;
+- native `set_model`, thinking-level, message/thinking streams, tool lifecycle,
+  permissions, cancellation, commands, context/cost, compaction, and queue
+  controls map to the closest standard ACP v1 shapes without host-side Pi
+  branches;
+- durable restore validates a workspace-bound opaque ID and starts a new
+  `pi --mode rpc --session <native-id>` process;
+- `CADENCR_PI_COMMAND` may override the native Pi executable, without introducing
+  a second ACP adapter dependency.
 
-This provider-specific knowledge lives entirely in `packages/pi-provider/`.
-Neither the registry, generic adapter, catalog, nor desktop branches on `pi`.
+`cadencr-plugin-provider-pi` is a separately versioned, dependency-free Node 22
+source repository and integration reference. Cadencr sees only its signed
+package/index metadata and the provider-neutral executable contract. An end
+user never clones or modifies Cadencr, and the connector's existence does not
+justify a `pi` branch, dependency, asset, model parser, or release step in the
+registry, generic adapter, catalog, desktop, or Cadencr build.
 
 ## Developer workspace generator
 
@@ -238,17 +273,205 @@ The renderer never receives the local directory. A missing or invalid icon is a
 packaging diagnostic from `GET /api/agents/installed-providers` with a neutral
 UI fallback; it does not make an otherwise runnable connector unavailable.
 
-## Marketplace package work still required
+## Managed package/index contract
 
-The executable contract does not yet define the downloadable archive format.
-Before public marketplace installation, the package layer still needs:
+The executable contract now has a strict, versioned downloadable-package
+envelope and backend in `providers/installed/managed/`. It is intentionally a
+loopback service API with no normal-user marketplace surface. A release must
+still provision its real signing key and HTTPS blocklist source before it can
+admit third-party packages.
 
-- signed identity and publisher metadata;
-- platform-specific binary and asset entries;
-- hashes, extraction policy, permissions, and quarantine rules;
-- signed archive placement, hashes, and lifecycle for icon/license/readme assets;
-- conformance execution before activation;
-- atomic install, upgrade, rollback, and uninstall semantics.
+### Package/index contract
 
-Until those controls exist, provider descriptors and lifecycle endpoints are a
-backend/developer substrate, not a general-purpose "add any CLI" desktop flow.
+The portable agent payload remains a lossless ACP Registry entry. A separate,
+versioned Cadencr envelope supplies host policy without adding runtime
+capabilities to that payload:
+
+| Required data | Rule                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Identity      | Normalized provider ID and exact semantic package version; built-in IDs and aliases remain reserved.               |
+| Compatibility | Explicit minimum and optional maximum Cadencr version.                                                             |
+| Target        | Exactly one selected distribution matching the current OS and architecture.                                        |
+| Artifact      | Immutable archive URL plus required SHA-256 for binary archives; moving versions and ranges are rejected.          |
+| Executable    | Relative path inside the archive plus an argument array; no shell command.                                         |
+| Assets        | Relative, bounded icon plus optional readme/license paths inside the same package root.                            |
+| Environment   | Non-secret launch configuration only. Provider credentials and provider-account authentication data are forbidden. |
+| Trust         | Signed registry/index entry and publisher identity, kept separate from ACP conformance.                            |
+
+Package parsing is lossless for portable ACP root fields and strict for the
+Cadencr host envelope. Unknown host-policy fields fail closed rather than being
+silently ignored. Contract v1 validates deterministic package ordering, exact
+semantic versions, inclusive application compatibility, every declared binary
+target, mandatory SHA-256, HTTPS artifacts, bounded relative executable/assets,
+and the ban on credential/authentication data. Resolution selects only the
+exact current ACP Registry platform key; it never falls back to another target
+or to `npx`/`uvx`.
+
+The detached Ed25519 signature covers canonical compact JSON bytes for this
+validated envelope. Schema validation alone does not establish trust: only the
+host-owned keyring can turn it into a verified index consumable by the
+installer. Release builds provision the key id/public key and blocklist URL at
+compile time through `CADENCR_MANAGED_PROVIDER_KEY_ID`,
+`CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64`, and
+`CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL`. A build without those pins fails
+closed with `TRUST_NOT_CONFIGURED`; request-supplied public keys and source URLs
+are never roots of trust.
+
+### Installation transaction
+
+For install or update, the backend performs this ordered transaction:
+
+1. choose the exact compatible current-platform distribution;
+2. download into a bounded staging directory outside the active installation;
+3. verify the signed index/entry and artifact SHA-256 before extraction;
+4. reject path traversal, absolute paths, duplicate entries, escaping symlinks,
+   oversized entries/archives, and unsupported file types;
+5. ensure every executable and declared asset canonicalizes inside the staged
+   package root, and apply restrictive file/directory permissions;
+6. run the conformance probes below against the staged executable;
+7. atomically rename the staged tree into
+   `<settings-sibling>/provider-installations/<id>/<version>/<sha256>/`, then
+   atomically write `state.json`, the sole authoritative activation pointer;
+8. derive the startup descriptor from that desired state. A projection failure
+   is recoverable: startup reconciles it before descriptor scanning and
+   suppresses a stale managed descriptor if reconciliation still fails;
+9. record source, digest, installed version, previous version, conformance
+   receipt, activation state, and timestamps in durable install history;
+10. leave prior immutable versions, history, and redacted quarantine evidence
+    retained. Garbage collection and an explicit retention cap are deferred;
+    current uninstall removes activation, not audit or rollback bytes.
+
+A failure before activation removes only staging data and leaves the current
+version unchanged. Cleanup failures are returned and the stable failure gate is
+written to the private quarantine ledger; they are not log-only. Update uses a
+compare-and-swap on the complete prior activation, including enablement, so a
+concurrent remove/update/enable cannot resurrect or overwrite state. Rollback
+re-verifies the retained signed index with the current host keyring, checks the
+complete payload manifest and blocklist, reruns prompt-free conformance in a new
+empty workspace, checks that conformance did not mutate package bytes, and only
+then performs the same activation compare-and-swap.
+
+Disable, uninstall, update, and rollback never delete Cadencr sessions or
+transcripts. An active provider ID remains reserved until restart, matching the
+immutable runtime-registry rule. Managed descriptors cannot be modified through
+the local-descriptor lifecycle API; callers receive `USE_MANAGED_PROVIDER_API`.
+
+### Bounded conformance before activation
+
+Conformance is compatibility evidence, not a trust or authentication decision:
+
+| Probe                | Required assertion                                                                                                                                          |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`            | Exits successfully within bounds and returns one connector version.                                                                                         |
+| `models`             | Returns a verified non-empty model selector/default within the existing 10-second and 1-MiB limits.                                                         |
+| `initialize`         | Negotiates ACP v1 and reports parseable capabilities.                                                                                                       |
+| Disposable session   | `session/new` returns an ID and a live selector compatible with pre-session discovery.                                                                      |
+| Model reconciliation | The selected model can be set and is authoritatively confirmed before prompting.                                                                            |
+| Cleanup              | The disposable session is closed when advertised and the complete process tree is drained within a bound without sending a billable prompt.                    |
+| Resume compatibility | If advertised, `session/resume` is probed; legacy `session/load` is tested only as fallback. Unsupported explicit resume must fail rather than start fresh. |
+| Close compatibility  | If advertised, `session/close` releases the disposable session within a bound.                                                                              |
+
+The installer records stable rejection/quarantine codes and a non-secret
+conformance receipt: exact connector version, ordered model IDs/default and
+selector ID, advertised resume/load/close probe outcomes, explicit unprobed
+prompt state, and whether an OS sandbox was applied. It never invokes or tests
+provider-account authentication; a preconfigured native CLI is a user
+prerequisite, and missing configuration is an actionable availability error.
+
+### Registry, blocklist, and process policy
+
+The backend now provides:
+
+- signed-index ingestion through a host-pinned Ed25519 keyring, with the exact
+  signed envelope retained in every immutable receipt;
+- a startup-fetched, bounded, signed HTTPS blocklist cache. Network failure may
+  use a still-valid verified cache; matching, corrupt, or expired cached policy
+  fails launch closed. When a blocklist URL is configured, a missing verified
+  cache also refuses install/launch. Cache publication is serialized and rejects
+  older or conflicting same-timestamp policy, including after cache expiry. A
+  newly verified policy may repair an invalid/untrusted cache. Inventory reports missing/verified/invalid cache state,
+  signer, expiry, and safe failure code;
+- complete payload-manifest, checksum, receipt, signed-entry, and blocklist
+  re-verification at rollback and immediately before both `models` and `run`;
+- direct execution with a sanitized inherited environment, empty conformance
+  workspace, bounded one-shot commands and output, process-tree termination,
+  and CPU/memory limits where the OS supports them. Inventory reports unavailable
+  controls honestly; this is not a filesystem/network sandbox;
+- loopback install, update, rollback, enable/disable, uninstall, inventory, and
+  blocklist-refresh endpoints with durable state, history, and redacted
+  quarantine evidence. Mutations are restart-gated because the runtime registry
+  remains immutable for one service process.
+
+The normal-user marketplace browser and install/manage UI is explicitly
+deferred. The remaining release gates are provisioning a real reviewed signing
+key and blocklist URL, deciding the OS sandbox requirement, and exercising a
+real signed package end-to-end in a packaged app. The local developer substrate
+remains separate and is not a general-purpose "add any CLI" flow.
+
+### Local integrity boundary
+
+"Immutable revision" means version/digest-addressed storage which the installer
+does not overwrite with different package contents. It does not mean OS-enforced
+read-only storage. Launch checks re-read the signed receipt and package bytes,
+but execution still opens the executable by pathname afterward. A process with
+the same user's filesystem privileges can race that check or modify connector
+dependencies after it; this implementation is not tamper-proof against an
+already-compromised local user account. Executing a verified executable handle
+alone would also not pin a script interpreter's subsequently loaded files.
+
+Keep launch-time verification on every `models` and `run` invocation. Do not
+describe it as atomic verify-and-execute or treat process containment as a
+filesystem/network sandbox. Stronger local isolation remains part of the
+explicit sandbox/release-policy decision, not a solved guarantee of this backend.
+
+### Managed lifecycle API
+
+All mutations are host-authenticated and loopback-only:
+
+| Operation | Endpoint |
+| --- | --- |
+| Inventory | `GET /api/agents/managed-providers` |
+| Install | `POST /api/agents/managed-providers` |
+| Update | `POST /api/agents/managed-providers/{provider_id}/update` |
+| Rollback | `POST /api/agents/managed-providers/{provider_id}/rollback` |
+| Enable/disable | `PUT /api/agents/managed-providers/{provider_id}/enabled` |
+| Remove activation | `DELETE /api/agents/managed-providers/{provider_id}` |
+| Refresh kill switch | `POST /api/agents/managed-providers/blocklist/refresh` |
+
+Install/update requests carry the signed index envelope, provider id, and exact
+version—not a public key, registry URL, arbitrary executable, or credential.
+Responses report active/current-versus-next-restart state, retained history,
+quarantine records, blocklist health, and applied/unavailable process controls.
+
+### Review hardening invariants
+
+- TAR parsing counts all physical headers toward the 4,096-entry limit and
+  bounds the entire decompressed stream, including padding and trailing data.
+  GNU longname and local PAX metadata are limited to 64 KiB each; nonempty
+  directory bodies, global/link/sparse extensions, and differing PAX/physical
+  sizes are rejected. Archive metadata never applies ownership or extended
+  attributes to installed files.
+- Reinstalling an identical revision may use a newer signed catalog containing
+  unrelated package changes. The selected signed package and immutable launch,
+  asset, checksum, and payload metadata must still agree; the original receipt
+  and its signed evidence are retained.
+- Quarantine append operations serialize the complete read/modify/write cycle.
+  A corrupt provider state, receipt, or quarantine ledger produces per-entry
+  `error_code` / redacted `error` diagnostics instead of hiding other installs or
+  failing an unrelated successful mutation's response.
+- Disable does not need an intact receipt or payload. It retires the runtime
+  descriptor while retaining disabled desired state and identity reservation.
+  Re-enable must still pass verification; changes require a restart.
+- One-shot command cleanup retains process-tree ownership even after the parent
+  exits, so descendants holding stdout/stderr cannot survive a capture timeout.
+
+- Startup-registration readiness in inventory uses the same receipt identity,
+  payload, and descriptor validation as startup reconciliation. It is distinct
+  from launch authorization: signatures and blocklist policy are still checked
+  at each launch. Disabled IDs remain reserved even without a descriptor.
+- Mutation responses inspect only the affected provider. Full inventory builds
+  one startup-ID lookup, and expensive inventory, launch-verification, and
+  admission filesystem work is dispatched to blocking workers.
+- Concurrent commits of an identical immutable revision verify and reuse the
+  winning destination; a differing revision's metadata or payload remains an
+  error. No new UI or hot reload is implied by these backend changes.

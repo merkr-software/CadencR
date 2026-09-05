@@ -1,7 +1,7 @@
 # Installed code-backed providers (local substrate)
 
 > - **Status:** Backend and developer-project substrate implemented; general-purpose desktop installation deliberately withdrawn
-> - **Last reviewed:** 2026-08-16
+> - **Last reviewed:** 2026-08-26
 > - **Code:** `packages/service/src/domain/agents/providers/installed/`
 > - **Executable contract:** [`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md)
 
@@ -17,6 +17,13 @@ provider**. That flow creates an ordinary Git-backed Cadencr project with
 project's `bin/provider` build output. It does not download or admit third-party
 code, and it does not change the user's ordinary pane or worktree layout. See
 [`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md#developer-workspace-generator).
+
+The user configures and authenticates the provider's native CLI before using the
+connector. Provider-account authentication is outside Cadencr: descriptors and
+future packages cannot contain credentials or authentication behavior, and the
+generic adapter does not broker ACP authentication. Cadencr's loopback API
+authentication and package signature/checksum verification are separate host
+security requirements.
 
 ## Where descriptors live
 
@@ -76,7 +83,7 @@ values may contain credentials.
     "executable": {
       "command": "/opt/acme/bin/cadencr-acme-provider", // absolute path, required
       "args": ["--region", "eu"], // appended provider args, never a shell string
-      "env": { "ACME_REGION": "eu" }, // literal env for the child
+      "env": { "ACME_REGION": "eu" }, // local non-secret launch config only
     },
   },
 }
@@ -107,26 +114,28 @@ The vendored upstream snapshots live at
 `claude-acp` entry. Tests validate the entry and compare its serialized value to
 the original JSON, making schema drift or data loss an explicit source change.
 
-**A descriptor may not declare capabilities.** No models, modes, permission
-maps, thought levels, or auth methods. Models come from executable code through
-the required `models --format acp-config-options-v1` command; session state and
-all other capabilities come from `initialize` and `session/new`. Such a
-descriptor field is rejected with `DESCRIPTOR_SCHEMA_VIOLATION`, because a
-silently ignored `"models"` key looks honored and is not.
+**A descriptor may not declare capabilities or provider-account authentication.**
+No models, modes, permission maps, thought levels, auth methods, or credentials.
+Models come from executable code through the required
+`models --format acp-config-options-v1` command; session state and other runtime
+capabilities come from `initialize` and session setup. Such a descriptor field
+is rejected with `DESCRIPTOR_SCHEMA_VIOLATION`. The user preconfigures the native
+CLI outside Cadencr.
 
 ## What this build does and does not do
 
 | Supported                                                                                 | Deferred                                                        |
 | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
 | Code-backed `models` discovery plus ACP v1 runtime                                        | ACP v2                                                          |
-| An explicitly selected local provider-package executable                                  | Downloadable package/archive installation                       |
+| An explicitly selected local provider-package executable                                  | Normal-user marketplace browsing/install UI                     |
 | Startup loading plus durable add/enable/disable/remove HTTP operations                    | Hot activation / reload                                         |
 | Explicit `restart_required` activation semantics                                          | General-purpose desktop provider installation                   |
 | Strict descriptor validation and lossless typed round-trip                                | Registry ingestion/export workflow                              |
 | Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set | Richer ACP configuration types beyond the v1 baseline           |
-| Connector-owned `icon.svg`, bounded and inlined from its host-declared package root       | Signed/downloaded marketplace asset installation                |
-| Pre-prompt validation that live ACP still contains and confirms the selected model        | Signed marketplace distribution, assets, and conformance runner |
+| Connector-owned `icon.svg`, bounded and inlined from its host-declared package root       | Release signing-key/blocklist provisioning                      |
+| Pre-prompt validation that live ACP still contains and confirms the selected model        | Packaged-app validation of a real signed distribution           |
 | Opaque option IDs and authoritative replacement from `session/set_config_option`          | Category-specific placement and built-in-control migration      |
+| Stable durable restore (`session/resume`, legacy `session/load` fallback) and graceful close | Marketplace package-management UI                              |
 
 ## Requirements on the provider executable
 
@@ -141,10 +150,12 @@ The runtime baseline from `BOUNDARIES.md` §"Minimum ACP v1 admission contract":
 `session/cancel`, and `session/update`, with standard JSON-RPC errors for
 optional methods it does not implement. Optional capabilities widen what the
 workspace can offer; they are never an admission requirement. Model discovery
-is preflighted on catalog access. Full ACP handshake conformance remains future
-package-admission work.
+is preflighted on catalog access. Managed package admission also runs bounded,
+prompt-free `version`, model, initialize, disposable-session reconciliation,
+conditional resume/load, and close probes before activation, records the
+non-secret evidence, and repeats conformance on rollback.
 The client advertises ACP v1 boolean configuration support. Options returned by
-`session/new` or `session/load` become the live provider-neutral snapshot, and a
+`session/new`, stable `session/resume`, or legacy `session/load` become the live provider-neutral snapshot, and a
 successful `session/set_config_option` response replaces that snapshot with its
 complete `configOptions` list. Descriptors still cannot declare any of these
 values. For code-backed installed providers, the selected pre-session model is
@@ -156,13 +167,20 @@ select/boolean configuration, permissions, plans, usage/cost, shell and edit
 tools, diffs, and an MCP-shaped tool call. The durable mode persists context and
 requires `session/load` after the first subprocess is closed.
 `tests/installed_acp_provider_test.rs` drives those modes through the runtime
-registry and the authenticated HTTP + real WebSocket host surfaces, including
+registry and the Cadencr host-authenticated HTTP + real WebSocket surfaces, including
 interruption of an active turn and subprocess-restart resume. ACP v2 lifecycle
 remains separate, deferred coverage.
 
+Stable v1 restore prefers `sessionCapabilities.resume` plus `session/resume`,
+retains legacy load only as fallback, and sends an advertised, bounded
+`session/close` before terminating the child. An explicit resume that neither
+path supports fails rather than calling `session/new`; replay suppression is
+enabled only for legacy load. These are handshake-owned runtime capabilities,
+never descriptor fields.
+
 ## Descriptor lifecycle API
 
-Authenticated loopback API clients can manage descriptor files without
+Cadencr host-authenticated loopback API clients can manage descriptor files without
 mutating the running registry. Paired remote clients can read diagnostics but
 cannot install an executable or alter host launch policy:
 
@@ -189,8 +207,11 @@ process registry.
 The free-form **Add local ACP provider** dialog is intentionally not shipped.
 Model discovery and native-to-ACP mapping require provider-owned code, while a
 simple path/arguments/environment form falsely implies that any ACP executable
-is sufficient. The lifecycle API remains a loopback-only developer and future
-installer substrate until signed code-and-assets packages exist.
+is sufficient. The local lifecycle API remains developer-only. The signed
+code-and-assets transaction, conformance, install-history, blocklist, and
+process-policy backends now exist behind separate host-authenticated loopback
+APIs. The normal-user marketplace UI remains a later slice, gated on a real
+release signing key/blocklist source and packaged-app verification.
 
 Installed providers still carry `origin: "installed_local"` in the service
 catalog. Shared desktop/runtime code may use this provider-neutral origin and
@@ -223,7 +244,7 @@ be trusted:
 | `UNSUPPORTED_SCHEMA_VERSION`   | `schema_version` is from a newer build                                          |
 | `DESCRIPTOR_IDENTITY_MISMATCH` | File name and `agent.id` disagree                                               |
 | `DUPLICATE_PROVIDER_ID`        | A built-in id/alias or earlier descriptor owns the normalized public identifier |
-| `UNSUPPORTED_DISTRIBUTION`     | No `installation.executable`; this build downloads nothing                      |
+| `UNSUPPORTED_DISTRIBUTION`     | No `installation.executable`; local descriptors never download distributions    |
 | `INVALID_EXECUTABLE_PATH`      | The command is empty or not absolute                                            |
 
 **Quarantined** — a valid install that cannot run right now. It stays registered
@@ -248,9 +269,10 @@ is refused at load time rather than becoming a surprise the day the user
 enables it. The resolver also walks built-ins first, providing defense in depth
 if a future registration source bypasses descriptor loading.
 
-`executable` is reported without its argument vector. An argument can carry a
-credential (`--token …`) and, unlike a fixed set of environment names, there is
-no generic way to redact one.
+`executable` is reported without its argument vector because arbitrary local
+arguments cannot be generically redacted. Future downloaded packages cannot put
+provider credentials in arguments or environment; the native CLI is already
+configured outside Cadencr.
 
 ## Security notes
 
@@ -259,9 +281,13 @@ the built-in ACP adapters, which go through `$SHELL -l -c "exec …"`. Descripto
 data is marketplace data and must never become shell syntax, and the service
 already hydrates its own environment from the login shell at startup, so the
 child still inherits a terminal-like `PATH`. A relative command is refused
-rather than resolved through `PATH`. Environment values are host launch
-policy: they are never returned by the API and never logged. On Unix the
-descriptor itself is atomically stored with mode `0600`. The process
-boundary is **not** an OS sandbox — a local descriptor points at a binary the
-user chose, and the marketplace safety work (signing, checksums, blocklist,
-sandboxing) in `BOUNDARIES.md` Phase 8 lands before any downloaded agent ships.
+rather than resolved through `PATH`. Local environment values are host launch
+policy: they are never returned by the API and never logged. Downloaded packages
+cannot carry provider-account credentials or authentication policy. On Unix the
+descriptor itself is atomically stored with mode `0600`. The local-descriptor
+process boundary is **not** an OS sandbox — it points at a binary the developer
+chose. Managed packages add signed-index/checksum/full-tree verification,
+prompt-free conformance, sanitized environments, process-tree termination,
+platform resource controls, redacted quarantine, and a cached signed blocklist.
+They still do not claim filesystem/network sandboxing; that release gate remains
+explicit in `BOUNDARIES.md` Phase 8.

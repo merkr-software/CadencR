@@ -83,11 +83,12 @@ It is an ordinary Cadencr project: use your normal agent, panes, Git workflow, a
 
 ## Start here
 
-1. Ask your agent to **read `INSTRUCTION.md` and implement the complete connector**.
-2. Review and merge the agent's work into this repository's main checkout if your normal workflow used a worktree.
-3. Build the connector so the executable exists at `{executable}`.
-4. Restart Cadencr after every connector change before testing it.
-5. Select **{display_name}** and one of its discovered models in a normal conversation.
+1. Configure and authenticate the provider with its own native CLI. Cadencr does not collect, store, or broker provider credentials.
+2. Ask your agent to **read `INSTRUCTION.md` and implement the complete connector**.
+3. Review and merge the agent's work into this repository's main checkout if your normal workflow used a worktree.
+4. Build the connector so the executable exists at `{executable}`.
+5. Restart Cadencr after every connector change before testing it.
+6. Select **{display_name}** and one of its discovered models in a normal conversation.
 
 > Cadencr does not hot-reload provider executables or registrations. Restarting between changes is required for a reliable test.
 
@@ -103,7 +104,7 @@ It is an ordinary Cadencr project: use your normal agent, panes, Git workflow, a
 
 ## Scope
 
-This is a local developer workflow, not marketplace installation. A future marketplace will add signed packages, assets, integrity checks, conformance, upgrades, and uninstall policy. Do not treat this repository or its host-local descriptor as a published package yet.
+This is a local developer workflow, not marketplace installation. The managed marketplace backend provides signed-package validation, assets, integrity checks, conformance, upgrades, rollback, blocklist, process policy, and uninstall semantics; production provisioning and its normal-user UI are still pending. Provider-account authentication remains in the already-configured native CLI. Do not treat this repository or its host-local descriptor as a published package yet.
 "#
     )
 }
@@ -128,6 +129,8 @@ mod tests {
             "run --protocol acp-v1",
             "version",
             "session/set_config_option",
+            "sessionCapabilities.resume",
+            "sessionCapabilities.close",
             "icon.svg",
             "restart Cadencr",
         ] {
@@ -139,6 +142,7 @@ mod tests {
         assert!(!instruction.contains("__EXECUTABLE__"));
         let readme = readme("pi-connector", "Pi", "bin/provider");
         assert!(readme.contains("ordinary Cadencr project"));
+        assert!(readme.contains("provider with its own native CLI"));
         assert!(readme.contains("Restart Cadencr after every connector change"));
     }
 

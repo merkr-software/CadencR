@@ -8,7 +8,10 @@ You are working in the complete source repository for Cadencr provider `__PROVID
 - A runtime bridge that speaks ACP v1, either directly or by safely delegating to an existing ACP executable.
 - A documented build command that produces `__EXECUTABLE__` on this machine and marks it executable where the OS requires it.
 - Automated tests for model parsing, malformed provider output, empty model lists, duplicate model IDs, and the ACP runtime launch path.
-- User-facing setup/authentication notes in `README.md`. Never commit credentials or generated secrets.
+- User-facing native CLI prerequisite/configuration notes in `README.md`. The user
+  configures and authenticates the provider with its own CLI before using this
+  connector. Do not collect, copy, store, broker, or commit credentials or
+  generated secrets; Cadencr does not own provider-account authentication.
 - A connector-owned `icon.svg` at the repository root. Use the provider's real
   mark when licensing permits it; never add the provider to Cadencr's static
   frontend asset maps or modify the parent Cadencr source tree.
@@ -82,7 +85,16 @@ Do not invent values. Omit metadata the native provider does not expose.
 - Accept `session/set_config_option` for the selected model and return the complete authoritative option snapshot.
 - Do not require a speculative `session/prompt` to discover models. Cadencr aborts before the first prompt if live reconciliation fails.
 - Preserve ACP streaming, tool calls, permission requests, plan updates, terminal output, cancellation, and errors when the native provider supplies them.
-- If the native provider can restore context across process restarts, advertise `agentCapabilities.loadSession: true` and implement ACP `session/load` for the exact opaque ID returned by `session/new`. Reject a missing/stale ID instead of creating fresh context, and test the path with two separate connector processes. Do not put this capability in the descriptor.
+- If the native provider can restore context across process restarts, prefer
+  `sessionCapabilities.resume` and implement ACP `session/resume` for the exact
+  opaque ID returned by `session/new`. Legacy `agentCapabilities.loadSession`
+  plus `session/load` remains a compatibility fallback. Reject a missing, stale,
+  workspace-mismatched, or unsupported ID instead of creating fresh context, and
+  test the path with two separate connector processes. Do not put either
+  capability in the descriptor.
+- If the native provider can release an active session cleanly, advertise
+  `sessionCapabilities.close` and implement bounded `session/close`. Cadencr will
+  still terminate the process after close; do not leave native children running.
 - Keep provider-specific flags, aliases, event parsing, and native protocol details inside this repository.
 
 ## Local acceptance checklist
