@@ -1,6 +1,7 @@
 import { memo, type CSSProperties, type ReactElement } from "react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
-import { getProviderMetadata } from "@/lib/providers";
+import { BotIcon } from "lucide-react";
+import { useProviderMetadata } from "@/lib/provider-icons";
 import { thinkingEffortLabel, parseThinkingEffort } from "@/shared/thinking-effort";
 import type { LiveAgentStatus } from "@/types/agent";
 import { cn } from "@/lib/utils";
@@ -26,11 +27,11 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
   unread = false,
   className,
 }: SidebarProviderBadgeProps): ReactElement | null {
-  const meta = getProviderMetadata(providerId, null, "mono");
+  const meta = useProviderMetadata(providerId, null, "mono");
   const working = liveStatus === "agent";
   const waiting = liveStatus === "question";
   const showUnread = unread && liveStatus === "idle";
-  if (!meta?.iconSrc && !working && !showUnread) return null;
+  if (!meta && !working && !showUnread) return null;
 
   const effort = parseThinkingEffort(thinkingEffort ?? undefined);
   const modelLabel = modelId?.trim() || "Default";
@@ -60,6 +61,8 @@ export const SidebarProviderBadge = memo(function SidebarProviderBadge({
           className="provider-mark-tint size-3.5"
           style={{ "--provider-mark": `url("${meta.iconSrc}")` } as CSSProperties}
         />
+      ) : meta ? (
+        <BotIcon className="size-3.5" aria-hidden />
       ) : working ? (
         <span className="size-2 rounded-full bg-blue-500" aria-hidden />
       ) : null}

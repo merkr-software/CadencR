@@ -19,10 +19,10 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 use crate::domain::agents::acp::client::{server_request_key, AcpClient, AcpSpawnOptions};
 use crate::domain::agents::acp::error::AcpError;
 use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
+use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
 
 const DEFAULT_MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
-
 type ServerResponders = Arc<StdMutex<HashMap<String, Responder<Value>>>>;
 
 pub(super) struct Inner {
@@ -70,10 +70,22 @@ pub(super) async fn spawn_acp_subprocess(
 
     drop(options.spawn_guard.take());
 
+    let process_tree =
+        ProcessTreeControl::prepare(&mut options.command, options.process_tree_policy).map_err(
+            |error| AcpError::Spawn(format!("process containment unavailable: {error}")),
+        )?;
+
     let mut child = options
         .command
         .spawn()
         .map_err(|error| AcpError::Spawn(error.to_string()))?;
+    if let Err(error) = process_tree.attach(&child) {
+        let _ = child.start_kill();
+        let _ = child.wait().await;
+        return Err(AcpError::Spawn(format!(
+            "process containment unavailable: {error}"
+        )));
+    }
     let pid = child.id();
     let stdin = child
         .stdin
@@ -88,7 +100,16 @@ pub(super) async fn spawn_acp_subprocess(
         .take()
         .ok_or_else(|| AcpError::Protocol("missing ACP stderr".to_string()))?;
 
-    assemble(stdin, stdout, stderr, Some(child), pid, options).await
+    assemble(
+        stdin,
+        stdout,
+        stderr,
+        Some(child),
+        pid,
+        options,
+        Some(process_tree),
+    )
+    .await
 }
 
 #[cfg(test)]
@@ -106,7 +127,7 @@ where
         .command(tokio::process::Command::new("/bin/false"))
         .client_info(client_info)
         .build();
-    assemble(stdin, stdout, stderr, None, None, options).await
+    assemble(stdin, stdout, stderr, None, None, options, None).await
 }
 
 async fn assemble<W, R, E>(
@@ -116,6 +137,7 @@ async fn assemble<W, R, E>(
     child: Option<Child>,
     pid: Option<u32>,
     options: AcpSpawnOptions,
+    process_tree: Option<ProcessTreeControl>,
 ) -> Result<AcpClient, AcpError>
 where
     W: AsyncWrite + Send + Unpin + 'static,
@@ -138,14 +160,21 @@ where
     )
     .await?;
 
-    let stderr_task = spawn_stderr_reader(stderr, max_line_bytes);
+    let stderr_task = spawn_stderr_reader(
+        stderr,
+        max_line_bytes,
+        options.stderr_policy.exposes_contents(),
+    );
     let reaper_task = if let Some(child) = child {
+        let process_tree = process_tree
+            .ok_or_else(|| AcpError::Protocol("missing ACP process-tree control".to_string()))?;
         Some(spawn_reaper(
             child,
             kill_rx,
             events.clone(),
             Arc::clone(&exit_sent),
             Arc::clone(&server_responders),
+            process_tree,
         ))
     } else {
         drop(kill_rx);
@@ -270,7 +299,7 @@ impl HandleDispatchFrom<agent_client_protocol::Agent> for BroadcastHandler {
     }
 }
 
-fn spawn_stderr_reader<R>(stderr: R, max_line_bytes: usize) -> JoinHandle<()>
+fn spawn_stderr_reader<R>(stderr: R, max_line_bytes: usize, log_contents: bool) -> JoinHandle<()>
 where
     R: AsyncRead + Send + Unpin + 'static,
 {
@@ -278,7 +307,11 @@ where
         let mut reader = BufReader::new(stderr);
         loop {
             match read_bounded_line(&mut reader, max_line_bytes).await {
-                Ok(Some(line)) => tracing::warn!(target: "acp", "{line}"),
+                Ok(Some(line)) => {
+                    if log_contents {
+                        tracing::warn!(target: "acp", "{line}");
+                    }
+                }
                 Ok(None) => break,
                 Err(error) => {
                     tracing::warn!(%error, "ACP stderr read failed");
@@ -295,14 +328,20 @@ fn spawn_reaper(
     events: broadcast::Sender<AcpEvent>,
     exit_sent: Arc<AtomicBool>,
     server_responders: ServerResponders,
+    process_tree: ProcessTreeControl,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        let pid = child.id();
         let status = tokio::select! {
-            status = child.wait() => status,
-            _ = &mut kill_rx => {
-                let _ = child.start_kill();
-                child.wait().await
-            }
+            status = child.wait() => {
+                if let Err(error) = process_tree.cleanup_after_exit(pid) {
+                    tracing::warn!(%error, "failed to clean up ACP descendant processes");
+                }
+                status
+            },
+            _ = &mut kill_rx => process_tree
+                .terminate(&mut child, Duration::from_secs(1))
+                .await,
         };
         match status {
             Ok(status) => send_process_exited(

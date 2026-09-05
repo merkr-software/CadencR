@@ -25,6 +25,17 @@ import type { AgentCatalog } from "@/api/agentRuntime";
 import type { ClaudeProfileSelection } from "./useClaudeProfileSelection";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnTimingState } from "@/stores/ws-turn-timing";
+import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
+
+export interface SessionConfigControls {
+  config: RuntimeSessionConfigSnapshot | null;
+  loading: boolean;
+  supported: boolean | null;
+  error: string | null;
+  pendingId: string | null;
+  onRefresh: () => void;
+  onChange: (configId: string, value: RuntimeSessionConfigValue) => void;
+}
 
 export interface AgentSessionProps {
   /** The type of agent being displayed */
@@ -192,6 +203,7 @@ export interface AgentSessionProps {
   runtimeProvider?: string;
   /** Opaque runtime session ID to display above the prompt bar */
   runtimeSessionId?: string;
+  sessionConfigControls?: SessionConfigControls;
   /** Override slash commands (bypasses tRPC fetch). Used by ws-session. */
   slashCommandsOverride?: SlashCommand[];
   /** Provider-owned syntax for invoking commands and skills. */

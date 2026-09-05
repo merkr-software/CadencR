@@ -14,7 +14,8 @@ use super::super::events_stream_blocks::EventIndexer;
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::provider_hooks::AcpProviderHooks;
 use super::super::turn_lifecycle::{
-    finalize_turn, request_prompt_with_cancel, PromptCancel, PromptTurnLock,
+    await_event_loop_barrier, finalize_turn, request_prompt_with_cancel, PromptCancel,
+    PromptTurnLock,
 };
 
 pub(super) struct CompactTurn {
@@ -72,6 +73,7 @@ impl CompactTurn {
         );
         let response =
             request_prompt_with_cancel(&self.client, params, &self.prompt_cancel).await?;
+        await_event_loop_barrier(&self.client).await?;
         if let Some(reason) = response.get("stopReason").and_then(Value::as_str) {
             finalize_turn(
                 &self.local_tx,

@@ -14,6 +14,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use super::assets::ProviderIconAsset;
 use super::descriptor::{AcpAgentEntry, LocalExecutableSpec, ProviderDescriptor};
 use super::rejection::{DescriptorError, QuarantineCode, RejectionCode};
 
@@ -70,6 +71,7 @@ pub struct HostInstallation {
     source_path: PathBuf,
     enabled: bool,
     executable: LocalExecutable,
+    icon: ProviderIconAsset,
     quarantine: Option<Quarantine>,
 }
 
@@ -89,11 +91,16 @@ impl HostInstallation {
         })?;
         let executable = LocalExecutable::resolve(spec)?;
         let quarantine = evaluate_quarantine(&descriptor.agent, &executable);
+        let icon = ProviderIconAsset::load(
+            descriptor.agent.icon.as_deref(),
+            descriptor.installation.assets.as_ref(),
+        );
         Ok(Self {
             agent: descriptor.agent,
             source_path: source_path.to_path_buf(),
             enabled: descriptor.installation.enabled,
             executable,
+            icon,
             quarantine,
         })
     }
@@ -123,6 +130,14 @@ impl HostInstallation {
 
     pub fn executable(&self) -> &LocalExecutable {
         &self.executable
+    }
+
+    pub fn icon_data(&self) -> Option<&str> {
+        self.icon.data()
+    }
+
+    pub fn icon_issue(&self) -> Option<&str> {
+        self.icon.issue_message()
     }
 
     /// The launch target, or a stable error explaining why this install cannot

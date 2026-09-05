@@ -98,7 +98,7 @@ impl AcpProviderHooks for CursorAcpAdapter {
         })
     }
 
-    fn model_config_id(&self) -> Option<&'static str> {
+    fn model_config_id(&self) -> Option<&str> {
         Some("model")
     }
 

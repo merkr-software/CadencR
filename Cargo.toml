@@ -6,6 +6,7 @@ members = [
     "packages/codex-app-server-sdk-rs",
     "packages/cursor-agent-sdk-rs",
     "packages/opencode-sdk-rs",
+    "packages/provider-plugin-sdk-rs",
 ]
 resolver = "2"
 

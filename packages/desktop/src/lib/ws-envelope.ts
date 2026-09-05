@@ -238,6 +238,22 @@ export function createProfileSet(sessionId: string, profile: string): WsEnvelope
   });
 }
 
+export function createSessionConfigGet(sessionId: string): WsEnvelope {
+  return createEnvelope("session", "config.get", { session_id: sessionId });
+}
+
+export function createSessionConfigSet(
+  sessionId: string,
+  configId: string,
+  value: string | boolean,
+): WsEnvelope {
+  return createEnvelope("session", "config.set", {
+    session_id: sessionId,
+    config_id: configId,
+    value,
+  });
+}
+
 export function createDestroy(sessionId: string): WsEnvelope {
   return createEnvelope("session", "destroy", { session_id: sessionId });
 }

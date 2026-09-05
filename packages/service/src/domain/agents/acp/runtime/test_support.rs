@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use tokio::io::{duplex, AsyncBufReadExt, AsyncWriteExt, BufReader, DuplexStream};
 
-use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
+use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpEvent};
 
 pub(crate) async fn build_in_memory_client() -> (AcpClient, DuplexStream, BufReader<DuplexStream>) {
     let (client_stdout, agent_stdout) = duplex(64 * 1024);
@@ -15,6 +15,17 @@ pub(crate) async fn build_in_memory_client() -> (AcpClient, DuplexStream, BufRea
     .await
     .expect("in-memory ACP client should spawn");
     (client, agent_stdout, BufReader::new(agent_stdin))
+}
+
+pub(crate) fn spawn_event_barrier_acker(client: &AcpClient) {
+    let mut events = client.subscribe();
+    tokio::spawn(async move {
+        while let Ok(event) = events.recv().await {
+            if let AcpEvent::EventBarrier(barrier) = event {
+                barrier.notify_one();
+            }
+        }
+    });
 }
 
 pub(crate) async fn read_request(reader: &mut BufReader<DuplexStream>) -> Value {

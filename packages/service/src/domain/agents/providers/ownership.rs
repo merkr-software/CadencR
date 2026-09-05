@@ -30,6 +30,7 @@ mod tests {
         ProviderCatalogEntry {
             id: id.to_string(),
             label: id.to_string(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models: models

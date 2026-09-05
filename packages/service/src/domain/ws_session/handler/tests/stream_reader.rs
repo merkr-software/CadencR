@@ -8,7 +8,7 @@ async fn test_stream_reader_transitions_active_to_pending_on_stream_close() {
 
     let db_session_id = 42i64;
     let feature_id = 1i64;
-    let cli_session_id = "cli-sess-for-resume".to_string();
+    let cli_session_id = "019fc2bc-6c05-7db2-8933-46942a31af27".to_string();
 
     {
         let mut sessions = sdk_sessions.lock().await;

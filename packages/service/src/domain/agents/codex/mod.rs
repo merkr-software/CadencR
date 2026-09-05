@@ -116,6 +116,7 @@ fn catalog_from_models(models: Vec<CodexModel>) -> ProviderCatalogEntry {
     ProviderCatalogEntry {
         id: PROVIDER_ID.to_string(),
         label: PROVIDER_LABEL.to_string(),
+        icon_data: None,
         status: ProviderStatus::Available,
         status_message: None,
         models: models.into_iter().map(model_entry).collect(),

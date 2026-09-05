@@ -1,5 +1,5 @@
-//! End-to-end proof that a locally selected ACP executable becomes a usable
-//! provider without a single provider-specific source change.
+//! End-to-end proof that a code-backed provider executable becomes a usable
+//! provider through the shared package contract.
 //!
 //! The agent under test is `tests/fixtures/fake_acp_agent.py`: a deterministic
 //! ACP v1 process that implements only the baseline (`initialize`,
@@ -18,7 +18,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use cadencr_service::domain::agents::adapter::{
-    AgentRuntimeAdapter, RuntimeSessionConfigKind, RuntimeSessionConfigValue,
+    AgentRuntimeAdapter, AgentRuntimeSession, RuntimeSessionConfigKind, RuntimeSessionConfigValue,
+    RuntimeSpawnConfig,
 };
 use cadencr_service::domain::agents::providers::installed;
 use cadencr_service::domain::agents::providers::installed::rejection::{
@@ -30,9 +31,10 @@ use cadencr_service::domain::agents::providers::installed::routes::{
 use cadencr_service::domain::agents::providers::provider_registry;
 use cadencr_service::domain::agents::runtime::ProviderStatus;
 use cadencr_service::domain::ws_session::protocol::{
+    CommandsUpdatedPayload, PermissionDecision, PermissionRequestPayload, PermissionRespondPayload,
     PromptSendPayload, SessionActionPayload, SessionConfigSetPayload, SessionConfigSnapshotPayload,
     SessionEndedPayload, SessionInitPayload, SessionInitializedPayload, SessionMessagePayload,
-    WsEnvelope, WsSessionAction,
+    SessionUsageUpdatePayload, WsEnvelope, WsSessionAction,
 };
 use common::{start_migrated_test_server, TEST_AUTH_TOKEN};
 use futures::{SinkExt, StreamExt};
@@ -47,6 +49,8 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const PROVIDER_ID: &str = "fake-acp-agent";
 const CONFIG_PROVIDER_ID: &str = "fake-config-acp-agent";
+const RICH_PROVIDER_ID: &str = "fake-rich-acp-agent";
+const DURABLE_PROVIDER_ID: &str = "fake-durable-acp-agent";
 const QUARANTINED_PROVIDER_ID: &str = "quarantined-acp-agent";
 const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -193,6 +197,23 @@ async fn collect_ws_turn(socket: &mut TestWebSocket) -> (String, SessionEndedPay
     }
 }
 
+async fn collect_runtime_turn(session: &mut dyn AgentRuntimeSession) -> String {
+    let mut receiver = session.take_message_rx();
+    tokio::time::timeout(EVENT_TIMEOUT, async {
+        let mut events = String::new();
+        while let Some(event) = receiver.recv().await {
+            let event = event.expect("durable ACP runtime event");
+            events.push_str(&event.raw_json().to_string());
+            if event.is_result() {
+                return events;
+            }
+        }
+        panic!("durable ACP runtime closed before its result");
+    })
+    .await
+    .expect("durable ACP runtime turn timed out")
+}
+
 async fn next_ws_text(socket: &mut TestWebSocket) -> String {
     let deadline = event_deadline();
     loop {
@@ -211,6 +232,82 @@ async fn next_ws_text(socket: &mut TestWebSocket) -> String {
             }
             "ended" => panic!("session ended before streaming text: {}", envelope.payload),
             "error" => panic!("unexpected WebSocket session error: {}", envelope.payload),
+            _ => {}
+        }
+    }
+}
+
+async fn collect_rich_until_permission(
+    socket: &mut TestWebSocket,
+) -> (
+    Vec<Value>,
+    CommandsUpdatedPayload,
+    SessionUsageUpdatePayload,
+    PermissionRequestPayload,
+) {
+    let deadline = event_deadline();
+    let mut blocks = Vec::new();
+    let mut commands = None;
+    let mut usage = None;
+    loop {
+        let envelope = next_ws_envelope(socket, deadline).await;
+        if envelope.domain == "commands" && envelope.action == "updated" {
+            commands =
+                Some(serde_json::from_value(envelope.payload).expect("commands.updated payload"));
+            continue;
+        }
+        if envelope.domain != "session" {
+            continue;
+        }
+        match envelope.action.as_str() {
+            "message" => {
+                let payload: SessionMessagePayload =
+                    serde_json::from_value(envelope.payload).expect("rich session.message");
+                blocks.extend(payload.blocks);
+            }
+            "usage_update" => {
+                usage = Some(
+                    serde_json::from_value(envelope.payload).expect("rich usage_update payload"),
+                );
+            }
+            "permission.request" => {
+                let permission = serde_json::from_value(envelope.payload)
+                    .expect("rich permission.request payload");
+                return (
+                    blocks,
+                    commands.expect("commands.updated must precede permission"),
+                    usage.expect("usage_update must precede permission"),
+                    permission,
+                );
+            }
+            "error" => panic!("unexpected rich session error: {}", envelope.payload),
+            "ended" => panic!("rich session ended before its permission request"),
+            _ => {}
+        }
+    }
+}
+
+async fn collect_rich_after_permission(socket: &mut TestWebSocket) -> Vec<Value> {
+    let deadline = event_deadline();
+    let mut blocks = Vec::new();
+    loop {
+        let envelope = next_ws_envelope(socket, deadline).await;
+        if envelope.domain != "session" {
+            continue;
+        }
+        match envelope.action.as_str() {
+            "message" => {
+                let payload: SessionMessagePayload =
+                    serde_json::from_value(envelope.payload).expect("rich session.message");
+                blocks.extend(payload.blocks);
+            }
+            "ended" => {
+                let ended: SessionEndedPayload =
+                    serde_json::from_value(envelope.payload).expect("rich session.ended payload");
+                assert_eq!(ended.reason, "turn_complete");
+                return blocks;
+            }
+            "error" => panic!("unexpected rich session error: {}", envelope.payload),
             _ => {}
         }
     }
@@ -239,14 +336,31 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     let providers = home.path().join("providers");
     std::fs::create_dir_all(&providers).expect("providers dir");
     let agent = fixture_agent();
-    write_descriptor(
-        &providers,
-        "fake-acp-agent.json",
-        &descriptor(PROVIDER_ID, &agent),
-    );
+    std::fs::write(
+        home.path().join("icon.svg"),
+        "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+    )
+    .expect("provider icon");
+    let mut primary_descriptor = descriptor(PROVIDER_ID, &agent);
+    primary_descriptor["agent"]["icon"] = json!("icon.svg");
+    primary_descriptor["installation"]["assets"] =
+        json!({ "directory": home.path().to_string_lossy() });
+    write_descriptor(&providers, "fake-acp-agent.json", &primary_descriptor);
     let mut config_descriptor = descriptor(CONFIG_PROVIDER_ID, &agent);
     config_descriptor["installation"]["executable"]["args"] = json!(["--session-config"]);
     write_descriptor(&providers, "fake-config-acp-agent.json", &config_descriptor);
+    let mut rich_descriptor = descriptor(RICH_PROVIDER_ID, &agent);
+    rich_descriptor["installation"]["executable"]["args"] = json!(["--rich"]);
+    write_descriptor(&providers, "fake-rich-acp-agent.json", &rich_descriptor);
+    let durable_state = home.path().join("durable-session.json");
+    let mut durable_descriptor = descriptor(DURABLE_PROVIDER_ID, &agent);
+    durable_descriptor["installation"]["executable"]["args"] =
+        json!(["--durable", durable_state.to_string_lossy()]);
+    write_descriptor(
+        &providers,
+        "fake-durable-acp-agent.json",
+        &durable_descriptor,
+    );
     // A second descriptor claiming a built-in id must lose to the built-in.
     write_descriptor(&providers, "cursor.json", &descriptor("cursor", &agent));
     // Disabled entries reserve names too, and aliases are part of the built-in
@@ -276,6 +390,8 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
             "opencode",
             PROVIDER_ID,
             CONFIG_PROVIDER_ID,
+            DURABLE_PROVIDER_ID,
+            RICH_PROVIDER_ID,
             QUARANTINED_PROVIDER_ID,
         ],
         "built-ins keep their order and the install is appended"
@@ -283,12 +399,97 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     let adapter = registry
         .adapter(PROVIDER_ID)
         .expect("the installed provider should resolve");
-    let entry = adapter.catalog_entry();
-    assert_eq!(entry.label, "Fake ACP Agent");
+    let cold_entry = adapter.catalog_entry();
+    assert_eq!(cold_entry.label, "Fake ACP Agent");
+    assert!(cold_entry
+        .icon_data
+        .as_deref()
+        .is_some_and(|icon| icon.starts_with("data:image/svg+xml;base64,")));
+    assert_eq!(cold_entry.status, ProviderStatus::Unavailable);
+    let entry = adapter.catalog_entry_live_for_cwd(Some(home.path())).await;
     assert_eq!(entry.status, ProviderStatus::Available);
+    assert_eq!(
+        entry
+            .models
+            .iter()
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["fake-small", "fake-large"]
+    );
+    assert_eq!(entry.default_model.as_deref(), Some("fake-small"));
+    assert!(entry.modes.is_empty());
+
+    // A connector that advertises stable ACP `session/resume` keeps provider-owned
+    // context when Cadencr replaces the subprocess. This is the same spawn
+    // path used after a desktop/service restart, without keeping the first
+    // runtime alive as an accidental source of continuity.
+    let durable_adapter = registry
+        .adapter(DURABLE_PROVIDER_ID)
+        .expect("durable installed provider should resolve");
+    let runtime_config = RuntimeSpawnConfig {
+        cwd: home.path().to_path_buf(),
+        model: Some("fake-small".to_string()),
+        ..RuntimeSpawnConfig::default()
+    };
+    let mut first_runtime = durable_adapter
+        .spawn(
+            json!("remember this across a subprocess restart"),
+            runtime_config,
+        )
+        .await
+        .expect("durable provider first spawn");
+    collect_runtime_turn(first_runtime.as_mut()).await;
+    let durable_session_id = first_runtime
+        .session_id()
+        .await
+        .expect("durable provider session id");
+    assert_eq!(
+        durable_adapter
+            .persistable_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
+    );
+    first_runtime.close().await;
+
+    // Recreate the adapter too: after a service restart its process-local
+    // capability cache is unknown until the replacement connector completes
+    // `initialize`, while the DB-owned resume id is already available.
+    let durable_installation = installed::startup_load()
+        .installations
+        .iter()
+        .find(|installation| installation.provider_id() == DURABLE_PROVIDER_ID)
+        .expect("durable installed provider installation")
+        .clone();
+    let restarted_adapter = installed::GenericAcpAdapter::new(durable_installation);
+    let mut resumed_runtime = restarted_adapter
+        .spawn(
+            json!("recall the value from the previous subprocess"),
+            RuntimeSpawnConfig {
+                cwd: home.path().to_path_buf(),
+                model: Some("fake-small".to_string()),
+                resume_session_id: Some(durable_session_id.clone()),
+                ..RuntimeSpawnConfig::default()
+            },
+        )
+        .await
+        .expect("durable provider resumed spawn");
+    let resumed_events = collect_runtime_turn(resumed_runtime.as_mut()).await;
+    resumed_runtime.close().await;
     assert!(
-        entry.models.is_empty() && entry.modes.is_empty() && entry.default_model.is_none(),
-        "models and modes are negotiated per session, never declared by a descriptor"
+        resumed_events.contains("durable-host-memory"),
+        "resumed ACP runtime lost connector-owned context: {resumed_events}"
+    );
+    assert_eq!(
+        restarted_adapter
+            .resolve_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
+    );
+    assert_eq!(
+        restarted_adapter
+            .persistable_resume_session_id(Some(&durable_session_id))
+            .as_deref(),
+        Some(durable_session_id.as_str())
     );
     // The colliding descriptor was refused, and `cursor` still resolves to the
     // built-in adapter.
@@ -333,6 +534,39 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         .expect("fake provider diagnostics");
     assert!(fake.registered);
     assert!(fake.quarantine_code.is_none());
+    assert!(fake.icon_issue.is_none());
+    let catalog: Value = server
+        .client
+        .get(format!("{}/api/agent-catalog", server.base_url))
+        .send()
+        .await
+        .expect("catalog request")
+        .json()
+        .await
+        .expect("catalog JSON");
+    assert!(catalog["providers"]
+        .as_array()
+        .expect("provider catalog")
+        .iter()
+        .filter(|entry| {
+            entry["id"] == PROVIDER_ID
+                || entry["id"] == RICH_PROVIDER_ID
+                || entry["id"] == DURABLE_PROVIDER_ID
+        })
+        .all(|entry| entry["origin"] == "installed_local"));
+    assert!(catalog["providers"]
+        .as_array()
+        .expect("provider catalog")
+        .iter()
+        .filter(|entry| entry["id"] == "claude_code" || entry["id"] == "codex_cli")
+        .all(|entry| entry["origin"] == "built_in"));
+    assert!(catalog["providers"]
+        .as_array()
+        .expect("provider catalog")
+        .iter()
+        .find(|entry| entry["id"] == PROVIDER_ID)
+        .and_then(|entry| entry["icon_data"].as_str())
+        .is_some_and(|icon| icon.starts_with("data:image/svg+xml;base64,")));
     let quarantined = diagnostics
         .installed
         .iter()
@@ -404,7 +638,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         "init",
         SessionInitPayload {
             provider: Some(PROVIDER_ID.to_string()),
-            model: None,
+            model: Some("fake-small".to_string()),
             thinking_effort: None,
             permission_mode: None,
             system_prompt: None,
@@ -441,7 +675,10 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     .await
     .expect("persisted session");
     assert_eq!(persisted.0, PROVIDER_ID);
-    assert_eq!(persisted.1.as_deref(), Some("fake-acp-session-1"));
+    assert!(
+        persisted.1.is_none(),
+        "an agent without resume/load support must not leave an unusable resume id"
+    );
 
     // Cancellation crosses the same public WebSocket boundary. Wait for the
     // first chunk so the interrupt cannot race session/prompt startup.
@@ -487,7 +724,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         "init",
         SessionInitPayload {
             provider: Some(CONFIG_PROVIDER_ID.to_string()),
-            model: None,
+            model: Some("fake-small".to_string()),
             thinking_effort: None,
             permission_mode: None,
             system_prompt: None,
@@ -529,9 +766,14 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     assert_eq!(snapshot_envelope.r#ref.as_deref(), Some(get_id.as_str()));
     let snapshot: SessionConfigSnapshotPayload = serde_json::from_value(snapshot_envelope.payload)
         .expect("configuration snapshot should match its DTO");
-    assert_eq!(snapshot.config.options[0].id, "safe_mode");
+    let safe_mode = snapshot
+        .config
+        .options
+        .iter()
+        .find(|option| option.id == "safe_mode")
+        .expect("safe mode option");
     assert!(matches!(
-        snapshot.config.options[0].kind,
+        safe_mode.kind,
         RuntimeSessionConfigKind::Boolean {
             current_value: false
         }
@@ -551,12 +793,113 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     assert_eq!(snapshot_envelope.r#ref.as_deref(), Some(set_id.as_str()));
     let snapshot: SessionConfigSnapshotPayload = serde_json::from_value(snapshot_envelope.payload)
         .expect("updated configuration snapshot should match its DTO");
+    let safe_mode = snapshot
+        .config
+        .options
+        .iter()
+        .find(|option| option.id == "safe_mode")
+        .expect("safe mode option");
     assert!(matches!(
-        snapshot.config.options[0].kind,
+        safe_mode.kind,
         RuntimeSessionConfigKind::Boolean {
             current_value: true
         }
     ));
+
+    // A rich, still provider-neutral ACP v1 stream proves the generic adapter
+    // keeps the standard details needed by the desktop: advertised commands,
+    // plan/todo state, usage, permission options, shell output, diffs, and an
+    // MCP-shaped tool name. No provider-id repair participates in this path.
+    sqlx::query(
+        "INSERT INTO features (id, project_id, title, type) \
+         VALUES (3, 1, 'Rich ACP Feature', 'ws-session')",
+    )
+    .execute(&server.pool)
+    .await
+    .expect("rich ACP feature");
+    sqlx::query(
+        "INSERT INTO feature_settings (feature_id, key, value) \
+         VALUES (3, 'worktree_path', ?)",
+    )
+    .bind(server.repo_path().to_string_lossy().as_ref())
+    .execute(&server.pool)
+    .await
+    .expect("rich ACP worktree path");
+    send_session_payload(
+        &mut socket,
+        "init",
+        SessionInitPayload {
+            provider: Some(RICH_PROVIDER_ID.to_string()),
+            model: Some("fake-small".to_string()),
+            thinking_effort: None,
+            permission_mode: None,
+            system_prompt: None,
+            cwd: Some(server.repo_path().to_string_lossy().into_owned()),
+            feature_id: Some(3),
+        },
+    )
+    .await;
+    let initialized = next_session_action(&mut socket, WsSessionAction::Initialized).await;
+    let initialized: SessionInitializedPayload =
+        serde_json::from_value(initialized.payload).expect("rich session.initialized payload");
+    let rich_session_id = initialized.session_id;
+    send_session_payload(
+        &mut socket,
+        "prompt.send",
+        prompt_payload(&rich_session_id, "exercise the rich contract"),
+    )
+    .await;
+    let (mut blocks, commands, usage, permission) =
+        collect_rich_until_permission(&mut socket).await;
+    assert_eq!(
+        commands
+            .commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["review", "summarize"]
+    );
+    assert_eq!(usage.input_tokens, 321);
+    assert_eq!(usage.output_tokens, 0);
+    assert_eq!(usage.context_window, Some(8192));
+    assert_eq!(permission.request_id, "rich-permission-1");
+    assert_eq!(permission.tool_name, "Bash");
+    assert_eq!(permission.tool_input["command"], "printf rich-acp");
+    assert_eq!(permission.options.len(), 3);
+    send_session_payload(
+        &mut socket,
+        "permission.respond",
+        PermissionRespondPayload {
+            session_id: rich_session_id,
+            request_id: permission.request_id,
+            message_uuid: None,
+            decision: PermissionDecision::AllowOnce,
+            option_id: Some("allow-once".to_string()),
+            feedback: None,
+            updated_input: None,
+        },
+    )
+    .await;
+    blocks.extend(collect_rich_after_permission(&mut socket).await);
+    let projected = serde_json::to_string(&blocks).expect("rich blocks serialize");
+    for expected in [
+        "sessionUpdate\":\"plan",
+        "Inspect the workspace",
+        "Bash",
+        "rich-acp",
+        "Edit",
+        "fixture.txt",
+        "before\\n",
+        "after\\n",
+        "mcp__fixture__lookup",
+        "MCP result",
+        "Rich ACP turn complete.",
+    ] {
+        assert!(
+            projected.contains(expected),
+            "{expected} missing from {projected}"
+        );
+    }
     socket.close(None).await.expect("WebSocket should close");
 
     // --- restart-gated descriptor lifecycle -------------------------------

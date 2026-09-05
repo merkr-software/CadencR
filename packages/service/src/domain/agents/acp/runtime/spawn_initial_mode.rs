@@ -121,6 +121,8 @@ mod tests {
             context_window: None,
             current_mode: mode.map(ToOwned::to_owned),
             session_config: Default::default(),
+            supports_session_close: false,
+            may_replay_history: false,
         }
     }
 

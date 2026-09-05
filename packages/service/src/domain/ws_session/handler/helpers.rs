@@ -14,6 +14,7 @@ use crate::domain::ws_session::protocol::{
     RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope, WsSessionAction,
 };
 
+use super::session_init_resume::persistable_resume_session_id_for_provider;
 use super::types::WsSender;
 
 /// Parse a session_id string from client payload into i64 DB key.
@@ -30,7 +31,9 @@ pub(super) async fn persist_and_close_query(
 ) -> Option<String> {
     let mut q = query.write().await;
     let cli_sid = q.session_id().await;
-    if let Some(ref sid) = cli_sid {
+    let resume_sid =
+        persistable_resume_session_id_for_provider(runtime_provider, cli_sid.as_deref());
+    if let Some(ref sid) = resume_sid {
         debug!(
             db_session_id,
             runtime_provider = %runtime_provider,
@@ -46,7 +49,7 @@ pub(super) async fn persist_and_close_query(
         .await;
     }
     q.close().await;
-    cli_sid
+    resume_sid
 }
 
 /// Send an error envelope back to the client.

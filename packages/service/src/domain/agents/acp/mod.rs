@@ -15,9 +15,11 @@ pub mod client;
 mod client_spawn;
 pub mod error;
 pub mod incoming;
+pub(crate) mod process_tree;
 pub mod runtime;
 pub mod types;
 
-pub use client::{AcpClient, AcpSpawnOptions};
+pub use client::{AcpClient, AcpSpawnOptions, AcpStderrPolicy};
 pub use error::AcpError;
+pub use process_tree::{AcpProcessTreeLimits, AcpProcessTreePolicy};
 pub use types::{AcpClientInfo, AcpEvent};

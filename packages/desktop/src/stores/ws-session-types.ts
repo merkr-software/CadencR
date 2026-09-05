@@ -32,8 +32,27 @@ import { defaultEditModeFor } from "../lib/provider-modes";
 import type { PermissionMode } from "../types/permission-mode";
 import type { AccessMode } from "@/types/access-mode";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
+import type { RuntimeSessionConfigSnapshot } from "@/api/generated";
 
 export type { PermissionMode };
+
+export interface SessionConfigState {
+  sessionConfig: RuntimeSessionConfigSnapshot | null;
+  sessionConfigLoading: boolean;
+  sessionConfigSupported: boolean | null;
+  sessionConfigError: string | null;
+  pendingSessionConfigId: string | null;
+}
+
+export function createSessionConfigState(): SessionConfigState {
+  return {
+    sessionConfig: null,
+    sessionConfigLoading: false,
+    sessionConfigSupported: null,
+    sessionConfigError: null,
+    pendingSessionConfigId: null,
+  };
+}
 
 export interface PendingPlanApproval {
   allowedPrompts?: Array<{ tool: string; prompt: string }>;
@@ -108,7 +127,7 @@ export function createStreamHealth(): StreamHealth {
 // Per-session state
 // ---------------------------------------------------------------------------
 
-export interface SessionEntry {
+export interface SessionEntry extends SessionConfigState {
   conn: WsConnection | null;
   isConnected: boolean;
   serverSessionId: string;
@@ -237,6 +256,7 @@ export function createSessionEntry(): SessionEntry {
     currentModelId: "",
     runtimeProvider: "",
     runtimeSessionId: "",
+    ...createSessionConfigState(),
     currentProfile: undefined,
     mcpServers: null,
     supportsPromptReceipts: false,

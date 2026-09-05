@@ -132,7 +132,7 @@ reachable via `GET /api/sessions/messages/{id}/full`. */
 
 export interface AgentCatalogResponse {
   default_provider: string;
-  providers: ProviderCatalogEntry[];
+  providers: ProviderCatalogResponseEntry[];
 }
 
 export type AgentMessageOriginCreatedAt = string | null;
@@ -666,6 +666,16 @@ export interface CreateFolderResponse {
 export interface CreateProjectRequest {
   name: string;
   path: string;
+}
+
+/**
+ * The stable identity and human label for a new provider connector project.
+ */
+export interface CreateProviderWorkspaceRequest {
+  /** Human-readable name used in the project and scaffold. */
+  display_name: string;
+  /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
+  provider_id: string;
 }
 
 /**
@@ -1544,12 +1554,15 @@ that grabbed our port before we could bind. */
   status: string;
 }
 
+export type HostInstallationSpecAssets = null | LocalAssetsSpec;
+
 export type HostInstallationSpecExecutable = null | LocalExecutableSpec;
 
 /**
  * Host-local installation policy. Never part of the portable entry.
  */
 export interface HostInstallationSpec {
+  assets?: HostInstallationSpecAssets;
   /** A disabled install stays on disk and stays visible, but does not join
 the runtime registry. */
   enabled?: boolean;
@@ -1607,6 +1620,18 @@ export interface ImportedRecord {
   source_session_id: string;
 }
 
+export interface InstallManagedProviderRequest {
+  index: SignedManagedProviderIndex;
+  provider_id: string;
+  version: string;
+}
+
+/**
+ * A non-fatal packaging problem that prevented the declared icon from
+loading. Runtime availability is independent from visual metadata.
+ */
+export type InstalledProviderEntryIconIssue = string | null;
+
 /**
  * Stable SCREAMING_SNAKE code when the install cannot launch; `null` when
 it can. This is the only availability signal — the catalog's
@@ -1626,6 +1651,9 @@ export interface InstalledProviderEntry {
 argument can carry a credential (`--token …`) and, unlike a fixed set of
 env names, there is no generic way to redact one safely. */
   executable: string;
+  /** A non-fatal packaging problem that prevented the declared icon from
+loading. Runtime availability is independent from visual metadata. */
+  icon_issue?: InstalledProviderEntryIconIssue;
   /** Catalog id, owned by the portable ACP registry entry. */
   id: string;
   name: string;
@@ -1715,6 +1743,13 @@ export interface ListServersResponse {
 }
 
 /**
+ * Host-local root for connector-owned assets such as the registry `icon`.
+ */
+export interface LocalAssetsSpec {
+  directory: string;
+}
+
+/**
  * Literal environment applied to the child. Mirrors the ACP distribution
 `env` shape. Values are redacted from logs and never leave the service.
  */
@@ -1735,6 +1770,298 @@ export interface LocalExecutableSpec {
 export interface LspRootResponse {
   /** Absolute resolved LSP root. The feature root when no marker matched. */
   root: string;
+}
+
+export type ManagedAppCompatibilityMaxAppVersion = string | null;
+
+/**
+ * Inclusive Cadencr application compatibility bounds.
+ */
+export interface ManagedAppCompatibility {
+  max_app_version?: ManagedAppCompatibilityMaxAppVersion;
+  min_app_version: string;
+}
+
+export type ManagedBlocklistCacheStatus =
+  (typeof ManagedBlocklistCacheStatus)[keyof typeof ManagedBlocklistCacheStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedBlocklistCacheStatus = {
+  missing: "missing",
+  verified: "verified",
+  invalid: "invalid",
+} as const;
+
+export type ManagedBlocklistInventoryError = string | null;
+
+export type ManagedBlocklistInventoryErrorCode = string | null;
+
+export type ManagedBlocklistInventoryExpiresAt = string | null;
+
+export type ManagedBlocklistInventoryLastRefresh = null | ManagedBlocklistRefreshInventory;
+
+export type ManagedBlocklistInventorySignerKeyId = string | null;
+
+export interface ManagedBlocklistInventory {
+  cache_status: ManagedBlocklistCacheStatus;
+  error?: ManagedBlocklistInventoryError;
+  error_code?: ManagedBlocklistInventoryErrorCode;
+  expires_at?: ManagedBlocklistInventoryExpiresAt;
+  last_refresh?: ManagedBlocklistInventoryLastRefresh;
+  signer_key_id?: ManagedBlocklistInventorySignerKeyId;
+  source_configured: boolean;
+}
+
+export type ManagedBlocklistRefreshInventoryError = string | null;
+
+export type ManagedBlocklistRefreshInventoryErrorCode = string | null;
+
+export interface ManagedBlocklistRefreshInventory {
+  attempted_at: string;
+  error?: ManagedBlocklistRefreshInventoryError;
+  error_code?: ManagedBlocklistRefreshInventoryErrorCode;
+  outcome: ManagedBlocklistRefreshOutcome;
+}
+
+export type ManagedBlocklistRefreshOutcome =
+  (typeof ManagedBlocklistRefreshOutcome)[keyof typeof ManagedBlocklistRefreshOutcome];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedBlocklistRefreshOutcome = {
+  refreshed: "refreshed",
+  used_cached_verified_policy: "used_cached_verified_policy",
+  failed: "failed",
+} as const;
+
+export type ManagedFailureStage = (typeof ManagedFailureStage)[keyof typeof ManagedFailureStage];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedFailureStage = {
+  trust: "trust",
+  compatibility: "compatibility",
+  blocklist: "blocklist",
+  download: "download",
+  extraction: "extraction",
+  payload: "payload",
+  conformance: "conformance",
+  activation: "activation",
+  rollback: "rollback",
+  launch: "launch",
+} as const;
+
+export type ManagedHistoryAction = (typeof ManagedHistoryAction)[keyof typeof ManagedHistoryAction];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedHistoryAction = {
+  installed: "installed",
+  updated: "updated",
+  rolled_back: "rolled_back",
+  enabled: "enabled",
+  disabled: "disabled",
+  removed: "removed",
+} as const;
+
+export type ManagedHistoryEntryDigest = string | null;
+
+export type ManagedHistoryEntryPreviousDigest = string | null;
+
+export type ManagedHistoryEntryPreviousVersion = string | null;
+
+export type ManagedHistoryEntryVersion = string | null;
+
+export interface ManagedHistoryEntry {
+  action: ManagedHistoryAction;
+  digest?: ManagedHistoryEntryDigest;
+  occurred_at: string;
+  previous_digest?: ManagedHistoryEntryPreviousDigest;
+  previous_version?: ManagedHistoryEntryPreviousVersion;
+  /** @minimum 0 */
+  sequence: number;
+  version?: ManagedHistoryEntryVersion;
+}
+
+/**
+ * Detached index signature. Cryptographic verification is intentionally a
+caller concern; contract validation only validates this envelope's shape.
+ */
+export interface ManagedIndexSignature {
+  algorithm: ManagedSignatureAlgorithm;
+  key_id: string;
+  /** Standard padded base64. Ed25519 signatures decode to exactly 64 bytes. */
+  value: string;
+}
+
+export type ManagedPackageAssetsLicense = string | null;
+
+export type ManagedPackageAssetsReadme = string | null;
+
+/**
+ * Package-owned files, all relative to the extracted package root.
+ */
+export interface ManagedPackageAssets {
+  icon: string;
+  license?: ManagedPackageAssetsLicense;
+  readme?: ManagedPackageAssetsReadme;
+}
+
+export type ManagedProcessControlOutcomeOneOfStatus =
+  (typeof ManagedProcessControlOutcomeOneOfStatus)[keyof typeof ManagedProcessControlOutcomeOneOfStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedProcessControlOutcomeOneOfStatus = {
+  applied: "applied",
+} as const;
+
+export type ManagedProcessControlOutcomeOneOf = {
+  status: ManagedProcessControlOutcomeOneOfStatus;
+};
+
+export type ManagedProcessControlOutcomeOneOfThreeStatus =
+  (typeof ManagedProcessControlOutcomeOneOfThreeStatus)[keyof typeof ManagedProcessControlOutcomeOneOfThreeStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedProcessControlOutcomeOneOfThreeStatus = {
+  unavailable: "unavailable",
+} as const;
+
+export type ManagedProcessControlOutcomeOneOfThree = {
+  reason: string;
+  status: ManagedProcessControlOutcomeOneOfThreeStatus;
+};
+
+/**
+ * Whether an operating-system process control is enforceable on this host.
+ */
+export type ManagedProcessControlOutcome =
+  | ManagedProcessControlOutcomeOneOf
+  | ManagedProcessControlOutcomeOneOfThree;
+
+/**
+ * Explicit process controls applied to managed provider commands.
+ */
+export interface ManagedProcessPolicyOutcome {
+  child_count_limit: ManagedProcessControlOutcome;
+  cpu_limit: ManagedProcessControlOutcome;
+  /** @minimum 0 */
+  default_one_shot_timeout_seconds: number;
+  descendant_termination: ManagedProcessControlOutcome;
+  memory_limit: ManagedProcessControlOutcome;
+}
+
+/**
+ * Strict host metadata that must never be moved into the portable ACP entry.
+ */
+export interface ManagedProviderHost {
+  assets: ManagedPackageAssets;
+  compatibility: ManagedAppCompatibility;
+  /** Stable registry publisher identity. Signature trust is resolved from the
+index key separately; this field records who owns the package entry. */
+  publisher: string;
+}
+
+/**
+ * The deterministic payload covered by an index signature.
+ */
+export interface ManagedProviderIndex {
+  packages: ManagedProviderPackage[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+export type ManagedProviderInventoryEntryDigest = string | null;
+
+export type ManagedProviderInventoryEntryError = string | null;
+
+/**
+ * Per-installation diagnostics never prevent listing other providers.
+ */
+export type ManagedProviderInventoryEntryErrorCode = string | null;
+
+export type ManagedProviderInventoryEntryVersion = string | null;
+
+export interface ManagedProviderInventoryEntry {
+  /** Whether the desired revision passes the next startup scan's descriptor,
+identity, and payload checks. Trust and blocklist policy are rechecked at launch. */
+  active_after_restart: boolean;
+  active_now: boolean;
+  digest?: ManagedProviderInventoryEntryDigest;
+  enabled_after_restart: boolean;
+  error?: ManagedProviderInventoryEntryError;
+  /** Per-installation diagnostics never prevent listing other providers. */
+  error_code?: ManagedProviderInventoryEntryErrorCode;
+  history: ManagedHistoryEntry[];
+  id: string;
+  quarantine: ManagedQuarantineRecord[];
+  restart_required: boolean;
+  version?: ManagedProviderInventoryEntryVersion;
+}
+
+/**
+ * One versioned provider package in the signed index.
+ */
+export interface ManagedProviderPackage {
+  /** Lossless ACP Registry v1 payload. */
+  agent: AcpAgentEntry;
+  /** Cadencr-only host and package policy. */
+  host: ManagedProviderHost;
+}
+
+export interface ManagedProvidersInventory {
+  blocklist: ManagedBlocklistInventory;
+  process_policy: ManagedProcessPolicyOutcome;
+  providers: ManagedProviderInventoryEntry[];
+  root: string;
+  trust: ManagedTrustInventory;
+}
+
+export type ManagedQuarantineRecordDigest = string | null;
+
+export interface ManagedQuarantineRecord {
+  code: string;
+  digest?: ManagedQuarantineRecordDigest;
+  /** Stable redacted explanation. Provider output, environment and stderr are
+never persisted. */
+  message: string;
+  occurred_at: string;
+  provider_id: string;
+  /** @minimum 0 */
+  sequence: number;
+  stage: ManagedFailureStage;
+  version: string;
+}
+
+/**
+ * Algorithms accepted by index schema v1.
+ */
+export type ManagedSignatureAlgorithm =
+  (typeof ManagedSignatureAlgorithm)[keyof typeof ManagedSignatureAlgorithm];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedSignatureAlgorithm = {
+  ed25519: "ed25519",
+} as const;
+
+export type ManagedTrustConfigurationStatus =
+  (typeof ManagedTrustConfigurationStatus)[keyof typeof ManagedTrustConfigurationStatus];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ManagedTrustConfigurationStatus = {
+  unconfigured: "unconfigured",
+  configured: "configured",
+  invalid: "invalid",
+} as const;
+
+export type ManagedTrustInventoryError = string | null;
+
+export type ManagedTrustInventoryErrorCode = string | null;
+
+export type ManagedTrustInventoryKeyId = string | null;
+
+export interface ManagedTrustInventory {
+  error?: ManagedTrustInventoryError;
+  error_code?: ManagedTrustInventoryErrorCode;
+  key_id?: ManagedTrustInventoryKeyId;
+  status: ManagedTrustConfigurationStatus;
 }
 
 export interface MarkViewedRequest {
@@ -2291,11 +2618,20 @@ canonical `session.user_message` event. */
 
 export type ProviderCatalogEntryDefaultModel = string | null;
 
+/**
+ * Connector-owned icon bytes, inlined as a bounded `data:image/...` URL.
+Built-ins omit this and keep using their bundled renderer assets.
+ */
+export type ProviderCatalogEntryIconData = string | null;
+
 export type ProviderCatalogEntryStatusMessage = string | null;
 
 export interface ProviderCatalogEntry {
   access_modes?: ProviderModeCatalogEntry[];
   default_model?: ProviderCatalogEntryDefaultModel;
+  /** Connector-owned icon bytes, inlined as a bounded `data:image/...` URL.
+Built-ins omit this and keep using their bundled renderer assets. */
+  icon_data?: ProviderCatalogEntryIconData;
   id: string;
   label: string;
   models: ModelCatalogEntry[];
@@ -2303,6 +2639,15 @@ export interface ProviderCatalogEntry {
   status: ProviderStatus;
   status_message?: ProviderCatalogEntryStatusMessage;
 }
+
+export type ProviderCatalogResponseEntryAllOf = {
+  origin: ProviderOrigin;
+};
+
+/**
+ * A runtime catalog entry plus the host-owned source of its registration.
+ */
+export type ProviderCatalogResponseEntry = ProviderCatalogEntry & ProviderCatalogResponseEntryAllOf;
 
 /**
  * One descriptor file: a Cadencr host envelope wrapping a portable entry.
@@ -2340,6 +2685,20 @@ export interface ProviderModeCatalogEntry {
   label: string;
 }
 
+/**
+ * How a provider became available to this Cadencr process.
+
+This is host-owned metadata rather than an ACP capability: installed agents
+cannot claim to be built-ins in their descriptor or handshake.
+ */
+export type ProviderOrigin = (typeof ProviderOrigin)[keyof typeof ProviderOrigin];
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ProviderOrigin = {
+  built_in: "built_in",
+  installed_local: "installed_local",
+} as const;
+
 export type ProviderSetOkPayloadAccessMode = string | null;
 
 export type ProviderSetOkPayloadCodexPermissionMode = string | null;
@@ -2369,6 +2728,14 @@ export const ProviderStatus = {
   unavailable: "unavailable",
   coming_soon: "coming_soon",
 } as const;
+
+/**
+ * The ordinary Cadencr project and conversation created for provider work.
+ */
+export interface ProviderWorkspace {
+  feature_id: number;
+  project_id: number;
+}
 
 export interface PushBody {
   feature_id: number;
@@ -2525,6 +2892,11 @@ export const RecurrenceKind = {
   monthly: "monthly",
 } as const;
 
+export interface RefreshManagedBlocklistResponse {
+  refreshed: boolean;
+  used_cached_verified_policy: boolean;
+}
+
 /**
  * Result of syncing a session from the provider's on-disk CLI conversation.
  */
@@ -2655,6 +3027,11 @@ export const ReviewState = {
   pending: "pending",
   none: "none",
 } as const;
+
+export interface RollbackManagedProviderRequest {
+  digest: string;
+  version: string;
+}
 
 /**
  * Response for starting an asynchronous run. Output and exit code are streamed
@@ -3224,6 +3601,10 @@ export interface SetInstalledProviderEnabledRequest {
   enabled: boolean;
 }
 
+export interface SetManagedProviderEnabledRequest {
+  enabled: boolean;
+}
+
 export interface SetModelSettingRequest {
   agent_type: string;
   model_id: string;
@@ -3299,6 +3680,15 @@ affect the donor feature's view too.
 export interface SharedFeatureRef {
   feature_id: number;
   title: string;
+}
+
+/**
+ * A detached signature over [`ManagedProviderIndex::signing_bytes`].
+ */
+export interface SignedManagedProviderIndex {
+  signature: ManagedIndexSignature;
+  /** The exact payload covered by `signature`. */
+  signed: ManagedProviderIndex;
 }
 
 export type SkillReferenceTriggerPayload =
@@ -3834,6 +4224,11 @@ export type UpdateLabelRequestLabel = string | null;
 
 export interface UpdateLabelRequest {
   label?: UpdateLabelRequestLabel;
+}
+
+export interface UpdateManagedProviderRequest {
+  index: SignedManagedProviderIndex;
+  version: string;
 }
 
 export interface UpdatePinnedRequest {
@@ -5029,6 +5424,594 @@ export const useSetProviderEnabled = <TError = ErrorType<void>, TContext = unkno
   TContext
 > => {
   const mutationOptions = getSetProviderEnabledMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const inventory = (signal?: AbortSignal) => {
+  return customInstance<ManagedProvidersInventory>({
+    url: `/api/agents/managed-providers`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getInventoryQueryKey = () => {
+  return [`/api/agents/managed-providers`] as const;
+};
+
+export const getInventoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof inventory>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof inventory>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getInventoryQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof inventory>>> = ({ signal }) =>
+    inventory(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof inventory>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type InventoryQueryResult = NonNullable<Awaited<ReturnType<typeof inventory>>>;
+export type InventoryQueryError = ErrorType<unknown>;
+
+export function useInventory<
+  TData = Awaited<ReturnType<typeof inventory>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof inventory>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof inventory>>,
+          TError,
+          Awaited<ReturnType<typeof inventory>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useInventory<
+  TData = Awaited<ReturnType<typeof inventory>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof inventory>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof inventory>>,
+          TError,
+          Awaited<ReturnType<typeof inventory>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useInventory<
+  TData = Awaited<ReturnType<typeof inventory>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof inventory>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useInventory<
+  TData = Awaited<ReturnType<typeof inventory>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof inventory>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getInventoryQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+export const install = (
+  installManagedProviderRequest: InstallManagedProviderRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedProviderInventoryEntry>({
+    url: `/api/agents/managed-providers`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedProviderRequest,
+    signal,
+  });
+};
+
+export const getInstallMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof install>>,
+    TError,
+    { data: InstallManagedProviderRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof install>>,
+  TError,
+  { data: InstallManagedProviderRequest },
+  TContext
+> => {
+  const mutationKey = ["install"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof install>>,
+    { data: InstallManagedProviderRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return install(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallMutationResult = NonNullable<Awaited<ReturnType<typeof install>>>;
+export type InstallMutationBody = InstallManagedProviderRequest;
+export type InstallMutationError = ErrorType<unknown>;
+
+export const useInstall = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof install>>,
+      TError,
+      { data: InstallManagedProviderRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof install>>,
+  TError,
+  { data: InstallManagedProviderRequest },
+  TContext
+> => {
+  const mutationOptions = getInstallMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const refreshBlocklist = (signal?: AbortSignal) => {
+  return customInstance<RefreshManagedBlocklistResponse>({
+    url: `/api/agents/managed-providers/blocklist/refresh`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRefreshBlocklistMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshBlocklist>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<Awaited<ReturnType<typeof refreshBlocklist>>, TError, void, TContext> => {
+  const mutationKey = ["refreshBlocklist"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof refreshBlocklist>>, void> = () => {
+    return refreshBlocklist();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshBlocklistMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshBlocklist>>
+>;
+
+export type RefreshBlocklistMutationError = ErrorType<unknown>;
+
+export const useRefreshBlocklist = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof refreshBlocklist>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof refreshBlocklist>>, TError, void, TContext> => {
+  const mutationOptions = getRefreshBlocklistMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const remove = (providerId: string) => {
+  return customInstance<ManagedProviderInventoryEntry>({
+    url: `/api/agents/managed-providers/${providerId}`,
+    method: "DELETE",
+  });
+};
+
+export const getRemoveMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof remove>>,
+    TError,
+    { providerId: string },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof remove>>,
+  TError,
+  { providerId: string },
+  TContext
+> => {
+  const mutationKey = ["remove"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof remove>>, { providerId: string }> = (
+    props,
+  ) => {
+    const { providerId } = props ?? {};
+
+    return remove(providerId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveMutationResult = NonNullable<Awaited<ReturnType<typeof remove>>>;
+
+export type RemoveMutationError = ErrorType<unknown>;
+
+export const useRemove = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof remove>>,
+      TError,
+      { providerId: string },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof remove>>,
+  TError,
+  { providerId: string },
+  TContext
+> => {
+  const mutationOptions = getRemoveMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const enabled = (
+  providerId: string,
+  setManagedProviderEnabledRequest: SetManagedProviderEnabledRequest,
+) => {
+  return customInstance<ManagedProviderInventoryEntry>({
+    url: `/api/agents/managed-providers/${providerId}/enabled`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: setManagedProviderEnabledRequest,
+  });
+};
+
+export const getEnabledMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof enabled>>,
+    TError,
+    { providerId: string; data: SetManagedProviderEnabledRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof enabled>>,
+  TError,
+  { providerId: string; data: SetManagedProviderEnabledRequest },
+  TContext
+> => {
+  const mutationKey = ["enabled"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof enabled>>,
+    { providerId: string; data: SetManagedProviderEnabledRequest }
+  > = (props) => {
+    const { providerId, data } = props ?? {};
+
+    return enabled(providerId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type EnabledMutationResult = NonNullable<Awaited<ReturnType<typeof enabled>>>;
+export type EnabledMutationBody = SetManagedProviderEnabledRequest;
+export type EnabledMutationError = ErrorType<unknown>;
+
+export const useEnabled = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof enabled>>,
+      TError,
+      { providerId: string; data: SetManagedProviderEnabledRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof enabled>>,
+  TError,
+  { providerId: string; data: SetManagedProviderEnabledRequest },
+  TContext
+> => {
+  const mutationOptions = getEnabledMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const rollback = (
+  providerId: string,
+  rollbackManagedProviderRequest: RollbackManagedProviderRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedProviderInventoryEntry>({
+    url: `/api/agents/managed-providers/${providerId}/rollback`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: rollbackManagedProviderRequest,
+    signal,
+  });
+};
+
+export const getRollbackMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof rollback>>,
+    TError,
+    { providerId: string; data: RollbackManagedProviderRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof rollback>>,
+  TError,
+  { providerId: string; data: RollbackManagedProviderRequest },
+  TContext
+> => {
+  const mutationKey = ["rollback"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof rollback>>,
+    { providerId: string; data: RollbackManagedProviderRequest }
+  > = (props) => {
+    const { providerId, data } = props ?? {};
+
+    return rollback(providerId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RollbackMutationResult = NonNullable<Awaited<ReturnType<typeof rollback>>>;
+export type RollbackMutationBody = RollbackManagedProviderRequest;
+export type RollbackMutationError = ErrorType<unknown>;
+
+export const useRollback = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof rollback>>,
+      TError,
+      { providerId: string; data: RollbackManagedProviderRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof rollback>>,
+  TError,
+  { providerId: string; data: RollbackManagedProviderRequest },
+  TContext
+> => {
+  const mutationOptions = getRollbackMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const update = (
+  providerId: string,
+  updateManagedProviderRequest: UpdateManagedProviderRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedProviderInventoryEntry>({
+    url: `/api/agents/managed-providers/${providerId}/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: updateManagedProviderRequest,
+    signal,
+  });
+};
+
+export const getUpdateMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof update>>,
+    TError,
+    { providerId: string; data: UpdateManagedProviderRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof update>>,
+  TError,
+  { providerId: string; data: UpdateManagedProviderRequest },
+  TContext
+> => {
+  const mutationKey = ["update"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof update>>,
+    { providerId: string; data: UpdateManagedProviderRequest }
+  > = (props) => {
+    const { providerId, data } = props ?? {};
+
+    return update(providerId, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMutationResult = NonNullable<Awaited<ReturnType<typeof update>>>;
+export type UpdateMutationBody = UpdateManagedProviderRequest;
+export type UpdateMutationError = ErrorType<unknown>;
+
+export const useUpdate = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof update>>,
+      TError,
+      { providerId: string; data: UpdateManagedProviderRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof update>>,
+  TError,
+  { providerId: string; data: UpdateManagedProviderRequest },
+  TContext
+> => {
+  const mutationOptions = getUpdateMutationOptions(options);
+
+  return useMutation(mutationOptions, queryClient);
+};
+
+export const createProviderWorkspace = (
+  createProviderWorkspaceRequest: CreateProviderWorkspaceRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ProviderWorkspace>({
+    url: `/api/agents/provider-workspaces`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: createProviderWorkspaceRequest,
+    signal,
+  });
+};
+
+export const getCreateProviderWorkspaceMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof createProviderWorkspace>>,
+    TError,
+    { data: CreateProviderWorkspaceRequest },
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof createProviderWorkspace>>,
+  TError,
+  { data: CreateProviderWorkspaceRequest },
+  TContext
+> => {
+  const mutationKey = ["createProviderWorkspace"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof createProviderWorkspace>>,
+    { data: CreateProviderWorkspaceRequest }
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return createProviderWorkspace(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type CreateProviderWorkspaceMutationResult = NonNullable<
+  Awaited<ReturnType<typeof createProviderWorkspace>>
+>;
+export type CreateProviderWorkspaceMutationBody = CreateProviderWorkspaceRequest;
+export type CreateProviderWorkspaceMutationError = ErrorType<void>;
+
+export const useCreateProviderWorkspace = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof createProviderWorkspace>>,
+      TError,
+      { data: CreateProviderWorkspaceRequest },
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof createProviderWorkspace>>,
+  TError,
+  { data: CreateProviderWorkspaceRequest },
+  TContext
+> => {
+  const mutationOptions = getCreateProviderWorkspaceMutationOptions(options);
 
   return useMutation(mutationOptions, queryClient);
 };

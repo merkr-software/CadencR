@@ -1,43 +1,138 @@
-//! The provider-neutral ACP adapter.
+//! The provider-neutral runtime adapter for code-backed provider packages.
 //!
-//! One adapter type serves every installed agent: it is parameterised by a
-//! [`HostInstallation`], not written per provider. Adding an agent is a
-//! descriptor file, never a Rust change.
-//!
-//! What it deliberately does *not* advertise is as important as what it does.
-//! Models, modes, access modes, compaction, slash commands, worktree config
-//! paths, and durable resume are all either negotiated over ACP per session or
-//! genuinely absent from the protocol, so the catalog entry leaves them empty
-//! and the trait defaults (which decline) stand. Filling them from descriptor
-//! data would make marketplace JSON authoritative over `initialize` — exactly
-//! the inversion `docs/PROVIDER_SPEC/BOUNDARIES.md` forbids. As negotiated
-//! capabilities become part of the catalog, they arrive from the session, not
-//! from here.
+//! The descriptor supplies identity and an executable, never model data. The
+//! executable owns provider-specific discovery/parsing through its mandatory
+//! `models` command; ACP remains the live session protocol.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Weak};
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use serde_json::Value;
+use tokio::sync::{Mutex, RwLock};
 
 use crate::domain::agents::acp::runtime::permission_events::parse_acp_permission_request;
-use crate::domain::agents::acp::runtime::StandardAcpHooks;
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClientInfo, AcpStderrPolicy};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimePermissionRequest,
     RuntimeSpawnConfig,
 };
 use crate::domain::agents::runtime::{ProviderCatalogEntry, ProviderStatus};
 
+use super::hooks::{InstalledAcpCapabilities, InstalledAcpHooks};
 use super::installation::HostInstallation;
+use super::model_discovery::{discover_models, DiscoveredModels};
+use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
+
+const CATALOG_TTL: Duration = Duration::from_secs(30);
+const MAX_CACHED_WORKSPACES: usize = 16;
+
+#[derive(Clone)]
+struct CatalogCacheEntry {
+    fetched_at: Instant,
+    discovered: DiscoveredModels,
+}
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
+    capabilities: Arc<InstalledAcpCapabilities>,
+    catalog_cache: RwLock<HashMap<PathBuf, CatalogCacheEntry>>,
+    catalog_refreshes: Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>,
 }
 
 impl GenericAcpAdapter {
     pub fn new(installation: Arc<HostInstallation>) -> Self {
-        Self { installation }
+        Self {
+            installation,
+            capabilities: Arc::new(InstalledAcpCapabilities::default()),
+            catalog_cache: RwLock::new(HashMap::new()),
+            catalog_refreshes: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn discover_for_cwd(&self, cwd: &Path) -> Result<DiscoveredModels, RuntimeError> {
+        if let Some(discovered) = self.fresh_cache(cwd).await {
+            return Ok(discovered);
+        }
+        let refresh = self.refresh_lock(cwd).await;
+        let _refresh = refresh.lock().await;
+        if let Some(discovered) = self.fresh_cache(cwd).await {
+            return Ok(discovered);
+        }
+        let executable = self.installation.launchable().map_err(RuntimeError::new)?;
+        let discovered = discover_models(executable, cwd)
+            .await
+            .map_err(|error| RuntimeError::new(format!("model discovery failed: {error}")))?;
+        let mut cache = self.catalog_cache.write().await;
+        if cache.len() >= MAX_CACHED_WORKSPACES && !cache.contains_key(cwd) {
+            if let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, entry)| entry.fetched_at)
+                .map(|(path, _)| path.clone())
+            {
+                cache.remove(&oldest);
+            }
+        }
+        cache.insert(
+            cwd.to_path_buf(),
+            CatalogCacheEntry {
+                fetched_at: Instant::now(),
+                discovered: discovered.clone(),
+            },
+        );
+        Ok(discovered)
+    }
+
+    async fn fresh_cache(&self, cwd: &Path) -> Option<DiscoveredModels> {
+        self.catalog_cache
+            .read()
+            .await
+            .get(cwd)
+            .filter(|entry| entry.fetched_at.elapsed() < CATALOG_TTL)
+            .map(|entry| entry.discovered.clone())
+    }
+
+    async fn refresh_lock(&self, cwd: &Path) -> Arc<Mutex<()>> {
+        let mut refreshes = self.catalog_refreshes.lock().await;
+        refreshes.retain(|_, refresh| refresh.strong_count() > 0);
+        if let Some(refresh) = refreshes.get(cwd).and_then(Weak::upgrade) {
+            return refresh;
+        }
+        let refresh = Arc::new(Mutex::new(()));
+        refreshes.insert(cwd.to_path_buf(), Arc::downgrade(&refresh));
+        refresh
+    }
+
+    fn discovered_catalog(&self, discovered: DiscoveredModels) -> ProviderCatalogEntry {
+        let agent = self.installation.agent();
+        self.with_icon(ProviderCatalogEntry {
+            id: agent.id.clone(),
+            label: agent.name.clone(),
+            icon_data: None,
+            status: ProviderStatus::Available,
+            status_message: None,
+            models: discovered.models,
+            modes: Vec::new(),
+            access_modes: Vec::new(),
+            default_model: Some(discovered.default_model),
+        })
+    }
+
+    fn unavailable_catalog(&self, message: impl AsRef<str>) -> ProviderCatalogEntry {
+        self.with_icon(ProviderCatalogEntry::unavailable(
+            self.installation.provider_id(),
+            self.installation.agent().name.clone(),
+            message.as_ref(),
+        ))
+    }
+
+    fn with_icon(&self, mut entry: ProviderCatalogEntry) -> ProviderCatalogEntry {
+        entry.icon_data = self.installation.icon_data().map(str::to_string);
+        entry
     }
 }
 
@@ -47,38 +142,45 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
     /// the host's compatibility check. A quarantined install stays in the
     /// catalog as unavailable with its reason attached rather than vanishing.
     fn catalog_entry(&self) -> ProviderCatalogEntry {
-        let agent = self.installation.agent();
         match self.installation.quarantine() {
-            Some(quarantine) => ProviderCatalogEntry::unavailable(
-                agent.id.clone(),
-                agent.name.clone(),
-                &quarantine.message,
-            ),
-            None => ProviderCatalogEntry {
-                id: agent.id.clone(),
-                label: agent.name.clone(),
-                status: ProviderStatus::Available,
-                status_message: None,
-                // Models, modes, and access modes are session-negotiated ACP
-                // state. An empty list is the honest answer before `initialize`.
-                models: Vec::new(),
-                modes: Vec::new(),
-                access_modes: Vec::new(),
-                default_model: None,
-            },
+            Some(quarantine) => self.unavailable_catalog(&quarantine.message),
+            None => self.unavailable_catalog("provider model discovery has not completed"),
         }
     }
 
-    /// `session/load` is an optional ACP capability that is only known after
-    /// `initialize`. Declining resume up front means a follow-up prompt starts
-    /// a fresh ACP session instead of failing the spawn outright against an
-    /// agent that never advertised it.
-    fn is_valid_resume_session_id(&self, _session_id: &str) -> bool {
-        false
+    async fn catalog_entry_live_for_cwd(&self, cwd: Option<&Path>) -> ProviderCatalogEntry {
+        if self.installation.quarantine().is_some() {
+            return self.catalog_entry();
+        }
+        let fallback_cwd;
+        let cwd = match cwd {
+            Some(cwd) => cwd,
+            None => {
+                fallback_cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+                &fallback_cwd
+            }
+        };
+        match self.discover_for_cwd(cwd).await {
+            Ok(discovered) => self.discovered_catalog(discovered),
+            Err(error) => self.unavailable_catalog(error.to_string()),
+        }
     }
 
-    fn resolve_resume_session_id(&self, _runtime_session_id: Option<&str>) -> Option<String> {
-        None
+    fn is_valid_resume_session_id(&self, session_id: &str) -> bool {
+        !session_id.is_empty()
+    }
+
+    fn resolve_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        runtime_session_id
+            .filter(|session_id| self.is_valid_resume_session_id(session_id))
+            .map(ToOwned::to_owned)
+    }
+
+    fn persistable_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        self.capabilities
+            .supports_durable_resume()
+            .then(|| self.resolve_resume_session_id(runtime_session_id))
+            .flatten()
     }
 
     /// Read back the runtime's own provider-neutral permission envelope so
@@ -103,29 +205,54 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
         let executable = self.installation.launchable().map_err(RuntimeError::new)?;
-        let mut command = tokio::process::Command::new(&executable.command);
-        command.args(&executable.args);
-        command.current_dir(&config.cwd);
-        for (key, value) in &executable.env {
-            command.env(key, value);
+        if config.cwd.as_os_str().is_empty() {
+            return Err(RuntimeError::new(
+                "an ACP session needs a workspace directory",
+            ));
         }
-        // Caller-supplied env wins over the descriptor's, matching how the
-        // built-in ACP adapters let a spawn override their defaults.
-        if let Some(env) = config.env.as_ref() {
-            for (key, value) in env {
-                command.env(key, value);
-            }
+        let selected_model = config.model.as_deref().ok_or_else(|| {
+            RuntimeError::new("installed providers require an explicit model before session start")
+        })?;
+        let discovered = self.discover_for_cwd(&config.cwd).await?;
+        if !discovered
+            .models
+            .iter()
+            .any(|model| model.id == selected_model)
+        {
+            return Err(RuntimeError::new(format!(
+                "selected model `{selected_model}` is not in the provider's current model catalog"
+            )));
         }
+        let args = [
+            OsString::from("run"),
+            OsString::from("--protocol"),
+            OsString::from("acp-v1"),
+        ];
+        let PreparedProviderCommand {
+            command,
+            process_tree_policy,
+        } = prepare_provider_command(executable, &args, &config.cwd, config.env.as_ref())
+            .await
+            .map_err(|error| {
+                RuntimeError::new(format!(
+                    "could not prepare installed provider runtime: {error}"
+                ))
+            })?;
         spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
             command,
             spawn_guard: None,
             client_info: AcpClientInfo::default(),
+            stderr_policy: AcpStderrPolicy::Discard,
+            process_tree_policy,
             config,
             initial_content: content,
             // Context window is reported by the agent through `usage_update`;
             // there is nothing to pre-seed it from.
             context_window: None,
-            hooks: Arc::new(StandardAcpHooks),
+            hooks: Arc::new(InstalledAcpHooks::new(
+                discovered.config_id,
+                Arc::clone(&self.capabilities),
+            )),
         })
         .await
     }
@@ -160,20 +287,61 @@ mod tests {
         let entry = adapter(&runnable_binary(dir.path())).catalog_entry();
         assert_eq!(entry.id, "acme-agent");
         assert_eq!(entry.label, "acme-agent agent");
-        assert_eq!(entry.status, ProviderStatus::Available);
-        assert!(entry.status_message.is_none());
+        assert_eq!(entry.status, ProviderStatus::Unavailable);
+        assert!(entry
+            .status_message
+            .expect("cold catalogs explain why they are unavailable")
+            .contains("model discovery"));
     }
 
-    /// Everything the ACP session negotiates must stay empty in the catalog —
-    /// a descriptor may not pre-declare models, modes, or a default model.
     #[test]
-    fn negotiated_state_is_absent_from_the_catalog_entry() {
+    fn catalog_carries_a_connector_owned_icon_without_a_local_path() {
         let dir = tempfile::tempdir().unwrap();
-        let entry = adapter(&runnable_binary(dir.path())).catalog_entry();
-        assert!(entry.models.is_empty());
+        std::fs::write(
+            dir.path().join("icon.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        let mut value = descriptor_json("acme-agent", &runnable_binary(dir.path()));
+        value["agent"]["icon"] = json!("icon.svg");
+        value["installation"]["assets"] = json!({ "directory": dir.path().to_string_lossy() });
+        let installation =
+            HostInstallation::from_descriptor(descriptor(value), Path::new("/p/acme-agent.json"))
+                .expect("valid descriptor");
+
+        let entry = GenericAcpAdapter::new(Arc::new(installation)).catalog_entry();
+
+        assert!(entry
+            .icon_data
+            .is_some_and(|data| data.starts_with("data:image/svg+xml;base64,")));
+    }
+
+    #[tokio::test]
+    async fn live_catalog_comes_from_the_provider_models_command() {
+        let dir = tempfile::tempdir().unwrap();
+        let entry = adapter(&runnable_binary(dir.path()))
+            .catalog_entry_live_for_cwd(Some(dir.path()))
+            .await;
+        assert_eq!(entry.status, ProviderStatus::Available);
+        assert_eq!(entry.models.len(), 1);
+        assert_eq!(entry.models[0].id, "fixture/default");
         assert!(entry.modes.is_empty());
         assert!(entry.access_modes.is_empty());
-        assert!(entry.default_model.is_none());
+        assert_eq!(entry.default_model.as_deref(), Some("fixture/default"));
+    }
+
+    #[tokio::test]
+    async fn model_catalog_cache_keeps_independent_workspaces() {
+        let binary_dir = tempfile::tempdir().unwrap();
+        let first_cwd = tempfile::tempdir().unwrap();
+        let second_cwd = tempfile::tempdir().unwrap();
+        let adapter = adapter(&runnable_binary(binary_dir.path()));
+
+        adapter.discover_for_cwd(first_cwd.path()).await.unwrap();
+        adapter.discover_for_cwd(second_cwd.path()).await.unwrap();
+
+        assert!(adapter.fresh_cache(first_cwd.path()).await.is_some());
+        assert!(adapter.fresh_cache(second_cwd.path()).await.is_some());
     }
 
     #[test]
@@ -207,14 +375,19 @@ mod tests {
         );
     }
 
-    /// The trait defaults are the honest answers for a generic agent; assert
-    /// them so a later edit cannot quietly claim a capability ACP negotiates.
+    /// A stored ID survives capability discovery so an unsupported resume
+    /// fails in the ACP handshake, while new IDs are persisted only after the
+    /// connector advertised stable resume or legacy load support.
     #[tokio::test]
-    async fn declines_every_capability_acp_does_not_guarantee() {
+    async fn separates_stored_resume_validation_from_persistence() {
         let dir = tempfile::tempdir().unwrap();
         let adapter = adapter(&runnable_binary(dir.path()));
-        assert!(!adapter.is_valid_resume_session_id("ses-1"));
-        assert_eq!(adapter.resolve_resume_session_id(Some("ses-1")), None);
+        assert!(adapter.is_valid_resume_session_id("ses-1"));
+        assert_eq!(
+            adapter.resolve_resume_session_id(Some("ses-1")).as_deref(),
+            Some("ses-1")
+        );
+        assert_eq!(adapter.persistable_resume_session_id(Some("ses-1")), None);
         assert!(adapter.session_branching().is_none());
         assert!(adapter.compaction_strategy().is_none());
         assert!(!adapter.supports_builtin_compact_command());

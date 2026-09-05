@@ -6,9 +6,12 @@ use super::server_requests::{spawn_event_loop, EventLoopConfig};
 use super::session::AcpRuntimeSession;
 use super::session_permissions::SessionPermissions;
 use super::terminal_registry::TerminalRegistry;
-use super::test_support::{build_in_memory_client, read_request, send_response, write_json_frame};
+use super::test_support::{
+    build_in_memory_client, read_request, send_response, spawn_event_barrier_acker,
+    write_json_frame,
+};
 use super::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClientInfo, AcpProcessTreePolicy, AcpStderrPolicy};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimePermissionMode, RuntimeSpawnConfig,
 };
@@ -43,7 +46,7 @@ impl AcpProviderHooks for SpawnHooks {
             .to_string(),
         )
     }
-    fn model_config_id(&self) -> Option<&'static str> {
+    fn model_config_id(&self) -> Option<&str> {
         Some("model")
     }
     fn thinking_effort_config_id(&self) -> Option<String> {
@@ -75,6 +78,8 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
         command,
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
+        stderr_policy: AcpStderrPolicy::Log,
+        process_tree_policy: AcpProcessTreePolicy::Inherit,
         config,
         initial_content: Value::String("hello".to_string()),
         context_window: Some(1000),
@@ -114,8 +119,9 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
 }
 
 #[tokio::test]
-async fn stream_input_steers_immediately_and_cancel_is_non_error() {
+async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
     let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+    spawn_event_barrier_acker(&client);
     let negotiated = NegotiatedSession {
         session_id: "s-steer".to_string(),
         model: None,
@@ -123,6 +129,8 @@ async fn stream_input_steers_immediately_and_cancel_is_non_error() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(
@@ -137,19 +145,29 @@ async fn stream_input_steers_immediately_and_cancel_is_non_error() {
     );
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
-    let _active_turn = prompt_turn_lock.lock().await;
+    let active_turn = prompt_turn_lock.lock().await;
     let session = Arc::new(session);
 
     let steer = tokio::spawn({
         let session = Arc::clone(&session);
         async move { session.stream_input(json!("steer then stop")).await }
     });
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            read_request(&mut agent_stdin),
+        )
+        .await
+        .is_err(),
+        "ACP v1 follow-up must wait for the active prompt turn"
+    );
+    drop(active_turn);
     let prompt = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
+        std::time::Duration::from_millis(500),
         read_request(&mut agent_stdin),
     )
     .await
-    .expect("steering prompt should not wait behind the full-turn lock");
+    .expect("queued prompt should start after the active turn ends");
     assert_eq!(prompt["method"], "session/prompt");
 
     session.interrupt().await.unwrap();
@@ -160,12 +178,13 @@ async fn stream_input_steers_immediately_and_cancel_is_non_error() {
         .expect("cancel should unblock steering prompt")
         .unwrap()
         .unwrap();
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(100), runtime_rx.recv())
-            .await
-            .is_err(),
-        "cancelled steering prompt must not emit an error or turn result"
-    );
+    let result = tokio::time::timeout(std::time::Duration::from_millis(500), runtime_rx.recv())
+        .await
+        .expect("cancelled prompt should emit a terminal result")
+        .expect("runtime event")
+        .expect("ok");
+    assert!(result.is_result());
+    assert_eq!(result.raw_json()["stop_reason"], "cancelled");
 }
 
 #[tokio::test]
@@ -178,6 +197,8 @@ async fn provider_followup_waits_for_current_prompt_completion() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let session = Arc::new(AcpRuntimeSession::assemble(
@@ -186,10 +207,32 @@ async fn provider_followup_waits_for_current_prompt_completion() {
         std::env::temp_dir(),
         None,
         rx,
-        tx,
+        tx.clone(),
         Arc::new(SpawnHooks),
         Arc::new(StdMutex::new(EventIndexer::default())),
     ));
+    let event_rx = client.subscribe();
+    let _event_loop = spawn_event_loop(
+        client.clone(),
+        event_rx,
+        tx,
+        EventLoopConfig {
+            session_id: Arc::clone(&session.session_id),
+            current_model: Arc::clone(&session.current_model),
+            current_effort: Arc::clone(&session.current_effort),
+            current_mode: Arc::clone(&session.current_mode),
+            session_config: session.session_config.clone(),
+            cwd: std::env::temp_dir(),
+            closing: Arc::new(AtomicBool::new(false)),
+            pending_permissions: PendingPermissions::default(),
+            session_permissions: SessionPermissions::new(),
+            terminals: Arc::new(TerminalRegistry::default()),
+            hooks: Arc::new(SpawnHooks),
+            replay_suppression: Arc::clone(&session.replay_suppression),
+            pending_prompt_receipts: Arc::clone(&session.pending_prompt_receipts),
+            indexer: Arc::clone(&session.indexer),
+        },
+    );
     session
         .pending_followups
         .write()
@@ -234,6 +277,8 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(
@@ -270,7 +315,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
     );
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
-    let _active_turn = prompt_turn_lock.lock().await;
+    let active_turn = prompt_turn_lock.lock().await;
     let session = Arc::new(session);
 
     let steer = tokio::spawn({
@@ -284,12 +329,22 @@ async fn prompt_receipt_waits_for_user_message_echo() {
                 .await
         }
     });
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            read_request(&mut agent_stdin),
+        )
+        .await
+        .is_err(),
+        "follow-up should remain queued while another ACP prompt owns the turn"
+    );
+    drop(active_turn);
     let prompt = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
+        std::time::Duration::from_millis(500),
         read_request(&mut agent_stdin),
     )
     .await
-    .expect("steering prompt should be sent immediately");
+    .expect("queued prompt should start after the active turn ends");
     assert_eq!(prompt["params"]["messageId"], "client-1");
 
     write_json_frame(
@@ -330,6 +385,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
 #[tokio::test]
 async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
     let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+    spawn_event_barrier_acker(&client);
     let negotiated = NegotiatedSession {
         session_id: "s-receipt-response".to_string(),
         model: None,
@@ -337,6 +393,8 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(
@@ -351,7 +409,7 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
     );
     let mut runtime_rx = session.take_message_rx();
     let prompt_turn_lock = Arc::clone(&session.prompt_turn_lock);
-    let _active_turn = prompt_turn_lock.lock().await;
+    let active_turn = prompt_turn_lock.lock().await;
     let session = Arc::new(session);
 
     let steer = tokio::spawn({
@@ -365,12 +423,22 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
                 .await
         }
     });
+    assert!(
+        tokio::time::timeout(
+            std::time::Duration::from_millis(100),
+            read_request(&mut agent_stdin),
+        )
+        .await
+        .is_err(),
+        "follow-up should remain queued while another ACP prompt owns the turn"
+    );
+    drop(active_turn);
     let prompt = tokio::time::timeout(
-        std::time::Duration::from_millis(200),
+        std::time::Duration::from_millis(500),
         read_request(&mut agent_stdin),
     )
     .await
-    .expect("steering prompt should be sent immediately");
+    .expect("queued prompt should start after the active turn ends");
     assert_eq!(prompt["method"], "session/prompt");
     assert_eq!(prompt["params"]["messageId"], "client-1");
     send_response(

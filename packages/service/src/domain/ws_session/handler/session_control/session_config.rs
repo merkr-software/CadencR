@@ -1,7 +1,6 @@
 //! Backend-only bridge for negotiated live session configuration.
 //!
-//! The desktop does not consume these actions yet. Keeping the contract on the
-//! authenticated session WebSocket lets a later UI remain a thin renderer over
+//! The desktop consumes these actions as a thin provider-neutral renderer over
 //! opaque option ids and authoritative runtime snapshots.
 
 use axum::extract::ws::Message;

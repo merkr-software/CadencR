@@ -7,6 +7,7 @@
 
 import { useEffect, useMemo } from "react";
 import type { AgentBlockData } from "@/components/AgentBlock";
+import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 import { useGetFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import {
@@ -88,6 +89,13 @@ export interface UseWebSocketSessionReturn {
   currentProfile?: string;
   runtimeProvider: string;
   runtimeSessionId: string;
+  sessionConfig: RuntimeSessionConfigSnapshot | null;
+  sessionConfigLoading: boolean;
+  sessionConfigSupported: boolean | null;
+  sessionConfigError: string | null;
+  pendingSessionConfigId: string | null;
+  requestSessionConfig: () => Promise<void>;
+  setSessionConfigOption: (configId: string, value: RuntimeSessionConfigValue) => Promise<void>;
   mcpServers: McpServerStatus[] | null;
   hasFileChanges: boolean;
   setModel: (modelId: string, providerId: string) => void;
@@ -134,6 +142,8 @@ type SessionActions = Pick<
   | "approvePlan"
   | "requestPlanChanges"
   | "closeGate"
+  | "requestSessionConfig"
+  | "setSessionConfigOption"
 >;
 
 // ---------------------------------------------------------------------------
@@ -276,6 +286,9 @@ function useSessionActions(sessionId: string): SessionActions {
       approvePlan: (): void => s.approvePlan(sessionId),
       requestPlanChanges: (feedback: string): void => s.requestPlanChanges(sessionId, feedback),
       closeGate: (reason: GateCloseReason): void => s.closeGate(sessionId, reason),
+      requestSessionConfig: (): Promise<void> => s.requestSessionConfig(sessionId),
+      setSessionConfigOption: (configId: string, value: RuntimeSessionConfigValue): Promise<void> =>
+        s.setSessionConfigOption(sessionId, configId, value),
     };
   }, [sessionId]);
 }
@@ -329,6 +342,11 @@ function useSessionSnapshot(
       currentProfile: session?.currentProfile,
       runtimeProvider: session?.runtimeProvider ?? "",
       runtimeSessionId: session?.runtimeSessionId ?? "",
+      sessionConfig: session?.sessionConfig ?? null,
+      sessionConfigLoading: session?.sessionConfigLoading ?? false,
+      sessionConfigSupported: session?.sessionConfigSupported ?? null,
+      sessionConfigError: session?.sessionConfigError ?? null,
+      pendingSessionConfigId: session?.pendingSessionConfigId ?? null,
       mcpServers: session?.mcpServers ?? null,
       hasFileChanges: session?.hasFileChanges ?? false,
       ...actions,

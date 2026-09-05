@@ -1,11 +1,12 @@
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
 use super::{
-    default_permission_mode, parse_permission_mode, send_error, send_runtime_session_id,
-    thinking_effort, QueryState, SdkHandle, SdkSessions, SessionConfig, WsSender,
+    send_error, send_runtime_session_id, thinking_effort, QueryState, SdkHandle, SdkSessions,
+    SessionConfig, WsSender,
 };
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
+use crate::domain::agents::permission_modes::effective_permission_mode;
 use crate::domain::agents::{default_provider_id, resolve_effective_provider, runtime_adapter};
 use crate::domain::settings;
 use crate::domain::workflow::worktree;
@@ -244,13 +245,8 @@ pub(super) async fn handle_init(
     // Honor the client's choice when supplied; otherwise fall back to the
     // active provider's default. The DB-read and provider-switch paths
     // already apply this default — session.init was the missing site.
-    runtime_config.permission_mode = Some(
-        payload
-            .permission_mode
-            .as_deref()
-            .map(parse_permission_mode)
-            .unwrap_or_else(|| default_permission_mode(&effective_provider)),
-    );
+    runtime_config.permission_mode =
+        effective_permission_mode(&effective_provider, payload.permission_mode.as_deref());
     let configured_access_mode = if effective_provider == initial_provider {
         configured_initial_access_mode
     } else {

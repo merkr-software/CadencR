@@ -1,3 +1,7 @@
+use std::sync::Arc;
+
+use tokio::sync::Notify;
+
 use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 
 /// Identification block included in `initialize` requests so agents can log
@@ -37,6 +41,11 @@ pub enum AcpEvent {
     /// adapter handles `request.method()`, then calls
     /// `respond_server_request(id, ...)` or `reject_server_request(id, ...)`.
     ServerRequest(AcpServerRequest),
+    /// Internal ordering fence inserted after a JSON-RPC response. The runtime
+    /// event loop acknowledges it only after every preceding notification has
+    /// been translated, preventing a terminal `Result` from racing ahead of a
+    /// final `session/update` frame.
+    EventBarrier(Arc<Notify>),
     /// The subprocess exited. Sent at most once (idempotent via `exit_sent`
     /// AtomicBool in the reader). Pending requests are drained with
     /// `AcpError::ProcessExited` immediately before this fires.

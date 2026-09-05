@@ -100,8 +100,15 @@ pub trait AcpProviderHooks: Send + Sync {
     }
 
     /// Provider config id for model changes over `session/set_config_option`.
-    fn model_config_id(&self) -> Option<&'static str> {
+    fn model_config_id(&self) -> Option<&str> {
         None
+    }
+
+    /// Require a preselected catalog model to exist in live ACP configuration
+    /// and be confirmed before the first prompt. Built-ins retain their legacy
+    /// fallbacks; code-backed installed providers opt into the strict contract.
+    fn requires_verified_model_selection(&self) -> bool {
+        false
     }
 
     /// Observe live session config options (retain aliases for later set_config_option).
@@ -249,10 +256,15 @@ pub trait AcpProviderHooks: Send + Sync {
     }
 
     /// Whether a provider's ACP sessions can be durably restored across a
-    /// newly spawned subprocess via `session/load`.
+    /// newly spawned subprocess via `session/resume` or legacy `session/load`.
     fn supports_durable_resume(&self) -> bool {
         false
     }
+
+    /// Observe handshake-owned ACP durable-resume support. Installed provider
+    /// adapters use this to avoid persisting unusable IDs while still allowing
+    /// a stored ID to be probed after the host process restarts.
+    fn observe_durable_resume_capability(&self, _supported: bool) {}
 
     /// Provider-specific hook for `AskUserQuestion`-style tool calls. Returns
     /// `Some(event)` to short-circuit the normal `tool_call` start mapping.

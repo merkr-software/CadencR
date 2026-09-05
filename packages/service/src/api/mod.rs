@@ -6,6 +6,11 @@ pub mod openapi;
 use crate::app_state::{AppState, BrowserBridgeConfig};
 use crate::domain::agents::claude_code::routes::claude_code_router;
 use crate::domain::agents::discovery::routes::discovery_router;
+use crate::domain::agents::providers::development::routes::provider_development_router;
+use crate::domain::agents::providers::installed::managed::routes::{
+    inventory_router as managed_provider_inventory_router,
+    lifecycle_router as managed_provider_lifecycle_router,
+};
 use crate::domain::agents::providers::installed::routes::{
     installed_provider_lifecycle_router, installed_providers_router,
 };
@@ -159,7 +164,10 @@ pub fn build_router(state: AppState) -> Router {
     let limiter = std::sync::Arc::new(middleware::RateLimiter::default());
     build_api_routes()
         .route("/api/browser-bridge", put(register_browser_bridge))
+        .merge(provider_development_router())
         .merge(installed_provider_lifecycle_router())
+        .merge(managed_provider_inventory_router())
+        .merge(managed_provider_lifecycle_router())
         .merge(crate::domain::mcp::control::control_router())
         .merge(crate::domain::remote::loopback_router())
         .layer(axum::middleware::from_fn_with_state(

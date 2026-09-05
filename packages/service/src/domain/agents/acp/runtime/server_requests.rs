@@ -97,6 +97,9 @@ pub fn spawn_event_loop(
                     }
                     handle_server_request(&client, request, &tx, &config).await;
                 }
+                Ok(AcpEvent::EventBarrier(barrier)) => {
+                    barrier.notify_one();
+                }
                 Ok(AcpEvent::ProcessExited { status, signal }) => {
                     if !config.closing.load(Ordering::SeqCst) {
                         let message = describe_exit(status, signal);

@@ -2,8 +2,8 @@ use tracing::info;
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 
+use super::super::helpers::persist_and_close_query;
 use super::super::{QueryState, SdkHandle};
 
 pub(super) struct DispatchChanges {
@@ -80,18 +80,13 @@ async fn close_active_for_respawn(
     let QueryState::Active { query, .. } = &handle.state else {
         return None;
     };
-    let session_id = query.read().await.session_id().await;
-    if let Some(ref runtime_session_id) = session_id {
-        WsSessionPersistence::persist_runtime_session_id_static(
-            &app_state.write_pool,
-            db_session_id,
-            &handle.runtime_provider,
-            runtime_session_id,
-        )
-        .await;
-    }
-    query.write().await.close().await;
-    session_id
+    persist_and_close_query(
+        query,
+        &app_state.write_pool,
+        db_session_id,
+        &handle.runtime_provider,
+    )
+    .await
 }
 
 fn reset_handle_to_pending(handle: &mut SdkHandle, resume_session_id: Option<String>) {

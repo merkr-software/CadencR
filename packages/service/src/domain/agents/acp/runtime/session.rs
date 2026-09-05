@@ -16,6 +16,7 @@ mod tests {
     use super::super::session_config::{snapshot_from_options, AcpSessionConfigState};
     use super::super::session_permissions::SessionPermissions;
     use super::super::terminal_registry::TerminalRegistry;
+    use super::super::test_support::spawn_event_barrier_acker;
     use super::super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
     use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
     use crate::domain::agents::adapter::{
@@ -53,9 +54,37 @@ mod tests {
             })
         }
 
-        fn model_config_id(&self) -> Option<&'static str> {
+        fn model_config_id(&self) -> Option<&str> {
             Some("model")
         }
+    }
+
+    fn assembled_session(
+        client: &AcpClient,
+        session_id: &str,
+        supports_session_close: bool,
+    ) -> super::AcpRuntimeSession {
+        let negotiated = super::super::lifecycle::NegotiatedSession {
+            session_id: session_id.to_string(),
+            model: None,
+            mcp_servers: Vec::new(),
+            context_window: None,
+            current_mode: None,
+            session_config: Default::default(),
+            supports_session_close,
+            may_replay_history: false,
+        };
+        let (tx, rx) = mpsc::channel(8);
+        super::AcpRuntimeSession::assemble(
+            client,
+            &negotiated,
+            std::env::temp_dir(),
+            None,
+            rx,
+            tx,
+            Arc::new(PlainHooks),
+            Arc::new(StdMutex::new(EventIndexer::default())),
+        )
     }
 
     fn model_options(current: &str) -> Vec<SessionConfigOption> {
@@ -328,6 +357,8 @@ mod tests {
             context_window: None,
             current_mode: None,
             session_config: Default::default(),
+            supports_session_close: false,
+            may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
@@ -377,6 +408,8 @@ mod tests {
             context_window: None,
             current_mode: None,
             session_config: snapshot_from_options(&model_options("m1")),
+            supports_session_close: false,
+            may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
         let session = Arc::new(super::AcpRuntimeSession::assemble(
@@ -441,6 +474,7 @@ mod tests {
     #[tokio::test]
     async fn interrupt_unblocks_prompt_turn_when_agent_never_replies() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        spawn_event_barrier_acker(&client);
         let negotiated = super::super::lifecycle::NegotiatedSession {
             session_id: "s-cancel".to_string(),
             model: None,
@@ -448,6 +482,8 @@ mod tests {
             context_window: None,
             current_mode: None,
             session_config: Default::default(),
+            supports_session_close: false,
+            may_replay_history: false,
         };
         let (tx, rx) = mpsc::channel(8);
         let mut session = super::AcpRuntimeSession::assemble(
@@ -482,5 +518,70 @@ mod tests {
         let result = runtime_rx.recv().await.unwrap().unwrap();
         assert!(result.is_result());
         assert_eq!(result.raw_json()["stop_reason"], "cancelled");
+    }
+
+    #[tokio::test]
+    async fn close_uses_session_close_when_advertised() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close", true);
+        let close = tokio::spawn(async move { session.close().await });
+
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/close");
+        assert_eq!(request["params"]["sessionId"], "s-close");
+        write_frame(
+            &mut agent_stdout,
+            json!({ "jsonrpc": "2.0", "id": request["id"], "result": {} }),
+        )
+        .await;
+
+        tokio::time::timeout(Duration::from_millis(500), close)
+            .await
+            .expect("session/close should complete after the agent responds")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn close_uses_cancel_when_session_close_is_not_advertised() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-cancel-close", false);
+        let close = tokio::spawn(async move { session.close().await });
+
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/cancel");
+        assert_eq!(request["params"]["sessionId"], "s-cancel-close");
+        assert!(request.get("id").is_none());
+
+        tokio::time::timeout(Duration::from_millis(500), close)
+            .await
+            .expect("cancel fallback should not wait for a response")
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn close_error_falls_back_to_cancel() {
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut session = assembled_session(&client, "s-close-fallback", true);
+        let close = tokio::spawn(async move { session.close().await });
+
+        let request = read_one_request(&mut agent_stdin).await;
+        assert_eq!(request["method"], "session/close");
+        write_frame(
+            &mut agent_stdout,
+            json!({
+                "jsonrpc": "2.0",
+                "id": request["id"],
+                "error": { "code": -32601, "message": "method not found" }
+            }),
+        )
+        .await;
+        let cancel = read_one_request(&mut agent_stdin).await;
+        assert_eq!(cancel["method"], "session/cancel");
+        assert_eq!(cancel["params"]["sessionId"], "s-close-fallback");
+
+        tokio::time::timeout(Duration::from_millis(500), close)
+            .await
+            .expect("close fallback should complete after cancel")
+            .unwrap();
     }
 }

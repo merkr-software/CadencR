@@ -238,6 +238,22 @@ export function useSessionControls(
     isClaudeProvider ? claudeProfile.catalogProfile : undefined,
     resolvedProviderId,
   );
+  useEffect(() => {
+    if (
+      ws.runtimeSessionId &&
+      ws.sessionConfigSupported === null &&
+      !ws.sessionConfigLoading &&
+      !ws.sessionConfigError
+    ) {
+      void ws.requestSessionConfig();
+    }
+  }, [
+    ws.requestSessionConfig,
+    ws.runtimeSessionId,
+    ws.sessionConfigError,
+    ws.sessionConfigLoading,
+    ws.sessionConfigSupported,
+  ]);
   const codex = useAccessControls(ws, runtime.activeProviderId);
   const handlePermissionModeToggle = usePermissionModeToggle(
     sessionId,

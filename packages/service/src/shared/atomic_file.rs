@@ -31,37 +31,73 @@ fn write_atomic_with_policy(path: &Path, content: &str, private: bool) -> Result
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| AppError::Internal(format!("path has no file name: {}", path.display())))?;
-    let tmp = parent.join(format!(".{file_name}.tmp"));
-    write_temp_file(&tmp, content, private)?;
-    std::fs::rename(&tmp, path).map_err(|e| {
+    let tmp = parent.join(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4()));
+    if let Err(error) = write_temp_file(&tmp, content, private) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(error);
+    }
+    replace_file(&tmp, path).map_err(|e| {
         // Don't leave a stale temp file behind for the next reader to trip over.
         let _ = std::fs::remove_file(&tmp);
         AppError::Internal(format!("failed to commit {}: {e}", path.display()))
+    })?;
+    crate::shared::fs_durability::sync_directory(parent).map_err(|error| {
+        AppError::Internal(format!("failed to sync {}: {error}", parent.display()))
     })
 }
 
 fn write_temp_file(path: &Path, content: &str, private: bool) -> Result<(), AppError> {
+    use std::io::Write as _;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.create_new(true).write(true);
     #[cfg(unix)]
     if private {
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(|error| write_error(path, error))?;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .map_err(|error| write_error(path, error))?;
-        return file
-            .write_all(content.as_bytes())
-            .map_err(|error| write_error(path, error));
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600);
     }
-
+    let mut file = options
+        .open(path)
+        .map_err(|error| write_error(path, error))?;
+    file.write_all(content.as_bytes())
+        .map_err(|error| write_error(path, error))?;
+    file.sync_all().map_err(|error| write_error(path, error))?;
     let _ = private;
-    std::fs::write(path, content).map_err(|error| write_error(path, error))
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    std::fs::rename(source, destination)
+}
+
+#[cfg(windows)]
+fn replace_file(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt as _;
+    use windows_sys::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let source: Vec<u16> = source.as_os_str().encode_wide().chain(Some(0)).collect();
+    let destination: Vec<u16> = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    // SAFETY: both pointers reference NUL-terminated UTF-16 buffers alive for
+    // the duration of the call. `MoveFileExW` does not retain them.
+    let result = unsafe {
+        MoveFileExW(
+            source.as_ptr(),
+            destination.as_ptr(),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    };
+    if result == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
 }
 
 fn write_error(path: &Path, error: std::io::Error) -> AppError {

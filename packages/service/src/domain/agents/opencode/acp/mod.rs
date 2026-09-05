@@ -30,7 +30,9 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpSpawnOptions};
+use crate::domain::agents::acp::{
+    AcpClient, AcpClientInfo, AcpProcessTreePolicy, AcpSpawnOptions, AcpStderrPolicy,
+};
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeError, RuntimeSpawnConfig};
 
 use self::adapter::OpenCodeAcpAdapter;
@@ -143,6 +145,8 @@ pub(super) async fn spawn_acp_session(
         command,
         spawn_guard: Some(Box::new(reserved_question_port)),
         client_info: AcpClientInfo::default(),
+        stderr_policy: AcpStderrPolicy::Log,
+        process_tree_policy: AcpProcessTreePolicy::Inherit,
         config,
         initial_content: content,
         context_window,

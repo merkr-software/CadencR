@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use super::stream_events;
 use super::stream_events::message_start_event;
+use super::terminal_io::{TerminalOutput, DEFAULT_TERMINAL_OUTPUT_LIMIT};
 use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent};
 
 #[derive(Default)]
@@ -44,6 +45,11 @@ pub struct EventIndexer {
     pub message_started: bool,
     question_prompt_ids: HashSet<String>,
     tool_inputs: HashMap<String, Value>,
+    /// ACP terminal output arrives as deltas in `_meta.terminal_output`
+    /// rather than standard `content` / `rawOutput`. Accumulate it until the
+    /// terminal exit update so the provider-neutral tool result contains the
+    /// complete command output.
+    terminal_outputs: HashMap<String, TerminalOutput>,
 }
 
 impl EventIndexer {
@@ -83,6 +89,27 @@ impl EventIndexer {
 
     pub fn tool_input_for(&self, tool_call_id: &str) -> Option<&Value> {
         self.tool_inputs.get(tool_call_id)
+    }
+
+    pub fn append_terminal_output(&mut self, tool_call_id: &str, delta: &str) {
+        if let Some(output) = self.terminal_outputs.get_mut(tool_call_id) {
+            output.append(delta.as_bytes());
+            return;
+        }
+        let mut output = TerminalOutput::new(DEFAULT_TERMINAL_OUTPUT_LIMIT);
+        output.append(delta.as_bytes());
+        self.terminal_outputs
+            .insert(tool_call_id.to_string(), output);
+    }
+
+    pub fn has_terminal_output(&self, tool_call_id: &str) -> bool {
+        self.terminal_outputs.contains_key(tool_call_id)
+    }
+
+    pub fn take_terminal_output(&mut self, tool_call_id: &str) -> Option<(String, bool)> {
+        self.terminal_outputs
+            .remove(tool_call_id)
+            .map(|output| output.snapshot())
     }
 
     pub fn mark_plan_todowrite_emitted(&mut self) {
@@ -170,6 +197,7 @@ impl EventIndexer {
         self.last_todowrite_call_id = None;
         self.plan_todowrite_emitted = false;
         self.suppressed_tool_call_ids.clear();
+        self.terminal_outputs.clear();
         if !stops.is_empty() {
             self.message_started = false;
         }
@@ -310,5 +338,14 @@ mod tests {
 
         assert!(events.is_empty());
         assert!(idx.last_todowrite_call_id.is_none());
+    }
+
+    #[test]
+    fn terminal_metadata_output_is_bounded() {
+        let mut idx = EventIndexer::default();
+        idx.append_terminal_output("terminal-1", &"x".repeat(1024 * 1024 + 1));
+        let (output, truncated) = idx.take_terminal_output("terminal-1").unwrap();
+        assert_eq!(output.len(), 1024 * 1024);
+        assert!(truncated);
     }
 }

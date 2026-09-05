@@ -257,6 +257,102 @@ mod tests {
         }
     }
     #[test]
+    fn terminal_metadata_accumulates_into_completed_bash_result() {
+        let mut idx = EventIndexer::default();
+        idx.record_tool_name("terminal-1", "Bash");
+        let _ = idx.index_for_tool("terminal-1");
+
+        let partial = map_tool_call_update(
+            &json!({
+                "toolCallId": "terminal-1",
+                "status": "in_progress",
+                "_meta": {
+                    "terminal_output": { "terminal_id": "terminal-1", "data": "first " }
+                }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        assert!(partial
+            .events
+            .iter()
+            .all(|event| event.user_message().is_none()));
+
+        let completed = map_tool_call_update(
+            &json!({
+                "toolCallId": "terminal-1",
+                "status": "completed",
+                "_meta": {
+                    "terminal_output": { "terminal_id": "terminal-1", "data": "second" },
+                    "terminal_exit": { "terminal_id": "terminal-1", "exit_code": 0, "signal": null }
+                }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let user = completed.events[0].user_message().expect("terminal result");
+        match &user.content[0] {
+            RuntimeUserContentBlock::ToolResult {
+                content, is_error, ..
+            } => {
+                assert_eq!(content, "first second");
+                assert!(!is_error);
+            }
+            other => panic!("unexpected variant: {other:?}"),
+        }
+    }
+    #[test]
+    fn terminal_result_flushes_on_final_status_without_repeated_metadata() {
+        let mut idx = EventIndexer::default();
+        idx.record_tool_name("terminal-2", "Bash");
+        let _ = idx.index_for_tool("terminal-2");
+        let _ = map_tool_call_update(
+            &json!({
+                "toolCallId": "terminal-2",
+                "status": "in_progress",
+                "_meta": { "terminal_output": { "data": "complete output" } }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+
+        let completed = map_tool_call_update(
+            &json!({ "toolCallId": "terminal-2", "status": "completed" }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let user = completed.events[0].user_message().expect("terminal result");
+        let RuntimeUserContentBlock::ToolResult { content, .. } = &user.content[0] else {
+            panic!("expected tool result");
+        };
+        assert_eq!(content, "complete output");
+    }
+    #[test]
+    fn signalled_terminal_exit_is_an_error_result() {
+        let mut idx = EventIndexer::default();
+        idx.record_tool_name("terminal-3", "Bash");
+        let _ = idx.index_for_tool("terminal-3");
+        let completed = map_tool_call_update(
+            &json!({
+                "toolCallId": "terminal-3",
+                "status": "completed",
+                "_meta": { "terminal_exit": { "signal": 9 } }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let user = completed.events[0].user_message().expect("terminal result");
+        let RuntimeUserContentBlock::ToolResult { is_error, .. } = &user.content[0] else {
+            panic!("expected tool result");
+        };
+        assert!(*is_error);
+    }
+    #[test]
     fn generic_tool_update_with_late_raw_input_emits_input_delta() {
         let mut idx = EventIndexer::default();
         idx.record_tool_name("t-read", "Read");

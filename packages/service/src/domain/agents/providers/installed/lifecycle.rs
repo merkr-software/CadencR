@@ -38,9 +38,22 @@ pub async fn install_descriptor(
     descriptor.validate().map_err(descriptor_error)?;
     let provider_id = descriptor.agent.id.as_str();
     let path = descriptor_path(directory, provider_id)?;
-    ensure_id_available(directory, provider_id, &path, active_provider_ids)?;
+    ensure_descriptor_id_available(directory, provider_id, active_provider_ids)?;
     HostInstallation::from_descriptor(descriptor.clone(), &path).map_err(descriptor_error)?;
     write_descriptor(&path, &descriptor)
+}
+
+/// Refuse a reserved or already-claimed identity before a multi-resource
+/// developer workflow creates a project. Installation checks again while
+/// holding its lifecycle lock, so this is an early validation seam rather than
+/// a replacement for the authoritative write-time check.
+pub fn ensure_descriptor_id_available(
+    directory: &Path,
+    provider_id: &str,
+    active_provider_ids: &[String],
+) -> Result<(), AppError> {
+    let path = descriptor_path(directory, provider_id)?;
+    ensure_id_available(directory, provider_id, &path, active_provider_ids)
 }
 
 pub async fn set_descriptor_enabled(
@@ -51,6 +64,7 @@ pub async fn set_descriptor_enabled(
     let _guard = lifecycle_lock().lock().await;
     let path = descriptor_path(directory, provider_id)?;
     let mut descriptor = read_descriptor(&path, provider_id)?;
+    reject_managed_descriptor(&descriptor)?;
     if enabled {
         ensure_descriptor_activatable(directory, &path, provider_id)?;
     }
@@ -70,11 +84,12 @@ pub async fn remove_descriptor(directory: &Path, provider_id: &str) -> Result<()
     // Parse and validate before moving anything. A malformed file remains
     // inspectable through diagnostics instead of being removable through a
     // provider id it did not validly claim.
-    read_descriptor(&path, provider_id)?;
+    let descriptor = read_descriptor(&path, provider_id)?;
+    reject_managed_descriptor(&descriptor)?;
     trash::move_to_trash(&path).await
 }
 
-fn lifecycle_lock() -> &'static tokio::sync::Mutex<()> {
+pub(crate) fn lifecycle_lock() -> &'static tokio::sync::Mutex<()> {
     static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
 }
@@ -85,7 +100,19 @@ fn ensure_id_available(
     path: &Path,
     active_provider_ids: &[String],
 ) -> Result<(), AppError> {
+    // Disabled managed installs retain their identity even when a damaged
+    // runtime descriptor was retired. State, not the projection, owns the id.
+    let managed = super::managed::installer::ManagedStorage::production();
     let provider_key = provider_identifier_key(provider_id);
+    for reserved in managed.provider_ids() {
+        if provider_identifier_key(&reserved) == provider_key
+            && super::managed::history::read_state(&managed.state_path(&reserved)?, &reserved)?
+                .active
+                .is_some()
+        {
+            return Err(already_installed(provider_id));
+        }
+    }
     let builtin_identifiers = builtin_provider_identifiers();
     if path.exists()
         || builtin_identifiers
@@ -110,6 +137,25 @@ fn ensure_id_available(
         return Err(already_installed(provider_id));
     }
     Ok(())
+}
+
+fn reject_managed_descriptor(descriptor: &ProviderDescriptor) -> Result<(), AppError> {
+    let managed = descriptor
+        .installation
+        .executable
+        .as_ref()
+        .is_some_and(|executable| {
+            super::managed::installer::is_managed_executable(Path::new(&executable.command))
+        });
+    if managed {
+        Err(AppError::coded(
+            StatusCode::CONFLICT,
+            "USE_MANAGED_PROVIDER_API",
+            "managed providers must be changed through the managed provider lifecycle API",
+        ))
+    } else {
+        Ok(())
+    }
 }
 
 fn ensure_descriptor_activatable(
@@ -281,6 +327,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn disabled_managed_identity_is_reserved_without_a_descriptor_or_boot_entry() {
+        use super::super::managed::history::{
+            write_state, ManagedActiveRevision, ManagedProviderState,
+        };
+        use super::super::managed::installer::ManagedStorage;
+        use super::super::managed::receipt::ManagedRevision;
+        let managed = ManagedStorage::production();
+        let mut state = ManagedProviderState::empty("disabled-managed");
+        state.active = Some(ManagedActiveRevision {
+            revision: ManagedRevision {
+                version: "1.0.0".into(),
+                digest: "a".repeat(64),
+            },
+            enabled: false,
+        });
+        write_state(&managed.state_path("disabled-managed").unwrap(), &state).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let command = directory.path().join("agent");
+        for id in ["disabled-managed", "disabledmanaged", "disabled--managed"] {
+            let error = install_descriptor(
+                directory.path(),
+                descriptor(id, command.to_str().unwrap()),
+                &[],
+            )
+            .await
+            .unwrap_err();
+            assert_eq!(coded(error).0, PROVIDER_ALREADY_INSTALLED);
+            assert!(!directory.path().join(format!("{id}.json")).exists());
+        }
+    }
+
+    #[tokio::test]
     async fn enabling_a_loader_rejected_descriptor_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let mut candidate = descriptor("claude", dir.path().join("agent").to_str().unwrap());
@@ -340,5 +418,18 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(coded(error).0, PROVIDER_NOT_INSTALLED);
+    }
+
+    #[test]
+    fn local_lifecycle_refuses_managed_owned_descriptors() {
+        let managed = super::super::managed::installer::ManagedStorage::production()
+            .root()
+            .join("acme-agent/1.0.0")
+            .join("a".repeat(64))
+            .join("payload/bin/agent");
+        let error =
+            super::reject_managed_descriptor(&descriptor("acme-agent", managed.to_str().unwrap()))
+                .unwrap_err();
+        assert_eq!(coded(error).0, "USE_MANAGED_PROVIDER_API");
     }
 }

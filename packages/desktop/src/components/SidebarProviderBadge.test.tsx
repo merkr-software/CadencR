@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 import { SidebarProviderBadge } from "./SidebarProviderBadge";
 
 vi.mock("@/components/ShortcutTooltip", () => ({
@@ -7,6 +8,36 @@ vi.mock("@/components/ShortcutTooltip", () => ({
 }));
 
 describe("SidebarProviderBadge", () => {
+  beforeEach(() => setProviderCatalogMetadata([]));
+
+  it("uses a connector-owned icon with release sidebar status styling", () => {
+    const icon = "data:image/svg+xml;base64,AA==";
+    setProviderCatalogMetadata([
+      {
+        id: "acme",
+        label: "Acme Agent",
+        icon_data: icon,
+        origin: "installed_local",
+        status: "available",
+        models: [],
+      },
+    ]);
+    render(<SidebarProviderBadge providerId="acme" liveStatus="agent" />);
+    const mark = screen.getByRole("img", { name: /Acme Agent.*Working/ });
+    expect(mark).toHaveClass("text-blue-500", "animate-pulse");
+    expect(mark.querySelector(".provider-mark-tint")).toHaveStyle({
+      "--provider-mark": `url("${icon}")`,
+    });
+  });
+
+  it("keeps iconless connectors visible and inherits the status color", () => {
+    render(<SidebarProviderBadge providerId="acme" liveStatus="agent" />);
+    const mark = screen.getByRole("img", { name: /Working/ });
+    expect(mark).toHaveClass("text-blue-500");
+    expect(mark.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(mark.querySelector("svg")).not.toHaveClass("text-muted-foreground");
+  });
+
   it("renders the mono silhouette while idle", () => {
     render(<SidebarProviderBadge providerId="claude_code" modelId="opus" />);
 

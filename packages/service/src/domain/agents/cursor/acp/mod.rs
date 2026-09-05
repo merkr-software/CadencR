@@ -10,7 +10,7 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClientInfo, AcpProcessTreePolicy, AcpStderrPolicy};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeAccessMode, RuntimeError, RuntimeSpawnConfig,
 };
@@ -41,6 +41,8 @@ pub(super) async fn spawn_acp_session(
         command,
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
+        stderr_policy: AcpStderrPolicy::Log,
+        process_tree_policy: AcpProcessTreePolicy::Inherit,
         config,
         initial_content: content,
         // Cursor ACP does not currently report an authoritative context

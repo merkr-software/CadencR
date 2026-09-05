@@ -4,8 +4,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    AcpAgentEntry, AcpBinaryTarget, AcpDistribution, ProviderDescriptor, ACP_BINARY_TARGETS,
-    SUPPORTED_SCHEMA_VERSION,
+    AcpAgentEntry, AcpBinaryTarget, AcpDistribution, HostInstallationSpec, ProviderDescriptor,
+    ACP_BINARY_TARGETS, SUPPORTED_SCHEMA_VERSION,
 };
 use crate::domain::agents::providers::installed::rejection::{DescriptorError, RejectionCode};
 
@@ -67,7 +67,26 @@ impl ProviderDescriptor {
                 ),
             ));
         }
-        self.agent.validate_local_install()
+        self.agent.validate_local_install()?;
+        self.installation.validate(&self.agent)
+    }
+}
+
+impl HostInstallationSpec {
+    fn validate(&self, agent: &AcpAgentEntry) -> Result<(), DescriptorError> {
+        let Some(assets) = &self.assets else {
+            return Ok(());
+        };
+        let directory = assets.directory.trim();
+        if directory.is_empty() || !std::path::Path::new(directory).is_absolute() {
+            return Err(schema_violation(
+                "installation.assets.directory must be an absolute path",
+            ));
+        }
+        if let Some(icon) = agent.icon.as_deref() {
+            validate_local_asset_path("agent icon", icon)?;
+        }
+        Ok(())
     }
 }
 
@@ -215,6 +234,28 @@ fn validate_optional_uri(label: &str, value: Option<&str>) -> Result<(), Descrip
         Some(value) => validate_uri(label, value),
         None => Ok(()),
     }
+}
+
+fn validate_local_asset_path(label: &str, value: &str) -> Result<(), DescriptorError> {
+    use std::path::Component;
+
+    let path = std::path::Path::new(value);
+    let safe_components = !value.trim().is_empty()
+        && !value.contains('\\')
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)));
+    if !safe_components {
+        return Err(schema_violation(format!(
+            "{label} {value:?} must be a relative path contained by installation.assets.directory"
+        )));
+    }
+    if crate::shared::image_file::image_or_svg_mime_for_path(path).is_none() {
+        return Err(schema_violation(format!(
+            "{label} {value:?} must use an image format Cadencr can paint"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_uri(label: &str, value: &str) -> Result<(), DescriptorError> {

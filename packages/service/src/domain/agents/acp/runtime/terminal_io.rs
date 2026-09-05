@@ -12,6 +12,8 @@ use tokio::io::AsyncReadExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+pub(super) const DEFAULT_TERMINAL_OUTPUT_LIMIT: usize = 1024 * 1024; // 1 MiB
+
 #[derive(Clone, Debug)]
 pub(super) struct ExitInfo {
     pub exit_code: Option<i32>,
@@ -34,7 +36,7 @@ impl TerminalOutput {
         }
     }
 
-    fn append(&mut self, chunk: &[u8]) {
+    pub(super) fn append(&mut self, chunk: &[u8]) {
         let remaining = self.limit.saturating_sub(self.buffer.len());
         if remaining == 0 {
             self.truncated = true;

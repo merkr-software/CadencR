@@ -37,7 +37,7 @@ pub(crate) fn permission_mode_wire(mode: &RuntimePermissionMode) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_permission_mode, permission_mode_wire};
+    use super::{effective_permission_mode, parse_permission_mode, permission_mode_wire};
     use crate::domain::agents::adapter::RuntimePermissionMode;
 
     #[test]
@@ -55,6 +55,18 @@ mod tests {
         let mode = parse_permission_mode("ask");
         assert_eq!(mode, RuntimePermissionMode::Ask);
         assert_eq!(permission_mode_wire(&mode), "ask");
+    }
+
+    #[test]
+    fn effective_mode_filters_values_the_adapter_does_not_support() {
+        assert_eq!(
+            effective_permission_mode("cursor", Some("plan")),
+            Some(RuntimePermissionMode::Plan)
+        );
+        assert_eq!(
+            effective_permission_mode("cursor", Some("acceptEdits")),
+            None
+        );
     }
 }
 
@@ -83,6 +95,21 @@ pub(crate) fn default_permission_mode_wire(provider: &str) -> Cow<'static, str> 
 /// stays for DB persistence and `mode.changed` broadcasts.
 pub(crate) fn default_permission_mode(provider: &str) -> RuntimePermissionMode {
     parse_permission_mode(&default_permission_mode_wire(provider))
+}
+
+/// Resolve the requested (or provider-default) permission mode only when the
+/// active adapter actually supports it. Generic ACP providers negotiate
+/// permissions at runtime and intentionally support no host-owned mode, so
+/// carrying the shared `acceptEdits` fallback into their spawn config would
+/// claim a capability they never advertised.
+pub(crate) fn effective_permission_mode(
+    provider: &str,
+    requested: Option<&str>,
+) -> Option<RuntimePermissionMode> {
+    let mode = requested
+        .map(parse_permission_mode)
+        .unwrap_or_else(|| default_permission_mode(provider));
+    provider_supports_mode(provider, &mode).then_some(mode)
 }
 
 /// Wire string the chip should land on after a plan is approved

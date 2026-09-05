@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import { useMemo, type ReactElement } from "react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
 import type {
@@ -8,6 +8,7 @@ import type {
 } from "@/components/WebSocketSessionFeatureBlockHooks";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
+import type { SessionConfigControls } from "@/components/agent-session/types";
 
 interface SessionAgentTabProps {
   sessionId: string;
@@ -46,6 +47,35 @@ function handleModelChange(
   }
 }
 
+function useSessionConfigControls(
+  controls: ReturnType<typeof useSessionControls>,
+): SessionConfigControls | undefined {
+  return useMemo<SessionConfigControls | undefined>(
+    () =>
+      controls.ws.runtimeSessionId
+        ? {
+            config: controls.ws.sessionConfig,
+            loading: controls.ws.sessionConfigLoading,
+            supported: controls.ws.sessionConfigSupported,
+            error: controls.ws.sessionConfigError,
+            pendingId: controls.ws.pendingSessionConfigId,
+            onRefresh: controls.ws.requestSessionConfig,
+            onChange: controls.ws.setSessionConfigOption,
+          }
+        : undefined,
+    [
+      controls.ws.pendingSessionConfigId,
+      controls.ws.requestSessionConfig,
+      controls.ws.runtimeSessionId,
+      controls.ws.sessionConfig,
+      controls.ws.sessionConfigError,
+      controls.ws.sessionConfigLoading,
+      controls.ws.sessionConfigSupported,
+      controls.ws.setSessionConfigOption,
+    ],
+  );
+}
+
 export function SessionAgentTab({
   sessionId,
   featureId,
@@ -58,6 +88,7 @@ export function SessionAgentTab({
   hasAccessModes,
   onSend,
 }: SessionAgentTabProps): ReactElement {
+  const sessionConfigControls = useSessionConfigControls(controls);
   return (
     <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
       <AgentSession
@@ -118,6 +149,7 @@ export function SessionAgentTab({
         onFastModeChange={controls.ws.setFastMode}
         runtimeProvider={controls.ws.runtimeProvider}
         runtimeSessionId={controls.ws.runtimeSessionId || undefined}
+        sessionConfigControls={sessionConfigControls}
         slashCommandsOverride={data.session?.slashCommands ?? []}
         slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
         promptCommandPolicy={data.session?.promptCommandPolicy}

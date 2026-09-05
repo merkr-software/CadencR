@@ -132,6 +132,8 @@ mod tests {
             context_window: None,
             current_mode: None,
             session_config: Default::default(),
+            supports_session_close: false,
+            may_replay_history: false,
         }
     }
 

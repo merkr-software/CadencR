@@ -2,10 +2,10 @@
 //!
 //! This is the second half of the runtime registry: `registry.rs` made the
 //! provider list something built at startup, and this module supplies the
-//! entries that are not compiled in. An installed provider is a descriptor file
-//! plus a [`GenericAcpAdapter`] built from it — no Rust, TypeScript, or SDK
-//! crate changes, which is the whole point (`docs/PROVIDER_SPEC/BOUNDARIES.md`
-//! Phase 1, "adding one must require no Rust or TypeScript source change").
+//! entries that are not compiled in. An installed provider is a descriptor plus
+//! a code-backed provider executable behind one [`GenericAcpAdapter`]. The host
+//! stays provider-neutral, while provider authors own model discovery and any
+//! native-to-ACP mapping inside that executable.
 //!
 //! Scope of this increment, deliberately narrow:
 //!
@@ -13,18 +13,25 @@
 //!   routes mutate durable files but activation is explicitly restart-gated;
 //! - the launch target is an **explicitly selected local executable**; nothing
 //!   is downloaded, extracted, or checksummed here;
-//! - the protocol is **ACP v1**, negotiated by the shared client.
+//! - the executable must implement the versioned `models` and `run` commands;
+//! - the runtime protocol is **ACP v1**, negotiated by the shared client.
 //!
 //! Three sources of truth stay separate, as the boundary plan requires: the
 //! portable registry entry (`descriptor.rs`), the host-local installation
-//! record (`installation.rs`), and the capabilities the agent negotiates over
-//! ACP (owned by `acp/runtime/`, never by a descriptor field).
+//! record (`installation.rs`), the pre-session model projection owned by the
+//! provider binary, and live capabilities negotiated over ACP. Descriptors
+//! never declare models or session capabilities.
 
 pub mod adapter;
+mod assets;
 pub mod descriptor;
+mod hooks;
 pub mod installation;
 pub mod lifecycle;
 pub mod loader;
+pub mod managed;
+mod model_discovery;
+mod provider_command;
 pub mod rejection;
 pub mod routes;
 #[cfg(test)]
@@ -74,10 +81,72 @@ pub fn startup_load() -> Arc<InstalledLoadOutcome> {
     if let Some(scanned) = scans.get(&directory) {
         return scanned.clone();
     }
-    let outcome = Arc::new(load_descriptors(&directory));
+    let failed_managed = managed::installer::reconcile_descriptors(
+        &managed::installer::ManagedStorage::production(),
+        &directory,
+    );
+    let storage = managed::installer::ManagedStorage::production();
+    let mut outcome = load_descriptors(&directory);
+    let installations = std::mem::take(&mut outcome.installations);
+    for installation in installations {
+        let failure = if failed_managed.contains(installation.provider_id()) {
+            Some("managed provider desired state could not be reconciled".to_string())
+        } else {
+            managed_descriptor_mismatch(&storage, &installation)
+        };
+        if let Some(message) = failure {
+            outcome.rejections.push(
+                rejection::DescriptorRejection::new(
+                    installation.source_path(),
+                    rejection::RejectionCode::ManagedStateInvalid,
+                    format!("{message}; stale managed descriptor was suppressed"),
+                )
+                .with_provider_id(installation.provider_id()),
+            );
+        } else {
+            outcome.installations.push(installation);
+        }
+    }
+    let outcome = Arc::new(outcome);
     outcome.log();
     scans.insert(directory, outcome.clone());
     outcome
+}
+
+fn managed_descriptor_mismatch(
+    storage: &managed::installer::ManagedStorage,
+    installation: &installation::HostInstallation,
+) -> Option<String> {
+    if !managed::installer::is_managed_executable(&installation.executable().command) {
+        return None;
+    }
+    let provider_id = installation.provider_id();
+    let state_path = match storage.state_path(provider_id) {
+        Ok(path) => path,
+        Err(error) => return Some(error.to_string()),
+    };
+    let state = match managed::history::read_state(&state_path, provider_id) {
+        Ok(state) => state,
+        Err(error) => return Some(error.to_string()),
+    };
+    let Some(active) = state.active else {
+        return Some("managed provider has no active desired revision".into());
+    };
+    let payload = match storage.payload_dir(provider_id, &active.revision) {
+        Ok(payload) => payload,
+        Err(error) => return Some(error.to_string()),
+    };
+    let receipt_path = match managed::receipt::receipt_path(&payload) {
+        Ok(path) => path,
+        Err(error) => return Some(error.to_string()),
+    };
+    let receipt = match managed::receipt::read_receipt(&receipt_path) {
+        Ok(receipt) => receipt,
+        Err(error) => return Some(error.to_string()),
+    };
+    (active.enabled != installation.enabled()
+        || payload.join(receipt.executable) != installation.executable().command)
+        .then_some("managed descriptor does not match authoritative activation state".into())
 }
 
 /// Registry entries for every enabled install, in scan order. Built-ins are
@@ -91,6 +160,7 @@ pub fn installed_registrations() -> Vec<RegisteredProvider> {
                 installation.provider_id().to_string(),
                 ProviderAdapterHandle::owned(GenericAcpAdapter::new(installation.clone())),
             )
+            .installed_local()
         })
         .collect()
 }

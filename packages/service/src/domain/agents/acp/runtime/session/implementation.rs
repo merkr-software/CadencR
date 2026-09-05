@@ -8,8 +8,9 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
-use agent_client_protocol::schema::v1::CancelNotification;
+use agent_client_protocol::schema::v1::{CancelNotification, CloseSessionRequest};
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::{mpsc, RwLock};
@@ -37,6 +38,7 @@ use super::super::turn_lifecycle::{PromptCancel, PromptTurnLock};
 /// Channel buffer for the per-session runtime stream. Matches the size used
 /// by other adapters; deltas are coalesced upstream so even noisy turns fit.
 pub const MESSAGE_CHANNEL_CAPACITY: usize = 1024;
+const SESSION_CLOSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Provider-neutral ACP session.
 pub struct AcpRuntimeSession {
@@ -46,6 +48,7 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) current_effort: Arc<RwLock<Option<String>>>,
     pub(in crate::domain::agents::acp::runtime) current_mode: Arc<RwLock<String>>,
     pub(in crate::domain::agents::acp::runtime) session_config: AcpSessionConfigState,
+    pub(in crate::domain::agents::acp::runtime) supports_session_close: bool,
     /// Tracks whether the agent supports `session/set_config_option`.
     /// Defaults to `true`; flipped to `false` on the first `MethodNotFound`
     /// response so we stop wasting round trips and let the legacy
@@ -148,12 +151,13 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         content: Value,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
-        if let Ok(_guard) = self.prompt_turn_lock.try_lock() {
-            return self.prompt_input(content, client_message_id, true).await;
-        }
-
-        tracing::debug!("ACP prompt turn already active; sending follow-up as steering prompt");
-        self.prompt_input(content, client_message_id, false).await
+        // ACP v1 has no portable steering request. A second `session/prompt`
+        // while the first is active is agent-defined: Pi queues it, while other
+        // agents may reject or merge it. Serialise turns at the host boundary so
+        // every accepted user message gets one authoritative turn result and the
+        // frontend cannot remain stuck in `agent` after a queued follow-up.
+        let _guard = self.prompt_turn_lock.lock().await;
+        self.prompt_input(content, client_message_id, true).await
     }
 
     async fn run_user_shell_command(&self, command: &str) -> Result<(), RuntimeError> {
@@ -182,12 +186,35 @@ impl AgentRuntimeSession for AcpRuntimeSession {
 
     async fn close(&mut self) {
         self.closing.store(true, Ordering::SeqCst);
-        // Best-effort cancel before tearing down. Ignore failures.
+        // Prefer the stable lifecycle request when advertised. A connector
+        // that accepts it must cancel ongoing work and release the session's
+        // resources. Fall back to the baseline cancel notification if the
+        // optional request fails so teardown remains bounded and best-effort.
         if let Some(session_id) = self.current_session_id().await {
-            let _ = self
-                .client
-                .send_notification_typed(CancelNotification::new(session_id))
-                .await;
+            let should_cancel = if self.supports_session_close {
+                match self
+                    .client
+                    .send_request_typed(
+                        CloseSessionRequest::new(session_id.clone()),
+                        SESSION_CLOSE_TIMEOUT,
+                    )
+                    .await
+                {
+                    Ok(_) => false,
+                    Err(error) => {
+                        tracing::warn!(%error, "ACP session/close failed; falling back to session/cancel");
+                        true
+                    }
+                }
+            } else {
+                true
+            };
+            if should_cancel {
+                let _ = self
+                    .client
+                    .send_notification_typed(CancelNotification::new(session_id))
+                    .await;
+            }
         }
         reject_all_pending(&self.client, &self.pending_permissions).await;
         // Drop session-scoped permission grants on close.

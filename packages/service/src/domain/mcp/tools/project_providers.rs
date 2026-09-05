@@ -78,6 +78,7 @@ mod tests {
         let catalog = ProviderCatalogEntry {
             id: "codex_cli".to_string(),
             label: "Codex".to_string(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models: vec![ModelCatalogEntry {
@@ -109,6 +110,7 @@ mod tests {
         let catalog = ProviderCatalogEntry {
             id: "custom".to_string(),
             label: "Custom".to_string(),
+            icon_data: None,
             status: ProviderStatus::Available,
             status_message: None,
             models: vec![ModelCatalogEntry::alias("custom-model", "Custom Model")],

@@ -19,7 +19,7 @@ import { FeaturePrIndicator } from "@/components/PrStatusIndicators";
 import { NumStat } from "@/components/NumStat";
 import { SidebarPendingGatePopover } from "@/components/SidebarPendingGatePopover";
 import { SidebarProviderBadge } from "@/components/SidebarProviderBadge";
-import { getProviderIconSrc } from "@/lib/provider-icons";
+import { useProviderMetadata } from "@/lib/provider-icons";
 import type { LiveAgentStatus } from "@/stores/session-status-store";
 
 interface FeatureRowMetaLineProps {
@@ -175,6 +175,7 @@ export function FeatureRowProviderMark({
   isUnread: boolean;
   onOpenConversation: () => void;
 }): ReactElement | null {
+  const metadata = useProviderMetadata(feature.runtime_provider, null, "mono");
   const asking = liveStatus === "question";
   const badge = (
     <SidebarProviderBadge
@@ -188,14 +189,13 @@ export function FeatureRowProviderMark({
 
   if (!asking) return badge;
 
-  const hasIcon = Boolean(getProviderIconSrc(feature.runtime_provider, "mono"));
   return (
     <SidebarPendingGatePopover
       featureId={feature.id}
       allowAutoOpen={!isActive}
       onOpenConversation={onOpenConversation}
     >
-      {hasIcon ? badge : undefined}
+      {metadata ? badge : undefined}
     </SidebarPendingGatePopover>
   );
 }

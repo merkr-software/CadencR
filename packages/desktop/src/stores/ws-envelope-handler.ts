@@ -16,6 +16,7 @@ import {
   parseModelPayload,
   parseProviderPayload,
   parseProfilePayload,
+  parseSessionConfigSnapshotPayload,
 } from "./ws-envelope-payload";
 import { normalizeContextWindow } from "@/types/agent";
 import { truncateBlocksAtMessage } from "./ws-session-branch";
@@ -23,7 +24,7 @@ import { handleWorktreeEvent } from "./ws-worktree-handler";
 import { useGitStatusStore } from "./useGitStatusStore";
 import { isRecord } from "./ws-message-processing";
 import { parseAccessMode } from "@/types/access-mode";
-import { updateSession } from "./ws-session-types";
+import { createSessionConfigState, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { findProviderMode } from "@/lib/provider-modes";
 import { OPENCODE_AGENT_MODE_PREFIX, parsePermissionMode } from "@/types/permission-mode";
@@ -110,11 +111,14 @@ function handleCommandsDomain(
   sessionId: string,
   envelope: { action: string; ref?: string; payload: unknown },
 ): void {
-  if (envelope.action === "list") {
+  if (envelope.action === "list" || envelope.action === "updated") {
     const p = parseCommandsListPayload(envelope.payload);
     if (!p) return;
     const session = ctx.getSession(sessionId);
-    if (!envelope.ref || envelope.ref !== session.slashCommandsRequestRef) {
+    if (
+      envelope.action === "list" &&
+      (!envelope.ref || envelope.ref !== session.slashCommandsRequestRef)
+    ) {
       return;
     }
     const cmds: SlashCommand[] = (p.commands ?? []).map((c) => ({
@@ -127,9 +131,12 @@ function handleCommandsDomain(
         slashCommands: cmds,
         promptCommandPolicy: promptCommandPolicyFromPayload(p.prompt_command_policy),
         slashCommandsLoading: false,
+        ...(envelope.action === "list" ? { slashCommandsRequestRef: null } : {}),
       }),
     );
+    return;
   }
+  console.warn("[ws-session] unknown commands action; dropping envelope", envelope.action);
 }
 
 type SessionActionHandler = (ctx: StoreAccessors, sessionId: string, payload: unknown) => void;
@@ -178,6 +185,7 @@ const SESSION_ACTION_HANDLERS: Record<SessionActionName, SessionActionHandler> =
   // refreshes via the `feature.created` broadcast, so this ref-less
   // `branch.forked` broadcast needs no per-session handling here.
   [SESSION_ACTION.branchForked]: ignoreSessionAction,
+  [SESSION_ACTION.configSnapshot]: handleSessionConfigSnapshot,
   [SESSION_ACTION.ended]: handleTurnComplete,
   [SESSION_ACTION.turnComplete]: handleTurnComplete,
 };
@@ -216,8 +224,34 @@ function handleRuntimeSessionId(ctx: StoreAccessors, sessionId: string, payload:
   const p = parseRuntimeSessionIdPayload(payload);
   const sessionIdValue = p?.runtime_session_id;
   if (sessionIdValue && sessionIdValue !== ctx.getSession(sessionId).runtimeSessionId) {
-    ctx.set(updateSession(ctx.get(), sessionId, { runtimeSessionId: sessionIdValue }));
+    ctx.set(
+      updateSession(ctx.get(), sessionId, {
+        runtimeSessionId: sessionIdValue,
+        ...createSessionConfigState(),
+      }),
+    );
   }
+}
+
+function handleSessionConfigSnapshot(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const snapshot = parseSessionConfigSnapshotPayload(payload);
+  if (!snapshot) {
+    console.warn("[ws-session] invalid config.snapshot broadcast", payload);
+    return;
+  }
+  ctx.set(
+    updateSession(ctx.get(), sessionId, {
+      sessionConfig: snapshot.config,
+      sessionConfigLoading: false,
+      sessionConfigSupported: true,
+      sessionConfigError: null,
+      pendingSessionConfigId: null,
+    }),
+  );
 }
 
 function handleAccessModeChanged(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
@@ -257,6 +291,7 @@ function handleProviderSetOk(ctx: StoreAccessors, sessionId: string, payload: un
       ...(providerChanged ? { currentModelId: "" } : {}),
       ...(providerChanged ? { fastMode: false } : {}),
       mcpServers: null,
+      ...createSessionConfigState(),
       supportsPromptReceipts: p.supports_prompt_receipts ?? false,
       ...(accessMode
         ? {
@@ -285,6 +320,9 @@ function handleModelSetOk(ctx: StoreAccessors, sessionId: string, payload: unkno
       currentModelId: p.model,
       runtimeProvider: p.provider,
       contextUsage: nextUsage,
+      ...(session.runtimeSessionId && session.sessionConfigSupported === true
+        ? createSessionConfigState()
+        : {}),
     }),
   );
 }

@@ -2,23 +2,35 @@
 //! agent via `session/set_config_option`, before the first
 //! `session/prompt`. Symmetric with `apply_initial_permission_mode`.
 
-use crate::domain::agents::adapter::{RuntimeError, RuntimeSpawnConfig};
+use crate::domain::agents::adapter::{RuntimeError, RuntimeSessionConfigValue, RuntimeSpawnConfig};
 
 use super::apply_model_config::apply_model_config;
 use super::config_options::set_config_option_thinking_effort;
 use super::lifecycle::NegotiatedSession;
 use super::session::AcpRuntimeSession;
 
-/// No-op when `config.model` is `None`. `MethodNotFound` falls back to
-/// the next prompt's legacy ride-along — see `set_config_option_model`.
+/// Built-ins preserve their legacy optional/fallback behavior. Code-backed
+/// installed providers require a discovered model, verify it against the live
+/// ACP selector, apply it, and confirm the authoritative response before the
+/// first prompt is allowed to start.
 pub(super) async fn apply_initial_model(
     session: &AcpRuntimeSession,
     negotiated: &NegotiatedSession,
     config: &RuntimeSpawnConfig,
 ) -> Result<(), RuntimeError> {
-    let Some(model) = config.model.as_deref() else {
-        return Ok(());
+    let required = session.hooks.requires_verified_model_selection();
+    let model = match config.model.as_deref() {
+        Some(model) => model,
+        None if required => {
+            return Err(RuntimeError::new(
+                "provider requires an explicit verified model before prompting",
+            ))
+        }
+        None => return Ok(()),
     };
+    if required {
+        validate_live_model(session, model).await?;
+    }
     apply_model_config(
         &session.client,
         &negotiated.session_id,
@@ -29,7 +41,43 @@ pub(super) async fn apply_initial_model(
         session.hooks.as_ref(),
         model,
     )
-    .await
+    .await?;
+    if required {
+        confirm_live_model(session, model).await?;
+    }
+    Ok(())
+}
+
+async fn validate_live_model(session: &AcpRuntimeSession, model: &str) -> Result<(), RuntimeError> {
+    let config_id = session.hooks.model_config_id().ok_or_else(|| {
+        RuntimeError::new("provider model discovery did not identify an ACP model selector")
+    })?;
+    let wire_value = session.hooks.model_config_value(model);
+    session
+        .session_config
+        .snapshot()
+        .await
+        .validate_value(config_id, &RuntimeSessionConfigValue::Select(wire_value))
+        .map_err(|error| RuntimeError::new(format!("live ACP model catalog mismatch: {error}")))
+}
+
+async fn confirm_live_model(session: &AcpRuntimeSession, model: &str) -> Result<(), RuntimeError> {
+    let config_id = session.hooks.model_config_id().ok_or_else(|| {
+        RuntimeError::new("provider model discovery did not identify an ACP model selector")
+    })?;
+    let expected = session.hooks.model_config_value(model);
+    let snapshot = session.session_config.snapshot().await;
+    let actual = snapshot.select_current_value(config_id).ok_or_else(|| {
+        RuntimeError::new(format!(
+            "live ACP response omitted model selector `{config_id}`"
+        ))
+    })?;
+    if actual != expected {
+        return Err(RuntimeError::new(format!(
+            "provider did not confirm selected model `{model}`; live value is `{actual}`"
+        )));
+    }
+    Ok(())
 }
 
 /// No-op when `config.thinking_effort` is `None`. Same fallback rules as
@@ -99,11 +147,31 @@ mod tests {
         fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<String> {
             None
         }
-        fn model_config_id(&self) -> Option<&'static str> {
+        fn model_config_id(&self) -> Option<&str> {
             Some("model")
         }
         fn thinking_effort_config_id(&self) -> Option<String> {
             Some("effort".to_string())
+        }
+    }
+
+    struct StrictModelHooks;
+    #[async_trait::async_trait]
+    impl AcpProviderHooks for StrictModelHooks {
+        fn normalize_tool_name(&self, raw: &str) -> String {
+            raw.to_string()
+        }
+        fn normalize_tool_input(&self, _: &str, input: Value) -> Value {
+            input
+        }
+        fn mode_for_permission_mode(&self, _mode: RuntimePermissionMode) -> Option<String> {
+            None
+        }
+        fn model_config_id(&self) -> Option<&str> {
+            Some("model")
+        }
+        fn requires_verified_model_selection(&self) -> bool {
+            true
         }
     }
 
@@ -122,6 +190,14 @@ mod tests {
     }
 
     fn assemble_session(client: &AcpClient, neg: &NegotiatedSession) -> AcpRuntimeSession {
+        assemble_session_with_hooks(client, neg, Arc::new(PlainHooks))
+    }
+
+    fn assemble_session_with_hooks(
+        client: &AcpClient,
+        neg: &NegotiatedSession,
+        hooks: Arc<dyn AcpProviderHooks>,
+    ) -> AcpRuntimeSession {
         let (tx, rx) = mpsc::channel(8);
         AcpRuntimeSession::assemble(
             client,
@@ -130,7 +206,7 @@ mod tests {
             None,
             rx,
             tx,
-            Arc::new(PlainHooks),
+            hooks,
             Arc::new(StdMutex::new(EventIndexer::default())),
         )
     }
@@ -143,6 +219,8 @@ mod tests {
             context_window: None,
             current_mode: Some("build".to_string()),
             session_config: snapshot_from_options(&config_options("openai/gpt-5.3", "low")),
+            supports_session_close: false,
+            may_replay_history: false,
         }
     }
 
@@ -218,6 +296,36 @@ mod tests {
         let cfg = RuntimeSpawnConfig::default();
         let s = assemble_session(&client, &n);
         apply_initial_model(&s, &n, &cfg).await.unwrap();
+        assert_no_frame(&mut stdin).await;
+    }
+
+    #[tokio::test]
+    async fn strict_model_selection_rejects_missing_intent_before_any_prompt() {
+        let (client, _stdout, mut stdin) = build_client().await;
+        let n = neg("strict-missing");
+        let s = assemble_session_with_hooks(&client, &n, Arc::new(StrictModelHooks));
+        let error = apply_initial_model(&s, &n, &RuntimeSpawnConfig::default())
+            .await
+            .expect_err("strict providers require a model");
+        assert!(error.to_string().contains("explicit verified model"));
+        assert_no_frame(&mut stdin).await;
+    }
+
+    #[tokio::test]
+    async fn strict_model_selection_rejects_a_stale_discovery_value() {
+        let (client, _stdout, mut stdin) = build_client().await;
+        let n = neg("strict-stale");
+        let s = assemble_session_with_hooks(&client, &n, Arc::new(StrictModelHooks));
+        let cfg = RuntimeSpawnConfig {
+            model: Some("openai/removed-model".to_string()),
+            ..RuntimeSpawnConfig::default()
+        };
+        let error = apply_initial_model(&s, &n, &cfg)
+            .await
+            .expect_err("live ACP choices must reject a stale discovered model");
+        assert!(error
+            .to_string()
+            .contains("live ACP model catalog mismatch"));
         assert_no_frame(&mut stdin).await;
     }
 
