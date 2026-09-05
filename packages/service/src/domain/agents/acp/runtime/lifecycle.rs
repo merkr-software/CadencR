@@ -1,22 +1,23 @@
-//! ACP `initialize` + `session/new`/`session/load` handshake.
+//! ACP `initialize` + session lifecycle handshake.
 //!
 //! Returns a `NegotiatedSession` describing the live session id, the model
 //! string the agent claims to be using (when available), advertised modes,
 //! configured MCP servers, and any context-window hint we could recover.
 //!
 //! ACP version drift is handled defensively: if a caller asks to resume a
-//! session, the agent must advertise `loadSession` and successfully answer
-//! `session/load`. We never fall back to `session/new` for a requested
-//! resume because that would silently create a fresh conversation.
+//! session, prefer stable `session/resume`, then fall back to legacy
+//! `session/load`. We never fall back to `session/new` for a requested resume
+//! because that would silently create a fresh conversation.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    BooleanConfigOptionCapabilities, ClientCapabilities, ClientSessionCapabilities,
-    FileSystemCapabilities, Implementation, InitializeRequest, LoadSessionRequest, McpServer,
-    NewSessionRequest, SessionConfigOptionsCapabilities,
+    AgentCapabilities as ProtocolAgentCapabilities, BooleanConfigOptionCapabilities,
+    ClientCapabilities, ClientSessionCapabilities, FileSystemCapabilities, Implementation,
+    InitializeRequest, LoadSessionRequest, McpServer, NewSessionRequest, ResumeSessionRequest,
+    SessionConfigOptionsCapabilities,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use serde_json::Value;
@@ -43,11 +44,32 @@ pub struct NegotiatedSession {
     /// advertises one. `None` if the agent omits modes from the response.
     pub current_mode: Option<String>,
     pub session_config: RuntimeSessionConfigSnapshot,
+    /// Whether the agent advertised stable ACP `session/close` support.
+    pub supports_session_close: bool,
+    /// Legacy `session/load` may replay transcript updates. Stable
+    /// `session/resume` explicitly does not.
+    pub may_replay_history: bool,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct AgentCapabilities {
     pub load_session: bool,
+    pub resume_session: bool,
+    pub close_session: bool,
+}
+
+impl AgentCapabilities {
+    fn from_protocol(capabilities: &ProtocolAgentCapabilities) -> Self {
+        Self {
+            load_session: capabilities.load_session,
+            resume_session: capabilities.session_capabilities.resume.is_some(),
+            close_session: capabilities.session_capabilities.close.is_some(),
+        }
+    }
+
+    fn supports_resume(&self) -> bool {
+        self.resume_session || self.load_session
+    }
 }
 
 /// Run the full handshake. Returns the `NegotiatedSession` or a
@@ -67,22 +89,23 @@ pub async fn negotiate_session(
         .send_request_typed(initialize_request(client, hooks), INIT_TIMEOUT)
         .await
         .map_err(|e| RuntimeError::new(format!("ACP initialize failed: {e}")))?;
+    let capabilities = AgentCapabilities::from_protocol(&init_result.agent_capabilities);
     let init_value = serde_json::to_value(init_result)
         .map_err(|e| RuntimeError::new(format!("ACP initialize response invalid: {e}")))?;
     hooks.authenticate(client, &init_value).await?;
-    let capabilities = parse_agent_capabilities(&init_value);
-    hooks.observe_durable_resume_capability(capabilities.load_session);
+    hooks.observe_durable_resume_capability(capabilities.supports_resume());
 
     let resume_id = config.resume_session_id.as_deref();
     if let Some(resume_id) = resume_id {
         let provider_supports_resume = hooks.supports_durable_resume();
-        if !provider_supports_resume || !capabilities.load_session {
-            let reason = if provider_supports_resume {
-                "agent does not advertise session/load support"
+        if !provider_supports_resume || !capabilities.supports_resume() {
+            let reason = if !capabilities.supports_resume() {
+                "agent does not advertise session/resume or session/load support"
             } else {
                 "provider does not support durable ACP resume"
             };
             tracing::warn!(
+                advertised_resume_session = capabilities.resume_session,
                 advertised_load_session = capabilities.load_session,
                 provider_supports_resume,
                 reason,
@@ -100,8 +123,15 @@ pub async fn negotiate_session(
         .available_mcp_servers(&config.cwd, mcp_status_list(config.mcp_servers.as_ref()))
         .await;
     if let Some(resume_id) = resume_id {
-        let (current_mode, session_config) =
-            load_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;
+        let (current_mode, session_config, may_replay_history) = if capabilities.resume_session {
+            let (current_mode, session_config) =
+                resume_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;
+            (current_mode, session_config, false)
+        } else {
+            let (current_mode, session_config) =
+                load_session(client, resume_id, &config.cwd, &mcp_servers, hooks).await?;
+            (current_mode, session_config, true)
+        };
         return Ok(NegotiatedSession {
             session_id: resume_id.to_string(),
             model: model_id,
@@ -109,6 +139,8 @@ pub async fn negotiate_session(
             context_window,
             current_mode,
             session_config,
+            supports_session_close: capabilities.close_session,
+            may_replay_history,
         });
     }
     let (session_id, current_mode, session_config) =
@@ -121,7 +153,33 @@ pub async fn negotiate_session(
         context_window,
         current_mode,
         session_config,
+        supports_session_close: capabilities.close_session,
+        may_replay_history: false,
     })
+}
+
+async fn resume_session(
+    client: &AcpClient,
+    session_id: &str,
+    cwd: &Path,
+    mcp_servers: &Value,
+    hooks: &dyn AcpProviderHooks,
+) -> Result<(Option<String>, RuntimeSessionConfigSnapshot), RuntimeError> {
+    let request = ResumeSessionRequest::new(session_id.to_string(), cwd.to_path_buf()).mcp_servers(
+        serde_json::from_value::<Vec<McpServer>>(mcp_servers.clone())
+            .map_err(|e| RuntimeError::new(format!("ACP MCP server config invalid: {e}")))?,
+    );
+    let result = client
+        .send_request_typed(request, SESSION_SETUP_TIMEOUT)
+        .await
+        .map_err(|e| RuntimeError::new(format!("ACP session/resume failed: {e}")))?;
+    let options = result.config_options.unwrap_or_default();
+    hooks.observe_session_config_options(&options);
+    let current_mode = result
+        .modes
+        .as_ref()
+        .map(|modes| modes.current_mode_id.to_string());
+    Ok((current_mode, snapshot_from_options(&options)))
 }
 
 async fn load_session(
@@ -170,15 +228,6 @@ fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> Initi
             Implementation::new(info.name.clone(), info.version.clone())
                 .title(Some(info.title.clone())),
         )
-}
-
-fn parse_agent_capabilities(init_response: &Value) -> AgentCapabilities {
-    let load_session = init_response
-        .get("agentCapabilities")
-        .and_then(|caps| caps.get("loadSession"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    AgentCapabilities { load_session }
 }
 
 async fn start_new_session(
@@ -244,8 +293,8 @@ fn mcp_status_list(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_current_mode, mcp_status_list, negotiate_session, parse_agent_capabilities,
-        AgentCapabilities, NegotiatedSession,
+        extract_current_mode, mcp_status_list, negotiate_session, AgentCapabilities,
+        NegotiatedSession,
     };
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::acp::runtime::test_support::{
@@ -254,6 +303,7 @@ mod tests {
     use crate::domain::agents::adapter::{
         RuntimeError, RuntimeMcpServerConfig, RuntimePermissionMode, RuntimeSpawnConfig,
     };
+    use agent_client_protocol::schema::v1::AgentCapabilities as ProtocolAgentCapabilities;
     use serde_json::{json, Value};
     use std::collections::HashMap;
     use std::time::Duration;
@@ -304,7 +354,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn resume_without_agent_load_capability_errors_instead_of_starting_fresh() {
+    async fn resume_without_agent_lifecycle_capability_errors_instead_of_starting_fresh() {
         let (client, mut stdout, mut stdin) = build_in_memory_client().await;
         let config = resume_config();
         let mut task =
@@ -325,18 +375,68 @@ mod tests {
         send_response(
             &mut stdout,
             init["id"].clone(),
-            json!({ "protocolVersion": 1, "agentCapabilities": { "loadSession": false } }),
+            json!({ "protocolVersion": 1, "agentCapabilities": {} }),
         )
         .await;
 
         let error = await_negotiation(&mut task)
             .await
-            .expect_err("resume without loadSession must fail");
+            .expect_err("resume without a lifecycle capability must fail");
         assert!(error.to_string().contains("cannot resume ACP session"));
     }
 
     #[tokio::test]
-    async fn resume_with_load_capability_uses_session_load() {
+    async fn stable_resume_is_preferred_over_legacy_load() {
+        let (client, mut stdout, mut stdin) = build_in_memory_client().await;
+        let config = resume_config();
+        let expected_cwd = config.cwd.to_string_lossy().into_owned();
+        let mut task =
+            tokio::spawn(
+                async move { negotiate_session(&client, &config, None, &ResumeHooks).await },
+            );
+
+        let init = read_request(&mut stdin).await;
+        send_response(
+            &mut stdout,
+            init["id"].clone(),
+            json!({
+                "protocolVersion": 1,
+                "agentCapabilities": {
+                    "loadSession": true,
+                    "sessionCapabilities": { "resume": {}, "close": {} }
+                }
+            }),
+        )
+        .await;
+        let resume = read_request(&mut stdin).await;
+        assert_eq!(resume["method"], "session/resume");
+        assert_eq!(resume["params"]["sessionId"], RESUME_ID);
+        assert_eq!(resume["params"]["cwd"], expected_cwd);
+        send_response(
+            &mut stdout,
+            resume["id"].clone(),
+            json!({
+                "modes": { "currentModeId": "build", "availableModes": [] },
+                "configOptions": [{
+                    "id": "safe_mode",
+                    "name": "Safe mode",
+                    "type": "boolean",
+                    "currentValue": true
+                }]
+            }),
+        )
+        .await;
+
+        let negotiated = await_negotiation(&mut task).await.unwrap();
+        assert_eq!(negotiated.session_id, RESUME_ID);
+        assert_eq!(negotiated.current_mode.as_deref(), Some("build"));
+        assert_eq!(negotiated.session_config.options[0].id, "safe_mode");
+        assert!(negotiated.supports_session_close);
+        assert!(!negotiated.may_replay_history);
+    }
+
+    #[tokio::test]
+    async fn legacy_load_remains_a_resume_fallback() {
         let (client, mut stdout, mut stdin) = build_in_memory_client().await;
         let config = resume_config();
         let mut task =
@@ -373,20 +473,35 @@ mod tests {
         assert_eq!(negotiated.session_id, RESUME_ID);
         assert_eq!(negotiated.current_mode.as_deref(), Some("build"));
         assert_eq!(negotiated.session_config.options[0].id, "safe_mode");
+        assert!(!negotiated.supports_session_close);
+        assert!(negotiated.may_replay_history);
     }
 
     #[test]
-    fn parse_capabilities_recognises_load_session_flag() {
-        let caps = parse_agent_capabilities(&json!({
-            "agentCapabilities": { "loadSession": true }
-        }));
+    fn protocol_capabilities_recognise_stable_and_legacy_lifecycle_methods() {
+        let protocol: ProtocolAgentCapabilities = serde_json::from_value(json!({
+            "loadSession": true,
+            "sessionCapabilities": { "resume": {}, "close": {} }
+        }))
+        .unwrap();
+        let caps = AgentCapabilities::from_protocol(&protocol);
         assert!(caps.load_session);
+        assert!(caps.resume_session);
+        assert!(caps.close_session);
+        assert!(caps.supports_resume());
     }
 
     #[test]
-    fn parse_capabilities_defaults_load_session_false() {
-        let caps = parse_agent_capabilities(&json!({}));
+    fn protocol_capabilities_default_optional_lifecycle_methods_to_false() {
+        let protocol: ProtocolAgentCapabilities = serde_json::from_value(json!({
+            "sessionCapabilities": { "resume": true, "close": null }
+        }))
+        .unwrap();
+        let caps = AgentCapabilities::from_protocol(&protocol);
         assert!(!caps.load_session);
+        assert!(!caps.resume_session);
+        assert!(!caps.close_session);
+        assert!(!caps.supports_resume());
     }
 
     #[test]
@@ -410,6 +525,9 @@ mod tests {
     fn agent_capabilities_default_is_none() {
         let caps = AgentCapabilities::default();
         assert!(!caps.load_session);
+        assert!(!caps.resume_session);
+        assert!(!caps.close_session);
+        assert!(!caps.supports_resume());
     }
 
     #[test]

@@ -6,6 +6,7 @@
 //! `models` command defined in `docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md`.
 
 use std::collections::HashSet;
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
@@ -20,6 +21,10 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
 use super::installation::LocalExecutable;
+#[cfg(test)]
+use super::managed::process_policy::managed_command;
+use super::managed::process_policy::{capture_managed_command, ManagedCommandOutput};
+use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 
 pub const MODEL_DISCOVERY_FORMAT: &str = "acp-config-options-v1";
 const MODEL_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(10);
@@ -55,23 +60,67 @@ pub async fn discover_models(
     executable: &LocalExecutable,
     cwd: &Path,
 ) -> Result<DiscoveredModels, ModelDiscoveryError> {
-    let mut command = tokio::process::Command::new(&executable.command);
+    let args = [
+        OsString::from("models"),
+        OsString::from("--format"),
+        OsString::from(MODEL_DISCOVERY_FORMAT),
+        OsString::from("--cwd"),
+        cwd.as_os_str().to_owned(),
+    ];
+    let PreparedProviderCommand {
+        mut command,
+        process_tree_policy,
+    } = prepare_provider_command(executable, &args, cwd, None)
+        .await
+        .map_err(|error| {
+            ModelDiscoveryError::new(format!(
+                "could not prepare provider model discovery: {error}"
+            ))
+        })?;
     command
-        .arg("models")
-        .arg("--format")
-        .arg(MODEL_DISCOVERY_FORMAT)
-        .arg("--cwd")
-        .arg(cwd)
-        .args(&executable.args)
-        .current_dir(cwd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    for (key, value) in &executable.env {
-        command.env(key, value);
-    }
 
+    let is_managed = matches!(
+        process_tree_policy,
+        crate::domain::agents::acp::AcpProcessTreePolicy::Isolated(_)
+    );
+    let output = capture_model_command(command, is_managed, MODEL_DISCOVERY_TIMEOUT).await?;
+    if !output.status.success() {
+        // Provider stderr can contain credentials. Record only its bounded byte
+        // count; provider authors can reproduce the command in a terminal.
+        return Err(ModelDiscoveryError::new(format!(
+            "provider `models` command exited with {} ({} diagnostic bytes)",
+            output.status,
+            output.stderr.len()
+        )));
+    }
+    parse_models(&output.stdout)
+}
+
+async fn capture_model_command(
+    command: tokio::process::Command,
+    is_managed: bool,
+    timeout: Duration,
+) -> Result<ManagedCommandOutput, ModelDiscoveryError> {
+    if is_managed {
+        return capture_managed_command(command, timeout)
+            .await
+            .map_err(|error| {
+                ModelDiscoveryError::new(format!(
+                    "managed provider model discovery failed: {error}"
+                ))
+            });
+    }
+    capture_local_model_command(command, timeout).await
+}
+
+async fn capture_local_model_command(
+    mut command: tokio::process::Command,
+    timeout: Duration,
+) -> Result<ManagedCommandOutput, ModelDiscoveryError> {
     let mut child = command.spawn().map_err(|error| {
         ModelDiscoveryError::new(format!("could not start provider model discovery: {error}"))
     })?;
@@ -104,33 +153,28 @@ pub async fn discover_models(
         };
         tokio::try_join!(wait, stdout, stderr)
     };
-    let (status, stdout, stderr) =
-        match tokio::time::timeout(MODEL_DISCOVERY_TIMEOUT, capture).await {
-            Ok(Ok(capture)) => capture,
-            Ok(Err(error)) => {
-                let _ = child.kill().await;
-                stdout_task.abort();
-                stderr_task.abort();
-                return Err(error);
-            }
-            Err(_) => {
-                let _ = child.kill().await;
-                stdout_task.abort();
-                stderr_task.abort();
-                return Err(ModelDiscoveryError::new(
-                    "provider model discovery timed out after 10 seconds",
-                ));
-            }
-        };
-    if !status.success() {
-        // Provider stderr can contain credentials. Record only its bounded byte
-        // count; provider authors can reproduce the command in a terminal.
-        return Err(ModelDiscoveryError::new(format!(
-            "provider `models` command exited with {status} ({} diagnostic bytes)",
-            stderr.len()
-        )));
+    match tokio::time::timeout(timeout, capture).await {
+        Ok(Ok((status, stdout, stderr))) => Ok(ManagedCommandOutput {
+            status,
+            stdout,
+            stderr,
+        }),
+        Ok(Err(error)) => {
+            let _ = child.kill().await;
+            stdout_task.abort();
+            stderr_task.abort();
+            Err(error)
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            stdout_task.abort();
+            stderr_task.abort();
+            Err(ModelDiscoveryError::new(format!(
+                "provider model discovery timed out after {} seconds",
+                timeout.as_secs()
+            )))
+        }
     }
-    parse_models(&stdout)
 }
 
 async fn read_bounded(mut reader: impl AsyncRead + Unpin) -> Result<Vec<u8>, ModelDiscoveryError> {
@@ -265,8 +309,67 @@ fn model_metadata(
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_models, read_bounded, MAX_DISCOVERY_OUTPUT_BYTES};
+    use super::{
+        capture_model_command, managed_command, parse_models, read_bounded,
+        MAX_DISCOVERY_OUTPUT_BYTES,
+    };
     use serde_json::json;
+    use std::collections::BTreeMap;
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_discovery_descendant_helper() {
+        let Some(pid_file) = std::env::var_os("MODEL_DISCOVERY_TEST_PID_FILE") else {
+            return;
+        };
+        let mut descendant = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn descendant");
+        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        let _ = descendant.wait();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn managed_discovery_timeout_terminates_descendants() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let pid_file = directory.path().join("descendant.pid");
+        let executable = std::env::current_exe().expect("current test executable");
+        let test_module = module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap_or(module_path!());
+        let helper_name = format!("{test_module}::managed_discovery_descendant_helper");
+        let environment = BTreeMap::from([(
+            "MODEL_DISCOVERY_TEST_PID_FILE".into(),
+            pid_file.to_string_lossy().into_owned(),
+        )]);
+        let command = managed_command(
+            &executable,
+            &["--exact".into(), helper_name, "--nocapture".into()],
+            &environment,
+            directory.path(),
+        )
+        .expect("prepare managed discovery helper");
+
+        let error = capture_model_command(command, true, std::time::Duration::from_secs(1))
+            .await
+            .expect_err("managed discovery helper must time out");
+        assert!(error.to_string().contains("timed out"), "{error}");
+        let pid: libc::pid_t = std::fs::read_to_string(&pid_file)
+            .expect("helper should publish descendant pid")
+            .parse()
+            .expect("numeric descendant pid");
+        for _ in 0..50 {
+            if unsafe { libc::kill(pid, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("managed model-discovery descendant {pid} survived timeout");
+    }
 
     #[test]
     fn parses_rich_acp_model_options() {

@@ -219,6 +219,8 @@ mod tests {
             context_window: None,
             current_mode: Some("build".to_string()),
             session_config: snapshot_from_options(&config_options("openai/gpt-5.3", "low")),
+            supports_session_close: false,
+            may_replay_history: false,
         }
     }
 

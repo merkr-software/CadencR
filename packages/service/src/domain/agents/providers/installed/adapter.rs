@@ -5,6 +5,7 @@
 //! `models` command; ACP remains the live session protocol.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
@@ -15,7 +16,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::domain::agents::acp::runtime::permission_events::parse_acp_permission_request;
 use crate::domain::agents::acp::runtime::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClientInfo, AcpStderrPolicy};
 use crate::domain::agents::adapter::{
     AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimePermissionRequest,
     RuntimeSpawnConfig,
@@ -25,6 +26,7 @@ use crate::domain::agents::runtime::{ProviderCatalogEntry, ProviderStatus};
 use super::hooks::{InstalledAcpCapabilities, InstalledAcpHooks};
 use super::installation::HostInstallation;
 use super::model_discovery::{discover_models, DiscoveredModels};
+use super::provider_command::{prepare_provider_command, PreparedProviderCommand};
 
 const CATALOG_TTL: Duration = Duration::from_secs(30);
 const MAX_CACHED_WORKSPACES: usize = 16;
@@ -221,27 +223,27 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
                 "selected model `{selected_model}` is not in the provider's current model catalog"
             )));
         }
-        let mut command = tokio::process::Command::new(&executable.command);
-        command
-            .arg("run")
-            .arg("--protocol")
-            .arg("acp-v1")
-            .args(&executable.args);
-        command.current_dir(&config.cwd);
-        for (key, value) in &executable.env {
-            command.env(key, value);
-        }
-        // Caller-supplied env wins over the descriptor's, matching how the
-        // built-in ACP adapters let a spawn override their defaults.
-        if let Some(env) = config.env.as_ref() {
-            for (key, value) in env {
-                command.env(key, value);
-            }
-        }
+        let args = [
+            OsString::from("run"),
+            OsString::from("--protocol"),
+            OsString::from("acp-v1"),
+        ];
+        let PreparedProviderCommand {
+            command,
+            process_tree_policy,
+        } = prepare_provider_command(executable, &args, &config.cwd, config.env.as_ref())
+            .await
+            .map_err(|error| {
+                RuntimeError::new(format!(
+                    "could not prepare installed provider runtime: {error}"
+                ))
+            })?;
         spawn_acp_runtime_session(AcpRuntimeSpawnArgs {
             command,
             spawn_guard: None,
             client_info: AcpClientInfo::default(),
+            stderr_policy: AcpStderrPolicy::Discard,
+            process_tree_policy,
             config,
             initial_content: content,
             // Context window is reported by the agent through `usage_update`;
@@ -375,7 +377,7 @@ mod tests {
 
     /// A stored ID survives capability discovery so an unsupported resume
     /// fails in the ACP handshake, while new IDs are persisted only after the
-    /// connector advertised `loadSession`.
+    /// connector advertised stable resume or legacy load support.
     #[tokio::test]
     async fn separates_stored_resume_validation_from_persistence() {
         let dir = tempfile::tempdir().unwrap();

@@ -6,8 +6,9 @@ By default this is the code-backed provider admission contract from
 `initialize` at protocol version 1, `session/new`,
 `session/prompt` with streaming `session/update` notifications,
 `session/cancel`, and a standard JSON-RPC "method not found" for every optional
-method it does not implement. It advertises no optional capability, so a test
-against it proves the generic path works without any provider-specific help.
+method it does not implement. It advertises only stable `session/close` by
+default, so a test against it proves the generic path works without any
+provider-specific help.
 
 Every runtime session advertises the same model selector returned by `models`
 and implements `session/set_config_option`, because Cadencr must confirm an
@@ -328,11 +329,19 @@ def main():
             continue
 
         if method == "initialize":
+            session_capabilities = {"close": {}}
+            if _durable_enabled:
+                session_capabilities["resume"] = {}
             reply(
                 request_id,
                 {
                     "protocolVersion": 1,
-                    "agentCapabilities": {"loadSession": _durable_enabled},
+                    # Keep loadSession for compatibility coverage while the
+                    # host proves stable session/resume wins when both exist.
+                    "agentCapabilities": {
+                        "loadSession": _durable_enabled,
+                        "sessionCapabilities": session_capabilities,
+                    },
                     "agentInfo": {"name": "fake-acp-agent", "version": "1.0.0"},
                 },
             )
@@ -342,9 +351,9 @@ def main():
             result = {"sessionId": SESSION_ID}
             result["configOptions"] = config_options()
             reply(request_id, result)
-        elif method == "session/load":
+        elif method in ("session/resume", "session/load"):
             if not _durable_enabled:
-                reply_error(request_id, -32601, "method not found: session/load")
+                reply_error(request_id, -32601, f"method not found: {method}")
             elif params.get("sessionId") != SESSION_ID or not os.path.exists(_state_path):
                 reply_error(request_id, -32000, "durable session not found")
             else:
@@ -372,6 +381,9 @@ def main():
         elif method == "session/cancel":
             # A notification: acknowledged by the turn's stop reason, not a reply.
             _cancelled.set()
+        elif method == "session/close":
+            _cancelled.set()
+            reply(request_id, {})
         elif request_id is not None:
             reply_error(request_id, -32601, "method not found: {}".format(method))
 

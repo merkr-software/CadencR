@@ -419,7 +419,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     assert_eq!(entry.default_model.as_deref(), Some("fake-small"));
     assert!(entry.modes.is_empty());
 
-    // A connector that advertises ACP `session/load` keeps provider-owned
+    // A connector that advertises stable ACP `session/resume` keeps provider-owned
     // context when Cadencr replaces the subprocess. This is the same spawn
     // path used after a desktop/service restart, without keeping the first
     // runtime alive as an accidental source of continuity.
@@ -677,7 +677,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     assert_eq!(persisted.0, PROVIDER_ID);
     assert!(
         persisted.1.is_none(),
-        "an agent that advertised loadSession=false must not leave an unusable resume id"
+        "an agent without resume/load support must not leave an unusable resume id"
     );
 
     // Cancellation crosses the same public WebSocket boundary. Wait for the

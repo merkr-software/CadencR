@@ -1,0 +1,76 @@
+{
+  "signed": {
+    "schema_version": 1,
+    "packages": [
+      {
+        "agent": {
+          "id": "acme-agent",
+          "name": "Acme Agent",
+          "version": "1.2.3",
+          "description": "A deterministic managed-provider fixture",
+          "repository": "https://example.com/acme/agent",
+          "x-registry-note": {
+            "kept": true
+          },
+          "distribution": {
+            "binary": {
+              "darwin-aarch64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/darwin-aarch64.tar.gz",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "args": [
+                  "--verbose"
+                ],
+                "env": {
+                  "ACME_LOG": "warn"
+                }
+              },
+              "darwin-x86_64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/darwin-x86_64.tar.gz",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "linux-aarch64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/linux-aarch64.tar.gz",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "linux-x86_64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/linux-x86_64.tar.gz",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "windows-aarch64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/windows-aarch64.zip",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              },
+              "windows-x86_64": {
+                "archive": "https://downloads.example.com/acme-agent/1.2.3/windows-x86_64.zip",
+                "cmd": "bin/acme-agent",
+                "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            }
+          }
+        },
+        "host": {
+          "publisher": "acme",
+          "compatibility": {
+            "min_app_version": "0.11.0",
+            "max_app_version": "0.13.0"
+          },
+          "assets": {
+            "icon": "assets/icon.svg",
+            "readme": "README.md",
+            "license": "LICENSE"
+          }
+        }
+      }
+    ]
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "key_id": "registry-2026",
+    "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+  }
+}

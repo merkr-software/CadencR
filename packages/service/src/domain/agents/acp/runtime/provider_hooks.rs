@@ -256,12 +256,12 @@ pub trait AcpProviderHooks: Send + Sync {
     }
 
     /// Whether a provider's ACP sessions can be durably restored across a
-    /// newly spawned subprocess via `session/load`.
+    /// newly spawned subprocess via `session/resume` or legacy `session/load`.
     fn supports_durable_resume(&self) -> bool {
         false
     }
 
-    /// Observe the handshake-owned ACP `loadSession` flag. Installed provider
+    /// Observe handshake-owned ACP durable-resume support. Installed provider
     /// adapters use this to avoid persisting unusable IDs while still allowing
     /// a stored ID to be probed after the host process restarts.
     fn observe_durable_resume_capability(&self, _supported: bool) {}

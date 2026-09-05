@@ -11,7 +11,7 @@ use super::test_support::{
     write_json_frame,
 };
 use super::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
-use crate::domain::agents::acp::AcpClientInfo;
+use crate::domain::agents::acp::{AcpClientInfo, AcpProcessTreePolicy, AcpStderrPolicy};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimePermissionMode, RuntimeSpawnConfig,
 };
@@ -78,6 +78,8 @@ async fn spawn_runs_handshake_initial_config_and_prompt() {
         command,
         spawn_guard: None,
         client_info: AcpClientInfo::default(),
+        stderr_policy: AcpStderrPolicy::Log,
+        process_tree_policy: AcpProcessTreePolicy::Inherit,
         config,
         initial_content: Value::String("hello".to_string()),
         context_window: Some(1000),
@@ -127,6 +129,8 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(
@@ -193,6 +197,8 @@ async fn provider_followup_waits_for_current_prompt_completion() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let session = Arc::new(AcpRuntimeSession::assemble(
@@ -271,6 +277,8 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(
@@ -385,6 +393,8 @@ async fn prompt_receipt_falls_back_to_prompt_response_without_user_echo() {
         context_window: None,
         current_mode: Some("build".to_string()),
         session_config: Default::default(),
+        supports_session_close: false,
+        may_replay_history: false,
     };
     let (tx, rx) = mpsc::channel(8);
     let mut session = AcpRuntimeSession::assemble(

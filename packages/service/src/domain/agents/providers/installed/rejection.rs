@@ -41,6 +41,8 @@ pub enum RejectionCode {
     UnsupportedDistribution,
     /// `installation.executable.command` is not usable as a launch target.
     InvalidExecutablePath,
+    /// Managed desired state could not be reconciled to its derived descriptor.
+    ManagedStateInvalid,
 }
 
 impl RejectionCode {
@@ -54,6 +56,7 @@ impl RejectionCode {
             Self::DuplicateProviderId => "DUPLICATE_PROVIDER_ID",
             Self::UnsupportedDistribution => "UNSUPPORTED_DISTRIBUTION",
             Self::InvalidExecutablePath => "INVALID_EXECUTABLE_PATH",
+            Self::ManagedStateInvalid => "MANAGED_STATE_INVALID",
         }
     }
 }

@@ -12,6 +12,7 @@ use tokio::sync::{broadcast, Notify};
 use crate::domain::agents::acp::client_spawn::spawn_acp_with_streams;
 use crate::domain::agents::acp::client_spawn::{spawn_acp_subprocess, Inner};
 use crate::domain::agents::acp::error::AcpError;
+use crate::domain::agents::acp::process_tree::AcpProcessTreePolicy;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
 
 /// Generic ACP subprocess client backed by the official ACP Rust SDK.
@@ -27,7 +28,29 @@ pub struct AcpSpawnOptions {
     pub client_info: AcpClientInfo,
     /// Maximum size of one stderr line. ACP stdout is parsed by the official SDK.
     pub max_line_bytes: Option<usize>,
+    /// Whether provider stderr may be written to Cadencr logs.
+    #[builder(default)]
+    pub stderr_policy: AcpStderrPolicy,
+    /// Opt-in process-tree ownership. Built-ins preserve their current behavior.
+    #[builder(default)]
+    pub process_tree_policy: AcpProcessTreePolicy,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,
+}
+
+/// Provider-neutral handling of ACP subprocess diagnostics.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub enum AcpStderrPolicy {
+    /// Preserve the established built-in behavior.
+    #[default]
+    Log,
+    /// Drain and bound stderr without surfacing its contents.
+    Discard,
+}
+
+impl AcpStderrPolicy {
+    pub(super) fn exposes_contents(self) -> bool {
+        matches!(self, Self::Log)
+    }
 }
 
 impl AcpClient {
@@ -180,9 +203,11 @@ mod tests {
 
     use agent_client_protocol::UntypedMessage;
 
-    use super::{AcpClient, AcpClientInfo, AcpSpawnOptions};
+    use super::{AcpClient, AcpClientInfo, AcpSpawnOptions, AcpStderrPolicy};
     use crate::domain::agents::acp::error::AcpError;
     use crate::domain::agents::acp::types::AcpEvent;
+    #[cfg(unix)]
+    use crate::domain::agents::acp::{AcpProcessTreeLimits, AcpProcessTreePolicy};
 
     #[test]
     fn spawn_options_builder_defaults_transport_controls() {
@@ -192,7 +217,91 @@ mod tests {
             .build();
 
         assert!(options.max_line_bytes.is_none());
+        assert_eq!(options.stderr_policy, AcpStderrPolicy::Log);
+        assert_eq!(
+            options.process_tree_policy,
+            super::AcpProcessTreePolicy::Inherit
+        );
+        assert!(options.stderr_policy.exposes_contents());
         assert!(options.spawn_guard.is_none());
+    }
+
+    #[test]
+    fn discard_stderr_policy_never_exposes_provider_contents() {
+        assert!(!AcpStderrPolicy::Discard.exposes_contents());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acp_descendant_helper() {
+        let Some(pid_file) = std::env::var_os("ACP_TREE_TEST_PID_FILE") else {
+            return;
+        };
+        let mut descendant = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn ACP descendant");
+        std::fs::write(pid_file, descendant.id().to_string()).expect("write descendant pid");
+        let _ = descendant.wait();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn isolated_acp_shutdown_terminates_descendants() {
+        let directory = tempfile::tempdir().expect("test directory");
+        let pid_file = directory.path().join("acp-descendant.pid");
+        let test_module = module_path!()
+            .strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+            .unwrap_or(module_path!());
+        let helper_name = format!("{test_module}::acp_descendant_helper");
+        let mut command =
+            tokio::process::Command::new(std::env::current_exe().expect("current test executable"));
+        command
+            .args(["--exact", helper_name.as_str(), "--nocapture"])
+            .env("ACP_TREE_TEST_PID_FILE", &pid_file)
+            .current_dir(directory.path());
+        let client = AcpClient::spawn(
+            AcpSpawnOptions::builder()
+                .command(command)
+                .client_info(AcpClientInfo::default())
+                .process_tree_policy(AcpProcessTreePolicy::Isolated(AcpProcessTreeLimits {
+                    cpu_time_seconds: 60,
+                    memory_bytes: 256 * 1024 * 1024,
+                    max_processes: 4,
+                }))
+                .build(),
+        )
+        .await
+        .expect("spawn isolated ACP process");
+        let pid = wait_for_test_pid(&pid_file).await;
+
+        client.shutdown().await;
+
+        wait_for_process_exit(pid).await;
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_test_pid(path: &std::path::Path) -> libc::pid_t {
+        for _ in 0..100 {
+            if let Ok(contents) = std::fs::read_to_string(path) {
+                return contents.parse().expect("numeric ACP descendant pid");
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("ACP helper did not publish its descendant pid");
+    }
+
+    #[cfg(unix)]
+    async fn wait_for_process_exit(pid: libc::pid_t) {
+        for _ in 0..50 {
+            if unsafe { libc::kill(pid, 0) } != 0
+                && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH)
+            {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        panic!("ACP descendant {pid} survived client shutdown");
     }
 
     async fn build_in_memory_client() -> (

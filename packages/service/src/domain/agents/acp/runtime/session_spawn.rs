@@ -9,7 +9,9 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde_json::Value;
 use tokio::sync::{broadcast, mpsc, Mutex as AsyncMutex, RwLock};
 
-use crate::domain::agents::acp::{AcpClient, AcpClientInfo, AcpEvent, AcpSpawnOptions};
+use crate::domain::agents::acp::{
+    AcpClient, AcpClientInfo, AcpEvent, AcpProcessTreePolicy, AcpSpawnOptions, AcpStderrPolicy,
+};
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata,
     RuntimeInitEvent, RuntimeSpawnConfig,
@@ -34,6 +36,8 @@ pub struct AcpRuntimeSpawnArgs {
     pub command: tokio::process::Command,
     pub spawn_guard: Option<Box<dyn Send + 'static>>,
     pub client_info: AcpClientInfo,
+    pub stderr_policy: AcpStderrPolicy,
+    pub process_tree_policy: AcpProcessTreePolicy,
     pub config: RuntimeSpawnConfig,
     pub initial_content: Value,
     /// Provider-resolved context window for the negotiated model.
@@ -51,6 +55,8 @@ pub async fn spawn_acp_runtime_session(
         command,
         spawn_guard,
         client_info,
+        stderr_policy,
+        process_tree_policy,
         config,
         initial_content,
         context_window,
@@ -69,6 +75,8 @@ pub async fn spawn_acp_runtime_session(
         AcpSpawnOptions::builder()
             .command(command)
             .client_info(client_info)
+            .stderr_policy(stderr_policy)
+            .process_tree_policy(process_tree_policy)
             .maybe_spawn_guard(spawn_guard)
             .build(),
     )
@@ -90,7 +98,7 @@ pub async fn spawn_acp_runtime_session(
         hooks.clone(),
         Arc::clone(&indexer),
     );
-    if config.resume_session_id.is_some() {
+    if negotiated.may_replay_history {
         session
             .replay_suppression
             .store(true, std::sync::atomic::Ordering::SeqCst);
@@ -105,7 +113,7 @@ pub async fn spawn_acp_runtime_session(
     apply_initial_thinking_effort(&session, &negotiated, &config).await?;
 
     emit_init_event(&tx, &negotiated).await;
-    if config.resume_session_id.is_some() {
+    if negotiated.may_replay_history {
         let drained = drain_resume_backlog(&mut event_rx);
         if drained > 0 {
             tracing::debug!(drained, "drained ACP resume replay backlog");
@@ -246,6 +254,7 @@ impl AcpRuntimeSession {
                 negotiated.session_config.clone(),
                 hooks.clone(),
             ),
+            supports_session_close: negotiated.supports_session_close,
             supports_set_config_option: Arc::new(AtomicBool::new(true)),
             supports_set_mode: Arc::new(AtomicBool::new(true)),
             pending_permissions: PendingPermissions::default(),

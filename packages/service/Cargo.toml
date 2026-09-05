@@ -17,6 +17,7 @@ tokio-util = { version = "0.7", features = ["compat"] }
 sqlx = { version = "0.9", default-features = false, features = ["sqlite", "runtime-tokio", "migrate", "macros", "chrono", "uuid", "json"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 utoipa = { version = "5", features = ["axum_extras"] }
 utoipa-axum = "0.2"
 tower-http = { version = "0.7", features = ["cors", "compression-gzip", "compression-br", "fs"] }
@@ -32,6 +33,7 @@ futures = "0.3"
 uuid = { version = "1", features = ["v4", "v5"] }
 async-trait = "0.1"
 base64 = "0.23"
+bzip2 = "0.6.1"
 chrono = { version = "0.4", features = ["serde"] }
 reqwest = { version = "0.12", features = ["json", "stream"] }
 rmcp = { version = "3", features = ["server", "transport-streamable-http-server", "transport-io", "elicitation"] }
@@ -47,6 +49,9 @@ tempfile = "3"
 trash = "5"
 flate2 = "1"
 sha2 = "0.11"
+tar = "0.4.46"
+zip = { version = "6.0.0", default-features = false, features = ["deflate", "bzip2"] }
+ed25519-dalek = "3.0.0"
 # `web-push` depends on `ece -> openssl`. In release builds that previously
 # linked the sidecar against Homebrew's `/opt/homebrew/opt/openssl@3` dylibs,
 # which are not present on user machines. Enable OpenSSL's vendored build so
@@ -70,7 +75,13 @@ jwt-simple = { version = "0.12", default-features = false, features = ["pure-rus
 chrono-tz = { version = "0.10.4", features = ["serde"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+] }
 
 [[bin]]
 name = "dump-openapi"
