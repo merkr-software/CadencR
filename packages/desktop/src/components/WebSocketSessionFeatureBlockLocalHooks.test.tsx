@@ -3,30 +3,34 @@ import { act, renderHook } from "@/test-utils";
 import { useEditorStore } from "@/stores/editor-store";
 import type { useSessionRefs } from "./WebSocketSessionFeatureBlockHooks";
 
-const openFileMutateAsync = vi.fn(async () => undefined);
-const startMutateAsync = vi.fn(async () => undefined);
+const { openFileMutateAsync, startMutateAsync } = vi.hoisted(() => ({
+  openFileMutateAsync: vi.fn(async () => undefined),
+  startMutateAsync: vi.fn(async () => undefined),
+}));
 
 const mocks = vi.hoisted(() => ({
   activateFeatureTab: vi.fn(),
 }));
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() } }));
 vi.mock("@/stores/feature-layout-store", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/stores/feature-layout-store")>();
   return { ...original, activateFeatureTab: mocks.activateFeatureTab };
 });
 vi.mock("@/hooks/useVimModeLevel", () => ({ useVimModeLevel: vi.fn() }));
+vi.mock("@/hooks/useIsMobile", () => ({ useIsMobile: vi.fn(() => false) }));
 vi.mock("@/api/generated", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/api/generated")>();
   return {
     ...actual,
     useOpenFileRoute: () => ({ mutateAsync: openFileMutateAsync }),
-    useStartRoute: () => ({ mutateAsync: startMutateAsync }),
+    startRoute: startMutateAsync,
   } as never;
 });
 
 import { useOpenDiffFileInEditor } from "./WebSocketSessionFeatureBlockLocalHooks";
 import { useVimModeLevel } from "@/hooks/useVimModeLevel";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const featureId = 45;
 const refs = {
@@ -50,6 +54,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useEditorStore.setState({ features: {} });
   vi.mocked(useVimModeLevel).mockReturnValue("0");
+  vi.mocked(useIsMobile).mockReturnValue(false);
 });
 
 describe("useOpenDiffFileInEditor", () => {
@@ -78,10 +83,21 @@ describe("useOpenDiffFileInEditor", () => {
 });
 
 describe("useOpenDiffFileInEditor vim-level routing", () => {
+  it("opens links in the visible CodeMirror fallback at level 2 on mobile", () => {
+    vi.mocked(useIsMobile).mockReturnValue(true);
+    const { result } = openWithVimLevel("2");
+    act(() => result.current("/repo/src/main.rs", 42, 7));
+    expect(startMutateAsync).not.toHaveBeenCalled();
+    expect(openFileMutateAsync).not.toHaveBeenCalled();
+    const tab = useEditorStore.getState().features[featureId].panes.main.tabs[0];
+    expect(tab).toMatchObject({ filePath: "src/main.rs", pendingGoToLine: 42 });
+    expect(mocks.activateFeatureTab).toHaveBeenCalledWith(featureId, "editor");
+  });
+
   it("routes to the neovim control socket at vim level 2, starting the session first", async () => {
     const { result } = openWithVimLevel("2");
     await act(async () => result.current("/repo/src/main.rs", 42, 7));
-    expect(startMutateAsync).toHaveBeenCalledWith({ data: 45 });
+    expect(startMutateAsync).toHaveBeenCalledWith(45);
     expect(openFileMutateAsync).toHaveBeenCalledWith({
       featureId: "45",
       data: { path: "src/main.rs", line: 42, col: 7 },

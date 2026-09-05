@@ -8,13 +8,9 @@
  * what the xterm.js implementation did through
  * `attachCustomKeyEventHandler`.
  *
- * **Alt+Left / Alt+Right are deliberately not handled here.** The xterm.js
- * version mapped them to `ESC b` / `ESC f` (readline word-back / word-forward).
- * celeritty already encodes Alt as an ESC prefix on whatever the key emits, so
- * Alt+Left produces `ESC` + the left-arrow sequence instead. Whether shells
- * treat that equivalently depends on the shell and its keymap, and adding a
- * host-side override on top would double-send. Left as a followup to settle
- * against a real shell rather than guessed at here.
+ * Alt+Left / Alt+Right retain readline's word-back / word-forward sequences.
+ * Capture-phase interception prevents celeritty's bubble-phase input handler
+ * from sending its own, different encoding for the same key.
  */
 
 const META_KEY_MAP: Record<string, string> = {
@@ -22,6 +18,10 @@ const META_KEY_MAP: Record<string, string> = {
   ArrowLeft: "\x01",
   // Ctrl+E — end of line.
   ArrowRight: "\x05",
+};
+const ALT_KEY_MAP: Record<string, string> = {
+  ArrowLeft: "\x1bb",
+  ArrowRight: "\x1bf",
 };
 
 export interface NavigationKeyDeps {
@@ -32,24 +32,29 @@ export interface NavigationKeyDeps {
 }
 
 /**
- * Listen for the Meta-held navigation keys on `surface` and write their
+ * Listen for the navigation keys on `surface` and write their
  * readline equivalents. Returns a cleanup fn.
  *
- * Safe to register alongside celeritty's own keydown listener on the same
- * element: the keys handled here are exactly the ones it returns `undefined`
- * for, so there is no double-send regardless of listener order.
+ * Capture runs before celeritty's keydown listener, regardless of listener
+ * registration order, so handled keys are never sent twice.
  */
 export function attachNavigationKeys(surface: HTMLElement, deps: NavigationKeyDeps): () => void {
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (!deps.isActive()) return;
+    if (!deps.isActive() || event.isComposing || event.keyCode === 229 || event.defaultPrevented)
+      return;
     const isOnlyMeta = event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
-    if (!isOnlyMeta) return;
-    const sequence = META_KEY_MAP[event.key];
+    const isOnlyAlt = event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey;
+    const sequence = isOnlyMeta
+      ? META_KEY_MAP[event.key]
+      : isOnlyAlt
+        ? ALT_KEY_MAP[event.key]
+        : undefined;
     if (!sequence) return;
     event.preventDefault();
+    event.stopImmediatePropagation();
     deps.write(sequence);
   };
 
-  surface.addEventListener("keydown", onKeyDown);
-  return () => surface.removeEventListener("keydown", onKeyDown);
+  surface.addEventListener("keydown", onKeyDown, true);
+  return () => surface.removeEventListener("keydown", onKeyDown, true);
 }

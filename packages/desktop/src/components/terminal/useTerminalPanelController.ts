@@ -19,6 +19,7 @@ import {
 } from "@/hooks/useTerminalState";
 import { useWorktreeTerminalAutoSwitch } from "@/hooks/useWorktreeTerminalAutoSwitch";
 import { useMonoFont } from "@/lib/fonts/mono-font-setting";
+import { useTheme } from "@/hooks/useTheme";
 import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
 import {
   useTerminalCopyPasteShortcuts,
@@ -356,7 +357,9 @@ export function useTerminalPanelController(
     [focus.activeIndex, focus.focusFirstPane, focus.focusPaneByIndex],
   );
   const isMobile = useIsMobile();
-  const { family: monoFontFamily } = useMonoFont();
+  const { family, resolved } = useMonoFont();
+  const monoFontFamily = family ? resolved : undefined;
+  const { theme } = useTheme();
   return useMemo(
     () => ({
       clearInitialCommand,
@@ -366,6 +369,7 @@ export function useTerminalPanelController(
       layout,
       leaves,
       monoFontFamily,
+      terminalPalette: theme.xterm,
       runtime,
       setPaneCwd,
       setPtyId,
@@ -379,6 +383,7 @@ export function useTerminalPanelController(
       layout,
       leaves,
       monoFontFamily,
+      theme.xterm,
       runtime,
       setPaneCwd,
       setPtyId,

@@ -1,10 +1,12 @@
+import { useMemo } from "react";
 import {
   useAlacrittyConfigRoute,
   type AlacrittyConfigResponse,
   type AnsiPalette,
 } from "@/api/generated";
-import type { TerminalOptions, TerminalPalette } from "celeritty";
+import type { TerminalCursor, TerminalOptions, TerminalPalette } from "celeritty";
 import { DEFAULT_TERMINAL_PALETTE } from "./terminal-palette";
+import { DEFAULT_MONO_STACK } from "@/lib/fonts/constants";
 
 export interface UseTerminalOptionsResult {
   options: TerminalOptions | undefined;
@@ -12,8 +14,10 @@ export interface UseTerminalOptionsResult {
   error: string | null;
 }
 
-const DEFAULT_FONT_FAMILY =
-  "'FiraCode Nerd Font', 'Fira Code', 'CaskaydiaCove Nerd Font', 'Cascadia Code', 'SF Mono', Menlo, Monaco, 'Courier New', monospace";
+interface TerminalAppearance {
+  palette?: TerminalPalette;
+  fontFamily?: string;
+}
 
 function applyNormalAnsi(target: TerminalPalette, source: AnsiPalette): void {
   target.black = source.black;
@@ -42,7 +46,7 @@ function applyBrightAnsi(target: TerminalPalette, source: AnsiPalette): void {
  * the component's type is lowercase. Unrecognized shapes fall back to
  * "block" rather than rejecting an otherwise valid configuration.
  */
-function cursorStyle(shape: string | null | undefined): TerminalOptions["cursor"]["style"] {
+function cursorStyle(shape: string | null | undefined): TerminalCursor["style"] {
   switch ((shape ?? "").toLowerCase()) {
     case "beam":
       return "beam";
@@ -68,25 +72,33 @@ function cursorBlink(blinking: string | null | undefined): boolean {
  * here from `DEFAULT_TERMINAL_PALETTE` (CadencR Dark's palette, the same
  * source the service's own fallback is copied from).
  */
-export function resolveTerminalOptions(response: AlacrittyConfigResponse): TerminalOptions {
+export function resolveTerminalOptions(
+  response: AlacrittyConfigResponse,
+  appearance: TerminalAppearance = {},
+): TerminalOptions {
   const config = response.config;
-  const palette: TerminalPalette = { ...DEFAULT_TERMINAL_PALETTE };
+  const palette: TerminalPalette = { ...(appearance.palette ?? DEFAULT_TERMINAL_PALETTE) };
 
-  if (config.colors?.normal) applyNormalAnsi(palette, config.colors.normal);
-  if (config.colors?.bright) applyBrightAnsi(palette, config.colors.bright);
-  if (config.colors?.primary?.foreground) palette.foreground = config.colors.primary.foreground;
-  if (config.colors?.primary?.background) palette.background = config.colors.primary.background;
-  if (config.colors?.cursor?.cursor) palette.cursor = config.colors.cursor.cursor;
+  if (response.found) {
+    if (config.colors?.normal) applyNormalAnsi(palette, config.colors.normal);
+    if (config.colors?.bright) applyBrightAnsi(palette, config.colors.bright);
+    if (config.colors?.primary?.foreground) palette.foreground = config.colors.primary.foreground;
+    if (config.colors?.primary?.background) palette.background = config.colors.primary.background;
+    if (config.colors?.cursor?.cursor) palette.cursor = config.colors.cursor.cursor;
+  }
 
   return {
     font: {
-      family: config.font?.normal?.family ?? DEFAULT_FONT_FAMILY,
+      family:
+        appearance.fontFamily ??
+        (response.found ? config.font?.normal?.family : undefined) ??
+        DEFAULT_MONO_STACK,
       size: config.font?.size ?? 13,
     },
     colors: palette,
     cursor: {
       style: cursorStyle(config.cursor?.style?.shape),
-      blink: cursorBlink(config.cursor?.style?.blinking),
+      blink: response.found ? cursorBlink(config.cursor?.style?.blinking) : true,
     },
     scrollback: config.scrolling?.history ?? 10_000,
   };
@@ -100,30 +112,35 @@ export function resolveTerminalOptions(response: AlacrittyConfigResponse): Termi
  * doesn't set. The component itself resolves nothing — it applies what this
  * hook produces.
  *
- * There is no font override here yet: this branch has no font-selection
- * settings UI to read from. When one exists, its value replaces
- * `options.font` the same way `FontSelector`-driven overrides do in the
- * design spec — as a patch applied after this resolution, not woven into it.
+ * The selected Cadencr theme supplies the base palette. Explicit Alacritty
+ * colors override it, and a chosen Cadencr monospace font wins over the
+ * config's font family.
  */
-export function useTerminalOptions(): UseTerminalOptionsResult {
+export function useTerminalOptions(appearance: TerminalAppearance = {}): UseTerminalOptionsResult {
   const { data, isLoading, error: fetchError } = useAlacrittyConfigRoute();
+  const { palette, fontFamily } = appearance;
+  return useMemo(() => {
+    if (fetchError) {
+      const message =
+        fetchError instanceof Error ? fetchError.message : "Failed to load terminal configuration";
+      return { options: undefined, isLoading: false, error: message };
+    }
 
-  if (fetchError) {
-    const message =
-      fetchError instanceof Error ? fetchError.message : "Failed to load terminal configuration";
-    return { options: undefined, isLoading: false, error: message };
-  }
+    if (isLoading || !data) {
+      return { options: undefined, isLoading: true, error: null };
+    }
 
-  if (isLoading || !data) {
-    return { options: undefined, isLoading: true, error: null };
-  }
+    if (data.parse_error) {
+      // The file exists but failed to parse: `data.config` is defaults, not
+      // the user's real settings. Surfacing this as an error rather than
+      // silently rendering a theme the user never chose.
+      return { options: undefined, isLoading: false, error: data.parse_error };
+    }
 
-  if (data.parse_error) {
-    // The file exists but failed to parse: `data.config` is defaults, not
-    // the user's real settings. Surfacing this as an error rather than
-    // silently rendering a theme the user never chose.
-    return { options: undefined, isLoading: false, error: data.parse_error };
-  }
-
-  return { options: resolveTerminalOptions(data), isLoading: false, error: null };
+    return {
+      options: resolveTerminalOptions(data, { palette, fontFamily }),
+      isLoading: false,
+      error: null,
+    };
+  }, [data, isLoading, fetchError, palette, fontFamily]);
 }

@@ -1,4 +1,5 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import { Loader2Icon } from "lucide-react";
 import type { TerminalOptions } from "celeritty";
 import { Button } from "@/components/ui/button";
@@ -32,56 +33,45 @@ const NEOVIM_FONT = {
 function NeovimPane({ featureId }: NeovimPaneProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const { theme } = useTheme();
-  const [connected, setConnected] = useState(false);
 
   const socket = useNeovimWebSocket({
     featureId,
     onData: (bytes) => bridge.deliverData(bytes),
-    onAttached: (bytes) => bridge.deliverData(bytes),
-    onError: (message) => bridge.deliverClose(message),
+    onAttached: (bytes) => bridge.deliverSnapshot(bytes),
+    onError: (message) => toast.error(message, { id: `neovim:${featureId}` }),
   });
 
   const bridge = useNeovimTransport(socket);
 
   useEffect(() => {
     socket.connect();
-    setConnected(true);
     return () => {
       socket.detach();
-      setConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [featureId]);
 
-  const options: TerminalOptions = {
-    font: NEOVIM_FONT,
-    colors: theme.xterm,
-    cursor: { style: "block", blink: false },
-    scrollback: 10_000,
-  };
+  const options = useMemo<TerminalOptions>(
+    () => ({
+      font: NEOVIM_FONT,
+      colors: theme.xterm,
+      cursor: { style: "block", blink: false },
+      scrollback: 10_000,
+    }),
+    [theme.xterm],
+  );
 
   const { status, errorMessage } = useCelerittyTerminal({
     hostRef,
     options,
-    transport: connected ? bridge.transport : undefined,
+    transport: socket.isConnected ? bridge.transport : undefined,
   });
 
-  if (status === "error") {
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 bg-background text-sm text-center px-6">
-        <p className="text-destructive">Neovim could not start: {errorMessage}</p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (status === "error") socket.detach();
+  }, [status, socket.detach]);
 
-  if (socket.lastError && status === "loading") {
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 bg-background text-sm text-center px-6">
-        <p className="text-destructive">Neovim could not start: {socket.lastError}</p>
-      </div>
-    );
-  }
-
+  const error = errorMessage ?? socket.lastError;
   // The host stays mounted in every non-fatal state: `Terminal` needs an
   // element to attach its canvas to, so gating it behind `status === "ready"`
   // would deadlock — no host, no engine, no ready. The loading state is an
@@ -92,21 +82,27 @@ function NeovimPane({ featureId }: NeovimPaneProps) {
         ref={hostRef}
         role="application"
         aria-label="Neovim editor"
-        className="h-full w-full outline-none"
+        data-neovim-feature-id={featureId}
+        className="relative h-full w-full outline-none"
       />
-      {status !== "ready" && (
+      {(status !== "ready" || !socket.isConnected || error) && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-background">
-          <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Connecting to Neovim…</p>
-          <RestartAction featureId={featureId} onRestart={socket.connect} />
+          {error ? (
+            <p className="text-sm text-destructive">Neovim could not start: {error}</p>
+          ) : (
+            <>
+              <Loader2Icon className="size-6 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Connecting to Neovim…</p>
+            </>
+          )}
+          {status !== "error" && <RestartAction onRestart={socket.connect} />}
         </div>
       )}
     </div>
   );
 }
 
-function RestartAction({ featureId, onRestart }: { featureId: number; onRestart: () => void }) {
-  void featureId;
+function RestartAction({ onRestart }: { onRestart: () => void }) {
   return (
     <Button variant="outline" size="sm" onClick={onRestart}>
       Restart Neovim session

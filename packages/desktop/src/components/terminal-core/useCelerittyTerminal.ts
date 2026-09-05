@@ -1,89 +1,82 @@
 import { useEffect, useRef, useState } from "react";
-import { Terminal, type TerminalOptions, type TerminalTransport } from "celeritty";
+import type { TerminalOptions, TerminalTransport } from "celeritty";
+import { attachTerminalTextInput } from "./terminal-text-input";
+import { createTerminalEngine } from "./create-terminal-engine";
+import type { TerminalEngine } from "./terminal-engine";
 
 export interface UseCelerittyTerminalOptions {
   hostRef: React.RefObject<HTMLElement | null>;
   options: TerminalOptions | undefined;
   transport: TerminalTransport | undefined;
 }
-
 export interface UseCelerittyTerminalResult {
-  terminal: Terminal | undefined;
+  terminal: TerminalEngine | undefined;
   status: "loading" | "ready" | "error";
   errorMessage: string | null;
 }
+const LOADING: UseCelerittyTerminalResult = {
+  terminal: undefined,
+  status: "loading",
+  errorMessage: null,
+};
 
-/**
- * Owns one `celeritty` `Terminal`'s lifecycle: construct once options and
- * a host are available, attach/detach as the transport comes and goes,
- * dispose on unmount. Shared between the shell panel and the Neovim pane —
- * each keeps its own socket hook and its own `TerminalTransport` adapter;
- * this hook knows about neither.
- */
-export function useCelerittyTerminal(o: UseCelerittyTerminalOptions): UseCelerittyTerminalResult {
-  const { hostRef, options, transport } = o;
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const terminalRef = useRef<Terminal | undefined>(undefined);
+/** Own the renderer independently of the socket and live option identities. */
+export function useCelerittyTerminal({
+  hostRef,
+  options,
+  transport,
+}: UseCelerittyTerminalOptions): UseCelerittyTerminalResult {
+  const [state, setState] = useState<UseCelerittyTerminalResult>(LOADING);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+  const hasOptions = options !== undefined;
 
-  // Constructed once options and the host are both available. Not keyed on
-  // `options` identity — a live config change goes through `setOptions` in
-  // the effect below, not through rebuilding the terminal.
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !options) return;
-
+    const initialOptions = optionsRef.current;
+    setState(LOADING);
+    if (!host || !initialOptions) return;
     let cancelled = false;
-    const terminal = new Terminal(host, options);
-    terminalRef.current = terminal;
-
-    terminal.ready
-      .then(() => {
-        if (cancelled) return;
-        setStatus("ready");
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setErrorMessage(err instanceof Error ? err.message : "WebGPU is not available");
-        setStatus("error");
-      });
-
-    return () => {
-      cancelled = true;
-      terminal.dispose();
-      terminalRef.current = undefined;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hostRef.current, options === undefined]);
-
-  // Live theme/font/scrollback changes: patched in place, no rebuild.
-  useEffect(() => {
-    if (!options) return;
-    terminalRef.current?.setOptions(options);
-  }, [options]);
-
-  // Attach/detach as the transport comes and goes. Waits for `ready` so a
-  // transport arriving before the engine has finished loading doesn't attach
-  // to a terminal that can't `feed()` yet.
-  useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal || !transport) return;
-
-    let cancelled = false;
-    terminal.ready.then(() => {
+    let unsubscribe: (() => void) | undefined;
+    const lifecycle = createTerminalEngine(host, initialOptions);
+    const fail = (error: unknown): void => {
       if (cancelled) return;
-      terminal.attach(transport);
-    });
-
+      setState({
+        terminal: undefined,
+        status: "error",
+        errorMessage: error instanceof Error ? error.message : "Terminal initialization failed",
+      });
+      // The upstream render loop schedules its next frame after emitting an error.
+      queueMicrotask(lifecycle.dispose);
+    };
+    void lifecycle.ready
+      .then((instance) => {
+        if (cancelled || !instance) return;
+        unsubscribe = instance.on("error", fail);
+        setState({ terminal: instance, status: "ready", errorMessage: null });
+      })
+      .catch(fail);
     return () => {
       cancelled = true;
-      terminal.detach();
+      unsubscribe?.();
+      lifecycle.dispose();
     };
-  }, [transport, status]);
+  }, [hostRef, hasOptions]);
 
-  return {
-    terminal: terminalRef.current,
-    status,
-    errorMessage,
-  };
+  useEffect(() => {
+    if (options) state.terminal?.setOptions(options);
+  }, [options, state.terminal]);
+
+  useEffect(() => {
+    if (!state.terminal || !transport) return;
+    state.terminal.attach(transport);
+    return () => state.terminal?.detach();
+  }, [transport, state.terminal]);
+
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host || !state.terminal || host.dataset.terminalRenderer !== "celeritty") return;
+    return attachTerminalTextInput(host, state.terminal);
+  }, [hostRef, state.terminal]);
+  return state;
 }

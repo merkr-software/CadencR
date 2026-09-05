@@ -16,10 +16,7 @@ import {
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
 import { useEditorStore } from "@/stores/editor-store";
-import { useOpenFileRoute, useStartRoute } from "@/api/generated";
-import { useVimModeLevel } from "@/hooks/useVimModeLevel";
-import { apiErrorMessage } from "@/lib/api-errors";
-import { toast } from "sonner";
+import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
 import type { OpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 
 export function useOpenDiffFileInEditor({
@@ -33,9 +30,14 @@ export function useOpenDiffFileInEditor({
   rootPath: string;
   refs: ReturnType<typeof useSessionRefs>;
 }): OpenDiffInEditor {
-  const vimModeLevel = useVimModeLevel();
-  const { mutateAsync: startNeovim } = useStartRoute();
-  const { mutateAsync: openInNeovim } = useOpenFileRoute();
+  const revealEditor = useCallback(
+    () => activateFeatureTab(layoutFeatureId, "editor"),
+    [layoutFeatureId],
+  );
+  const openInNeovim = useOpenFileInNeovim(featureId, {
+    ensureStarted: true,
+    onOpened: revealEditor,
+  });
 
   const openInCodeMirror = useCallback(
     (filePath: string, lineNumber?: number): void => {
@@ -55,37 +57,15 @@ export function useOpenDiffFileInEditor({
 
   return useCallback(
     (filePath, lineNumber, column): void => {
-      if (vimModeLevel !== "2") {
+      if (!openInNeovim) {
         openInCodeMirror(filePath, lineNumber);
         return;
       }
 
       const relativePath = toRelativePath(filePath, rootPath).replace(/^\.\//, "");
-      const idString = String(featureId);
-      // `start` is idempotent — safe to call even if the session is already
-      // running, and this is the only way a click reaches the panel before
-      // the user has opened it themselves.
-      void startNeovim({ data: featureId })
-        .then(() =>
-          openInNeovim({
-            featureId: idString,
-            data: { path: relativePath, line: lineNumber, col: column },
-          }),
-        )
-        .then(() => activateFeatureTab(layoutFeatureId, "editor"))
-        .catch((error: unknown) => {
-          toast.error(apiErrorMessage(error, "Could not open file in Neovim"));
-        });
+      openInNeovim(relativePath, lineNumber, column);
     },
-    [
-      featureId,
-      layoutFeatureId,
-      openInCodeMirror,
-      openInNeovim,
-      rootPath,
-      startNeovim,
-      vimModeLevel,
-    ],
+    [openInCodeMirror, openInNeovim, rootPath],
   );
 }
 

@@ -18,7 +18,6 @@ export const TerminalCoreInstance = forwardRef<
 
   return (
     <div
-      ref={hostRef}
       className="relative h-full w-full"
       style={{
         backgroundColor: "var(--terminal-bg)",
@@ -26,6 +25,7 @@ export const TerminalCoreInstance = forwardRef<
         paddingRight: 8,
       }}
     >
+      <div ref={hostRef} className="relative h-full w-full" />
       {/* The host stays mounted in every non-fatal state: `Terminal` needs
             an element to attach its canvas to, and gating this on `status`
             would deadlock exactly the way the Neovim pane once did — the

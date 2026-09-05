@@ -19,6 +19,7 @@ This is a curated, human-maintained summary focused on frameworks users see or i
 | CodeMirror 6 — editor | https://codemirror.net | MIT |
 | Lexical — rich text | https://lexical.dev | MIT |
 | celeritty — WebGPU terminal | https://github.com/edjubert/celeritty | MIT |
+| xterm.js — compatibility terminal | https://xtermjs.org | MIT |
 | Astro — landing site | https://astro.build | MIT |
 
 Cadencr also uses component patterns from **shadcn/ui** (https://ui.shadcn.com, MIT), which is vendored as source rather than installed as a dependency.

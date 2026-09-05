@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Key/mouse encoding, scrollback and the draw loop now live inside `Terminal`
@@ -19,22 +19,31 @@ vi.mock("@/components/terminal-core", () => ({
 }));
 
 const connectMock = vi.fn();
+const snapshotMock = vi.fn();
+const transportCloseMock = vi.fn();
+let socketError: string | null = null;
+let socketOptions: { onAttached: (data: Uint8Array) => void; onError: (error: string) => void };
+
 vi.mock("./useNeovimWebSocket", () => ({
-  useNeovimWebSocket: vi.fn(() => ({
-    connect: connectMock,
-    write: vi.fn(),
-    resize: vi.fn(),
-    detach: vi.fn(),
-    isConnected: true,
-    lastError: null as string | null,
-  })),
+  useNeovimWebSocket: vi.fn((options: typeof socketOptions) => {
+    socketOptions = options;
+    return {
+      connect: connectMock,
+      write: vi.fn(),
+      resize: vi.fn(),
+      detach: vi.fn(),
+      isConnected: true,
+      lastError: socketError,
+    };
+  }),
 }));
 
 vi.mock("./useNeovimTransport", () => ({
   useNeovimTransport: vi.fn(() => ({
     transport: { write: vi.fn(), resize: vi.fn(), onData: vi.fn(), onClose: vi.fn() },
     deliverData: vi.fn(),
-    deliverClose: vi.fn(),
+    deliverClose: transportCloseMock,
+    deliverSnapshot: snapshotMock,
   })),
 }));
 
@@ -86,6 +95,7 @@ describe("NeovimPane", () => {
 
 describe("NeovimPane error state", () => {
   afterEach(() => {
+    socketError = null;
     celerittyTerminalMock.mockReturnValue({
       terminal: undefined,
       status: "ready",
@@ -104,5 +114,22 @@ describe("NeovimPane error state", () => {
     });
     render(<NeovimPane featureId={1} />);
     expect(screen.getByText(/WebGPU is unavailable/)).toBeInTheDocument();
+  });
+});
+
+describe("Neovim attachment replay", () => {
+  it("replaces the display from attachment snapshots rather than appending duplicated output", () => {
+    render(<NeovimPane featureId={1} />);
+    const bytes = new TextEncoder().encode("screen");
+    act(() => socketOptions.onAttached(bytes));
+    expect(snapshotMock).toHaveBeenCalledWith(bytes);
+  });
+
+  it("keeps the host mounted and shows socket errors even after the renderer is ready", () => {
+    socketError = "failed to start neovim";
+    render(<NeovimPane featureId={1} />);
+    expect(screen.getByRole("application")).toBeInTheDocument();
+    expect(screen.getByText(/failed to start neovim/)).toBeInTheDocument();
+    socketError = null;
   });
 });

@@ -110,11 +110,12 @@ describe("useNeovimWebSocket", () => {
     expect(sendJsonMock).toHaveBeenCalledWith({ type: "write", data: "abc" });
   });
 
-  it("sends a resize message", () => {
+  it("sends a resize message after attachment", () => {
     const { result } = renderHook(() =>
       useNeovimWebSocket({ featureId: 1, onData: vi.fn(), onAttached: vi.fn(), onError: vi.fn() }),
     );
     act(() => result.current.connect());
+    act(() => capturedHandlers.onMessage?.(JSON.stringify({ type: "attached", scrollback: "" })));
     act(() => result.current.resize(80, 24));
     expect(sendJsonMock).toHaveBeenCalledWith({ type: "resize", cols: 80, rows: 24 });
   });
@@ -137,5 +138,70 @@ describe("useNeovimWebSocket", () => {
     act(() => result.current.connect());
     act(() => result.current.detach());
     expect(closeMock).toHaveBeenCalled();
+  });
+});
+
+describe("Neovim reconnect lifecycle", () => {
+  it("retains the latest grid while connecting and reapplies it on every attachment", () => {
+    sendJsonMock.mockClear();
+    const { result } = renderHook(() =>
+      useNeovimWebSocket({
+        featureId: 1,
+        onData: vi.fn(),
+        onAttached: vi.fn(),
+        onError: vi.fn(),
+      }),
+    );
+    act(() => result.current.resize(120, 45));
+    act(() => result.current.connect());
+    expect(sendJsonMock).not.toHaveBeenCalled();
+    act(() => capturedHandlers.onMessage?.(JSON.stringify({ type: "attached", scrollback: "" })));
+    expect(sendJsonMock).toHaveBeenLastCalledWith({ type: "resize", cols: 120, rows: 45 });
+    act(() => result.current.connect());
+    act(() => result.current.resize(100, 30));
+    act(() => capturedHandlers.onMessage?.(JSON.stringify({ type: "attached", scrollback: "" })));
+    expect(sendJsonMock).toHaveBeenLastCalledWith({ type: "resize", cols: 100, rows: 30 });
+  });
+
+  it("ignores output and delayed close events from the previous feature connection", () => {
+    const onData = vi.fn();
+    const { result, rerender } = renderHook(
+      (featureId) =>
+        useNeovimWebSocket({
+          featureId,
+          onData,
+          onAttached: vi.fn(),
+          onError: vi.fn(),
+        }),
+      { initialProps: 1 },
+    );
+    act(() => result.current.connect());
+    const old = capturedHandlers;
+    act(() => result.current.detach());
+    rerender(2);
+    act(() => result.current.connect());
+    act(() => capturedHandlers.onOpen?.());
+    act(() => old.onClose?.(true, {} as CloseEvent));
+    act(() => old.onMessage?.(JSON.stringify({ type: "data", data: "previous feature" })));
+    expect(result.current.isConnected).toBe(true);
+    expect(onData).not.toHaveBeenCalled();
+  });
+
+  it("surfaces malformed payloads instead of encoding missing fields as terminal output", () => {
+    const onData = vi.fn();
+    const onError = vi.fn();
+    const { result } = renderHook(() =>
+      useNeovimWebSocket({
+        featureId: 1,
+        onData,
+        onAttached: vi.fn(),
+        onError,
+      }),
+    );
+    act(() => result.current.connect());
+    act(() => capturedHandlers.onMessage?.(JSON.stringify({ type: "data", data: 123 })));
+    expect(onData).not.toHaveBeenCalled();
+    expect(result.current.lastError).toBe("Failed to parse neovim message");
+    expect(onError).toHaveBeenCalled();
   });
 });

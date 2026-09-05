@@ -202,7 +202,10 @@ export default function EditorPane({
   const activeConflict = useActiveConflict(activeFilePath, activeFileIsDirty);
   const setActivePane = useEditorStore((s) => s.setActivePane);
   const openUntitledBuffer = useEditorStore((s) => s.openUntitledBuffer);
-  const isFocusedPane = activePaneId === paneId;
+  const vimModeLevel = useVimModeLevel();
+  const isMobile = useIsMobile();
+  const isFullNeovim = vimModeLevel === "2" && !isMobile;
+  const isFocusedPane = activePaneId === paneId && !isFullNeovim;
   const controls = useEditorPaneControls({
     activeFilePath,
     featureId,
@@ -210,9 +213,6 @@ export default function EditorPane({
     openUntitledBuffer,
     paneId,
   });
-  const vimModeLevel = useVimModeLevel();
-  const isMobile = useIsMobile();
-  const isFullNeovim = vimModeLevel === "2" && !isMobile;
   return (
     <div
       className="flex flex-col h-full"

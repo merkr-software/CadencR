@@ -1,4 +1,5 @@
 import type { Shortcut } from "./types";
+import { PLATFORM_IS_MAC } from "./format";
 
 export const TERMINAL_SHORTCUTS = [
   {
@@ -58,13 +59,13 @@ export const TERMINAL_SHORTCUTS = [
   { id: "terminal-close", keys: ["mod", "w"], description: "Close pane", scope: "terminal" },
   {
     id: "terminal-copy",
-    keys: ["mod", "c"],
+    keys: PLATFORM_IS_MAC ? ["mod", "c"] : ["mod", "shift", "c"],
     description: "Copy selection",
     scope: "terminal",
   },
   {
     id: "terminal-paste",
-    keys: ["mod", "v"],
+    keys: PLATFORM_IS_MAC ? ["mod", "v"] : ["mod", "shift", "v"],
     description: "Paste",
     scope: "terminal",
   },

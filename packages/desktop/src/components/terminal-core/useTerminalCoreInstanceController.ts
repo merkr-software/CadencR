@@ -7,7 +7,8 @@ import {
   type ForwardedRef,
   type MutableRefObject,
 } from "react";
-import type { Terminal, TerminalTransport } from "celeritty";
+import type { TerminalTransport } from "celeritty";
+import type { TerminalEngine as Terminal } from "./terminal-engine";
 import { useTerminalOptions } from "./useTerminalOptions";
 import { useTerminalWebSocket } from "@/hooks/useTerminalWebSocket";
 import { useCelerittyTransport } from "./useCelerittyTransport";
@@ -40,12 +41,6 @@ interface CoreRefs {
   onTerminalFocusRef: MutableRefObject<(() => void) | undefined>;
   noticeConsumedRef: MutableRefObject<boolean>;
   commandConsumedRef: MutableRefObject<boolean>;
-  /**
-   * Scrollback handed over by a reconnect, held until the terminal is ready.
-   * Feeding it through the transport on arrival would drop it: the transport
-   * is only attached once `ptyReady` flips, so nothing is listening yet.
-   */
-  pendingScrollbackRef: MutableRefObject<string | undefined>;
 }
 
 function useCoreRefs(props: TerminalCoreInstanceProps): CoreRefs {
@@ -63,7 +58,6 @@ function useCoreRefs(props: TerminalCoreInstanceProps): CoreRefs {
     onTerminalFocusRef: { current: props.onTerminalFocus },
     noticeConsumedRef: { current: false },
     commandConsumedRef: { current: false },
-    pendingScrollbackRef: { current: undefined },
   };
   const refs = stableRefsRef.current;
 
@@ -83,6 +77,7 @@ interface ShellSocket {
   connection: ReturnType<typeof useTerminalWebSocket>;
   transport: TerminalTransport;
   ptyReady: boolean;
+  errorMessage: string | null;
 }
 
 /**
@@ -92,13 +87,15 @@ interface ShellSocket {
  */
 function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): ShellSocket {
   const [ptyReady, setPtyReady] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // One-shot: a reconnect that can't be honoured falls back to a fresh shell.
   // Guarded so a shell that keeps failing to spawn can't loop.
   const respawnedRef = useRef(false);
 
   const connection = useTerminalWebSocket({
     featureId: props.featureId,
-    projectId: props.existingPtyId ? undefined : props.projectId,
+    projectId: props.projectId,
+    shouldKillOnUnmount: () => refs.shouldKillRef.current,
     ptyId: props.existingPtyId,
     requestedCwd: props.requestedCwd,
     onData: (data) => {
@@ -110,6 +107,7 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
         connection.kill();
         return;
       }
+      setErrorMessage(null);
       refs.ptyIdRef.current = ptyId;
       props.onPtyReady?.(ptyId, cwd);
       setPtyReady(true);
@@ -130,9 +128,8 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
         respawnFresh();
         return;
       }
-      // Held, not delivered: the transport attaches only once `ptyReady`
-      // flips below, so anything pushed now would land on no listener.
-      if (scrollback) refs.pendingScrollbackRef.current = scrollback;
+      setErrorMessage(null);
+      bridge.deliverSnapshot(scrollback);
       const ptyId = refs.ptyIdRef.current;
       if (ptyId && cwd) props.onPtyReady?.(ptyId, cwd);
       setPtyReady(true);
@@ -147,7 +144,7 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
         respawnFresh();
         return;
       }
-      bridge.deliverClose(message);
+      setErrorMessage(message);
     },
   });
 
@@ -160,6 +157,7 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
     if (respawnedRef.current) return;
     respawnedRef.current = true;
     refs.ptyIdRef.current = null;
+    bridge.deliverSnapshot("");
     connection.forgetPty();
     connection.connect(INITIAL_COLUMNS, INITIAL_ROWS);
   }
@@ -187,7 +185,7 @@ function useShellSocket(props: TerminalCoreInstanceProps, refs: CoreRefs): Shell
     [bridge, refs.ctrlArmedRef, refs.onConsumeCtrlRef],
   );
 
-  return { connection, transport, ptyReady };
+  return { connection, transport, ptyReady, errorMessage };
 }
 
 /**
@@ -222,29 +220,6 @@ function useLinkRoutingWiring(terminal: Terminal | undefined): void {
 }
 
 /**
- * Replays a reconnect's scrollback once the engine is up.
- *
- * `write` injects the text locally — it never reaches the PTY — so the pane
- * shows what it showed before without the shell having to redraw. The
- * scrollback can't be pushed through the transport when it arrives: the
- * transport is attached only after `ptyReady` flips, so it would land on no
- * listener and be lost, leaving the pane blank until the next keystroke.
- */
-function useScrollbackReplay(
-  terminal: Terminal | undefined,
-  status: "loading" | "ready" | "error",
-  refs: CoreRefs,
-): void {
-  useEffect(() => {
-    if (status !== "ready" || !terminal) return;
-    const pending = refs.pendingScrollbackRef.current;
-    if (!pending) return;
-    refs.pendingScrollbackRef.current = undefined;
-    terminal.write(pending);
-  }, [status, terminal, refs]);
-}
-
-/**
  * Flushes the initial notice (local write) and command (sent through the
  * transport) once both the PTY and terminal are ready. Split out purely to
  * stay under the 100-line function budget.
@@ -256,7 +231,7 @@ function useInitialNoticeAndCommand(
   refs: CoreRefs,
 ): void {
   useEffect(() => {
-    if (!terminal || !ptyReady) return;
+    if (!terminal || !ptyReady || !connection.isConnected) return;
 
     const notice = refs.initialNoticeRef.current;
     if (notice && !refs.noticeConsumedRef.current) {
@@ -267,9 +242,10 @@ function useInitialNoticeAndCommand(
 
     const command = refs.initialCommandRef.current;
     if (command && !refs.commandConsumedRef.current) {
-      refs.commandConsumedRef.current = true;
       const timer = setTimeout(() => {
-        if (refs.mountedRef.current) connection.write(command);
+        if (!refs.mountedRef.current) return;
+        if (!connection.write(command)) return;
+        refs.commandConsumedRef.current = true;
         refs.onInitialCommandConsumedRef.current?.();
       }, 150);
       return () => clearTimeout(timer);
@@ -283,8 +259,16 @@ export function useTerminalCoreInstanceController(
 ) {
   const refs = useCoreRefs(props);
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const { options, isLoading, error } = useTerminalOptions();
-  const { connection, transport, ptyReady } = useShellSocket(props, refs);
+  const { options, isLoading, error } = useTerminalOptions({
+    palette: props.theme,
+    fontFamily: props.fontFamily,
+  });
+  const {
+    connection,
+    transport,
+    ptyReady,
+    errorMessage: socketError,
+  } = useShellSocket(props, refs);
 
   const { terminal, status, errorMessage } = useCelerittyTerminal({
     hostRef,
@@ -294,8 +278,11 @@ export function useTerminalCoreInstanceController(
     transport: ptyReady ? transport : undefined,
   });
 
+  useEffect(() => {
+    if (status === "error") connection.disconnect();
+  }, [status, connection.disconnect]);
+
   useLinkRoutingWiring(terminal);
-  useScrollbackReplay(terminal, status, refs);
 
   // Touch scrolling and the Cmd+arrow line-navigation keys were provided by
   // xterm.js addons; celeritty has neither (no touch handling at all, and it
@@ -315,24 +302,25 @@ export function useTerminalCoreInstanceController(
     };
   }, [terminal, connection, refs]);
 
-  // Spawn the PTY once, at the fixed default size. `Terminal.attach()`
+  // Spawn once valid options are available. `Terminal.attach()`
   // corrects it to the real measured grid as soon as it attaches.
   useEffect(() => {
+    if (!options) return;
     connection.connect(INITIAL_COLUMNS, INITIAL_ROWS);
     return () => {
       connection.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [connection.connect, connection.disconnect, options === undefined]);
 
-  // `Terminal` has no inner textarea — its host element is the tabindex target.
-  // This is what `TerminalPortals` uses to track which split pane is active.
+  // Both the canvas host and nested IME/fallback inputs must identify the
+  // focused split pane to TerminalPortals.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const onFocus = (): void => refs.onTerminalFocusRef.current?.();
-    host.addEventListener("focus", onFocus);
-    return () => host.removeEventListener("focus", onFocus);
+    host.addEventListener("focusin", onFocus);
+    return () => host.removeEventListener("focusin", onFocus);
   }, [refs]);
 
   useInitialNoticeAndCommand(terminal, ptyReady, connection, refs);
@@ -372,9 +360,6 @@ export function useTerminalCoreInstanceController(
     refs.mountedRef.current = true;
     return () => {
       refs.mountedRef.current = false;
-      if (refs.ptyIdRef.current && refs.shouldKillRef.current) {
-        connection.kill();
-      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -382,10 +367,10 @@ export function useTerminalCoreInstanceController(
   return useMemo(
     () => ({
       hostRef,
-      status,
+      status: error || socketError ? ("error" as const) : status,
       isLoading,
-      error: error ?? errorMessage,
+      error: error ?? errorMessage ?? socketError,
     }),
-    [status, isLoading, error, errorMessage],
+    [status, isLoading, error, errorMessage, socketError],
   );
 }

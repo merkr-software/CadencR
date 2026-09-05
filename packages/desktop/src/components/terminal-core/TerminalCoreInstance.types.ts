@@ -1,8 +1,12 @@
+import type { XTermPalette } from "@/lib/themes";
+
 export interface TerminalCoreInstanceProps {
   featureId: number;
   projectId: number;
   existingPtyId?: string;
   requestedCwd?: string;
+  theme?: XTermPalette;
+  fontFamily?: string;
   onExit?: (ptyId: string) => void;
   onPtyReady?: (ptyId: string, cwd: string | null) => void;
   killOnUnmount?: boolean;

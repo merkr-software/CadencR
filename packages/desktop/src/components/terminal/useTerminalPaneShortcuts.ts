@@ -2,6 +2,7 @@ import type { RefObject } from "react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import type { SplitOrientation } from "@/hooks/useTerminalState";
 import type { TerminalCoreInstanceHandle } from "@/components/terminal-core";
+import { isEditableShortcutTarget, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 
 interface UseTerminalPaneShortcutsParams {
   hotkeysEnabled: boolean;
@@ -166,7 +167,14 @@ export function useTerminalCopyPasteShortcuts({
   useScopedGlobalShortcutById(
     "terminal-copy",
     (event) => {
-      if (!resolvedActivePaneId) return;
+      if (
+        !resolvedActivePaneId ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.defaultPrevented
+      )
+        return;
+      if (isEditableShortcutTarget(event.target) && !isInTerminalFocusZone(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       onCopy(resolvedActivePaneId);
@@ -177,7 +185,14 @@ export function useTerminalCopyPasteShortcuts({
   useScopedGlobalShortcutById(
     "terminal-paste",
     (event) => {
-      if (!resolvedActivePaneId) return;
+      if (
+        !resolvedActivePaneId ||
+        event.isComposing ||
+        event.keyCode === 229 ||
+        event.defaultPrevented
+      )
+        return;
+      if (isEditableShortcutTarget(event.target) && !isInTerminalFocusZone(event.target)) return;
       event.preventDefault();
       event.stopPropagation();
       onPaste(resolvedActivePaneId);

@@ -1,4 +1,4 @@
-import type { Terminal } from "celeritty";
+import type { TerminalEngine as Terminal } from "./terminal-engine";
 
 /**
  * Make the terminal draggable by finger on touch devices.
@@ -16,6 +16,7 @@ import type { Terminal } from "celeritty";
  */
 export function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () => void {
   let lastY = 0;
+  let touchId: number | null = null;
   // Sub-row pixels carried between moves so slow drags still scroll smoothly
   // instead of rounding every delta down to zero.
   let pixelRemainder = 0;
@@ -25,9 +26,11 @@ export function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () 
   let rowHeight = 1;
 
   const onTouchStart = (e: TouchEvent): void => {
+    touchId = null;
     if (e.touches.length !== 1) return;
     const touch = e.touches[0];
     if (!touch) return;
+    touchId = touch.identifier;
     lastY = touch.clientY;
     pixelRemainder = 0;
     // celeritty exposes no row count, so derive it from the rendered height
@@ -37,9 +40,13 @@ export function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () 
   };
 
   const onTouchMove = (e: TouchEvent): void => {
-    if (e.touches.length !== 1) return;
+    if (e.touches.length !== 1) {
+      touchId = null;
+      return;
+    }
     const touch = e.touches[0];
-    if (!touch) return;
+    if (!touch || touch.identifier !== touchId) return;
+    e.preventDefault();
     pixelRemainder += touch.clientY - lastY;
     lastY = touch.clientY;
     const rows = Math.trunc(pixelRemainder / rowHeight);
@@ -47,14 +54,20 @@ export function attachTouchScroll(surface: HTMLElement, terminal: Terminal): () 
     pixelRemainder -= rows * rowHeight;
     // Finger down (rows > 0) reveals older output, i.e. scroll up → negative.
     terminal.scrollLines(-rows);
-    e.preventDefault();
+  };
+  const onTouchEnd = (): void => {
+    touchId = null;
   };
 
   surface.addEventListener("touchstart", onTouchStart, { passive: true });
   surface.addEventListener("touchmove", onTouchMove, { passive: false });
+  surface.addEventListener("touchend", onTouchEnd);
+  surface.addEventListener("touchcancel", onTouchEnd);
   return () => {
     surface.removeEventListener("touchstart", onTouchStart);
     surface.removeEventListener("touchmove", onTouchMove);
+    surface.removeEventListener("touchend", onTouchEnd);
+    surface.removeEventListener("touchcancel", onTouchEnd);
   };
 }
 

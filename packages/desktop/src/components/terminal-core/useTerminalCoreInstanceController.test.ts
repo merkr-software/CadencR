@@ -144,3 +144,25 @@ describe("useTerminalCoreInstanceController — mountedRef across a remount", ()
     unmount();
   });
 });
+
+describe("terminal disposal", () => {
+  it("kills an explicitly closed pane before the socket cleanup closes its connection", () => {
+    const { unmount } = renderHook(() =>
+      useTerminalCoreInstanceController(defaultProps({ killOnUnmount: true }), null),
+    );
+    const ws = lastWs();
+    act(() => ws.simulateOpen());
+    act(() => ws.simulateMessage({ type: "ready", pty_id: "pty-close", cwd: "/work" }));
+    unmount();
+    expect(ws.sent.map((data) => JSON.parse(data))).toContainEqual({ type: "kill" });
+  });
+
+  it("leaves a hidden pane's PTY alive for reattachment", () => {
+    const { unmount } = renderHook(() => useTerminalCoreInstanceController(defaultProps(), null));
+    const ws = lastWs();
+    act(() => ws.simulateOpen());
+    act(() => ws.simulateMessage({ type: "ready", pty_id: "pty-keep", cwd: "/work" }));
+    unmount();
+    expect(ws.sent.map((data) => JSON.parse(data))).not.toContainEqual({ type: "kill" });
+  });
+});

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import type { TerminalTransport } from "celeritty";
+import { createTerminalTransportBridge } from "@/components/terminal-core/terminal-transport-bridge";
 
 interface NeovimSocketHandle {
   write: (bytes: Uint8Array) => void;
@@ -10,6 +11,7 @@ export interface NeovimTransportBridge {
   transport: TerminalTransport;
   /** Call from the socket's `onData`/`onAttached` callback to feed the terminal. */
   deliverData: (bytes: Uint8Array) => void;
+  deliverSnapshot: (bytes: Uint8Array) => void;
   /** Call from the socket's `onError` callback to signal closure. */
   deliverClose: (reason?: string) => void;
 }
@@ -29,39 +31,14 @@ export interface NeovimTransportBridge {
  * to whatever `Terminal.attach()` registered via `transport.onData()`.
  */
 export function useNeovimTransport(socket: NeovimSocketHandle): NeovimTransportBridge {
-  return useMemo((): NeovimTransportBridge => {
-    const dataListeners = new Set<(bytes: Uint8Array) => void>();
-    const closeListeners = new Set<(reason?: string) => void>();
-
-    const transport: TerminalTransport = {
-      write(bytes: Uint8Array) {
-        socket.write(bytes);
-      },
-      resize(columns: number, rows: number) {
-        socket.resize(columns, rows);
-      },
-      onData(cb: (bytes: Uint8Array) => void) {
-        dataListeners.add(cb);
-        return () => {
-          dataListeners.delete(cb);
-        };
-      },
-      onClose(cb: (reason?: string) => void) {
-        closeListeners.add(cb);
-        return () => {
-          closeListeners.delete(cb);
-        };
-      },
-    };
-
-    return {
-      transport,
-      deliverData: (bytes: Uint8Array) => {
-        for (const cb of dataListeners) cb(bytes);
-      },
-      deliverClose: (reason?: string) => {
-        for (const cb of closeListeners) cb(reason);
-      },
-    };
-  }, [socket]);
+  const socketRef = useRef(socket);
+  socketRef.current = socket;
+  return useMemo(
+    () =>
+      createTerminalTransportBridge({
+        write: (bytes) => socketRef.current.write(bytes),
+        resize: (columns, rows) => socketRef.current.resize(columns, rows),
+      }),
+    [],
+  );
 }
