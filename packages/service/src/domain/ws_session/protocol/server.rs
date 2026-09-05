@@ -276,6 +276,9 @@ pub struct FeatureUpdatedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProviderSetOkPayload {
     pub provider: String,
+    /// Always sent alongside the provider: the frontend stores the pair
+    /// atomically and cannot accept a half-update.
+    pub model: String,
     pub supports_prompt_receipts: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_permission_mode: Option<String>,
@@ -290,8 +293,10 @@ pub struct ModeChangedPayload {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ModelSetOkPayload {
-    pub provider: String,
     pub model: String,
+    /// The provider that owns `model`. Present so the frontend never has to
+    /// pair a model id with a separately-tracked provider.
+    pub provider: String,
     pub context_window: Option<u64>,
 }
 
@@ -435,5 +440,32 @@ mod tests {
         assert!(payload.description.is_some());
         assert!(payload.preview.is_some());
         assert!(payload.pattern.is_some());
+    }
+
+    #[test]
+    fn model_set_ok_carries_the_owning_provider() {
+        let payload = ModelSetOkPayload {
+            model: "lmstudio/qwen-3.6:35b-a3b".to_string(),
+            provider: "opencode".to_string(),
+            context_window: None,
+        };
+
+        let value = serde_json::to_value(&payload).unwrap();
+        assert_eq!(value["provider"], "opencode");
+        assert_eq!(value["model"], "lmstudio/qwen-3.6:35b-a3b");
+    }
+
+    #[test]
+    fn provider_set_ok_carries_the_active_model() {
+        let payload = ProviderSetOkPayload {
+            provider: "opencode".to_string(),
+            model: "lmstudio/qwen-3.6:35b-a3b".to_string(),
+            supports_prompt_receipts: false,
+            codex_permission_mode: None,
+            access_mode: None,
+        };
+
+        let value = serde_json::to_value(&payload).unwrap();
+        assert_eq!(value["model"], "lmstudio/qwen-3.6:35b-a3b");
     }
 }

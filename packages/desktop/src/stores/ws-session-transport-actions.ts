@@ -91,6 +91,7 @@ export function createWsSessionTransportActions(deps: TransportActionDeps): Tran
       if (config.featureId) {
         sessionPatch.featureId = config.featureId;
       }
+      // Selection arrives via the `initialized` envelope — no optimistic write.
       if (config.thinkingEffort) {
         sessionPatch.currentThinkingEffort = config.thinkingEffort;
       }

@@ -15,6 +15,7 @@ import {
   type PermissionMode,
   type PendingPlanApproval,
 } from "@/stores/ws-session-store";
+import type { RuntimeSelection } from "@/shared/models";
 import type { PendingPermission } from "@/components/ToolPermissionPrompt";
 import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
 import type { AgentQuestion, AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
@@ -82,12 +83,10 @@ export interface UseWebSocketSessionReturn {
   closeGate: (reason: GateCloseReason) => void;
 
   contextUsage: ContextUsageState | null;
-  currentProviderId: string;
-  currentModelId: string;
+  currentSelection: RuntimeSelection | null;
   currentThinkingEffort?: string;
   fastMode: boolean;
   currentProfile?: string;
-  runtimeProvider: string;
   runtimeSessionId: string;
   sessionConfig: RuntimeSessionConfigSnapshot | null;
   sessionConfigLoading: boolean;
@@ -102,7 +101,7 @@ export interface UseWebSocketSessionReturn {
   setThinkingEffort: (thinkingEffort?: string) => void;
   setFastMode: (enabled: boolean) => Promise<void>;
   setProfile: (profile: string) => void;
-  setProvider: (providerId: string) => void;
+  setProvider: (providerId: string, modelId?: string) => void;
   sendPrompt: (text: string, options?: PromptDispatchOptions) => void;
   respondToPermission: (
     requestId: string,
@@ -234,12 +233,16 @@ function usePersistedSessionLoader(
       maxMessageId: lastSession.maxMessageId,
       featureId,
       sessionDbId: lastSession.sessionDbId,
-      currentProviderId: lastSession.runtimeProvider ?? undefined,
-      currentModelId: lastSession.model ?? undefined,
+      currentSelection:
+        lastSession.runtimeProvider && lastSession.model
+          ? {
+              providerId: lastSession.runtimeProvider,
+              modelId: lastSession.model,
+            }
+          : undefined,
       currentProfile: lastSession.profile ?? undefined,
       permissionMode: parsePermissionMode(lastSession.permissionMode) ?? undefined,
       accessMode: parseAccessMode(lastSession.accessMode),
-      runtimeProvider: lastSession.runtimeProvider ?? undefined,
       runtimeSessionId: lastSession.runtimeSessionId ?? undefined,
       pendingPermission: lastSession.pendingPermission,
       pendingQuestions: lastSession.pendingQuestions,
@@ -274,7 +277,8 @@ function useSessionActions(sessionId: string): SessionActions {
       clearSession: (): void => s.clearSession(sessionId),
       compactSession: (): void => s.compactSession(sessionId),
       initSession: (config: SessionConfig): void => s.initSession(sessionId, config),
-      setProvider: (providerId: string): void => s.setProvider(sessionId, providerId),
+      setProvider: (providerId: string, modelId?: string): void =>
+        s.setProvider(sessionId, providerId, modelId),
       setModel: (modelId: string, providerId: string): void =>
         s.setModel(sessionId, modelId, providerId),
       setThinkingEffort: (thinkingEffort?: string): void =>
@@ -335,12 +339,10 @@ function useSessionSnapshot(
       accessMode: session?.accessMode ?? "default",
       pendingPlanApproval: session?.pendingPlanApproval ?? null,
       contextUsage: session?.contextUsage ?? null,
-      currentProviderId: session?.currentProviderId ?? "",
-      currentModelId: session?.currentModelId ?? "",
+      currentSelection: session?.currentSelection ?? null,
       currentThinkingEffort: session?.currentThinkingEffort,
       fastMode: session?.fastMode ?? false,
       currentProfile: session?.currentProfile,
-      runtimeProvider: session?.runtimeProvider ?? "",
       runtimeSessionId: session?.runtimeSessionId ?? "",
       sessionConfig: session?.sessionConfig ?? null,
       sessionConfigLoading: session?.sessionConfigLoading ?? false,

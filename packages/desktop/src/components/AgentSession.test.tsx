@@ -241,8 +241,7 @@ describe("AgentSession", () => {
         onStop={onStop}
         onProviderChange={vi.fn()}
         onModelChange={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="opus"
+        selection={{ providerId: "claude_code", modelId: "opus" }}
         runtimeProvider="claude_code"
       />,
     );
@@ -265,8 +264,7 @@ describe("AgentSession", () => {
         onStop={onStop}
         onProviderChange={vi.fn()}
         onModelChange={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="opus"
+        selection={{ providerId: "claude_code", modelId: "opus" }}
         runtimeProvider="claude_code"
       />,
     );
@@ -317,8 +315,7 @@ describe("AgentSession", () => {
         onStop={onStop}
         onProviderChange={vi.fn()}
         onModelChange={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="opus"
+        selection={{ providerId: "claude_code", modelId: "opus" }}
         runtimeProvider="claude_code"
       />,
     );
@@ -528,8 +525,7 @@ describe("AgentSession", () => {
         onStop={onStop}
         onProviderChange={vi.fn()}
         onModelChange={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="opus"
+        selection={{ providerId: "claude_code", modelId: "opus" }}
         runtimeProvider="claude_code"
       />,
     );
@@ -544,51 +540,6 @@ describe("AgentSession", () => {
       screen.getByText((_, element) => element?.textContent === "OpenCode"),
     ).toBeInTheDocument();
     expect(screen.getByText("No models available")).toBeInTheDocument();
-  });
-
-  it("shows loading instead of combining a stale provider with another provider's model", async () => {
-    const runtimeApi = await import("../api/agentRuntime");
-    vi.mocked(runtimeApi.useAgentCatalog).mockReturnValueOnce({
-      data: {
-        default_provider: "claude_code",
-        providers: [
-          {
-            id: "claude_code",
-            label: "Claude",
-            status: "available",
-            models: [{ id: "opus", label: "Opus" }],
-            default_model: "opus",
-          },
-          {
-            id: "opencode",
-            label: "OpenCode",
-            status: "available",
-            models: [{ id: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex" }],
-            default_model: "openai/gpt-5.3-codex",
-          },
-        ],
-      },
-      isLoading: false,
-    } as ReturnType<typeof runtimeApi.useAgentCatalog>);
-
-    render(
-      <AgentSession
-        agentType="session"
-        blocks={[makeBlock("1", "hello")]}
-        status="idle"
-        onSend={onSend}
-        onStop={onStop}
-        onProviderChange={vi.fn()}
-        onModelChange={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="openai/gpt-5.3-codex"
-        runtimeProvider="opencode"
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "Loading model" })).toBeEnabled();
-    expect(screen.queryByAltText("GPT-5.3 Codex")).toBeNull();
-    expect(screen.queryByAltText("Opus")).toBeNull();
   });
 
   it("shows prompt bar for completed session agent when pendingPlanApproval is set", () => {

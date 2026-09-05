@@ -117,8 +117,9 @@ function handleModeRejectedByCli(
 
   const session = ctx.get().sessions[sessionId];
   if (!session) return;
-  const providerId = session.currentProviderId || session.runtimeProvider;
-  const optInModes = getEnabledOptInModesFromCache(providerId ?? "");
+  const providerId = session.currentSelection?.providerId;
+  if (providerId == null) return;
+  const optInModes = getEnabledOptInModesFromCache(providerId);
   const next = nextProviderMode(providerId, rejectedMode, optInModes);
   if (next === rejectedMode) return;
   ctx.get().setPermissionMode(sessionId, next);

@@ -161,16 +161,16 @@ describe("ws session history pagination", () => {
     );
 
     const session = ctx.get().sessions.s1;
-    expect(session.currentProviderId).toBe("opencode");
-    expect(session.currentModelId).toBe("lmstudio/qwen-3.6:35b-a3b");
+    expect(session.currentSelection).toEqual({
+      providerId: "opencode",
+      modelId: "lmstudio/qwen-3.6:35b-a3b",
+    });
   });
 
   it("keeps an initialized live selection when a stale snapshot arrives later", () => {
     const session = createSessionEntry();
     session.serverSessionId = "42";
-    session.currentProviderId = "claude_code";
-    session.currentModelId = "opus";
-    session.runtimeProvider = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     const ctx = createCtx(session);
 
     applyPersistedState(
@@ -187,8 +187,6 @@ describe("ws session history pagination", () => {
     );
 
     const updated = ctx.get().sessions.s1;
-    expect(updated.currentProviderId).toBe("claude_code");
-    expect(updated.currentModelId).toBe("opus");
-    expect(updated.runtimeProvider).toBe("claude_code");
+    expect(updated.currentSelection).toEqual({ providerId: "claude_code", modelId: "opus" });
   });
 });

@@ -252,7 +252,7 @@ describe("handleEnvelope cleared", () => {
 describe("handleEnvelope mode.changed", () => {
   it("accepts a mode that exists in the active provider's catalog", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     session.permissionMode = "acceptEdits";
     const ctx = createTestContext(session);
 
@@ -270,7 +270,7 @@ describe("handleEnvelope mode.changed", () => {
     // OpenCode has no `auto` mode — the backend would reject it via
     // MODE_NOT_SUPPORTED, but if a stale envelope reaches us we still must
     // not poison the chip state.
-    session.currentProviderId = "opencode";
+    session.currentSelection = { providerId: "opencode", modelId: "lmstudio/qwen-3.6:35b-a3b" };
     session.permissionMode = "acceptEdits";
     const ctx = createTestContext(session);
 
@@ -285,7 +285,7 @@ describe("handleEnvelope mode.changed", () => {
 
   it("accepts project-scoped OpenCode agent modes", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "opencode";
+    session.currentSelection = { providerId: "opencode", modelId: "lmstudio/qwen-3.6:35b-a3b" };
     session.permissionMode = "acceptEdits";
     const ctx = createTestContext(session);
 
@@ -302,21 +302,18 @@ describe("handleEnvelope mode.changed", () => {
 describe("handleEnvelope provider.set.ok", () => {
   it("updates provider state but does NOT touch permissionMode (mode.changed follows)", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
-    session.currentModelId = "opus";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     session.permissionMode = "plan";
     const ctx = createTestContext(session);
 
     handleEnvelope(ctx, "s1", {
       domain: "session",
       action: "provider.set.ok",
-      payload: { provider: "codex_cli" },
+      payload: { provider: "codex_cli", model: "gpt-5-codex" },
     });
 
     const updated = ctx.getSession("s1");
-    expect(updated.currentProviderId).toBe("codex_cli");
-    expect(updated.runtimeProvider).toBe("codex_cli");
-    expect(updated.currentModelId).toBe("");
+    expect(updated.currentSelection).toEqual({ providerId: "codex_cli", modelId: "gpt-5-codex" });
     expect(updated.supportsPromptReceipts).toBe(false);
     // No optimistic update — the chip stays on the old mode until the backend
     // emits a `mode.changed` envelope as the second half of the provider switch.
@@ -330,7 +327,11 @@ describe("handleEnvelope provider.set.ok", () => {
     handleEnvelope(ctx, "s1", {
       domain: "session",
       action: "provider.set.ok",
-      payload: { provider: "opencode", supports_prompt_receipts: true },
+      payload: {
+        provider: "opencode",
+        model: "lmstudio/qwen-3.6:35b-a3b",
+        supports_prompt_receipts: true,
+      },
     });
 
     expect(ctx.getSession("s1").supportsPromptReceipts).toBe(true);
@@ -338,14 +339,14 @@ describe("handleEnvelope provider.set.ok", () => {
 
   it("subsequent mode.changed from the backend lands the chip on the new provider's default", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     session.permissionMode = "plan";
     const ctx = createTestContext(session);
 
     handleEnvelope(ctx, "s1", {
       domain: "session",
       action: "provider.set.ok",
-      payload: { provider: "codex_cli" },
+      payload: { provider: "codex_cli", model: "gpt-5-codex" },
     });
     handleEnvelope(ctx, "s1", {
       domain: "session",
@@ -356,21 +357,11 @@ describe("handleEnvelope provider.set.ok", () => {
     expect(ctx.getSession("s1").permissionMode).toBe("default");
   });
 
-  it("keeps the atomic model pair when model.set.ok arrives before provider.set.ok", () => {
+  it("ignores provider.set.ok when the payload is missing the model half", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
-    session.currentModelId = "opus";
-    session.runtimeProvider = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     const ctx = createTestContext(session);
 
-    handleEnvelope(ctx, "s1", {
-      domain: "session",
-      action: "model.set.ok",
-      payload: {
-        provider: "opencode",
-        model: "lmstudio/qwen-3.6:35b-a3b",
-      },
-    });
     handleEnvelope(ctx, "s1", {
       domain: "session",
       action: "provider.set.ok",
@@ -378,15 +369,48 @@ describe("handleEnvelope provider.set.ok", () => {
     });
 
     const updated = ctx.getSession("s1");
-    expect(updated.currentProviderId).toBe("opencode");
-    expect(updated.currentModelId).toBe("lmstudio/qwen-3.6:35b-a3b");
+    expect(updated.currentSelection).toEqual({ providerId: "claude_code", modelId: "opus" });
   });
 
-  it("rejects model.set.ok when the authoritative provider is missing", () => {
+  it("applies the provider change when the backend reports no usable model", () => {
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
-    session.currentModelId = "opus";
-    session.runtimeProvider = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "sonnet" };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "provider.set.ok",
+      payload: { provider: "codex_cli", model: "", supports_prompt_receipts: true },
+    });
+
+    // The empty model is information ("this provider exposes none"), not an
+    // absent field: the provider change must still land.
+    expect(ctx.getSession("s1").currentSelection).toEqual({
+      providerId: "codex_cli",
+      modelId: "",
+    });
+  });
+
+  it("ignores a provider.set.ok whose model field is absent", () => {
+    const session = createSessionEntry();
+    session.currentSelection = { providerId: "claude_code", modelId: "sonnet" };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "provider.set.ok",
+      payload: { provider: "codex_cli" },
+    });
+
+    expect(ctx.getSession("s1").currentSelection).toEqual({
+      providerId: "claude_code",
+      modelId: "sonnet",
+    });
+  });
+
+  it("ignores model.set.ok when the payload is missing the provider half", () => {
+    const session = createSessionEntry();
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     const ctx = createTestContext(session);
 
     handleEnvelope(ctx, "s1", {
@@ -396,8 +420,7 @@ describe("handleEnvelope provider.set.ok", () => {
     });
 
     const updated = ctx.getSession("s1");
-    expect(updated.currentProviderId).toBe("claude_code");
-    expect(updated.currentModelId).toBe("opus");
+    expect(updated.currentSelection).toEqual({ providerId: "claude_code", modelId: "opus" });
   });
 });
 
@@ -573,8 +596,7 @@ describe("handleEnvelope error handling", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
     session.lifecycle = { phase: "idle" } as SessionEntry["lifecycle"];
-    session.currentProviderId = "claude_code";
-    session.runtimeProvider = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     session.permissionMode = "auto";
     const setPermissionMode = vi.fn();
     let state = {
@@ -610,8 +632,7 @@ describe("handleEnvelope error handling", () => {
   it("does not auto-cycle non-auto MODE_REJECTED_BY_CLI rejections", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
-    session.currentProviderId = "claude_code";
-    session.runtimeProvider = "claude_code";
+    session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     session.permissionMode = "bypassPermissions";
     const setPermissionMode = vi.fn();
     let state = {
@@ -733,5 +754,59 @@ describe("handleEnvelope stream_status", () => {
 
     expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
     warnSpy.mockRestore();
+  });
+});
+
+describe("session runtime selection", () => {
+  it("starts with no selection until the backend confirms one", () => {
+    const session = createSessionEntry();
+
+    expect(session.currentSelection).toBeNull();
+  });
+
+  it("model.set.ok replaces the whole pair, never half of it", () => {
+    const session = createSessionEntry();
+    const ctx = createTestContext(session);
+    ctx.set({
+      sessions: { s1: session },
+    });
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "model.set.ok",
+      payload: {
+        model: "lmstudio/qwen-3.6:35b-a3b",
+        provider: "opencode",
+        context_window: null,
+      },
+    });
+
+    expect(ctx.getSession("s1").currentSelection).toEqual({
+      providerId: "opencode",
+      modelId: "lmstudio/qwen-3.6:35b-a3b",
+    });
+  });
+
+  it("provider.set.ok replaces the whole pair", () => {
+    const session = createSessionEntry();
+    const ctx = createTestContext(session);
+    ctx.set({
+      sessions: { s1: session },
+    });
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "provider.set.ok",
+      payload: {
+        provider: "claude_code",
+        model: "opus",
+        supports_prompt_receipts: false,
+      },
+    });
+
+    expect(ctx.getSession("s1").currentSelection).toEqual({
+      providerId: "claude_code",
+      modelId: "opus",
+    });
   });
 });

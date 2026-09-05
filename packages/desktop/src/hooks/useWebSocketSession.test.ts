@@ -105,13 +105,13 @@ describe("useWebSocketSession", () => {
     expect(result.current.isConnected).toBe(true);
   });
 
-  it("keeps currentModelId empty before the backend initializes the session", async () => {
+  it("currentSelection starts null until the backend confirms one", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(result.current.currentModelId).toBe("");
+    expect(result.current.currentSelection).toBeNull();
   });
 
   it("restarts stale local timing when backend live status first reports agent", async () => {
@@ -1219,9 +1219,20 @@ describe("useWebSocketSession", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
+    const ws = getWs();
+
+    // mode.changed is validated against the active provider's catalog, so a
+    // confirmed selection must exist first.
+    act(() => {
+      ws.simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "srv-1", provider: "claude_code", model: "opus" },
+      });
+    });
 
     act(() => {
-      getWs().simulateMessage({
+      ws.simulateMessage({
         domain: "session",
         action: "initialized",
         payload: { session_id: "srv-1", provider: "claude_code", model: "opus" },

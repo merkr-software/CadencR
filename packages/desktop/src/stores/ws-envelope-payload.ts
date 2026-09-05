@@ -275,6 +275,7 @@ export function parseModelPayload(payload: unknown): {
 
 export function parseProviderPayload(payload: unknown): {
   provider?: string;
+  model?: string;
   supports_prompt_receipts?: boolean;
   codex_permission_mode?: string;
   access_mode?: string;
@@ -283,6 +284,7 @@ export function parseProviderPayload(payload: unknown): {
   if (!record) return null;
   return {
     provider: optionalString(record, "provider"),
+    model: optionalString(record, "model"),
     supports_prompt_receipts: optionalBoolean(record, "supports_prompt_receipts"),
     codex_permission_mode: optionalString(record, "codex_permission_mode"),
     access_mode: optionalString(record, "access_mode"),

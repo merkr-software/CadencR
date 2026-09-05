@@ -521,8 +521,7 @@ describe("AgentSession auto-scroll", () => {
         status="idle"
         onSend={onSend}
         onStop={vi.fn()}
-        currentProviderId="claude_code"
-        currentModelId="opus"
+        selection={{ providerId: "claude_code", modelId: "opus" }}
         runtimeProvider="claude_code"
         runtimeSessionId="runtime-1"
       />,

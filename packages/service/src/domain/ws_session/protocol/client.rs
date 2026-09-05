@@ -116,6 +116,12 @@ pub struct SessionConfigSetPayload {
 pub struct ProviderSetPayload {
     pub session_id: String,
     pub provider: String,
+    /// Model to adopt under the new provider, when the caller wants a
+    /// specific one instead of the provider's default. Validated against the
+    /// new provider's catalog server-side; falls back to the default when
+    /// absent or invalid. Optional for older clients.
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

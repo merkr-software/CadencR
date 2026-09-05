@@ -211,6 +211,39 @@ pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -
     None
 }
 
+/// Resolves the model to use for `provider_id`. Prefers `requested_model` when
+/// it belongs to that provider's catalog; falls back to the provider's
+/// default (e.g. when the requested model is absent, belongs to a different
+/// provider's catalog, or was never set).
+///
+/// Both branches read the same `cwd`/`profile`-scoped catalog, so the fallback
+/// can never come from a different scope than the one the request was
+/// validated against.
+pub async fn resolve_requested_model_or_provider_default(
+    read_pool: &SqlitePool,
+    cwd: Option<&Path>,
+    provider_id: &str,
+    requested_model: Option<&str>,
+    profile: Option<&str>,
+) -> Option<String> {
+    if let Some(model) = requested_model {
+        if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile)
+            .await
+            .is_some()
+        {
+            return Some(model.to_string());
+        }
+        tracing::info!(
+            requested_model = %model,
+            provider_id = %provider_id,
+            "requested model does not belong to the provider; falling back to provider default"
+        );
+    }
+    provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile)
+        .await
+        .map(|entry| entry.id)
+}
+
 pub fn spawn_runtime_startup_warmups() {
     for adapter in provider_registry().adapters() {
         adapter.spawn_startup_warmup();

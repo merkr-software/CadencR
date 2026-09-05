@@ -1,51 +1,24 @@
-import { useMemo, type ReactElement } from "react";
+import { useCallback, useMemo, type ReactElement } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
-import type {
-  useSessionControls,
-  useSessionFeatureData,
-  useSessionRefs,
-} from "@/components/WebSocketSessionFeatureBlockHooks";
 import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
+import { resolveWorktreeChoice } from "@/lib/worktree-mode";
+import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
+import type { FirstPromptBranchSetup } from "@/lib/ws-envelope";
+import type { FeatureTabDef } from "@/components/feature-layout/types";
+import { useCheckoutBranch, useSetFeatureSetting } from "@/api/generated";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
-import type { SessionConfigControls } from "@/components/agent-session/types";
+import {
+  claudeProfileForPrompt,
+  type useSessionControls,
+  type useSessionFeatureData,
+} from "@/components/WebSocketSessionFeatureBlockHooks";
+import { COMPACT_ACTION_PROVIDERS } from "@/lib/providers";
+import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
-interface SessionAgentTabProps {
-  sessionId: string;
-  featureId: number;
-  projectId: number;
-  data: ReturnType<typeof useSessionFeatureData>;
-  controls: ReturnType<typeof useSessionControls>;
-  agentRef: ReturnType<typeof useSessionRefs>["agent"];
-  agentVisible: boolean;
-  hotkeysEnabled: boolean;
-  hasAccessModes: boolean;
-  onSend: (
-    text: string,
-    attachments?: PromptAttachmentPayload[],
-    claudeProfile?: string,
-  ) => Promise<void>;
-}
-
-function handleModelChange(
-  nextProviderId: string,
-  modelId: string,
-  controls: ReturnType<typeof useSessionControls>,
-): void {
-  if (modelId !== controls.ws.currentModelId || nextProviderId !== controls.ws.currentProviderId) {
-    controls.ws.setModel(modelId, nextProviderId);
-  }
-  const nextModel = controls.agentCatalog.data?.providers
-    .find((provider) => provider.id === nextProviderId)
-    ?.models.find((model) => model.id === modelId);
-  const nextLevels = supportedThinkingEffortLevels(nextModel);
-  const nextEffort = controls.resolveModelThinkingEffort(nextProviderId, modelId);
-  if (nextEffort) {
-    controls.ws.setThinkingEffort(nextEffort);
-  } else if (!nextLevels.includes(controls.ws.currentThinkingEffort as never)) {
-    controls.ws.setThinkingEffort(undefined);
-  }
-}
+import type { SessionConfigControls } from "./agent-session/types";
 
 function useSessionConfigControls(
   controls: ReturnType<typeof useSessionControls>,
@@ -76,23 +49,22 @@ function useSessionConfigControls(
   );
 }
 
-export function SessionAgentTab({
-  sessionId,
-  featureId,
-  projectId,
-  data,
-  controls,
-  agentRef,
-  agentVisible,
-  hotkeysEnabled,
-  hasAccessModes,
+function AgentTabContent({
+  args,
   onSend,
-}: SessionAgentTabProps): ReactElement {
+  hasAccessModes,
+}: {
+  args: UseSessionTabsArgs;
+  onSend: ReturnType<typeof useAgentSendHandler>;
+  hasAccessModes: boolean;
+}): ReactElement {
+  const { sessionId, featureId, projectId, data, controls, refs, agentVisible, hotkeysEnabled } =
+    args;
   const sessionConfigControls = useSessionConfigControls(controls);
   return (
     <SessionInfoMcpServersProvider mcpServers={controls.ws.mcpServers}>
       <AgentSession
-        ref={agentRef}
+        ref={refs.agent}
         agentType="session"
         featureId={featureId}
         projectId={projectId}
@@ -137,9 +109,8 @@ export function SessionAgentTab({
         onPlanRequestChanges={controls.ws.requestPlanChanges}
         onGateClose={() => controls.ws.closeGate("escape")}
         contextUsage={controls.ws.contextUsage}
-        currentProviderId={controls.ws.currentProviderId}
+        selection={controls.ws.currentSelection}
         onProviderChange={controls.ws.setProvider}
-        currentModelId={controls.ws.currentModelId}
         onModelChange={(nextProviderId, modelId) =>
           handleModelChange(nextProviderId, modelId, controls)
         }
@@ -147,7 +118,7 @@ export function SessionAgentTab({
         onThinkingEffortChange={controls.ws.setThinkingEffort}
         fastMode={controls.ws.fastMode}
         onFastModeChange={controls.ws.setFastMode}
-        runtimeProvider={controls.ws.runtimeProvider}
+        runtimeProvider={controls.ws.currentSelection?.providerId}
         runtimeSessionId={controls.ws.runtimeSessionId || undefined}
         sessionConfigControls={sessionConfigControls}
         slashCommandsOverride={data.session?.slashCommands ?? []}
@@ -170,4 +141,141 @@ export function SessionAgentTab({
       />
     </SessionInfoMcpServersProvider>
   );
+}
+
+export function useAgentTab(args: UseSessionTabsArgs): FeatureTabDef {
+  const { sessionId, featureId, projectId, data, controls, refs, agentVisible, hotkeysEnabled } =
+    args;
+  const onSend = useAgentSendHandler({ featureId, projectId, data, controls });
+  const hasAccessModes = controls.providerAccessModes.length > 0;
+  return useMemo(
+    () => ({
+      label: "Agent",
+      Icon: BotIcon,
+      shortcut: ["cmd", "shift", "A"],
+      content: <AgentTabContent args={args} onSend={onSend} hasAccessModes={hasAccessModes} />,
+    }),
+    [
+      agentVisible,
+      args,
+      controls,
+      data,
+      featureId,
+      hotkeysEnabled,
+      hasAccessModes,
+      onSend,
+      projectId,
+      refs.agent,
+      sessionId,
+    ],
+  );
+}
+
+function useAgentSendHandler(args: {
+  featureId: number;
+  projectId: number;
+  data: ReturnType<typeof useSessionFeatureData>;
+  controls: ReturnType<typeof useSessionControls>;
+}): (
+  text: string,
+  attachments?: PromptAttachmentPayload[],
+  claudeProfile?: string,
+) => Promise<void> {
+  const { featureId, projectId, data, controls } = args;
+  const queryClient = useQueryClient();
+  const setFeatureSetting = useSetFeatureSetting();
+  const checkoutMutateAsync = useCheckoutBranch().mutateAsync;
+  return useCallback(
+    async (text, attachments, claudeProfile) => {
+      if (text.trim() === "/clear") {
+        controls.ws.clearSession();
+        return;
+      }
+      if (text.trim() === "/compact" && COMPACT_ACTION_PROVIDERS.has(controls.activeProviderId)) {
+        controls.ws.compactSession();
+        return;
+      }
+      const isFirstPrompt = (data.session?.blocks?.length ?? 0) === 0;
+      const choice = resolveWorktreeChoice({
+        mode: controls.worktreeMode,
+        selectedBranch: controls.selectedBranch,
+        defaultBranch: data.defaultBranch,
+      });
+      // First-prompt branch provisioning the backend acts on *after* auto-naming
+      // (so the new branch carries the feature's name). `undefined` = no setup.
+      let branchSetup: FirstPromptBranchSetup | undefined;
+      if (isFirstPrompt) {
+        if (choice.backendMode === "skip") {
+          // "On branch": run in the project folder, switching to the picked
+          // branch first when it differs from the current one.
+          if (choice.checkout != null) {
+            const ok = await checkoutSelectedBranch({
+              branch: choice.checkout,
+              projectId,
+              featureId,
+              queryClient,
+              checkoutMutateAsync,
+            });
+            if (!ok) return;
+          }
+        } else if (choice.backendMode === "project_branch") {
+          // "From branch": the backend forks a project-path branch named after
+          // the feature once it has auto-named — no worktree, no pre-send git op.
+          branchSetup = { kind: "project_branch", base: choice.base };
+        } else {
+          // Worktree-provisioning modes persist their settings before send so
+          // the backend's `ensure_worktree` reads them. A failure throws + aborts.
+          await saveWorktreeChoice({ choice, featureId, setFeatureSetting });
+          branchSetup = { kind: "worktree" };
+        }
+      }
+      controls.ws.sendPrompt(text, {
+        attachments,
+        branchSetup,
+        claudeProfile: claudeProfile ?? claudeProfileForPrompt(controls),
+      });
+    },
+    [
+      checkoutMutateAsync,
+      controls.activeProviderId,
+      controls.claudeProfile.selectedClaudeProfile,
+      controls.selectedBranch,
+      controls.worktreeMode,
+      controls.ws,
+      data.defaultBranch,
+      data.session?.blocks?.length,
+      featureId,
+      projectId,
+      queryClient,
+      setFeatureSetting,
+    ],
+  );
+}
+
+export function handleModelChange(
+  nextProviderId: string,
+  modelId: string,
+  controls: ReturnType<typeof useSessionControls>,
+): void {
+  // `provider.set` is rejected once the session is active, so it is reserved
+  // for cross-provider picks that genuinely need the atomic switch. A plain
+  // model change on the same provider goes through `model.set`, which stays
+  // legal mid-conversation.
+  const currentProviderId = controls.ws.currentSelection?.providerId;
+  if (currentProviderId !== undefined && currentProviderId === nextProviderId) {
+    controls.ws.setModel(modelId, nextProviderId);
+  } else {
+    controls.ws.setProvider(nextProviderId, modelId);
+  }
+
+  const nextModel = controls.agentCatalog.data?.providers
+    .find((provider) => provider.id === nextProviderId)
+    ?.models.find((model) => model.id === modelId);
+  const nextLevels = supportedThinkingEffortLevels(nextModel);
+  const nextEffort = controls.resolveModelThinkingEffort(nextProviderId, modelId);
+  if (nextEffort) {
+    controls.ws.setThinkingEffort(nextEffort);
+  } else if (!nextLevels.includes(controls.ws.currentThinkingEffort as never)) {
+    controls.ws.setThinkingEffort(undefined);
+  }
 }

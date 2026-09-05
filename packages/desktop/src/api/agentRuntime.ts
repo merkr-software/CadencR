@@ -5,6 +5,7 @@ import { AGENT_TYPES, type AgentTypeSetting } from "../shared/models";
 import type { AccessMode } from "@/types/access-mode";
 import type { PermissionMode } from "@/types/permission-mode";
 import type { ModelCatalogEntry, ProviderOrigin, UpsertCustomModelRequest } from "./generated";
+import { getGetAgentSelectionQueryKey } from "./generated";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 
 export type RuntimeModelOption = {
@@ -228,6 +229,7 @@ async function invalidateProfilesAndCatalog(queryClient: ReturnType<typeof useQu
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["claude-code", "profiles"] }),
     queryClient.invalidateQueries({ queryKey: ["agent-catalog"] }),
+    queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }),
   ]);
 }
 
@@ -293,6 +295,7 @@ export function useUpsertClaudeCodeCustomModel() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["claude-code", "custom-models"] }),
         queryClient.invalidateQueries({ queryKey: ["agent-catalog"] }),
+        queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }),
       ]);
     },
   });
@@ -310,6 +313,7 @@ export function useDeleteClaudeCodeCustomModel() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["claude-code", "custom-models"] }),
         queryClient.invalidateQueries({ queryKey: ["agent-catalog"] }),
+        queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }),
       ]);
     },
   });

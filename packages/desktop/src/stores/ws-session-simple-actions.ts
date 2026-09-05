@@ -150,9 +150,9 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
   const { ctx, sendRaw } = deps;
   const { get, set, getSession } = ctx;
   return {
-    setProvider(sessionId: string, providerId: string) {
+    setProvider(sessionId: string, providerId: string, modelId?: string) {
       const session = getSession(sessionId);
-      sendRaw(sessionId, createProviderSet(session.serverSessionId, providerId));
+      sendRaw(sessionId, createProviderSet(session.serverSessionId, providerId, modelId));
     },
 
     setModel(sessionId: string, modelId: string, providerId: string) {
@@ -163,11 +163,8 @@ function createConfigurationActions(deps: SimpleSessionActionDeps) {
     setThinkingEffort(sessionId: string, thinkingEffort?: string) {
       const session = getSession(sessionId);
       sendRaw(sessionId, createEffortSet(session.serverSessionId, thinkingEffort));
-      set(
-        updateSession(get(), sessionId, {
-          currentThinkingEffort: thinkingEffort,
-        }),
-      );
+      // No optimistic update: `currentThinkingEffort` is set only once the
+      // backend confirms via `effortSetOk` (see ws-envelope-handler.ts).
     },
 
     async setFastMode(sessionId: string, enabled: boolean): Promise<void> {

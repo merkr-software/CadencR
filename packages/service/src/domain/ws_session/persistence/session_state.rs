@@ -1,3 +1,4 @@
+#[bon::bon]
 impl WsSessionPersistence {
     pub async fn mark_paused_static(pool: &SqlitePool, session_id: i64) {
         let now = chrono::Utc::now().to_rfc3339();
@@ -98,19 +99,22 @@ impl WsSessionPersistence {
         Ok(())
     }
 
-    pub async fn update_runtime_provider_static(
+    #[builder]
+    pub async fn update_runtime_selection_static(
         pool: &SqlitePool,
         session_id: i64,
         runtime_provider: &str,
+        model: Option<&str>,
         clear_thinking_effort: bool,
     ) -> Result<(), sqlx::Error> {
         let sql = if clear_thinking_effort {
-            "UPDATE agent_sessions SET runtime_provider = ?, thinking_effort = NULL WHERE id = ?"
+            "UPDATE agent_sessions SET runtime_provider = ?, model = ?, thinking_effort = NULL WHERE id = ?"
         } else {
-            "UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?"
+            "UPDATE agent_sessions SET runtime_provider = ?, model = ? WHERE id = ?"
         };
         sqlx::query(sql)
             .bind(runtime_provider)
+            .bind(model)
             .bind(session_id)
             .execute(pool)
             .await?;
@@ -222,6 +226,44 @@ impl WsSessionPersistence {
 mod session_state_tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+
+    #[tokio::test]
+    async fn runtime_selection_preserves_or_clears_effort_atomically() {
+        let pool = setup_test_db().await;
+        let mut persistence = WsSessionPersistence::new(pool.clone(), 1);
+        let id = persistence.find_or_create_session(None, None).await.unwrap();
+        sqlx::query("UPDATE agent_sessions SET thinking_effort = 'high' WHERE id = ?")
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for (model, clear_effort, expected_effort) in [
+            (Some("sonnet"), false, Some("high")),
+            (Some(""), true, None),
+            (None, false, None),
+        ] {
+            WsSessionPersistence::update_runtime_selection_static()
+                .pool(&pool)
+                .session_id(id)
+                .runtime_provider("claude_code")
+                .maybe_model(model)
+                .clear_thinking_effort(clear_effort)
+                .call()
+                .await
+                .unwrap();
+            let stored: (String, Option<String>, Option<String>) = sqlx::query_as(
+                "SELECT runtime_provider, model, thinking_effort FROM agent_sessions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(stored.0, "claude_code");
+            assert_eq!(stored.1.as_deref(), model);
+            assert_eq!(stored.2.as_deref(), expected_effort);
+        }
+    }
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()

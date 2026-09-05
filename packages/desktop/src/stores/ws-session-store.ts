@@ -125,8 +125,8 @@ function reinitOnReconnect(get: WsStoreGet, sessionId: string): void {
     createSessionInit({
       cwd: session.cwd,
       featureId: session.featureId,
-      provider: session.currentProviderId || undefined,
-      model: session.currentModelId || undefined,
+      provider: session.currentSelection?.providerId || undefined,
+      model: session.currentSelection?.modelId || undefined,
       thinkingEffort: session.currentThinkingEffort,
       permissionMode: session.permissionMode,
     }),

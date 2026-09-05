@@ -124,8 +124,7 @@ describe("UnifiedAgentCard ws-session hydration", () => {
     // from `session-status-store`; this seed is overwritten the moment
     // WS turn events arrive.
     expect(session?.lifecycle).toEqual({ phase: "active" });
-    expect(session?.currentModelId).toBe("model-a");
-    expect(session?.currentProviderId).toBe("codex_cli");
+    expect(session?.currentSelection).toEqual({ providerId: "codex_cli", modelId: "model-a" });
   });
 
   it("does not overwrite live WS state when the session is already loaded", () => {
@@ -154,7 +153,7 @@ describe("UnifiedAgentCard ws-session hydration", () => {
           persistedLoaded: true,
           pendingPermission: livePermission,
           pendingRequestId: "live-1",
-          currentModelId: "live-model",
+          currentSelection: { providerId: "claude_code", modelId: "live-model" },
           hasFileChanges: false,
         },
       },
@@ -189,7 +188,10 @@ describe("UnifiedAgentCard ws-session hydration", () => {
     expect(session?.pendingPermission).toBe(livePermission);
     expect(session?.pendingRequestId).toBe("live-1");
     expect(session?.lifecycle).toEqual({ phase: "active" });
-    expect(session?.currentModelId).toBe("live-model");
+    expect(session?.currentSelection).toEqual({
+      providerId: "claude_code",
+      modelId: "live-model",
+    });
     expect(session?.hasFileChanges).toBe(false);
   });
 });

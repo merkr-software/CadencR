@@ -36,6 +36,7 @@ export interface UseModelSelectorStateParams {
 export interface UseModelSelectorStateResult {
   isLoading: boolean;
   hasCatalogError: boolean;
+  hasSelectionError: boolean;
   rows: ModelSelectorRowState[];
 }
 

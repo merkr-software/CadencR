@@ -87,7 +87,7 @@ export interface WsSessionStore {
   consumeForkNavigation: (sessionId: string) => void;
   compactSession: (sessionId: string) => void;
   deleteSession: (sessionId: string) => void;
-  setProvider: (sessionId: string, providerId: string) => void;
+  setProvider: (sessionId: string, providerId: string, modelId?: string) => void;
   setModel: (sessionId: string, modelId: string, providerId: string) => void;
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;
   setFastMode: (sessionId: string, enabled: boolean) => Promise<void>;

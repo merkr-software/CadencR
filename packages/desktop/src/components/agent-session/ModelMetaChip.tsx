@@ -15,8 +15,8 @@ import {
   thinkingEffortLabel,
   type ThinkingEffortLevel,
 } from "@/shared/thinking-effort";
+import type { RuntimeSelection } from "@/shared/models";
 import { ShortcutTooltip } from "../ShortcutTooltip";
-import type { ModelSelectionStatus } from "./useAgentSessionModelState";
 
 export type Model = RuntimeModelPickerModel;
 export type Provider = RuntimeModelPickerProvider;
@@ -24,6 +24,17 @@ export type Provider = RuntimeModelPickerProvider;
 const MODEL_GROUP =
   "inline-flex h-8 items-stretch rounded-md border border-[var(--chip-violet-fg)]/15 bg-[var(--chip-violet-bg)]/12 text-[11px] font-medium text-[var(--chip-violet-soft)] shadow-sm";
 const MODEL_SEGMENT = "inline-flex h-full items-center gap-1.5 px-2.5 transition-colors";
+const LOADING_CATALOG_LABEL = "Loading model catalog";
+
+function modelLabelFor(
+  selection: RuntimeSelection,
+  pickerProviders: RuntimeModelPickerProvider[],
+): string {
+  const models =
+    pickerProviders.find((provider) => provider.id === selection.providerId)?.models ?? [];
+  const resolvedId = resolveProviderModelAlias(selection.providerId, selection.modelId, models);
+  return models.find((model) => model.id === resolvedId)?.label ?? selection.modelId;
+}
 
 // Rem CQ so the label tracks text scale (same idea as GitTabToggle).
 const COMPACT_LABELS = "@max-[40rem]:hidden";
@@ -31,10 +42,12 @@ const COMPACT_LABELS = "@max-[40rem]:hidden";
 interface ModelMetaChipProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  currentProviderId?: string;
-  currentModelId?: string;
-  currentModelLabel: string;
-  modelSelectionStatus?: ModelSelectionStatus;
+  /**
+   * The confirmed runtime pair, or `null` while it is unknown. A single object
+   * so the icon and the label cannot disagree — they now derive from the same
+   * source rather than from two independently-updated props.
+   */
+  selection: RuntimeSelection | null;
   pickerProviders: RuntimeModelPickerProvider[];
   canChangeProvider: boolean;
   onProviderChange?: (providerId: string) => void;
@@ -52,10 +65,7 @@ interface ModelMetaChipProps {
 export function ModelMetaChip({
   open,
   onOpenChange,
-  currentProviderId,
-  currentModelId,
-  currentModelLabel,
-  modelSelectionStatus = "ready",
+  selection,
   pickerProviders,
   canChangeProvider,
   onProviderChange,
@@ -69,13 +79,13 @@ export function ModelMetaChip({
   onFastModeChange,
   onModelSelected,
 }: ModelMetaChipProps): ReactNode {
-  const isModelLoading = modelSelectionStatus !== "ready";
-  const isPickerDisabled = modelSelectionStatus === "catalog-loading";
   const selectedThinkingEffort =
     currentThinkingEffort && supportedThinkingEfforts.includes(currentThinkingEffort)
       ? currentThinkingEffort
       : undefined;
   const displayedThinkingEffort = selectedThinkingEffort ?? supportedThinkingEfforts[0];
+  const isLoading = selection === null;
+  const modelLabel = selection ? modelLabelFor(selection, pickerProviders) : "";
 
   const handleThinkingEffortCycle = (): void => {
     if (!supportedThinkingEfforts.length || !onThinkingEffortChange) return;
@@ -90,35 +100,34 @@ export function ModelMetaChip({
             open={open}
             onOpenChange={onOpenChange}
             providers={pickerProviders}
-            selectedProviderId={currentProviderId}
-            selectedModelId={currentModelId}
+            selectedProviderId={selection?.providerId}
+            selectedModelId={selection?.modelId}
             resolveSelectedModelId={resolveProviderModelAlias}
             onAfterSelectClose={onModelSelected}
             onSelect={(providerId, modelId) => {
-              if (canChangeProvider && onProviderChange && providerId !== currentProviderId) {
+              if (canChangeProvider && onProviderChange && providerId !== selection?.providerId) {
                 onProviderChange(providerId);
               }
               onModelChange(providerId, modelId);
             }}
             trigger={
               <ModelButton
-                currentProviderId={currentProviderId}
-                currentModelLabel={currentModelLabel}
-                isModelLoading={isModelLoading}
-                disabled={isPickerDisabled}
+                providerId={selection?.providerId}
+                modelLabel={modelLabel}
+                isLoading={isLoading}
               />
             }
           />
         </ShortcutTooltip>
       ) : (
-        <ShortcutTooltip label={`Model: ${currentModelLabel}`}>
-          <div className={cn(MODEL_SEGMENT, "min-w-0 rounded-md")} aria-busy={isModelLoading}>
-            <ModelIcon
-              providerId={currentProviderId}
-              label={currentModelLabel}
-              loading={isModelLoading}
-            />
-            <SlidingText text={currentModelLabel} className="max-w-[160px]" />
+        <ShortcutTooltip label={`Model: ${modelLabel}`}>
+          <div
+            className={cn(MODEL_SEGMENT, "min-w-0 rounded-md")}
+            aria-busy={isLoading}
+            aria-label={isLoading ? LOADING_CATALOG_LABEL : undefined}
+          >
+            <ModelIcon providerId={selection?.providerId} label={modelLabel} loading={isLoading} />
+            <SlidingText text={modelLabel} className="max-w-[160px]" />
           </div>
         </ShortcutTooltip>
       )}
@@ -144,13 +153,13 @@ export function ModelMetaChip({
 }
 
 interface ModelButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  currentProviderId?: string;
-  currentModelLabel: string;
-  isModelLoading?: boolean;
+  providerId?: string;
+  modelLabel: string;
+  isLoading?: boolean;
 }
 
 const ModelButton = forwardRef<HTMLButtonElement, ModelButtonProps>(function ModelButton(
-  { currentProviderId, currentModelLabel, isModelLoading, className, ...buttonProps },
+  { providerId, modelLabel, isLoading, className, ...buttonProps },
   ref,
 ): ReactNode {
   return (
@@ -158,21 +167,17 @@ const ModelButton = forwardRef<HTMLButtonElement, ModelButtonProps>(function Mod
       {...buttonProps}
       ref={ref}
       type="button"
-      aria-label={isModelLoading ? "Loading model" : undefined}
-      aria-busy={isModelLoading}
+      aria-label={isLoading ? LOADING_CATALOG_LABEL : undefined}
+      disabled={isLoading}
       className={cn(
         MODEL_SEGMENT,
         "min-w-0 rounded-l-md hover:bg-[var(--chip-violet-bg)]/16 disabled:cursor-wait disabled:opacity-80",
         className,
       )}
     >
-      <ModelIcon
-        providerId={currentProviderId}
-        label={currentModelLabel}
-        loading={isModelLoading}
-      />
-      <SlidingText text={currentModelLabel} className="max-w-[160px]" />
-      {!isModelLoading && <ChevronDownIcon className="size-3 shrink-0" />}
+      <ModelIcon providerId={providerId} label={modelLabel} loading={isLoading} />
+      <SlidingText text={modelLabel} className="max-w-[160px]" />
+      {!isLoading && <ChevronDownIcon className="size-3 shrink-0" />}
     </button>
   );
 });

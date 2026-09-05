@@ -23,8 +23,6 @@ export interface AgentSessionComposerProps {
   autoScrollEnabled: boolean;
   showWorktreeChip: boolean;
   activeProviderId: string;
-  currentModelLabel: string;
-  modelSelectionStatus: AgentSessionMetaProps["modelSelectionStatus"];
   models: AgentSessionMetaProps["models"];
   providers: AgentSessionMetaProps["providers"];
   canChangeProvider: boolean;
@@ -41,7 +39,6 @@ export interface AgentSessionComposerProps {
   claudeProfiles: AgentSessionMetaProps["claudeProfiles"];
   claudeProfilesLoading: boolean;
   claudeProfilesError: boolean;
-  activeClaudeProfile: string;
   onClaudeProfileChange: (profile: string) => void;
 }
 
@@ -145,7 +142,6 @@ function AgentSessionMeta(
       worktreeSelectedBranch={session.worktreeSelectedBranch}
       onWorktreeBranchChange={session.onWorktreeBranchChange}
       onProviderChange={session.onProviderChange}
-      currentProviderId={props.activeProviderId}
       onModelChange={session.onModelChange}
       currentThinkingEffort={parseThinkingEffort(session.currentThinkingEffort)}
       supportedThinkingEfforts={props.supportedThinkingEfforts}
@@ -159,17 +155,13 @@ function AgentSessionMeta(
       claudeProfiles={props.claudeProfiles}
       claudeProfilesLoading={props.claudeProfilesLoading}
       claudeProfilesError={props.claudeProfilesError}
-      activeClaudeProfile={props.activeClaudeProfile}
       onClaudeProfileChange={props.onClaudeProfileChange}
       showReadOnlyModel={session.showReadOnlyModel}
-      currentModelId={session.currentModelId}
-      currentModelLabel={props.currentModelLabel}
-      modelSelectionStatus={props.modelSelectionStatus}
+      currentSelection={session.selection ?? null}
       models={props.models}
       providers={props.providers}
       canChangeProvider={props.canChangeProvider}
       todos={session.todos}
-      runtimeProvider={session.runtimeProvider}
       runtimeSessionId={session.runtimeSessionId}
       featureId={session.featureId}
       wsSessionId={session.wsSessionId}
@@ -286,7 +278,6 @@ function AgentSessionSecondary(props: AgentSessionComposerProps): ReactElement {
       claudeProfiles={props.claudeProfiles}
       claudeProfilesLoading={props.claudeProfilesLoading}
       claudeProfilesError={props.claudeProfilesError}
-      activeClaudeProfile={props.activeClaudeProfile}
       onClaudeProfileChange={props.onClaudeProfileChange}
     />
   );

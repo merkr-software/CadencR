@@ -4,6 +4,95 @@
 use super::support::*;
 
 #[tokio::test]
+async fn test_init_persists_resolved_pair_before_reconnect() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    sqlx::query(
+        "INSERT INTO agent_sessions (feature_id, agent_type, status, model) VALUES (1, 'session', 'paused', 'stale-provider-model')",
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+
+    let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+    let db_id: i64 = session_id.parse().unwrap();
+    let selection = {
+        let sessions = sdk_sessions.lock().await;
+        let handle = sessions.get(&db_id).unwrap();
+        (
+            handle.runtime_provider.clone(),
+            handle.desired_model.clone(),
+        )
+    };
+    assert!(selection.1.is_some());
+    assert_ne!(selection.1.as_deref(), Some("stale-provider-model"));
+    let stored: (String, Option<String>) =
+        sqlx::query_as("SELECT runtime_provider, model FROM agent_sessions WHERE id = ?")
+            .bind(db_id)
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, selection);
+
+    // A fresh connection must restore exactly the pair acknowledged at init,
+    // even though no prompt has run to persist an SDK model event yet.
+    let (reconnect_tx, mut reconnect_rx) = mpsc::unbounded_channel();
+    let reconnected: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let restored_id = init_session(
+        &reconnect_tx,
+        &mut reconnect_rx,
+        &reconnected,
+        &app_state,
+        1,
+    )
+    .await;
+    assert_eq!(restored_id, session_id);
+    let sessions = reconnected.lock().await;
+    let handle = sessions.get(&db_id).unwrap();
+    assert_eq!(handle.runtime_provider, selection.0);
+    assert_eq!(handle.desired_model, selection.1);
+}
+
+#[tokio::test]
+async fn test_init_selection_write_failure_does_not_initialize_live_session() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    sqlx::query(
+        "CREATE TRIGGER reject_runtime_selection BEFORE UPDATE OF runtime_provider ON agent_sessions BEGIN SELECT RAISE(FAIL, 'selection write rejected'); END",
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+    let envelope = make_envelope(
+        "session",
+        "init",
+        serde_json::json!({
+            "cwd": "/tmp/test",
+            "feature_id": 1,
+            "provider": "claude_code",
+            "model": "sonnet",
+        }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let Message::Text(text) = rx.recv().await.unwrap() else {
+        panic!("expected error envelope");
+    };
+    let response: WsEnvelope = serde_json::from_str(&text).unwrap();
+    assert_eq!(response.action, "error");
+    assert_eq!(response.payload["code"], "DB_ERROR");
+    assert!(sdk_sessions.lock().await.is_empty());
+    let provider: Option<String> =
+        sqlx::query_scalar("SELECT runtime_provider FROM agent_sessions WHERE feature_id = 1")
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert!(provider.is_none());
+}
+
+#[tokio::test]
 async fn test_init_creates_session_with_no_resume_for_new_feature() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));

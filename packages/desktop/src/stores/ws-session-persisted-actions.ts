@@ -67,20 +67,15 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     decodedQuestion,
     restoredRequestId,
   } = options;
-  const resolvedProviderId = payload.currentProviderId ?? payload.runtimeProvider ?? undefined;
-  const resolvedRuntimeProvider = payload.runtimeProvider ?? payload.currentProviderId ?? undefined;
+  // Race guard: a live WS `initialized` envelope can confirm the selection
+  // before this REST snapshot resolves; once a serverSessionId is set, the
+  // live value is always fresher, so a stale snapshot must never clobber it.
   const canHydrateSelection = !existing?.serverSessionId;
-  const hasSelectionSnapshot =
-    payload.currentProviderId !== undefined ||
-    payload.runtimeProvider !== undefined ||
-    payload.currentModelId !== undefined;
-  const selectionPatch: Partial<SessionEntry> =
-    canHydrateSelection && hasSelectionSnapshot
-      ? {
-          currentProviderId: resolvedProviderId ?? "",
-          currentModelId: payload.currentModelId ?? "",
-        }
-      : {};
+  const resolvedSelection = payload.currentSelection
+    ? payload.currentSelection
+    : payload.currentProviderId && payload.currentModelId
+      ? { providerId: payload.currentProviderId, modelId: payload.currentModelId }
+      : undefined;
   return {
     persistedLoaded: true,
     historyPrependDisplayOffset: 0,
@@ -91,13 +86,10 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     sessionDbId: payload.sessionDbId ?? null,
     lifecycle:
       shouldPreservePromptLifecycle && existing ? existing.lifecycle : lifecycleWithPendingGate,
-    ...selectionPatch,
+    ...(canHydrateSelection && resolvedSelection ? { currentSelection: resolvedSelection } : {}),
     ...(payload.currentProfile ? { currentProfile: payload.currentProfile } : {}),
     ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
     ...(payload.accessMode ? { accessMode: parseAccessMode(payload.accessMode) } : {}),
-    ...(canHydrateSelection && resolvedRuntimeProvider
-      ? { runtimeProvider: resolvedRuntimeProvider }
-      : {}),
     ...(payload.runtimeSessionId ? { runtimeSessionId: payload.runtimeSessionId } : {}),
     ...(payload.contextUsage !== undefined ? { contextUsage: payload.contextUsage } : {}),
     ...(payload.hasFileChanges !== undefined ? { hasFileChanges: payload.hasFileChanges } : {}),

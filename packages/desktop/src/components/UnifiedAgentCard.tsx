@@ -232,10 +232,15 @@ function buildUnifiedSessionPatch(
     sessionDbId: entry.session.sessionDbId,
     ...(permissionMode ? { permissionMode } : {}),
     accessMode: parseAccessMode(entry.session.accessMode),
-    ...(entry.session.runtimeProvider ? { currentProviderId: entry.session.runtimeProvider } : {}),
-    ...(entry.session.model ? { currentModelId: entry.session.model } : {}),
+    ...(entry.session.runtimeProvider && entry.session.model
+      ? {
+          currentSelection: {
+            providerId: entry.session.runtimeProvider,
+            modelId: entry.session.model,
+          },
+        }
+      : {}),
     ...(entry.session.profile ? { currentProfile: entry.session.profile } : {}),
-    ...(entry.session.runtimeProvider ? { runtimeProvider: entry.session.runtimeProvider } : {}),
     ...(entry.session.runtimeSessionId ? { runtimeSessionId: entry.session.runtimeSessionId } : {}),
     ...pendingRequestIdPatch(pendingPermission, pendingQuestions),
   };

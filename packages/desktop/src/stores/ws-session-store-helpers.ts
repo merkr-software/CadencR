@@ -80,7 +80,8 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
   // (`acceptEdits`) to such providers after initialization. An empty provider
   // is kept for older `session.initialized` payloads, where preserving the
   // existing replay behavior is safer than dropping a legitimate selection.
-  if (!session.runtimeProvider || getProviderModes(session.runtimeProvider).length > 0) {
+  const providerId = session.currentSelection?.providerId;
+  if (!providerId || getProviderModes(providerId).length > 0) {
     envelopes.push(createModeSet(session.serverSessionId, session.permissionMode));
   }
   for (const prompt of session.queuedPrompts) {

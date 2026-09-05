@@ -55,13 +55,14 @@ async fn persist_resolved_provider(
     if row.runtime_provider.is_some() {
         return Ok(());
     }
-    crate::domain::ws_session::persistence::WsSessionPersistence::update_runtime_provider_static(
-        &app_state.write_pool,
-        row.id,
-        provider,
-        false,
-    )
-    .await?;
+    crate::domain::ws_session::persistence::WsSessionPersistence::update_runtime_selection_static()
+        .pool(&app_state.write_pool)
+        .session_id(row.id)
+        .runtime_provider(provider)
+        .maybe_model(row.model.as_deref())
+        .clear_thinking_effort(false)
+        .call()
+        .await?;
     Ok(())
 }
 

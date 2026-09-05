@@ -1,10 +1,6 @@
-import { forwardRef, useImperativeHandle, useMemo, useState } from "react";
-import { cn } from "@/lib/utils";
+import type { SessionConfigControls } from "./types";
+import { forwardRef, useState } from "react";
 import { AgentTodoList } from "../AgentTodoList";
-import { AutoScrollChip } from "./AutoScrollChip";
-import { PermissionModeChip } from "./PermissionModeChip";
-import { SessionInfoChip } from "./SessionInfoChip";
-import { WorktreeChip } from "./WorktreeChip";
 import type { WorktreeMode } from "@/lib/worktree-mode";
 import type { TodoItem } from "@/types/agent";
 import type { ThinkingEffortLevel } from "@/shared/thinking-effort";
@@ -15,15 +11,22 @@ import type {
   RuntimeProviderModeOption,
 } from "@/api/agentRuntime";
 import type { ClaudeCodeProfile } from "@/api/agentRuntime";
+import type { RuntimeSelection } from "@/shared/models";
 import { ModelMetaChip, type Model, type Provider } from "./ModelMetaChip";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
-import { AccessModePopover } from "./AccessModePopover";
-import { ClaudeProfileCombobox } from "./ClaudeProfileCombobox";
-import type { ModelSelectionStatus } from "./useAgentSessionModelState";
-import { SessionConfigPopover, shouldShowSessionConfig } from "./SessionConfigPopover";
-import type { SessionConfigControls } from "./types";
+import {
+  MetaBarLeadingChips,
+  MetaBarTrailingGroup,
+  useMetaBarDerivedState,
+} from "./meta-bar-sections";
+import {
+  useMetaBarInput,
+  useMetaBarForwardRef,
+  useMetaBarContainerClassName,
+} from "./meta-bar-context";
 
 export interface MetaBarProps {
+  sessionConfigControls?: SessionConfigControls;
   showAutoScrollChip: boolean;
   autoScrollEnabled: boolean;
   onToggleAutoScroll: () => void;
@@ -57,7 +60,6 @@ export interface MetaBarProps {
   worktreeSelectedBranch?: string | null;
   onWorktreeBranchChange?: (next: string | null) => void;
   onProviderChange?: (providerId: string) => void;
-  currentProviderId?: string;
   /**
    * Called when the user picks a model from the inline picker. The picker
    * always knows both the provider and the model the user just chose, so we
@@ -78,17 +80,14 @@ export interface MetaBarProps {
   claudeProfiles?: ClaudeCodeProfile[];
   claudeProfilesLoading?: boolean;
   claudeProfilesError?: boolean;
-  activeClaudeProfile?: string;
   onClaudeProfileChange?: (profile: string) => void;
   showReadOnlyModel?: boolean;
-  currentModelId?: string;
-  currentModelLabel: string;
-  modelSelectionStatus?: ModelSelectionStatus;
+  /** The confirmed runtime pair, or `null` while it is unknown (loading state). */
+  currentSelection: RuntimeSelection | null;
   models: Model[];
   providers?: Provider[];
   canChangeProvider?: boolean;
   todos?: TodoItem[] | null;
-  runtimeProvider?: string;
   runtimeSessionId?: string;
   /** Feature (conversation) id — enables the Info chip's "Sync from CLI" button. */
   featureId?: number;
@@ -98,11 +97,9 @@ export interface MetaBarProps {
   isRunning?: boolean;
   onPause?: () => void;
   onModelSelected?: () => void;
-  sessionConfigControls?: SessionConfigControls;
   /**
-   * Vertical density. `"session"` (default) is the roomier row that hangs under
-   * the agent stream; `"standalone"` tightens it for a container that already
-   * frames the bar — a bordered card, or a schedule banner sitting right above.
+   * Layout variant. Only the vertical padding differs: `"standalone"` tightens
+   * it so the bar can sit on its own inside a bordered container.
    */
   variant?: "session" | "standalone";
   /**
@@ -118,199 +115,91 @@ export interface MetaBarHandle {
   openModelPicker: () => void;
 }
 
-function useMetaBarState(props: MetaBarProps, ref: React.ForwardedRef<MetaBarHandle>) {
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
-  const displayProviderId = props.currentProviderId || props.runtimeProvider;
-  const isSelectionPending = (props.modelSelectionStatus ?? "ready") !== "ready";
-  useImperativeHandle(ref, () => ({ openModelPicker: () => setModelPickerOpen(true) }), []);
-  const pickerProviders = useMemo(() => {
-    if (props.providers && props.providers.length > 0) {
-      return props.providers.map((provider) => ({
-        id: provider.id,
-        label: provider.label,
-        disabled: !!provider.disabled,
-        models: provider.models,
-      }));
-    }
-    if (!displayProviderId) return [];
-    return [
-      {
-        id: displayProviderId,
-        label: displayProviderId,
-        disabled: false,
-        models: props.models,
-      },
-    ];
-  }, [displayProviderId, props.models, props.providers]);
-  return useMemo(
-    () => ({
-      displayProviderId,
-      isSelectionPending,
-      modelPickerOpen,
-      pickerProviders,
-      setModelPickerOpen,
-    }),
-    [displayProviderId, isSelectionPending, modelPickerOpen, pickerProviders],
-  );
-}
-
-type MetaBarState = ReturnType<typeof useMetaBarState>;
-
 export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(props, ref) {
-  const state = useMetaBarState(props, ref);
-  // No fade and no overhang of its own: the transcript dissolves at its own
-  // bottom edge (`STREAM_DISSOLVE_STYLE`), so this row always sits on plain page.
-  return (
-    <div
-      className={cn(
-        // `@container`: Fast mode drops its text label by this bar's width,
-        // not the window — the agent pane is often a narrow side column.
-        "@container flex items-center gap-1.5 px-3",
-        props.variant === "standalone" ? "py-2" : "py-3",
-      )}
-    >
-      <MetaBarPrimary props={props} state={state} />
-      <MetaBarTrailing props={props} state={state} />
-    </div>
-  );
-});
+  const input = useMetaBarInput(props);
+  const [internalModelPickerOpen, setInternalModelPickerOpen] = useState(false);
+  const displayProviderId = input.currentSelection?.providerId;
 
-function MetaBarPrimary({ props, state }: { props: MetaBarProps; state: MetaBarState }) {
-  const showModel = !!props.onModelChange || props.showReadOnlyModel;
+  useMetaBarForwardRef(ref, setInternalModelPickerOpen);
+  const containerClassName = useMetaBarContainerClassName(props.variant ?? "session");
+
+  const {
+    pickerProviders,
+    displayMode,
+    shouldShowModel,
+    hasAccessMode,
+    hasProfileSelector,
+    hasTrailingGroup,
+  } = useMetaBarDerivedState(props, displayProviderId);
+
   return (
-    <>
-      {props.showAutoScrollChip && !props.secondaryBelow && (
-        <AutoScrollChip enabled={props.autoScrollEnabled} onToggle={props.onToggleAutoScroll} />
-      )}
-      {/* Hidden mid-selection, as it was inline: the provider is about to change
-          and with it which modes exist. */}
-      {!state.isSelectionPending && (
-        <PermissionModeChip
-          providerId={state.displayProviderId}
-          permissionMode={props.permissionMode}
-          enabledOptInModes={props.enabledOptInModes}
-          providerModes={props.providerModes}
-          onToggle={props.onPermissionModeToggle}
-        />
-      )}
-      {props.showWorktreeChip && !props.secondaryBelow && (
-        <WorktreeChip
-          worktreeProjectId={props.worktreeProjectId}
-          worktreeDefaultBranch={props.worktreeDefaultBranch}
-          worktreeProjectPath={props.worktreeProjectPath}
-          worktreeMode={props.worktreeMode}
-          onWorktreeModeChange={props.onWorktreeModeChange}
-          worktreeSelectedBranch={props.worktreeSelectedBranch}
-          onWorktreeBranchChange={props.onWorktreeBranchChange}
-        />
-      )}
-      {showModel && (
+    <div className={containerClassName}>
+      <MetaBarLeadingChips
+        showAutoScrollChip={input.showAutoScrollChip}
+        secondaryBelow={input.secondaryBelow}
+        autoScrollEnabled={input.autoScrollEnabled}
+        onToggleAutoScroll={input.onToggleAutoScroll}
+        displayMode={displayMode}
+        onPermissionModeToggle={props.onPermissionModeToggle}
+        showWorktreeChip={input.showWorktreeChip}
+        worktreeProjectId={input.worktreeProjectId}
+        worktreeDefaultBranch={input.worktreeDefaultBranch}
+        worktreeProjectPath={input.worktreeProjectPath}
+        worktreeMode={input.worktreeMode}
+        onWorktreeModeChange={input.onWorktreeModeChange}
+        worktreeSelectedBranch={input.worktreeSelectedBranch}
+        onWorktreeBranchChange={input.onWorktreeBranchChange}
+      />
+
+      {shouldShowModel && (
         <ModelMetaChip
-          open={state.modelPickerOpen}
-          onOpenChange={state.setModelPickerOpen}
-          currentProviderId={state.displayProviderId}
-          currentModelId={props.currentModelId}
-          currentModelLabel={props.currentModelLabel}
-          modelSelectionStatus={props.modelSelectionStatus}
-          pickerProviders={state.pickerProviders}
-          canChangeProvider={props.canChangeProvider ?? false}
-          onProviderChange={props.onProviderChange}
-          onModelChange={props.onModelChange}
-          currentThinkingEffort={props.currentThinkingEffort}
-          supportedThinkingEfforts={props.supportedThinkingEfforts ?? []}
-          onThinkingEffortChange={props.onThinkingEffortChange}
+          open={internalModelPickerOpen}
+          onOpenChange={setInternalModelPickerOpen}
+          selection={input.currentSelection}
+          pickerProviders={pickerProviders}
+          canChangeProvider={input.canChangeProvider}
+          onProviderChange={input.onProviderChange}
+          onModelChange={input.onModelChange}
+          currentThinkingEffort={input.currentThinkingEffort}
+          supportedThinkingEfforts={input.supportedThinkingEfforts}
+          onThinkingEffortChange={input.onThinkingEffortChange}
           supportsFastMode={props.supportsFastMode ?? false}
           fastMode={props.fastMode ?? false}
           isFastModePending={props.isFastModePending ?? false}
           onFastModeChange={props.onFastModeChange}
-          onModelSelected={props.onModelSelected}
+          onModelSelected={input.onModelSelected}
         />
       )}
-      {!props.secondaryBelow && props.todos && props.todos.length > 0 && (
-        <AgentTodoList todos={props.todos} chipClass={META_BAR_CHIP} />
-      )}
-    </>
-  );
-}
 
-function MetaBarTrailing({ props, state }: { props: MetaBarProps; state: MetaBarState }) {
-  const hasProfile =
-    !state.isSelectionPending &&
-    props.showClaudeProfileSelector &&
-    !!props.claudeProfile &&
-    !!props.onClaudeProfileChange;
-  const hasAccess =
-    !state.isSelectionPending &&
-    !!props.accessMode &&
-    !!props.onAccessModeChange &&
-    (props.providerAccessModes?.length ?? 0) > 0;
-  const hasSession = !props.secondaryBelow && !!props.runtimeSessionId && !!props.onPause;
-  const configControls = props.sessionConfigControls;
-  const hasConfig =
-    configControls != null &&
-    shouldShowSessionConfig(
-      configControls.config,
-      configControls.loading,
-      configControls.supported,
-      configControls.error,
-    );
-  if (!hasProfile && !hasAccess && !hasSession && !hasConfig) return null;
-  return (
-    <div className="ml-auto flex items-center gap-1.5">
-      {hasProfile && props.claudeProfile && props.onClaudeProfileChange && (
-        <ClaudeProfileCombobox
-          value={props.claudeProfile}
-          profiles={props.claudeProfiles ?? []}
-          isLoading={props.claudeProfilesLoading ?? false}
-          isError={props.claudeProfilesError ?? false}
-          activeProfile={props.activeClaudeProfile}
-          onChange={props.onClaudeProfileChange}
-          variant="compact"
-          label="Profile"
-        />
+      {!input.secondaryBelow && input.todos && input.todos.length > 0 && (
+        <AgentTodoList todos={input.todos} chipClass={META_BAR_CHIP} />
       )}
-      {hasAccess &&
-        props.accessMode &&
-        props.onAccessModeChange &&
-        (props.providerAccessModes?.length ?? 0) > 0 && (
-          <AccessModePopover
-            mode={props.accessMode}
-            selectedMode={props.accessModeDefault}
-            isPending={props.isAccessModePending ?? false}
-            onChange={props.onAccessModeChange}
-            providerId={state.displayProviderId}
-            options={props.providerAccessModes ?? []}
-          />
-        )}
-      {hasConfig && configControls ? (
-        <SessionConfigPopover
-          config={configControls.config}
-          loading={configControls.loading}
-          supported={configControls.supported}
-          error={configControls.error}
-          pendingId={configControls.pendingId}
-          onRefresh={configControls.onRefresh}
-          onChange={configControls.onChange}
-        />
-      ) : null}
-      {hasSession && props.runtimeSessionId && props.onPause && (
-        <SessionInfoChip
-          runtimeProvider={props.runtimeProvider}
-          runtimeSessionId={props.runtimeSessionId}
-          featureId={props.featureId}
-          wsSessionId={props.wsSessionId}
-          projectPath={props.projectPath}
-          isRunning={props.isRunning ?? false}
-          onPause={props.onPause}
-          chipClass={META_BAR_CHIP}
-          claudeProfile={props.claudeProfile}
-          claudeProfiles={props.claudeProfiles ?? []}
-          claudeProfilesLoading={props.claudeProfilesLoading ?? false}
-          claudeProfilesError={props.claudeProfilesError ?? false}
-          activeClaudeProfile={props.activeClaudeProfile}
-          onClaudeProfileChange={props.onClaudeProfileChange}
+
+      {hasTrailingGroup && (
+        <MetaBarTrailingGroup
+          sessionConfigControls={props.sessionConfigControls}
+          hasProfileSelector={hasProfileSelector}
+          hasAccessMode={hasAccessMode}
+          secondaryBelow={input.secondaryBelow}
+          claudeProfile={input.claudeProfile}
+          claudeProfiles={input.claudeProfiles}
+          claudeProfilesLoading={input.claudeProfilesLoading}
+          claudeProfilesError={input.claudeProfilesError}
+          onClaudeProfileChange={input.onClaudeProfileChange}
+          accessMode={props.accessMode}
+          accessModeDefault={input.accessModeDefault}
+          isAccessModePending={input.isAccessModePending}
+          onAccessModeChange={input.onAccessModeChange}
+          displayProviderId={displayProviderId}
+          providerAccessModes={input.providerAccessModes}
+          runtimeSessionId={input.runtimeSessionId}
+          featureId={input.featureId}
+          wsSessionId={input.wsSessionId}
+          projectPath={input.projectPath}
+          isRunning={input.isRunning}
+          onPause={input.onPause}
         />
       )}
     </div>
   );
-}
+});

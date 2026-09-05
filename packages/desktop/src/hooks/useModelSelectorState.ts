@@ -1,34 +1,31 @@
-import { useMemo } from "react";
+import { useEffect } from "react";
 import { toast } from "sonner";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   AGENT_TYPES,
   availableCatalogProviders,
   DEFAULT_PROVIDER,
-  resolveRuntimeSelection,
   type AgentTypeSetting,
-  type RuntimeSelection,
 } from "@/shared/models";
 import {
   useAgentCatalog,
-  useGetFeatureProviderSettings,
-  useGetProjectProviderSettings,
-  useGetWorkspaceProviderSettings,
   useSetFeatureProviderSetting,
   useSetProjectProviderSetting,
   useSetWorkspaceProviderSetting,
 } from "@/api/agentRuntime";
 import {
+  getGetAgentSelectionQueryKey,
   getGetFeatureModelSettingsQueryKey,
   getGetProjectModelSettingsQueryKey,
   getGetWorkspaceModelSettingsQueryKey,
-  useGetFeatureModelSettings,
-  useGetProjectModelSettings,
-  useGetWorkspaceModelSettings,
   useSetFeatureModelSetting,
   useSetProjectModelSetting,
   useSetWorkspaceModelSetting,
+  type ResolvedSelection,
+  type SelectionOrigin,
 } from "@/api/generated";
+import { useResolvedSelection } from "@/api/agentSelection";
+import { toastError } from "@/lib/api-errors";
 import type { ModelSelectorRowProvider } from "@/components/ModelSelectorRow";
 import {
   getModelDescription,
@@ -41,73 +38,51 @@ import {
   type ModelSelectorLevel,
   type ModelSelectorRowState,
 } from "@/hooks/modelSelectorShared";
-function useModelSelectorQueries(params: UseModelSelectorStateParams) {
-  const { level, projectId, featureId } = params;
-  const agentCatalog = useAgentCatalog();
-  const globalSettings = useGetWorkspaceModelSettings({ query: { enabled: level === "global" } });
-  const projectSettings = useGetProjectModelSettings(projectId ?? 0, {
-    query: { enabled: level === "project" && projectId != null },
-  });
-  const featureSettings = useGetFeatureModelSettings(featureId ?? 0, {
-    query: { enabled: level === "feature" && featureId != null },
-  });
-  const parentGlobalSettings = useGetWorkspaceModelSettings({
-    query: { enabled: level !== "global" },
-  });
-  const parentProjectSettings = useGetProjectModelSettings(projectId ?? 0, {
-    query: { enabled: level === "feature" && projectId != null },
-  });
-  const globalProviderSettings = useGetWorkspaceProviderSettings(level === "global");
-  const projectProviderSettings = useGetProjectProviderSettings(
-    projectId ?? 0,
-    level === "project" && projectId != null,
-  );
-  const featureProviderSettings = useGetFeatureProviderSettings(
-    featureId ?? 0,
-    level === "feature" && featureId != null,
-  );
-  const parentGlobalProviderSettings = useGetWorkspaceProviderSettings(level !== "global");
-  const parentProjectProviderSettings = useGetProjectProviderSettings(
-    projectId ?? 0,
-    level === "feature" && projectId != null,
-  );
-  const providers = useMemo<ModelSelectorRowProvider[]>(
-    () =>
-      availableCatalogProviders(agentCatalog.data?.providers).map((provider) => ({
-        id: provider.id,
-        label: provider.label,
-        disabled: false,
-        status: provider.status,
-        statusMessage: provider.status_message,
-        models: provider.models,
-      })),
-    [agentCatalog.data],
-  );
-  return {
-    agentCatalog,
-    featureProviderSettings,
-    featureSettings,
-    globalProviderSettings,
-    globalSettings,
-    parentGlobalProviderSettings,
-    parentGlobalSettings,
-    parentProjectProviderSettings,
-    parentProjectSettings,
-    projectProviderSettings,
-    projectSettings,
-    providers,
-  };
+
+type AgentCatalogQuery = ReturnType<typeof useAgentCatalog>;
+
+/**
+ * Maps a resolved origin to the badge shown for a row. `level === "global"` has
+ * no parent to inherit from, so it always reads as the workspace default.
+ */
+export function stateLabelFor(
+  level: ModelSelectorLevel,
+  origin: SelectionOrigin,
+): "Default" | "Override" | "Inherited" {
+  if (level === "global") return "Default";
+  return origin === level ? "Override" : "Inherited";
 }
 
-type ModelSelectorQueries = ReturnType<typeof useModelSelectorQueries>;
+/** The raw value (explicit setting or the inherit sentinel) for the no-op mutation guard. */
+function currentRawValue(
+  level: ModelSelectorLevel,
+  origin: SelectionOrigin | undefined,
+  resolvedValue: string,
+): string {
+  if (level === "global") return resolvedValue;
+  return origin === level ? resolvedValue : INHERIT_VALUE;
+}
 
-function useModelSelectorMutations(params: UseModelSelectorStateParams) {
-  const { projectId, featureId } = params;
-  const queryClient = useQueryClient();
+function defaultModelForProviderId(agentCatalog: AgentCatalogQuery, providerId: string): string {
+  // An absent catalog default means "no selection yet" (empty string) — never
+  // a hardcoded model id from a foreign provider.
+  return agentCatalog.data?.providers.find((p) => p.id === providerId)?.default_model ?? "";
+}
+
+function useSelectorMutations(
+  queryClient: QueryClient,
+  projectId: number | undefined,
+  featureId: number | undefined,
+) {
+  const invalidateSelection = (): void => {
+    void queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() });
+  };
+
   const globalMutation = useSetWorkspaceModelSetting({
     mutation: {
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: getGetWorkspaceModelSettingsQueryKey() });
+        invalidateSelection();
         toast.success("Settings saved");
       },
     },
@@ -118,6 +93,7 @@ function useModelSelectorMutations(params: UseModelSelectorStateParams) {
         void queryClient.invalidateQueries({
           queryKey: getGetProjectModelSettingsQueryKey(projectId ?? 0),
         });
+        invalidateSelection();
         toast.success("Settings saved");
       },
     },
@@ -128,204 +104,256 @@ function useModelSelectorMutations(params: UseModelSelectorStateParams) {
         void queryClient.invalidateQueries({
           queryKey: getGetFeatureModelSettingsQueryKey(featureId ?? 0),
         });
+        invalidateSelection();
         toast.success("Settings saved");
       },
     },
   });
-  const providerCallbacks = {
-    onSuccess: () => toast.success("Settings saved"),
+  const globalProviderMutation = useSetWorkspaceProviderSetting({
+    onSuccess: () => {
+      invalidateSelection();
+      toast.success("Settings saved");
+    },
     onError: () => toast.error("Failed to save provider setting"),
-  };
-  const globalProviderMutation = useSetWorkspaceProviderSetting(providerCallbacks);
-  const projectProviderMutation = useSetProjectProviderSetting(providerCallbacks);
-  const featureProviderMutation = useSetFeatureProviderSetting(providerCallbacks);
+  });
+  const projectProviderMutation = useSetProjectProviderSetting({
+    onSuccess: () => {
+      invalidateSelection();
+      toast.success("Settings saved");
+    },
+    onError: () => toast.error("Failed to save provider setting"),
+  });
+  const featureProviderMutation = useSetFeatureProviderSetting({
+    onSuccess: () => {
+      invalidateSelection();
+      toast.success("Settings saved");
+    },
+    onError: () => toast.error("Failed to save provider setting"),
+  });
+
   return {
-    featureMutation,
-    featureProviderMutation,
     globalMutation,
-    globalProviderMutation,
     projectMutation,
+    featureMutation,
+    globalProviderMutation,
     projectProviderMutation,
+    featureProviderMutation,
   };
 }
 
-type ModelSelectorMutations = ReturnType<typeof useModelSelectorMutations>;
+type SelectorMutations = ReturnType<typeof useSelectorMutations>;
 
-function resolveSelection(
-  agentType: AgentTypeSetting,
-  targetLevel: ModelSelectorLevel,
-  queries: ModelSelectorQueries,
-): RuntimeSelection {
-  return resolveRuntimeSelection({
-    agentType,
-    providers: queries.agentCatalog.data?.providers,
-    defaultProviderId: queries.agentCatalog.data?.default_provider ?? DEFAULT_PROVIDER,
-    globalModels: queries.globalSettings.data ?? queries.parentGlobalSettings.data,
-    globalProviders:
-      queries.globalProviderSettings.data ?? queries.parentGlobalProviderSettings.data,
-    ...(targetLevel !== "global"
-      ? {
-          projectModels: queries.projectSettings.data ?? queries.parentProjectSettings.data,
-          projectProviders:
-            queries.projectProviderSettings.data ?? queries.parentProjectProviderSettings.data,
-        }
-      : {}),
-    ...(targetLevel === "feature"
-      ? {
-          featureModels: queries.featureSettings.data,
-          featureProviders: queries.featureProviderSettings.data,
-        }
-      : {}),
-  });
-}
-
-function currentValues(
-  agentType: AgentTypeSetting,
-  params: UseModelSelectorStateParams,
-  queries: ModelSelectorQueries,
-): { model: string; provider: string } {
-  const { level } = params;
-  const settings =
-    level === "global"
-      ? queries.globalSettings.data
-      : level === "project"
-        ? queries.projectSettings.data
-        : queries.featureSettings.data;
-  const providerSettings =
-    level === "global"
-      ? queries.globalProviderSettings.data
-      : level === "project"
-        ? queries.projectProviderSettings.data
-        : queries.featureProviderSettings.data;
-  const modelValue = (settings as Record<string, string> | undefined)?.[agentType];
-  const providerValue = providerSettings?.[agentType];
-  return {
-    model:
-      level === "global"
-        ? resolveSelection(agentType, "global", queries).modelId
-        : modelValue || INHERIT_VALUE,
-    provider:
-      level === "global"
-        ? resolveSelection(agentType, "global", queries).providerId
-        : providerValue || INHERIT_VALUE,
-  };
-}
-
-function useModelSelectionActions(
-  params: UseModelSelectorStateParams,
-  queries: ModelSelectorQueries,
-  mutations: ModelSelectorMutations,
+function createSelectionActions(
+  level: ModelSelectorLevel,
+  projectId: number | undefined,
+  featureId: number | undefined,
+  agentCatalog: AgentCatalogQuery,
+  selectionFor: (agentType: AgentTypeSetting) => ResolvedSelection | undefined,
+  mutations: SelectorMutations,
 ) {
-  return useMemo(() => {
-    const changeModel = (agentType: AgentTypeSetting, value: string): void => {
-      const modelId = value === INHERIT_VALUE ? "" : value;
-      if (params.level === "global") {
-        mutations.globalMutation.mutate({
-          data: {
-            agent_type: agentType,
-            model_id: modelId || resolveSelection(agentType, "global", queries).modelId,
-          },
-        });
-      } else if (params.level === "project" && params.projectId != null) {
-        mutations.projectMutation.mutate({
-          id: params.projectId,
-          data: { model_type: agentType, model: modelId },
-        });
-      } else if (params.level === "feature" && params.featureId != null) {
-        mutations.featureMutation.mutate({
-          id: params.featureId,
-          data: { model_type: agentType, model: modelId },
-        });
-      }
-    };
-    const changeProvider = (agentType: AgentTypeSetting, value: string): void => {
-      const providerId = value === INHERIT_VALUE ? "" : value;
-      const resolved =
-        providerId || queries.agentCatalog.data?.default_provider || DEFAULT_PROVIDER;
-      const selected = queries.agentCatalog.data?.providers.find(
-        (provider) => provider.id === resolved,
-      );
-      if (providerId && (!selected || selected.status !== "available")) return;
-      if (params.level === "global") {
-        mutations.globalProviderMutation.mutate({ agentType, providerId: resolved });
-      } else if (params.level === "project" && params.projectId != null) {
-        mutations.projectProviderMutation.mutate({
-          projectId: params.projectId,
-          providerType: agentType,
-          provider: providerId,
-        });
-      } else if (params.level === "feature" && params.featureId != null) {
-        mutations.featureProviderMutation.mutate({
-          featureId: params.featureId,
-          providerType: agentType,
-          provider: providerId,
-        });
-      }
-    };
-    return (agentType: AgentTypeSetting, providerValue: string, modelValue: string): void => {
-      const current = currentValues(agentType, params, queries);
-      if (providerValue !== current.provider) changeProvider(agentType, providerValue);
-      if (modelValue !== current.model) changeModel(agentType, modelValue);
-    };
-  }, [mutations, params, queries]);
+  function handleModelChange(agentType: AgentTypeSetting, value: string): void {
+    const modelId = value === INHERIT_VALUE ? "" : value;
+    if (level === "global") {
+      mutations.globalMutation.mutate({
+        data: {
+          agent_type: agentType,
+          model_id:
+            modelId ||
+            selectionFor(agentType)?.model_id ||
+            defaultModelForProviderId(
+              agentCatalog,
+              agentCatalog.data?.default_provider ?? DEFAULT_PROVIDER,
+            ),
+        },
+      });
+      return;
+    }
+    if (level === "project" && projectId != null) {
+      mutations.projectMutation.mutate({
+        id: projectId,
+        data: { model_type: agentType, model: modelId },
+      });
+      return;
+    }
+    if (level === "feature" && featureId != null) {
+      mutations.featureMutation.mutate({
+        id: featureId,
+        data: { model_type: agentType, model: modelId },
+      });
+    }
+  }
+
+  function handleProviderChange(agentType: AgentTypeSetting, value: string): void {
+    const providerId = value === INHERIT_VALUE ? "" : value;
+    const resolvedProviderId =
+      providerId || agentCatalog.data?.default_provider || DEFAULT_PROVIDER;
+    const selectedProvider = agentCatalog.data?.providers.find((p) => p.id === resolvedProviderId);
+    if (providerId !== "" && (!selectedProvider || selectedProvider.status !== "available")) {
+      return;
+    }
+
+    if (level === "global") {
+      mutations.globalProviderMutation.mutate({ agentType, providerId: resolvedProviderId });
+      return;
+    }
+    if (level === "project" && projectId != null) {
+      mutations.projectProviderMutation.mutate({
+        projectId,
+        providerType: agentType,
+        provider: providerId,
+      });
+      return;
+    }
+    if (level === "feature" && featureId != null) {
+      mutations.featureProviderMutation.mutate({
+        featureId,
+        providerType: agentType,
+        provider: providerId,
+      });
+    }
+  }
+
+  function applySelection(
+    agentType: AgentTypeSetting,
+    providerValue: string,
+    modelValue: string,
+  ): void {
+    if (providerValue === INHERIT_VALUE && modelValue === INHERIT_VALUE) {
+      // Resolved origins hide invalid stored overrides, so they cannot prove
+      // that either persisted field is already empty.
+      handleProviderChange(agentType, INHERIT_VALUE);
+      handleModelChange(agentType, INHERIT_VALUE);
+      return;
+    }
+    const resolved = selectionFor(agentType);
+    const providerId =
+      resolved?.provider_id ?? agentCatalog.data?.default_provider ?? DEFAULT_PROVIDER;
+    const modelId = resolved?.model_id ?? defaultModelForProviderId(agentCatalog, providerId);
+    const currentProviderValue = currentRawValue(level, resolved?.provider_origin, providerId);
+    const currentModelValue = currentRawValue(level, resolved?.model_origin, modelId);
+    if (providerValue !== currentProviderValue) {
+      handleProviderChange(agentType, providerValue);
+    }
+    if (modelValue !== currentModelValue) {
+      handleModelChange(agentType, modelValue);
+    }
+  }
+
+  return { applySelection };
 }
 
-function buildModelSelectorRows(
-  params: UseModelSelectorStateParams,
-  queries: ModelSelectorQueries,
-  applySelection: ReturnType<typeof useModelSelectionActions>,
-): ModelSelectorRowState[] {
-  const visibleAgentTypes = AGENT_TYPES.filter(
-    (agentType) => params.level === "global" || !WORKSPACE_ONLY_AGENT_TYPES.includes(agentType),
-  );
-  return visibleAgentTypes.map((agentType) => {
-    const targetLevel =
-      params.level === "global" ? "global" : params.level === "project" ? "project" : "feature";
-    const selection = resolveSelection(agentType, targetLevel, queries);
-    const current = currentValues(agentType, params, queries);
-    const isInherited = current.provider === INHERIT_VALUE || current.model === INHERIT_VALUE;
-    return {
-      agentType,
-      stateLabel: params.level === "global" ? "Default" : isInherited ? "Inherited" : "Override",
-      selectedProviderId: selection.providerId,
-      selectedProviderLabel: getProviderLabel(queries.providers, selection.providerId),
-      selectedModelId: selection.modelId,
-      selectedModelLabel: getModelLabel(
-        queries.agentCatalog.data?.providers,
-        selection.providerId,
-        selection.modelId,
-      ),
-      selectedModelDescription: getModelDescription(
-        queries.agentCatalog.data?.providers,
-        selection.providerId,
-        selection.modelId,
-      ),
-      providers: queries.providers,
-      isInherited,
-      onInherit:
-        params.level !== "global"
-          ? () => applySelection(agentType, INHERIT_VALUE, INHERIT_VALUE)
-          : undefined,
-      onSelect: (providerId, modelId) => applySelection(agentType, providerId, modelId),
-    } satisfies ModelSelectorRowState;
-  });
+function buildRow(
+  agentType: AgentTypeSetting,
+  level: ModelSelectorLevel,
+  resolved: ResolvedSelection | undefined,
+  agentCatalog: AgentCatalogQuery,
+  providers: ModelSelectorRowProvider[],
+  applySelection: (agentType: AgentTypeSetting, providerValue: string, modelValue: string) => void,
+): ModelSelectorRowState {
+  const providerId =
+    resolved?.provider_id ?? agentCatalog.data?.default_provider ?? DEFAULT_PROVIDER;
+  const modelId = resolved?.model_id ?? defaultModelForProviderId(agentCatalog, providerId);
+  const providerState = resolved ? stateLabelFor(level, resolved.provider_origin) : "Override";
+  const modelState = resolved ? stateLabelFor(level, resolved.model_origin) : "Override";
+  const stateLabel =
+    providerState === "Override" && modelState === "Override"
+      ? "Override"
+      : level === "global"
+        ? "Default"
+        : "Inherited";
+  const isInherited = stateLabel === "Inherited";
+
+  return {
+    agentType,
+    stateLabel,
+    selectedProviderId: providerId,
+    selectedProviderLabel: getProviderLabel(providers, providerId),
+    selectedModelId: modelId,
+    selectedModelLabel: getModelLabel(agentCatalog.data?.providers, providerId, modelId),
+    selectedModelDescription: getModelDescription(
+      agentCatalog.data?.providers,
+      providerId,
+      modelId,
+    ),
+    providers,
+    isInherited,
+    onInherit:
+      level !== "global"
+        ? () => applySelection(agentType, INHERIT_VALUE, INHERIT_VALUE)
+        : undefined,
+    onSelect: (nextProviderId: string, nextModelId: string) => {
+      applySelection(agentType, nextProviderId, nextModelId);
+    },
+  } satisfies ModelSelectorRowState;
 }
 
 export function useModelSelectorState(
   params: UseModelSelectorStateParams,
 ): UseModelSelectorStateResult {
-  const queries = useModelSelectorQueries(params);
-  const mutations = useModelSelectorMutations(params);
-  const applySelection = useModelSelectionActions(params, queries, mutations);
-  const rows = buildModelSelectorRows(params, queries, applySelection);
-  const { level } = params;
-  const isLoading =
-    queries.agentCatalog.isLoading ||
-    (level === "global" &&
-      (queries.globalSettings.isLoading || queries.globalProviderSettings.isLoading)) ||
-    (level === "project" &&
-      (queries.projectSettings.isLoading || queries.projectProviderSettings.isLoading)) ||
-    (level === "feature" &&
-      (queries.featureSettings.isLoading || queries.featureProviderSettings.isLoading));
-  return { isLoading, hasCatalogError: Boolean(queries.agentCatalog.error), rows };
+  const { level, projectId, featureId } = params;
+  const queryClient = useQueryClient();
+  const agentCatalog = useAgentCatalog();
+  const selectionQuery = useResolvedSelection({
+    ...(level !== "global" && projectId != null ? { projectId } : {}),
+    ...(level === "feature" && featureId != null ? { featureId } : {}),
+  });
+
+  useEffect(() => {
+    if (selectionQuery.error) {
+      toastError(selectionQuery.error, "Failed to load the model selection");
+    }
+  }, [selectionQuery.error]);
+
+  const mutations = useSelectorMutations(queryClient, projectId, featureId);
+
+  const providers = availableCatalogProviders(agentCatalog.data?.providers).map(
+    (provider): ModelSelectorRowProvider => ({
+      id: provider.id,
+      label: provider.label,
+      disabled: false,
+      status: provider.status,
+      statusMessage: provider.status_message,
+      models: provider.models,
+    }),
+  );
+
+  const selectionFor = (agentType: AgentTypeSetting): ResolvedSelection | undefined =>
+    selectionQuery.data?.selections?.[agentType];
+
+  const { applySelection } = createSelectionActions(
+    level,
+    projectId,
+    featureId,
+    agentCatalog,
+    selectionFor,
+    mutations,
+  );
+
+  const visibleAgentTypes = AGENT_TYPES.filter(
+    (agentType) => level === "global" || !WORKSPACE_ONLY_AGENT_TYPES.includes(agentType),
+  );
+
+  // A failed selection query means `selectionFor` returns undefined for every
+  // row, which `buildRow` cannot distinguish from "no override set" — surface
+  // the error instead of rendering rows with a misleading "Override" badge.
+  const hasSelectionError = Boolean(selectionQuery.error);
+  const rows = hasSelectionError
+    ? []
+    : visibleAgentTypes.map((agentType) =>
+        buildRow(
+          agentType,
+          level,
+          selectionFor(agentType),
+          agentCatalog,
+          providers,
+          applySelection,
+        ),
+      );
+
+  return {
+    isLoading: selectionQuery.isLoading || agentCatalog.isLoading,
+    hasCatalogError: Boolean(agentCatalog.error),
+    hasSelectionError,
+    rows,
+  };
 }

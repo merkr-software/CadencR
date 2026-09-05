@@ -24,11 +24,14 @@ export function ScheduleModelChip({ target, onChange, runtime }: ScheduleChipPro
     <ModelMetaChip
       open={open}
       onOpenChange={setOpen}
-      currentProviderId={runtime.providerId}
-      currentModelId={runtime.modelId}
       // No loading label: the chip row doesn't mount until `isResolving`
-      // clears, and the catalog is one of the layers that gates it.
-      currentModelLabel={runtime.model?.label ?? runtime.modelId ?? "Model"}
+      // clears, and the catalog is one of the layers that gates it. The label
+      // itself derives from the catalog via the selection pair.
+      selection={
+        runtime.providerId != null && runtime.modelId != null
+          ? { providerId: runtime.providerId, modelId: runtime.modelId }
+          : null
+      }
       pickerProviders={runtime.pickerProviders}
       // Provider and model are written together from the one selection the
       // picker reports — a separate provider callback would race it.

@@ -33,7 +33,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Run the Rust tests on their own, before the Turbo pipeline. Turbo
+      # buffers each task's output until it finishes, so a hanging test leaves
+      # no trace in the log — it just burns the job timeout in silence. A
+      # dedicated step with `--nocapture` streams progress and names the test
+      # that stalls, and the short step timeout fails fast instead of at 45m.
+      - name: Rust tests
+        timeout-minutes: 20
+        run: pnpm --filter @cadencr/service test -- --nocapture
+
       - name: Run pre-commit checks
         run: |
           pnpm run test:release-scripts
-          pnpm turbo run format:check lint ts-check test knip
+          pnpm turbo run format:check lint ts-check knip --log-order=stream
+          # @cadencr/service already ran in the "Rust tests" step above —
+          # exclude it here so cargo test doesn't run twice.
+          pnpm turbo run test --filter='!@cadencr/service' --log-order=stream

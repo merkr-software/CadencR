@@ -25,6 +25,7 @@ import type { AgentCatalog } from "@/api/agentRuntime";
 import type { ClaudeProfileSelection } from "./useClaudeProfileSelection";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import type { TurnTimingState } from "@/stores/ws-turn-timing";
+import type { RuntimeSelection } from "@/shared/models";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 
 export interface SessionConfigControls {
@@ -144,10 +145,12 @@ export interface AgentSessionProps {
   onGateClose?: () => void;
   /** Context usage data for this session */
   contextUsage?: ContextUsageState | null;
-  /** Current model ID for the session (used for inline model switcher) */
-  currentModelId?: string;
-  /** Current runtime provider ID for the session */
-  currentProviderId?: string;
+  /**
+   * The confirmed runtime pair, or `null` while it is unknown. A single object
+   * so the icon and the label cannot disagree — they now derive from the same
+   * source rather than from two independently-updated props.
+   */
+  selection?: RuntimeSelection | null;
   /** Called when the user changes the provider before the first message */
   onProviderChange?: (providerId: string) => void;
   /**

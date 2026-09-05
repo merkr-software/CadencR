@@ -8,7 +8,10 @@ import {
   useSetActiveClaudeCodeProfile,
   useUpsertClaudeCodeProfile,
   useDeleteClaudeCodeProfile,
+  useUpsertClaudeCodeCustomModel,
+  useDeleteClaudeCodeCustomModel,
 } from "./agentRuntime";
+import { getGetAgentSelectionQueryKey } from "./generated";
 
 const mockCustomInstance = vi.fn();
 vi.mock("./client", () => ({
@@ -40,7 +43,8 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "profiles"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
-    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
+    expect(invalidateSpy).toHaveBeenCalledTimes(3);
   });
 
   it("invalidates both profiles and the agent catalog when upserting a profile", async () => {
@@ -51,7 +55,8 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "profiles"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
-    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
+    expect(invalidateSpy).toHaveBeenCalledTimes(3);
   });
 
   it("invalidates both profiles and the agent catalog when deleting a profile", async () => {
@@ -61,7 +66,35 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "profiles"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
-    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
+    expect(invalidateSpy).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("custom model selection invalidation", () => {
+  beforeEach(() => {
+    mockCustomInstance.mockReset();
+    mockCustomInstance.mockResolvedValue({ ok: true });
+  });
+
+  it("refreshes resolved selections after saving a custom model", async () => {
+    const { result, invalidateSpy } = renderWithSpiedClient(() => useUpsertClaudeCodeCustomModel());
+    await act(async () => {
+      await result.current.mutateAsync({ modelId: "custom", data: { label: "Custom" } });
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "custom-models"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
+  });
+
+  it("refreshes resolved selections after deleting a custom model", async () => {
+    const { result, invalidateSpy } = renderWithSpiedClient(() => useDeleteClaudeCodeCustomModel());
+    await act(async () => {
+      await result.current.mutateAsync({ modelId: "custom" });
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["claude-code", "custom-models"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
   });
 });
 

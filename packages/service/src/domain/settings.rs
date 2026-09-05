@@ -33,6 +33,15 @@ pub async fn thinking_effort_model_default(
 /// not migrate to JSON — they hold runtime/worktree state).
 const SHARED_COLUMNS: &[&str] = &["model_session", "agent_runtime_session"];
 
+/// Level at which a setting was found by the cascade. A value produced by a
+/// caller-supplied default has no origin, so `None` covers that case.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingOrigin {
+    Feature,
+    Project,
+    Global,
+}
+
 async fn resolve_table_kv_setting(
     pool: &SqlitePool,
     table: &str,
@@ -115,24 +124,23 @@ pub async fn resolve_setting(
 }
 
 /// Cascade core parameterized on the settings directory so it is unit-testable
-/// against a temp dir.
-pub(crate) async fn resolve_in(
+/// against a temp dir. Reports which level supplied the value.
+pub(crate) async fn resolve_in_with_origin(
     dir: &Path,
     pool: &SqlitePool,
     key: &str,
     feature_id: Option<i64>,
     project_id: Option<i64>,
-    default_value: Option<&str>,
-) -> Option<String> {
+) -> Option<(String, SettingOrigin)> {
     // 1. Feature-level (SQLite: real column then EAV).
     if let Some(fid) = feature_id {
         if SHARED_COLUMNS.contains(&key) {
             if let Some(v) = resolve_table_column_setting(pool, "features", fid, key).await {
-                return Some(v);
+                return Some((v, SettingOrigin::Feature));
             }
         }
         if let Some(v) = resolve_table_kv_setting(pool, "features", fid, key).await {
-            return Some(v);
+            return Some((v, SettingOrigin::Feature));
         }
     }
 
@@ -142,7 +150,7 @@ pub(crate) async fn resolve_in(
             let (map, _warnings) = store::load(&path, Scope::Project);
             if let Some(v) = map.get(key) {
                 if !v.is_empty() {
-                    return Some(v.clone());
+                    return Some((v.clone(), SettingOrigin::Project));
                 }
             }
         }
@@ -152,11 +160,48 @@ pub(crate) async fn resolve_in(
     let (global, _warnings) = store::load(&paths::global_file(dir), Scope::Workspace);
     if let Some(v) = global.get(key) {
         if !v.is_empty() {
-            return Some(v.clone());
+            return Some((v.clone(), SettingOrigin::Global));
         }
     }
 
-    default_value.map(|s| s.to_string())
+    None
+}
+
+/// Resolve a setting using the cascade: feature (SQLite) → project (JSON) →
+/// global (JSON). Reports which level supplied the value.
+///
+/// Unlike `resolve_setting`, this function has no `default_value` parameter:
+/// a caller-supplied default has no origin.
+pub async fn resolve_setting_with_origin(
+    pool: &SqlitePool,
+    key: &str,
+    feature_id: Option<i64>,
+    project_id: Option<i64>,
+) -> Option<(String, SettingOrigin)> {
+    resolve_in_with_origin(
+        &settings_store::global_dir(),
+        pool,
+        key,
+        feature_id,
+        project_id,
+    )
+    .await
+}
+
+/// Cascade core parameterized on the settings directory so it is unit-testable
+/// against a temp dir.
+pub(crate) async fn resolve_in(
+    dir: &Path,
+    pool: &SqlitePool,
+    key: &str,
+    feature_id: Option<i64>,
+    project_id: Option<i64>,
+    default_value: Option<&str>,
+) -> Option<String> {
+    match resolve_in_with_origin(dir, pool, key, feature_id, project_id).await {
+        Some((value, _origin)) => Some(value),
+        None => default_value.map(|s| s.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -206,13 +251,15 @@ mod tests {
         id: i64,
         project_id: i64,
         model_session: Option<&str>,
+        agent_runtime_session: Option<&str>,
     ) {
         sqlx::query(
-            "INSERT INTO features (id, project_id, title, model_session) VALUES (?, ?, 'f', ?)",
+            "INSERT INTO features (id, project_id, title, model_session, agent_runtime_session) VALUES (?, ?, 'f', ?, ?)",
         )
         .bind(id)
         .bind(project_id)
         .bind(model_session)
+        .bind(agent_runtime_session)
         .execute(pool)
         .await
         .unwrap();
@@ -236,7 +283,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, Some("feature-model")).await;
+        insert_feature(&pool, 1, 1, Some("feature-model"), None).await;
         write_json(
             &project_file(dir.path(), &pool, 1).await,
             &[("model_session", "project-model")],
@@ -259,7 +306,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, None).await;
+        insert_feature(&pool, 1, 1, None, None).await;
         write_json(
             &project_file(dir.path(), &pool, 1).await,
             &[("model_session", "project-model")],
@@ -282,7 +329,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, None).await;
+        insert_feature(&pool, 1, 1, None, None).await;
         write_json(
             &paths::global_file(dir.path()),
             &[("model_session", "global-model")],
@@ -305,7 +352,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, None).await;
+        insert_feature(&pool, 1, 1, None, None).await;
 
         let result = resolve_in(
             dir.path(),
@@ -324,7 +371,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, None).await;
+        insert_feature(&pool, 1, 1, None, None).await;
         sqlx::query("INSERT INTO feature_settings (feature_id, key, value) VALUES (1, 'custom_kv_key', 'high')")
             .execute(&pool).await.unwrap();
         write_json(
@@ -341,7 +388,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let pool = feature_pool().await;
         insert_project(&pool, 1, "p").await;
-        insert_feature(&pool, 1, 1, Some("default")).await;
+        insert_feature(&pool, 1, 1, Some("default"), None).await;
 
         // "default" is a regular value, not a magic keyword — feature wins.
         let result = resolve_in(
@@ -402,5 +449,49 @@ mod tests {
         )
         .await;
         assert_eq!(result, Some("claude_code".to_string()));
+    }
+
+    fn write_global(dir: &std::path::Path, key: &str, value: &str) {
+        write_json(&paths::global_file(dir), &[(key, value)]);
+    }
+
+    #[tokio::test]
+    async fn origin_reports_feature_when_feature_level_sets_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = feature_pool().await;
+        insert_project(&pool, 1, "proj").await;
+        insert_feature(&pool, 7, 1, Some("opus"), None).await;
+
+        let resolved =
+            resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1)).await;
+
+        assert_eq!(resolved, Some(("opus".to_string(), SettingOrigin::Feature)));
+    }
+
+    #[tokio::test]
+    async fn origin_reports_global_when_only_global_sets_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = feature_pool().await;
+        insert_project(&pool, 1, "proj").await;
+        insert_feature(&pool, 7, 1, None, None).await;
+        write_global(dir.path(), "model_session", "sonnet");
+
+        let resolved =
+            resolve_in_with_origin(dir.path(), &pool, "model_session", Some(7), Some(1)).await;
+
+        assert_eq!(
+            resolved,
+            Some(("sonnet".to_string(), SettingOrigin::Global))
+        );
+    }
+
+    #[tokio::test]
+    async fn origin_is_none_when_no_level_sets_the_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let pool = feature_pool().await;
+
+        let resolved = resolve_in_with_origin(dir.path(), &pool, "model_session", None, None).await;
+
+        assert_eq!(resolved, None);
     }
 }
