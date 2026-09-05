@@ -108,10 +108,10 @@ describe("FeatureRowMetaLine", () => {
 });
 
 describe("FeatureRowProviderMark", () => {
-  const mark = (status: "idle" | "agent" | "question", unread = false) =>
+  const mark = (status: "idle" | "agent" | "question", unread = false, provider = "claude_code") =>
     render(
       <FeatureRowProviderMark
-        feature={feature({ runtime_provider: "claude_code" })}
+        feature={feature({ runtime_provider: provider })}
         liveStatus={status}
         isActive={false}
         isUnread={unread}
@@ -133,11 +133,14 @@ describe("FeatureRowProviderMark", () => {
     expect(screen.queryByTestId("pending-gate")).not.toBeInTheDocument();
   });
 
-  it("wraps the tinted mark in the pending-gate trigger while waiting", () => {
-    mark("question");
-    expect(screen.getByTestId("pending-gate")).toBeInTheDocument();
-    expect(
-      screen.getByTestId("pending-gate").querySelector("[data-provider-mark]"),
-    ).toHaveAttribute("data-provider-mark", "waiting");
-  });
+  it.each(["claude_code", "external-connector"])(
+    "wraps the %s mark in the pending-gate trigger while waiting",
+    (provider) => {
+      mark("question", false, provider);
+      expect(screen.getByTestId("pending-gate")).toBeInTheDocument();
+      expect(
+        screen.getByTestId("pending-gate").querySelector("[data-provider-mark]"),
+      ).toHaveAttribute("data-provider-mark", "waiting");
+    },
+  );
 });
