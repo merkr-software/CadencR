@@ -56,6 +56,11 @@ describe("frost theme CSS", () => {
     );
   });
 
+  it("matches Frost Dark terminal chrome to the opaque WebGPU canvas", () => {
+    expect(FROST_DARK_THEME.xterm.background).toBe("#141826");
+    expect(frostRules).toMatch(/--terminal-bg:\s*#141826;/);
+  });
+
   it("applies the frost blur to tooltip overlays", () => {
     expect(frostRules.match(/\[data-slot="tooltip-content"\]/g)).toHaveLength(2);
   });

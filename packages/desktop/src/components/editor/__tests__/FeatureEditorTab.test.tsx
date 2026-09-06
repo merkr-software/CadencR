@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { useEffect, type ReactNode } from "react";
+import { createRef, useEffect, type ReactNode } from "react";
 import { render, screen } from "@/test-utils";
 import { waitFor } from "@testing-library/react";
 import FeatureEditorTab from "../FeatureEditorTab";
@@ -12,6 +12,7 @@ const mockNavigatePane = vi.fn();
 const mockInitFeature = vi.fn();
 const mockEditorFocus = vi.fn();
 const mockEditorUnmount = vi.fn();
+let mockRegisterEditorView = true;
 const mockToggleSidebar = vi.fn();
 const mockPersistCollapsed = vi.fn();
 let mockSidebarVisible = false;
@@ -95,6 +96,7 @@ vi.mock("../EditorSplitTree", () => ({
     onEditorViewChange?: (paneId: string, view: { focus: () => void } | null) => void;
   }) => {
     useEffect(() => {
+      if (!mockRegisterEditorView) return;
       onEditorViewChange?.("pane-1", { focus: mockEditorFocus });
       return () => {
         mockEditorUnmount();
@@ -143,6 +145,7 @@ describe("FeatureEditorTab", () => {
     mockInitFeature.mockReset();
     mockEditorFocus.mockReset();
     mockEditorUnmount.mockReset();
+    mockRegisterEditorView = true;
     mockToggleSidebar.mockReset();
     mockPersistCollapsed.mockReset();
     mockSidebarVisible = false;
@@ -206,6 +209,22 @@ describe("FeatureEditorTab", () => {
     render(<FeatureEditorTab featureId={1} projectId={1} projectPath="/project" />);
 
     await waitFor(() => expect(mockEditorFocus).toHaveBeenCalled());
+  });
+
+  it("focuses the Neovim renderer input when no CodeMirror view is registered", async () => {
+    mockRegisterEditorView = false;
+    const input = document.createElement("textarea");
+    const host = document.createElement("div");
+    host.dataset.neovimFeatureId = "1";
+    host.append(input);
+    document.body.append(host);
+    const ref = createRef<import("../FeatureEditorTab").FeatureEditorTabHandle>();
+
+    render(<FeatureEditorTab ref={ref} featureId={1} projectId={1} projectPath="/project" />);
+    ref.current?.focusActiveEditor();
+
+    expect(document.activeElement).toBe(input);
+    host.remove();
   });
 
   it("keeps the editor split tree mounted when the sidebar visibility changes", () => {

@@ -37,6 +37,7 @@ import {
   useConfirmedConflictPaths,
 } from "./useAutoConflictResolution";
 import { EditorLeaveDialog } from "./EditorLeaveDialog";
+import { focusNeovimEditor } from "./neovim/focusNeovimEditor";
 
 interface FeatureEditorTabProps {
   featureId: number;
@@ -53,12 +54,14 @@ export interface FeatureEditorTabHandle {
 
 const EDITOR_SIDEBAR_COLLAPSED_SETTING = "editor_sidebar_collapsed";
 
-function useEditorFocusState(activePaneId: string, isEditorFocused: boolean) {
+function useEditorFocusState(featureId: number, activePaneId: string, isEditorFocused: boolean) {
   const rootRef = useRef<HTMLDivElement>(null);
   const editorViewsRef = useRef<Map<string, EditorView>>(new Map());
   const focusActiveEditor = useCallback((): void => {
-    editorViewsRef.current.get(activePaneId)?.focus();
-  }, [activePaneId]);
+    const editor = editorViewsRef.current.get(activePaneId);
+    if (editor) editor.focus();
+    else focusNeovimEditor(featureId);
+  }, [activePaneId, featureId]);
   const shouldRestoreEditorFocus = useCallback((): boolean => {
     const active = document.activeElement;
     return !(active instanceof HTMLElement && rootRef.current?.contains(active));
@@ -242,7 +245,7 @@ const FeatureEditorTab = memo(
     );
     useFileWatcher(props.projectId, props.featureId);
     const confirmedConflicts = useConfirmedConflictPaths(props.featureId);
-    const focus = useEditorFocusState(editor.activePaneId, isEditorFocused);
+    const focus = useEditorFocusState(props.featureId, editor.activePaneId, isEditorFocused);
     const leave = useEditorLeaveGuard(ref, editor.panes, focus);
     const handleToggleSidebar = useCallback(() => {
       editor.toggleSidebar();

@@ -174,9 +174,10 @@
   --diff-del-bg: oklch(0.72 0.18 18 / 0.12);
   --diff-del-bg-strong: oklch(0.72 0.18 18 / 0.24);
 
-  /* Terminal chrome — translucent cold. The xterm canvas itself paints from
-   * the solid JS palette in `lib/themes/frost-dark.ts`. */
-  --terminal-bg: oklch(0.14 0.02 262 / 0.55);
+  /* Match the solid WebGPU canvas background from `frost-dark.ts`. A
+   * translucent gutter around that opaque canvas reads as a second inset
+   * border, especially in a floating terminal pane. */
+  --terminal-bg: #141826;
   --terminal-panel-icon: oklch(0.6 0.03 255);
   --terminal-panel-icon-hover: oklch(0.92 0.01 255);
   --terminal-panel-icon-bg-hover: oklch(1 0 0 / 0.1);

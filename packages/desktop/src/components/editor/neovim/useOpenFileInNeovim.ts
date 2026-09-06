@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { startRoute, useOpenFileRoute } from "@/api/generated";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useVimModeLevel } from "@/hooks/useVimModeLevel";
+import { focusNeovimEditor } from "./focusNeovimEditor";
 
 /** Opens a path in the feature's Neovim session, at an optional 1-indexed line. */
 export type OpenInNeovim = (filePath: string, line?: number, col?: number) => void;
@@ -34,12 +35,7 @@ export function useOpenFileInNeovim(
           });
           onOpened?.();
           // Allow a newly revealed pane to mount before transferring focus.
-          requestAnimationFrame(() => {
-            const host = document.querySelector<HTMLElement>(
-              `[data-neovim-feature-id="${featureId}"]`,
-            );
-            (host?.querySelector("textarea") ?? host)?.focus();
-          });
+          requestAnimationFrame(() => focusNeovimEditor(featureId));
         } catch (error: unknown) {
           toast.error(`Could not open ${filePath} in Neovim`, {
             description: error instanceof Error ? error.message : String(error),
