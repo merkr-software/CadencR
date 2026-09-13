@@ -6,7 +6,7 @@
 //! be able to surface, since it means the user's real settings are silently
 //! not being honored.
 
-use std::ffi::OsStr;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tracing::{debug, warn};
 use utoipa::ToSchema;
+
+mod resolve;
 
 /// Alacritty's own documented default: `font.size`.
 const DEFAULT_FONT_SIZE: f64 = 11.25;
@@ -170,22 +172,6 @@ pub fn default_config_path() -> Option<PathBuf> {
     })
 }
 
-/// Parse `path`. Returns `Ok(None)` when the file does not exist — that's
-/// the common case (most users don't have this file) and is not an error.
-/// Returns `Err` only when the file exists but fails to parse, since that
-/// means the user's real settings are silently not being honored.
-///
-pub fn parse_alacritty_config(path: &std::path::Path) -> Result<Option<AlacrittyConfig>, String> {
-    let raw = match std::fs::read_to_string(path) {
-        Ok(raw) => raw,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(format!("failed to read {}: {e}", path.display())),
-    };
-    toml::from_str(&raw)
-        .map(Some)
-        .map_err(|e| format!("failed to parse {}: {e}", path.display()))
-}
-
 /// `GET /api/terminal/alacritty-config` response.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AlacrittyConfigResponse {
@@ -219,8 +205,8 @@ pub fn read_alacritty_config_response(fallback_palette: AnsiPalette) -> Alacritt
             parse_error: None,
         };
     };
-    match parse_alacritty_config(&path) {
-        Ok(Some(config)) => AlacrittyConfigResponse {
+    match resolve::resolve_alacritty_config(&path) {
+        Ok(Some((config, _touched))) => AlacrittyConfigResponse {
             // Preserve omitted colors so the renderer can inherit its current
             // Cadencr theme rather than treating our dark fallback as explicit.
             config,
@@ -293,13 +279,29 @@ pub fn start_watcher(tx: broadcast::Sender<AlacrittyConfigChangedEvent>) {
     let Some(config_path) = default_config_path() else {
         return;
     };
-    let Some(watch_dir) = config_path.parent().map(std::path::Path::to_path_buf) else {
-        return;
+
+    // Resolve once at startup to learn every file this config chain actually
+    // touches (the root plus every `general.import`, transitively) — an
+    // import living in a different directory (e.g. `themes/font.toml`) needs
+    // its own directory watched, or edits to it would never trigger a
+    // refetch. Best-effort: a resolution failure here still starts a watcher
+    // on the root's own directory, so an existing valid config keeps live
+    // reload even if a newly-broken import can't be resolved yet. Fixed for
+    // the process lifetime: a brand-new import path added later needs a
+    // service restart to be picked up.
+    let touched = match resolve::resolve_alacritty_config(&config_path) {
+        Ok(Some((_, touched))) => touched,
+        _ => vec![config_path.clone()],
     };
-    let target_file_name = config_path
-        .file_name()
-        .map(|n| n.to_owned())
-        .unwrap_or_default();
+
+    let watched_names: HashSet<std::ffi::OsString> = touched
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_owned()))
+        .collect();
+    let watch_dirs: HashSet<PathBuf> = touched
+        .iter()
+        .filter_map(|p| p.parent().map(std::path::Path::to_path_buf))
+        .collect();
 
     let mut debouncer = match new_debouncer(
         Duration::from_millis(500),
@@ -313,7 +315,7 @@ pub fn start_watcher(tx: broadcast::Sender<AlacrittyConfigChangedEvent>) {
             };
             let changed = events
                 .iter()
-                .any(|e| is_watched_config_file(&e.path, &target_file_name));
+                .any(|e| is_watched_config_file(&e.path, &watched_names));
             if changed {
                 debug!("alacritty.toml change detected");
                 let _ = tx.send(AlacrittyConfigChangedEvent {});
@@ -327,72 +329,33 @@ pub fn start_watcher(tx: broadcast::Sender<AlacrittyConfigChangedEvent>) {
         }
     };
 
-    // Watching the parent directory (not the file itself) survives editors
+    // Watching each directory (not the files themselves) survives editors
     // that save by replacing the file (write-to-temp-then-rename) rather
-    // than writing in place — a watch on the file's own inode would go
-    // stale the moment such an editor "saves."
-    if let Err(e) = debouncer
-        .watcher()
-        .watch(&watch_dir, RecursiveMode::NonRecursive)
-    {
-        warn!(dir = %watch_dir.display(), "failed to watch alacritty config dir: {e}");
-        return;
+    // than writing in place — a watch on a file's own inode would go stale
+    // the moment such an editor "saves."
+    for dir in &watch_dirs {
+        if let Err(e) = debouncer.watcher().watch(dir, RecursiveMode::NonRecursive) {
+            warn!(dir = %dir.display(), "failed to watch alacritty config dir: {e}");
+        }
     }
     let _ = WATCHER.set(debouncer);
-    debug!(dir = %watch_dir.display(), "alacritty config watcher started");
+    debug!(dirs = ?watch_dirs, "alacritty config watcher started");
 }
 
-/// Whether `path`'s file name matches `target_file_name` — the config file
-/// itself, not some unrelated file in the same directory (e.g. a
-/// `.alacritty.toml.swp` an editor drops next to it).
-fn is_watched_config_file(path: &std::path::Path, target_file_name: &OsStr) -> bool {
-    path.file_name() == Some(target_file_name)
+/// Whether `path`'s file name matches one of the config chain's own files —
+/// the root or one of its imports, not some unrelated file dropped in the
+/// same directory (e.g. a `.alacritty.toml.swp` an editor leaves behind).
+fn is_watched_config_file(
+    path: &std::path::Path,
+    watched_names: &HashSet<std::ffi::OsString>,
+) -> bool {
+    path.file_name()
+        .is_some_and(|name| watched_names.contains(name))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn write_temp_toml(contents: &str) -> tempfile::TempPath {
-        let mut file = tempfile::NamedTempFile::new().unwrap();
-        std::io::Write::write_all(&mut file, contents.as_bytes()).unwrap();
-        file.into_temp_path()
-    }
-
-    #[test]
-    fn missing_file_is_not_an_error() {
-        let path = std::env::temp_dir().join("definitely-does-not-exist-alacritty.toml");
-        assert_eq!(parse_alacritty_config(&path), Ok(None));
-    }
-
-    #[test]
-    fn malformed_file_is_an_error_not_a_panic() {
-        let path = write_temp_toml("this is not [ valid");
-        let result = parse_alacritty_config(&path);
-        assert!(result.is_err(), "expected an error, got {result:?}");
-    }
-
-    #[test]
-    fn empty_file_gets_alacrittys_real_documented_defaults() {
-        let path = write_temp_toml("");
-        let config = parse_alacritty_config(&path).unwrap().unwrap();
-        assert_eq!(config.scrolling.history, 10_000);
-        assert_eq!(config.cursor.style.shape, "Block");
-        assert_eq!(config.cursor.style.blinking, "Off");
-        assert_eq!(config.font.size, 11.25);
-        assert_eq!(config.font.normal.family, None);
-        assert_eq!(config.colors.normal, None);
-    }
-
-    #[test]
-    fn partial_file_only_overrides_what_it_sets() {
-        let path = write_temp_toml("[cursor.style]\nshape = \"Beam\"\n");
-        let config = parse_alacritty_config(&path).unwrap().unwrap();
-        assert_eq!(config.cursor.style.shape, "Beam");
-        // Untouched by the file — still Alacritty's documented default.
-        assert_eq!(config.cursor.style.blinking, "Off");
-        assert_eq!(config.scrolling.history, 10_000);
-    }
 
     #[test]
     fn response_reports_found_true_only_on_successful_parse() {
@@ -414,80 +377,28 @@ mod tests {
     }
 
     #[test]
-    fn full_file_is_parsed_field_for_field() {
-        // `r##"..."##`, not `r#"..."#`: the content contains `"#` sequences
-        // (every `"#hexcolor"` value), which would otherwise close a
-        // single-hash raw string early -- caught by actually compiling this
-        // test while writing the plan, not by inspection.
-        let path = write_temp_toml(
-            r##"
-[font]
-size = 15
-
-[font.normal]
-family = "Iosevka Nerd Font Mono"
-style = "Light"
-
-[colors.primary]
-foreground = "#cdd6f4"
-background = "#1e1e2e"
-
-[colors.cursor]
-text = "#1e1e2e"
-cursor = "#f5e0dc"
-
-[colors.normal]
-black = "#45475a"
-red = "#f38ba8"
-green = "#a6e3a1"
-yellow = "#f9e2af"
-blue = "#89b4fa"
-magenta = "#f5c2e7"
-cyan = "#94e2d5"
-white = "#bac2de"
-
-[colors.bright]
-black = "#585b70"
-red = "#f38ba8"
-green = "#a6e3a1"
-yellow = "#f9e2af"
-blue = "#89b4fa"
-magenta = "#f5c2e7"
-cyan = "#94e2d5"
-white = "#a6adc8"
-
-[scrolling]
-history = 5000
-"##,
-        );
-        let config = parse_alacritty_config(&path).unwrap().unwrap();
-        assert_eq!(config.font.size, 15.0);
-        assert_eq!(
-            config.font.normal.family.as_deref(),
-            Some("Iosevka Nerd Font Mono")
-        );
-        assert_eq!(config.colors.primary.background.as_deref(), Some("#1e1e2e"));
-        assert_eq!(config.colors.cursor.cursor.as_deref(), Some("#f5e0dc"));
-        assert_eq!(config.colors.normal.unwrap().red, "#f38ba8");
-        assert_eq!(config.scrolling.history, 5000);
-        // Not set in the file -- still the real default, not zeroed.
-        assert_eq!(config.cursor.style.shape, "Block");
-    }
-
-    #[test]
-    fn matches_only_the_exact_config_file_name() {
-        let target = OsStr::new("alacritty.toml");
+    fn matches_only_files_in_the_watched_set() {
+        let watched: HashSet<std::ffi::OsString> = [
+            std::ffi::OsString::from("alacritty.toml"),
+            std::ffi::OsString::from("font.toml"),
+        ]
+        .into_iter()
+        .collect();
         assert!(is_watched_config_file(
             std::path::Path::new("/home/user/.config/alacritty/alacritty.toml"),
-            target
+            &watched
+        ));
+        assert!(is_watched_config_file(
+            std::path::Path::new("/home/user/.config/alacritty/themes/font.toml"),
+            &watched
         ));
         assert!(!is_watched_config_file(
             std::path::Path::new("/home/user/.config/alacritty/alacritty.toml.swp"),
-            target
+            &watched
         ));
         assert!(!is_watched_config_file(
-            std::path::Path::new("/home/user/.config/alacritty/other.toml"),
-            target
+            std::path::Path::new("/home/user/.config/alacritty/themes/other.toml"),
+            &watched
         ));
     }
 }

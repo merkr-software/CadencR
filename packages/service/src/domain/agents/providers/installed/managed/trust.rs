@@ -280,7 +280,6 @@ fn invalid_signature(message: impl Into<String>) -> ManagedTrustError {
 
 #[cfg(test)]
 mod tests {
-    use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};
 
     use super::*;
