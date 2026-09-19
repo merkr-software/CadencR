@@ -82,8 +82,8 @@ npm run sign:index -- \
   non-regular files and symlinks are refused, not sandboxed. Keep key files out
   of the repository; use ephemeral test keys for local trials, never production keys.
 - These commands are deliberately not connected to the example workflow yet.
-  Network mirroring, immutable conflict checks, retry reconciliation, provenance
-  verification, and serialized protected publication/discovery are still required.
+  Draft mirroring is a separate explicit command below. Source-build provenance
+  verification and serialized protected publication/discovery are still required.
 
 ## Verified local archive staging
 
@@ -117,6 +117,43 @@ registry repository, extract archives, run providers, sign, or publish an index.
 - The directory and its ancestors must remain trusted/stable. These filesystem
   checks do not provide a sandbox against another process replacing paths.
 
+## Explicit GitHub draft mirroring
+
+> This command performs remote writes when run against GitHub. Do not run it as a
+> local check or from a PR job. Configure a reviewed destination and scoped token
+> through a protected operator environment first.
+
+```bash
+# CADENCR_REGISTRY_GITHUB_TOKEN must come from the protected environment.
+# Use an exact reviewed registry commit, not a moving branch name.
+npm run mirror:publication -- \
+  --submission /path/to/reviewed-submission.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --registry-commit EXACT_40_CHARACTER_LOWERCASE_COMMIT_SHA \
+  --directory /trusted/workspace/staged-provider-version \
+  --confirm-repository YOUR-ORG/YOUR-REGISTRY
+```
+
+- Stage every source archive first. Mirroring revalidates local bytes and does not
+  fetch missing source archives. `GITHUB_TOKEN` is not read implicitly.
+- A new release remains a **draft**, bound to the canonical plan digest and exact
+  registry commit. Published releases and conflicting metadata are refused.
+- Missing archives and `publication-plan.json` are uploaded without replacement.
+  Each remote asset is downloaded through the authenticated GitHub asset endpoint,
+  then digest-checked. Credentials are sent only to the fixed API/upload hosts,
+  never forwarded to CDN redirects.
+- Release and asset discovery are bounded to ten pages of 100 entries each;
+  exceeding that limit fails rather than silently treating an item as absent.
+- An uncertain create/upload response triggers reconciliation with remote state,
+  not a blind second write. Retry verifies matching existing bytes; incomplete
+  `starter` assets, unexpected assets or digest conflicts fail closed. Nothing is
+  deleted automatically; an operator must investigate ambiguous state.
+- `mirror-receipt.json` records a fully verified draft, **not public availability**.
+  An old receipt is historical evidence only: retries always recheck remote bytes.
+- Keep the local directory stable and serialize operator runs. A local lock is not
+  cross-runner GitHub workflow concurrency control. Repository protections and
+  final draft promotion, public URL checks, signing and discovery remain pending.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their
@@ -138,7 +175,8 @@ the submission envelope and remaining human verification requirements.
 
 - This template does not select the production repository, release URLs,
   supported-platform policy, signing service, or trusted key.
-- It does not mirror artifacts or publish GitHub Releases.
+- Draft mirroring requires explicit repository confirmation and a dedicated token.
+  It does not publish releases, sign automatically, or update public discovery.
 - JSON Schema catches shape errors; `validate.mjs` is also required for semantic
   rules such as semantic ordering, HTTPS archives, reserved arguments, and the
   credential-field ban.

@@ -12,6 +12,7 @@
     "validate:contribution": "node scripts/validate-contribution.mjs",
     "plan:publication": "node scripts/plan-publication.mjs",
     "sign:index": "node scripts/sign-index.mjs",
-    "stage:publication": "node scripts/stage-publication.mjs"
+    "stage:publication": "node scripts/stage-publication.mjs",
+    "mirror:publication": "node scripts/mirror-publication.mjs"
   }
 }

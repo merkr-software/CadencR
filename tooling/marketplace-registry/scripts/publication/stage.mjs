@@ -4,6 +4,7 @@ import { link, lstat, mkdir, open, unlink } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson } from "../lib.mjs";
 import { readBoundedRegularFile } from "./io.mjs";
+import { cleanupFailure, withOwnedLock } from "./files.mjs";
 import { createPublicationPlan } from "./plan.mjs";
 import { downloadVerifiedArchive, MAX_ARCHIVE_BYTES } from "./download.mjs";
 
@@ -23,40 +24,29 @@ export async function stagePublication(
     throw new Error(`publication exceeds ${MAX_TARGETS} targets`);
   await ensureDirectory(directory);
   const lockPath = path.join(directory, LOCK);
-  let lock;
-  try {
-    lock = await open(lockPath, "wx", 0o600);
-  } catch (error) {
-    if (error?.code === "EEXIST") throw new Error("staging directory is already locked");
-    throw error;
-  }
-  const ownedPartials = new Set();
-  let lockIdentity;
-  let primaryError;
-  let receipt;
-  try {
-    lockIdentity = await lock.stat();
-    await validateExistingReceipt(directory, plan);
-    const artifacts = [];
-    for (const target of plan.targets) {
-      artifacts.push(await stageTarget(directory, target, download, ownedPartials));
+  return withOwnedLock(lockPath, "staging directory", async () => {
+    const ownedPartials = new Set();
+    let primaryError;
+    let receipt;
+    try {
+      await validateExistingReceipt(directory, plan);
+      const artifacts = [];
+      for (const target of plan.targets) {
+        artifacts.push(await stageTarget(directory, target, download, ownedPartials));
+      }
+      receipt = { schema_version: 1, plan, artifacts };
+      await publishReceipt(directory, receipt, ownedPartials);
+    } catch (error) {
+      primaryError = error;
     }
-    receipt = { schema_version: 1, plan, artifacts };
-    await publishReceipt(directory, receipt, ownedPartials);
-  } catch (error) {
-    primaryError = error;
-  }
-  const cleanupErrors = [];
-  for (const partial of ownedPartials) {
-    await removeOwnedFile(partial).catch((error) => cleanupErrors.push(error));
-  }
-  await lock.close().catch((error) => cleanupErrors.push(error));
-  if (lockIdentity) {
-    await removeOwnedLock(lockPath, lockIdentity).catch((error) => cleanupErrors.push(error));
-  }
-  if (cleanupErrors.length > 0) throw cleanupFailure(primaryError, cleanupErrors);
-  if (primaryError) throw primaryError;
-  return receipt;
+    const cleanupErrors = [];
+    for (const partial of ownedPartials) {
+      await removeOwnedFile(partial).catch((error) => cleanupErrors.push(error));
+    }
+    if (cleanupErrors.length > 0) throw cleanupFailure(primaryError, cleanupErrors, "staging");
+    if (primaryError) throw primaryError;
+    return receipt;
+  });
 }
 
 async function ensureDirectory(directory) {
@@ -212,27 +202,10 @@ async function publishReceipt(directory, receipt, ownedPartials) {
   ownedPartials.delete(partial);
 }
 
-async function removeOwnedLock(lockPath, identity) {
-  try {
-    const current = await lstat(lockPath);
-    if (current.dev === identity.dev && current.ino === identity.ino) await unlink(lockPath);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-}
-
 async function removeOwnedFile(file) {
   try {
     await unlink(file);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
-}
-
-function cleanupFailure(primaryError, cleanupErrors) {
-  const message = primaryError
-    ? `${primaryError.message}; staging cleanup also failed (${cleanupErrors.length} operation(s))`
-    : `staging cleanup failed (${cleanupErrors.length} operation(s))`;
-  const causes = primaryError ? [primaryError, ...cleanupErrors] : cleanupErrors;
-  return new Error(message, { cause: new AggregateError(causes, "staging cleanup failures") });
 }

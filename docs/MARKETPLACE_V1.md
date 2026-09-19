@@ -29,7 +29,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
-| D    | Protected mirroring, signing and idempotent publication              | Local planning, verified staging and signing implemented; GitHub mirroring/publication pending                    |
+| D    | Protected mirroring, signing and idempotent publication              | Draft mirroring implemented; protected promotion/catalog publication and live GitHub QA pending                   |
 | E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
@@ -120,6 +120,27 @@ alone cannot close them.
   Source ownership/build provenance, GitHub upload/reconciliation, remote digest
   verification, protected signing orchestration, serialized catalog publication
   and discovery updates remain unfinished. No official registry was provisioned.
+
+### GitHub draft mirroring increment — 2026-09-19
+
+- Added an explicit operator command that consumes fully staged source archives,
+  records the canonical plan as a provenance asset, and fills a GitHub draft
+  release without replacement/deletion or publication.
+- A destination confirmation, exact registry commit and dedicated token are
+  required. API/upload destinations are fixed; credentials are not forwarded to
+  asset CDN redirects. Asset verification re-downloads actual remote bytes.
+- Existing assets are verified, not trusted from metadata digests alone. Ambiguous
+  write responses are reconciled before retry; conflicts and incomplete assets
+  require investigation rather than destructive recovery.
+- Draft verification is not public availability. Protected draft promotion, public
+  destination checks, signing orchestration, catalog/blocklist release/discovery,
+  cross-runner serialization and actual GitHub deployment/QA remain pending.
+- Verification: 125 registry tests and 2 root integration checks pass, including
+  the real CLI against a local mock GitHub API/CDN (creation, replay without new
+  writes, and corrupted remote bytes). No actual GitHub writes were performed.
+  Three GPT-5.6-Sol reviews completed; shared owned-lock cleanup and exact commit
+  validation were consolidated. Formatting and diff checks pass; lint reports
+  only four existing control-regex warnings in unchanged packaging/submission code.
 
 ### Decisions that must not be invented by implementation
 

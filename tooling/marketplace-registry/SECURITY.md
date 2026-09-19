@@ -79,3 +79,25 @@ content encoding to preserve the submitted archive bytes. Redirect query strings
 must never be included in diagnostics. Local digests certify received bytes only:
 maintainer authorization, source/tag provenance, remote mirrored-asset verification,
 protected signing and publication are still separate mandatory gates.
+
+## Draft mirroring credentials and remote state
+
+`mirror:publication` is an explicitly mutating operator command. Its dedicated
+`CADENCR_REGISTRY_GITHUB_TOKEN` must be scoped to the selected repository's release
+operations and supplied only from a protected environment. Do not pass it in argv,
+store it in the submission/receipt, or give it to contributor code. The CLI has no
+API-host override and requires matching `--repository`/`--confirm-repository` plus
+an exact registry commit. These guards prevent accidental invocation, not malicious
+use of an already-authorized token.
+
+The client uses fixed GitHub API/upload origins, rejects API redirects, bounds
+responses and streams uploads. Asset verification uses the API token for the first
+asset request only; the existing downloader enforces the uncredentialed CDN
+redirect policy. Error responses and redirect query strings are not logged.
+
+[GitHub release APIs](https://docs.github.com/en/rest/releases/releases) distinguish
+drafts from published releases. This command creates drafts only and never promotes
+a release or changes catalog discovery. [Asset uploads](https://docs.github.com/en/rest/releases/assets)
+can leave incomplete state after failures; this tool reconciles and verifies rather
+than deleting/replacing uncertain assets. Human recovery of conflicts remains
+explicit, and workflow concurrency/protected production publication is not installed.
