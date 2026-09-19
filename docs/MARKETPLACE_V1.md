@@ -1,26 +1,68 @@
 # Marketplace V1 — GitHub-only distribution
 
-## Scheduling update — 2026-09-12
+## Execution update — 2026-09-19
 
-**Deferred beyond the current v0.12.0 scope.** The release goal is local themes
-and providers, without marketplace UI. Follow [Local Plugins v0.12.0](./LOCAL_PLUGINS_V0_12.md)
-first. Both plugin types must have an identifiable project in the developer's
-Cadencr instance; a durable theme/provider marker enables the later GitHub
-publication plus initial/new-version registry workflow.
+Marketplace implementation is now authorized, following the local-plugin work.
+This does not change the published v0.12.0 scope or authorize a remote repository,
+release, push, registry publication, or production-data changes.
 
-The GitHub-only architecture below remains accepted. R1–R9 are the future public
-distribution checklist, not prerequisites for shipping the local release.
+The first implemented distribution contract remains **ACP providers**. Theme
+projects already carry authoring identity, but theme distribution requires its own
+contract; including themes in the first public marketplace is awaiting confirmation.
 
-### Implementation progress (working tree, not release approval)
+### Current foundation
 
-- Session-scoped resume eligibility and regression coverage have been added.
-- Official signed catalog acquisition/cache and API routes have been added;
-  index publication timestamps now support freshness/replay checks. No UI exists.
-- Local registry validation/index tooling and workflow templates have been added,
-  with tests against the service fixture. Templates do not mirror, sign or publish.
-- Production release configuration, GitHub resources and packaged public lifecycle
-  QA remain undone. The plugin-project marker now exists for new rows only;
-  existing projects are not backfilled or reclassified.
+- Local authoring/import and new-project `authoring_target` / `plugin_id` markers
+  are committed. Existing projects are not backfilled or reclassified.
+- Session-scoped resume eligibility is implemented and tested.
+- Signed catalog acquisition/cache and managed installation APIs exist; their
+  existence does not imply a configured production registry or a marketplace UI.
+- Registry validation/index preparation exists. The original workflow templates
+  do not mirror archives, sign payloads, or publish releases.
+- Local changes were rebased onto `v0.12.0`; integration checks passed. Packaged
+  provider lifecycle and supported-platform coverage still need completion.
+
+### Execution sequence and gates
+
+| Step | Deliverable                                                          | State                                                                                                         |
+| ---- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open     |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Existing template; deployment not authorized                                                                  |
+| D    | Protected mirroring, signing and idempotent publication              | Not implemented                                                                                               |
+| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                               |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                    |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                               |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                          |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                       |
+
+Each implementation step uses delegated workers and parent review, followed by
+reuse/quality/efficiency review and relevant checks before proceeding. Changes
+remain uncommitted until a proposed commit is explicitly approved. Public opening
+requires all runtime, trust, operational and packaged-app gates; local tooling
+alone cannot close them.
+
+### Local tooling verification — 2026-09-19
+
+- Source-pinned submission validator and bounded CLI: 14 tests pass.
+- Deterministic streaming author packer: 27 tests pass, including source-mutation,
+  symlink, portability, resource-limit, backpressure and cleanup-error cases.
+- Combined registry suite: 55 tests pass. Existing managed wire-format fixtures
+  remain unchanged. These are local CLI tests, not GitHub or packaged-app QA.
+- Separate reuse/quality/efficiency reviews completed for both local increments;
+  findings were corrected and retested. No remote deployment or Git delivery.
+- The packer requires trusted, quiescent staging; it is not an OS sandbox.
+
+### Decisions that must not be invented by implementation
+
+- Official GitHub owner/repository and catalog/blocklist discovery URLs.
+- First supported public platform matrix and executable isolation policy.
+- Inclusion of themes in the first public marketplace.
+- Monitored security contact, incident owner and protected signing environment.
+
+Source ownership remains a human/GitHub review decision, not something a JSON
+schema can prove. Package identity and publication state remain separate from a
+local project's `authoring_target` and `plugin_id`.
 
 ## Decision and scope
 
