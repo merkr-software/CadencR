@@ -445,12 +445,37 @@ installation scripts. No official repository, protection or secret is provisione
 by this template.
 
 The workflow preserves non-secret publication state as a run/attempt-specific
-artifact. The signing key is stored separately and cleaned up. Recovery is an
-explicit operator action: inspect the original run's state and invoke the local
-CLI at the original reviewed checkout/commit with the same request. Do not restore
-arbitrary artifact contents or execute anything from them. Fresh hosted-runner
-retries do **not** automatically resume published providers: missing prior mirror
-receipts fail closed. State hydration across runs and subsequent catalogue requests
-remains a separate implementation gate; this template is not yet unattended
-continuous publication. Verify artifact access/retention against your operating
-policy before deployment.
+artifact. The signing key is stored separately and cleaned up. A fresh runner can
+now reconstruct published provider receipts from the exact reviewed release:
+
+1. Stage missing bytes from the official mirrored URLs and verify their approved
+   SHA-256 digests, without contacting the original author release.
+2. Verify release identity, immutable binding, actual tag commit, complete assets
+   and public archive/provenance bytes, then relist assets, reverify authenticated
+   bytes and recheck remote identity/tag.
+3. Record a `published_recovered` mirror receipt. This proves verified recovery,
+   not an observed historical draft. Existing conflicting receipts are never replaced.
+4. Reuse the normal promotion/signing/snapshot/discovery gates. Same-request replay
+   reconstructs the same signed bytes and performs no duplicate publication writes.
+
+No Actions artifact is restored or executed. Rerun the workflow at its original
+reviewed commit and with the same request digest/window; expiration still fails
+closed. Only genuinely new entries may use the missing/draft mirroring path and require
+original source archives unless local staging survives. Versions identified in the
+verified signed baseline must still have an exact published release; disappearance
+or reversion to draft is a fatal error, not permission to download from the author
+or recreate the release. An observed published state is retained for the invocation,
+and recovered/published local receipts also prevent re-promotion as a draft. Recovery never repairs
+an incomplete known-published release by uploading/replacing assets. Explicit
+`bootstrap` with no retained receipt, signed baseline or observed release is a new
+publication request; absence alone cannot prove deleted publication history.
+
+For a subsequent catalogue request, use a new state directory, retain all prior
+versions and their original `registry_commit` values, include the exact signed
+baseline file, and choose a strictly newer valid publication window. Old published
+providers can be rehydrated from their official mirrors; only new providers need
+author archive availability. Repository protections, reviewer approval and actual
+GitHub/Actions deployment remain external gates, not something local fixture tests
+prove. Inspect retained artifacts only as operator diagnostics; do not treat their
+contents as publication authority. Verify artifact access/retention against your
+operating policy before deployment.

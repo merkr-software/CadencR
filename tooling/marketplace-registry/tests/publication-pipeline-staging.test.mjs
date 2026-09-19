@@ -10,6 +10,14 @@ import { stagePipelinePublications } from "../scripts/publication/pipeline-stagi
 
 const repository = "acme/registry";
 const bytes = Buffer.from("inert fixture");
+const client = {
+  async findRelease() {
+    return null;
+  },
+  async getTagCommit() {
+    throw new Error("unreachable");
+  },
+};
 
 async function entriesFixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), "pipeline-budget-"));
@@ -49,6 +57,7 @@ test("source transfers receive a shared decrementing cap, not a fresh 1 GiB per 
     stagePipelinePublications(
       {
         repository,
+        client,
         download: async ({ maxBytes, outputPath }) => {
           limits.push(maxBytes);
           // Simulate full-size transfer accounting without allocating GiB fixtures.
@@ -84,6 +93,7 @@ test("oversized retained archives exhaust the aggregate budget before any new do
     stagePipelinePublications(
       {
         repository,
+        client,
         download: async () => {
           downloads += 1;
         },

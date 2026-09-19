@@ -162,5 +162,6 @@ test("failure state is uniquely preserved without automatic artifact restore", (
   );
   assert.match(source, /timeout-minutes: 30/);
   assert.doesNotMatch(source, /actions\/download-artifact/);
-  assert.match(source, /There is no automatic hosted resume/);
+  assert.match(source, /Fresh runners reconstruct published provider state only after tag/);
+  assert.match(source, /No Actions artifact/);
 });

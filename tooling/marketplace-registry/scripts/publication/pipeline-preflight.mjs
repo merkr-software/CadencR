@@ -12,7 +12,7 @@ export function preflightCatalog(options, prepared, staged) {
   };
   validateSigningPayload(payload, { now: options.now ?? new Date() });
   validateCatalogIdentities(payload.packages);
-  if (!prepared.previous) return;
+  if (!prepared.previous) return new Set();
   let baseline;
   try {
     baseline = JSON.parse(prepared.previous.bytes.toString("utf8"));
@@ -26,4 +26,7 @@ export function preflightCatalog(options, prepared, staged) {
     allowExpired: true,
   });
   validateCatalogContinuity(baseline.signed, payload);
+  return new Set(
+    baseline.signed.packages.map((entry) => `${entry.agent.id}@${entry.agent.version}`),
+  );
 }

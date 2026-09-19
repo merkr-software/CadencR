@@ -19,11 +19,18 @@ export async function stagePipelinePublications(options, entries) {
     remaining -= result.size;
     return result;
   };
+  const releaseDownloads = [];
+  for (const entry of entries) {
+    const published = await releaseDownloadForEntry(options.client, entry);
+    if (published) entry.requirePublished = true;
+    releaseDownloads.push(published);
+  }
   const staged = [];
   const artifacts = [];
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     const receipt = await stagePublication(entry.submission, options.repository, entry.directory, {
-      download: boundedDownload,
+      download: (input) =>
+        boundedDownload(rewriteDownload(input, entry.plan.targets, releaseDownloads[index])),
     });
     staged.push(receipt);
     artifacts.push(
@@ -33,6 +40,39 @@ export async function stagePipelinePublications(options, entries) {
     validateResourceBudget(artifacts);
   }
   return staged;
+}
+
+async function releaseDownloadForEntry(client, entry) {
+  if (typeof client?.findRelease !== "function" || typeof client?.getTagCommit !== "function")
+    throw new Error("pipeline staging client is missing release discovery methods");
+  const { tag } = entry.plan.release;
+  const release = await client.findRelease(tag);
+  if (!release || release.draft === true) {
+    if (entry.requirePublished) {
+      throw new Error("verified baseline publication is missing or draft");
+    }
+    return null;
+  }
+  if (!Number.isSafeInteger(release.id) || release.id <= 0)
+    throw new Error("published release id is invalid");
+  if (release.tag_name !== tag) throw new Error("published release tag does not match");
+  if (release.target_commitish !== entry.registryCommit)
+    throw new Error("published release target commit does not match");
+  if (release.draft !== false) throw new Error("published release draft state is invalid");
+  if ((await client.getTagCommit(tag)) !== entry.registryCommit)
+    throw new Error("published release tag does not resolve to registry commit");
+  return true;
+}
+
+function rewriteDownload(input, targets, usePublishedRelease) {
+  if (!usePublishedRelease) return input;
+  const matches = targets.filter(
+    (target) => target.source_url === input.url && target.sha256 === input.sha256,
+  );
+  if (matches.length === 0) throw new Error("published archive source mapping is missing");
+  // Multiple platforms may intentionally share one archive. Every match has the
+  // same reviewed digest, and published recovery separately verifies the full asset set.
+  return { ...input, url: matches[0].destination_url };
 }
 
 async function retainedBytes(entries) {

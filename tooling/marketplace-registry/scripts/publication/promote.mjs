@@ -23,20 +23,29 @@ export async function promotePublication({
   directory,
   client,
   download = downloadVerifiedArchive,
+  requirePublished = false,
 }) {
-  validateInputs(registryCommit, client, download);
+  validateInputs(registryCommit, client, download, requirePublished);
   const metadata = await lstat(directory);
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
     throw new Error("promotion path must be a non-symlink directory");
   }
   return withOwnedLock(path.join(directory, LOCK), "mirror directory", () =>
-    promoteLocked({ submission, repository, registryCommit, directory, client, download }),
+    promoteLocked({
+      submission,
+      repository,
+      registryCommit,
+      directory,
+      client,
+      download,
+      requirePublished,
+    }),
   );
 }
 
 async function promoteLocked(options) {
   const binding = await prepareBinding(options);
-  const { client, registryCommit, repository, directory, download } = options;
+  const { client, registryCommit, repository, directory, download, requirePublished } = options;
   let release = await client.findRelease(binding.tag);
   validateBoundRelease(release, binding, registryCommit);
   const assets = validateReleaseAssets(await client.listAssets(release.id), binding.expected, {
@@ -46,6 +55,13 @@ async function promoteLocked(options) {
   await verifyTag(client, binding.tag, registryCommit, "before publication");
 
   if (release.draft === true) {
+    if (
+      requirePublished ||
+      binding.receipt.status === "published_recovered" ||
+      binding.publicationReceipt !== null
+    ) {
+      throw new Error("historically published release is unexpectedly draft");
+    }
     release = await revalidateBeforePatch(client, binding, registryCommit, release.id);
     try {
       release = await client.publishDraft(release.id);
@@ -92,15 +108,15 @@ async function prepareBinding(options) {
     },
     { required: true },
   );
-  await readPublicationReceipt(directory, binding, {
+  const publicationReceipt = await readPublicationReceipt(directory, binding, {
     repository,
     registryCommit,
     releaseId: receipt.release_id,
   });
-  return { ...binding, receipt };
+  return { ...binding, receipt, publicationReceipt };
 }
 
-function validateInputs(commit, client, download) {
+function validateInputs(commit, client, download, requirePublished) {
   if (!isExactCommit(commit))
     throw new Error("registry commit must be 40 lowercase hex characters");
   for (const method of [
@@ -114,6 +130,9 @@ function validateInputs(commit, client, download) {
       throw new Error(`promotion client is missing ${method}`);
   }
   if (typeof download !== "function") throw new Error("promotion download is invalid");
+  if (typeof requirePublished !== "boolean") {
+    throw new Error("promotion requirePublished must be boolean");
+  }
 }
 
 function validateBoundRelease(release, binding, commit, expectedId = binding.receipt.release_id) {
@@ -128,7 +147,7 @@ function validateBoundRelease(release, binding, commit, expectedId = binding.rec
     throw new Error("release body does not match immutable binding");
 }
 
-function validatePublishedRelease(release, binding, commit, expectedId) {
+export function validatePublishedRelease(release, binding, commit, expectedId) {
   validateBoundRelease(release, binding, commit, expectedId);
   if (release.draft !== false) throw new Error("release is not published");
 }
@@ -149,12 +168,12 @@ async function revalidateBeforePatch(client, binding, commit, id) {
   return current;
 }
 
-async function verifyTag(client, tag, commit, timing) {
+export async function verifyTag(client, tag, commit, timing) {
   const actual = await client.getTagCommit(tag);
   if (actual !== commit) throw new Error(`release tag commit does not match ${timing}`);
 }
 
-async function verifyPublicArtifacts(expected, directory, download) {
+export async function verifyPublicArtifacts(expected, directory, download) {
   for (const artifact of expected) {
     if (artifact.size > MAX_ARCHIVE_BYTES) throw new Error("public asset exceeds size limit");
     await withOwnedTemporaryDirectory(directory, ".promote-public-", async (temporary) => {
