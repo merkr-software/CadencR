@@ -1,4 +1,8 @@
-import { lstat, open, unlink } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { link, lstat, mkdtemp, open, rm, unlink } from "node:fs/promises";
+import path from "node:path";
+import { canonicalJson } from "../lib.mjs";
+import { readBoundedRegularFile } from "./io.mjs";
 
 export async function withOwnedLock(lockPath, label, operation) {
   let lock;
@@ -32,6 +36,76 @@ export function cleanupFailure(primary, failures, label = "publication") {
   return new Error(message, {
     cause: new AggregateError(primary ? [primary, ...failures] : failures),
   });
+}
+
+export async function withOwnedTemporaryDirectory(directory, prefix, operation) {
+  const temporary = await mkdtemp(path.join(directory, prefix));
+  let result;
+  let primary;
+  try {
+    result = await operation(temporary);
+  } catch (error) {
+    primary = error;
+  }
+  const failures = [];
+  await rm(temporary, { recursive: true }).catch((error) => failures.push(error));
+  if (failures.length) throw cleanupFailure(primary, failures);
+  if (primary) throw primary;
+  return result;
+}
+
+export async function publishCanonicalReceipt(directory, name, receipt, limit, label) {
+  const bytes = Buffer.from(`${canonicalJson(receipt)}\n`);
+  if (bytes.length > limit) throw new Error(`${label} exceeds 4 MiB`);
+  const temporary = path.join(directory, `.${name}.${randomBytes(12).toString("hex")}.part`);
+  let primary;
+  await writeExclusive(temporary, bytes);
+  try {
+    await link(temporary, path.join(directory, name));
+  } catch (error) {
+    if (error?.code !== "EEXIST") primary = error;
+    else primary = await compareCanonical(path.join(directory, name), receipt, limit, label);
+  }
+  const failures = [];
+  await unlink(temporary).catch((error) => failures.push(error));
+  if (failures.length) throw cleanupFailure(primary, failures);
+  if (primary) throw primary;
+}
+
+async function compareCanonical(file, receipt, limit, label) {
+  try {
+    const existing = await readBoundedRegularFile(file, limit, label);
+    let parsed;
+    try {
+      parsed = JSON.parse(existing.toString("utf8"));
+    } catch {
+      return new Error(`existing ${label} is invalid`);
+    }
+    if (canonicalJson(parsed) !== canonicalJson(receipt)) {
+      return new Error(`existing ${label} conflicts`);
+    }
+  } catch (error) {
+    return error;
+  }
+  return undefined;
+}
+
+async function writeExclusive(file, bytes) {
+  const handle = await open(file, "wx", 0o600);
+  let primary;
+  try {
+    await handle.writeFile(bytes);
+    await handle.sync();
+  } catch (error) {
+    primary = error;
+  }
+  const failures = [];
+  await handle.close().catch((error) => failures.push(error));
+  if (primary || failures.length) {
+    await unlink(file).catch((error) => failures.push(error));
+    if (failures.length) throw cleanupFailure(primary, failures);
+    throw primary;
+  }
 }
 
 async function removeOwnedLock(lockPath, identity) {

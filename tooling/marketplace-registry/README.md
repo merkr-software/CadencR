@@ -152,7 +152,40 @@ npm run mirror:publication -- \
   An old receipt is historical evidence only: retries always recheck remote bytes.
 - Keep the local directory stable and serialize operator runs. A local lock is not
   cross-runner GitHub workflow concurrency control. Repository protections and
-  final draft promotion, public URL checks, signing and discovery remain pending.
+  deployed publication controls, signing and discovery remain pending.
+
+## Explicit release promotion and public verification
+
+> `promote:publication` publishes an existing draft on GitHub. This is a remote
+> mutation, not a dry run. Use only after operator approval in a protected
+> environment; never run it from contributor/PR code.
+
+```bash
+npm run promote:publication -- \
+  --submission /path/to/reviewed-submission.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --registry-commit EXACT_40_CHARACTER_LOWERCASE_COMMIT_SHA \
+  --directory /trusted/workspace/staged-provider-version \
+  --confirm-repository YOUR-ORG/YOUR-REGISTRY \
+  --confirm-publish EXACT_PLANNED_RELEASE_TAG
+```
+
+- Requires the existing staging and mirror receipts, the dedicated environment
+  token, matching release identity and freshly verified remote bytes.
+- The release tag must already exist and resolve to the reviewed registry commit.
+  Lightweight and bounded annotated tags are supported. This command never creates
+  or moves a tag. Check the tag before invocation through your approved operator flow.
+- Publishes only that release, without marking it latest. No uploads, asset
+  replacement, deletion, signing or catalog edits occur.
+- Checks the tag binding again after publication and downloads every public archive
+  and provenance URL **without credentials**. Only then writes the immutable
+  `publication-receipt.json`; the mirror receipt stays unchanged.
+- If publication succeeds but public verification fails, the release remains
+  published. The command fails and emits no new success receipt; it never hides
+  the failure by rolling back. Retry validates existing state without republishing.
+- Both receipts are historical evidence, not permanent availability guarantees.
+  Protected environments, immutable releases, tag protections and distributed
+  concurrency must still be configured. Local locks cannot enforce those policies.
 
 ## Deliberate limits
 

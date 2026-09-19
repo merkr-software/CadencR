@@ -45,7 +45,7 @@ async function bridgeFile(directory, url) {
     file,
     `
 const networkFetch = globalThis.fetch;
-const routes = {"api.github.com":"/api", "uploads.github.com":"/uploads", "release-assets.githubusercontent.com":"/cdn"};
+const routes = {"github.com":"/public", "api.github.com":"/api", "uploads.github.com":"/uploads", "release-assets.githubusercontent.com":"/cdn"};
 globalThis.fetch = async (input, options) => {
   const target = new URL(input);
   if (!routes[target.hostname]) throw new Error("unexpected fixture destination");
@@ -57,14 +57,17 @@ globalThis.fetch = async (input, options) => {
   return file;
 }
 
-function runCli(bridge, input, directory) {
+function runCli(bridge, input, directory, publishTag) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
       [
         "--import",
         bridge,
-        cli,
+        publishTag
+          ? fileURLToPath(new URL("../scripts/promote-publication.mjs", import.meta.url))
+          : cli,
+        ...(publishTag ? ["--confirm-publish", publishTag] : []),
         "--submission",
         input,
         "--repository",
@@ -122,4 +125,43 @@ test("mirror CLI uploads a draft to a fake API, verifies CDN bytes without crede
   assert.equal(state.requests.filter((entry) => entry.method === "POST").length, posts);
   assert.equal(await readFile(receiptPath, "utf8"), receipt);
   assert.ok(state.requests.every((entry) => !["DELETE", "PATCH"].includes(entry.method)));
+});
+
+test("promotion CLI verifies public bytes and resumes after public availability failure without republishing", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cadencr-promote-cli-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { state, url } = await startGitHubFixture(t, token);
+  const bridge = await bridgeFile(directory, url);
+  const { input, stage } = await makeInput(directory);
+  const mirrored = await runCli(bridge, input, stage);
+  assert.equal(mirrored.status, 0, mirrored.output);
+  const mirrorReceipt = await readFile(path.join(stage, "mirror-receipt.json"), "utf8");
+  const tag = state.release.tag_name;
+  const requestsBefore = state.requests.length;
+  const unconfirmed = await runCli(bridge, input, stage, "wrong-tag");
+  assert.equal(unconfirmed.status, 1, unconfirmed.output);
+  assert.match(unconfirmed.output, /publish confirmation/);
+  assert.equal(state.requests.length, requestsBefore);
+  state.tagCommit = "c".repeat(40);
+  const conflict = await runCli(bridge, input, stage, tag);
+  assert.equal(conflict.status, 1, conflict.output);
+  assert.equal(state.requests.filter((r) => r.method === "PATCH").length, 0);
+  state.tagCommit = commit;
+  state.publicUnavailable = true;
+  const unavailable = await runCli(bridge, input, stage, tag);
+  assert.equal(unavailable.status, 1, unavailable.output);
+  assert.equal(state.release.draft, false);
+  await assert.rejects(readFile(path.join(stage, "publication-receipt.json")), { code: "ENOENT" });
+  state.publicUnavailable = false;
+  const recovered = await runCli(bridge, input, stage, tag);
+  assert.equal(recovered.status, 0, recovered.output);
+  const receipt = await readFile(path.join(stage, "publication-receipt.json"), "utf8");
+  const replay = await runCli(bridge, input, stage, tag);
+  assert.equal(replay.status, 0, replay.output);
+  assert.equal(await readFile(path.join(stage, "publication-receipt.json"), "utf8"), receipt);
+  assert.equal(await readFile(path.join(stage, "mirror-receipt.json"), "utf8"), mirrorReceipt);
+  assert.equal(state.requests.filter((r) => r.method === "PATCH").length, 1);
+  assert.ok(state.requests.some((r) => r.path.startsWith("/public/") && !r.auth));
+  assert.ok(state.requests.every((r) => r.method !== "DELETE"));
+  assert.doesNotMatch(recovered.output + replay.output, new RegExp(token));
 });

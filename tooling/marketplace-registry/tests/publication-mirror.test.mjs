@@ -140,6 +140,15 @@ test("creates and verifies a draft, then retries without another POST", async (t
   assert.equal(client.calls.create, 1);
 });
 
+test("accepts a canonical-equivalent mirror receipt on replay", async (t) => {
+  const root = await directory(t);
+  const client = fakeClient();
+  const receipt = await mirror(root, client);
+  await writeFile(path.join(root, "mirror-receipt.json"), `${JSON.stringify(receipt, null, 2)}\n`);
+  assert.deepEqual(await mirror(root, client), receipt);
+  assert.equal(client.calls.create, 1);
+});
+
 test("recovers lost create and upload responses", async (t) => {
   const root = await directory(t);
   const client = fakeClient({ createFailure: true, uploadFailure: true });

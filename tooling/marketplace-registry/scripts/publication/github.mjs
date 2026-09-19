@@ -1,6 +1,7 @@
 import { downloadVerifiedArchive } from "./download.mjs";
 import { isExactCommit } from "./commit.mjs";
 import { createRequester } from "./github/request.mjs";
+import { createPromotionMethods } from "./github/promotion.mjs";
 import { createUploader } from "./github/upload.mjs";
 import {
   validateAsset,
@@ -114,5 +115,12 @@ export function createGitHubClient({ repository, token, fetchImpl = globalThis.f
     return result;
   }
 
-  return { findRelease, createDraft, listAssets, uploadAsset, verifyAsset };
+  return {
+    findRelease,
+    createDraft,
+    listAssets,
+    uploadAsset,
+    verifyAsset,
+    ...createPromotionMethods({ repository, request, requireRelease }),
+  };
 }

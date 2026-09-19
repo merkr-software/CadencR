@@ -101,3 +101,26 @@ a release or changes catalog discovery. [Asset uploads](https://docs.github.com/
 can leave incomplete state after failures; this tool reconciles and verifies rather
 than deleting/replacing uncertain assets. Human recovery of conflicts remains
 explicit, and workflow concurrency/protected production publication is not installed.
+
+## Promotion boundary
+
+`promote:publication` is a separate explicit publishing command, not an automatic
+continuation of mirroring. A dedicated token and exact repository/tag confirmations
+are required. Protected environment approval and cross-runner serialization are
+operator responsibilities; this increment does not deploy a workflow or provision
+repository protections.
+
+The [release API](https://docs.github.com/en/rest/releases/releases) does not use
+`target_commitish` to move an existing tag. Promotion therefore resolves the actual
+Git reference and bounded annotated-tag chain before and after publication. A
+missing, ambiguous or conflicting tag fails closed; no tag is created or updated.
+This detects inconsistencies but cannot prevent an external writer racing between
+checks. Configure tag protections and release immutability before production use.
+
+The post-publication transfer uses the ordinary unauthenticated downloader, not the
+private asset API bridge. A private repository or unavailable public URL cannot
+produce a new publication receipt. A failed verification can leave a published
+release: recovery is verification/retry, never automatic deletion or unpublishing.
+No signing key is read and catalog/discovery remains untouched. A receipt does not
+prove publisher ownership, reproducible builds, permanent immutability or ongoing
+availability; protected catalog publication still needs its own checks.

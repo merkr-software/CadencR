@@ -1,7 +1,14 @@
 import { createServer } from "node:http";
 
 export async function startGitHubFixture(t, token) {
-  const state = { release: null, assets: [], requests: [], nextId: 1 };
+  const state = {
+    release: null,
+    assets: [],
+    requests: [],
+    nextId: 1,
+    tagCommit: "b".repeat(40),
+    publicUnavailable: false,
+  };
   const server = createServer((request, response) => {
     handle(request, response, state, token).catch((error) => {
       response.writeHead(500);
@@ -30,8 +37,31 @@ async function handle(request, response, state, token) {
     auth: request.headers.authorization,
   });
   const isCdn = url.pathname.startsWith("/cdn/");
-  const expectedAuth = isCdn ? undefined : `Bearer ${token}`;
+  const isPublic = url.pathname.startsWith("/public/");
+  const expectedAuth = isCdn || isPublic ? undefined : `Bearer ${token}`;
   if (request.headers.authorization !== expectedAuth) return json(response, 403, {});
+  if (isPublic) {
+    const asset = state.assets.find(
+      (entry) => `/public${new URL(entry.browser_download_url).pathname}` === url.pathname,
+    );
+    if (!asset || state.release?.draft !== false || state.publicUnavailable)
+      return json(response, 404, {});
+    response.writeHead(302, {
+      location: `https://release-assets.githubusercontent.com/${asset.id}`,
+    });
+    response.end();
+    return;
+  }
+  if (
+    url.pathname.startsWith("/api/repos/acme/registry/git/ref/tags/") &&
+    request.method === "GET"
+  ) {
+    if (!state.tagCommit) return json(response, 404, {});
+    return json(response, 200, {
+      ref: `refs/tags/${state.release.tag_name}`,
+      object: { type: "commit", sha: state.tagCommit },
+    });
+  }
   if (isCdn) {
     const asset = state.assets.find((entry) => entry.id === Number(url.pathname.split("/").at(-1)));
     if (!asset) return json(response, 404, {});
@@ -51,6 +81,13 @@ async function handle(request, response, state, token) {
     if (state.release) return json(response, 422, {});
     state.release = { ...JSON.parse((await readBody(request)).toString()), id: 42 };
     return json(response, 201, state.release);
+  }
+  if (url.pathname === `${releasePath}/42` && request.method === "PATCH") {
+    const body = JSON.parse((await readBody(request)).toString());
+    if (JSON.stringify(body) !== JSON.stringify({ draft: false, make_latest: "false" }))
+      return json(response, 422, {});
+    Object.assign(state.release, body);
+    return json(response, 200, state.release);
   }
   if (url.pathname === `${releasePath}/42/assets` && request.method === "GET") {
     return json(
