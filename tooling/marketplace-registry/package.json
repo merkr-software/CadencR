@@ -9,6 +9,8 @@
     "validate": "node scripts/validate.mjs",
     "validate:submission": "node scripts/validate-submission.mjs",
     "pack:provider": "node scripts/pack-provider.mjs",
-    "validate:contribution": "node scripts/validate-contribution.mjs"
+    "validate:contribution": "node scripts/validate-contribution.mjs",
+    "plan:publication": "node scripts/plan-publication.mjs",
+    "sign:index": "node scripts/sign-index.mjs"
   }
 }

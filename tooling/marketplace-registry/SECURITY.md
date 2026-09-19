@@ -48,3 +48,17 @@ Protected publisher jobs must independently revalidate reviewed default-branch
 metadata inside a protected publication environment. They must not invoke package
 executables or contributor-controlled build scripts. Those jobs and repository
 protections are not provisioned by this local template.
+
+## Local signing and mirror plans
+
+The local planner and signer are separate primitives, not a protected publisher.
+A mirror plan records intended destinations, not observed remote availability.
+The signer checks payload shape/time bounds and its own Ed25519 signature; it does
+not authorize a publisher, verify source builds, pin a public key in Cadencr, or
+confirm remote asset digests. A key ID alone does not establish trust: deployment
+must match the private key's public half to an explicitly configured host trust root.
+
+Run local tests with generated disposable keys only. Never commit private keys,
+pass them in command arguments, or expose them to PR tooling/provider executables.
+Production key provisioning, rotation and environment protections remain separate
+operator decisions. The existing workflow still stops before signing and releases.
