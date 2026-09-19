@@ -29,7 +29,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
-| D    | Protected mirroring, signing and idempotent publication              | Not implemented                                                                                                   |
+| D    | Protected mirroring, signing and idempotent publication              | Local planning/signing primitives implemented; remote mirroring and publication not implemented                   |
 | E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
@@ -73,6 +73,28 @@ alone cannot close them.
 - Deployment, a real GitHub PR run, repository protections, and protected
   publication-time revalidation remain unverified or unimplemented. Local checks
   do not prove source ownership or establish an official publisher identity.
+
+### Publication primitives increment — 2026-09-19
+
+- Deterministic local mirror planning preserves the original source submission,
+  approved digests and archive formats while deriving immutable destination names.
+- The local Ed25519 signer uses the existing canonical index/envelope contract,
+  validates the publication window, self-verifies, and refuses output overwrites.
+- Both commands operate on bounded regular files without network calls or provider
+  execution. The integration test connects a plan to a signed fixture index with
+  ephemeral keys; it does not establish remote asset availability or source trust.
+- Three independent reuse/quality/efficiency reviews completed. They prompted
+  temporary-fixture cleanup and a cross-language signing correction: the signer
+  refuses noncanonical dates and empty optional fields that Rust would omit.
+- Verification: 81 local registry tests and two root integration checks pass;
+  a Rust integration test invokes the actual Node CLI and verifies its signature
+  through `ManagedTrustStore`, including tamper rejection. No app runtime behavior
+  changed; no production data or keys were used.
+- This is a **partial implementation of D**, not an operational publisher. The
+  remaining work includes source/digest verification, mirrored remote assets,
+  conflict-safe retries, serialized publication and discovery updates, provenance
+  retention, and protected production key/environment provisioning. Neither CLI is
+  connected to the bootstrap workflow yet; it still stops before signing/releases.
 
 ### Decisions that must not be invented by implementation
 

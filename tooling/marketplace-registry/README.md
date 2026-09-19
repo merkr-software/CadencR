@@ -49,6 +49,42 @@ remain byte-identical to the service contract. Executable validation derives
 allowed object fields from the schemas and adds host-specific semantic checks;
 this is not a general-purpose JSON Schema engine.
 
+## Local publication primitives
+
+```bash
+npm run plan:publication -- \
+  --submission /path/to/reviewed-submission.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --output /tmp/publication-plan.json
+npm run sign:index -- \
+  --payload /path/to/verified-mirrored-index.json \
+  --private-key /secure/path/ed25519-private.pem \
+  --key-id YOUR-PINNED-KEY-ID \
+  --output /tmp/signed-managed-index.json
+```
+
+- `plan:publication` produces deterministic source/destination mappings and a
+  mirrored package document without downloading, executing, or publishing anything.
+  It preserves the reviewed source submission. The destination repository is an
+  explicit parameter, not a configured production registry. Supported containers
+  are `.tar.gz`, `.tgz`, `.tar.bz2`, `.tbz2`, and `.zip`; raw executables are
+  deliberately excluded from this publication planner.
+- A plan is **not evidence of availability or provenance**. Its mirrored package
+  must not enter a published index until every remote destination has been verified
+  against the approved SHA-256. Never alter accepted source metadata in place.
+- `sign:index` validates and canonicalizes the existing index v1 payload, signs
+  with an Ed25519 private key, and verifies the signature before exclusive output.
+  Signing requires canonical whole-second UTC timestamps (`YYYY-MM-DDTHH:mm:ssZ`)
+  and omitted empty optional authors/arguments/environment fields, matching Rust
+  serialization; ambiguous spellings are rejected rather than signed incorrectly.
+  It neither contacts archive URLs nor proves that they exist. Inputs are bounded
+  (submission 1 MiB, index 32 MiB, key 16 KiB) and must remain stable during reads;
+  non-regular files and symlinks are refused, not sandboxed. Keep key files out
+  of the repository; use ephemeral test keys for local trials, never production keys.
+- These commands are deliberately not connected to the example workflow yet.
+  Network mirroring, immutable conflict checks, retry reconciliation, provenance
+  verification, and serialized protected publication/discovery are still required.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their
