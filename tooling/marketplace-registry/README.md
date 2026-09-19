@@ -365,3 +365,92 @@ the submission envelope and remaining human verification requirements.
   credential-field ban.
 - Schema validation and conformance do not establish publisher trust or code
   safety. Maintainer review and protected publication remain mandatory.
+
+## Protected publication pipeline
+
+`publish:registry` composes the existing staging, provider mirroring/promotion,
+verified signing, snapshot publication and stable discovery commands. It is an
+**operator command with remote-write authority**, not a contributor command.
+It creates only missing publication tags at exact commits; existing tags must
+already resolve to the approved commit and are never moved or deleted.
+
+A reviewed request describes the complete catalogue, not just the new package:
+
+```json
+{
+  "schema_version": 1,
+  "repository": "OWNER/REGISTRY",
+  "key_id": "registry-2026",
+  "discovery_branch": "catalog",
+  "generated_at": "2026-09-19T12:00:00Z",
+  "expires_at": "2026-09-26T12:00:00Z",
+  "previous_index": "bootstrap",
+  "public_key": "trust/public.pem",
+  "publications": [{ "submission": "submissions/provider-0.1.0.json" }]
+}
+```
+
+Replace example values and publication dates before review. Paths are relative to
+this request's directory, bounded and non-symlink; traversal outside that directory
+is refused. For updates, `previous_index` names the exact previous signed catalogue
+instead of `bootstrap`. Each publication may specify `registry_commit` to retain
+its original release binding; otherwise the command's reviewed commit is used.
+Never rebind an existing provider version to a later registry commit.
+
+```sh
+npm run publish:registry -- \
+  --request publication-request.json \
+  --directory /trusted/operator-state/request-001 \
+  --repository OWNER/REGISTRY \
+  --registry-commit REVIEWED_40_HEX_COMMIT \
+  --private-key /protected/outside-state/private.pem \
+  --confirm-request-sha256 REVIEWED_REQUEST_FILE_SHA256
+```
+
+The dedicated `CADENCR_REGISTRY_GITHUB_TOKEN` must be supplied separately. Review
+both the immutable checkout commit and the request digest; the digest alone does
+not bind referenced files in an untrusted mutable checkout. Keep all input and
+state ancestors trusted and quiescent. Never place private keys inside publication
+state or source submissions. The pipeline does not execute or extract archives.
+
+State paths must be canonical and non-symlink, including their ancestors (resolve
+system aliases such as macOS `/tmp` before choosing a state path). The private-key
+path is rejected if its canonical target is inside that state directory. Source
+staging shares a 1 GiB budget across retained files and new downloads; each transfer
+receives the remaining limit. Public-asset verification is repeated at security
+boundaries, so the total network traffic of a complete run can exceed 1 GiB.
+
+The state directory is immutably bound to one request and reviewed commit. Preserve
+it after failures. Retrying that exact request revalidates existing receipts and
+public bytes without changing existing releases, assets, tags or catalogue bytes.
+A failure can leave tags, drafts or published assets behind, and a failed final raw
+verification can leave discovery advanced without its receipt. It is not a global
+transaction and does not authorize rollback or cleanup of remote assets. Local
+input preflight is not a guarantee that every future remote operation will succeed:
+a conflicting tag on a later provider can leave earlier providers published. No
+catalogue is signed or advertised unless all provider gates complete. The catalogue
+tag is checked after verified signing, not by signing an unverified payload early.
+
+### Hosted workflow and recovery boundary
+
+Install `.github/workflows/publish-protected-catalog.yml` in the actual registry
+repository only after configuring the `protected-marketplace-publisher` environment
+with required reviewers, the two dedicated secrets
+`CADENCR_REGISTRY_GITHUB_TOKEN` and `CADENCR_REGISTRY_PRIVATE_KEY_PEM`, and appropriate
+branch/tag/release protections. The default branch must contain a reviewed
+`publication-request.json` and its public inputs. The dispatch takes its explicit
+SHA-256 confirmation, checks out the exact dispatch commit, and uses the shared
+non-cancelling publication lane. It does not run contributor code or package
+installation scripts. No official repository, protection or secret is provisioned
+by this template.
+
+The workflow preserves non-secret publication state as a run/attempt-specific
+artifact. The signing key is stored separately and cleaned up. Recovery is an
+explicit operator action: inspect the original run's state and invoke the local
+CLI at the original reviewed checkout/commit with the same request. Do not restore
+arbitrary artifact contents or execute anything from them. Fresh hosted-runner
+retries do **not** automatically resume published providers: missing prior mirror
+receipts fail closed. State hydration across runs and subsequent catalogue requests
+remains a separate implementation gate; this template is not yet unattended
+continuous publication. Verify artifact access/retention against your operating
+policy before deployment.

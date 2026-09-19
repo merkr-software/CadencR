@@ -4,6 +4,9 @@ import { createServer } from "node:http";
 export async function startGitHubFixture(t, token) {
   const state = {
     releases: [],
+    sourceArchives: new Map(),
+    strictTags: false,
+    tags: new Map(),
     assets: [],
     requests: [],
     nextId: 1,
@@ -88,6 +91,13 @@ async function handle(request, response, state, token) {
   if (url.pathname === "/api/repos/acme/registry/contents/managed-index.json") {
     return handleDiscovery(request, response, state, url);
   }
+  if (url.pathname === "/api/repos/acme/registry/git/refs" && request.method === "POST") {
+    const input = JSON.parse((await readBody(request)).toString());
+    const tag = input.ref?.replace(/^refs\/tags\//, "");
+    if (!tag || state.tags.has(tag)) return json(response, 422, {});
+    state.tags.set(tag, input.sha);
+    return json(response, 201, { ref: input.ref, object: { type: "commit", sha: input.sha } });
+  }
   if (isPublic) return servePublicAsset(response, state, url);
   if (
     url.pathname.startsWith("/api/repos/acme/registry/git/ref/tags/") &&
@@ -100,6 +110,12 @@ async function handle(request, response, state, token) {
 }
 
 function servePublicAsset(response, state, url) {
+  const source = state.sourceArchives.get(url.pathname);
+  if (source) {
+    response.writeHead(200, { "content-length": source.length });
+    response.end(source);
+    return;
+  }
   const asset = state.assets.find(
     (entry) => `/public${new URL(entry.browser_download_url).pathname}` === url.pathname,
   );
@@ -120,6 +136,12 @@ function servePublicAsset(response, state, url) {
 function serveTag(response, state, url) {
   if (!state.tagCommit) return json(response, 404, {});
   const tag = decodeURIComponent(url.pathname.split("/").at(-1));
+  if (state.strictTags) {
+    const commit = state.tags.get(tag);
+    return commit
+      ? json(response, 200, { ref: `refs/tags/${tag}`, object: { type: "commit", sha: commit } })
+      : json(response, 404, {});
+  }
   const release = state.releases.find((entry) => entry.tag_name === tag);
   if (!release && !/^catalog-[0-9a-f]{64}$/.test(tag)) return json(response, 404, {});
   return json(response, 200, {

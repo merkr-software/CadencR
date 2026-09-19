@@ -29,7 +29,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
-| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion, signing, snapshots and guarded discovery implemented locally; protected deployment pending  |
+| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline and protected workflow template implemented locally; hosted recovery and deployment pending     |
 | E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
@@ -256,6 +256,49 @@ alone cannot close them.
 - Next: compose the protected publishing pipeline, then the marked-project author
   release flow. Production trust/URLs, blocklist operations, marketplace UI and
   supported-platform lifecycle certification remain separate pending gates.
+
+### Protected pipeline assembly increment — 2026-09-19
+
+- Added a repository/commit/request-digest-bound operator pipeline composing all
+  existing stages: source staging, immutable tag creation, mirroring, promotion,
+  verified signing, versioned snapshot publication, then stable discovery.
+- Inputs are reviewed inert JSON/public-key/baseline files. Bounded preflight checks
+  all submissions, ownership/normalized identities, dates, signing-key match and
+  signed baseline continuity before remote writes. No archive is executed/extracted.
+- Tags are created only when the exact reference is absent; existing tags must
+  resolve to the approved commit. No tag replacement, deletion or force update.
+- Pipeline state and copies of public inputs are immutable for one request/commit;
+  same-request retry revalidates receipts and bytes. Partial failures preserve remote
+  progress instead of rolling it back. Signed output remains gated on verified
+  public archives and provenance, not merely planned destinations.
+- Added a manual protected publisher workflow template with secret-free digest
+  preflight, default-branch/exact-commit checks, shared concurrency, dedicated
+  step-scoped credentials, private-key storage outside state, owned cleanup and
+  run-specific recovery artifacts. The prior unsigned preparation template remains
+  a separate non-publishing tool.
+- **Not deployed or unattended:** official repository/trust configuration, protected
+  environment reviewers and branch/tag/release policies remain external gates.
+  Automatic state hydration across runners or subsequent catalogue requests is
+  not implemented. Missing receipts for an already-published provider fail closed;
+  recovery currently requires an operator to inspect and reuse the original state
+  at the same reviewed checkout/commit. Do not mistake artifact retention for an
+  automatic safe resume mechanism.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Shared
+  identity/ownership validation replaced duplication. Corrections enforce a shared
+  1 GiB staging allowance, reject signing keys inside uploaded state, and preserve
+  owned cleanup through symlink attacks. Independent hash/public-byte checks remain
+  at security boundaries; the staging cap is not a total network-traffic cap.
+- Verification: **228 registry tests**, two root integration checks and the Rust
+  Node-signature interoperability test pass. The actual CLI runs against local
+  mock GitHub/source/CDN endpoints, covering public-provider failure before signing,
+  lost discovery response, safe replay and a later tag conflict without advertising
+  a partial catalogue. Workflow inline key scripts are executed locally in tests.
+  Scoped lint has no errors (four unchanged control-regex warnings); formatting and
+  diff checks pass. This is not live GitHub/Actions or packaged-app QA.
+- Next: implement verified published-state hydration and hosted-runner recovery,
+  then exercise the actual GitHub deployment under explicit authorization. Continue
+  with marked-project author releases, production policy, marketplace UI and the
+  external-author/packaged-app lifecycle gates after their prerequisites.
 
 ### Decisions that must not be invented by implementation
 

@@ -1,7 +1,6 @@
 import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { canonicalJson, comparePackages } from "../lib.mjs";
-import { providerIdentifierKey } from "../submission.mjs";
 import { buildPublicationBinding, readMirrorReceipt, readPublicationReceipt } from "./binding.mjs";
 import { isExactCommit } from "./commit.mjs";
 import { downloadVerifiedArchive, MAX_ARCHIVE_BYTES } from "./download.mjs";
@@ -9,6 +8,7 @@ import { writeExclusivePrivate, withOwnedTemporaryDirectory } from "./files.mjs"
 import { readBoundedRegularFile } from "./io.mjs";
 import { validPublicationRepository } from "./plan.mjs";
 import { stagePublication } from "./stage.mjs";
+import { validateCatalogIdentities } from "./snapshot.mjs";
 import { validateSigningPayload } from "./signing.mjs";
 
 const MAX_CATALOG_BYTES = 32 * 1024 * 1024;
@@ -49,7 +49,7 @@ export async function preparePublishedCatalog(
   }
 
   const packages = prepared.map((entry) => entry.package).sort(comparePackages);
-  validateProviderContinuity(packages);
+  validateCatalogIdentities(packages, { ownership: "repository" });
   const payload = {
     schema_version: 1,
     generated_at: generatedAt,
@@ -166,26 +166,6 @@ function validateManifest(value) {
       throw new Error(`${label}.registry_commit must be 40 lowercase hex characters`);
     }
   });
-}
-
-function validateProviderContinuity(packages) {
-  const normalized = new Map();
-  const owners = new Map();
-  for (const entry of packages) {
-    const { id } = entry.agent;
-    const key = providerIdentifierKey(id);
-    const priorId = normalized.get(key);
-    if (priorId && priorId !== id) {
-      throw new Error(`provider id ${id} collides with ${priorId} after runtime normalization`);
-    }
-    normalized.set(key, id);
-    const owner = `${entry.host.publisher}\0${entry.agent.repository ?? ""}`;
-    const priorOwner = owners.get(id);
-    if (priorOwner && priorOwner !== owner) {
-      throw new Error(`provider ${id} has conflicting publisher or repository ownership`);
-    }
-    owners.set(id, owner);
-  }
 }
 
 function resolveInput(base, value) {
