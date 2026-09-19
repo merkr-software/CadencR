@@ -146,3 +146,27 @@ signing environment. The bootstrap preparation workflow remains unsigned and mus
 not be mistaken for the production publishing workflow. Actual catalogue upload,
 anti-replay/history reconciliation, distributed serialization and discovery changes
 are intentionally not performed by this local signing increment.
+
+## Signed snapshot publication boundary
+
+`publish:catalog` verifies signatures with an operator-pinned public key, validates
+history against an explicitly supplied baseline, and rebuilds the payload through
+the existing publication-evidence/public-download gate before release writes. It
+never loads a private key. Candidate and baseline inputs are limited to 1 MiB, the
+same limit currently enforced by app catalogue acquisition.
+
+The historical baseline may be expired, but must remain correctly signed with
+canonical valid metadata. Candidate freshness and strictly increasing publication
+time are required. Removing/changing a previously accepted version is rejected;
+delisting and revocation require their own reviewed policy, not silent omission.
+A supplied baseline does not prove the globally latest revision: the future
+discovery updater must use authoritative state and a concurrency guard. Explicit
+`bootstrap` must be approved operationally and is not a remote-empty-state check.
+
+The release name/tag and body bind canonical snapshot bytes, registry commit and
+previous snapshot digest. The public asset is independently re-downloaded without
+authentication. Receipt files remain historical local evidence. Repository release
+immutability, tag protections, required reviewers and distributed serialization
+are not provisioned by this command. As with provider promotion, a failure after
+publication does not authorize rollback or deletion. No `latest` or discovery
+location is mutated, preserving the currently advertised catalogue.

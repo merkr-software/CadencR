@@ -15,6 +15,7 @@
     "stage:publication": "node scripts/stage-publication.mjs",
     "mirror:publication": "node scripts/mirror-publication.mjs",
     "promote:publication": "node scripts/promote-publication.mjs",
-    "sign:publication-catalog": "node scripts/sign-publication-catalog.mjs"
+    "sign:publication-catalog": "node scripts/sign-publication-catalog.mjs",
+    "publish:catalog": "node scripts/publish-catalog.mjs"
   }
 }
