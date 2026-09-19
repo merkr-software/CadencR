@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withOwnedLock } from "../scripts/publication/files.mjs";
+import { publishCanonicalReceipt, withOwnedLock } from "../scripts/publication/files.mjs";
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "publication-files-"));
@@ -40,4 +40,23 @@ test("inode ownership preserves a foreign replacement", async (t) => {
     await writeFile(lock, "foreign", { flag: "wx" });
   });
   assert.equal(await readFile(lock, "utf8"), "foreign");
+});
+
+test("immutable receipt reconciliation cleans its temporary file on malformed or symlink destinations", async (t) => {
+  const lock = await fixture(t);
+  const directory = path.dirname(lock);
+  await writeFile(path.join(directory, "malformed.json"), "not json");
+  await assert.rejects(
+    publishCanonicalReceipt(directory, "malformed.json", { ok: true }, 1024, "test receipt"),
+    /invalid/,
+  );
+  const foreign = path.join(directory, "foreign.json");
+  await writeFile(foreign, "preserve");
+  await symlink(foreign, path.join(directory, "linked.json"));
+  await assert.rejects(
+    publishCanonicalReceipt(directory, "linked.json", { ok: true }, 1024, "test receipt"),
+  );
+  assert.equal(await readFile(foreign, "utf8"), "preserve");
+  assert.equal(await readFile(path.join(directory, "malformed.json"), "utf8"), "not json");
+  assert.ok((await readdir(directory)).every((name) => !name.endsWith(".part")));
 });

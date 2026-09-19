@@ -13,6 +13,7 @@
     "plan:publication": "node scripts/plan-publication.mjs",
     "sign:index": "node scripts/sign-index.mjs",
     "stage:publication": "node scripts/stage-publication.mjs",
-    "mirror:publication": "node scripts/mirror-publication.mjs"
+    "mirror:publication": "node scripts/mirror-publication.mjs",
+    "promote:publication": "node scripts/promote-publication.mjs"
   }
 }
