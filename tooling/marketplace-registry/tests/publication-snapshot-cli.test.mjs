@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +21,7 @@ async function bridgeFile(directory, url) {
     file,
     `
 const networkFetch = globalThis.fetch;
-const routes = {"github.com":"/public", "api.github.com":"/api", "uploads.github.com":"/uploads", "release-assets.githubusercontent.com":"/cdn"};
+const routes = {"raw.githubusercontent.com":"/raw", "github.com":"/public", "api.github.com":"/api", "uploads.github.com":"/uploads", "release-assets.githubusercontent.com":"/cdn"};
 globalThis.fetch = async (input, options) => {
   const target = new URL(input);
   if (!routes[target.hostname]) throw new Error("unexpected fixture destination " + target.hostname);
@@ -183,7 +183,7 @@ test("snapshot CLI publishes one immutable catalog asset and safely resumes publ
   const digest = createHash("sha256").update(canonicalBytes).digest("hex");
   const tag = `catalog-${digest}`;
   const outputDirectory = path.join(directory, "catalog-publication");
-  await import("node:fs/promises").then(({ mkdir }) => mkdir(outputDirectory));
+  await mkdir(outputDirectory);
 
   const writesBeforeRefusals = state.requests.filter(({ method }) => method !== "GET").length;
   const tampered = path.join(directory, "tampered-catalog.json");
@@ -264,4 +264,43 @@ test("snapshot CLI publishes one immutable catalog asset and safely resumes publ
   assert.equal(state.requests.filter(({ method }) => method === "PATCH").length, patches);
   assert.equal(await readFile(receiptFile, "utf8"), receipt);
   assert.ok(state.requests.every(({ method }) => method !== "DELETE"));
+});
+
+test("discovery CLI advances only a published snapshot and reconciles a lost PUT without another write", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cadencr-discovery-cli-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { state, url } = await startGitHubFixture(t, token);
+  const bridge = await bridgeFile(directory, url);
+  const provider = await preparePublishedProvider(directory, bridge, state);
+  const files = await prepareCatalog(directory, bridge, provider);
+  const bytes = await readFile(files.catalog);
+  const tag = `catalog-${createHash("sha256").update(bytes).digest("hex")}`;
+  const outputDirectory = path.join(directory, "catalog-publication");
+  await mkdir(outputDirectory);
+  const common = publishArgs(files, outputDirectory, tag);
+  const published = await run(bridge, "publish-catalog.mjs", common, true);
+  assert.equal(published.status, 0, published.output);
+  const rawUrl =
+    "https://raw.githubusercontent.com/acme/registry/refs/heads/catalog/managed-index.json";
+  const args = [...common, "--discovery-branch", "catalog", "--confirm-discovery", rawUrl];
+  const start = state.requests.length;
+  state.loseDiscoveryResponse = true;
+  state.rawUnavailable = true;
+  const unavailable = await run(bridge, "advance-catalog.mjs", args, true);
+  assert.equal(unavailable.status, 1, unavailable.output);
+  assert.deepEqual(state.discovery?.bytes, bytes, unavailable.output);
+  const receipt = path.join(outputDirectory, "discovery-receipt.json");
+  await assert.rejects(readFile(receipt), { code: "ENOENT" });
+  state.rawUnavailable = false;
+  const recovered = await run(bridge, "advance-catalog.mjs", args, true);
+  assert.equal(recovered.status, 0, recovered.output);
+  const receiptBytes = await readFile(receipt);
+  const replay = await run(bridge, "advance-catalog.mjs", args, true);
+  assert.equal(replay.status, 0, replay.output);
+  assert.deepEqual(await readFile(receipt), receiptBytes);
+  const requests = state.requests.slice(start);
+  assert.equal(requests.filter(({ method }) => method === "PUT").length, 1);
+  assert.ok(requests.every(({ method }) => ["GET", "PUT"].includes(method)));
+  assert.ok(requests.some(({ path: pathname, auth }) => pathname.startsWith("/raw/") && !auth));
+  assert.doesNotMatch(unavailable.output + recovered.output + replay.output, new RegExp(token));
 });

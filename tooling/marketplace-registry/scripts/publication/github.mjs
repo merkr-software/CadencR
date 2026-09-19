@@ -1,6 +1,7 @@
 import { downloadVerifiedArchive } from "./download.mjs";
 import { isExactCommit } from "./commit.mjs";
 import { createRequester } from "./github/request.mjs";
+import { createDiscoveryMethods } from "./github/discovery.mjs";
 import { createPromotionMethods } from "./github/promotion.mjs";
 import { createUploader } from "./github/upload.mjs";
 import {
@@ -121,6 +122,7 @@ export function createGitHubClient({ repository, token, fetchImpl = globalThis.f
     listAssets,
     uploadAsset,
     verifyAsset,
+    ...createDiscoveryMethods({ repository, request }),
     ...createPromotionMethods({ repository, request, requireRelease }),
   };
 }

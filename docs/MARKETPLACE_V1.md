@@ -24,17 +24,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                                |
-| ---- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open            |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending        |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending    |
-| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion, signing and versioned catalogue publishing implemented; protected deployment/discovery pending |
-| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                      |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                           |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                      |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                 |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                              |
+| Step | Deliverable                                                          | State                                                                                                             |
+| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
+| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion, signing, snapshots and guarded discovery implemented locally; protected deployment pending  |
+| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                              |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                           |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -223,6 +223,39 @@ alone cannot close them.
   lost responses, tag conflicts, public unavailability/recovery, signature tampering,
   history mutation and no-overwrite replay are covered. Scoped lint, formatting
   and diff checks pass. No real GitHub write or production-data access occurred.
+
+### Stable catalogue discovery increment — 2026-09-19
+
+- Added an explicit discovery advancer for a fixed `managed-index.json` on an
+  existing, operator-selected GitHub branch. The stable raw URL serves the signed
+  envelope directly, compatible with the existing app acquisition contract.
+- Requires the exact D6 publication receipt, verified release/tag/public snapshot,
+  and revalidated source manifest. The current remote catalogue must match the
+  approved signed baseline, or already contain the candidate for safe replay.
+- Conditional Contents API writes bind the previous Git blob SHA. Missing files
+  require explicit bootstrap; conflicts never trigger blind retries with a new SHA.
+  Lost write responses reconcile against exact candidate bytes.
+- Git tree mode and immutable commit-pinned reads reject symlinks and inconsistent
+  metadata. Unauthenticated raw verification and a final freshness/head check
+  precede the immutable success receipt. A failed check may leave the remote file
+  advanced without a receipt; recovery verifies again without destructive rollback.
+- Hardened the existing **unsigned preparation** workflow: default-branch gate,
+  exact dispatch SHA checkout, read-only credentials and a shared non-cancelling
+  publication lane. The complete privileged hosted-runner pipeline is **not wired**;
+  required environment reviewers and branch protections are not provisioned.
+- Verification uses actual CLIs against local HTTP GitHub/CDN fixtures and ephemeral
+  keys, not live GitHub deployment or packaged-app QA. No production data, private
+  production key, real publication, push or official registry provisioning occurred.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Their
+  findings prompted commit/tree proof for symlink rejection, post-verification
+  freshness enforcement and removal of duplicate replay requests. Parent review
+  also added malformed-receipt preflight and signed-baseline regression coverage.
+- Verification: **197 registry tests**, two root integration checks and the Rust
+  Node-signature interoperability test pass. Scoped lint has no errors (four
+  pre-existing control-regex warnings); formatting and diff checks pass.
+- Next: compose the protected publishing pipeline, then the marked-project author
+  release flow. Production trust/URLs, blocklist operations, marketplace UI and
+  supported-platform lifecycle certification remain separate pending gates.
 
 ### Decisions that must not be invented by implementation
 
