@@ -85,6 +85,38 @@ npm run sign:index -- \
   Network mirroring, immutable conflict checks, retry reconciliation, provenance
   verification, and serialized protected publication/discovery are still required.
 
+## Verified local archive staging
+
+```bash
+npm run stage:publication -- \
+  --submission /path/to/reviewed-submission.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --directory /trusted/workspace/staged-provider-version
+```
+
+This command downloads the reviewed public source archives into a local staging
+folder. It revalidates the submission and derives the plan itself; a hand-edited
+plan cannot authorize a different download. It does **not** upload to the proposed
+registry repository, extract archives, run providers, sign, or publish an index.
+
+- Each archive is streamed, limited to 256 MiB and checked against the submitted
+  SHA-256 before it receives its final filename. Targets are processed sequentially.
+- HTTPS only, public GitHub release URLs, explicit redirect allowlist, at most
+  three redirects and a two-minute deadline per download. No authentication or
+  cookies are sent; private release assets are unsupported.
+- Existing valid files are rehashed and reused. Conflicting bytes or a receipt
+  for a different plan cause failure without overwriting them. A later failure
+  preserves already verified archives so a retry can reuse them.
+- `staging-receipt.json` is written only after all archives verify. It records the
+  source submission, intended destinations and locally observed digests/sizes,
+  **not remote publication or source-build provenance**.
+- Use a dedicated trusted staging directory per provider/version. Concurrent
+  attempts fail on an exclusive lock. A crashed process can leave its lock or
+  temporary file behind; there is no automatic stale-lock deletion. Inspect the
+  directory and confirm the owning process has stopped before manual recovery.
+- The directory and its ancestors must remain trusted/stable. These filesystem
+  checks do not provide a sandbox against another process replacing paths.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their

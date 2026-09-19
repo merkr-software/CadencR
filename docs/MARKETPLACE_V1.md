@@ -29,7 +29,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
-| D    | Protected mirroring, signing and idempotent publication              | Local planning/signing primitives implemented; remote mirroring and publication not implemented                   |
+| D    | Protected mirroring, signing and idempotent publication              | Local planning, verified staging and signing implemented; GitHub mirroring/publication pending                    |
 | E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
@@ -95,6 +95,31 @@ alone cannot close them.
   conflict-safe retries, serialized publication and discovery updates, provenance
   retention, and protected production key/environment provisioning. Neither CLI is
   connected to the bootstrap workflow yet; it still stops before signing/releases.
+
+### Verified archive staging increment — 2026-09-19
+
+- Added `stage:publication`: revalidate the source submission, derive the mirror
+  plan, stream public source archives over an explicit HTTPS redirect allowlist,
+  and verify submitted SHA-256 digests before local finalization.
+- Limits: 256 MiB per archive, six sequential targets, three redirects and a
+  two-minute download deadline. No tokens/cookies, extraction or provider execution.
+- Local retries rehash existing archives and reuse matching bytes without network
+  requests. Conflicts fail without overwrites; completed archives survive later
+  failures. A canonical receipt is created only after every target verifies.
+- Exclusive staging lock and no-overwrite file publication protect concurrent
+  attempts. Receipt reads are bounded to 4 MiB; staging paths/ancestors must remain
+  trusted and stable. Crash recovery is manual; stale locks are never auto-deleted.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Shared
+  publication CLI parsing/loading replaced duplication; cleanup preserves primary
+  errors and receipt serialization supports reordered equivalent input.
+- Verification: 100 registry tests and two root integration checks pass, with
+  lint/format checks. The actual staging CLI was exercised against a local HTTP
+  fixture server via test-only transport routing: redirect/stream/hash, no-network
+  replay, and corrupt-final refusal pass. This is not live GitHub/CDN/TLS QA.
+- This increment verifies **local received bytes**, not uploaded GitHub assets.
+  Source ownership/build provenance, GitHub upload/reconciliation, remote digest
+  verification, protected signing orchestration, serialized catalog publication
+  and discovery updates remain unfinished. No official registry was provisioned.
 
 ### Decisions that must not be invented by implementation
 
