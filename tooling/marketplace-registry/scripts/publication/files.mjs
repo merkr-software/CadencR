@@ -59,7 +59,7 @@ export async function publishCanonicalReceipt(directory, name, receipt, limit, l
   if (bytes.length > limit) throw new Error(`${label} exceeds 4 MiB`);
   const temporary = path.join(directory, `.${name}.${randomBytes(12).toString("hex")}.part`);
   let primary;
-  await writeExclusive(temporary, bytes);
+  await writeExclusivePrivate(temporary, bytes, label);
   try {
     await link(temporary, path.join(directory, name));
   } catch (error) {
@@ -90,22 +90,27 @@ async function compareCanonical(file, receipt, limit, label) {
   return undefined;
 }
 
-async function writeExclusive(file, bytes) {
-  const handle = await open(file, "wx", 0o600);
-  let primary;
-  try {
-    await handle.writeFile(bytes);
-    await handle.sync();
-  } catch (error) {
-    primary = error;
-  }
-  const failures = [];
-  await handle.close().catch((error) => failures.push(error));
-  if (primary || failures.length) {
-    await unlink(file).catch((error) => failures.push(error));
-    if (failures.length) throw cleanupFailure(primary, failures);
-    throw primary;
-  }
+export async function writeExclusivePrivate(file, bytes, label = "publication") {
+  await withOwnedTemporaryDirectory(
+    path.dirname(path.resolve(file)),
+    ".publication-output-",
+    async (directory) => {
+      const staged = path.join(directory, "output");
+      const handle = await open(staged, "wx", 0o600);
+      let primary;
+      try {
+        await handle.writeFile(bytes);
+        await handle.sync();
+      } catch (error) {
+        primary = error;
+      }
+      const failures = [];
+      await handle.close().catch((error) => failures.push(error));
+      if (failures.length) throw cleanupFailure(primary, failures, label);
+      if (primary) throw primary;
+      await link(staged, file);
+    },
+  );
 }
 
 async function removeOwnedLock(lockPath, identity) {

@@ -1,21 +1,20 @@
 import { lstat } from "node:fs/promises";
 import path from "node:path";
-import { canonicalJson } from "../lib.mjs";
 import { validateReleaseAssets, verifyRemoteArtifacts } from "./artifacts.mjs";
 import {
   buildPublicationBinding,
-  compactArtifacts,
+  buildPublicationReceipt,
   MAX_PUBLICATION_METADATA_BYTES,
+  PUBLICATION_RECEIPT,
   readMirrorReceipt,
+  readPublicationReceipt,
 } from "./binding.mjs";
 import { isExactCommit } from "./commit.mjs";
 import { downloadVerifiedArchive, MAX_ARCHIVE_BYTES } from "./download.mjs";
 import { publishCanonicalReceipt, withOwnedLock, withOwnedTemporaryDirectory } from "./files.mjs";
-import { readBoundedRegularFile } from "./io.mjs";
 import { stagePublication } from "./stage.mjs";
 
 const LOCK = ".mirror.lock";
-const PUBLICATION_RECEIPT = "publication-receipt.json";
 
 export async function promotePublication({
   submission,
@@ -93,12 +92,9 @@ async function prepareBinding(options) {
     },
     { required: true },
   );
-  await validatePriorPublicationReceipt(directory, {
+  await readPublicationReceipt(directory, binding, {
     repository,
     registryCommit,
-    tag: binding.tag,
-    planSha256: binding.planSha256,
-    expected: binding.expected,
     releaseId: receipt.release_id,
   });
   return { ...binding, receipt };
@@ -174,49 +170,5 @@ async function verifyPublicArtifacts(expected, directory, download) {
 }
 
 function publicationReceipt(binding, repository, registryCommit) {
-  return {
-    schema_version: 1,
-    status: "published_verified",
-    repository,
-    registry_commit: registryCommit,
-    release_id: binding.receipt.release_id,
-    release_tag: binding.tag,
-    tag_commit: registryCommit,
-    plan_sha256: binding.planSha256,
-    artifacts: compactArtifacts(binding.expected),
-  };
-}
-
-async function validatePriorPublicationReceipt(directory, values) {
-  const file = path.join(directory, PUBLICATION_RECEIPT);
-  try {
-    await lstat(file);
-  } catch (error) {
-    if (error?.code === "ENOENT") return;
-    throw error;
-  }
-  const expected = publicationReceipt(
-    {
-      tag: values.tag,
-      planSha256: values.planSha256,
-      expected: values.expected,
-      receipt: { release_id: values.releaseId },
-    },
-    values.repository,
-    values.registryCommit,
-  );
-  const bytes = await readBoundedRegularFile(
-    file,
-    MAX_PUBLICATION_METADATA_BYTES,
-    "publication receipt",
-  );
-  let actual;
-  try {
-    actual = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new Error("existing publication receipt is invalid");
-  }
-  if (canonicalJson(actual) !== canonicalJson(expected)) {
-    throw new Error("existing publication receipt conflicts");
-  }
+  return buildPublicationReceipt(binding, repository, registryCommit, binding.receipt.release_id);
 }

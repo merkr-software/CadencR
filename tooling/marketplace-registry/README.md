@@ -187,6 +187,55 @@ npm run promote:publication -- \
   Protected environments, immutable releases, tag protections and distributed
   concurrency must still be configured. Local locks cannot enforce those policies.
 
+## Sign a verified publication catalogue
+
+`sign:publication-catalog` prepares a **local signed index**, not a GitHub release
+or discovery update. It consumes an operator-authored manifest of already promoted
+provider versions. Paths are resolved relative to the manifest file.
+
+```json
+{
+  "schema_version": 1,
+  "repository": "YOUR-ORG/YOUR-REGISTRY",
+  "publications": [
+    {
+      "submission": "reviewed/provider-1.0.0.json",
+      "directory": "staged/provider-1.0.0",
+      "registry_commit": "0123456789abcdef0123456789abcdef01234567"
+    }
+  ]
+}
+```
+
+```bash
+npm run sign:publication-catalog -- \
+  --manifest /trusted/workspace/catalogue-publications.json \
+  --generated-at YYYY-MM-DDTHH:mm:ssZ \
+  --expires-at YYYY-MM-DDTHH:mm:ssZ \
+  --private-key /protected/ed25519-private.pem \
+  --key-id YOUR-PINNED-KEY-ID \
+  --output /trusted/workspace/signed-index.json
+```
+
+- Requires both mirror and publication receipts for every entry; checks their
+  identity against the reviewed submission, staged bytes and canonical plan.
+- Uses mirrored package URLs, deterministic ordering and the existing signed-index
+  wire format. All included versions must have matching publication evidence.
+- Re-downloads public archives and provenance without a GitHub token before reading
+  the signing key. Missing, changed or unavailable bytes fail closed.
+- Limits: 1 MiB manifest, 100 versions, 1 MiB per submission, 32 MiB of
+  submission input and payload, 1 GiB of aggregate public assets. Receipt files
+  retain their individual 4 MiB limit. Transfers remain sequential and bounded
+  per asset. No archives are extracted and no provider code is executed.
+- Uses an Ed25519 PKCS8 key, canonical whole-second UTC dates and the existing
+  maximum 14-day publication window. Output is private and no-overwrite.
+- Run only trusted tooling with protected, stable manifest/staging paths. Local
+  receipts are not cryptographic authorization or proof of source ownership.
+- This is not catalog-history reconciliation: operators must include the approved
+  complete version set. Continuity against the previously published catalogue,
+  monotonic publication time, serialized snapshot upload, public verification of
+  the signed snapshot and discovery advancement remain publication-time gates.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their

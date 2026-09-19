@@ -110,6 +110,30 @@ test("rejects wrong algorithms without disclosing key material", async (t) => {
   assert.doesNotMatch(`${malformed.stdout}${malformed.stderr}`, new RegExp(secretMarker));
 });
 
+test("rejects an invalid key id before reading the private key", async (t) => {
+  const files = await setup(t);
+  const missingKey = path.join(files.directory, "missing-private.pem");
+  const result = spawnSync(
+    process.execPath,
+    [
+      cli,
+      "--payload",
+      files.payloadFile,
+      "--private-key",
+      missingKey,
+      "--key-id",
+      "invalid key id",
+      "--output",
+      files.outputFile,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /signing key id is invalid/);
+  assert.doesNotMatch(result.stderr, /private key/);
+  await assert.rejects(readFile(files.outputFile), { code: "ENOENT" });
+});
+
 test("rejects invalid and expired payload metadata", async (t) => {
   const files = await setup(t);
   for (const mutate of [
