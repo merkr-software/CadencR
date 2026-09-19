@@ -170,3 +170,31 @@ immutability, tag protections, required reviewers and distributed serialization
 are not provisioned by this command. As with provider promotion, a failure after
 publication does not authorize rollback or deletion. No `latest` or discovery
 location is mutated, preserving the currently advertised catalogue.
+
+## Stable discovery and concurrency boundary
+
+Discovery stores the complete signed index at a fixed file on an explicitly
+configured existing branch. Consumers retain their existing signature/freshness
+checks; there is no new unsigned pointer format. The public verification transport
+permits only the configured raw GitHub path and does not forward API credentials.
+The archive transport retains its separate release/CDN policy.
+
+The [Contents API](https://docs.github.com/en/rest/repos/contents) requires the old
+blob SHA for updates. Because Contents may dereference symlinks, the publisher first
+checks the root entry mode through the commit-pinned
+[Git tree](https://docs.github.com/en/rest/git/trees#get-a-tree), rejecting symlinks,
+submodules and truncated responses. Contents reads use that immutable commit.
+The publisher validates decoded bytes and their Git blob hash,
+checks the signed baseline against this observed head, and performs one conditional
+update. Lost responses are reconciled, never blindly retried with a newer SHA.
+This detects competing different-file updates but cannot prevent privileged
+external rollback/deletion or a later change after verification. Protect branch
+writers and retain app-side high-water marks; do not claim a distributed transaction.
+
+A discovery receipt is historical evidence only. After a committed update,
+public-cache lag or verification failure does not authorize reverting to an old
+catalogue. Retry the same candidate or investigate; do not overwrite newer state.
+Dedicated token scope, protected environment approval and repository policies are
+operator responsibilities. The unsigned preparation workflow has default-branch,
+exact-revision and concurrency guards, but it is not the fully wired privileged
+publisher and does not install environment reviewers or branch rules.

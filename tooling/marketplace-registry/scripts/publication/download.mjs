@@ -1,6 +1,11 @@
 import { constants } from "node:fs";
 import { open, unlink } from "node:fs/promises";
 import { createHash } from "node:crypto";
+import {
+  discoveryUrl,
+  MAX_DISCOVERY_BYTES,
+  validateDiscoveryBranch,
+} from "./discovery-location.mjs";
 
 export const MAX_ARCHIVE_BYTES = 256 * 1024 * 1024;
 
@@ -201,6 +206,24 @@ export async function downloadVerifiedArchive(
     timeoutMs,
   });
   if (typeof fetchImpl !== "function") throw fail("fetch implementation is unavailable");
+  return downloadVerifiedFile({
+    parsedUrl,
+    expectedHash,
+    outputPath,
+    maxBytes,
+    timeoutMs,
+    fetchImpl,
+  });
+}
+
+async function downloadVerifiedFile({
+  parsedUrl,
+  expectedHash,
+  outputPath,
+  maxBytes,
+  timeoutMs,
+  fetchImpl,
+}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   let handle;
@@ -253,4 +276,75 @@ export async function downloadVerifiedArchive(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function validateDiscoveryUrl(value) {
+  if (typeof value !== "string") throw fail("invalid discovery URL");
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw fail("invalid discovery URL");
+  }
+  const match = parsed.pathname.match(
+    /^\/([A-Za-z0-9-]+)\/([A-Za-z0-9_-]+)\/refs\/heads\/([^/]+)\/managed-index\.json$/,
+  );
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== "raw.githubusercontent.com" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.search ||
+    parsed.hash ||
+    !match
+  ) {
+    throw fail("discovery URL is not permitted");
+  }
+  const [, owner, repository, branch] = match;
+  validateDiscoveryBranch(branch);
+  if (discoveryUrl(`${owner}/${repository}`, branch) !== value) {
+    throw fail("discovery URL is not canonical");
+  }
+  return parsed;
+}
+
+export async function downloadVerifiedDiscovery(
+  { url, sha256, outputPath, maxBytes = MAX_DISCOVERY_BYTES, timeoutMs = 120_000 },
+  { fetchImpl = globalThis.fetch } = {},
+) {
+  const parsedUrl = validateDiscoveryUrl(url);
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 0 || maxBytes > MAX_DISCOVERY_BYTES) {
+    throw fail("invalid discovery size limit");
+  }
+  if (typeof sha256 !== "string" || !/^[a-fA-F0-9]{64}$/.test(sha256)) {
+    throw fail("invalid SHA-256");
+  }
+  if (typeof outputPath !== "string" || outputPath.length === 0) throw fail("invalid output path");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647) {
+    throw fail("invalid timeout");
+  }
+  if (typeof fetchImpl !== "function") throw fail("fetch implementation is unavailable");
+
+  const exactFetch = async (requestedUrl, options) => {
+    if (requestedUrl !== parsedUrl.href) throw fail("discovery redirect is not permitted");
+    const response = await fetchImpl(requestedUrl, {
+      ...options,
+      redirect: "manual",
+      credentials: "omit",
+      headers: { "accept-encoding": "identity" },
+    });
+    if (response.status >= 300 && response.status < 400) {
+      await rejectResponse(response, fail("discovery redirect is not permitted"));
+    }
+    return response;
+  };
+  return downloadVerifiedFile({
+    parsedUrl,
+    expectedHash: sha256.toLowerCase(),
+    outputPath,
+    maxBytes,
+    timeoutMs,
+    fetchImpl: exactFetch,
+  });
 }

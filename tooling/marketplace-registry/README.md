@@ -286,6 +286,57 @@ npm run publish:catalog -- \
   blocklist publication and live GitHub QA remain separate gates. The current app
   expects a signed envelope at its configured URL, not a discovery-pointer schema.
 
+## Advance stable catalogue discovery
+
+> `advance:catalog` commits the signed envelope to a dedicated existing GitHub
+> branch. It changes what users discover and therefore requires explicit operator
+> approval. No branch, release, provider artifact or private key is created here.
+
+```bash
+npm run advance:catalog -- \
+  --catalog /trusted/workspace/signed-index.json \
+  --previous-index /trusted/workspace/previous-signed-index.json \
+  --public-key /protected/ed25519-public.pem \
+  --key-id YOUR-PINNED-KEY-ID \
+  --manifest /trusted/workspace/catalogue-publications.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --registry-commit EXACT_40_CHARACTER_LOWERCASE_COMMIT_SHA \
+  --directory /trusted/workspace/catalogue-snapshot \
+  --confirm-repository YOUR-ORG/YOUR-REGISTRY \
+  --confirm-publish catalog-FULL_CANONICAL_ENVELOPE_SHA256 \
+  --discovery-branch catalog \
+  --confirm-discovery https://raw.githubusercontent.com/YOUR-ORG/YOUR-REGISTRY/refs/heads/catalog/managed-index.json
+```
+
+- The existing branch is an explicit deployment choice; its name is restricted to
+  a single alphanumeric/underscore/hyphen segment. The fixed file is
+  `managed-index.json`, containing the signed envelope directly, not a pointer.
+  No official repository or app production URL is provisioned by this template.
+- Requires an exact existing D6 publication receipt, the published snapshot and
+  tag binding, valid signature/history, and fresh public artifact verification.
+- Reads the authoritative current file using the GitHub Contents API. It must
+  match the supplied signed previous catalogue, or already contain the candidate
+  for retry. `bootstrap` permits creation only when the file is absent on an
+  existing branch; it never replaces an existing different catalogue.
+- The update carries the observed Git blob SHA. A concurrent different update
+  fails; the tool never retries using a newer SHA or overwrites the winner.
+  A lost response is accepted only after re-reading the exact candidate bytes.
+- After mutation/replay, the raw stable URL is downloaded without credentials and
+  checked before `discovery-receipt.json` records success. Stale caches or public
+  failures can leave discovery advanced without a success receipt; retry verifies
+  the same candidate without another write. There is no automatic rollback.
+- Restrict branch writers and configure repository protections. Blob compare-and-
+  swap protects competing updates to this file, not unauthorized later rollback
+  or deletion by another writer. Use one publication concurrency group across all
+  publisher workflows; a local lock is not a distributed lock.
+
+The existing preparation workflow now runs only from the default branch, checks
+out its exact triggering commit and shares a non-cancelling publication concurrency
+group. It remains **unsigned and read-only**. Wiring the privileged hosted-runner
+pipeline, approved input/artifact handoff, keys, environment reviewers and branch
+protections is a separate deployment gate; the template does not claim those
+controls have been provisioned or live-tested.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their

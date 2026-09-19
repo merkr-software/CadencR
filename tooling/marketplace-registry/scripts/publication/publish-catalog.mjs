@@ -37,7 +37,7 @@ async function prepareCatalogPublication(options) {
     bytes: snapshot.bytes,
     expectedUrl: snapshot.expectedUrl,
   };
-  const receipt = await readReceipt(options.directory, options, snapshot);
+  const receipt = await readCatalogPublicationReceipt(options.directory, options, snapshot);
   const payload = await preparePublishedCatalog(manifest, {
     baseDirectory: path.dirname(manifestFile),
     generatedAt: snapshot.envelope.signed.generated_at,
@@ -168,6 +168,10 @@ async function verifyFinal(options, prepared, release) {
   validateSigningPayload(snapshot.envelope.signed, { now: options.now ?? new Date() });
 }
 
+export function validatePublishedCatalogRelease(release, snapshot, commit, expectedId) {
+  validateRelease(release, snapshot, commit, expectedId, false);
+}
+
 function validateRelease(release, snapshot, commit, expectedId, expectedDraft) {
   if (!release) throw new Error("catalog release is missing");
   if (!Number.isSafeInteger(release.id) || release.id <= 0)
@@ -226,12 +230,18 @@ function buildReceipt(options, snapshot, releaseId) {
   };
 }
 
-async function readReceipt(directory, options, snapshot) {
+export async function readCatalogPublicationReceipt(
+  directory,
+  options,
+  snapshot,
+  { required = false } = {},
+) {
   const file = path.join(directory, RECEIPT);
   try {
     await lstat(file);
   } catch (error) {
-    if (error?.code === "ENOENT") return null;
+    if (error?.code === "ENOENT" && !required) return null;
+    if (error?.code === "ENOENT") throw new Error("catalog publication receipt is required");
     throw error;
   }
   let bytes;
