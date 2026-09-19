@@ -12,7 +12,7 @@ const run = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding:
 test("submission CLI validates provenance without fetching or changing files", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "cadencr-submission-cli-"));
   const pkg = JSON.parse(
-    await readFile(new URL("../packages/example-provider-0.1.0.json", import.meta.url), "utf8"),
+    await readFile(new URL("fixtures/example-provider.json.fixture", import.meta.url), "utf8"),
   );
   pkg.agent.repository = "https://github.com/example/example-provider";
   pkg.agent.distribution.binary["darwin-aarch64"].archive =

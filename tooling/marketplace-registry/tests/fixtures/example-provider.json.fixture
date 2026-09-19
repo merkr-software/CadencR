@@ -1,0 +1,30 @@
+{
+  "agent": {
+    "id": "example-provider",
+    "name": "Example Provider",
+    "version": "0.1.0",
+    "description": "Non-production metadata showing the managed package v1 shape",
+    "license": "Apache-2.0",
+    "repository": "https://example.invalid/example-provider",
+    "distribution": {
+      "binary": {
+        "darwin-aarch64": {
+          "archive": "https://example.invalid/releases/0.1.0/example-provider-darwin-aarch64.tar.gz",
+          "cmd": "bin/example-provider",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    }
+  },
+  "host": {
+    "publisher": "example-publisher",
+    "compatibility": {
+      "min_app_version": "0.12.0"
+    },
+    "assets": {
+      "icon": "assets/icon.svg",
+      "readme": "README.md",
+      "license": "LICENSE"
+    }
+  }
+}
