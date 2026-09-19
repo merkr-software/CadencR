@@ -29,7 +29,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open            |
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending        |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending    |
-| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion and gated local catalogue signing implemented; protected deployment/catalog publication pending |
+| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion, signing and versioned catalogue publishing implemented; protected deployment/discovery pending |
 | E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                      |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                           |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                      |
@@ -192,6 +192,37 @@ alone cannot close them.
   exercised against a local mock GitHub/CDN with an ephemeral Ed25519 key, including
   unavailable/corrupt public data, deterministic signing and overwrite refusal.
   Scoped lint, formatting and diff checks pass after parent review/corrections.
+
+### Versioned catalogue publication increment — 2026-09-19
+
+- An explicit snapshot publisher verifies the candidate and supplied previous
+  catalogue with an operator-pinned Ed25519 public key. It requires monotonic
+  publication time and unchanged retention of previous versions; baseline key
+  rotation, delisting and revocation are not silently inferred.
+- Published envelope bytes are limited to 1 MiB, matching the existing app's
+  acquisition limit. The manifest must reconstruct the exact signed payload and
+  public provider archives/provenance are freshly verified before remote writes.
+- A deterministic catalogue release binds the envelope digest, registry commit
+  and prior digest. The tag must already resolve to the reviewed commit. Publication
+  reconciles retries without asset replacement/deletion, and verifies the public
+  signed snapshot before writing a local success receipt.
+- Initial `bootstrap` and previous baseline selection are explicit operator inputs,
+  not proof of remote discovery state. The current app consumes a signed envelope
+  directly; no incompatible discovery-pointer format is introduced.
+- No `latest` or discovery URL is changed. Protected workflows, authoritative
+  discovery continuity/concurrency, official repository/URLs, blocklist operations
+  and live GitHub QA remain outstanding. Tests use only mocks and ephemeral keys.
+- Three GPT-5.6-Sol reviews completed. Parent corrections cover first-publication
+  receipt absence, owned upload temporaries, symlink rejection before locking,
+  release identity across PATCH responses and freshness before the final receipt.
+  Historical expiration allowance now uses an explicit shared validation policy;
+  a redundant paginated asset-list request was removed.
+- Verification: 177 registry tests, two root integration checks and the Rust
+  Node-signature interoperability test pass. The actual staging/mirroring/promotion,
+  signing and snapshot publishing CLIs run against a local mock GitHub/CDN;
+  lost responses, tag conflicts, public unavailability/recovery, signature tampering,
+  history mutation and no-overwrite replay are covered. Scoped lint, formatting
+  and diff checks pass. No real GitHub write or production-data access occurred.
 
 ### Decisions that must not be invented by implementation
 

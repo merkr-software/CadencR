@@ -45,6 +45,28 @@ function validateEnvelope(envelope, { now }) {
   if (errors.length) throw new Error(`envelope validation failed:\n${errors.join("\n")}`);
 }
 
+export function verifyIndexEnvelope(
+  envelope,
+  { publicKey, keyId, now = new Date(), allowExpired = false } = {},
+) {
+  validateCanonicalTimestamps(envelope?.signed);
+  validateCanonicalOptionalFields(envelope?.signed);
+  validateSigningKeyId(keyId);
+  const errors = validateSignedIndex(envelope, { now, allowExpired });
+  if (errors.length) throw new Error(`envelope validation failed:\n${errors.join("\n")}`);
+  if (envelope.signature.key_id !== keyId)
+    throw new Error("envelope signing key id does not match");
+  if (publicKey?.asymmetricKeyType !== "ed25519") throw new Error("public key must be Ed25519");
+  const valid = verify(
+    null,
+    Buffer.from(canonicalJson(envelope.signed)),
+    publicKey,
+    Buffer.from(envelope.signature.value, "base64"),
+  );
+  if (!valid) throw new Error("envelope signature verification failed");
+  return envelope;
+}
+
 function validateCanonicalTimestamps(signed) {
   for (const field of ["generated_at", "expires_at"]) {
     const value = signed?.[field];

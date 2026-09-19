@@ -236,6 +236,56 @@ npm run sign:publication-catalog -- \
   monotonic publication time, serialized snapshot upload, public verification of
   the signed snapshot and discovery advancement remain publication-time gates.
 
+## Publish a versioned catalogue snapshot
+
+> `publish:catalog` creates/uploads/publishes a GitHub release. Run only with
+> explicit operator approval and a repository-scoped token from the protected
+> environment. It never advances discovery or marks a release `latest`.
+
+```bash
+npm run publish:catalog -- \
+  --catalog /trusted/workspace/signed-index.json \
+  --previous-index /trusted/workspace/previous-signed-index.json \
+  --public-key /protected/ed25519-public.pem \
+  --key-id YOUR-PINNED-KEY-ID \
+  --manifest /trusted/workspace/catalogue-publications.json \
+  --repository YOUR-ORG/YOUR-REGISTRY \
+  --registry-commit EXACT_40_CHARACTER_LOWERCASE_COMMIT_SHA \
+  --directory /trusted/workspace/catalogue-snapshot \
+  --confirm-repository YOUR-ORG/YOUR-REGISTRY \
+  --confirm-publish catalog-FULL_CANONICAL_ENVELOPE_SHA256
+```
+
+- Create the empty working directory beforehand. For the initial snapshot only,
+  explicitly pass `--previous-index bootstrap`. This is an operator assertion, not
+  proof that no prior catalogue exists remotely.
+- The public key is a trusted Ed25519 SPKI PEM file, **not a contributor input**.
+  Both catalogues must verify against that key and exact key ID. Rotation requires
+  a separate policy; this command never infers a new trusted key.
+- An expired previous catalogue is accepted for history validation; the candidate
+  must still be fresh. Every previous version must remain byte-equivalent in
+  canonical package metadata, and `generated_at` must strictly increase.
+- Envelope input and published bytes are limited to **1 MiB**, matching the app's
+  acquisition limit. The lower-level local signer has a larger preparation limit;
+  its output is not automatically publishable.
+- The release tag is `catalog-` plus SHA-256 of the canonical signed envelope with
+  its final newline (the D5 CLI emits those bytes). The tag must already point to
+  the exact registry commit; this command does not create or move Git references.
+- Before any release write, the manifest must produce the exact signed payload and
+  all included public provider archives/provenance must verify again.
+- The release contains only `managed-index.json`. Matching existing assets are
+  verified, not overwritten. Lost responses are reconciled before further writes.
+  Already published snapshots can be reverified without republishing.
+- `catalog-publication-receipt.json` is written only after the public snapshot is
+  downloaded without credentials and matches the expected bytes. A verification
+  failure after publication leaves the release published, with no new success
+  receipt; retry verifies rather than unpublishing or deleting.
+- Baseline selection is operator-owned. This command proves continuity relative
+  to the supplied signed baseline, **not that it is the current discovery head**.
+  Protected deployment, distributed serialization, atomic discovery advancement,
+  blocklist publication and live GitHub QA remain separate gates. The current app
+  expects a signed envelope at its configured URL, not a discovery-pointer schema.
+
 ## Deliberate limits
 
 The contribution command compares two registry snapshots without executing their
