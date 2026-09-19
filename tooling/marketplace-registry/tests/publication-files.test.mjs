@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { withOwnedLock } from "../scripts/publication/files.mjs";
+
+async function fixture(t) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "publication-files-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  return path.join(directory, ".lock");
+}
+
+test("owned locks are exclusive and removed after success", async (t) => {
+  const lock = await fixture(t);
+  await withOwnedLock(lock, "test directory", async () => {
+    await assert.rejects(
+      withOwnedLock(lock, "test directory", async () => {}),
+      /already locked/,
+    );
+  });
+  await withOwnedLock(lock, "test directory", async () => {});
+});
+
+test("operation errors survive successful lock cleanup", async (t) => {
+  const lock = await fixture(t);
+  await assert.rejects(
+    withOwnedLock(lock, "test directory", async () => {
+      throw new Error("primary operation failure");
+    }),
+    /primary operation failure/,
+  );
+  await withOwnedLock(lock, "test directory", async () => {});
+});
+
+test("inode ownership preserves a foreign replacement", async (t) => {
+  const lock = await fixture(t);
+  await withOwnedLock(lock, "test directory", async () => {
+    await unlink(lock);
+    await writeFile(lock, "foreign", { flag: "wx" });
+  });
+  assert.equal(await readFile(lock, "utf8"), "foreign");
+});
