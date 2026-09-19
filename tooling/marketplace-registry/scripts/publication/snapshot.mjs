@@ -42,13 +42,12 @@ export async function prepareCatalogSnapshot({
     );
     const baseline = parseJson(baselineInput, "previous index");
     verifyIndexEnvelope(baseline, { publicKey, keyId, now, allowExpired: true });
-    validateContinuity(baseline.signed, envelope.signed);
+    validateCatalogContinuity(baseline.signed, envelope.signed);
     // Bind the exact previously published asset, not a reserialization of it.
     previousSha256 = digest(baselineInput);
   }
 
-  validateNormalizedIdentities(envelope.signed.packages);
-  ownerMap(envelope.signed.packages);
+  validateCatalogIdentities(envelope.signed.packages);
   const bytes = canonicalEnvelopeBytes(envelope);
   if (bytes.length > CATALOG_LIMIT) throw new Error("catalog snapshot exceeds 1 MiB");
   const sha256 = digest(bytes);
@@ -71,7 +70,7 @@ export async function prepareCatalogSnapshot({
   };
 }
 
-function validateContinuity(previous, candidate) {
+export function validateCatalogContinuity(previous, candidate) {
   if (Date.parse(candidate.generated_at) <= Date.parse(previous.generated_at)) {
     throw new Error("catalog generated_at must strictly increase");
   }
@@ -96,6 +95,11 @@ function validateContinuity(previous, candidate) {
   }
 }
 
+export function validateCatalogIdentities(packages, { ownership = "source" } = {}) {
+  validateNormalizedIdentities(packages);
+  ownerMap(packages, ownership);
+}
+
 function validateNormalizedIdentities(packages) {
   const normalized = new Map();
   for (const entry of packages) {
@@ -109,13 +113,17 @@ function validateNormalizedIdentities(packages) {
   }
 }
 
-function ownerMap(packages) {
+function ownerMap(packages, ownership = "source") {
+  if (ownership !== "source" && ownership !== "repository")
+    throw new Error("catalog ownership label is invalid");
   const owners = new Map();
   for (const entry of packages) {
     const owner = ownerKey(entry);
     const prior = owners.get(entry.agent.id);
     if (prior !== undefined && prior !== owner) {
-      throw new Error(`provider ${entry.agent.id} has conflicting publisher or source ownership`);
+      throw new Error(
+        `provider ${entry.agent.id} has conflicting publisher or ${ownership} ownership`,
+      );
     }
     owners.set(entry.agent.id, owner);
   }

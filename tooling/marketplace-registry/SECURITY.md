@@ -198,3 +198,32 @@ Dedicated token scope, protected environment approval and repository policies ar
 operator responsibilities. The unsigned preparation workflow has default-branch,
 exact-revision and concurrency guards, but it is not the fully wired privileged
 publisher and does not install environment reviewers or branch rules.
+
+## Protected pipeline trust boundary
+
+The pipeline request and all referenced inputs must come from a reviewed, immutable
+registry checkout. The explicit request SHA-256, repository and commit bind the
+operator intent; a request digest alone cannot attest mutable referenced files.
+The private Ed25519 key must match the pinned public key before publication starts.
+Unsigned preflight must reject invalid dates, baselines, identities and paths before
+remote writes. Signing remains gated on verified public provider assets/provenance.
+
+Only missing, namespace-constrained publication tags may be created. Existing tag
+conflicts are fatal, including races; no tag update/delete operation is exposed.
+As elsewhere, partial remote success is preserved for investigation and replay,
+not rolled back. Local pipeline locking is not a cross-machine transaction. Remote conflicts can
+occur after earlier provider publications; preflight covers local inputs, not an
+atomic reservation of every remote name. The signing/discovery gates prevent a
+partially completed provider set from being newly advertised by this invocation.
+The CLI rejects a private-key target inside state; nevertheless, operators must
+keep unrelated secrets out of that directory before any artifact upload.
+
+The hosted template is manual/default-branch only, uses the exact dispatch commit,
+and gates credential access through an externally configured protected environment.
+The default `GITHUB_TOKEN` has read-only contents permission; the dedicated publish
+token and signing key are confined to their respective steps. Recovery artifacts
+must never contain a private key and are not a trusted code source. Automatic state
+hydration or arbitrary run-artifact restoration is deliberately absent; do not
+claim fresh-runner or subsequent-request recovery until that boundary is implemented
+and verified. No live GitHub deployment or production key validation is implied by
+local fixture tests.

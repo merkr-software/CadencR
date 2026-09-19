@@ -17,6 +17,7 @@
     "promote:publication": "node scripts/promote-publication.mjs",
     "sign:publication-catalog": "node scripts/sign-publication-catalog.mjs",
     "publish:catalog": "node scripts/publish-catalog.mjs",
-    "advance:catalog": "node scripts/advance-catalog.mjs"
+    "advance:catalog": "node scripts/advance-catalog.mjs",
+    "publish:registry": "node scripts/publish-registry.mjs"
   }
 }

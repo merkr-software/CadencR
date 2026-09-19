@@ -3,6 +3,7 @@ import { isExactCommit } from "./commit.mjs";
 import { createRequester } from "./github/request.mjs";
 import { createDiscoveryMethods } from "./github/discovery.mjs";
 import { createPromotionMethods } from "./github/promotion.mjs";
+import { createTagMethods } from "./github/tags.mjs";
 import { createUploader } from "./github/upload.mjs";
 import {
   validateAsset,
@@ -29,6 +30,7 @@ export function createGitHubClient({ repository, token, fetchImpl = globalThis.f
   validateConfiguration(repository, token, fetchImpl);
   const request = createRequester({ token, fetchImpl });
   const uploadAsset = createUploader({ repository, token, fetchImpl });
+  const promotionMethods = createPromotionMethods({ repository, request, requireRelease });
 
   async function findRelease(tag) {
     validateText(tag, "release tag");
@@ -123,6 +125,7 @@ export function createGitHubClient({ repository, token, fetchImpl = globalThis.f
     uploadAsset,
     verifyAsset,
     ...createDiscoveryMethods({ repository, request }),
-    ...createPromotionMethods({ repository, request, requireRelease }),
+    ...promotionMethods,
+    ...createTagMethods({ repository, request, getTagCommit: promotionMethods.getTagCommit }),
   };
 }
