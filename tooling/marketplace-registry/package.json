@@ -6,6 +6,7 @@
     "assemble:index": "node scripts/assemble-signed-index.mjs",
     "build:index": "node scripts/build-index.mjs",
     "test": "node --test tests/*.test.mjs",
-    "validate": "node scripts/validate.mjs"
+    "validate": "node scripts/validate.mjs",
+    "validate:submission": "node scripts/validate-submission.mjs"
   }
 }
