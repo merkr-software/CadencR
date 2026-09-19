@@ -23,6 +23,7 @@ Requires Node `>=22.19.0 <23.0.0`.
 cd tooling/marketplace-registry
 npm test
 npm run validate
+npm run validate:submission -- /path/to/submission.json
 npm run build:index -- \
   --generated-at 2026-09-12T00:00:00Z \
   --expires-at 2026-09-19T00:00:00Z \
@@ -47,6 +48,11 @@ allowed object fields from the schemas and adds host-specific semantic checks;
 this is not a general-purpose JSON Schema engine.
 
 ## Deliberate limits
+
+The source-pinned submission preflight is a separate author/reviewer command.
+It does not change the managed package/index v1 wire format and does not prove
+source ownership or reproducible-build provenance. See `CONTRIBUTING.md` for
+the submission envelope and remaining human verification requirements.
 
 - This template does not select the production repository, release URLs,
   supported-platform policy, signing service, or trusted key.
