@@ -24,17 +24,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                         |
-| ---- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open     |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Existing template; deployment not authorized                                                                  |
-| D    | Protected mirroring, signing and idempotent publication              | Not implemented                                                                                               |
-| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                               |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                    |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                               |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                          |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                       |
+| Step | Deliverable                                                          | State                                                                                                             |
+| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open         |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending     |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending |
+| D    | Protected mirroring, signing and idempotent publication              | Not implemented                                                                                                   |
+| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                   |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                        |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                   |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                              |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                           |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -52,6 +52,27 @@ alone cannot close them.
 - Separate reuse/quality/efficiency reviews completed for both local increments;
   findings were corrected and retested. No remote deployment or Git delivery.
 - The packer requires trusted, quiescent staging; it is not an OS sandbox.
+
+### Contribution validation increment — 2026-09-19
+
+- Added a local base/candidate snapshot validator: immutable published versions,
+  matching source-pinned submissions for new versions, publisher/repository
+  continuity, and normalized provider-ID collision rejection.
+- Reads are bounded to 1 MiB per JSON file, 10,000 entries per metadata directory,
+  and 32 MiB per root across packages/submissions, including malformed JSON.
+  Snapshot inputs must remain stable; symlinks and special files are rejected.
+- The PR template separates trusted-base inert metadata validation from untrusted
+  candidate tooling tests. Neither job has publication authority or signing secrets.
+- Empty-catalog bootstrap is supported; demonstration data is a test fixture,
+  not a required published package. Remove the demonstration catalog entry before
+  establishing the official registry baseline.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed;
+  shared identifier normalization and temporary-fixture cleanup were corrected.
+  The full local registry suite passes 69 tests, including actual CLI invocations
+  and the empty-catalog workflow shell guard; the root integration checks pass.
+- Deployment, a real GitHub PR run, repository protections, and protected
+  publication-time revalidation remain unverified or unimplemented. Local checks
+  do not prove source ownership or establish an official publisher identity.
 
 ### Decisions that must not be invented by implementation
 

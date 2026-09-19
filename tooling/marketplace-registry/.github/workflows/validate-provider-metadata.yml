@@ -1,12 +1,7 @@
-name: Validate provider metadata
+name: Validate provider contribution
 
 on:
   pull_request:
-    paths:
-      - "packages/**"
-      - "schemas/**"
-      - "scripts/**"
-      - "tests/**"
 
 permissions:
   contents: read
@@ -16,19 +11,69 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      # Validation code must come from the reviewed base revision, never from the
+      # contribution. This workflow therefore needs to exist on the default
+      # branch before it can validate the first contribution.
+      - name: Check out trusted registry tooling
+        uses: actions/checkout@v4
         with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-registry
+          persist-credentials: false
+      - name: Check out candidate registry metadata
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate-registry
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22.19.0
-      - run: npm test
-      - run: npm run validate
-      - name: Build a throwaway canonical index
+      - name: Validate inert contribution metadata
+        run: >-
+          node trusted-registry/scripts/validate-contribution.mjs
+          --base trusted-registry
+          --candidate candidate-registry
+      # Do not download or execute contributor archives here. Publisher identity,
+      # source provenance, and publication authority require maintainer review and
+      # protected publication-time revalidation; this unprivileged PR job proves
+      # only the structural and immutable-history contribution policy.
+
+  contributor-tooling:
+    # This job intentionally runs PR-controlled registry tests and validators.
+    # It is isolated from the trusted inert-metadata gate and has no secrets,
+    # write permission, protected environment, cache, or artifact handoff.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out candidate registry tooling
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate-registry
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+      - name: Test candidate tooling
+        working-directory: candidate-registry
+        run: npm test
+      - name: Validate candidate registry
+        working-directory: candidate-registry
+        run: npm run validate
+      - name: Build a throwaway candidate index
+        working-directory: candidate-registry
         run: |
-          generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          expires_at="$(node -e 'console.log(new Date(Date.now() + 7 * 86400000).toISOString())')"
-          npm run build:index -- --generated-at "$generated_at" --expires-at "$expires_at" --output "$RUNNER_TEMP/managed-index.json"
-      # Never download or execute contributor archives in this job. If executable
-      # probes are added, place them in a separate disposable job with no secrets,
-      # no write permission, and no pull_request_target trigger.
+          set -- packages/*.json
+          if [ -e "$1" ]; then
+            generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            expires_at="$(node -e 'console.log(new Date(Date.now() + 7 * 86400000).toISOString())')"
+            npm run build:index -- --generated-at "$generated_at" --expires-at "$expires_at" --output "$RUNNER_TEMP/managed-index.json"
+          else
+            echo "No publishable package JSON; skipping index assembly."
+          fi
+      # Candidate tooling tests do not establish publisher identity, provenance,
+      # or publication authority and must never download or execute provider code.

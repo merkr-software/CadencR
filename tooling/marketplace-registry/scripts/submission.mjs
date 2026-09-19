@@ -221,7 +221,7 @@ function isObject(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function providerIdentifierKey(value) {
+export function providerIdentifierKey(value) {
   return [...value]
     .filter((character) => /^[A-Za-z0-9]$/.test(character))
     .join("")

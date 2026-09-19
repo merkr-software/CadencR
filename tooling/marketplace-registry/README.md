@@ -9,6 +9,7 @@ no production URL, trust key, credential, or remote resource.
 | Path                                | Purpose                                                        | Trust domain                           |
 | ----------------------------------- | -------------------------------------------------------------- | -------------------------------------- |
 | `packages/*.json`                   | One reviewed `ManagedProviderPackage` per provider version     | Contributor PR input                   |
+| `submissions/*.json`                | Source-pinned submission matching each new package version     | Contributor PR input                   |
 | `schemas/`                          | JSON Schema documents for package and signed-index shape       | Public validation                      |
 | `scripts/validate.mjs`              | Dependency-free semantic validation matching managed index v1  | Unprivileged CI                        |
 | `scripts/build-index.mjs`           | Deterministic sort and canonical unsigned index creation       | Unprivileged CI or protected publisher |
@@ -24,6 +25,7 @@ cd tooling/marketplace-registry
 npm test
 npm run validate
 npm run validate:submission -- /path/to/submission.json
+npm run validate:contribution -- --base /path/to/base-registry --candidate /path/to/candidate-registry
 npm run build:index -- \
   --generated-at 2026-09-12T00:00:00Z \
   --expires-at 2026-09-19T00:00:00Z \
@@ -48,6 +50,18 @@ allowed object fields from the schemas and adds host-specific semantic checks;
 this is not a general-purpose JSON Schema engine.
 
 ## Deliberate limits
+
+The contribution command compares two registry snapshots without executing their
+scripts. New versions require matching package/submission documents. Accepted
+versions cannot be removed or changed, and new versions cannot silently change
+the publisher or source repository. Unchanged legacy packages may remain without
+a submission; the command does not retroactively infer provenance for them.
+The snapshots are inputs, not publication targets: no GitHub calls, writes or
+downloads occur. See `SECURITY.md` for CI bootstrap and trust boundaries.
+Snapshot inputs must be stable during validation. Each JSON file is limited to
+1 MiB, each metadata directory to 10,000 entries, and each registry root to
+32 MiB of JSON input across `packages/` and `submissions/`. Symlinks and special
+files are refused. These resource limits are not an OS-level filesystem sandbox.
 
 The source-pinned submission preflight is a separate author/reviewer command.
 It does not change the managed package/index v1 wire format and does not prove
