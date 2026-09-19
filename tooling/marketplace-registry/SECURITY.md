@@ -62,3 +62,20 @@ Run local tests with generated disposable keys only. Never commit private keys,
 pass them in command arguments, or expose them to PR tooling/provider executables.
 Production key provisioning, rotation and environment protections remain separate
 operator decisions. The existing workflow still stops before signing and releases.
+
+## Archive transfer boundary
+
+Local staging follows redirects manually because GitHub asset downloads can
+redirect ([GitHub release asset API](https://docs.github.com/en/rest/releases/assets)).
+The transfer policy allows only HTTPS on `github.com`,
+`release-assets.githubusercontent.com`, and `objects.githubusercontent.com`, without
+custom ports, URL userinfo, wildcard domains or arbitrary redirect destinations.
+This allowlist is a conservative policy, not a promise covering every future
+GitHub CDN change. Unexpected destinations fail closed. System DNS and TLS remain
+trusted; do not run the publisher in a hostile network or filesystem environment.
+
+Transfer code sends no GitHub token or cookies and rejects non-identity HTTP
+content encoding to preserve the submitted archive bytes. Redirect query strings
+must never be included in diagnostics. Local digests certify received bytes only:
+maintainer authorization, source/tag provenance, remote mirrored-asset verification,
+protected signing and publication are still separate mandatory gates.
