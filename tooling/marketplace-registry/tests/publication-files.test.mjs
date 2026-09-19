@@ -3,7 +3,11 @@ import { mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from "node
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { publishCanonicalReceipt, withOwnedLock } from "../scripts/publication/files.mjs";
+import {
+  publishCanonicalReceipt,
+  withOwnedLock,
+  writeExclusivePrivate,
+} from "../scripts/publication/files.mjs";
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "publication-files-"));
@@ -59,4 +63,17 @@ test("immutable receipt reconciliation cleans its temporary file on malformed or
   assert.equal(await readFile(foreign, "utf8"), "preserve");
   assert.equal(await readFile(path.join(directory, "malformed.json"), "utf8"), "not json");
   assert.ok((await readdir(directory)).every((name) => !name.endsWith(".part")));
+});
+
+test("exclusive private writes publish only complete bytes and clean failures", async (t) => {
+  const lock = await fixture(t);
+  const directory = path.dirname(lock);
+  const output = path.join(directory, "output.json");
+  await assert.rejects(writeExclusivePrivate(output, undefined));
+  await assert.rejects(readFile(output), { code: "ENOENT" });
+  assert.deepEqual(await readdir(directory), []);
+  await writeExclusivePrivate(output, Buffer.from("complete"));
+  await assert.rejects(writeExclusivePrivate(output, Buffer.from("conflict")), { code: "EEXIST" });
+  assert.equal(await readFile(output, "utf8"), "complete");
+  assert.deepEqual(await readdir(directory), ["output.json"]);
 });

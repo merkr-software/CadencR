@@ -124,3 +124,25 @@ release: recovery is verification/retry, never automatic deletion or unpublishin
 No signing key is read and catalog/discovery remains untouched. A receipt does not
 prove publisher ownership, reproducible builds, permanent immutability or ongoing
 availability; protected catalog publication still needs its own checks.
+
+## Catalogue signing gate
+
+`sign:publication-catalog` does not read GitHub tokens or publish remotely. The
+manifest and staged receipts are trusted operator inputs, never a PR artifact
+handoff. It validates all included packages and publication bindings, verifies
+public archive/provenance bytes, then loads the signing key. It does not execute
+provider code, import contributor modules, extract archives or interpret receipt
+fields as commands.
+
+Protect the tooling revision, key path, manifest and workspace. Receipts can be
+forged by a writer with access to that workspace; they do not establish human
+approval, source ownership or build provenance. Fresh download checks prove
+availability and matching bytes only at verification time, not permanent hosting.
+Repository/tag protections and immutable releases remain required operational gates.
+
+The low-level `sign:index` helper remains available for trusted operators and is
+not a replacement for this publication gate. Neither command provisions a protected
+signing environment. The bootstrap preparation workflow remains unsigned and must
+not be mistaken for the production publishing workflow. Actual catalogue upload,
+anti-replay/history reconciliation, distributed serialization and discovery changes
+are intentionally not performed by this local signing increment.

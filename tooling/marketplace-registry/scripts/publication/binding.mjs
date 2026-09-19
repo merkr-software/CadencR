@@ -6,6 +6,7 @@ import { readBoundedRegularFile } from "./io.mjs";
 
 export const MAX_PUBLICATION_METADATA_BYTES = 4 * 1024 * 1024;
 export const MIRROR_RECEIPT = "mirror-receipt.json";
+export const PUBLICATION_RECEIPT = "publication-receipt.json";
 export const PROVENANCE = "publication-plan.json";
 
 export function buildPublicationBinding(staged, repository, registryCommit, directory) {
@@ -59,6 +60,51 @@ export async function readMirrorReceipt(directory, binding, values, { required =
 
 export function compactArtifacts(expected) {
   return expected.map(({ name, sha256: digest, size }) => ({ name, sha256: digest, size }));
+}
+
+export function buildPublicationReceipt(binding, repository, registryCommit, releaseId) {
+  return {
+    schema_version: 1,
+    status: "published_verified",
+    repository,
+    registry_commit: registryCommit,
+    release_id: releaseId,
+    release_tag: binding.tag,
+    tag_commit: registryCommit,
+    plan_sha256: binding.planSha256,
+    artifacts: compactArtifacts(binding.expected),
+  };
+}
+
+export async function readPublicationReceipt(
+  directory,
+  binding,
+  { repository, registryCommit, releaseId },
+  { required = false } = {},
+) {
+  const file = path.join(directory, PUBLICATION_RECEIPT);
+  try {
+    await lstat(file);
+  } catch (error) {
+    if (!required && error?.code === "ENOENT") return null;
+    throw error;
+  }
+  const bytes = await readBoundedRegularFile(
+    file,
+    MAX_PUBLICATION_METADATA_BYTES,
+    "publication receipt",
+  );
+  let actual;
+  try {
+    actual = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error("existing publication receipt is invalid");
+  }
+  const expected = buildPublicationReceipt(binding, repository, registryCommit, releaseId);
+  if (canonicalJson(actual) !== canonicalJson(expected)) {
+    throw new Error("existing publication receipt conflicts");
+  }
+  return actual;
 }
 
 function releaseMarker(planSha256, commit) {

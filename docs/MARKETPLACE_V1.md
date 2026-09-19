@@ -24,17 +24,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                                   |
-| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open               |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending           |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending       |
-| D    | Protected mirroring, signing and idempotent publication              | Draft mirroring and operator promotion implemented; protected deployment/catalog publication and live GitHub QA pending |
-| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                         |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                              |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                         |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                    |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                 |
+| Step | Deliverable                                                          | State                                                                                                                |
+| ---- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open            |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending        |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending    |
+| D    | Protected mirroring, signing and idempotent publication              | Mirroring, promotion and gated local catalogue signing implemented; protected deployment/catalog publication pending |
+| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                      |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                           |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                      |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                 |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                              |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -165,6 +165,33 @@ alone cannot close them.
   Three GPT-5.6-Sol reviews completed; binding, asset verification and receipt
   publication helpers were shared between mirroring and promotion. Parent review,
   scoped lint, formatting and diff checks pass on the final code.
+
+### Verified catalogue signing increment — 2026-09-19
+
+- A strict operator manifest selects previously promoted provider versions. The
+  catalogue gate validates reviewed submissions and both receipts against freshly
+  hashed staged artifacts, then derives the mirrored package metadata.
+- All packages, identity consistency, timestamps and resource limits are checked
+  before public transfers. Every included archive and provenance asset is downloaded
+  without credentials and digest-checked before the private signing key is read.
+- The existing canonical Ed25519 signer is shared rather than reimplemented; the
+  resulting envelope retains the current Node/Rust wire contract. Existing output
+  paths are refused, not overwritten. No contributor code is executed.
+- This increment writes a local signed catalogue only. It does not deploy a signing
+  environment, publish a catalogue release or advance discovery. Continuity against
+  the previous official index, monotonic publication, distributed concurrency and
+  public verification of uploaded signed snapshots remain publication-time gates.
+- Manifest/staging files are trusted operator inputs, not PR artifacts or proof of
+  publisher ownership. No real registry token, signing key or production data is
+  used in tests; GitHub/CDN/TLS deployment QA remains pending.
+- Three GPT-5.6-Sol reviews completed. Corrections include key-ID validation before
+  downloads/key access, a fresh signing-time clock, incremental aggregate-budget
+  rejection, and shared exclusive file publication through owned temporary files.
+- Verification: 156 registry tests, two root integration checks and the Rust
+  integration test validating actual Node signatures all pass. The actual CLI was
+  exercised against a local mock GitHub/CDN with an ephemeral Ed25519 key, including
+  unavailable/corrupt public data, deterministic signing and overwrite refusal.
+  Scoped lint, formatting and diff checks pass after parent review/corrections.
 
 ### Decisions that must not be invented by implementation
 
