@@ -4,7 +4,7 @@ import path from "node:path";
 import { canonicalJson } from "../lib.mjs";
 import { preflightCatalog } from "./pipeline-preflight.mjs";
 import { signPublicationCatalog } from "../sign-publication-catalog.mjs";
-import { buildPublicationBinding, readMirrorReceipt } from "./binding.mjs";
+import { buildPublicationBinding } from "./binding.mjs";
 import { preparePublishedCatalog } from "./catalog.mjs";
 import { isExactCommit } from "./commit.mjs";
 import { advanceCatalogDiscovery } from "./discovery.mjs";
@@ -20,6 +20,7 @@ import {
   writeCanonicalOnce,
 } from "./pipeline-state.mjs";
 import { promotePublication } from "./promote.mjs";
+import { recoverPublishedMirror } from "./recover-publication.mjs";
 import { publishCatalogSnapshot } from "./publish-catalog.mjs";
 import { prepareCatalogSnapshot } from "./snapshot.mjs";
 import { stagePipelinePublications } from "./pipeline-staging.mjs";
@@ -33,7 +34,11 @@ const CATALOG = "managed-index.json";
 export async function runPublicationPipeline(options) {
   validateOptions(options);
   const prepared = await prepareRequest(options);
-  preflightCatalog(options, prepared, prepared.entries);
+  const requiredPublished = preflightCatalog(options, prepared, prepared.entries);
+  for (const entry of prepared.entries) {
+    const { id, version } = entry.plan.mirrored_package.agent;
+    entry.requirePublished = requiredPublished.has(`${id}@${version}`);
+  }
   await ensureStateDirectory(options.directory);
   return withOwnedLock(path.join(options.directory, ".pipeline.lock"), "publication pipeline", () =>
     runLocked(options, prepared),
@@ -58,12 +63,21 @@ async function runLocked(options, prepared) {
       commit,
       entry.directory,
     );
-    await options.client.ensurePublicationTag({ tag: binding.tag, commit });
-    const receipt = await readMirrorReceipt(entry.directory, binding, {
+    const recovered = await recoverPublishedMirror({
+      submission: entry.submission,
       repository: options.repository,
       registryCommit: commit,
+      directory: entry.directory,
+      client: options.client,
+      download: options.download,
+      requirePublished: entry.requirePublished,
     });
-    if (!receipt) {
+    const isPublished = entry.requirePublished || recovered?.status === "published_recovered";
+    if (!isPublished) await options.client.ensurePublicationTag({ tag: binding.tag, commit });
+    if (!recovered && isPublished) {
+      throw new Error("verified publication could not be recovered");
+    }
+    if (!recovered)
       await mirrorPublication({
         submission: entry.submission,
         repository: options.repository,
@@ -71,7 +85,6 @@ async function runLocked(options, prepared) {
         directory: entry.directory,
         client: options.client,
       });
-    }
     await promotePublication({
       submission: entry.submission,
       repository: options.repository,
@@ -79,6 +92,7 @@ async function runLocked(options, prepared) {
       directory: entry.directory,
       client: options.client,
       download: options.download,
+      requirePublished: isPublished,
     });
   }
 

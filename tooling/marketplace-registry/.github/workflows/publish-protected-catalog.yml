@@ -167,8 +167,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
           include-hidden-files: true
-      # Recovery is an explicit operator action: download and inspect this run's
-      # state, then run the CLI locally at the original reviewed checkout and
-      # commit against that recovered state. There is no automatic hosted resume.
-      # A fresh runner alone is not proof that a partially published provider is
-      # safe to retry.
+      # Fresh runners reconstruct published provider state only after tag,
+      # binding, public provenance and archive verification. No Actions artifact
+      # is restored or executed. Reruns retain the original reviewed commit,
+      # request and publication window; expiry still fails closed. Unpublished
+      # drafts require source archives when no local staging state survives.
+      # Recovery artifacts remain optional operator diagnostics, not authority.

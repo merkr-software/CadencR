@@ -190,6 +190,30 @@ test("a failed PATCH that remains draft is not repeated and leaves no owned file
   );
 });
 
+test("historical publication proof never republishes an unexpectedly draft release", async (t) => {
+  for (const mode of ["required", "recovered"]) {
+    const state = await fixture(t);
+    if (mode === "recovered") {
+      const file = path.join(state.directory, "mirror-receipt.json");
+      const receipt = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(file, `${JSON.stringify({ ...receipt, status: "published_recovered" })}\n`);
+    }
+    await assert.rejects(
+      promotePublication({
+        submission: submission(),
+        repository,
+        registryCommit: commit,
+        directory: state.directory,
+        client: state.client,
+        download: state.download,
+        requirePublished: mode === "required",
+      }),
+      /historically published release is unexpectedly draft/,
+    );
+    assert.equal(state.client.calls.publish, 0);
+  }
+});
+
 test("rejects tag conflict and missing tag before PATCH", async (t) => {
   for (const value of ["a".repeat(40), null]) {
     const state = await fixture(t);

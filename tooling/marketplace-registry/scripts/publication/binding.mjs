@@ -46,7 +46,7 @@ export async function readMirrorReceipt(directory, binding, values, { required =
   }
   const valid =
     receipt?.schema_version === 1 &&
-    receipt.status === "draft_verified" &&
+    (receipt.status === "draft_verified" || receipt.status === "published_recovered") &&
     receipt.repository === values.repository &&
     receipt.registry_commit === values.registryCommit &&
     receipt.release_tag === binding.tag &&

@@ -222,8 +222,20 @@ The hosted template is manual/default-branch only, uses the exact dispatch commi
 and gates credential access through an externally configured protected environment.
 The default `GITHUB_TOKEN` has read-only contents permission; the dedicated publish
 token and signing key are confined to their respective steps. Recovery artifacts
-must never contain a private key and are not a trusted code source. Automatic state
-hydration or arbitrary run-artifact restoration is deliberately absent; do not
-claim fresh-runner or subsequent-request recovery until that boundary is implemented
-and verified. No live GitHub deployment or production key validation is implied by
-local fixture tests.
+must never contain a private key and are not a trusted code source. Published-provider state hydration uses freshly verified official release bytes,
+provenance and exact tag/binding checks, not restored Actions artifacts. A recovered
+mirror receipt is explicitly marked `published_recovered`; it does not claim the
+runner observed a draft. Missing or conflicting published assets, tags or receipts
+fail closed and do not authorize uploads, replacement or deletion. Fresh-runner and
+subsequent-request behavior is exercised against local mock GitHub endpoints; no
+live GitHub deployment or production key validation is implied.
+
+Baseline-listed versions require a still-published exact release before any new
+source staging. A missing/draft historical release is never downgraded to a new
+publication. An observed published release and recovered/published local receipts
+also prohibit later fallback or re-promotion. Explicit bootstrap cannot infer lost
+history when neither a signed baseline nor a local/remote publication marker exists.
+Recovery relists and re-verifies the authenticated asset set after public downloads
+before the final release/tag checks. These sequential checks are not a GitHub-wide
+transaction: a later privileged mutation remains possible, so repository protections
+and consumers' signature/digest verification remain mandatory.
