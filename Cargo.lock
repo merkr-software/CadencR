@@ -777,6 +777,7 @@ dependencies = [
  "bon",
  "cadencr-plugin-core",
  "cadencr-registry-core",
+ "cadencr-registry-publisher",
  "chrono",
  "clap",
  "flate2",
@@ -812,17 +813,36 @@ dependencies = [
 name = "cadencr-registry-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "bon",
  "cadencr-plugin-core",
  "chrono",
+ "ed25519-dalek",
  "flate2",
  "libc",
+ "pem-rfc7468",
  "ryu-js",
  "semver",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
  "unicode-normalization",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "cadencr-registry-publisher"
+version = "0.1.0"
+dependencies = [
+ "bon",
+ "cadencr-registry-core",
+ "libc",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
  "url",
 ]
 
@@ -1678,6 +1698,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29fcf32e6c73d1079f83ab4d782de2d81620346a5f38c6237a86a22f8368980a"
 dependencies = [
+ "pkcs8 0.11.0",
  "signature 3.0.0",
 ]
 
@@ -3951,6 +3972,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes 1.11.1",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",

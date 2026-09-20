@@ -56,10 +56,10 @@ fn validate_marketplace_package(package: &Value, errors: &mut Diagnostics) {
     if !agent.get("repository").is_some_and(Value::is_string) {
         errors.push("submission.package.agent.repository is required".into());
     }
-    if !agent
+    if agent
         .get("license")
         .and_then(Value::as_str)
-        .is_some_and(|value| !ecmascript_trim(value).is_empty())
+        .is_none_or(|value| ecmascript_trim(value).is_empty())
     {
         errors.push("submission.package.agent.license must be a non-empty declared license".into());
     }
@@ -70,10 +70,10 @@ fn validate_marketplace_package(package: &Value, errors: &mut Diagnostics) {
     }
     if let Some(assets) = package.pointer("/host/assets").and_then(Value::as_object) {
         for key in ["readme", "license"] {
-            if !assets
+            if assets
                 .get(key)
                 .and_then(Value::as_str)
-                .is_some_and(|value| !ecmascript_trim(value).is_empty())
+                .is_none_or(|value| ecmascript_trim(value).is_empty())
             {
                 errors.push(format!("submission.package.host.assets.{key} is required"));
             }
@@ -238,11 +238,11 @@ fn canonical_release_url(value: &str) -> bool {
 
 fn has_control_characters(value: &str) -> bool {
     value.chars().any(is_ascii_control)
-        || decode_uri_component(value).map_or(true, |decoded| decoded.chars().any(is_ascii_control))
+        || decode_uri_component(value).is_none_or(|decoded| decoded.chars().any(is_ascii_control))
 }
 
 fn has_traversal(value: &str) -> bool {
-    decode_uri_component(value).map_or(true, |decoded| {
+    decode_uri_component(value).is_none_or(|decoded| {
         matches!(decoded.as_str(), "." | "..") || decoded.contains(['/', '\\'])
     })
 }

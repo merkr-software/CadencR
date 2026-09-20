@@ -8,7 +8,8 @@ fn cadencr() -> Command {
 fn help_and_version_succeed_in_real_process() {
     let help = cadencr().arg("--help").output().expect("run help");
     assert!(help.status.success());
-    assert!(String::from_utf8_lossy(&help.stdout).contains("Offline Cadencr package tooling"));
+    assert!(String::from_utf8_lossy(&help.stdout)
+        .contains("Headless Cadencr package and registry tooling"));
 
     let version = cadencr().arg("--version").output().expect("run version");
     assert!(version.status.success());

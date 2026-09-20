@@ -1,8 +1,9 @@
 # Cadencr CLI
 
-`cadencr` is headless, offline tooling for validating provider packages and
-building a local registry index. It never contacts the service or database,
-uses the network, installs a plugin, or executes a provider binary.
+`cadencr` provides headless provider validation, packaging, registry index
+signing and verified publication staging. Commands never contact the service or
+database, install a plugin, or execute a provider binary. Only
+`stage-publication` uses the network, to download inert GitHub Release assets.
 
 ## Commands
 
@@ -11,6 +12,18 @@ cadencr plugin validate <folder> --descriptor <descriptor.json>
 cadencr registry validate --base <directory> --candidate <directory>
 cadencr registry build-index --packages <directory> \
   --generated-at <timestamp> --expires-at <timestamp> [--output <new-file>]
+cadencr registry pack-provider --package <metadata.json> --target <target> \
+  --directory <staging-directory> --output <new-archive.tar.gz>
+cadencr registry plan-publication --submission <submission.json> \
+  --repository <owner/repository> --output <new-plan.json>
+cadencr registry sign-index --payload <index.json> --private-key <private.pem> \
+  --key-id <key-id> --output <new-envelope.json>
+cadencr registry verify-index --index <envelope.json> --public-key <public.pem> \
+  --key-id <key-id> [--allow-expired]
+cadencr registry assemble-signed-index --payload <index.json> \
+  --signature <signature.json> --output <new-envelope.json>
+cadencr registry stage-publication --submission <submission.json> \
+  --repository <owner/repository> --directory <staging-directory>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -24,18 +37,50 @@ destination, then published with create-new semantics. Existing files and
 symlinks are never overwritten, and a failed write leaves no partial index at
 the requested path.
 
+`pack-provider` emits a JSON receipt containing the absolute archive path,
+target, SHA-256 and compressed size. The shared app/CLI engine rejects symlinks,
+special files, sensitive paths, portable-name collisions and changing input.
+Archives are deterministic for the same implementation; decompressed TAR bytes
+match the transitional JavaScript oracle, but gzip bytes need not match across
+compression implementations. The output directory must be trusted and stable.
+
+`plan-publication` records expected release tags, asset names and provenance.
+It does not fetch artifacts, mirror them, sign a catalog or publish to GitHub.
+
+`sign-index` uses an Ed25519 PKCS8 PEM private key; `verify-index` requires an
+explicit key ID and Ed25519 SPKI PEM public key. Signing and verification enforce
+whole-second UTC dates and omitted empty optional fields. `--allow-expired` is
+an explicit verification-only override. Assembly validates structure but does
+not authenticate a detached signature. `verify-index` verifies only the strict
+current publication format, not every structurally valid assembly. Legacy app
+signature compatibility is a separate service-only path; assembly is not a way
+to bypass current publication policy. Verify current-format envelopes before use.
+Private keys are local inputs, never registry content or CLI arguments containing
+key material. Generated envelopes are private, no-clobber files.
+
+`stage-publication` downloads at most six archives over allowlisted HTTPS GitHub
+redirects, checks size and SHA-256, and writes an immutable receipt. Repeating a
+matching staging request revalidates existing bytes and fetches only missing
+assets. Conflicting assets/receipts and foreign locks fail closed. Staging does
+not upload, promote a release, or publish a catalog. Use a trusted local staging
+directory, not one concurrently writable by an untrusted process. Files are
+synced, but directory entries are not a power-loss durability guarantee. A crash
+or failure to inspect a newly created file can leave a lock/partial: it is kept
+rather than deleted without proven ownership. Inspect such leftovers manually
+before retrying; the CLI never removes a foreign lock automatically.
+
 ## Diagnostics and exit codes
 
 Pass `--json` for one structured diagnostic object. For `build-index` without
 `--output`, stdout remains the index JSON itself; failures are still structured
 JSON on stderr. Help and version retain clap's human-readable output.
 
-| Code | Meaning                                         |
-| ---: | ----------------------------------------------- |
-|  `0` | Success, help, or version                       |
-|  `1` | Plugin or registry input failed validation      |
-|  `2` | Invalid CLI usage                               |
-|  `3` | The generated index could not be written safely |
+| Code | Meaning                                      |
+| ---: | -------------------------------------------- |
+|  `0` | Success, help, or version                    |
+|  `1` | Plugin or registry input failed validation   |
+|  `2` | Invalid CLI usage                            |
+|  `3` | Generated output could not be written safely |
 
 ## Migration status
 
@@ -45,9 +90,9 @@ SHA-256 digest are provisioned in the trusted pin file. No release is implied by
 building this crate locally.
 
 Numeric canonicalization matches JavaScript and is covered by a deterministic
-263-case Node oracle. The app's legacy signature verifier is not changed by this
-increment: signing compatibility must be resolved before enabling catalog
-publication. These commands do not sign or publish a catalog.
+263-case Node oracle. The app accepts the shared canonical signature format and
+retains explicit legacy verification, including the exact verified-byte hashes
+in existing receipts. These commands do not publish a catalog.
 
 ## Initial release runtime
 
