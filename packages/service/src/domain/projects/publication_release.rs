@@ -1,3 +1,4 @@
+pub mod contribution;
 mod github;
 mod local;
 mod plan;
@@ -79,6 +80,27 @@ struct PreparedContext {
     inspection: remote::GitHubReleaseInspection,
     token: String,
     _permit: tokio::sync::SemaphorePermit<'static>,
+}
+
+impl PreparedContext {
+    fn request<'a>(&'a self, binding_sha256: &'a str) -> GitHubPublishRequest<'a> {
+        GitHubPublishRequest::builder()
+            .repository(&self.local.plan.repository)
+            .tag(&self.local.plan.tag)
+            .source_commit(&self.local.plan.source_commit)
+            .release_notes(&self.local.plan.release_notes)
+            .prerelease(self.local.plan.prerelease)
+            .archive_name(&self.local.plan.archive_name)
+            .archive(&self.local.archive)
+            .archive_sha256(&self.local.plan.archive_sha256)
+            .metadata_name("package.json")
+            .metadata(&self.local.metadata)
+            .metadata_sha256(&self.local.plan.metadata_sha256)
+            .expected_repository_id(self.inspection.repository_id)
+            .expected_account(&self.inspection.account)
+            .binding_sha256(binding_sha256)
+            .build()
+    }
 }
 
 #[utoipa::path(
@@ -167,9 +189,11 @@ async fn publish_prepared(
         permit,
     )
     .await?;
-    let local = prepared.local;
-    let inspection = prepared.inspection;
-    let actual = plan_sha(&local.plan, &inspection.account, inspection.repository_id)?;
+    let actual = plan_sha(
+        &prepared.local.plan,
+        &prepared.inspection.account,
+        prepared.inspection.repository_id,
+    )?;
     if body.expected_plan_sha256 != actual {
         return Err(coded_status(
             StatusCode::CONFLICT,
@@ -177,23 +201,9 @@ async fn publish_prepared(
             "publication release plan changed; preview it again",
         ));
     }
-    let request = GitHubPublishRequest::builder()
-        .repository(&local.plan.repository)
-        .tag(&local.plan.tag)
-        .source_commit(&local.plan.source_commit)
-        .release_notes(&local.plan.release_notes)
-        .prerelease(local.plan.prerelease)
-        .archive_name(&local.plan.archive_name)
-        .archive(&local.archive)
-        .archive_sha256(&local.plan.archive_sha256)
-        .metadata_name("package.json")
-        .metadata(&local.metadata)
-        .metadata_sha256(&local.plan.metadata_sha256)
-        .expected_repository_id(inspection.repository_id)
-        .expected_account(&inspection.account)
-        .binding_sha256(&actual)
-        .build();
-    let published = github::publish_publication_release(&prepared.token, request).await?;
+    let published =
+        github::publish_publication_release(&prepared.token, prepared.request(&actual)).await?;
+    let local = prepared.local;
     Ok(Json(PublishedProviderRelease {
         release_url: published.release_url,
         repository: local.plan.repository,
@@ -331,5 +341,6 @@ pub fn router() -> Router<AppState> {
             "/api/projects/{id}/publication-release",
             post(publish_publication_release_handler),
         )
+        .merge(contribution::router())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
 }

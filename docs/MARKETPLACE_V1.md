@@ -24,17 +24,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                                                     |
-| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open                                 |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending                             |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending                         |
-| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending                       |
-| E    | Publish first/new version from a marked Cadencr project              | E1 readiness, E2 local single-target bundling and E3 confirmed author-repository release flow implemented locally; live GitHub QA pending |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                                                |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                                           |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                                      |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                                   |
+| Step | Deliverable                                                          | State                                                                                                               |
+| ---- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open           |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending       |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending   |
+| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending |
+| E    | Publish first/new version from a marked Cadencr project              | E1-E3 and E4 local contribution export implemented/reviewed; official registry PR automation remains gated          |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                          |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                     |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                             |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -486,11 +486,66 @@ alone cannot close them.
 - Rechecks are not an atomic transaction with external GitHub editors. Protect
   release tags and assets against concurrent changes; no historical deletion
   ledger, source-to-binary provenance or connector conformance is established here.
-- Next E4: prepare an author-visible registry contribution from the verified
-  published release while preserving maintainer review. Official registry
+- E4 local contribution export is described below. Official registry
   deployment/signing, live GitHub/Actions acceptance, multi-target publication,
   themes, marketplace browsing and packaged-platform certification remain separate
   gates.
+
+### Local registry contribution export increment (E4) — 2026-09-20
+
+- From an explicit E3 preview, the author can separately confirm local contribution
+  file creation and read-only GitHub verification. The authenticated POST reloads
+  the app-owned bundle, project/source state and GitHub identity, then recomputes
+  the E3 plan fingerprint. Changed inputs, actor, immutable repository identity,
+  source commit or tag require a fresh release preview.
+- Before writing locally, E4 performs GET-only verification that the exact release
+  is already published rather than a draft and that its two assets still match the
+  expected names, sizes and native GitHub-reported `sha256` digests. It does not
+  publish or mutate the release and does not independently download asset bytes.
+- The generated submission uses the existing exact `provider-submission-v1`
+  envelope: schema version, preserved managed package object, source repository,
+  commit and tag, plus release notes as the changelog. Unknown package metadata is
+  preserved. The same marketplace submission delta rules validate required
+  license/assets, repository/source consistency, supported binary-only distribution,
+  safe identifiers/tags and reserved built-in provider IDs. No local-only draft
+  schema is introduced, and the desktop runtime does not require production Node.
+- Each attempt requires a fresh explicit confirmation and creates a fresh UUID
+  directory beneath the settings sibling
+  `provider-publication-contributions/<project-id>/`. It contains
+  `packages/<provider-id>-<version>.json`, the paired
+  `submissions/<provider-id>-<version>.json`, and `PULL_REQUEST.md`. The Markdown
+  records generated facts while leaving ownership, credential review, conformance,
+  licensing/provenance and official CI assertions unchecked for humans.
+- Writes use a fresh app-owned UUID directory and exclusive file creation; existing
+  files are never overwritten. Ordinary write failures attempt bounded cleanup, but
+  process interruption can leave a partial UUID directory that counts toward the
+  quota and requires manual inspection/removal. At most 16 exports are retained
+  globally and nothing is automatically deleted. Every successful action gets a
+  new UUID and is not an idempotent replay to a prior output directory. Archive any
+  contribution that must be retained before manually removing it from app storage.
+- This is a local export, not registry submission. No official registry destination
+  is configured, so E4 does not fork a repository, create a branch, push, open a
+  pull request, sign content or claim registry acceptance. Without the authoritative
+  registry baseline it also cannot prove whether this is the first version or
+  validate continuity against already-published provider versions; official registry
+  CI and maintainer review remain required.
+- Verification: 4,954 desktop tests, 40 targeted Rust publication tests, the
+  authenticated/local-only route integration test and the Node registry suite pass.
+  Generated contributions pass the existing Node validators; desktop types, lint,
+  unused-code checks and service compilation pass. Independent reuse, quality and
+  efficiency reviews were completed and their scoped corrections integrated.
+- Isolated dev QA exercised real API authentication, confirmation, project/UUID,
+  notes-size, unknown-field and missing-GitHub-auth rejection with no export created.
+  Browser QA used a simulated E3 preview only; E4 requests reached the real isolated
+  service. Loading/fieldset locking, consumed confirmation, visible auth failure,
+  fresh retry consent, 190-second timeout and stale-preview clearing were checked.
+  Positive GitHub/export behavior remains fixture-tested, not live GitHub QA or an
+  export produced through the app. No production data or GitHub state was changed;
+  QA processes were stopped and the isolated database retained. Git delivery is
+  separate from this verification.
+- Next gate: decide the registry destination and contribution policy, then design
+  and authorize actual pull-request automation if desired. No later E-step label is
+  inferred until that scope is decided.
 
 ### Decisions that must not be invented by implementation
 
