@@ -21,6 +21,7 @@ const MAX_PAGES: usize = 10;
 pub(crate) struct Release {
     pub(crate) id: u64,
     pub(crate) draft: bool,
+    pub(crate) prerelease: bool,
     pub(crate) tag_name: String,
     pub(crate) target_commitish: String,
     pub(crate) body: String,
@@ -66,6 +67,7 @@ pub(crate) trait ReleaseClient {
     fn list_assets(&self, release_id: u64) -> Result<Vec<Asset>, PublisherError>;
     fn upload_asset(&self, request: UploadAssetRequest<'_>) -> Result<Asset, PublisherError>;
     fn verify_asset(&self, request: VerifyAssetRequest<'_>) -> Result<(), PublisherError>;
+    fn publish_draft(&self, release_id: u64) -> Result<Release, PublisherError>;
 }
 
 pub(crate) struct GitHubClient {
@@ -143,21 +145,20 @@ impl ReleaseClient for GitHubClient {
         };
         let mut target = reference.validate(tag)?;
         let mut visited = std::collections::HashSet::new();
-        for _ in 0..10 {
-            match target.kind.as_str() {
-                "commit" => return Ok(Some(target.sha)),
-                "tag" if visited.insert(target.sha.clone()) => {
-                    let annotated: model::RawAnnotatedTag = self.request.get(&format!(
-                        "/repos/{}/git/tags/{}",
-                        self.repository, target.sha
-                    ))?;
-                    target = annotated.validate(&target.sha)?;
-                }
-                "tag" => return Err(error("GitHub annotated tag cycle detected")),
-                _ => return Err(error("GitHub tag target is malformed")),
+        while target.kind == "tag" {
+            if visited.len() >= 5 {
+                return Err(error("GitHub annotated tag chain limit exceeded"));
             }
+            if !visited.insert(target.sha.clone()) {
+                return Err(error("GitHub annotated tag cycle detected"));
+            }
+            let annotated: model::RawAnnotatedTag = self.request.get(&format!(
+                "/repos/{}/git/tags/{}",
+                self.repository, target.sha
+            ))?;
+            target = annotated.validate(&target.sha)?;
         }
-        Err(error("GitHub annotated tag chain limit exceeded"))
+        Ok(Some(target.sha))
     }
 
     fn find_release(&self, tag: &str) -> Result<Option<Release>, PublisherError> {
@@ -246,6 +247,18 @@ impl ReleaseClient for GitHubClient {
         }
         Ok(())
     }
+
+    fn publish_draft(&self, release_id: u64) -> Result<Release, PublisherError> {
+        id(release_id, "release id")?;
+        let raw: RawRelease = self.request.patch(
+            &format!("/repos/{}/releases/{release_id}", self.repository),
+            &model::PublishBody {
+                draft: false,
+                make_latest: "false",
+            },
+        )?;
+        Release::try_from(raw)
+    }
 }
 
 #[cfg(test)]
@@ -257,9 +270,8 @@ mod tests {
     use super::*;
     #[test]
     fn duplicate_release_tags_are_refused_and_pagination_is_bounded() {
-        let release = r#"{"id":1,"draft":true,"tag_name":"v1","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"notes"}"#;
-        let unrelated =
-            r#"{"id":2,"draft":false,"tag_name":"old","target_commitish":"a","body":null}"#;
+        let release = r#"{"id":1,"draft":true,"prerelease":false,"tag_name":"v1","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"notes"}"#;
+        let unrelated = r#"{"id":2,"draft":false,"prerelease":false,"tag_name":"old","target_commitish":"a","body":null}"#;
         let body = format!("[{unrelated},{release},{release}]");
         let (api, observed) = serve_json("200 OK", &body);
         let error = client(api).find_release("v1").unwrap_err().to_string();
@@ -272,7 +284,7 @@ mod tests {
     }
     #[test]
     fn draft_creation_requires_201_and_sends_bound_fields() {
-        let body = r#"{"id":7,"draft":true,"tag_name":"v1","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"notes"}"#;
+        let body = r#"{"id":7,"draft":true,"prerelease":false,"tag_name":"v1","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"notes"}"#;
         let (api, observed) = serve_json("201 Created", body);
         let release = client(api)
             .create_draft(
@@ -364,7 +376,7 @@ mod tests {
         let (api, _) = serve_json("200 OK", &wrong);
         assert!(client(api).get_tag_commit("v1").is_err());
         let mut chain = vec![reference];
-        for index in 0..10_u8 {
+        for index in 0..5_u8 {
             let sha = if index == 0 {
                 tag.clone()
             } else {
@@ -375,10 +387,7 @@ mod tests {
                 r#"{{"sha":"{sha}","object":{{"type":"tag","sha":"{next}"}}}}"#
             ));
         }
-        assert!(client(serve_many(chain))
-            .get_tag_commit("v1")
-            .unwrap_err()
-            .to_string()
-            .contains("limit"));
+        let failure = client(serve_many(chain)).get_tag_commit("v1").unwrap_err();
+        assert!(failure.to_string().contains("limit"), "{failure}");
     }
 }

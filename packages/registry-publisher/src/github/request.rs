@@ -15,16 +15,19 @@ pub(super) const API_VERSION: &str = "2026-03-10";
 const TIMEOUT: Duration = Duration::from_secs(120);
 pub(super) const USER_AGENT_VALUE: &str = "Cadencr-registry-publisher";
 
-pub(super) fn authorized_client(token: &str) -> Result<(Client, HeaderValue), PublisherError> {
-    let client = Client::builder()
+pub(super) fn http_client() -> Result<Client, PublisherError> {
+    Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(TIMEOUT)
         .build()
-        .map_err(|error| PublisherError::io("build GitHub client", error))?;
+        .map_err(|error| PublisherError::io("build GitHub client", error))
+}
+
+pub(super) fn authorization(token: &str) -> Result<HeaderValue, PublisherError> {
     let mut bearer = HeaderValue::from_str(&format!("Bearer {token}"))
         .map_err(|_| error("GitHub token is invalid"))?;
     bearer.set_sensitive(true);
-    Ok((client, bearer))
+    Ok(bearer)
 }
 
 pub(super) struct Requester {
@@ -49,7 +52,8 @@ impl Requester {
     }
 
     fn build(token: &str, base: String) -> Result<Self, PublisherError> {
-        let (client, bearer) = authorized_client(token)?;
+        let client = http_client()?;
+        let bearer = authorization(token)?;
         let mut headers = HeaderMap::new();
         headers.insert(AUTHORIZATION, bearer);
         headers.insert(
@@ -94,6 +98,14 @@ impl Requester {
         body: &B,
     ) -> Result<T, PublisherError> {
         self.send(Method::POST, path, Some(body), StatusCode::CREATED)
+    }
+
+    pub(super) fn patch<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, PublisherError> {
+        self.send(Method::PATCH, path, Some(body), StatusCode::OK)
     }
 
     fn send<B: Serialize, T: DeserializeOwned>(
@@ -238,5 +250,26 @@ mod tests {
             .get::<serde_json::Value>("/large")
             .unwrap_err();
         assert!(error.to_string().contains("2 MiB"));
+    }
+    use crate::github::fixture::{client, serve_json};
+    use crate::github::ReleaseClient;
+
+    #[test]
+    fn publish_draft_uses_exact_patch_and_sanitizes_failure_response() {
+        let release = r#"{"id":7,"draft":false,"prerelease":false,"tag_name":"v1","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","body":"notes"}"#;
+        let (api, observed) = serve_json("200 OK", release);
+        let published = client(api).publish_draft(7).unwrap();
+        assert!(!published.draft);
+        let request = observed.join().unwrap();
+        assert!(request.starts_with("PATCH /repos/acme/releases/releases/7 HTTP/1.1"));
+        assert!(request.contains("authorization: Bearer secret-token"));
+        assert!(request.contains(r#"{"draft":false,"make_latest":"false"}"#));
+        let (api, _) = serve_json("500 Nope", "secret-token remote body");
+        let error = client(api).publish_draft(7).unwrap_err().to_string();
+        assert!(!error.contains("secret-token"));
+        assert!(!error.contains("remote body"));
+        assert!(client("http://127.0.0.1:1".into())
+            .publish_draft(0)
+            .is_err());
     }
 }

@@ -1,19 +1,20 @@
 use std::fs::{File, OpenOptions};
 use std::io::Read as _;
 use std::path::Path;
+use std::sync::OnceLock;
 
 use reqwest::blocking::Client;
 use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, USER_AGENT};
 use reqwest::StatusCode;
 
-use super::request::{authorized_client, API_VERSION, USER_AGENT_VALUE};
+use super::request::{authorization, http_client, API_VERSION, USER_AGENT_VALUE};
 use super::validation::{error, id, text, MAX_ASSET_BYTES, MAX_JSON_BYTES};
 use super::Asset;
 use crate::fs::Identity;
 use crate::PublisherError;
 
 pub(super) struct Uploader {
-    client: Client,
+    client: OnceLock<Result<Client, PublisherError>>,
     base: String,
     authorization: reqwest::header::HeaderValue,
 }
@@ -29,9 +30,9 @@ impl Uploader {
     }
 
     fn build(token: &str, base: String) -> Result<Self, PublisherError> {
-        let (client, authorization) = authorized_client(token)?;
+        let authorization = authorization(token)?;
         Ok(Self {
-            client,
+            client: OnceLock::new(),
             base,
             authorization,
         })
@@ -83,6 +84,9 @@ impl Uploader {
         );
         let response = self
             .client
+            .get_or_init(http_client)
+            .as_ref()
+            .map_err(Clone::clone)?
             .post(url)
             .header(ACCEPT, "application/vnd.github+json")
             .header(AUTHORIZATION, self.authorization.clone())
@@ -163,9 +167,11 @@ mod tests {
             request
         });
         let uploader = Uploader::fixture("secret", format!("http://{address}")).unwrap();
+        assert!(uploader.client.get().is_none());
         uploader
             .upload("acme/releases", 1, "asset name", &path, 3)
             .unwrap();
+        assert!(uploader.client.get().is_some());
         let request = server.join().unwrap();
         assert!(request.starts_with("POST /repos/acme/releases/releases/1/assets?name=asset+name"));
         assert!(request.contains("authorization: Bearer secret"));
@@ -180,6 +186,7 @@ mod tests {
         std::fs::write(&file, b"abc").unwrap();
         let uploader = Uploader::fixture("secret", "http://127.0.0.1:1".into()).unwrap();
         assert!(uploader.upload("acme/releases", 1, "a", &file, 2).is_err());
+        assert!(uploader.client.get().is_none());
         #[cfg(unix)]
         {
             use std::os::unix::fs::symlink;

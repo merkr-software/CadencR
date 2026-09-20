@@ -57,6 +57,7 @@ impl RawTagTarget {
 pub(super) struct RawRelease {
     id: u64,
     draft: Option<bool>,
+    prerelease: Option<bool>,
     tag_name: String,
     target_commitish: Option<String>,
     body: Option<String>,
@@ -78,9 +79,12 @@ impl TryFrom<RawRelease> for Release {
 
     fn try_from(value: RawRelease) -> Result<Self, Self::Error> {
         value.validate_list_entry()?;
-        let (Some(draft), Some(target_commitish), Some(body)) =
-            (value.draft, value.target_commitish, value.body)
-        else {
+        let (Some(draft), Some(prerelease), Some(target_commitish), Some(body)) = (
+            value.draft,
+            value.prerelease,
+            value.target_commitish,
+            value.body,
+        ) else {
             return Err(error("GitHub release response is malformed"));
         };
         if target_commitish.is_empty() {
@@ -89,6 +93,7 @@ impl TryFrom<RawRelease> for Release {
         Ok(Self {
             id: value.id,
             draft,
+            prerelease,
             tag_name: value.tag_name,
             target_commitish,
             body,
@@ -141,6 +146,12 @@ pub(super) struct DraftBody<'a> {
     pub(super) name: &'a str,
     pub(super) draft: bool,
     pub(super) prerelease: bool,
+    pub(super) make_latest: &'a str,
+}
+
+#[derive(Serialize)]
+pub(super) struct PublishBody<'a> {
+    pub(super) draft: bool,
     pub(super) make_latest: &'a str,
 }
 
