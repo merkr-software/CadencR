@@ -2,8 +2,10 @@
 
 `cadencr` provides headless provider validation, packaging, registry index
 signing and verified publication staging. Commands never contact the service or
-database, install a plugin, or execute a provider binary. Only
-`stage-publication` uses the network, to download inert GitHub Release assets.
+database, install a plugin, or execute a provider binary.
+`stage-publication` downloads inert GitHub Release assets. `mirror-publication`
+can upload already verified local artifacts to an explicitly confirmed GitHub
+draft; it never promotes that draft to a published release.
 
 ## Commands
 
@@ -24,6 +26,9 @@ cadencr registry assemble-signed-index --payload <index.json> \
   --signature <signature.json> --output <new-envelope.json>
 cadencr registry stage-publication --submission <submission.json> \
   --repository <owner/repository> --directory <staging-directory>
+cadencr registry mirror-publication --submission <submission.json> \
+  --repository <owner/repository> --registry-commit <40-lowercase-hex> \
+  --directory <staging-directory> --confirm-repository <owner/repository>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -68,6 +73,17 @@ synced, but directory entries are not a power-loss durability guarantee. A crash
 or failure to inspect a newly created file can leave a lock/partial: it is kept
 rather than deleted without proven ownership. Inspect such leftovers manually
 before retrying; the CLI never removes a foreign lock automatically.
+
+`mirror-publication` requires `CADENCR_REGISTRY_GITHUB_TOKEN` after local
+submission, commit and destination-confirmation validation. Supply it through a
+protected environment, not a command argument or checked-in configuration. All
+artifacts must already be staged: mirroring never fetches author sources. It
+binds the exact registry commit, release body, artifact bytes and provenance;
+retries reconcile existing state rather than overwrite conflicts. The resulting
+`mirror-receipt.json` records a verified draft, not public availability. Existing
+Git tags must resolve to the specified commit (annotated tags are peeled with a
+fixed bound). A draft may not have created its tag yet; publication will require
+that additional check.
 
 ## Diagnostics and exit codes
 

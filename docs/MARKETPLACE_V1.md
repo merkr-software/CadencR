@@ -830,6 +830,43 @@ alone cannot close them.
   retained JavaScript implementation. No registry pin was activated, no remote
   publication happened, and no database was used by these CLI checks.
 
+### Draft mirroring Rust migration — local implementation and fixture QA
+
+- Next bounded increment adds `registry mirror-publication` and a shared GitHub
+  release client, without adding promotion/discovery/recovery stubs. Workers
+  separately own transport and local binding/orchestration; parent owns CLI
+  integration, shared receipt publication and final review.
+- The CLI requires exact destination confirmation and a 40-lowercase-hex registry
+  commit before reading `CADENCR_REGISTRY_GITHUB_TOKEN`. It never accepts a token
+  argument or contributor-selected API endpoint. A successful mirror creates a
+  verified **draft**, not a public release.
+- Local staged bytes, plan provenance and prior receipt must validate before any
+  remote request. Mutations reconcile lost responses and verify exact existing
+  bytes; conflicting releases/assets are not overwritten. A final immutable
+  mirror receipt is written only after complete remote verification.
+- Keep staging receipt replay byte-exact; mirror receipts intentionally accept
+  canonical-equivalent JSON, as the JavaScript oracle does. Both reuse the same
+  private no-clobber publication/cleanup implementation.
+- Independent finish-job reviews consolidated commit/repository/auth policy and
+  temporary-file allocation, reused the unauthenticated client per operation,
+  removed immediate duplicate local hashes, and avoided downloading unchanged
+  remote replay assets twice. Final asset/release snapshots still validate.
+- Tag safety is deliberately stricter than the old JS mirror: an existing tag
+  must resolve to the requested registry commit before mutations and receipt
+  creation, including bounded annotated-tag peeling. Drafts may have no tag yet;
+  promotion must later require the exact tag to exist. A matching release
+  `target_commitish` field alone is not accepted as proof of an existing ref.
+- Fixture QA covers the real GitHubClient plus mirror orchestration over local
+  HTTP: persisted-but-lost create response, authenticated reconciliation, both
+  uploads, exact archive/provenance download verification and replay without
+  further POSTs. Separate tests cover binding bytes against Node, conflicts,
+  missing staging, tag mismatch, safe IDs, bounded transport and receipt replay.
+  CLI/core/publisher all-target Clippy passes. Normal commit hooks remain the
+  final gate; no actual GitHub draft/publication or registry cutover occurred.
+- Remaining QA boundaries include a real TLS/CDN redirect chain, deterministic
+  timeout and cleanup-I/O-failure injection. Promotion, catalog workflows and
+  recovery remain subsequent migration phases; active JS is retained.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

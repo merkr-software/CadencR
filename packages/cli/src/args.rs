@@ -98,6 +98,8 @@ pub(crate) enum RegistryCommand {
         #[arg(long)]
         directory: PathBuf,
     },
+    /// Mirror verified local artifacts into an explicitly confirmed GitHub draft.
+    MirrorPublication(MirrorArgs),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -142,4 +144,18 @@ impl Cli {
             })
         )
     }
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct MirrorArgs {
+    #[arg(long)]
+    pub(crate) submission: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) confirm_repository: String,
 }
