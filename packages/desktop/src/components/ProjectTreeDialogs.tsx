@@ -11,6 +11,7 @@ export function ProjectTreeDialogs({ controller }: { controller: ProjectTreeCont
         <ProjectSettingsDialog
           projectId={controller.settingsProject.id}
           projectName={controller.settingsProject.name}
+          authoringTarget={controller.settingsProject.authoringTarget}
           open
           onOpenChange={(open) => {
             if (!open) controller.setSettingsProject(null);

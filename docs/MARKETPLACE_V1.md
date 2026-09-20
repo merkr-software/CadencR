@@ -30,7 +30,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending       |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending   |
 | D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending |
-| E    | Publish first/new version from a marked Cadencr project              | Not implemented                                                                                                     |
+| E    | Publish first/new version from a marked Cadencr project              | E1 readonly local preparation implemented/reviewed and dev-QA verified; packaging and GitHub publication pending    |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                          |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                     |
 | H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                |
@@ -347,6 +347,45 @@ alone cannot close them.
   or continue the marked-project author publication flow without deployment. Theme
   distribution, production trust/blocklist operations and marketplace UI remain
   distinct scope and release gates.
+
+### Project publication preparation increment (E1) — 2026-09-19
+
+- First increment: readonly local preparation inspection from the settings of
+  explicitly marked provider projects. Existing unmarked projects are not
+  reclassified; theme distribution remains outside this provider contract.
+- Inspect the current local authoring identity, host descriptor, stable build
+  output and Git state without executing the connector or contacting GitHub.
+  Optional authoring documentation and metadata are advisory: a host-local
+  descriptor is not the managed package or registry submission.
+- The UI distinguishes blockers, advisory checks and local preparation success.
+  Success is not release approval or proof of ACP conformance, archive contents,
+  source ownership, release availability or registry acceptance.
+- Next E increments must define explicit author-controlled package metadata and
+  staging inputs, prepare exact-version artifacts, then offer separately confirmed
+  author-repository publication and registry contribution. The app must not use
+  the protected official registry signing credentials or bypass maintainer review.
+- Verification: 6 targeted Rust tests and 30 frontend tests pass, including
+  authoring visibility, warning-only aggregation, error details, and readonly
+  inspection. Desktop typecheck/Knip, workspace lint, formatting and diff checks
+  pass. Three delegated review perspectives and parent correction review closed
+  the identified findings; no commit or push is included in this increment.
+- Live dev QA: authenticated API checks cover blocked-to-corrected preparation,
+  unsupported/unknown projects and unauthorized access. Repository/descriptor
+  hashes remain unchanged and connector/fsmonitor sentinels remain untouched by
+  readiness requests. Real browser interactions and screenshots verify provider
+  visibility, absence on ordinary projects, loading/error, manual refresh and
+  blocked-to-warning-only correction. This is dev QA, not packaged-app or GitHub
+  publication QA. The existing CSP meta warning and expected network errors
+  during the deliberate service restart were observed; a non-Git test fixture's
+  unrelated icon scan failed until the fixture was initialized as a Git repo.
+- No GitHub write, registry deployment, production configuration or
+  production-data change is authorized.
+- QA launcher correction: debug service dotenv loading overrides inherited
+  environment variables. The initial launch opened the existing worktree dev
+  database and ran its normal startup backup/migrations; it was stopped without
+  rollback. Subsequent QA uses a fresh database/settings directory and explicit
+  service CLI arguments, which take precedence over dotenv. Production was not
+  the target. Do not rely on environment-only isolation for this debug service.
 
 ### Decisions that must not be invented by implementation
 

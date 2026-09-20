@@ -1084,16 +1084,14 @@ export interface CreateProjectRequest {
 }
 
 /**
- * Existing connector repository to import instead of scaffolding a new one.
- */
-export type CreateProviderWorkspaceRequestDirectory = string | null;
-
-/**
  * The stable identity and human label for a new provider connector project.
  */
 export interface CreateProviderWorkspaceRequest {
-  /** Existing connector repository to import instead of scaffolding a new one. */
-  directory?: CreateProviderWorkspaceRequestDirectory;
+  /**
+   * Existing connector repository to import instead of scaffolding a new one.
+   * @nullable
+   */
+  directory?: string | null;
   /** Human-readable name used in the project and scaffold. */
   display_name: string;
   /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
@@ -3400,6 +3398,41 @@ export interface ProviderSettings {
 export interface ProviderWorkspace {
   feature_id: number;
   project_id: number;
+}
+
+export type PublicationCheckStatus =
+  (typeof PublicationCheckStatus)[keyof typeof PublicationCheckStatus];
+
+export const PublicationCheckStatus = {
+  pass: "pass",
+  warning: "warning",
+  fail: "fail",
+} as const;
+
+export type PublicationPreparationStatus =
+  (typeof PublicationPreparationStatus)[keyof typeof PublicationPreparationStatus];
+
+export const PublicationPreparationStatus = {
+  prepared: "prepared",
+  blocked: "blocked",
+} as const;
+
+export interface PublicationReadinessCheck {
+  detail: string;
+  id: string;
+  label: string;
+  status: PublicationCheckStatus;
+}
+
+/**
+ * Result of read-only, local preparation checks for an authored provider.
+ */
+export interface PublicationReadinessResponse {
+  checks: PublicationReadinessCheck[];
+  local_preparation: PublicationPreparationStatus;
+  plugin_id: string;
+  project_id: number;
+  summary: string;
 }
 
 /**
@@ -20484,6 +20517,128 @@ export const useSetProjectProviderSetting = <TError = ErrorType<unknown>, TConte
 > => {
   return useMutation(getSetProjectProviderSettingMutationOptions(options), queryClient);
 };
+
+export const getProjectPublicationReadiness = (id: number, signal?: AbortSignal) => {
+  return customInstance<PublicationReadinessResponse>({
+    url: `/api/projects/${id}/publication-readiness`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetProjectPublicationReadinessQueryKey = (id: number) => {
+  return [`/api/projects/${id}/publication-readiness`] as const;
+};
+
+export const getGetProjectPublicationReadinessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetProjectPublicationReadinessQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectPublicationReadiness>>> = ({
+    signal,
+  }) => getProjectPublicationReadiness(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetProjectPublicationReadinessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+>;
+export type GetProjectPublicationReadinessQueryError = ErrorType<void>;
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetProjectPublicationReadinessQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getProjectSettings = (id: number, signal?: AbortSignal) => {
   return customInstance<ProjectSetting[]>({
