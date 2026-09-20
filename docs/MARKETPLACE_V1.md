@@ -762,11 +762,9 @@ alone cannot close them.
 - Pin activation needs an actual published Linux binary and its digest, followed
   by a reviewed registry change. No invented release version or checksum has
   been committed into the configuration; both pins remain PENDING.
-- Service signing/verifier behavior has deliberately not been changed. The CLI's
-  JS-compatible numeric bytes can differ from the legacy Rust signing bytes;
-  the proposed explicit legacy-signature compatibility strategy was submitted
-  to the user for confirmation before changing the verifier. This must be
-  settled and tested before enabling signed catalog publication.
+- Signature compatibility is now implemented and committed: shared canonical
+  bytes are preferred, with explicit legacy verification and exact verified-byte
+  receipt hashes retained. The service trust-gate QA above covers both formats.
 - Local verification includes the CLI/core suites, the existing contribution
   oracle, the 263-case numeric oracle, release packaging/version/overwrite tests,
   and offline trusted-download/cutover tests. A native binary packaging smoke
@@ -782,11 +780,55 @@ alone cannot close them.
   bootstrap, pin file and tests prepared; its focused checks pass and the changed
   content was scanned for sensitive information. No commit, push, PR or release
   was performed, and no production database was touched.
-- Remaining delivery/migration gates: approve/implement the signing-compatibility
-  policy, publish and pin the CLI, run real GitHub CI, then remove superseded JS
-  from the public registry. Packaging/signing/publication CLI migrations remain
-  the separately listed subsequent increments; their active implementations
-  must not be deleted before parity and replacement delivery.
+- Remaining delivery gates: publish and pin the CLI from an authorized release,
+  run real GitHub CI, then remove superseded JS from the public registry.
+  Packaging and signature compatibility are locally committed. The next Rust
+  migration covers signing and verified staging, followed by mirroring,
+  promotion, catalog publication/discovery and recovery. Active JS must remain
+  until parity and replacement delivery, then the public lifecycle QA can close.
+
+### Rust signing and verified staging increment — 2026-09-20
+
+- Added `registry sign-index`, `verify-index`, `assemble-signed-index` and
+  `stage-publication`. Offline validation/signing remains in registry-core;
+  bounded network acquisition is isolated in registry-publisher and is not a
+  service/database dependency. CLI dispatch is split into focused modules.
+- Ed25519 signing preserves Node-compatible canonical bytes and envelope shape.
+  Keys are bounded no-follow local PEM inputs; private PEM/DER buffers are
+  zeroized. Whole-second UTC timestamps and omitted empty optional fields are
+  enforced for signing/verification. Assembly validates structure only; it is
+  not authentication. Rust deliberately rejects impossible calendar dates that
+  the old JavaScript assembly parser can normalize.
+- Review found and corrected reserved binary argument drift: Rust now matches
+  the runtime host and actual JavaScript oracle, including `run`, `acp-v1` and
+  `--`. Differential CLI tests cover reserved tokens, flag prefixes and safe
+  near-prefix controls.
+- Staging retains the deterministic plan/receipt contract, at most six targets,
+  256 MiB streamed archive limit, SHA-256 verification and immutable publication.
+  Downloads use allowlisted HTTPS redirects without contributor credentials;
+  locks/partials use ownership checks, and retries revalidate existing artifacts.
+  Conflicting bytes, symlinks, FIFOs and foreign file replacements are refused
+  or preserved rather than overwritten. Staging directories must be trusted;
+  this is not protection against arbitrary concurrent ancestor replacement.
+- Local verification: 32 registry-core tests, 21 plugin-core tests, 12 publisher
+  tests and 28 CLI tests pass, including actual Node signature/staging oracles
+  and real CLI replay/tamper checks against inert local artifacts. All-target
+  Clippy passes for CLI/core/publisher. Release job tests now include publisher,
+  and workspace test/check commands use `--locked`. No external dependency
+  version, source or checksum changed.
+- Independent finish-job review corrected stale offline-only help, deduplicated
+  private output creation, reused one lazily built HTTP client per staging run,
+  removed repeated payload/signature decoding and redundant third archive hashes,
+  and aligned CLI verification with the service's strict Ed25519 primitive. A
+  weak identity-key forgery is rejected in a real CLI regression test.
+- Limits of this increment: no real GitHub/TLS publication proof, deterministic
+  timeout/redirect cancellation or cleanup-I/O-failure fixture. Files are synced,
+  but directory entries have no power-loss durability guarantee. If identity
+  inspection fails immediately after creation, uncertain lock/partial ownership
+  is deliberately retained for manual inspection rather than blindly unlinked. Mirroring,
+  promotion, catalog signing/publication/discovery and recovery still use the
+  retained JavaScript implementation. No registry pin was activated, no remote
+  publication happened, and no database was used by these CLI checks.
 
 ### Decisions that must not be invented by implementation
 

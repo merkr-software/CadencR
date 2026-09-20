@@ -1,0 +1,145 @@
+use std::path::PathBuf;
+
+use clap::{Args, Parser, Subcommand};
+
+#[derive(Debug, Parser)]
+#[command(
+    name = "cadencr",
+    version,
+    about = "Headless Cadencr package and registry tooling"
+)]
+pub(crate) struct Cli {
+    /// Emit one JSON diagnostic object instead of human-readable output.
+    #[arg(long, global = true)]
+    pub(crate) json: bool,
+    #[command(subcommand)]
+    pub(crate) command: Command,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum Command {
+    /// Validate local provider structure without installing or executing it.
+    Plugin(PluginArgs),
+    /// Validate, package, sign, or publish a local package registry.
+    Registry(RegistryArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PluginArgs {
+    #[command(subcommand)]
+    pub(crate) command: PluginCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PluginCommand {
+    /// Validate a provider plugin folder against an explicit descriptor.
+    Validate {
+        /// Provider workspace containing the existing bin/provider entrypoint.
+        folder: PathBuf,
+        /// Temporary explicit host descriptor input; never discovered from user state.
+        #[arg(long)]
+        descriptor: PathBuf,
+    },
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RegistryArgs {
+    #[command(subcommand)]
+    pub(crate) command: RegistryCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum RegistryCommand {
+    /// Validate a candidate contribution relative to a base registry.
+    Validate {
+        #[arg(long)]
+        base: PathBuf,
+        #[arg(long)]
+        candidate: PathBuf,
+    },
+    /// Build a deterministic, unsigned index from local packages.
+    BuildIndex {
+        #[arg(long)]
+        packages: PathBuf,
+        #[arg(long)]
+        generated_at: String,
+        #[arg(long)]
+        expires_at: String,
+        /// Write to a new file instead of stdout. Existing paths are refused.
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Build a deterministic provider archive from a prepared staging tree.
+    PackProvider {
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic local publication plan without network access.
+    PlanPublication {
+        #[arg(long)]
+        submission: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Download and verify publication artifacts into an immutable staging directory.
+    StagePublication {
+        #[arg(long)]
+        submission: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        directory: PathBuf,
+    },
+    /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
+    SignIndex {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        private_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify a signed index with an Ed25519 SPKI PEM key.
+    VerifyIndex {
+        #[arg(long)]
+        index: PathBuf,
+        #[arg(long)]
+        public_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        allow_expired: bool,
+    },
+    /// Join a validated canonical payload and detached signature document.
+    AssembleSignedIndex {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        signature: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+}
+
+impl Cli {
+    pub(crate) fn writes_index_to_stdout(&self) -> bool {
+        matches!(
+            &self.command,
+            Command::Registry(RegistryArgs {
+                command: RegistryCommand::BuildIndex { output: None, .. }
+            }) | Command::Registry(RegistryArgs {
+                command: RegistryCommand::PackProvider { .. }
+            })
+        )
+    }
+}

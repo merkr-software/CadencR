@@ -6,10 +6,11 @@ use crate::diagnostics::Diagnostics;
 mod util;
 pub(crate) use util::{
     compare_versions, identity, normalized_provider_id, reject_unknown, reserved_provider_ids,
+    valid_identifier,
 };
 use util::{
-    credential_name, object, valid_https, valid_identifier, valid_provider_id, valid_relative_path,
-    valid_semver, valid_url,
+    credential_name, object, valid_https, valid_provider_id, valid_relative_path, valid_semver,
+    valid_url,
 };
 
 pub(crate) fn validate_package(value: &Value, label: &str, errors: &mut Diagnostics) {
@@ -38,10 +39,10 @@ fn validate_agent(agent: &Map<String, Value>, label: &str, errors: &mut Diagnost
         errors.push(format!("{label}.id is invalid"));
     }
     for key in ["name", "description"] {
-        if !agent
+        if agent
             .get(key)
             .and_then(Value::as_str)
-            .is_some_and(|value| !value.is_empty())
+            .is_none_or(str::is_empty)
         {
             errors.push(format!("{label}.{key} must not be empty"));
         }
@@ -162,7 +163,7 @@ fn validate_binary_args(value: Option<&Value>, label: &str, errors: &mut Diagnos
         if errors.is_full() {
             break;
         }
-        if ["--session-id", "--prompt", "--resume", "--continue"].contains(&arg)
+        if ["version", "models", "run", "acp-v1", "--"].contains(&arg)
             || ["--protocol", "--cwd", "--format"]
                 .iter()
                 .any(|flag| arg == *flag || arg.starts_with(&format!("{flag}=")))
@@ -183,10 +184,10 @@ fn validate_package_distribution(value: &Value, label: &str, errors: &mut Diagno
         return;
     };
     reject_unknown(config, &["package", "args", "env"], label, errors);
-    if !config
+    if config
         .get("package")
         .and_then(Value::as_str)
-        .is_some_and(|value| !value.is_empty())
+        .is_none_or(str::is_empty)
     {
         errors.push(format!("{label}.package must not be empty"));
     }
@@ -301,16 +302,15 @@ fn validate_host(host: &Map<String, Value>, label: &str, errors: &mut Diagnostic
         errors,
     );
     for key in ["icon", "readme", "license"] {
-        if key == "icon" || assets.contains_key(key) {
-            if !assets
+        if (key == "icon" || assets.contains_key(key))
+            && !assets
                 .get(key)
                 .and_then(Value::as_str)
                 .is_some_and(valid_relative_path)
-            {
-                errors.push(format!(
-                    "{label}.assets.{key} must be a bounded relative package path"
-                ));
-            }
+        {
+            errors.push(format!(
+                "{label}.assets.{key} must be a bounded relative package path"
+            ));
         }
     }
     if let Some(icon) = assets.get("icon").and_then(Value::as_str) {

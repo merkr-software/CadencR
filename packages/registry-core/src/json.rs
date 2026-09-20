@@ -145,7 +145,7 @@ fn normalized_number(value: f64) -> serde_json::Number {
     // integers integral therefore preserves existing Value-based validation
     // without giving up binary64 rounding for unsafe integer source tokens.
     const U64_EXCLUSIVE_MAX: f64 = 18_446_744_073_709_551_616.0;
-    if value >= 0.0 && value < U64_EXCLUSIVE_MAX && value.fract() == 0.0 {
+    if (0.0..U64_EXCLUSIVE_MAX).contains(&value) && value.fract() == 0.0 {
         return serde_json::Number::from(value as u64);
     } else if value >= i64::MIN as f64 && value < 0.0 && value.fract() == 0.0 {
         return serde_json::Number::from(value as i64);

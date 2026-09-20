@@ -33,7 +33,7 @@ grep -Fxq 'packages/cli/Cargo.toml' "$repo_root/scripts/release.sh" \
   || fail "release preflight must require the CLI package version to match the tag"
 
 case "$cli_job_text" in
-  *"permissions:"*"contents: read"*"node scripts/cargo-env.mjs cargo test --locked"*"-p cadencr-cli"*"-p cadencr-plugin-core"*"-p cadencr-registry-core"*"node scripts/cargo-env.mjs cargo build --locked --release -p cadencr-cli"*) ;;
+  *"permissions:"*"contents: read"*"node scripts/cargo-env.mjs cargo test --locked"*"-p cadencr-cli"*"-p cadencr-plugin-core"*"-p cadencr-registry-core"*"-p cadencr-registry-publisher"*"node scripts/cargo-env.mjs cargo build --locked --release -p cadencr-cli"*) ;;
   *) fail "workflow must build the CLI in a secret-free, read-only Linux job" ;;
 esac
 

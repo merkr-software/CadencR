@@ -6,6 +6,7 @@ mod json;
 mod package;
 mod publication_plan;
 mod safe_io;
+mod signing;
 mod submission;
 mod tree;
 
@@ -17,8 +18,9 @@ pub use archive::{
 };
 pub use error::RegistryError;
 pub use index::build_index;
-pub use json::canonical_json_bytes;
-pub use publication_plan::create_publication_plan_from_file;
+pub use json::{canonical_json_bytes, parse_json as parse_json_bytes};
+pub use publication_plan::{create_publication_plan, create_publication_plan_from_file};
+pub use signing::{assemble_signed_index, sign_index, verify_signed_index};
 
 use diagnostics::Diagnostics;
 use package::{identity, normalized_provider_id, validate_package};
