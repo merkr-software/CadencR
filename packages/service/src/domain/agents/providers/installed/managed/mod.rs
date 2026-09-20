@@ -67,6 +67,13 @@ pub struct ManagedProviderPackage {
     pub host: ManagedProviderHost,
 }
 
+impl ManagedProviderPackage {
+    /// Validate this package entry without constructing a synthetic index.
+    pub fn validate_contract(&self) -> Result<(), ManagedContractError> {
+        validation::validate_package(self).map(|_| ())
+    }
+}
+
 /// Strict host metadata that must never be moved into the portable ACP entry.
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]

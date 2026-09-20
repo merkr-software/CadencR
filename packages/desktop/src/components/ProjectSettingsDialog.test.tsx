@@ -5,6 +5,7 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 const generatedMocks = vi.hoisted(() => ({
   getProjectSettings: vi.fn(),
   getPublicationReadiness: vi.fn(),
+  preparePublicationPackage: vi.fn(),
   setProjectSetting: vi.fn(),
 }));
 
@@ -12,6 +13,13 @@ vi.mock("../api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/generated")>()),
   useGetProjectSettings: generatedMocks.getProjectSettings,
   useGetProjectPublicationReadiness: generatedMocks.getPublicationReadiness,
+  usePreparePublicationPackage: vi.fn(() => ({
+    error: null,
+    isError: false,
+    isPending: false,
+    mutate: generatedMocks.preparePublicationPackage,
+    reset: vi.fn(),
+  })),
   useSetProjectSetting: vi.fn(() => ({ mutate: generatedMocks.setProjectSetting })),
   useListProjectWorktrees: vi.fn(() => ({ data: [] })),
 }));
@@ -100,14 +108,17 @@ describe("ProjectSettingsDialog", () => {
     const { rerender } = render(<ProjectSettingsDialog {...props} />);
 
     expect(screen.getByText("Provider publication preparation")).toBeInTheDocument();
+    expect(screen.getByText("Prepare a local provider bundle")).toBeInTheDocument();
 
     rerender(<ProjectSettingsDialog {...props} authoringTarget={undefined} />);
 
     expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prepare a local provider bundle")).not.toBeInTheDocument();
 
     rerender(<ProjectSettingsDialog {...props} authoringTarget="theme" />);
 
     expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prepare a local provider bundle")).not.toBeInTheDocument();
   });
 
   it("closes dialog when escape is pressed", async () => {

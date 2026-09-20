@@ -110,7 +110,9 @@ pub(super) fn validate_publication_window(
     Ok(())
 }
 
-fn validate_package(package: &ManagedProviderPackage) -> Result<Version, ManagedContractError> {
+pub(super) fn validate_package(
+    package: &ManagedProviderPackage,
+) -> Result<Version, ManagedContractError> {
     package.agent.validate_registry_entry().map_err(|error| {
         ManagedContractError::new(
             ManagedContractErrorCode::InvalidPortableEntry,

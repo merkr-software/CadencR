@@ -67,6 +67,45 @@ metadata or certify that the metadata's original digest matches its output.
 Repeat for each declared platform. Do not declare platforms you have not built
 and tested. The eventual official platform support policy is a separate gate.
 
+## Prepare a bundle from Cadencr (E2)
+
+For a project explicitly marked as a provider, open **Project Settings → Prepare
+a local provider bundle**. This is separate from the readonly readiness checks.
+
+1. Supply your managed package JSON, not the local host descriptor. The provider
+   ID must match the project's plugin ID. Choose the publisher, exact version and
+   planned release URL yourself; Cadencr does not infer them.
+2. Declare exactly one binary target in this metadata and select that target.
+   Its archive URL must end in `.tar.gz` or `.tgz`. A 64-zero SHA-256 placeholder
+   is accepted locally; the exported metadata receives the computed digest.
+3. Supply an absolute, dedicated staging directory outside the project tree.
+   Do not use the home directory, a source checkout, or a symlink. Review every
+   file for credentials and leave staging unchanged throughout preparation.
+4. Acknowledge the review and prepare the bundle. Cadencr writes `provider.tar.gz`
+   and `package.json` to a new unique directory under the settings directory's
+   sibling `provider-publication-bundles/<project-id>/`. It displays both paths,
+   the SHA-256, compressed size and target. Original inputs remain unchanged.
+
+This local Rust implementation does not require Node in the desktop runtime.
+It does not build or execute the connector, write Git state, upload files, create
+releases, sign a catalog, or submit a registry contribution. Packaging is not
+conformance approval or proof of source ownership. The secret-name denylist and
+filesystem change detection are not an OS sandbox or a secret-content scanner.
+
+Limits match the managed installer: 4,096 entries, 512 MiB expanded content,
+256 MiB per file and 256 MiB compressed archive. Metadata is limited to 64 KiB.
+Only one preparation runs at a time; failures surface without overwriting prior
+bundles. At most 16 bundles are retained globally (at most 4 GiB of generated
+compressed archives, plus metadata). At the limit, preparation refuses with the
+storage path and asks you to review and manually remove old bundles; nothing is
+automatically deleted. The storage scan also stops at 256 project directories.
+Closing the dialog or disconnecting does not cancel an accepted preparation: its
+completed bundle may remain in that directory and count toward the same limit.
+Reproducibility applies to identical inputs with the same runtime, not guaranteed
+byte equality between the Node CLI and the Rust implementation. Multi-target
+metadata assembly, GitHub publication and registry contribution remain later
+steps. The six selectable target keys are not a platform-certification claim.
+
 ## Prepare the review submission
 
 Pin the source commit and release tag, record the changelog, and embed your final

@@ -20,6 +20,7 @@ import { ProjectEditorToolingSettings } from "@/components/settings/ProjectEdito
 import { WorktreeSetupFields } from "@/components/settings/WorktreeSetupFields";
 import { settingsArrayToMap } from "@/api/settings";
 import { ProviderPublicationPreparation } from "./ProviderPublicationPreparation";
+import { ProviderPublicationPackagePreparation } from "./ProviderPublicationPackagePreparation";
 
 const PROJECT_SETTING_KEYS = {
   branchPrefix: "branch_prefix",
@@ -80,7 +81,10 @@ export function ProjectSettingsDialog({
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
           {authoringTarget === "provider" ? (
-            <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+            <>
+              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
           ) : null}
           <IdentitySection
             projectId={projectId}
