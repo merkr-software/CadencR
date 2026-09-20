@@ -7,7 +7,7 @@ use crate::error::AppError;
 
 const MAX_DOCUMENT_BYTES: usize = 1024 * 1024;
 
-pub(super) struct Documents {
+pub(crate) struct Documents {
     pub filename: String,
     pub package: Vec<u8>,
     pub submission: Vec<u8>,
@@ -29,7 +29,7 @@ struct Source<'a> {
     tag: &'a str,
 }
 
-pub(super) fn build(local: &LocalRelease, account: &str) -> Result<Documents, AppError> {
+pub(crate) fn build(local: &LocalRelease, account: &str) -> Result<Documents, AppError> {
     let package: Value = serde_json::from_slice(&local.metadata)
         .map_err(|error| invalid(format!("cannot decode package metadata: {error}")))?;
     validation::validate(

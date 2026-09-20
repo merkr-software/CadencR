@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { openExternalUrl } from "@/lib/open-external";
 import { ProviderPublicationContribution } from "./ProviderPublicationContribution";
+import { ProviderPublicationRegistry } from "./ProviderPublicationRegistry";
 import { PublicationError } from "./PublicationError";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -34,13 +35,15 @@ export function ProviderPublicationRelease({
   const [confirmed, setConfirmed] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [contributionPending, setContributionPending] = useState(false);
+  const [registryPending, setRegistryPending] = useState(false);
   const previewMutation = usePreviewPublicationRelease({
     mutation: { onSuccess: setPreview },
   });
   const publishMutation = usePublishPublicationRelease({
     mutation: { onSuccess: (result) => setPublishedUrl(result.release_url) },
   });
-  const pending = previewMutation.isPending || publishMutation.isPending || contributionPending;
+  const releasePending = previewMutation.isPending || publishMutation.isPending;
+  const pending = releasePending || contributionPending || registryPending;
   const validInput = UUID_PATTERN.test(bundleId.trim()) && releaseNotes.trim() !== "";
 
   const invalidatePreview = (): void => {
@@ -105,24 +108,45 @@ export function ProviderPublicationRelease({
           confirmed={confirmed}
           pending={pending}
           remotePending={previewMutation.isPending || publishMutation.isPending}
+          publishing={publishMutation.isPending}
           onConfirmedChange={setConfirmed}
           onPublish={publish}
           onContributionPendingChange={setContributionPending}
+          contributionPending={contributionPending}
+          registryPending={registryPending}
+          onRegistryPendingChange={setRegistryPending}
         />
       ) : null}
-      {publishMutation.isError ? (
-        <PublicationError
-          prefix="Could not publish the GitHub release"
-          error={publishMutation.error}
-        />
+      <ReleasePublicationStatus
+        error={publishMutation.isError ? publishMutation.error : null}
+        pending={publishMutation.isPending}
+        publishedUrl={publishedUrl}
+      />
+    </div>
+  );
+}
+
+function ReleasePublicationStatus({
+  error,
+  pending,
+  publishedUrl,
+}: {
+  error: unknown;
+  pending: boolean;
+  publishedUrl: string | null;
+}): React.JSX.Element {
+  return (
+    <>
+      {error ? (
+        <PublicationError prefix="Could not publish the GitHub release" error={error} />
       ) : null}
-      {publishMutation.isPending ? (
+      {pending ? (
         <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" aria-hidden /> Publishing GitHub release…
         </div>
       ) : null}
       {publishedUrl ? <PublishedRelease releaseUrl={publishedUrl} /> : null}
-    </div>
+    </>
   );
 }
 
@@ -132,18 +156,26 @@ function PublicationPlanActions({
   confirmed,
   pending,
   remotePending,
+  publishing,
   onConfirmedChange,
   onPublish,
   onContributionPendingChange,
+  contributionPending,
+  registryPending,
+  onRegistryPendingChange,
 }: {
   projectId: number;
   preview: PublicationReleasePreview;
   confirmed: boolean;
   pending: boolean;
   remotePending: boolean;
+  publishing: boolean;
   onConfirmedChange: (value: boolean) => void;
   onPublish: () => void;
   onContributionPendingChange: (value: boolean) => void;
+  contributionPending: boolean;
+  registryPending: boolean;
+  onRegistryPendingChange: (value: boolean) => void;
 }): React.JSX.Element {
   return (
     <>
@@ -151,14 +183,23 @@ function PublicationPlanActions({
         preview={preview}
         confirmed={confirmed}
         pending={pending}
+        publishing={publishing}
         onConfirmedChange={onConfirmedChange}
         onPublish={onPublish}
       />
       <ProviderPublicationContribution
+        key={`contribution-${preview.plan_sha256}`}
         projectId={projectId}
         preview={preview}
-        disabled={remotePending}
+        disabled={remotePending || registryPending}
         onPendingChange={onContributionPendingChange}
+      />
+      <ProviderPublicationRegistry
+        key={`registry-${preview.plan_sha256}`}
+        projectId={projectId}
+        preview={preview}
+        disabled={remotePending || contributionPending}
+        onPendingChange={onRegistryPendingChange}
       />
     </>
   );
@@ -218,12 +259,14 @@ function PublicationPreview({
   preview,
   confirmed,
   pending,
+  publishing,
   onConfirmedChange,
   onPublish,
 }: {
   preview: PublicationReleasePreview;
   confirmed: boolean;
   pending: boolean;
+  publishing: boolean;
   onConfirmedChange: (value: boolean) => void;
   onPublish: () => void;
 }): React.JSX.Element {
@@ -262,8 +305,8 @@ function PublicationPreview({
         </span>
       </label>
       <Button type="button" disabled={!confirmed || pending} onClick={onPublish}>
-        {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-        {pending ? "Publishing GitHub release…" : "Publish GitHub release"}
+        {publishing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+        {publishing ? "Publishing GitHub release…" : "Publish GitHub release"}
       </Button>
     </div>
   );

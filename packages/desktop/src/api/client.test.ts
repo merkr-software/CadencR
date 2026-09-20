@@ -20,6 +20,8 @@ describe("publication release timeout policy", () => {
     "/api/projects/7/publication-release",
     "/api/projects/42/publication-release/preview",
     "/api/projects/9/publication-contribution",
+    "/api/projects/7/publication-registry",
+    "/api/projects/42/publication-registry/preview",
   ])("allows the exact POST endpoint to finish its bounded backend work: %s", (url) => {
     expect(publicationOperationTimeout({ method: "POST", url })).toBe(190000);
   });
@@ -29,6 +31,7 @@ describe("publication release timeout policy", () => {
     { method: "POST", url: "/api/projects/not-a-number/publication-release" },
     { method: "POST", url: "/api/projects/7/publication-release/preview/extra" },
     { method: "POST", url: "/api/projects/7/publication-contribution/extra" },
+    { method: "POST", url: "/api/projects/7/publication-registry/preview/extra" },
     { method: "POST", url: "/api/projects/7/publication-package" },
   ])("leaves unrelated requests on the Axios default: $method $url", (config) => {
     expect(publicationOperationTimeout(config)).toBeUndefined();
