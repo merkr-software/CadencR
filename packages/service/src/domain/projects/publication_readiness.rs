@@ -9,6 +9,7 @@ use super::models::{
     ProjectAuthoringTarget, PublicationCheckStatus as Status, PublicationPreparationStatus,
     PublicationReadinessCheck as Check, PublicationReadinessResponse,
 };
+use crate::domain::agents::providers::installed::descriptor::ACP_BINARY_TARGETS;
 use crate::domain::agents::providers::installed::descriptors_dir;
 use crate::error::AppError;
 
@@ -46,10 +47,17 @@ pub async fn inspect(
         local_preparation,
         summary: summary.into(),
         checks,
+        supported_package_targets: ACP_BINARY_TARGETS
+            .iter()
+            .map(|target| (*target).to_owned())
+            .collect(),
     })
 }
 
-async fn provider_project(pool: &SqlitePool, id: i64) -> Result<(PathBuf, String), AppError> {
+pub(super) async fn provider_project(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<(PathBuf, String), AppError> {
     let row: Option<(String, Option<String>, Option<String>)> =
         sqlx::query_as("SELECT path, authoring_target, plugin_id FROM projects WHERE id = ?")
             .bind(id)

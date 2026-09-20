@@ -1,6 +1,6 @@
 # Marketplace V1 — GitHub-only distribution
 
-## Execution update — 2026-09-19
+## Execution update — 2026-09-20
 
 Marketplace implementation is now authorized, following the local-plugin work.
 This does not change the published v0.12.0 scope or authorize a remote repository,
@@ -30,7 +30,7 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending       |
 | C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending   |
 | D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending |
-| E    | Publish first/new version from a marked Cadencr project              | E1 readonly local preparation implemented/reviewed and dev-QA verified; packaging and GitHub publication pending    |
+| E    | Publish first/new version from a marked Cadencr project              | E1 readiness and E2 local single-target bundle preparation implemented; GitHub publication pending                  |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                          |
 | G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                     |
 | H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                |
@@ -368,7 +368,7 @@ alone cannot close them.
   authoring visibility, warning-only aggregation, error details, and readonly
   inspection. Desktop typecheck/Knip, workspace lint, formatting and diff checks
   pass. Three delegated review perspectives and parent correction review closed
-  the identified findings; no commit or push is included in this increment.
+  the identified findings. E1 is committed locally as `8e28eb005`; no push.
 - Live dev QA: authenticated API checks cover blocked-to-corrected preparation,
   unsupported/unknown projects and unauthorized access. Repository/descriptor
   hashes remain unchanged and connector/fsmonitor sentinels remain untouched by
@@ -386,6 +386,63 @@ alone cannot close them.
   rollback. Subsequent QA uses a fresh database/settings directory and explicit
   service CLI arguments, which take precedence over dotenv. Production was not
   the target. Do not rely on environment-only isolation for this debug service.
+
+### Local provider bundle preparation increment (E2) — 2026-09-20
+
+- Marked provider projects can prepare a local archive and managed `package.json`
+  from explicitly supplied metadata, one binary target and an author-reviewed
+  staging directory. Existing projects are not reclassified. Themes still need
+  a separate distribution contract.
+- The POST endpoint is authenticated and loopback-only, absent from the shared
+  remote router. It verifies the durable project/plugin identity and reuses the
+  managed package validator. Target choices come from the backend contract through
+  the existing readiness response, not a second frontend list.
+- Staging must be absolute, outside the project tree and not the home directory
+  itself. Symlinks, special files, invalid/nonportable names, case collisions and
+  common secret-prone filenames are rejected. Declared executable/assets must be
+  present; non-Windows entrypoints must be executable. This is trusted, quiescent
+  staging, not an OS sandbox or secret-content scan.
+- The app runs a Rust streaming deterministic tar/gzip writer, with no runtime
+  Node requirement or connector/build/Git/network execution. Installer limits are
+  reused: 4,096 entries, 512 MiB expanded, 256 MiB per file and compressed output.
+  Source snapshots are checked before/after writing. Reproducibility is within
+  the same runtime; equality with the Node CLI's compressed bytes is not promised.
+- Outputs use exclusive creation in a new app-owned UUID directory and update only
+  the selected target SHA-256 in the preserved metadata. Inputs and source Git
+  state remain unchanged. Output paths, digest, size and target are shown in the
+  UI; errors and pending state are explicit. No upload, release, registry PR,
+  signing, conformance approval or publisher verification occurs.
+- Preparations are serialized off the async executor. A global 16-bundle cap
+  refuses further writes with the storage path and manual cleanup instructions;
+  previous successes are never automatically deleted. The scan is also bounded
+  to 256 project directories. Disconnecting does not cancel accepted work: it may
+  finish and retain an output within that same quota.
+- Three GPT-5.6-Sol reuse/quality/efficiency reviews completed, followed by parent
+  corrections: bounded directory enumeration, root-symlink and UTF-8 handling,
+  storage quota, moderate compression, nonblocking validation and shared target
+  choices. The home restriction was clarified rather than banning all staging
+  directories located beneath a user's home.
+- Live dev QA uses fresh `/tmp` data with explicit service CLI isolation, a
+  dedicated frontend and temporary browser profile. Consent gating, real bundle
+  creation, stale-result clearing, JSON errors, quota errors and ordinary-project
+  absence pass. Authenticated API checks verify identity/path/secret rejection,
+  repeatability, digest/metadata preservation and refusal at 16 retained bundles.
+  No provider executable is launched. Browser-only desktop-bridge/CSP warnings
+  and a development WebSocket reconnect warning were observed; no new UI exception.
+- Verification: 11 packaging Rust unit tests (including the managed installer
+  extraction path), 6 readiness regression tests, and one authenticated-route
+  integration test with the real Node registry validator pass. The full desktop
+  suite passes 4,932 tests. Workspace lint, desktop typecheck/Knip, formatting and
+  diff checks pass; Turbo emitted sandbox cache-I/O warnings, not lint failures.
+  QA-owned processes are stopped and the temporary database/artifacts preserved.
+  These are local/dev proofs, not packaged-app or live GitHub/Actions acceptance.
+  Local commit approved; no push or remote publication is authorized.
+- Next E3: design and implement separately confirmed author-repository first/new
+  release publication from reviewed bundles, then registry contribution creation.
+  Exact repository/version/tag/source ownership and no-overwrite/retry semantics
+  must be explicit. Multi-target metadata assembly remains separate from E2.
+  Official registry deployment/credentials, real GitHub/Actions QA, themes,
+  marketplace browsing and supported-platform packaged QA remain open gates.
 
 ### Decisions that must not be invented by implementation
 

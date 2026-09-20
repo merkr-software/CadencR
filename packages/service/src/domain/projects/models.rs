@@ -59,6 +59,7 @@ pub struct PublicationReadinessResponse {
     pub local_preparation: PublicationPreparationStatus,
     pub summary: String,
     pub checks: Vec<PublicationReadinessCheck>,
+    pub supported_package_targets: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ToSchema)]
