@@ -3,11 +3,12 @@
   "globalDependencies": [
     ".oxfmtrc.json",
     ".oxlintrc.json",
-    "pnpm-workspace.yaml"
+    "pnpm-workspace.yaml",
+    "packages/plugin-core/**",
+    "packages/registry-core/**",
+    "tooling/marketplace-registry/tests/contribution.test.mjs"
   ],
-  "globalPassThroughEnv": [
-    "RUSTC_WRAPPER"
-  ],
+  "globalPassThroughEnv": ["RUSTC_WRAPPER"],
   "tasks": {
     "transit": {
       "dependsOn": [
@@ -15,21 +16,15 @@
       ]
     },
     "build": {
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "build:local": {
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "outputs": []
     },
     "dev": {
-      "dependsOn": [
-        "^build"
-      ],
+      "dependsOn": ["^build"],
       "cache": false
     },
     "@cadencr/service#dev": {
@@ -52,44 +47,23 @@
       "cache": false
     },
     "@cadencr/desktop#dev": {
-      "dependsOn": [
-        "^build",
-        "@cadencr/service#build:debug"
-      ],
+      "dependsOn": ["^build", "@cadencr/service#build:debug"],
       "cache": false,
       "persistent": true
     },
     "@cadencr/desktop#build": {
-      "dependsOn": [
-        "^build",
-        "@cadencr/service#build"
-      ],
-      "outputs": [
-        "out/**",
-        "dist-electron/**"
-      ],
+      "dependsOn": ["^build", "@cadencr/service#build"],
+      "outputs": ["out/**", "dist-electron/**"],
       "cache": false
     },
     "@cadencr/desktop#build:local": {
-      "dependsOn": [
-        "^build",
-        "@cadencr/service#build"
-      ],
-      "outputs": [
-        "out/**",
-        "dist-electron/**"
-      ],
+      "dependsOn": ["^build", "@cadencr/service#build"],
+      "outputs": ["out/**", "dist-electron/**"],
       "cache": false
     },
     "@cadencr/desktop#build:electron": {
-      "dependsOn": [
-        "^build",
-        "@cadencr/service#build"
-      ],
-      "outputs": [
-        "out/**",
-        "dist-electron/**"
-      ],
+      "dependsOn": ["^build", "@cadencr/service#build"],
+      "outputs": ["out/**", "dist-electron/**"],
       "cache": false
     },
     "test": {
@@ -144,9 +118,7 @@
       "outputs": []
     },
     "build:release": {
-      "dependsOn": [
-        "^build:release"
-      ],
+      "dependsOn": ["^build:release"],
       "outputs": []
     }
   }

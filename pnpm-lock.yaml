@@ -75,6 +75,8 @@ importers:
 
   packages/claude-agent-sdk-rs: {}
 
+  packages/cli: {}
+
   packages/desktop:
     dependencies:
       '@fontsource-variable/figtree':

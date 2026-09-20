@@ -1,0 +1,21 @@
+[package]
+name = "cadencr-registry-core"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+bon.workspace = true
+chrono = "0.4"
+cadencr-plugin-core = { path = "../plugin-core" }
+libc = "0.2"
+ryu-js = "1.0.3"
+semver = "1"
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+url = "2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

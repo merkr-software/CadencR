@@ -18,48 +18,7 @@
 
 use std::path::{Path, PathBuf};
 
-/// Why a descriptor was refused registration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RejectionCode {
-    /// The file could not be read (permissions, disappeared mid-scan).
-    DescriptorUnreadable,
-    /// The file is not valid JSON.
-    DescriptorInvalidJson,
-    /// `schema_version` is not one this build understands.
-    UnsupportedSchemaVersion,
-    /// The payload does not satisfy the ACP Registry agent entry schema, or the
-    /// Cadencr host envelope around it is malformed.
-    DescriptorSchemaViolation,
-    /// The file name and the agent entry's `id` disagree about which provider
-    /// this install is.
-    DescriptorIdentityMismatch,
-    /// A provider with this id is already registered (a built-in, or an earlier
-    /// descriptor). The first registration keeps the id.
-    DuplicateProviderId,
-    /// The descriptor relies on a distribution this build does not install.
-    /// Only an explicitly selected local executable is supported today.
-    UnsupportedDistribution,
-    /// `installation.executable.command` is not usable as a launch target.
-    InvalidExecutablePath,
-    /// Managed desired state could not be reconciled to its derived descriptor.
-    ManagedStateInvalid,
-}
-
-impl RejectionCode {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::DescriptorUnreadable => "DESCRIPTOR_UNREADABLE",
-            Self::DescriptorInvalidJson => "DESCRIPTOR_INVALID_JSON",
-            Self::UnsupportedSchemaVersion => "UNSUPPORTED_SCHEMA_VERSION",
-            Self::DescriptorSchemaViolation => "DESCRIPTOR_SCHEMA_VIOLATION",
-            Self::DescriptorIdentityMismatch => "DESCRIPTOR_IDENTITY_MISMATCH",
-            Self::DuplicateProviderId => "DUPLICATE_PROVIDER_ID",
-            Self::UnsupportedDistribution => "UNSUPPORTED_DISTRIBUTION",
-            Self::InvalidExecutablePath => "INVALID_EXECUTABLE_PATH",
-            Self::ManagedStateInvalid => "MANAGED_STATE_INVALID",
-        }
-    }
-}
+pub use cadencr_plugin_core::{DescriptorError, RejectionCode};
 
 /// Why a registered install cannot currently launch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,23 +71,6 @@ impl DescriptorRejection {
     pub fn with_provider_id(mut self, provider_id: impl Into<String>) -> Self {
         self.provider_id = Some(provider_id.into());
         self
-    }
-}
-
-/// A validation failure raised while parsing one descriptor. The loader turns
-/// it into a [`DescriptorRejection`] once it knows which file produced it.
-#[derive(Debug, Clone)]
-pub struct DescriptorError {
-    pub code: RejectionCode,
-    pub message: String,
-}
-
-impl DescriptorError {
-    pub fn new(code: RejectionCode, message: impl Into<String>) -> Self {
-        Self {
-            code,
-            message: message.into(),
-        }
     }
 }
 
