@@ -606,6 +606,135 @@ alone cannot close them.
 - Official repository provisioning, branch protections, CI deployment and a real
   GitHub end-to-end run remain separate gates, not performed by this increment.
 
+### Official registry provisioning — 2026-09-20
+
+- User authorized provisioning `merkr-software/cadencr-registry`, CI/protections
+  and real GitHub QA. The public repository now exists (GitHub numeric ID
+  `1378674060`), initially empty. Private vulnerability reporting is enabled;
+  Actions is explicitly disabled until the reviewed bootstrap is delivered.
+- Standalone bootstrap is prepared from Cadencr `ca2cb8705`, with LICENSE,
+  provenance, no live demonstration packages, tracked empty packages/submissions,
+  CODEOWNERS, pinned validation actions and inactive publication workflow examples.
+  Three GPT-5.6-Sol reviews completed; documentation/install issues were corrected.
+- Standalone testing exposed an undeclared `yaml` test dependency. The source
+  template now declares exact `yaml@2.9.0` with a lockfile. Only the isolated
+  candidate-tooling CI job runs `npm ci --ignore-scripts --no-audit --no-fund`;
+  trusted inert metadata validation still installs no candidate dependencies.
+- The staged standalone bootstrap passes all 250 tests and empty registry
+  validation. Source-template tests are checked separately. These are local
+  checks, not proof of deployed Actions or branch protections.
+- Bootstrap commit/push, main-branch protections and two temporary fork QA PRs
+  (closed without merge) have been proposed for explicit delivery approval.
+  Until delivered, no default-branch content, CI run, fork PR, release, signing key
+  or production catalog has been provisioned by this increment.
+
+### Next step — shared Rust `cadencr` CLI (approved, implementation started)
+
+- Decision: maintain the CLI and its shared Rust libraries exclusively in this
+  monorepo. The public registry owns metadata, contribution documentation and
+  thin workflows, not a second implementation of the tooling.
+- This replaces the JavaScript-to-TypeScript/Rust decision step, before resuming
+  GitHub operational QA and before enabling signing/publication workflows.
+- First increment: extract reusable plugin validation used by the backend and
+  CLI; implement headless `cadencr plugin validate <folder>`, registry contribution
+  validation and deterministic unsigned index construction. Commands must work
+  without Electron, a running service, a database or executing plugin code.
+- Subsequent migration increments cover archive packaging, signing, GitHub
+  publication/recovery and their tests. Preserve existing wire formats,
+  deterministic bytes, cryptographic contracts, bounded input handling and
+  immutable base/candidate contribution checks. Do not claim parity until the
+  applicable existing fixtures and negative/security cases pass against Rust.
+- Build versioned CLI binaries in the monorepo release pipeline, including Linux
+  for registry CI. Registry workflows consume an explicitly pinned release and
+  verify its expected digest from trusted configuration, never a PR-controlled
+  download URL/version or an unpinned `latest`. Registry upgrades are reviewed
+  independently of desktop releases; PR checks require no publication secrets.
+- Switch registry workflows only after a usable CLI release and parity checks;
+  then remove superseded JavaScript implementations/tests and dependency setup.
+  Until then, existing tooling remains the active implementation and parity
+  oracle. JSON metadata/schemas and YAML workflows remain declarative formats.
+- Deferred: `cadencr open`, `plugin add`, `plugin delete`, headless app
+  `update`/`upgrade`, and unrelated desktop/backend CLI features. No unused stubs.
+- Execution: parallel-advisor with GPT-5.6-Sol workers, parent integration review,
+  independent finish-job review at completed steps, and applicable live checks.
+  Implementation permission does not authorize commits, push, PRs or releases.
+  Existing dirty changes and the deployed public registry are preserved.
+
+### CLI increment — local implementation, not a registry cutover
+
+- Added `packages/cli` (`cadencr`) plus `plugin-core` and `registry-core` Rust
+  libraries, wired into the Cargo/pnpm/Turbo workspace. The backend re-exports
+  its existing descriptor contracts from plugin-core; the former implementation
+  was removed rather than retained as dead code.
+- Implemented provider-only `plugin validate <folder> --descriptor <file>`.
+  Existing workspaces keep their host descriptor outside the project; the
+  explicit input avoids inventing a manifest convention or consulting a user DB.
+  Validation never starts the provider or proves publication/runtime conformance.
+- Implemented inert base/candidate registry validation and unsigned index
+  construction. CLI diagnostics expose stable codes, including JSON usage errors;
+  index output is published without overwriting existing files and without
+  leaving a partially written destination on failure.
+- Added a transitional integration harness running the existing eight JavaScript
+  contribution safety scenarios against the actual Rust CLI. A separate local
+  438-case package mutation comparison found four initial semver/compatibility
+  gaps; after correction, an expanded 694-case corpus reports no validation differences.
+- Verification so far: 21 plugin-core tests, 142 targeted installed-provider
+  backend tests, 19 registry-core tests, 8 CLI subprocess tests, two injected
+  output write/flush failure unit tests and one contribution-oracle integration test.
+  These are local checks, not deployed GitHub Actions or a Linux release test.
+
+### CLI follow-up — canonical output and release/CI wiring
+
+- CLI numeric canonicalization now matches the JavaScript oracle: input numbers
+  use binary64 semantics and correctly-rounded parsing (`serde_json/float_roundtrip`),
+  output uses `ryu-js` while retaining the existing UTF-8 object-key ordering.
+  Deterministic differential tests cover 263 numeric inputs, including giant
+  integers, negative zero, subnormals, overflow/underflow and exponent thresholds. Non-portable lone
+  surrogate strings remain rejected instead of silently transformed.
+- The release workflow now tests and builds the Linux CLI in a separate read-only
+  job, without installing desktop/pnpm dependencies. The initial GNU Linux
+  artifact targets Ubuntu 24.04 registry CI only; both consumer jobs pin that
+  same runner image. Older Linux compatibility is not asserted. It packages a version-checked
+  raw binary and SHA-256 manifest, transfers them with SHA-pinned Actions, verifies
+  them before release preparation, and uploads them into the same draft release
+  before its existing publication gate. CLI versions participate in release.sh's
+  version checks; no tag or release was created by this implementation.
+- Both registry required-check names are preserved. They run a thin trusted-base
+  shell bootstrap with a non-executable version/digest pin file. A fully PENDING
+  pin retains the current JS checks; a reviewed real pin switches both jobs to
+  the downloaded CLI, never to candidate scripts. Downloads use the verified
+  `merkr-software/CadencR` release location, HTTPS redirect allowlisting, bounded
+  transfers, digest verification before execution and an exact version check.
+  Empty registries remain valid and do not attempt to create an empty catalog.
+- Pin activation needs an actual published Linux binary and its digest, followed
+  by a reviewed registry change. No invented release version or checksum has
+  been committed into the configuration; both pins remain PENDING.
+- Service signing/verifier behavior has deliberately not been changed. The CLI's
+  JS-compatible numeric bytes can differ from the legacy Rust signing bytes;
+  the proposed explicit legacy-signature compatibility strategy was submitted
+  to the user for confirmation before changing the verifier. This must be
+  settled and tested before enabling signed catalog publication.
+- Local verification includes the CLI/core suites, the existing contribution
+  oracle, the 263-case numeric oracle, release packaging/version/overwrite tests,
+  and offline trusted-download/cutover tests. A native binary packaging smoke
+  passed. These are not claims of a live Linux runner or deployed GitHub QA.
+- Final registry suite: 252 tests passed after installing its locked test-only
+  dependency and allowing loopback HTTP fixtures outside the sandbox. Installed
+  provider regression tests: 142 passed. Rust formatting, release packaging
+  failure/retry tests and release workflow checks passed.
+- Final independent reuse/quality/efficiency review consolidated argument
+  validation, removed a full metadata clone during credential inspection, and
+  added released-download redirect and wrong-version regression coverage.
+- The separate public-registry checkout has the matching local workflow,
+  bootstrap, pin file and tests prepared; its focused checks pass and the changed
+  content was scanned for sensitive information. No commit, push, PR or release
+  was performed, and no production database was touched.
+- Remaining delivery/migration gates: approve/implement the signing-compatibility
+  policy, publish and pin the CLI, run real GitHub CI, then remove superseded JS
+  from the public registry. Packaging/signing/publication CLI migrations remain
+  the separately listed subsequent increments; their active implementations
+  must not be deleted before parity and replacement delivery.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

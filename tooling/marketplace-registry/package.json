@@ -19,5 +19,8 @@
     "publish:catalog": "node scripts/publish-catalog.mjs",
     "advance:catalog": "node scripts/advance-catalog.mjs",
     "publish:registry": "node scripts/publish-registry.mjs"
+  },
+  "devDependencies": {
+    "yaml": "2.9.0"
   }
 }
