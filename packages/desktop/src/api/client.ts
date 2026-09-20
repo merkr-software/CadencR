@@ -132,7 +132,7 @@ axiosInstance.interceptors.response.use(
 const NO_TIMEOUT_PATHS = ["/api/git/commit", "/api/git/push", "/api/lsp/sessions"];
 const PUBLICATION_RELEASE_TIMEOUT_MS = 190000;
 const LONG_PUBLICATION_PATH =
-  /^\/api\/projects\/\d+\/(?:publication-release(?:\/preview)?|publication-contribution)$/;
+  /^\/api\/projects\/\d+\/(?:publication-release(?:\/preview)?|publication-contribution|publication-registry(?:\/preview)?)$/;
 
 export function publicationOperationTimeout(
   config: Pick<AxiosRequestConfig, "method" | "timeout" | "url">,

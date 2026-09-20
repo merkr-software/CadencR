@@ -2,6 +2,7 @@ pub mod contribution;
 mod github;
 mod local;
 mod plan;
+pub mod registry;
 mod remote;
 
 use axum::extract::rejection::JsonRejection;
@@ -342,5 +343,6 @@ pub fn router() -> Router<AppState> {
             post(publish_publication_release_handler),
         )
         .merge(contribution::router())
+        .merge(registry::router())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))
 }

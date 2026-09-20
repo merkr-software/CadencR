@@ -10,6 +10,20 @@ The first implemented distribution contract remains **ACP providers**. Theme
 projects already carry authoring identity, but theme distribution requires its own
 contract; including themes in the first public marketplace is awaiting confirmation.
 
+### Registry destination and contribution policy — accepted 2026-09-20
+
+- Official contribution destination: `merkr-software/cadencr-registry`.
+- Authors contribute through a personal fork, dedicated branch and pull request;
+  the app must never push directly to the upstream default branch.
+- Every remote submission requires an explicit in-app confirmation of the reviewed
+  destination, connected account and exact contribution. Preview is read-only.
+- Registry CI validation and maintainer approval remain required before publication.
+  Opening a PR is not registry acceptance, merge, signing or publication.
+- This decision authorizes implementation, not creation of the real repository or
+  live test PRs. Deployment, repository protections and live GitHub QA remain gates.
+- The registry PR preparation/submission increment is implemented locally. Its
+  verification and delivery boundaries are recorded below.
+
 ### Current foundation
 
 - Local authoring/import and new-project `authoring_target` / `plugin_id` markers
@@ -24,17 +38,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                               |
-| ---- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open           |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending       |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending   |
-| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending |
-| E    | Publish first/new version from a marked Cadencr project              | E1-E3 and E4 local contribution export implemented/reviewed; official registry PR automation remains gated          |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                          |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                     |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                             |
+| Step | Deliverable                                                          | State                                                                                                                                     |
+| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open                                 |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending                             |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending                         |
+| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending                       |
+| E    | Publish first/new version from a marked Cadencr project              | E1-E3 and E4 local contribution export implemented/reviewed; registry PR automation implemented locally; live deployment/QA remains gated |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                                                |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                                           |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                                      |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                                   |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -543,13 +557,58 @@ alone cannot close them.
   export produced through the app. No production data or GitHub state was changed;
   QA processes were stopped and the isolated database retained. Git delivery is
   separate from this verification.
-- Next gate: decide the registry destination and contribution policy, then design
-  and authorize actual pull-request automation if desired. No later E-step label is
-  inferred until that scope is decided.
+- The registry destination and fork/branch/PR policy are now accepted above.
+  Remote PR automation is the next implementation increment; official deployment
+  and live acceptance remain separate gates.
+
+### Registry pull-request automation increment — 2026-09-20
+
+- Fixed destination `merkr-software/cadencr-registry`; local authenticated preview
+  and submit endpoints reload the immutable bundle and verify its published author
+  release. They do not trust edited local contribution exports.
+- The read-only preview binds exact paired documents and PR body, connected account
+  and numeric identity, registry numeric identity and pinned default-branch commit.
+  Every submit recomputes the plan and requires fresh explicit confirmation.
+- The app creates or verifies the personal fork, writes both metadata blobs in one
+  tree/commit, verifies the candidate before creating a deterministic new branch,
+  and opens a PR. Existing exact branches/open PRs may be reused; foreign state,
+  closed PRs and upstream base drift fail closed. No force update, overwrite,
+  branch deletion, upstream push, merge, signing or registry publication occurs.
+- Base and candidate Git tree modes are checked independently of GitHub Contents
+  responses. Maintainer branch mutation is not granted by the created PR. Changes
+  require another reviewed plan, not silent branch rewriting.
+- All HTTP destinations are fixed, redirects disabled, responses bounded to 2 MiB,
+  polling and operation time bounded. A single transport retains its connection
+  pool, archive buffers are released before remote verification, and exact PR body
+  bytes are shared rather than copied. Rate-limit errors are distinguished from
+  ordinary permission rejection when GitHub exposes rate-limit headers.
+- Interrupted/failed requests can leave a fork, unreachable Git objects, a branch
+  or a PR. There is no automatic destructive cleanup. Inspect remote state before
+  retrying with fresh consent; exact readback is required for reuse. GitHub changes
+  by other actors are not transactional with these checks. A changed upstream base
+  requires another preview and can produce a new branch; old branches/PRs are not
+  automatically deleted, rebased or closed.
+- Trusted registry CI remains authoritative for cross-version identity/ownership
+  continuity, full catalog policy and maintainer review. Opening a PR is not proof
+  of acceptance, source-to-binary provenance or provider conformance.
+- Three GPT-5.6-Sol finish-job reviews and the parent correction/re-review loop
+  completed. The desktop suite passes 4,961 tests; 55 targeted Rust publication
+  tests pass, including scripted no-write rejection and lost-response cases.
+  Isolated live dev QA exercised actual authenticated API rejection paths and the
+  real registry preview/submit missing-auth errors. UI preview prerequisites were
+  explicitly simulated to check consent consumption, sibling locking, loading,
+  error recovery, the 190-second timeout and stale-plan clearing. Positive GitHub
+  mutations remain fixture-tested only; no real fork, branch or PR was created.
+  QA-owned processes were stopped, the new QA database retained, and production
+  data untouched. The authenticated/local-only route integration test, service
+  compilation, desktop types/lint/unused-code checks, formatting and Node registry
+  integration tests also pass. Changes remain uncommitted pending approval.
+- Official repository provisioning, branch protections, CI deployment and a real
+  GitHub end-to-end run remain separate gates, not performed by this increment.
 
 ### Decisions that must not be invented by implementation
 
-- Official GitHub owner/repository and catalog/blocklist discovery URLs.
+- Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).
 - First supported public platform matrix and executable isolation policy.
 - Inclusion of themes in the first public marketplace.
 - Monitored security contact, incident owner and protected signing environment.

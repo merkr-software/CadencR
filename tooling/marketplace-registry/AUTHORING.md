@@ -193,14 +193,46 @@ prior result. Only 16 exports are retained globally; archive any contribution th
 must be retained outside this storage, then manually review and remove old or
 partial exports before trying again.
 
-E4 stops at local files. No official registry destination is configured, so it does
-not fork, branch, push, open a pull request, sign, or obtain registry acceptance. It
+E4 stops at local files. This local export action does not fork, branch, push,
+open a pull request, sign, or obtain registry acceptance. It
 cannot establish first/new-version status or continuity against the authoritative
 registry baseline. Official registry CI and maintainer review remain required.
 
-The implementation is still partially qualified while parent tests and live-app QA
-are pending. The next gate is a registry destination/policy decision followed by
-separately authorized pull-request automation, not an assumed later E step.
+The local export passed unit/integration checks and isolated live-app error-path
+QA. Successful remote verification/export remains tested with localhost fixtures,
+not a real GitHub release.
+
+## Registry pull-request policy
+
+The accepted official contribution destination is
+`merkr-software/cadencr-registry`. Contributions use a personal fork, a dedicated
+branch and a pull request, never a direct push to the official default branch.
+Registry CI and maintainer approval remain required before publication.
+
+After the author release is published, select **Review registry submission** in
+project settings. Check the registry destination, account, pinned base commit,
+branch, version, exact file paths and notes. Confirm the displayed plan, then
+select **Create registry pull request**. This confirmation is consumed on every
+attempt. Local export alone never triggers a remote write.
+
+Cadencr revalidates the bundle and published release, verifies or creates your
+personal fork, prepares both metadata files in a single commit and opens a PR.
+It verifies the candidate before creating the branch and verifies remote state
+again afterward. An exact existing open PR can be reused; foreign branches,
+closed PRs, existing version paths and changed plans are rejected. The app never
+forces a branch, pushes to upstream, merges, approves or publishes the registry.
+It does not grant maintainers permission to change your fork branch through the
+PR. Full registry policy and publisher continuity remain CI/maintainer decisions.
+
+Timeouts can leave a fork, unreachable Git objects, a branch or even a PR. Inspect
+GitHub before retrying with fresh confirmation; no automatic destructive cleanup
+runs. If the upstream base changes, review a new plan; it may use a new branch.
+Old branches and PRs are not automatically rebased, closed or deleted. These checks
+are not an atomic transaction with changes made by other GitHub actors.
+
+Repository provisioning, branch protections, workflow deployment and real GitHub
+acceptance tests remain separate deployment gates. Local fixture success does not
+establish real token permissions, deployed CI or official registry availability.
 
 ## Prepare the review submission
 

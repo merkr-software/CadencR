@@ -13,6 +13,12 @@ const mocks = vi.hoisted(() => ({
   contributionHook: vi.fn(),
   contributionMutate: vi.fn(),
   contributionReset: vi.fn(),
+  registryPreviewHook: vi.fn(),
+  registryPreviewMutate: vi.fn(),
+  registryPreviewReset: vi.fn(),
+  registrySubmitHook: vi.fn(),
+  registrySubmitMutate: vi.fn(),
+  registrySubmitReset: vi.fn(),
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
@@ -20,6 +26,8 @@ vi.mock("@/api/generated", async (importOriginal) => ({
   usePreviewPublicationRelease: mocks.previewHook,
   usePublishPublicationRelease: mocks.publishHook,
   usePreparePublicationContribution: mocks.contributionHook,
+  usePreviewPublicationRegistry: mocks.registryPreviewHook,
+  useSubmitPublicationRegistry: mocks.registrySubmitHook,
 }));
 
 vi.mock("@/lib/open-external", () => ({ openExternalUrl: mocks.openExternal }));
@@ -67,6 +75,20 @@ describe("ProviderPublicationRelease", () => {
       isPending: false,
       mutate: mocks.contributionMutate,
       reset: mocks.contributionReset,
+    });
+    mocks.registryPreviewHook.mockReturnValue({
+      error: null,
+      isError: false,
+      isPending: false,
+      mutate: mocks.registryPreviewMutate,
+      reset: mocks.registryPreviewReset,
+    });
+    mocks.registrySubmitHook.mockReturnValue({
+      error: null,
+      isError: false,
+      isPending: false,
+      mutate: mocks.registrySubmitMutate,
+      reset: mocks.registrySubmitReset,
     });
   });
 
@@ -218,6 +240,34 @@ describe("ProviderPublicationRelease", () => {
     expect(screen.queryByText("Prepare a local registry contribution")).not.toBeInTheDocument();
     expect(mocks.previewReset).toHaveBeenCalled();
     expect(mocks.publishReset).toHaveBeenCalled();
+  });
+
+  it("locks sibling release and contribution controls during a registry request", async () => {
+    let previewSuccess: ((value: typeof preview) => void) | undefined;
+    mocks.previewHook.mockImplementation((options) => {
+      previewSuccess = options.mutation.onSuccess;
+      return {
+        error: null,
+        isError: false,
+        isPending: false,
+        mutate: mocks.previewMutate,
+        reset: mocks.previewReset,
+      };
+    });
+    const { user } = render(
+      <ProviderPublicationRelease
+        projectId={7}
+        initialBundleId="123e4567-e89b-42d3-a456-426614174000"
+      />,
+    );
+    act(() => previewSuccess?.(preview));
+
+    await user.click(screen.getByRole("button", { name: "Review registry submission" }));
+
+    expect(screen.getByPlaceholderText("00000000-0000-4000-8000-000000000000")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Publish GitHub release" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /local file creation/i })).toBeDisabled();
+    expect(mocks.registryPreviewMutate).toHaveBeenCalled();
   });
 
   it("removes the prior approval before a refreshed review request", async () => {

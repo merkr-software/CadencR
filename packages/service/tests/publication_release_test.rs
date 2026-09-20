@@ -60,6 +60,8 @@ async fn release_routes_are_local_authenticated_and_reject_unreviewed_inputs() {
         "publication-release/preview",
         "publication-release",
         "publication-contribution",
+        "publication-registry/preview",
+        "publication-registry",
     ] {
         let path = format!("/api/projects/1/{suffix}");
         let body = if suffix.ends_with("preview") {
@@ -118,7 +120,11 @@ async fn release_routes_are_local_authenticated_and_reject_unreviewed_inputs() {
         }
     }
     let unconfirmed = json!({"bundle_id":uuid::Uuid::new_v4().to_string(),"release_notes":"fixture","expected_plan_sha256":"0".repeat(64),"confirmed":false});
-    for suffix in ["publication-release", "publication-contribution"] {
+    for suffix in [
+        "publication-release",
+        "publication-contribution",
+        "publication-registry",
+    ] {
         let (status, _) = post(
             app.clone(),
             &format!("/api/projects/1/{suffix}"),
