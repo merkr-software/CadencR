@@ -103,8 +103,54 @@ Closing the dialog or disconnecting does not cancel an accepted preparation: its
 completed bundle may remain in that directory and count toward the same limit.
 Reproducibility applies to identical inputs with the same runtime, not guaranteed
 byte equality between the Node CLI and the Rust implementation. Multi-target
-metadata assembly, GitHub publication and registry contribution remain later
-steps. The six selectable target keys are not a platform-certification claim.
+metadata assembly and registry contribution remain later steps. The six selectable
+target keys are not a platform-certification claim.
+
+## Review and publish the author GitHub release (E3)
+
+E3 publishes one previously prepared E2 bundle. Before starting:
+
+- use an existing public GitHub repository and configure Cadencr's GitHub
+  connection with an account that has push access;
+- keep the project Git worktree clean, with `origin` pointing to the exact
+  `github.com/<owner>/<repository>` declared by the package metadata;
+- push the source commit and release tag yourself. The remote tag must already
+  resolve to the clean local `HEAD` commit; Cadencr does not push source or create
+  tags;
+- retain the E2 bundle UUID. Only one binary target is supported by this flow.
+
+In **Project Settings → Prepare a local provider bundle**, enter the prepared
+bundle UUID and release notes, then choose **Review GitHub publication**. Review
+does not write to GitHub. It reloads and validates the app-owned bundle and shows
+the exact destination, connected actor, tag, source commit, archive name/size and
+digest, metadata digest, target, version, channel and release notes.
+
+The returned fingerprint binds that plan to the connected actor and immutable
+GitHub repository identity. Changing the UUID or notes invalidates the review.
+Publishing requires a separate checkbox confirmation of the displayed plan; the
+service recomputes and compares the fingerprint before any write.
+
+Publication creates or reconciles a GitHub draft, uploads exactly the archive and
+`package.json`, and then publishes the release. It never replaces or deletes
+assets, overwrites a foreign release, creates a repository/tag, or pushes source.
+Lost API responses are reconciled, and an exact completed release can be retried
+without new writes. Missing draft assets can be resumed; conflicting, duplicate,
+incomplete published releases or remotely changed state fail closed and require
+investigation rather than destructive repair.
+
+Asset verification checks GitHub's reported asset name, size, state and `sha256`
+digest. It does **not** independently download the public asset bytes. GitHub API
+and upload hosts are fixed, redirects are disabled, credentials are not forwarded,
+and local/remote reads, request sizes, pagination, timeouts and concurrent release
+operations are bounded.
+
+Local integration tests and isolated live-app QA passed. Positive publication and
+retry coverage uses localhost GitHub fixtures, not a live GitHub release. Protect
+tags and releases against external changes: these rechecks are not an atomic
+transaction or proof of source-to-binary provenance or connector conformance.
+E3 does not sign or publish the Cadencr catalogue and does not open a
+registry PR. The next step, E4, is an explicit registry contribution based on the
+verified author release and remains subject to maintainer review.
 
 ## Prepare the review submission
 

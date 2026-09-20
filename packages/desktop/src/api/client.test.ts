@@ -8,11 +8,40 @@ import {
   __resetRuntimeConfigForTests,
   getAuthTokenSync,
   preloadRuntimeConfig,
+  publicationReleaseTimeout,
   resolveApiBaseUrlSync,
   shouldAttachAbortSignal,
   strictModeStableReadRequestKey,
   workspaceSettingFromBulk,
 } from "./client";
+
+describe("publication release timeout policy", () => {
+  it.each(["/api/projects/7/publication-release", "/api/projects/42/publication-release/preview"])(
+    "allows the exact POST endpoint to finish its bounded backend work: %s",
+    (url) => {
+      expect(publicationReleaseTimeout({ method: "POST", url })).toBe(190000);
+    },
+  );
+
+  it.each([
+    { method: "GET", url: "/api/projects/7/publication-release" },
+    { method: "POST", url: "/api/projects/not-a-number/publication-release" },
+    { method: "POST", url: "/api/projects/7/publication-release/preview/extra" },
+    { method: "POST", url: "/api/projects/7/publication-package" },
+  ])("leaves unrelated requests on the Axios default: $method $url", (config) => {
+    expect(publicationReleaseTimeout(config)).toBeUndefined();
+  });
+
+  it("preserves an explicit caller timeout", () => {
+    expect(
+      publicationReleaseTimeout({
+        method: "POST",
+        timeout: 5000,
+        url: "/api/projects/7/publication-release/preview",
+      }),
+    ).toBe(5000);
+  });
+});
 
 function bridgeWithRuntime(
   runtimeConfig: CadencrDesktopBridge["runtimeConfig"],

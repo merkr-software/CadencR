@@ -24,17 +24,17 @@ contract; including themes in the first public marketplace is awaiting confirmat
 
 ### Execution sequence and gates
 
-| Step | Deliverable                                                          | State                                                                                                               |
-| ---- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open           |
-| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending       |
-| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending   |
-| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending |
-| E    | Publish first/new version from a marked Cadencr project              | E1 readiness and E2 local single-target bundle preparation implemented; GitHub publication pending                  |
-| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                          |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                     |
-| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                |
-| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                             |
+| Step | Deliverable                                                          | State                                                                                                                                     |
+| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open                                 |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending                             |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending                         |
+| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending                       |
+| E    | Publish first/new version from a marked Cadencr project              | E1 readiness, E2 local single-target bundling and E3 confirmed author-repository release flow implemented locally; live GitHub QA pending |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                                                |
+| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                                           |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                                      |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                                   |
 
 Each implementation step uses delegated workers and parent review, followed by
 reuse/quality/efficiency review and relevant checks before proceeding. Changes
@@ -437,12 +437,60 @@ alone cannot close them.
   QA-owned processes are stopped and the temporary database/artifacts preserved.
   These are local/dev proofs, not packaged-app or live GitHub/Actions acceptance.
   Local commit approved; no push or remote publication is authorized.
-- Next E3: design and implement separately confirmed author-repository first/new
-  release publication from reviewed bundles, then registry contribution creation.
-  Exact repository/version/tag/source ownership and no-overwrite/retry semantics
-  must be explicit. Multi-target metadata assembly remains separate from E2.
+- Next E4: create the registry contribution from the published author release.
+  Multi-target metadata assembly remains separate from E2/E3.
   Official registry deployment/credentials, real GitHub/Actions QA, themes,
   marketplace browsing and supported-platform packaged QA remain open gates.
+
+### Confirmed author GitHub release increment (E3) — 2026-09-20
+
+- A marked provider project can review and publish its one-target E2 bundle to an
+  existing public GitHub repository. The repository must be the project's clean
+  local `origin`; the release tag must already exist remotely and resolve to the
+  same commit as local `HEAD`. E3 does not create a repository or tag, push source,
+  assemble multiple targets, sign a catalogue, or submit a registry contribution.
+- Review is an explicit, non-mutating request. It reloads the server-owned bundle,
+  validates its managed metadata and archive digest, inspects the connected GitHub
+  actor, repository identity and tag commit, and returns the exact release plan.
+  The preview fingerprint binds the actor, immutable GitHub repository ID, source
+  commit, package metadata and archive digests, target/version, release notes and
+  publication policy. Publishing requires a separate confirmation of that exact
+  fingerprint; any changed input or remote identity requires a fresh preview.
+- Publication creates or reconciles a draft release and uploads exactly two assets:
+  the provider archive and `package.json`. It never replaces or deletes an existing
+  asset or overwrites a conflicting release. Existing release fields, asset names,
+  sizes and GitHub-reported `sha256` digests must match before a retry can continue;
+  absent GitHub digests fail closed. This digest check relies on GitHub's reported
+  asset digest and is **not** an independent public re-download of uploaded bytes.
+- Ambiguous create, upload and publish responses are reconciled against the exact
+  confirmed state. Exact completed publications are safe no-write retries; foreign,
+  duplicate, incomplete published releases or changed state are refused rather than repaired
+  destructively. The actor, repository ID and tag commit are revalidated during
+  publication, including immediately before promotion from draft.
+- GitHub API and upload hosts are fixed HTTPS origins, credentials are never sent
+  across redirects, and redirects are disabled. Request bodies, release notes,
+  repository/tag/asset segments, local bundle files, GitHub response bodies,
+  pagination, annotated-tag depth, operation concurrency and network timeouts are
+  bounded. Local files are opened without following symlinks and checked for
+  replacement while read.
+- Verification: 29 publication unit tests, three bounded Git-runner tests, the
+  authenticated/local-only route integration test, and 4,946 desktop tests passed.
+  Isolated `pnpm dev` QA exercised a real prepared bundle, missing authentication,
+  dirty-source refusal/recovery, invalid inputs, explicit confirmation refusal,
+  visible loading, and disabled controls. The positive GitHub mutation/retry path
+  is covered by localhost HTTP fixtures, not a real GitHub release. No live GitHub
+  repository was mutated, and no source push, tag creation or registry PR occurred.
+  The frontend uses a narrowly scoped 190-second timeout, verified in the live
+  request, above the backend's 180-second bound. Lint, type checking, unused-code
+  checks, Rust check and formatting passed. Changes await local commit approval.
+- Rechecks are not an atomic transaction with external GitHub editors. Protect
+  release tags and assets against concurrent changes; no historical deletion
+  ledger, source-to-binary provenance or connector conformance is established here.
+- Next E4: prepare an author-visible registry contribution from the verified
+  published release while preserving maintainer review. Official registry
+  deployment/signing, live GitHub/Actions acceptance, multi-target publication,
+  themes, marketplace browsing and packaged-platform certification remain separate
+  gates.
 
 ### Decisions that must not be invented by implementation
 

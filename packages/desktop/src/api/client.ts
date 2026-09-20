@@ -130,6 +130,20 @@ axiosInstance.interceptors.response.use(
  * For these calls we disable the timeout entirely.
  */
 const NO_TIMEOUT_PATHS = ["/api/git/commit", "/api/git/push", "/api/lsp/sessions"];
+const PUBLICATION_RELEASE_TIMEOUT_MS = 190000;
+const PUBLICATION_RELEASE_PATH = /^\/api\/projects\/\d+\/publication-release(?:\/preview)?$/;
+
+export function publicationReleaseTimeout(
+  config: Pick<AxiosRequestConfig, "method" | "timeout" | "url">,
+): number | undefined {
+  if (config.timeout !== undefined) return config.timeout;
+  const method = config.method?.toUpperCase() ?? "GET";
+  return method === "POST" &&
+    typeof config.url === "string" &&
+    PUBLICATION_RELEASE_PATH.test(config.url)
+    ? PUBLICATION_RELEASE_TIMEOUT_MS
+    : undefined;
+}
 const STRICT_MODE_STABLE_GET_PATHS = ["/api/git/", "/api/feature-layouts"];
 const STRICT_MODE_STABLE_RESULT_TTL_MS = 250;
 const stableReadRequests = new Map<string, Promise<unknown>>();
@@ -168,10 +182,13 @@ export function strictModeStableReadRequestKey(
 }
 
 export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> {
-  let finalConfig =
+  const releaseTimeout = publicationReleaseTimeout(config);
+  let finalConfig: AxiosRequestConfig =
     typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
       ? { ...config, timeout: 0 }
-      : config;
+      : releaseTimeout === undefined
+        ? config
+        : { ...config, timeout: releaseTimeout };
   if (!shouldAttachAbortSignal(finalConfig)) {
     finalConfig = { ...finalConfig, signal: undefined };
   }

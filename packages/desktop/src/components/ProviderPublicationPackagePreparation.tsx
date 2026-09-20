@@ -19,6 +19,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { PublicationError } from "./PublicationError";
+import { bundleIdFromArchivePath, ProviderPublicationRelease } from "./ProviderPublicationRelease";
 
 export function ProviderPublicationPackagePreparation({
   projectId,
@@ -105,18 +107,18 @@ export function ProviderPublicationPackagePreparation({
             />
           )}
           {mutation.isError ? (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
-            >
-              Could not prepare the local bundle: {apiErrorMessage(mutation.error, "Unknown error")}
-            </div>
+            <PublicationError prefix="Could not prepare the local bundle" error={mutation.error} />
           ) : null}
           {prepared ? <PreparedPackageResult prepared={prepared} /> : null}
           <Button type="button" disabled={!canPrepare || pending} onClick={prepare}>
             {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
             {pending ? "Preparing local bundle…" : "Prepare local bundle"}
           </Button>
+          <ProviderPublicationRelease
+            key={prepared?.archive_path ?? "publication-release"}
+            projectId={projectId}
+            initialBundleId={prepared ? bundleIdFromArchivePath(prepared.archive_path) : ""}
+          />
         </div>
       </SettingsCard>
     </SettingsSection>

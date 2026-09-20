@@ -3178,6 +3178,11 @@ export interface PreparedPublicationPackage {
   target: string;
 }
 
+export interface PreviewPublicationReleaseRequest {
+  bundle_id: string;
+  release_notes: string;
+}
+
 export interface RuntimeEffectiveConfig {
   fast_mode: boolean;
   /** @nullable */
@@ -3451,6 +3456,43 @@ export interface PublicationReadinessResponse {
   project_id: number;
   summary: string;
   supported_package_targets: string[];
+}
+
+export interface PublicationReleasePreview {
+  account: string;
+  archive_name: string;
+  archive_sha256: string;
+  /** @minimum 0 */
+  archive_size: number;
+  bundle_id: string;
+  metadata_sha256: string;
+  plan_sha256: string;
+  plugin_id: string;
+  prerelease: boolean;
+  project_id: number;
+  release_notes: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
+  target: string;
+  version: string;
+}
+
+export interface PublishPublicationReleaseRequest {
+  bundle_id: string;
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  release_notes: string;
+}
+
+export interface PublishedProviderRelease {
+  already_published: boolean;
+  archive_sha256: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
 }
 
 /**
@@ -20735,6 +20777,162 @@ export function useGetProjectPublicationReadiness<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const publishPublicationRelease = (
+  id: number,
+  publishPublicationReleaseRequest: PublishPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublishedProviderRelease>({
+    url: `/api/projects/${id}/publication-release`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: publishPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPublishPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    TError,
+    PublishPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["publishPublicationRelease"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    PublishPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return publishPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PublishPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof publishPublicationRelease>>
+>;
+export type PublishPublicationReleaseMutationBody = PublishPublicationReleaseRequest;
+export type PublishPublicationReleaseMutationError = ErrorType<void>;
+export type PublishPublicationReleaseMutationVariables = {
+  id: number;
+  data: PublishPublicationReleaseRequest;
+};
+
+export const usePublishPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof publishPublicationRelease>>,
+      TError,
+      PublishPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPublishPublicationReleaseMutationOptions(options), queryClient);
+};
+
+export const previewPublicationRelease = (
+  id: number,
+  previewPublicationReleaseRequest: PreviewPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationReleasePreview>({
+    url: `/api/projects/${id}/publication-release/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: previewPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPreviewPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    TError,
+    PreviewPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["previewPublicationRelease"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    PreviewPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return previewPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPublicationRelease>>
+>;
+export type PreviewPublicationReleaseMutationBody = PreviewPublicationReleaseRequest;
+export type PreviewPublicationReleaseMutationError = ErrorType<void>;
+export type PreviewPublicationReleaseMutationVariables = {
+  id: number;
+  data: PreviewPublicationReleaseRequest;
+};
+
+export const usePreviewPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewPublicationRelease>>,
+      TError,
+      PreviewPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewPublicationReleaseMutationOptions(options), queryClient);
+};
 
 export const getProjectSettings = (id: number, signal?: AbortSignal) => {
   return customInstance<ProjectSetting[]>({
