@@ -685,6 +685,59 @@ alone cannot close them.
 
 ### CLI follow-up — canonical output and release/CI wiring
 
+#### Autonomous completion contract — 2026-09-20
+
+- User approved continuing all six remaining stages without per-stage prompts:
+  CLI delivery, registry activation, compatible signatures, remaining Rust
+  tooling migration, removal of replaced registry JavaScript, and end-to-end QA.
+- Each implementation stage uses GPT-5.6-Sol workers through parallel-advisor,
+  parent integration checks, independent finish-job reviews, and automatically
+  approved signed local commits with normal hooks before the next stage.
+- New signatures must share one canonical format; previously valid signatures
+  remain explicitly supported. This compatibility direction is now approved.
+- Delivery must not incidentally publish an unrelated desktop release or expose
+  private monorepo history. Validate release topology and existing version/tag
+  state first. Public registry changes remain metadata/docs/thin workflows only;
+  private keys and production data never become fixtures or repository content.
+- Preserve the active JS implementation until replacement parity and actual
+  pinned-binary delivery are established. Report external gates separately;
+  local tests do not establish deployed CI or live installation acceptance.
+- Release audit: the existing `v*` pipeline publishes the entire desktop app,
+  not only the CLI. The current feature tip is not an authorized coordinated
+  release tip, and `v0.11.5` is already consumed without a CLI asset. Do not
+  reuse that tag or invent a new desktop version to unblock registry tooling.
+  Continue independent migration work while actual binary publication and pin
+  activation remain external delivery gates.
+- First parallel migration wave implements compatible signature verification,
+  archive packaging and publication planning. Independent source reviews found
+  archive output/source races, duplicated service packing logic, an unchecked
+  stdout write, recursion depth and eager legacy serialization. Source corrections
+  are applied, including one shared CLI/service archive engine and private
+  no-clobber publication. Commit acceptance follows the integrated checks below.
+- Packaging assumes a trusted destination directory: private temporary output
+  and no-clobber publication protect existing files, but malicious concurrent
+  replacement of destination ancestors is not a directory-handle-bound sandbox.
+  Such ancestry replacement remains a documented defense-in-depth limitation.
+- Lockfile incident resolved after the user's explicit rollback authorization:
+  the previous third-party versions are restored and only seven workspace
+  dependency edges were added. The unintended `cargo generate-lockfile` refresh
+  is excluded. Validation resumes with `--locked`; pre-repair targeted successes
+  are not substituted for tests of the final integrated source.
+- Post-repair checks: CLI/core suites pass (including 32 registry-core tests),
+  86 managed-provider backend tests pass, 16 publication-package unit tests pass,
+  and the real-route publication-package integration test passes. Archive parity
+  compares deterministic decompressed TAR bytes; cross-implementation gzip bytes
+  are deliberately not claimed identical.
+- Live debug-service API QA accepts both Node-canonical and legacy signatures
+  through signature validation to the expected missing-fixture download failure;
+  both tampered variants fail with `REGISTRY_SIGNATURE_INVALID`. This proves the
+  trust gate, not an end-to-end package installation. The initial `pnpm dev`
+  launch overrode shell isolation variables from the worktree `.env` and opened
+  the development database; it was stopped before API tests. The actual requests
+  used explicit CLI DB/settings/port arguments and a new temporary QA database.
+  Production data was not accessed, QA processes were stopped, and no database
+  was deleted or restored. Release trust settings remain unchanged in source.
+
 - CLI numeric canonicalization now matches the JavaScript oracle: input numbers
   use binary64 semantics and correctly-rounded parsing (`serde_json/float_roundtrip`),
   output uses `ryu-js` while retaining the existing UTF-8 object-key ordering.

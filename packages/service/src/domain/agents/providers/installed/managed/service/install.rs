@@ -36,6 +36,7 @@ struct ResolvedAdmission {
     package: ResolvedManagedProviderPackage,
     agent: AcpAgentEntry,
     signer_key_id: String,
+    signed_payload_sha256: String,
 }
 
 pub(super) async fn ingest(
@@ -56,6 +57,7 @@ pub(super) async fn ingest(
             agent: resolved.agent,
             signed_index: index,
             signer_key_id: &resolved.signer_key_id,
+            signed_payload_sha256: &resolved.signed_payload_sha256,
         },
     )
     .await?;
@@ -130,10 +132,15 @@ fn resolve_admission(
         .expect("verified exact package resolution")
         .agent
         .clone();
+    let signed_payload_sha256 =
+        crate::domain::agents::providers::installed::managed::receipt::signed_payload_sha256(
+            verified.signing_bytes(),
+        );
     Ok(ResolvedAdmission {
         package,
         agent,
         signer_key_id: verified.signer_key_id().to_string(),
+        signed_payload_sha256,
     })
 }
 

@@ -572,6 +572,26 @@ mod tests {
     }
 
     #[test]
+    fn retained_legacy_receipt_uses_the_bytes_that_were_actually_verified() {
+        let (_staging, mut receipt) = uncommitted_receipt();
+        receipt.signed_index.signed.packages[0].agent.extra.insert(
+            "x-large-integer".into(),
+            serde_json::json!(9_007_199_254_740_993_u64),
+        );
+        receipt.agent = receipt.signed_index.signed.packages[0].agent.clone();
+        let legacy = receipt.signed_index.signed.legacy_signing_bytes().unwrap();
+        assert_ne!(legacy, receipt.signed_index.signed.signing_bytes().unwrap());
+        receipt.signed_index.signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[23; 32]).sign(&legacy).to_bytes());
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&legacy);
+
+        verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
+        receipt.trust.signed_payload_sha256 =
+            signed_payload_sha256(&receipt.signed_index.signed.signing_bytes().unwrap());
+        assert!(verify_receipt_trust(&receipt, &test_trust_store()).is_err());
+    }
+
+    #[test]
     fn existing_revision_rejects_changed_launch_metadata() {
         let root = tempfile::tempdir().unwrap();
         let storage = ManagedStorage::new(root.path().join("managed"));
