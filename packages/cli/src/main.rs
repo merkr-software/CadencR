@@ -7,6 +7,7 @@ use serde_json::json;
 mod args;
 mod commands;
 mod output;
+mod publication;
 mod signing;
 
 use args::Cli;

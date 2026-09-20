@@ -23,8 +23,15 @@ impl Downloader for ProductionDownloader {
     fn download(&self, request: DownloadRequest<'_>) -> Result<Downloaded, PublisherError> {
         let initial = validate_url(request.url, true)?;
         let expected = normalize_digest(request.sha256)?;
-        let client = self
-            .client
+        let client = self.client()?;
+        let response = fetch_final(client, initial, MAX_REDIRECTS)?;
+        stream_to_file(response, &request, &expected)
+    }
+}
+
+impl ProductionDownloader {
+    fn client(&self) -> Result<&Client, PublisherError> {
+        self.client
             .get_or_init(|| {
                 Client::builder()
                     .redirect(Policy::none())
@@ -33,14 +40,41 @@ impl Downloader for ProductionDownloader {
                     .map_err(|error| PublisherError::io("build archive client", error))
             })
             .as_ref()
-            .map_err(Clone::clone)?;
-        let response = fetch_final(client, initial)?;
+            .map_err(Clone::clone)
+    }
+
+    pub(crate) fn redirected_asset(
+        &self,
+        url: &str,
+        request: DownloadRequest<'_>,
+    ) -> Result<Downloaded, PublisherError> {
+        let initial = validate_url(url, false)?;
+        let expected = normalize_digest(request.sha256)?;
+        let response = fetch_final(self.client()?, initial, MAX_REDIRECTS - 1)?;
         stream_to_file(response, &request, &expected)
     }
 }
 
-fn fetch_final(client: &Client, mut current: Url) -> Result<Response, PublisherError> {
-    for redirects in 0..=MAX_REDIRECTS {
+pub(crate) fn download_authenticated_asset(
+    response: Response,
+    request: DownloadRequest<'_>,
+) -> Result<Downloaded, PublisherError> {
+    let expected = normalize_digest(request.sha256)?;
+    stream_to_file(response, &request, &expected)
+}
+
+pub(crate) fn validate_asset_expectations(url: &str, sha256: &str) -> Result<(), PublisherError> {
+    validate_url(url, true)?;
+    normalize_digest(sha256)?;
+    Ok(())
+}
+
+fn fetch_final(
+    client: &Client,
+    mut current: Url,
+    max_redirects: usize,
+) -> Result<Response, PublisherError> {
+    for redirects in 0..=max_redirects {
         let response = client
             .get(current.clone())
             .header(ACCEPT_ENCODING, "identity")
@@ -49,7 +83,7 @@ fn fetch_final(client: &Client, mut current: Url) -> Result<Response, PublisherE
         if !response.status().is_redirection() {
             return Ok(response);
         }
-        if redirects == MAX_REDIRECTS {
+        if redirects == max_redirects {
             return Err(PublisherError::new("archive download: too many redirects"));
         }
         let location = response

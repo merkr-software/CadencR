@@ -40,6 +40,7 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             repository,
             directory,
         } => stage_publication(submission, repository, directory),
+        RegistryCommand::MirrorPublication(args) => crate::publication::mirror(args),
         RegistryCommand::SignIndex {
             payload,
             private_key,

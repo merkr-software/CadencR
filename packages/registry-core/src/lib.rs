@@ -19,7 +19,9 @@ pub use archive::{
 pub use error::RegistryError;
 pub use index::build_index;
 pub use json::{canonical_json_bytes, parse_json as parse_json_bytes};
-pub use publication_plan::{create_publication_plan, create_publication_plan_from_file};
+pub use publication_plan::{
+    create_publication_plan, create_publication_plan_from_file, valid_publication_repository,
+};
 pub use signing::{assemble_signed_index, sign_index, verify_signed_index};
 
 use diagnostics::Diagnostics;

@@ -37,17 +37,45 @@ pub(crate) fn publish_receipt(
     directory: &Path,
     receipt: &StageReceipt,
 ) -> Result<(), PublisherError> {
-    let mut bytes = cadencr_registry_core::canonical_json_bytes(
-        &serde_json::to_value(receipt)
-            .map_err(|_| PublisherError::new("cannot serialize staging receipt"))?,
-    );
+    let value = serde_json::to_value(receipt)
+        .map_err(|_| PublisherError::new("cannot serialize staging receipt"))?;
+    publish_document(directory, RECEIPT, &value, Comparison::ExactBytes)
+}
+
+pub(crate) fn publish_canonical_receipt(
+    directory: &Path,
+    name: &str,
+    value: &Value,
+) -> Result<(), PublisherError> {
+    publish_document(directory, name, value, Comparison::CanonicalJson)
+}
+
+#[derive(Clone, Copy)]
+enum Comparison {
+    ExactBytes,
+    CanonicalJson,
+}
+
+fn publish_document(
+    directory: &Path,
+    name: &str,
+    value: &Value,
+    comparison: Comparison,
+) -> Result<(), PublisherError> {
+    let mut bytes = cadencr_registry_core::canonical_json_bytes(value);
     bytes.push(b'\n');
     if bytes.len() as u64 > MAX_RECEIPT_BYTES {
         return Err(PublisherError::new("staging receipt exceeds 4 MiB"));
     }
-    let partial = partial_path(directory, RECEIPT);
+    let partial = partial_path(directory, name);
     let identity = write_private_synced(&partial, &bytes)?;
-    reconcile_receipt(&partial, identity, &directory.join(RECEIPT), &bytes)
+    reconcile_receipt(
+        &partial,
+        identity,
+        &directory.join(name),
+        &bytes,
+        comparison,
+    )
 }
 
 fn reconcile_receipt(
@@ -55,12 +83,14 @@ fn reconcile_receipt(
     identity: crate::fs::Identity,
     destination: &Path,
     bytes: &[u8],
+    comparison: Comparison,
 ) -> Result<(), PublisherError> {
     let publish = match std::fs::hard_link(partial, destination) {
         Ok(()) => verify_linked_receipt(destination, identity, bytes),
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            compare_existing(destination, bytes)
-        }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => match comparison {
+            Comparison::ExactBytes => compare_existing(destination, bytes),
+            Comparison::CanonicalJson => compare_canonical(destination, bytes),
+        },
         Err(error) => Err(PublisherError::io("publish staging receipt", error)),
     };
     let cleanup = crate::fs::remove_owned(partial, identity);
@@ -96,6 +126,21 @@ fn compare_existing(destination: &Path, bytes: &[u8]) -> Result<(), PublisherErr
     }
 }
 
+fn compare_canonical(destination: &Path, bytes: &[u8]) -> Result<(), PublisherError> {
+    let existing = read_bounded(destination, MAX_RECEIPT_BYTES, "publication receipt")?;
+    let value = cadencr_registry_core::parse_json_bytes(&existing)
+        .map_err(|_| PublisherError::new("existing publication receipt is invalid"))?;
+    if cadencr_registry_core::canonical_json_bytes(&value)
+        == bytes.strip_suffix(b"\n").unwrap_or(bytes)
+    {
+        Ok(())
+    } else {
+        Err(PublisherError::new(
+            "existing publication receipt conflicts",
+        ))
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use std::os::unix::fs::symlink;
@@ -103,6 +148,21 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn canonical_receipt_replay_preserves_equivalent_original_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("mirror-receipt.json");
+        let bytes = b"{ \"b\": 2, \"a\": 1.0 }";
+        std::fs::write(&destination, bytes).unwrap();
+        publish_canonical_receipt(root.path(), "mirror-receipt.json", &json!({"a":1,"b":2}))
+            .unwrap();
+        assert_eq!(std::fs::read(&destination).unwrap(), bytes);
+        assert!(
+            publish_canonical_receipt(root.path(), "mirror-receipt.json", &json!({"a":9})).is_err()
+        );
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+    }
 
     #[test]
     fn malformed_oversize_and_symlink_receipts_fail_closed() {
