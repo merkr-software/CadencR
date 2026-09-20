@@ -2,6 +2,7 @@
 
 mod artifact;
 mod binding;
+mod catalog;
 mod download;
 mod error;
 mod fs;
@@ -125,4 +126,29 @@ pub fn promote_publication(
         &client,
         &download::ProductionDownloader::default(),
     )
+}
+
+/// Local signing inputs; no GitHub token or service profile is consulted.
+#[derive(bon::Builder)]
+pub struct SignCatalogRequest<'a> {
+    pub manifest: &'a Path,
+    pub generated_at: &'a str,
+    pub expires_at: &'a str,
+    pub private_key: &'a Path,
+    pub key_id: &'a str,
+}
+
+/// Verify published artifacts and return a canonical signed catalog envelope.
+pub fn sign_publication_catalog(
+    request: SignCatalogRequest<'_>,
+) -> Result<Vec<u8>, PublisherError> {
+    cadencr_registry_core::validate_signing_key_id(request.key_id)?;
+    let payload = catalog::prepare()
+        .manifest(request.manifest)
+        .generated_at(request.generated_at)
+        .expires_at(request.expires_at)
+        .downloader(&download::ProductionDownloader::default())
+        .call()?;
+    cadencr_registry_core::sign_prepared_index(payload, request.private_key, request.key_id)
+        .map_err(Into::into)
 }

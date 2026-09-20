@@ -1,5 +1,5 @@
 mod local;
-mod public;
+pub(crate) mod public;
 
 use crate::binding::{
     build_publication_binding, build_publication_receipt, read_mirror_receipt,

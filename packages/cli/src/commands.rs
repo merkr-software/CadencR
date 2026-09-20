@@ -42,6 +42,7 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
         } => stage_publication(submission, repository, directory),
         RegistryCommand::MirrorPublication(args) => crate::publication::mirror(args),
         RegistryCommand::PromotePublication(args) => crate::publication::promote(args),
+        RegistryCommand::SignPublicationCatalog(args) => signing::catalog(args),
         RegistryCommand::SignIndex {
             payload,
             private_key,

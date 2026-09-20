@@ -32,3 +32,10 @@ impl fmt::Display for PublisherError {
 }
 
 impl std::error::Error for PublisherError {}
+
+impl From<cadencr_registry_core::RegistryError> for PublisherError {
+    fn from(error: cadencr_registry_core::RegistryError) -> Self {
+        // Registry diagnostics are already intended for operator-facing CLI output.
+        Self::new(error.to_string())
+    }
+}

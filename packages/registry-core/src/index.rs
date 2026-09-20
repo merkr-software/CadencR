@@ -135,7 +135,25 @@ fn validate_window(
     }
 }
 
-fn compare_packages(left: &Value, right: &Value) -> Ordering {
+pub(crate) fn validate_fresh_window(
+    generated_at: &str,
+    expires_at: &str,
+    now: DateTime<Utc>,
+) -> Result<(), RegistryError> {
+    let object = serde_json::Map::from_iter([
+        ("generated_at".into(), Value::String(generated_at.into())),
+        ("expires_at".into(), Value::String(expires_at.into())),
+    ]);
+    let mut errors = Diagnostics::default();
+    validate_window(&object, now, false, &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(RegistryError::from_messages(errors.into_messages()))
+    }
+}
+
+pub(crate) fn compare_packages(left: &Value, right: &Value) -> Ordering {
     match (identity(left), identity(right)) {
         (Some((left_id, left_version)), Some((right_id, right_version))) => left_id
             .cmp(right_id)

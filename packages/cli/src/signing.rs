@@ -41,3 +41,24 @@ pub(crate) fn assemble(
         destination.display()
     )))
 }
+
+pub(crate) fn catalog(args: &crate::args::SignCatalogArgs) -> Result<Option<String>, Diagnostic> {
+    output::validate_new_output(&args.output)?;
+    let bytes = cadencr_registry_publisher::sign_publication_catalog(
+        cadencr_registry_publisher::SignCatalogRequest::builder()
+            .manifest(&args.manifest)
+            .generated_at(&args.generated_at)
+            .expires_at(&args.expires_at)
+            .private_key(&args.private_key)
+            .key_id(&args.key_id)
+            .build(),
+    )
+    .map_err(|error| operation_error("REGISTRY_CATALOG_SIGNING_FAILED", error))?;
+    // Downloads may be long; recheck the parent policy before creating the output temp file.
+    output::validate_new_output(&args.output)?;
+    output::write_bytes(&bytes, Some(&args.output))?;
+    Ok(Some(format!(
+        "wrote signed publication catalog: {}",
+        args.output.display()
+    )))
+}
