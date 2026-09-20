@@ -8,6 +8,9 @@ use std::time::Duration;
 
 use tokio::process::{Child, Command};
 
+#[cfg(target_os = "macos")]
+mod macos_signal;
+
 /// Resource ceilings carried by an isolated managed process tree.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AcpProcessTreeLimits {
@@ -69,10 +72,22 @@ impl ProcessTreeControl {
         }
     }
 
-    pub(crate) fn cleanup_after_exit(&self, pid: Option<u32>) -> io::Result<()> {
+    pub(crate) async fn cleanup_after_exit(&self, pid: Option<u32>) -> io::Result<()> {
         match self.policy {
             AcpProcessTreePolicy::Inherit => Ok(()),
-            AcpProcessTreePolicy::Isolated(_) => cleanup_isolated(self, pid),
+            AcpProcessTreePolicy::Isolated(_) => {
+                #[cfg(target_os = "macos")]
+                {
+                    match pid {
+                        Some(pid) => macos_signal::cleanup_after_exit(pid).await,
+                        None => Ok(()),
+                    }
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    cleanup_isolated(self, pid)
+                }
+            }
         }
     }
 
@@ -110,6 +125,9 @@ impl ProcessTreeControl {
         match tokio::time::timeout(grace, child.wait()).await {
             Ok(status) => {
                 let status = status?;
+                #[cfg(target_os = "macos")]
+                macos_signal::kill_after_leader_exit(pid, grace).await?;
+                #[cfg(not(target_os = "macos"))]
                 signal_process_group(pid, libc::SIGKILL)?;
                 Ok(status)
             }
@@ -183,7 +201,7 @@ fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::R
     ))
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn cleanup_isolated(_control: &ProcessTreeControl, pid: Option<u32>) -> io::Result<()> {
     let Some(pid) = pid else {
         return Ok(());
