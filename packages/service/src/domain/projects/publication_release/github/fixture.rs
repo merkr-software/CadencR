@@ -25,6 +25,8 @@ pub(super) struct FixtureOptions {
     pub complete_assets: bool,
     pub omit_digest: bool,
     pub promote_on_second_release_list: bool,
+    pub extra_asset: bool,
+    pub tag_drift: bool,
 }
 
 struct Data {
@@ -55,14 +57,18 @@ impl Fixture {
         } else {
             binding_body("Release notes", BINDING)
         };
-        let release = (options.foreign_body || options.published).then_some(Release {
-            draft: !options.published,
-            body,
-        });
+        let release = (options.foreign_body || options.published || options.complete_assets)
+            .then_some(Release {
+                draft: !options.published,
+                body,
+            });
         let mut assets = BTreeMap::new();
         if options.complete_assets {
             assets.insert("provider.tar.gz".into(), b"archive".to_vec());
             assets.insert("package.json".into(), b"metadata".to_vec());
+        }
+        if options.extra_asset {
+            assets.insert("unexpected.txt".into(), b"unexpected".to_vec());
         }
         let data = Arc::new(Mutex::new(Data {
             options,
@@ -121,7 +127,12 @@ async fn handle(State(data): State<Arc<Mutex<Data>>>, request: Request<Body>) ->
                 | "/repos/acme/provider/git/ref/tags/v1.0.0"
         )
     {
-        return response(json!({"object":{"type":"commit","sha":COMMIT}}));
+        let commit = if data.lock().unwrap().options.tag_drift {
+            "cccccccccccccccccccccccccccccccccccccccc"
+        } else {
+            COMMIT
+        };
+        return response(json!({"object":{"type":"commit","sha":commit}}));
     }
     if method == "GET" && path == "/repos/acme/provider/releases" {
         let mut guard = data.lock().unwrap();

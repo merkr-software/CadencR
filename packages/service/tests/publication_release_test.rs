@@ -56,7 +56,11 @@ async fn release_routes_are_local_authenticated_and_reject_unreviewed_inputs() {
     state.port = 5005;
     let app = api::build_router(state.clone());
     let shared = api::build_api_routes().with_state(state);
-    for suffix in ["publication-release/preview", "publication-release"] {
+    for suffix in [
+        "publication-release/preview",
+        "publication-release",
+        "publication-contribution",
+    ] {
         let path = format!("/api/projects/1/{suffix}");
         let body = if suffix.ends_with("preview") {
             json!({"bundle_id":"../../outside", "release_notes":"fixture"})
@@ -114,14 +118,20 @@ async fn release_routes_are_local_authenticated_and_reject_unreviewed_inputs() {
         }
     }
     let unconfirmed = json!({"bundle_id":uuid::Uuid::new_v4().to_string(),"release_notes":"fixture","expected_plan_sha256":"0".repeat(64),"confirmed":false});
-    let (status, _) = post(
-        app,
-        "/api/projects/1/publication-release",
-        unconfirmed,
-        true,
-    )
-    .await;
-    assert!(status.is_client_error());
+    for suffix in ["publication-release", "publication-contribution"] {
+        let (status, _) = post(
+            app.clone(),
+            &format!("/api/projects/1/{suffix}"),
+            unconfirmed.clone(),
+            true,
+        )
+        .await;
+        assert!(status.is_client_error());
+    }
+    assert!(!root
+        .path()
+        .join("provider-publication-contributions")
+        .exists());
     assert!(!root.path().join("provider-publication-bundles").exists());
     let rows: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM projects")
         .fetch_one(&pool)

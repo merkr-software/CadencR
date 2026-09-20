@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { openExternalUrl } from "@/lib/open-external";
+import { ProviderPublicationContribution } from "./ProviderPublicationContribution";
 import { PublicationError } from "./PublicationError";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -32,13 +33,14 @@ export function ProviderPublicationRelease({
   const [preview, setPreview] = useState<PublicationReleasePreview | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [contributionPending, setContributionPending] = useState(false);
   const previewMutation = usePreviewPublicationRelease({
     mutation: { onSuccess: setPreview },
   });
   const publishMutation = usePublishPublicationRelease({
     mutation: { onSuccess: (result) => setPublishedUrl(result.release_url) },
   });
-  const pending = previewMutation.isPending || publishMutation.isPending;
+  const pending = previewMutation.isPending || publishMutation.isPending || contributionPending;
   const validInput = UUID_PATTERN.test(bundleId.trim()) && releaseNotes.trim() !== "";
 
   const invalidatePreview = (): void => {
@@ -97,12 +99,15 @@ export function ProviderPublicationRelease({
         {previewMutation.isPending ? "Reviewing GitHub publication…" : "Review GitHub publication"}
       </Button>
       {preview ? (
-        <PublicationPreview
+        <PublicationPlanActions
+          projectId={projectId}
           preview={preview}
           confirmed={confirmed}
           pending={pending}
+          remotePending={previewMutation.isPending || publishMutation.isPending}
           onConfirmedChange={setConfirmed}
           onPublish={publish}
+          onContributionPendingChange={setContributionPending}
         />
       ) : null}
       {publishMutation.isError ? (
@@ -118,6 +123,44 @@ export function ProviderPublicationRelease({
       ) : null}
       {publishedUrl ? <PublishedRelease releaseUrl={publishedUrl} /> : null}
     </div>
+  );
+}
+
+function PublicationPlanActions({
+  projectId,
+  preview,
+  confirmed,
+  pending,
+  remotePending,
+  onConfirmedChange,
+  onPublish,
+  onContributionPendingChange,
+}: {
+  projectId: number;
+  preview: PublicationReleasePreview;
+  confirmed: boolean;
+  pending: boolean;
+  remotePending: boolean;
+  onConfirmedChange: (value: boolean) => void;
+  onPublish: () => void;
+  onContributionPendingChange: (value: boolean) => void;
+}): React.JSX.Element {
+  return (
+    <>
+      <PublicationPreview
+        preview={preview}
+        confirmed={confirmed}
+        pending={pending}
+        onConfirmedChange={onConfirmedChange}
+        onPublish={onPublish}
+      />
+      <ProviderPublicationContribution
+        projectId={projectId}
+        preview={preview}
+        disabled={remotePending}
+        onPendingChange={onContributionPendingChange}
+      />
+    </>
   );
 }
 

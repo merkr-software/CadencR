@@ -10,12 +10,16 @@ const mocks = vi.hoisted(() => ({
   publishHook: vi.fn(),
   publishMutate: vi.fn(),
   publishReset: vi.fn(),
+  contributionHook: vi.fn(),
+  contributionMutate: vi.fn(),
+  contributionReset: vi.fn(),
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   usePreviewPublicationRelease: mocks.previewHook,
   usePublishPublicationRelease: mocks.publishHook,
+  usePreparePublicationContribution: mocks.contributionHook,
 }));
 
 vi.mock("@/lib/open-external", () => ({ openExternalUrl: mocks.openExternal }));
@@ -56,6 +60,13 @@ describe("ProviderPublicationRelease", () => {
       isPending: false,
       mutate: mocks.publishMutate,
       reset: mocks.publishReset,
+    });
+    mocks.contributionHook.mockReturnValue({
+      error: null,
+      isError: false,
+      isPending: false,
+      mutate: mocks.contributionMutate,
+      reset: mocks.contributionReset,
     });
   });
 
@@ -204,6 +215,7 @@ describe("ProviderPublicationRelease", () => {
     fireEvent.change(screen.getByLabelText("Release notes"), { target: { value: "Changed" } });
 
     expect(screen.queryByText("GitHub publication preview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Prepare a local registry contribution")).not.toBeInTheDocument();
     expect(mocks.previewReset).toHaveBeenCalled();
     expect(mocks.publishReset).toHaveBeenCalled();
   });

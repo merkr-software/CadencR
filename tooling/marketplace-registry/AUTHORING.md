@@ -148,9 +148,59 @@ Local integration tests and isolated live-app QA passed. Positive publication an
 retry coverage uses localhost GitHub fixtures, not a live GitHub release. Protect
 tags and releases against external changes: these rechecks are not an atomic
 transaction or proof of source-to-binary provenance or connector conformance.
-E3 does not sign or publish the Cadencr catalogue and does not open a
-registry PR. The next step, E4, is an explicit registry contribution based on the
-verified author release and remains subject to maintainer review.
+E3 does not sign or publish the Cadencr catalogue and does not open a registry PR.
+
+## Export a local registry contribution (E4)
+
+After reviewing the exact E3 plan and publishing the matching GitHub release,
+separately confirm **local file creation and read-only GitHub verification**, then
+choose **Prepare registry contribution**. E4 reloads the bundle, project Git state,
+connected actor and repository/tag state and recomputes the E3 fingerprint. If any
+bound input changed, return to **Review GitHub publication** first.
+
+E4 makes only GET requests to GitHub. It requires the exact release to be published
+and verifies both assets by name, size, upload state and GitHub's native `sha256`
+digest. A missing, draft, incomplete or conflicting release is refused. This is not
+an independent download of the public asset bytes and performs no remote mutation.
+
+Each attempt requires a fresh explicit confirmation. A successful action creates
+a fresh directory:
+
+```text
+provider-publication-contributions/<project-id>/<uuid>/
+  packages/<provider-id>-<version>.json
+  submissions/<provider-id>-<version>.json
+  PULL_REQUEST.md
+```
+
+The root is a sibling of Cadencr's settings directory. The package file preserves
+the exact managed metadata, including unknown fields. The submission file uses the
+existing `provider-submission-v1` envelope: `schema_version: 1`, the package object,
+the pinned source repository/commit/tag, and the release notes as `changelog`. It
+is not a new local draft schema. Cadencr applies the marketplace submission delta
+rules before writing; production Node is not required.
+
+Review `PULL_REQUEST.md` and every generated JSON file. Its generated facts are
+filled in, but human claims remain unchecked: repository/provider authorization,
+credential absence, native runtime and prompt-free conformance, license/provenance,
+dependency or privilege changes, and official registry validation.
+
+Exports use exclusive writes and are never overwritten or automatically deleted.
+Ordinary write failures attempt cleanup, but process interruption can leave a
+partial UUID directory that counts toward the quota and requires manual inspection
+and removal. Every action intentionally creates a new UUID rather than reusing a
+prior result. Only 16 exports are retained globally; archive any contribution that
+must be retained outside this storage, then manually review and remove old or
+partial exports before trying again.
+
+E4 stops at local files. No official registry destination is configured, so it does
+not fork, branch, push, open a pull request, sign, or obtain registry acceptance. It
+cannot establish first/new-version status or continuity against the authoritative
+registry baseline. Official registry CI and maintainer review remain required.
+
+The implementation is still partially qualified while parent tests and live-app QA
+are pending. The next gate is a registry destination/policy decision followed by
+separately authorized pull-request automation, not an assumed later E step.
 
 ## Prepare the review submission
 

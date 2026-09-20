@@ -1,9 +1,10 @@
-use std::path::{Path as FsPath, PathBuf};
+use std::path::Path as FsPath;
 
 use super::archive::{self, ArchiveBuildRequest};
 use super::input::{reject_output_overlap, PreparedInputs};
 use super::PreparedPublicationPackage;
 use crate::domain::agents::providers::installed::managed::ManagedProviderPackage;
+use crate::domain::projects::publication_storage;
 use crate::error::AppError;
 
 pub(super) fn build_package(
@@ -17,7 +18,12 @@ pub(super) fn build_package(
         AppError::Internal(format!("cannot resolve publication bundle parent: {error}"))
     })?;
     reject_output_overlap(&canonical_parent, &input.staging, &input.project_root)?;
-    let output_dir = create_unique_output_dir(&canonical_parent)?;
+    let output_dir =
+        publication_storage::create_unique_directory(&canonical_parent).map_err(|error| {
+            AppError::Internal(format!(
+                "cannot exclusively create publication bundle directory: {error}"
+            ))
+        })?;
     let archive_path = output_dir.join("provider.tar.gz");
     let metadata_path = output_dir.join("package.json");
     let result = (|| {
@@ -60,41 +66,14 @@ pub(super) fn build_package(
     }
 }
 
-fn create_unique_output_dir(parent: &FsPath) -> Result<PathBuf, AppError> {
-    for _ in 0..8 {
-        let output = parent.join(uuid::Uuid::new_v4().to_string());
-        match std::fs::create_dir(&output) {
-            Ok(()) => return Ok(output),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(AppError::Internal(format!(
-                    "cannot exclusively create publication bundle directory: {error}"
-                )))
-            }
-        }
-    }
-    Err(AppError::Internal(
-        "could not allocate a unique publication bundle directory".into(),
-    ))
-}
-
 fn escape_json_pointer(value: &str) -> String {
     value.replace('~', "~0").replace('/', "~1")
 }
 
 fn write_metadata_exclusive(path: &FsPath, metadata: &serde_json::Value) -> Result<(), AppError> {
-    use std::io::Write as _;
     let bytes = serde_json::to_vec_pretty(metadata)
         .map_err(|error| AppError::Internal(format!("cannot encode package metadata: {error}")))?;
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    let mut file = options.open(path).map_err(|error| {
-        AppError::Internal(format!(
-            "cannot exclusively create package metadata: {error}"
-        ))
-    })?;
-    file.write_all(&bytes)
-        .and_then(|()| file.sync_all())
+    publication_storage::write_exclusive_synced(path, &bytes)
         .map_err(|error| AppError::Internal(format!("cannot persist package metadata: {error}")))
 }
 

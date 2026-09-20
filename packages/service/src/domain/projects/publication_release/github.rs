@@ -5,9 +5,11 @@ mod listing;
 mod models;
 mod state;
 mod transport;
+mod verify;
 
 use super::remote::{
-    GitHubPublishRequest, GitHubPublishedRelease, GitHubReleaseClient, GitHubReleaseInspection,
+    GitHubPublishRequest, GitHubPublishedRelease, GitHubReleaseClient, GitHubReleaseExpectation,
+    GitHubReleaseInspection,
 };
 use crate::error::AppError;
 
@@ -31,6 +33,14 @@ pub(crate) async fn publish_publication_release(
 ) -> Result<GitHubPublishedRelease, AppError> {
     let client = GitHubReleaseClient::new()?;
     state::publish(&Transport::production(client), token, &request).await
+}
+
+pub(crate) async fn verify_published_publication_release(
+    token: &str,
+    expectation: GitHubReleaseExpectation,
+) -> Result<GitHubPublishedRelease, AppError> {
+    let client = GitHubReleaseClient::new()?;
+    verify::published(&Transport::production(client), token, &expectation).await
 }
 
 async fn inspect_with(
@@ -127,11 +137,21 @@ mod tests {
             .build()
     }
 
+    fn expectation(
+        archive: &axum::body::Bytes,
+        metadata: &axum::body::Bytes,
+    ) -> GitHubReleaseExpectation {
+        GitHubReleaseExpectation::from_request(&request(archive, metadata))
+    }
+
     #[tokio::test]
     async fn publishes_and_exact_retry_performs_no_writes() {
         let fixture = Fixture::start(FixtureOptions::default()).await;
         let archive = axum::body::Bytes::from_static(b"archive");
         let metadata = axum::body::Bytes::from_static(b"metadata");
+        let sizes = expectation(&archive, &metadata);
+        assert_eq!(sizes.archive_size, archive.len() as u64);
+        assert_eq!(sizes.metadata_size, metadata.len() as u64);
         let first = state::publish(&fixture.transport, "secret", &request(&archive, &metadata))
             .await
             .unwrap();
@@ -209,5 +229,66 @@ mod tests {
                 .is_err()
         );
         assert_eq!(fixture.asset_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn readonly_verifier_accepts_only_exact_published_state_without_writes() {
+        let archive = axum::body::Bytes::from_static(b"archive");
+        let metadata = axum::body::Bytes::from_static(b"metadata");
+        let good = Fixture::start(FixtureOptions {
+            published: true,
+            complete_assets: true,
+            ..FixtureOptions::default()
+        })
+        .await;
+        let verified =
+            verify::published(&good.transport, "secret", &expectation(&archive, &metadata))
+                .await
+                .unwrap();
+        assert!(verified.already_published);
+        assert_eq!(good.writes(), 0);
+
+        for options in [
+            FixtureOptions {
+                complete_assets: true,
+                ..FixtureOptions::default()
+            },
+            FixtureOptions {
+                published: true,
+                ..FixtureOptions::default()
+            },
+            FixtureOptions {
+                foreign_body: true,
+                ..FixtureOptions::default()
+            },
+            FixtureOptions {
+                published: true,
+                complete_assets: true,
+                omit_digest: true,
+                ..FixtureOptions::default()
+            },
+            FixtureOptions {
+                published: true,
+                complete_assets: true,
+                extra_asset: true,
+                ..FixtureOptions::default()
+            },
+            FixtureOptions {
+                published: true,
+                complete_assets: true,
+                tag_drift: true,
+                ..FixtureOptions::default()
+            },
+        ] {
+            let fixture = Fixture::start(options).await;
+            assert!(verify::published(
+                &fixture.transport,
+                "secret",
+                &expectation(&archive, &metadata)
+            )
+            .await
+            .is_err());
+            assert_eq!(fixture.writes(), 0);
+        }
     }
 }
