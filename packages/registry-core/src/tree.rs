@@ -1,6 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::Read;
+use std::fs::{self};
 use std::path::Path;
 
 use serde_json::Value;
@@ -105,11 +104,8 @@ fn load_directory(
             ));
             continue;
         }
-        let mut bytes = Vec::with_capacity(metadata.len() as usize);
-        match open_regular(&path, &metadata)
-            .and_then(|file| file.take(MAX_FILE_BYTES + 1).read_to_end(&mut bytes))
-        {
-            Ok(_) if bytes.len() as u64 <= MAX_FILE_BYTES => {
+        match crate::safe_io::read_bounded_regular(&path, MAX_FILE_BYTES) {
+            Ok(bytes) => {
                 *budget += bytes.len() as u64;
                 if *budget > MAX_ROOT_BYTES {
                     errors.push(format!(
@@ -124,9 +120,6 @@ fn load_directory(
                     Err(error) => errors.push(format!("{label}/{name}: invalid JSON ({error})")),
                 }
             }
-            Ok(_) => errors.push(format!(
-                "{label}/{name}: exceeds the {MAX_FILE_BYTES}-byte file limit"
-            )),
             Err(error) => errors.push(format!("{label}/{name}: {error}")),
         }
     }
@@ -160,31 +153,6 @@ fn read_entries(
         return None;
     }
     Some(entries)
-}
-
-#[cfg(unix)]
-fn open_regular(path: &Path, before: &fs::Metadata) -> std::io::Result<File> {
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-
-    let file = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-        .open(path)?;
-    let after = file.metadata()?;
-    if !after.is_file() || before.dev() != after.dev() || before.ino() != after.ino() {
-        return Err(std::io::Error::other("changed while being validated"));
-    }
-    Ok(file)
-}
-
-#[cfg(not(unix))]
-fn open_regular(path: &Path, before: &fs::Metadata) -> std::io::Result<File> {
-    let file = OpenOptions::new().read(true).open(path)?;
-    let after = file.metadata()?;
-    if !after.is_file() || before.len() != after.len() {
-        return Err(std::io::Error::other("changed while being validated"));
-    }
-    Ok(file)
 }
 
 pub(crate) fn load_packages(

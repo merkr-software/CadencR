@@ -70,6 +70,26 @@ enum RegistryCommand {
         #[arg(long)]
         output: Option<PathBuf>,
     },
+    /// Build a deterministic provider archive from a prepared staging tree.
+    PackProvider {
+        #[arg(long)]
+        package: PathBuf,
+        #[arg(long)]
+        target: String,
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic local publication plan without network access.
+    PlanPublication {
+        #[arg(long)]
+        submission: PathBuf,
+        #[arg(long)]
+        repository: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
 }
 
 struct Diagnostic {
@@ -134,6 +154,8 @@ fn writes_index_to_stdout(cli: &Cli) -> bool {
         &cli.command,
         Command::Registry(RegistryArgs {
             command: RegistryCommand::BuildIndex { output: None, .. }
+        }) | Command::Registry(RegistryArgs {
+            command: RegistryCommand::PackProvider { .. }
         })
     )
 }
@@ -172,6 +194,55 @@ fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
             Ok(output
                 .as_ref()
                 .map(|path| format!("wrote registry index: {}", path.display())))
+        }
+        Command::Registry(RegistryArgs {
+            command:
+                RegistryCommand::PackProvider {
+                    package,
+                    target,
+                    directory,
+                    output,
+                },
+        }) => {
+            let packed = cadencr_registry_core::pack_provider(
+                cadencr_registry_core::PackProviderRequest::builder()
+                    .package(package)
+                    .target(target)
+                    .directory(directory)
+                    .output(output)
+                    .build(),
+            )
+            .map_err(|error| operation_error("REGISTRY_PACKAGING_FAILED", error))?;
+            let mut receipt = serde_json::to_vec(&json!({
+                "target": packed.target,
+                "archive": packed.archive,
+                "sha256": packed.sha256,
+                "size": packed.size,
+            }))
+            .map_err(|error| operation_error("REGISTRY_PACKAGING_FAILED", error))?;
+            receipt.push(b'\n');
+            write_index_to_stdout(&receipt, &mut io::stdout().lock())?;
+            Ok(None)
+        }
+        Command::Registry(RegistryArgs {
+            command:
+                RegistryCommand::PlanPublication {
+                    submission,
+                    repository,
+                    output,
+                },
+        }) => {
+            let plan =
+                cadencr_registry_core::create_publication_plan_from_file(submission, repository)
+                    .map_err(|error| operation_error("PUBLICATION_PLAN_FAILED", error))?;
+            let mut bytes = serde_json::to_vec_pretty(&plan)
+                .map_err(|error| operation_error("PUBLICATION_PLAN_FAILED", error))?;
+            bytes.push(b'\n');
+            publish_index(output, |temporary| {
+                temporary.write_all(&bytes)?;
+                temporary.flush()
+            })?;
+            Ok(Some(format!("publication plan: {}", output.display())))
         }
     }
 }
