@@ -779,7 +779,10 @@ dependencies = [
  "cadencr-registry-core",
  "chrono",
  "clap",
+ "flate2",
+ "libc",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
 ]
 
@@ -812,11 +815,14 @@ dependencies = [
  "bon",
  "cadencr-plugin-core",
  "chrono",
+ "flate2",
  "libc",
  "ryu-js",
  "semver",
  "serde_json",
+ "sha2 0.11.0",
  "tempfile",
+ "unicode-normalization",
  "url",
 ]
 
@@ -834,6 +840,7 @@ dependencies = [
  "bon",
  "bzip2",
  "cadencr-plugin-core",
+ "cadencr-registry-core",
  "chrono",
  "chrono-tz",
  "clap",

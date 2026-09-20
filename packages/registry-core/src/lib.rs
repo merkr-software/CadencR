@@ -1,16 +1,24 @@
+mod archive;
 mod diagnostics;
 mod error;
 mod index;
 mod json;
 mod package;
+mod publication_plan;
+mod safe_io;
 mod submission;
 mod tree;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
+pub use archive::{
+    pack_archive, pack_provider, PackProviderRequest, PackSpec, PackedArchive, PackedProvider,
+};
 pub use error::RegistryError;
 pub use index::build_index;
+pub use json::canonical_json_bytes;
+pub use publication_plan::create_publication_plan_from_file;
 
 use diagnostics::Diagnostics;
 use package::{identity, normalized_provider_id, validate_package};

@@ -8,6 +8,7 @@ license.workspace = true
 axum = { version = "0.8", features = ["ws"] }
 bon.workspace = true
 cadencr-plugin-core = { path = "../plugin-core" }
+cadencr-registry-core = { path = "../registry-core" }
 claude-agent-sdk-rs = { path = "../claude-agent-sdk-rs" }
 cli-discovery = { path = "../cli-discovery" }
 codex-app-server-sdk-rs = { path = "../codex-app-server-sdk-rs" }

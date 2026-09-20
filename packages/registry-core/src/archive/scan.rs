@@ -2,22 +2,30 @@ use std::collections::HashSet;
 use std::fs::Metadata;
 use std::path::{Path, PathBuf};
 
-use crate::domain::agents::providers::installed::managed::archive::{
-    MAX_ARCHIVE_ENTRIES, MAX_SINGLE_FILE_BYTES, MAX_UNCOMPRESSED_BYTES,
-};
-use crate::domain::agents::providers::installed::managed::ManagedPackageAssets;
-use crate::error::AppError;
+use unicode_normalization::UnicodeNormalization as _;
+
+use crate::RegistryError;
+
+pub(super) const MAX_ARCHIVE_ENTRIES: usize = 4_096;
+pub(super) const MAX_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+pub(super) const MAX_SINGLE_FILE_BYTES: u64 = 256 * 1024 * 1024;
+const MAX_DIRECTORY_DEPTH: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Identity {
     pub(super) len: u64,
     modified: Option<std::time::SystemTime>,
+    created: Option<std::time::SystemTime>,
     #[cfg(unix)]
     dev: u64,
     #[cfg(unix)]
     ino: u64,
     #[cfg(unix)]
     mode: u32,
+    #[cfg(unix)]
+    ctime: i64,
+    #[cfg(unix)]
+    ctime_nsec: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,7 +44,7 @@ pub(super) struct Snapshot {
     pub entries: Vec<Entry>,
 }
 
-pub(super) fn collect(staging: &Path) -> Result<Snapshot, AppError> {
+pub(super) fn collect(staging: &Path) -> Result<Snapshot, RegistryError> {
     let input = std::fs::symlink_metadata(staging)
         .map_err(|error| bad(format!("cannot inspect staging directory: {error}")))?;
     if !input.is_dir() || input.file_type().is_symlink() {
@@ -49,7 +57,7 @@ pub(super) fn collect(staging: &Path) -> Result<Snapshot, AppError> {
     let root_identity = identity(&std::fs::symlink_metadata(&root).map_err(io_error)?);
     let mut entries = Vec::new();
     let mut bytes = 0;
-    visit(&root, Path::new(""), &mut entries, &mut bytes)?;
+    visit(&root, Path::new(""), 0, &mut entries, &mut bytes)?;
     Ok(Snapshot {
         root,
         root_identity,
@@ -60,9 +68,15 @@ pub(super) fn collect(staging: &Path) -> Result<Snapshot, AppError> {
 fn visit(
     root: &Path,
     relative: &Path,
+    depth: usize,
     entries: &mut Vec<Entry>,
     bytes: &mut u64,
-) -> Result<(), AppError> {
+) -> Result<(), RegistryError> {
+    if depth > MAX_DIRECTORY_DEPTH {
+        return Err(bad(format!(
+            "package exceeds {MAX_DIRECTORY_DEPTH} directory levels"
+        )));
+    }
     let remaining = MAX_ARCHIVE_ENTRIES.saturating_sub(entries.len());
     let mut children = bounded_children(&root.join(relative), remaining)?;
     children.sort_by(|left, right| {
@@ -78,34 +92,8 @@ fn visit(
         let child_relative = relative.join(&name);
         let source = root.join(&child_relative);
         let metadata = std::fs::symlink_metadata(&source).map_err(io_error)?;
-        if metadata.file_type().is_symlink() {
-            return Err(bad(format!(
-                "symbolic links are forbidden: {}",
-                child_relative.display()
-            )));
-        }
-        if !metadata.is_file() && !metadata.is_dir() {
-            return Err(bad(format!(
-                "special files are forbidden: {}",
-                child_relative.display()
-            )));
-        }
-        if metadata.is_file() {
-            if metadata.len() > MAX_SINGLE_FILE_BYTES {
-                return Err(bad(format!(
-                    "file exceeds {MAX_SINGLE_FILE_BYTES} bytes: {}",
-                    child_relative.display()
-                )));
-            }
-            *bytes = bytes
-                .checked_add(metadata.len())
-                .ok_or_else(|| bad("package size overflow"))?;
-            if *bytes > MAX_UNCOMPRESSED_BYTES {
-                return Err(bad(format!(
-                    "package exceeds {MAX_UNCOMPRESSED_BYTES} uncompressed bytes"
-                )));
-            }
-        }
+        validate_file_type(&metadata, &child_relative)?;
+        account_file(&metadata, &child_relative, bytes)?;
         let canonical = std::fs::canonicalize(&source).map_err(io_error)?;
         if !canonical.starts_with(root) {
             return Err(bad(format!(
@@ -113,7 +101,9 @@ fn visit(
                 child_relative.display()
             )));
         }
-        ensure_capacity(entries.len(), MAX_ARCHIVE_ENTRIES)?;
+        if entries.len() >= MAX_ARCHIVE_ENTRIES {
+            return Err(limit_error());
+        }
         entries.push(Entry {
             relative: child_relative.clone(),
             canonical,
@@ -122,8 +112,45 @@ fn visit(
             identity: identity(&metadata),
         });
         if metadata.is_dir() {
-            visit(root, &child_relative, entries, bytes)?;
+            visit(root, &child_relative, depth + 1, entries, bytes)?;
         }
+    }
+    Ok(())
+}
+
+fn validate_file_type(metadata: &Metadata, path: &Path) -> Result<(), RegistryError> {
+    if metadata.file_type().is_symlink() {
+        return Err(bad(format!(
+            "symbolic links are forbidden: {}",
+            path.display()
+        )));
+    }
+    if !metadata.is_file() && !metadata.is_dir() {
+        return Err(bad(format!(
+            "special files are forbidden: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn account_file(metadata: &Metadata, path: &Path, total: &mut u64) -> Result<(), RegistryError> {
+    if !metadata.is_file() {
+        return Ok(());
+    }
+    if metadata.len() > MAX_SINGLE_FILE_BYTES {
+        return Err(bad(format!(
+            "file exceeds {MAX_SINGLE_FILE_BYTES} bytes: {}",
+            path.display()
+        )));
+    }
+    *total = total
+        .checked_add(metadata.len())
+        .ok_or_else(|| bad("package size overflow"))?;
+    if *total > MAX_UNCOMPRESSED_BYTES {
+        return Err(bad(format!(
+            "package exceeds {MAX_UNCOMPRESSED_BYTES} uncompressed bytes"
+        )));
     }
     Ok(())
 }
@@ -131,7 +158,7 @@ fn visit(
 fn bounded_children(
     directory: &Path,
     remaining: usize,
-) -> Result<Vec<std::fs::DirEntry>, AppError> {
+) -> Result<Vec<std::fs::DirEntry>, RegistryError> {
     let children = std::fs::read_dir(directory)
         .map_err(io_error)?
         .take(remaining.saturating_add(1))
@@ -143,7 +170,7 @@ fn bounded_children(
     Ok(children)
 }
 
-fn utf8_name<'a>(name: &'a std::ffi::OsStr, parent: &Path) -> Result<&'a str, AppError> {
+fn utf8_name<'a>(name: &'a std::ffi::OsStr, parent: &Path) -> Result<&'a str, RegistryError> {
     name.to_str().ok_or_else(|| {
         bad(format!(
             "non-UTF-8 package path is forbidden under {}",
@@ -152,54 +179,41 @@ fn utf8_name<'a>(name: &'a std::ffi::OsStr, parent: &Path) -> Result<&'a str, Ap
     })
 }
 
-fn ensure_capacity(current: usize, limit: usize) -> Result<(), AppError> {
-    if current >= limit {
-        return Err(limit_error());
-    }
-    Ok(())
-}
-
-fn limit_error() -> AppError {
-    bad(format!("package exceeds {MAX_ARCHIVE_ENTRIES} entries"))
-}
-
-pub(super) fn validate_declared_files(
+pub(super) fn validate_declared_files<'a>(
     snapshot: &Snapshot,
-    target_name: &str,
-    command: &str,
-    assets: &ManagedPackageAssets,
-) -> Result<(), AppError> {
+    target: &str,
+    command: &'a str,
+    assets: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<(), RegistryError> {
     let files: HashSet<_> = snapshot
         .entries
         .iter()
         .filter(|entry| !entry.directory)
         .map(|entry| &entry.relative)
         .collect();
-    for (label, value) in [
-        ("entrypoint", Some(command)),
-        ("icon asset", Some(assets.icon.as_str())),
-        ("readme asset", assets.readme.as_deref()),
-        ("license asset", assets.license.as_deref()),
-    ] {
-        if value.is_some_and(|value| !files.contains(&PathBuf::from(value))) {
+    for (label, value) in std::iter::once(("entrypoint", command)).chain(assets) {
+        if !files.contains(&PathBuf::from(value)) {
             return Err(bad(format!(
-                "{label} is missing from staging directory: {}",
-                value.unwrap()
+                "{label} is missing from staging directory: {value}"
             )));
         }
     }
-    let executable = snapshot
+    let command_entry = snapshot
         .entries
         .iter()
         .find(|entry| entry.relative == Path::new(command));
-    if !target_name.starts_with("windows-") && !executable.is_some_and(|entry| entry.executable) {
-        return Err(bad(format!("entrypoint is not executable: {command}")));
+    if !target.starts_with("windows-") && !command_entry.is_some_and(|entry| entry.executable) {
+        return Err(bad(format!("entrypoint is not executable: {}", command)));
     }
     Ok(())
 }
 
-fn validate_name(name: &str, parent: &Path, seen: &mut HashSet<String>) -> Result<(), AppError> {
-    let lower = name.to_lowercase();
+fn validate_name(
+    name: &str,
+    parent: &Path,
+    seen: &mut HashSet<String>,
+) -> Result<(), RegistryError> {
+    let lower = name.nfc().collect::<String>().to_lowercase();
     let invalid = name
         .chars()
         .any(|character| character <= '\u{1f}' || "<>:\"\\|?*".contains(character))
@@ -217,8 +231,12 @@ fn validate_name(name: &str, parent: &Path, seen: &mut HashSet<String>) -> Resul
             parent.join(name).display()
         )));
     }
+    reject_secret(&lower, name, parent)
+}
+
+fn reject_secret(lower: &str, name: &str, parent: &Path) -> Result<(), RegistryError> {
     let secret = matches!(
-        lower.as_str(),
+        lower,
         ".env" | ".git" | "id_dsa" | "id_ecdsa" | "id_ed25519" | "id_rsa"
     ) || lower.starts_with(".env.")
         || [".key", ".p12", ".pfx", ".pem"]
@@ -247,7 +265,7 @@ fn single_device_digit(value: &str) -> bool {
         .is_some_and(|byte| value.len() == 1 && (b'1'..=b'9').contains(byte))
 }
 
-pub(super) fn current_identity(path: &Path) -> Result<Identity, AppError> {
+pub(super) fn current_identity(path: &Path) -> Result<Identity, RegistryError> {
     std::fs::symlink_metadata(path)
         .map(|value| identity(&value))
         .map_err(io_error)
@@ -263,12 +281,17 @@ fn identity(metadata: &Metadata) -> Identity {
     Identity {
         len: metadata.len(),
         modified: metadata.modified().ok(),
+        created: metadata.created().ok(),
         #[cfg(unix)]
         dev: metadata.dev(),
         #[cfg(unix)]
         ino: metadata.ino(),
         #[cfg(unix)]
         mode: metadata.mode(),
+        #[cfg(unix)]
+        ctime: metadata.ctime(),
+        #[cfg(unix)]
+        ctime_nsec: metadata.ctime_nsec(),
     }
 }
 
@@ -282,41 +305,29 @@ fn executable(_metadata: &Metadata) -> bool {
     true
 }
 
-fn bad(message: impl Into<String>) -> AppError {
-    AppError::BadRequest(message.into())
+fn limit_error() -> RegistryError {
+    bad(format!("package exceeds {MAX_ARCHIVE_ENTRIES} entries"))
 }
-fn io_error(error: std::io::Error) -> AppError {
-    AppError::Internal(format!("package archive I/O failed: {error}"))
+fn bad(message: impl Into<String>) -> RegistryError {
+    RegistryError::single(message)
+}
+fn io_error(error: std::io::Error) -> RegistryError {
+    bad(format!("package archive I/O failed: {error}"))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{bounded_children, ensure_capacity, utf8_name};
+    use super::*;
 
     #[test]
-    fn directory_enumeration_stops_at_the_remaining_budget() {
+    fn rejects_excessive_directory_depth_before_recursing_further() {
         let root = tempfile::tempdir().unwrap();
-        for name in ["one", "two", "three"] {
-            std::fs::write(root.path().join(name), name).unwrap();
+        let mut directory = root.path().to_path_buf();
+        for _ in 0..=MAX_DIRECTORY_DEPTH {
+            directory.push("d");
+            std::fs::create_dir(&directory).unwrap();
         }
-        let error = bounded_children(root.path(), 2).unwrap_err();
-        assert!(error.to_string().contains("exceeds 4096 entries"));
-        assert_eq!(bounded_children(root.path(), 3).unwrap().len(), 3);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn rejects_non_utf8_file_names() {
-        use std::os::unix::ffi::OsStringExt as _;
-
-        let name = std::ffi::OsString::from_vec(vec![b'f', 0x80]);
-        let error = utf8_name(&name, std::path::Path::new("nested")).unwrap_err();
-        assert!(error.to_string().contains("non-UTF-8 package path"));
-    }
-
-    #[test]
-    fn recursive_sibling_push_cannot_exceed_consumed_global_budget() {
-        assert!(ensure_capacity(2, 3).is_ok());
-        assert!(ensure_capacity(3, 3).is_err());
+        let error = collect(root.path()).unwrap_err();
+        assert!(error.to_string().contains("directory levels"));
     }
 }

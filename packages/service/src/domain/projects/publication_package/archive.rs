@@ -5,9 +5,6 @@ use std::path::Path;
 use crate::domain::agents::providers::installed::managed::ManagedProviderPackage;
 use crate::error::AppError;
 
-mod scan;
-mod write;
-
 #[derive(bon::Builder)]
 pub(super) struct ArchiveBuildRequest<'a> {
     pub staging: &'a Path,
@@ -36,14 +33,28 @@ pub(super) fn build(request: ArchiveBuildRequest<'_>) -> Result<BuiltArchive, Ap
                 request.target
             ))
         })?;
-    let snapshot = scan::collect(request.staging)?;
-    scan::validate_declared_files(
-        &snapshot,
-        request.target,
-        &target.cmd,
-        &request.package.host.assets,
-    )?;
-    write::archive(&snapshot, request.output)
+    let assets = &request.package.host.assets;
+    let mut declared = vec![("icon asset", assets.icon.as_str())];
+    if let Some(readme) = assets.readme.as_deref() {
+        declared.push(("readme asset", readme));
+    }
+    if let Some(license) = assets.license.as_deref() {
+        declared.push(("license asset", license));
+    }
+    cadencr_registry_core::pack_archive(
+        cadencr_registry_core::PackSpec::builder()
+            .directory(request.staging)
+            .target(request.target)
+            .command(target.cmd.as_str())
+            .assets(declared)
+            .output(request.output)
+            .build(),
+    )
+    .map(|archive| BuiltArchive {
+        sha256: archive.sha256,
+        size: archive.size,
+    })
+    .map_err(|error| AppError::BadRequest(error.to_string()))
 }
 
 #[cfg(test)]
@@ -164,9 +175,9 @@ mod tests {
             [
                 "LICENSE",
                 "README.md",
-                "assets",
+                "assets/",
                 "assets/icon.svg",
-                "bin",
+                "bin/",
                 "bin/provider"
             ]
         );

@@ -6,7 +6,7 @@ use serde_json::Value;
 /// JavaScript converts every JSON number to an IEEE-754 binary64 value. The
 /// registry's canonical wire format is defined by the JavaScript tooling, so
 /// normalize numbers at the input boundary before validation or comparison.
-pub(crate) fn parse_json(bytes: &[u8]) -> serde_json::Result<Value> {
+pub fn parse_json(bytes: &[u8]) -> serde_json::Result<Value> {
     // Validate the untouched document before replacing overflowed numeric
     // tokens. RawValue performs full JSON syntax/depth validation without
     // attempting to represent numbers in serde_json::Number.
@@ -70,10 +70,16 @@ fn replace_non_finite_numbers(source: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
-pub(crate) fn canonical_json(value: &Value) -> String {
+pub fn canonical_json(value: &Value) -> String {
     let mut output = String::new();
     write_canonical(value, &mut output);
     output
+}
+
+/// Encodes a parsed JSON value with the registry's JavaScript-compatible
+/// canonicalization contract and without a trailing newline.
+pub fn canonical_json_bytes(value: &Value) -> Vec<u8> {
+    canonical_json(value).into_bytes()
 }
 
 fn write_canonical(value: &Value, output: &mut String) {
