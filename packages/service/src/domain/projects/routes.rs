@@ -46,6 +46,25 @@ pub async fn delete_project_handler(
     Ok(Json(SuccessResponse { success: true }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects/{id}/publication-readiness",
+    params(("id" = i64, Path,)),
+    responses(
+        (status = 200, body = PublicationReadinessResponse),
+        (status = 400, description = "Project is not an authored provider"),
+        (status = 404, description = "Project does not exist")
+    )
+)]
+pub async fn get_project_publication_readiness_handler(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<PublicationReadinessResponse>, AppError> {
+    Ok(Json(
+        crate::domain::projects::publication_readiness::inspect(&state.read_pool, id).await?,
+    ))
+}
+
 #[utoipa::path(get, path = "/api/projects/{id}/settings", params(("id" = i64, Path,)), responses((status = 200, body = Vec<ProjectSetting>)))]
 pub async fn get_project_settings_handler(
     State(state): State<AppState>,
@@ -153,6 +172,10 @@ pub fn projects_router() -> Router<AppState> {
         .route(
             "/api/projects/{id}",
             axum::routing::delete(delete_project_handler),
+        )
+        .route(
+            "/api/projects/{id}/publication-readiness",
+            get(get_project_publication_readiness_handler),
         )
         .route(
             "/api/projects/{id}/settings",

@@ -21,6 +21,7 @@ const mockCreateProject = vi.fn();
 const mockDeleteProject = vi.fn();
 const mockCreateFeature = vi.fn();
 const _mockCreateSession = vi.fn();
+const mockProjectSettingsDialog = vi.hoisted(() => vi.fn(() => null));
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => mockNavigate,
@@ -53,7 +54,7 @@ vi.mock("../api/generated", async (importOriginal) => ({
   })),
   useListProjects: vi.fn(() => ({
     data: [
-      { id: 1, name: "Alpha Project", path: "/alpha" },
+      { id: 1, name: "Alpha Project", path: "/alpha", authoring_target: "provider" },
       { id: 2, name: "Beta Project", path: "/beta" },
     ],
   })),
@@ -139,7 +140,7 @@ vi.mock("@/components/ProjectBadge", () => ({
 
 // Mock ProjectSettingsDialog
 vi.mock("./ProjectSettingsDialog", () => ({
-  ProjectSettingsDialog: () => null,
+  ProjectSettingsDialog: mockProjectSettingsDialog,
 }));
 
 function visibleShortcutBadgeTexts(container: HTMLElement): string[] {
@@ -166,6 +167,7 @@ describe("ProjectTree", () => {
     resetMockIds();
     mockNavigate.mockClear();
     mockCreateFeature.mockClear();
+    mockProjectSettingsDialog.mockClear();
   });
 
   afterEach(() => {
@@ -209,6 +211,19 @@ describe("ProjectTree", () => {
     // Click again to collapse
     await user.click(screen.getByText("Alpha Project"));
     expect(screen.queryByText("Feature One")).not.toBeInTheDocument();
+  });
+
+  it("carries project authoring identity into the settings dialog", async () => {
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.pointer({ target: screen.getByText("Alpha Project"), keys: "[MouseRight]" });
+    await user.click(await screen.findByText("Project Settings"));
+
+    expect(mockProjectSettingsDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: 1, authoringTarget: "provider" }),
+      undefined,
+    );
   });
 
   it("uses command-number to activate visible sidebar rows", async () => {

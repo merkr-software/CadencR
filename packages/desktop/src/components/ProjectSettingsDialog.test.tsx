@@ -4,12 +4,14 @@ import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 
 const generatedMocks = vi.hoisted(() => ({
   getProjectSettings: vi.fn(),
+  getPublicationReadiness: vi.fn(),
   setProjectSetting: vi.fn(),
 }));
 
 vi.mock("../api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/generated")>()),
   useGetProjectSettings: generatedMocks.getProjectSettings,
+  useGetProjectPublicationReadiness: generatedMocks.getPublicationReadiness,
   useSetProjectSetting: vi.fn(() => ({ mutate: generatedMocks.setProjectSetting })),
   useListProjectWorktrees: vi.fn(() => ({ data: [] })),
 }));
@@ -21,6 +23,13 @@ vi.mock("./ModelSelector", () => ({
 describe("ProjectSettingsDialog", () => {
   beforeEach(() => {
     generatedMocks.getProjectSettings.mockReturnValue({ data: [] });
+    generatedMocks.getPublicationReadiness.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isRefetching: false,
+      isError: false,
+      refetch: vi.fn(),
+    });
     generatedMocks.setProjectSetting.mockClear();
   });
 
@@ -78,6 +87,27 @@ describe("ProjectSettingsDialog", () => {
     expect(screen.queryByRole("radiogroup", { name: /agent autonomy/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/Parallel agent execution/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/QA testing procedure/i)).not.toBeInTheDocument();
+  });
+
+  it("shows publication preparation only for an explicit provider authoring project", () => {
+    const props = {
+      projectId: 1,
+      projectName: "Provider",
+      authoringTarget: "provider" as const,
+      open: true,
+      onOpenChange: vi.fn(),
+    };
+    const { rerender } = render(<ProjectSettingsDialog {...props} />);
+
+    expect(screen.getByText("Provider publication preparation")).toBeInTheDocument();
+
+    rerender(<ProjectSettingsDialog {...props} authoringTarget={undefined} />);
+
+    expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
+
+    rerender(<ProjectSettingsDialog {...props} authoringTarget="theme" />);
+
+    expect(screen.queryByText("Provider publication preparation")).not.toBeInTheDocument();
   });
 
   it("closes dialog when escape is pressed", async () => {
