@@ -111,21 +111,16 @@ pub(super) fn verify_receipt_trust(
     receipt: &ManagedPackageReceipt,
     trust_store: &ManagedTrustStore,
 ) -> Result<(), AppError> {
-    let signing_bytes = receipt
-        .signed_index
-        .signed
-        .signing_bytes()
-        .map_err(|error| AppError::Internal(format!("canonicalize retained index: {error}")))?;
-    if signed_payload_sha256(&signing_bytes) != receipt.trust.signed_payload_sha256 {
-        return Err(invalid_receipt(
-            "retained signed provider index differs from the receipt",
-        ));
-    }
     let verified = trust_store
         .verify_index(receipt.signed_index.clone())
         .map_err(|error| {
             AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
         })?;
+    if signed_payload_sha256(verified.signing_bytes()) != receipt.trust.signed_payload_sha256 {
+        return Err(invalid_receipt(
+            "retained signed provider index differs from the receipt",
+        ));
+    }
     if verified.signer_key_id() != receipt.trust.index_key_id {
         return Err(invalid_receipt(
             "retained provider index signer differs from the receipt",

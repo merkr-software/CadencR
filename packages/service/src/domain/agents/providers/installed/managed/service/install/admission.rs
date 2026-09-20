@@ -14,8 +14,8 @@ use crate::domain::agents::providers::installed::managed::conformance::{
 use crate::domain::agents::providers::installed::managed::download::download_verified;
 use crate::domain::agents::providers::installed::managed::quarantine::ManagedFailureStage;
 use crate::domain::agents::providers::installed::managed::receipt::{
-    installed_now, signed_payload_sha256, ManagedConformanceReceipt, ManagedPackageReceipt,
-    ManagedPayloadFile, ManagedTrustReceipt, MANAGED_RECEIPT_SCHEMA_VERSION,
+    installed_now, ManagedConformanceReceipt, ManagedPackageReceipt, ManagedPayloadFile,
+    ManagedTrustReceipt, MANAGED_RECEIPT_SCHEMA_VERSION,
 };
 use crate::domain::agents::providers::installed::managed::{
     ResolvedManagedProviderPackage, SignedManagedProviderIndex,
@@ -27,6 +27,7 @@ pub(super) struct AdmissionRequest<'a> {
     pub(super) agent: AcpAgentEntry,
     pub(super) signed_index: SignedManagedProviderIndex,
     pub(super) signer_key_id: &'a str,
+    pub(super) signed_payload_sha256: &'a str,
 }
 
 pub(super) async fn admit(
@@ -132,6 +133,7 @@ async fn admit_staged(
         agent: request.agent.clone(),
         signed_index: request.signed_index.clone(),
         signer_key_id: request.signer_key_id,
+        signed_payload_sha256: request.signed_payload_sha256,
         archive_size,
         archive_file_count,
         archive_uncompressed_bytes: extracted.uncompressed_bytes(),
@@ -231,6 +233,7 @@ struct ReceiptInput<'a> {
     agent: AcpAgentEntry,
     signed_index: SignedManagedProviderIndex,
     signer_key_id: &'a str,
+    signed_payload_sha256: &'a str,
     archive_size: u64,
     archive_file_count: u32,
     archive_uncompressed_bytes: u64,
@@ -241,11 +244,6 @@ struct ReceiptInput<'a> {
 }
 
 fn build_receipt(input: ReceiptInput<'_>) -> Result<ManagedPackageReceipt, AppError> {
-    let signing_bytes = input
-        .signed_index
-        .signed
-        .signing_bytes()
-        .map_err(|error| AppError::Internal(format!("canonicalize provider index: {error}")))?;
     let model_count = u32::try_from(input.report.discovered_model_count)
         .map_err(|_| AppError::Internal("managed model count overflowed u32".into()))?;
     Ok(ManagedPackageReceipt::builder()
@@ -267,7 +265,7 @@ fn build_receipt(input: ReceiptInput<'_>) -> Result<ManagedPackageReceipt, AppEr
         .installed_at(installed_now())
         .trust(ManagedTrustReceipt {
             index_key_id: input.signer_key_id.to_string(),
-            signed_payload_sha256: signed_payload_sha256(&signing_bytes),
+            signed_payload_sha256: input.signed_payload_sha256.to_string(),
         })
         .conformance(conformance_receipt(input.report, model_count))
         .signed_index(input.signed_index)
