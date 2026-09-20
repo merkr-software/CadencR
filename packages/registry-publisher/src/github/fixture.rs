@@ -5,7 +5,7 @@ pub(super) fn serve_json(status: &str, body: &str) -> (String, std::thread::Join
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}",
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     );
     let handle = std::thread::spawn(move || {
@@ -25,7 +25,7 @@ pub(super) fn serve_many(bodies: Vec<String>) -> String {
             read_request(&mut stream);
             write!(
                 stream,
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             )
             .unwrap();

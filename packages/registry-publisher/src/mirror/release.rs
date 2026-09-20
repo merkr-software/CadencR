@@ -26,7 +26,12 @@ pub(super) fn resolve_release(
             Err(primary) => client.find_release(&binding.tag)?.ok_or(primary)?,
         },
     };
-    validate_release(&release, &binding.tag, commit, &binding.body)?;
+    validate_bound_release(&release, &binding.tag, commit, &binding.body)?;
+    if !release.draft {
+        return Err(PublisherError::new(
+            "refusing non-draft or published release",
+        ));
+    }
     if prior.is_some_and(|receipt| receipt.release_id != release.id) {
         return Err(PublisherError::new(
             "mirror receipt release id conflicts with GitHub",
@@ -35,16 +40,14 @@ pub(super) fn resolve_release(
     Ok(release)
 }
 
-fn validate_release(
+pub(crate) fn validate_bound_release(
     release: &Release,
     tag: &str,
     commit: &str,
     body: &str,
 ) -> Result<(), PublisherError> {
-    if !release.draft {
-        return Err(PublisherError::new(
-            "refusing non-draft or published release",
-        ));
+    if release.prerelease {
+        return Err(PublisherError::new("release must not be a prerelease"));
     }
     if release.tag_name != tag {
         return Err(PublisherError::new(
@@ -65,6 +68,25 @@ fn validate_release(
     Ok(())
 }
 
+pub(crate) fn validate_published_release(
+    release: &Release,
+    tag: &str,
+    commit: &str,
+    body: &str,
+    expected_id: u64,
+) -> Result<(), PublisherError> {
+    validate_bound_release(release, tag, commit, body)?;
+    if release.id != expected_id {
+        return Err(PublisherError::new(
+            "mirror receipt release id conflicts with GitHub",
+        ));
+    }
+    if release.draft {
+        return Err(PublisherError::new("release is not published"));
+    }
+    Ok(())
+}
+
 pub(super) fn revalidate_release(
     client: &impl ReleaseClient,
     release: &Release,
@@ -74,7 +96,12 @@ pub(super) fn revalidate_release(
     let current = client
         .find_release(&release.tag_name)?
         .ok_or_else(|| PublisherError::new("draft release disappeared during mirroring"))?;
-    validate_release(&current, &release.tag_name, commit, body)?;
+    validate_bound_release(&current, &release.tag_name, commit, body)?;
+    if !current.draft {
+        return Err(PublisherError::new(
+            "refusing non-draft or published release",
+        ));
+    }
     if current.id != release.id {
         return Err(PublisherError::new(
             "draft release identity changed during mirroring",
@@ -226,6 +253,7 @@ mod tests {
             let release = json!({
                 "id":7,
                 "draft":true,
+                "prerelease":false,
                 "tag_name":draft["tag_name"],
                 "target_commitish":draft["target_commitish"],
                 "body":draft["body"]

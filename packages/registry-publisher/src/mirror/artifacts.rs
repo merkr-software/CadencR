@@ -7,16 +7,16 @@ use crate::fs::{hash_regular, remove_owned, write_private_synced, Identity};
 use crate::github::{Asset, ReleaseClient, UploadAssetRequest, VerifyAssetRequest};
 use crate::PublisherError;
 
-pub(super) fn validated_assets(
+pub(crate) fn validated_assets(
     list: Vec<Asset>,
     expected: &[ExpectedArtifact],
     complete: bool,
 ) -> Result<Vec<Asset>, PublisherError> {
     let mut output = Vec::with_capacity(list.len());
     for item in list {
-        if !expected.iter().any(|value| value.name == item.name) {
+        let Some(expected) = expected.iter().find(|value| value.name == item.name) else {
             return Err(PublisherError::new("release contains an unexpected asset"));
-        }
+        };
         if output.iter().any(|value: &Asset| value.name == item.name) {
             return Err(PublisherError::new(format!(
                 "duplicate release asset: {}",
@@ -25,6 +25,11 @@ pub(super) fn validated_assets(
         }
         if item.state != "uploaded" {
             return Err(PublisherError::new("release asset is not uploaded"));
+        }
+        if item.size != expected.size || item.browser_download_url != expected.expected_url {
+            return Err(PublisherError::new(
+                "release asset metadata does not match publication",
+            ));
         }
         output.push(item);
     }
@@ -38,7 +43,7 @@ fn asset<'a>(assets: &'a [Asset], name: &str) -> Option<&'a Asset> {
     assets.iter().find(|asset| asset.name == name)
 }
 
-pub(super) fn verify_present(
+pub(crate) fn verify_present(
     client: &impl ReleaseClient,
     assets: &[Asset],
     expected: &[ExpectedArtifact],
@@ -58,8 +63,8 @@ fn verify_one(
     artifact: &ExpectedArtifact,
     directory: &Path,
 ) -> Result<(), PublisherError> {
-    let temporary = OwnedDirectory::create(directory)?;
-    let output = temporary.path.join("asset");
+    let temporary = OwnedDirectory::create(directory, ".mirror-verify-")?;
+    let output = temporary.path().join("asset");
     let result = client.verify_asset(
         VerifyAssetRequest::builder()
             .asset(remote)
@@ -137,20 +142,18 @@ pub(super) fn publish_receipt(
     directory: &Path,
     receipt: &MirrorReceipt,
 ) -> Result<(), PublisherError> {
-    let value = serde_json::to_value(receipt)
-        .map_err(|_| PublisherError::new("cannot serialize mirror receipt"))?;
-    crate::receipt::publish_canonical_receipt(directory, MIRROR_RECEIPT, &value)
+    crate::receipt::publish_canonical_receipt(directory, MIRROR_RECEIPT, receipt)
 }
 
-struct OwnedDirectory {
+pub(crate) struct OwnedDirectory {
     path: PathBuf,
     identity: Identity,
 }
 
 impl OwnedDirectory {
-    fn create(parent: &Path) -> Result<Self, PublisherError> {
+    pub(crate) fn create(parent: &Path, prefix: &str) -> Result<Self, PublisherError> {
         let temporary = tempfile::Builder::new()
-            .prefix(".mirror-verify-")
+            .prefix(prefix)
             .tempdir_in(parent)
             .map_err(|error| PublisherError::io("create mirror temporary", error))?;
         let metadata = std::fs::symlink_metadata(temporary.path())
@@ -161,7 +164,11 @@ impl OwnedDirectory {
         })
     }
 
-    fn remove(self) -> Result<(), PublisherError> {
+    pub(crate) fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub(crate) fn remove(self) -> Result<(), PublisherError> {
         let metadata = std::fs::symlink_metadata(&self.path)
             .map_err(|error| PublisherError::io("inspect mirror temporary", error))?;
         if !self.identity.matches(&metadata) {
@@ -174,7 +181,7 @@ impl OwnedDirectory {
     }
 }
 
-fn combine_cleanup<T>(
+pub(crate) fn combine_cleanup<T>(
     primary: Result<T, PublisherError>,
     cleanup: Result<(), PublisherError>,
 ) -> Result<T, PublisherError> {

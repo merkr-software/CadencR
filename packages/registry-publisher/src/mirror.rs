@@ -1,12 +1,10 @@
 use crate::binding::{
     build_publication_binding, compact_artifacts, read_mirror_receipt, MirrorReceipt,
 };
-use crate::fs::OwnedLock;
 use crate::github::ReleaseClient;
+use crate::publication_local::{self, RefusingDownloader};
 use crate::stage;
-use crate::{DownloadRequest, Downloader, PublisherError, StageRequest};
-
-const LOCK: &str = ".mirror.lock";
+use crate::{PublisherError, StageRequest};
 
 pub(crate) fn mirror(
     request: StageRequest<'_>,
@@ -14,14 +12,7 @@ pub(crate) fn mirror(
     client: &impl ReleaseClient,
 ) -> Result<MirrorReceipt, PublisherError> {
     crate::validate_registry_commit(registry_commit)?;
-    let metadata = std::fs::symlink_metadata(request.directory)
-        .map_err(|error| PublisherError::io("inspect mirror directory", error))?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(PublisherError::new(
-            "mirror path must be a non-symlink directory",
-        ));
-    }
-    let lock = OwnedLock::acquire(&request.directory.join(LOCK))?;
+    let lock = publication_local::acquire(request.directory, "mirror")?;
     let result = mirror_locked(request, registry_commit, client);
     match result {
         Ok(receipt) => {
@@ -42,7 +33,7 @@ fn mirror_locked(
 ) -> Result<MirrorReceipt, PublisherError> {
     let repository = request.repository;
     let directory = request.directory;
-    let staged = stage::stage(request, &RefusingDownloader)?;
+    let staged = stage::stage(request, &RefusingDownloader::for_operation("mirror"))?;
     let binding = build_publication_binding(&staged, repository, registry_commit, directory)?;
     let prior = read_mirror_receipt(directory, &binding, repository, registry_commit)?;
     verify_tag(client, &binding.tag, registry_commit)?;
@@ -92,26 +83,16 @@ fn mirror_locked(
     Ok(receipt)
 }
 
-struct RefusingDownloader;
-
-impl Downloader for RefusingDownloader {
-    fn download(&self, _: DownloadRequest<'_>) -> Result<crate::Downloaded, PublisherError> {
-        Err(PublisherError::new(
-            "publication is not fully staged; mirror refuses to download sources",
-        ))
-    }
-}
-
-mod release;
+pub(crate) mod release;
 use release::{resolve_release, revalidate_release, verify_tag};
 
-mod artifacts;
+pub(crate) mod artifacts;
 use artifacts::{
     publish_receipt, upload_one, validate_local_artifact, validated_assets, verify_present,
 };
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::cell::{Cell, RefCell};
     use std::path::Path;
 
@@ -123,7 +104,7 @@ mod tests {
     use crate::github::{
         Asset, CreateDraftRequest, Release, UploadAssetRequest, VerifyAssetRequest,
     };
-    use crate::{Downloaded, StageRequest};
+    use crate::{DownloadRequest, Downloaded, Downloader, StageRequest};
 
     const REPOSITORY: &str = "cadencr/registry";
     const COMMIT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
@@ -143,20 +124,25 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct FakeClient {
-        release: RefCell<Option<Release>>,
-        assets: RefCell<Vec<(Asset, Vec<u8>)>>,
-        creates: Cell<u64>,
-        finds: Cell<u64>,
-        uploads: Cell<u64>,
-        verifications: Cell<u64>,
-        tag_commit: Option<String>,
-        tag_checks: Cell<u64>,
-        drift_tag_after: Option<u64>,
-        lose_create: bool,
-        lose_upload: bool,
-        promote_on_second_find: bool,
-        corrupt_verify: bool,
+    pub(crate) struct FakeClient {
+        pub(crate) release: RefCell<Option<Release>>,
+        pub(crate) assets: RefCell<Vec<(Asset, Vec<u8>)>>,
+        pub(crate) creates: Cell<u64>,
+        pub(crate) finds: Cell<u64>,
+        pub(crate) uploads: Cell<u64>,
+        pub(crate) asset_lists: Cell<u64>,
+        pub(crate) publishes: Cell<u64>,
+        pub(crate) verifications: Cell<u64>,
+        pub(crate) tag_commit: RefCell<Option<String>>,
+        pub(crate) tag_checks: Cell<u64>,
+        pub(crate) drift_tag_after: Option<u64>,
+        pub(crate) lose_create: bool,
+        pub(crate) lose_upload: bool,
+        pub(crate) lose_publish: bool,
+        pub(crate) fail_publish: bool,
+        pub(crate) promote_on_second_find: bool,
+        pub(crate) corrupt_verify: bool,
+        pub(crate) drift_assets_after: Cell<Option<u64>>,
     }
 
     impl ReleaseClient for FakeClient {
@@ -168,7 +154,7 @@ mod tests {
             {
                 return Ok(Some("a".repeat(40)));
             }
-            Ok(self.tag_commit.clone())
+            Ok(self.tag_commit.borrow().clone())
         }
 
         fn find_release(&self, _: &str) -> Result<Option<Release>, PublisherError> {
@@ -187,6 +173,7 @@ mod tests {
             let release = Release {
                 id: 7,
                 draft: true,
+                prerelease: false,
                 tag_name: request.tag.to_owned(),
                 target_commitish: request.commit.to_owned(),
                 body: request.body.to_owned(),
@@ -200,6 +187,16 @@ mod tests {
         }
 
         fn list_assets(&self, _: u64) -> Result<Vec<Asset>, PublisherError> {
+            self.asset_lists.set(self.asset_lists.get() + 1);
+            if self
+                .drift_assets_after
+                .get()
+                .is_some_and(|limit| self.asset_lists.get() >= limit)
+            {
+                if let Some((asset, _)) = self.assets.borrow_mut().first_mut() {
+                    asset.id = 999;
+                }
+            }
             Ok(self
                 .assets
                 .borrow()
@@ -230,6 +227,25 @@ mod tests {
             }
         }
 
+        fn publish_draft(&self, _: u64) -> Result<Release, PublisherError> {
+            self.publishes.set(self.publishes.get() + 1);
+            if self.fail_publish {
+                return Err(PublisherError::new("PATCH failed"));
+            }
+            let mut release = self
+                .release
+                .borrow()
+                .clone()
+                .ok_or_else(|| PublisherError::new("release missing"))?;
+            release.draft = false;
+            self.release.replace(Some(release.clone()));
+            if self.lose_publish {
+                Err(PublisherError::new("lost PATCH response"))
+            } else {
+                Ok(release)
+            }
+        }
+
         fn verify_asset(&self, request: VerifyAssetRequest<'_>) -> Result<(), PublisherError> {
             self.verifications.set(self.verifications.get() + 1);
             if self.corrupt_verify {
@@ -251,7 +267,7 @@ mod tests {
         }
     }
 
-    pub(super) fn staged() -> (tempfile::TempDir, std::path::PathBuf) {
+    pub(crate) fn staged() -> (tempfile::TempDir, std::path::PathBuf) {
         let root = tempfile::tempdir().unwrap();
         let submission = root.path().join("submission.json");
         let digest = crate::hex(&Sha256::digest(ARCHIVE));
@@ -277,7 +293,7 @@ mod tests {
         (root, submission)
     }
 
-    fn run(
+    pub(crate) fn run(
         root: &tempfile::TempDir,
         submission: &Path,
         client: &FakeClient,
@@ -336,7 +352,7 @@ mod tests {
         for drift_tag_after in [None, Some(4)] {
             let (root, submission) = staged();
             let client = FakeClient {
-                tag_commit: drift_tag_after.is_none().then(|| "a".repeat(40)),
+                tag_commit: RefCell::new(drift_tag_after.is_none().then(|| "a".repeat(40))),
                 drift_tag_after,
                 ..Default::default()
             };

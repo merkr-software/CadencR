@@ -6,8 +6,13 @@ use sha2::{Digest as _, Sha256};
 use crate::fs::read_bounded;
 use crate::{PublisherError, StageReceipt};
 
+mod receipt;
+pub use receipt::PublicationReceipt;
+pub(crate) use receipt::{build_publication_receipt, read_publication_receipt};
+
 pub(crate) const MAX_PUBLICATION_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 pub(crate) const MIRROR_RECEIPT: &str = "mirror-receipt.json";
+pub(crate) const PUBLICATION_RECEIPT: &str = "publication-receipt.json";
 const PROVENANCE: &str = "publication-plan.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -162,7 +167,7 @@ pub(crate) fn read_mirror_receipt(
     Ok(Some(receipt))
 }
 
-fn read_optional<T: serde::de::DeserializeOwned>(
+pub(super) fn read_optional<T: serde::de::DeserializeOwned>(
     directory: &Path,
     name: &str,
     label: &str,

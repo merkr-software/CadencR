@@ -6,6 +6,8 @@ database, install a plugin, or execute a provider binary.
 `stage-publication` downloads inert GitHub Release assets. `mirror-publication`
 can upload already verified local artifacts to an explicitly confirmed GitHub
 draft; it never promotes that draft to a published release.
+`promote-publication` separately requires the exact planned tag as confirmation
+before publishing and independently checking public downloads.
 
 ## Commands
 
@@ -29,6 +31,10 @@ cadencr registry stage-publication --submission <submission.json> \
 cadencr registry mirror-publication --submission <submission.json> \
   --repository <owner/repository> --registry-commit <40-lowercase-hex> \
   --directory <staging-directory> --confirm-repository <owner/repository>
+cadencr registry promote-publication --submission <submission.json> \
+  --repository <owner/repository> --registry-commit <40-lowercase-hex> \
+  --directory <staging-directory> --confirm-repository <owner/repository> \
+  --confirm-publish <planned-release-tag>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -82,8 +88,20 @@ binds the exact registry commit, release body, artifact bytes and provenance;
 retries reconcile existing state rather than overwrite conflicts. The resulting
 `mirror-receipt.json` records a verified draft, not public availability. Existing
 Git tags must resolve to the specified commit (annotated tags are peeled with a
-fixed bound). A draft may not have created its tag yet; publication will require
+five-hop bound). A draft may not have created its tag yet; publication will require
 that additional check.
+
+`promote-publication` requires a verified local mirror receipt and complete staged
+artifacts, the same protected token environment, and an existing tag resolving
+to the exact registry commit. It never creates or uploads missing artifacts.
+Before publishing, authenticated downloads must match the bound bytes. After
+publishing, independent unauthenticated downloads must match too; only then may
+`publication-receipt.json` be written. A lost publish response is reconciled by
+reading the exact release, never by blindly retrying a mutation. Existing
+publication proof forbids silently republishing a release that reverted to draft.
+Prereleases are refused. Already-published replay verifies public bytes without
+redownloading the same assets through the authenticated API.
+This operation does not sign or publish a catalog or update discovery.
 
 ## Diagnostics and exit codes
 

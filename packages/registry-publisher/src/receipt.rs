@@ -42,12 +42,14 @@ pub(crate) fn publish_receipt(
     publish_document(directory, RECEIPT, &value, Comparison::ExactBytes)
 }
 
-pub(crate) fn publish_canonical_receipt(
+pub(crate) fn publish_canonical_receipt<T: serde::Serialize>(
     directory: &Path,
     name: &str,
-    value: &Value,
+    receipt: &T,
 ) -> Result<(), PublisherError> {
-    publish_document(directory, name, value, Comparison::CanonicalJson)
+    let value = serde_json::to_value(receipt)
+        .map_err(|_| PublisherError::new("cannot serialize publication receipt"))?;
+    publish_document(directory, name, &value, Comparison::CanonicalJson)
 }
 
 #[derive(Clone, Copy)]

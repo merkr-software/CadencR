@@ -867,6 +867,40 @@ alone cannot close them.
   timeout and cleanup-I/O-failure injection. Promotion, catalog workflows and
   recovery remain subsequent migration phases; active JS is retained.
 
+### Draft promotion Rust migration — local implementation and fixture QA
+
+- Add `registry promote-publication` with explicit repository and planned-tag
+  confirmations before credential access. Local staging and both receipt types
+  must validate before the first GitHub request.
+- Reuse the release client, exact commit/tag binding, bounded byte verification
+  and immutable receipt publishing; do not add unused recovery scaffolding.
+- Require complete verified draft assets and an existing exact tag before the
+  single publication PATCH. Reconcile a lost response by exact published state.
+  Independently check public bytes and final release/tag state before recording
+  publication success; historical publication proof prohibits draft mutation.
+- Three independent finish-job reviews led to shared local lock/staging guards,
+  typed canonical receipt publication, lazy upload transport construction, and
+  replay verification without duplicate authenticated asset downloads. CLI
+  preflight plus publisher boundary checks remain intentional TOCTOU protection.
+- Unlike the retained JS path, prerelease state is explicitly rejected before
+  mutation and in final verification. Annotated tag peeling now matches the
+  JS five-hop limit. Receipt read/build inputs use named bon builders.
+- Parent fixture QA runs the concrete GitHub client through authenticated asset
+  reads, exact-tag lookup, a persisted-but-lost publication PATCH, reconciliation
+  and replay: exactly one PATCH and no repeated private asset downloads. Public
+  verification uses injected inert bytes in this fixture; it does not prove a
+  real HTTPS/CDN chain or public GitHub availability. Separate CLI tests cover
+  complete local staging with missing/invalid mirror receipts before networking.
+- Current targeted verification passes: 34 publisher tests, 34 CLI tests,
+  32 registry-core tests and 21 plugin-core tests; all-target Clippy is clean.
+  No database or app profile is needed by these standalone tooling checks.
+- Normal hooks exposed a keep-alive race in the multi-response HTTP test server:
+  it closed each connection without advertising that policy. Fixtures now send
+  `Connection: close`; 30 consecutive tag-chain runs passed before retrying hooks.
+- This is a local code migration only: real release delivery, registry pinning,
+  catalog workflows, recovery and GitHub end-to-end QA remain distinct gates.
+  Existing JavaScript stays active until parity and real binary delivery.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

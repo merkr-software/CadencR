@@ -7,12 +7,14 @@ mod error;
 mod fs;
 mod github;
 mod mirror;
+mod promote;
+mod publication_local;
 mod receipt;
 mod stage;
 
 use std::path::{Path, PathBuf};
 
-pub use binding::{CompactArtifact, MirrorReceipt};
+pub use binding::{CompactArtifact, MirrorReceipt, PublicationReceipt};
 pub use error::PublisherError;
 pub use stage::{StageArtifact, StageReceipt};
 
@@ -92,4 +94,35 @@ pub fn validate_registry_commit(commit: &str) -> Result<(), PublisherError> {
         ));
     }
     Ok(())
+}
+
+/// Inputs for a confirmed promotion. Credentials are never logged.
+#[derive(bon::Builder)]
+pub struct PromoteRequest<'a> {
+    pub submission: &'a Path,
+    pub repository: &'a str,
+    pub registry_commit: &'a str,
+    pub expected_release_tag: &'a str,
+    pub directory: &'a Path,
+    pub token: &'a str,
+}
+
+/// Publish a verified bound draft and independently verify its public artifacts.
+pub fn promote_publication(
+    request: PromoteRequest<'_>,
+) -> Result<PublicationReceipt, PublisherError> {
+    let client = github::GitHubClient::new(request.repository, request.token)?;
+    promote::promote(
+        StageRequest::builder()
+            .submission(request.submission)
+            .repository(request.repository)
+            .directory(request.directory)
+            .build(),
+        promote::PromotionExpectation::builder()
+            .registry_commit(request.registry_commit)
+            .release_tag(request.expected_release_tag)
+            .build(),
+        &client,
+        &download::ProductionDownloader::default(),
+    )
 }

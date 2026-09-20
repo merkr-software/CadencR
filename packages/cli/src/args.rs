@@ -100,6 +100,8 @@ pub(crate) enum RegistryCommand {
     },
     /// Mirror verified local artifacts into an explicitly confirmed GitHub draft.
     MirrorPublication(MirrorArgs),
+    /// Publish a verified draft after explicit repository and release-tag confirmation.
+    PromotePublication(PromoteArgs),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -158,4 +160,13 @@ pub(crate) struct MirrorArgs {
     pub(crate) directory: PathBuf,
     #[arg(long)]
     pub(crate) confirm_repository: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PromoteArgs {
+    #[command(flatten)]
+    pub(crate) publication: MirrorArgs,
+    /// Must exactly match the planned immutable release tag.
+    #[arg(long)]
+    pub(crate) confirm_publish: String,
 }
