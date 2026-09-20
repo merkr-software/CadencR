@@ -280,6 +280,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/browser-bridge", put(register_browser_bridge))
         .merge(provider_development_router())
         .merge(crate::domain::projects::publication_package::router())
+        .merge(crate::domain::projects::publication_release::router())
         .merge(installed_provider_lifecycle_router())
         .merge(managed_provider_inventory_router())
         .merge(managed_provider_lifecycle_router())

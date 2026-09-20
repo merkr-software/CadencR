@@ -4,11 +4,13 @@ use tokio::process::Command;
 use crate::error::AppError;
 
 mod background;
+mod read_only;
 
 pub use background::{
     git_ref_resolves_background, run_git_background, run_git_safe_background,
     run_git_safe_refs_background,
 };
+pub use read_only::run_git_readonly_bounded;
 
 /// Run a git command with the given arguments in the specified working directory.
 ///

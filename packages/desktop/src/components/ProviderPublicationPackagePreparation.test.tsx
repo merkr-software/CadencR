@@ -8,12 +8,16 @@ const generatedMocks = vi.hoisted(() => ({
   readiness: vi.fn(),
   mutate: vi.fn(),
   reset: vi.fn(),
+  previewHook: vi.fn(),
+  publishHook: vi.fn(),
 }));
 
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   usePreparePublicationPackage: generatedMocks.hook,
   useGetProjectPublicationReadiness: generatedMocks.readiness,
+  usePreviewPublicationRelease: generatedMocks.previewHook,
+  usePublishPublicationRelease: generatedMocks.publishHook,
 }));
 
 const idleMutation = {
@@ -36,6 +40,8 @@ describe("ProviderPublicationPackagePreparation", () => {
       isError: false,
       isLoading: false,
     });
+    generatedMocks.previewHook.mockReturnValue(idleMutation);
+    generatedMocks.publishHook.mockReturnValue(idleMutation);
   });
 
   it("submits a valid, explicitly reviewed form", async () => {
@@ -65,7 +71,7 @@ describe("ProviderPublicationPackagePreparation", () => {
     generatedMocks.hook.mockReturnValue({ ...idleMutation, isPending: true });
     render(<ProviderPublicationPackagePreparation projectId={7} enabled />);
 
-    expect(screen.getByRole("group")).toBeDisabled();
+    expect(screen.getAllByRole("group")[0]).toBeDisabled();
     expect(screen.getByRole("button", { name: /preparing local bundle/i })).toBeDisabled();
   });
 
@@ -78,7 +84,7 @@ describe("ProviderPublicationPackagePreparation", () => {
     });
     const { rerender } = render(<ProviderPublicationPackagePreparation projectId={7} enabled />);
     expect(screen.getByRole("status")).toHaveTextContent("Loading supported targets");
-    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("group")).toHaveLength(1);
 
     generatedMocks.readiness.mockReturnValue({
       data: undefined,
@@ -88,6 +94,14 @@ describe("ProviderPublicationPackagePreparation", () => {
     });
     rerender(<ProviderPublicationPackagePreparation projectId={7} enabled />);
     expect(screen.getByRole("alert")).toHaveTextContent("readiness unavailable");
+  });
+
+  it("allows a prior bundle UUID to be reviewed without preparing again", () => {
+    render(<ProviderPublicationPackagePreparation projectId={7} enabled />);
+
+    expect(screen.queryByText("Local bundle prepared")).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Prepared bundle UUID/)).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Review GitHub publication" })).toBeDisabled();
   });
 
   it("shows a prepared local-only result", () => {
@@ -102,7 +116,7 @@ describe("ProviderPublicationPackagePreparation", () => {
         project_id: 7,
         plugin_id: "example.agent",
         target: "darwin-aarch64",
-        archive_path: "/tmp/output/agent.tar.gz",
+        archive_path: "/tmp/output/123e4567-e89b-42d3-a456-426614174000/agent.tar.gz",
         metadata_path: "/tmp/output/package.json",
         sha256: "abc123",
         size: 2048,
@@ -110,9 +124,14 @@ describe("ProviderPublicationPackagePreparation", () => {
     });
 
     expect(screen.getByText("Local bundle prepared")).toBeInTheDocument();
-    expect(screen.getByText("/tmp/output/agent.tar.gz")).toBeInTheDocument();
+    expect(
+      screen.getByText("/tmp/output/123e4567-e89b-42d3-a456-426614174000/agent.tar.gz"),
+    ).toBeInTheDocument();
     expect(screen.getByText("abc123")).toBeInTheDocument();
     expect(screen.getByText(/local files only/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Prepared bundle UUID/)).toHaveValue(
+      "123e4567-e89b-42d3-a456-426614174000",
+    );
   });
 
   it("surfaces a structured backend error and permits retry", () => {
