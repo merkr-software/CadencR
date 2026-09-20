@@ -8,72 +8,72 @@ permissions:
 
 jobs:
   inert-metadata:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       # Validation code must come from the reviewed base revision, never from the
       # contribution. This workflow therefore needs to exist on the default
       # branch before it can validate the first contribution.
       - name: Check out trusted registry tooling
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.event.pull_request.base.repo.full_name }}
           ref: ${{ github.event.pull_request.base.sha }}
           path: trusted-registry
           persist-credentials: false
       - name: Check out candidate registry metadata
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate-registry
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
       - name: Validate inert contribution metadata
         run: >-
-          node trusted-registry/scripts/validate-contribution.mjs
-          --base trusted-registry
-          --candidate candidate-registry
+          sh trusted-registry/scripts/ci/validate-provider-contribution.sh
+          trusted-registry/ci/released-cli.env
+          trusted-registry
+          candidate-registry
+          validate
       # Do not download or execute contributor archives here. Publisher identity,
       # source provenance, and publication authority require maintainer review and
       # protected publication-time revalidation; this unprivileged PR job proves
       # only the structural and immutable-history contribution policy.
 
   contributor-tooling:
-    # This job intentionally runs PR-controlled registry tests and validators.
-    # It is isolated from the trusted inert-metadata gate and has no secrets,
-    # write permission, protected environment, cache, or artifact handoff.
-    runs-on: ubuntu-latest
+    # Pending release provisioning, this preserves the legacy PR-controlled tests.
+    # Once pinned, the trusted released CLI replaces them without changing the
+    # required-check name. The job has no secrets, write permission, protected
+    # environment, cache, or artifact handoff in either mode.
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - name: Check out trusted registry tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ github.event.pull_request.base.repo.full_name }}
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-registry
+          persist-credentials: false
       - name: Check out candidate registry tooling
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.sha }}
           path: candidate-registry
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22.19.0
-      - name: Test candidate tooling
-        working-directory: candidate-registry
-        run: npm test
-      - name: Validate candidate registry
-        working-directory: candidate-registry
-        run: npm run validate
-      - name: Build a throwaway candidate index
-        working-directory: candidate-registry
-        run: |
-          set -- packages/*.json
-          if [ -e "$1" ]; then
-            generated_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            expires_at="$(node -e 'console.log(new Date(Date.now() + 7 * 86400000).toISOString())')"
-            npm run build:index -- --generated-at "$generated_at" --expires-at "$expires_at" --output "$RUNNER_TEMP/managed-index.json"
-          else
-            echo "No publishable package JSON; skipping index assembly."
-          fi
-      # Candidate tooling tests do not establish publisher identity, provenance,
-      # or publication authority and must never download or execute provider code.
+      - name: Test legacy tooling or build index with the pinned released CLI
+        run: >-
+          sh trusted-registry/scripts/ci/validate-provider-contribution.sh
+          trusted-registry/ci/released-cli.env
+          trusted-registry
+          candidate-registry
+          tooling
+      # Neither mode establishes publisher identity, provenance, or publication
+      # authority, and neither may download or execute provider archives.

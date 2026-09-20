@@ -22,6 +22,7 @@ Requires Node `>=22.19.0 <23.0.0`.
 
 ```bash
 cd tooling/marketplace-registry
+npm ci --ignore-scripts --no-audit --no-fund
 npm test
 npm run validate
 npm run validate:submission -- /path/to/submission.json
@@ -81,9 +82,35 @@ npm run sign:index -- \
   (submission 1 MiB, index 32 MiB, key 16 KiB) and must remain stable during reads;
   non-regular files and symlinks are refused, not sandboxed. Keep key files out
   of the repository; use ephemeral test keys for local trials, never production keys.
-- These commands are deliberately not connected to the example workflow yet.
+- These commands are deliberately not connected to the example publication workflow yet.
   Draft mirroring is a separate explicit command below. Source-build provenance
   verification and serialized protected publication/discovery are still required.
+
+## Pull-request CI and released CLI cutover
+
+The `inert-metadata` check always checks out validation code from the reviewed
+base SHA and applies it to a separate candidate checkout. It has read-only
+permissions, receives no secrets, and never runs candidate scripts or provider
+archives.
+
+The workflow is prepared to run the released Rust CLI from the official
+`merkr-software/CadencR` GitHub release path. `ci/released-cli.env`
+deliberately uses `PENDING` pins until that binary actually exists. Provisioning
+requires a reviewed exact version and lowercase SHA-256 for the raw
+`cadencr-v<VERSION>-x86_64-unknown-linux-gnu` asset. The trusted helper constructs
+the release URL itself, restricts redirects, verifies SHA-256 before execution,
+and checks `cadencr --version` before invoking any registry command.
+
+Do not accept a contributor-controlled version, digest, or download URL. While
+both pins are `PENDING`, the helper executes the existing trusted JavaScript gate.
+Replacing both pins atomically cuts the same job over to the Rust CLI without
+executing candidate code in that trusted gate. Preserve the `inert-metadata`
+job/check name so branch-protection requirements do not silently disappear.
+
+The existing `contributor-tooling` check name is preserved too. In `PENDING`
+mode it runs the legacy candidate tests; once pinned, the trusted helper instead
+uses the released CLI to build the throwaway candidate index and never runs
+candidate scripts. No additional code change is required for that cutover.
 
 ## Verified local archive staging
 
