@@ -133,6 +133,8 @@ mod tests {
     }
 
     fn read_request(stream: &mut std::net::TcpStream) -> String {
+        // macOS accepts may inherit the listener's nonblocking mode.
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(2)))
             .unwrap();
@@ -154,6 +156,25 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn request_reader_handles_inherited_nonblocking_mode_before_bytes_arrive() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready, wait_ready) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_nonblocking(true).unwrap();
+            ready.send(()).unwrap();
+            read_request(&mut stream)
+        });
+        let mut client = std::net::TcpStream::connect(address).unwrap();
+        wait_ready.recv_timeout(Duration::from_secs(2)).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        let request = "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n";
+        client.write_all(request.as_bytes()).unwrap();
+        assert_eq!(server.join().unwrap(), request);
     }
 
     fn serve(

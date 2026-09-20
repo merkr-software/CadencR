@@ -40,6 +40,32 @@ pub(crate) fn publish(
         .map_err(|error| output_error(path, error.error))
 }
 
+/// Refuse existing outputs and non-directory/symlink parents before expensive work.
+pub(crate) fn validate_new_output(path: &Path) -> Result<(), Diagnostic> {
+    let parent = path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    let metadata = std::fs::symlink_metadata(parent).map_err(|error| output_error(path, error))?;
+    if !metadata.is_dir() || metadata.file_type().is_symlink() {
+        return Err(output_error(
+            path,
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "output directory must be a non-symlink directory",
+            ),
+        ));
+    }
+    match std::fs::symlink_metadata(path) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(output_error(path, error)),
+        Ok(_) => Err(output_error(
+            path,
+            io::Error::new(io::ErrorKind::AlreadyExists, "output already exists"),
+        )),
+    }
+}
+
 #[cfg(unix)]
 fn private_temporary(parent: &Path) -> io::Result<tempfile::NamedTempFile> {
     use std::os::unix::fs::PermissionsExt as _;

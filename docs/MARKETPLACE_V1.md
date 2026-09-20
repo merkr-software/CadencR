@@ -901,6 +901,47 @@ alone cannot close them.
   catalog workflows, recovery and GitHub end-to-end QA remain distinct gates.
   Existing JavaScript stays active until parity and real binary delivery.
 
+### Published-catalog signing Rust migration — local implementation and fixture QA
+
+- Add only `registry sign-publication-catalog` with the existing six explicit
+  manifest/date/key/output arguments. No unused standalone prepare command.
+- Split work between shared in-memory signing/identity validation and publisher
+  manifest/receipt/public-download orchestration; parent owns CLI/output policy.
+- Reuse the staging engine with a single bounded submission read, exact typed
+  receipts, owned temporary verification directories and canonical signing.
+  Check all local entries and aggregate budgets before the first public request.
+- Match repository ownership across versions, normalized ID collision policy,
+  sorting and canonical signing dates; verify Node payload/envelope parity.
+- Three finish-job reviews removed whole-package clones and repeated canonical
+  payload validation/serialization. An opaque prepared payload retains bound
+  canonical bytes; signing rechecks only its freshness window after downloads.
+  The shared signer emits the same envelope bytes without cloning the JSON tree
+  and refuses envelopes larger than the verifier's 32 MiB input boundary.
+- Keep the signing key read after public verification, matching the JS contract
+  and minimizing private-key lifetime. Recheck output-parent policy after that
+  potentially long work; final publication remains authoritative no-clobber.
+  Structural-only detached assembly keeps its original validation policy.
+- Node-backed fixture tests compare both prepared payloads and signed envelope
+  bytes; timestamps in test fixtures no longer rely on Unix-only libc helpers.
+- Final targeted checks pass: 43 registry-core, 41 publisher, 37 CLI and
+  21 plugin-core tests (142 total), plus formatting and all-target Clippy.
+  Negative fixtures prove complete local receipt preflight before downloads,
+  exact public URL sets, bad digest/size rejection and aggregate budget limits.
+- Concurrent tests exposed an inherited nonblocking accepted socket on macOS
+  in the promotion HTTP fixture. The reader now explicitly selects blocking
+  mode with a bounded timeout; a delayed-request regression proves the fix.
+- Normal hooks exposed a separate macOS process-group cleanup race: an all-zombie
+  group returns `EPERM` until reaped. An isolated OS-level reproduction confirmed
+  this. Post-exit cleanup now sends `SIGKILL` only once, then reconciles that error
+  using at most 100 ms of non-destructive signal-0 probes; only observed `ESRCH`
+  accepts success. Persistent permission errors remain failures. All three
+  already-reaped cleanup paths share the asynchronous implementation; Linux and
+  Windows retain their existing behavior. Three supplemental reviews explicitly
+  rejected repeated destructive signals because of numeric process-group reuse.
+- This phase produces a local signed envelope only. Versioned catalog release,
+  discovery updates and recovery/pipeline remain subsequent migrations. Keep
+  active JavaScript until parity and an authorized real CLI release/cutover.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

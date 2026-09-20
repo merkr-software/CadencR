@@ -35,6 +35,9 @@ cadencr registry promote-publication --submission <submission.json> \
   --repository <owner/repository> --registry-commit <40-lowercase-hex> \
   --directory <staging-directory> --confirm-repository <owner/repository> \
   --confirm-publish <planned-release-tag>
+cadencr registry sign-publication-catalog --manifest <publications.json> \
+  --generated-at <timestamp> --expires-at <timestamp> \
+  --private-key <private.pem> --key-id <key-id> --output <new-catalog.json>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -102,6 +105,17 @@ publication proof forbids silently republishing a release that reverted to draft
 Prereleases are refused. Already-published replay verifies public bytes without
 redownloading the same assets through the authenticated API.
 This operation does not sign or publish a catalog or update discovery.
+
+`sign-publication-catalog` reads a manifest containing `schema_version: 1`,
+`repository`, and `publications` entries with `submission`, `directory`, and
+`registry_commit`. Relative paths resolve from the manifest parent. Every entry
+must have matching staging, mirror and publication receipts. All local inputs,
+package identities/ownership, dates and resource budgets validate before public
+downloads; the signing key is read only afterward. No GitHub token is needed.
+The output must be absent under a non-symlink directory; signing never overwrites
+an existing catalog. The manifest limit is 1 MiB and 100 entries; aggregate
+submission input and catalog payload limits are 32 MiB, and public downloads are
+bounded to 1 GiB in total. The result is signed locally, not published remotely.
 
 ## Diagnostics and exit codes
 

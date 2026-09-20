@@ -40,12 +40,29 @@ pub(crate) fn stage(
     let plan = cadencr_registry_core::create_publication_plan_from_file(
         request.submission,
         request.repository,
-    )
-    .map_err(|error| PublisherError::new(error.to_string()))?;
+    )?;
+    stage_plan(request.directory, plan, downloader)
+}
+
+pub(crate) fn stage_loaded(
+    submission: &Value,
+    repository: &str,
+    directory: &Path,
+    downloader: &impl Downloader,
+) -> Result<StageReceipt, PublisherError> {
+    let plan = cadencr_registry_core::create_publication_plan(submission, repository)?;
+    stage_plan(directory, plan, downloader)
+}
+
+fn stage_plan(
+    directory: &Path,
+    plan: Value,
+    downloader: &impl Downloader,
+) -> Result<StageReceipt, PublisherError> {
     let targets = parse_targets(&plan)?;
-    ensure_directory(request.directory)?;
-    let lock = OwnedLock::acquire(&request.directory.join(LOCK))?;
-    let result = stage_locked(request.directory, plan, targets, downloader);
+    ensure_directory(directory)?;
+    let lock = OwnedLock::acquire(&directory.join(LOCK))?;
+    let result = stage_locked(directory, plan, targets, downloader);
     match result {
         Ok(receipt) => {
             lock.release(None)?;

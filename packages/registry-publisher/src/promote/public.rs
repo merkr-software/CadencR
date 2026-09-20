@@ -4,7 +4,7 @@ use crate::binding::ExpectedArtifact;
 use crate::mirror::artifacts::{combine_cleanup, OwnedDirectory};
 use crate::{DownloadRequest, Downloader, PublisherError};
 
-pub(super) fn verify(
+pub(crate) fn verify(
     expected: &[ExpectedArtifact],
     directory: &Path,
     downloader: &impl Downloader,

@@ -102,6 +102,8 @@ pub(crate) enum RegistryCommand {
     MirrorPublication(MirrorArgs),
     /// Publish a verified draft after explicit repository and release-tag confirmation.
     PromotePublication(PromoteArgs),
+    /// Sign a catalog only from verified publications and public artifact bytes.
+    SignPublicationCatalog(SignCatalogArgs),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -169,4 +171,20 @@ pub(crate) struct PromoteArgs {
     /// Must exactly match the planned immutable release tag.
     #[arg(long)]
     pub(crate) confirm_publish: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SignCatalogArgs {
+    #[arg(long)]
+    pub(crate) manifest: PathBuf,
+    #[arg(long)]
+    pub(crate) generated_at: String,
+    #[arg(long)]
+    pub(crate) expires_at: String,
+    #[arg(long)]
+    pub(crate) private_key: PathBuf,
+    #[arg(long)]
+    pub(crate) key_id: String,
+    #[arg(long)]
+    pub(crate) output: PathBuf,
 }
