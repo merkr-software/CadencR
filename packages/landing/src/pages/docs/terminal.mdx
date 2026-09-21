@@ -80,7 +80,7 @@ Each terminal pane is launched in the feature's worktree. If something inside th
 
 ### Matching your own terminal
 
-CadencR's terminal reads your `~/.config/alacritty/alacritty.toml` if you have one, so the font, colors, cursor, and scrollback depth already match the terminal you use outside the app. No file? CadencR falls back to its own defaults — nothing to configure.
+CadencR's terminal reads your `~/.config/alacritty/alacritty.toml` if you have one, so the font, colors, cursor, and scrollback depth already match the terminal you use outside the app, including files pulled in via `general.import` if you split your config across several files. No file? CadencR falls back to its own defaults — nothing to configure.
 
 ## When not to use it
 
