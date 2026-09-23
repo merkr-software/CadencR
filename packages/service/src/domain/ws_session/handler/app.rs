@@ -106,11 +106,11 @@ async fn handle_unsubscribe_git_status(
         .await;
 }
 
-/// Build the per-session status snapshot and enrich each running entry with
-/// the server-stamped turn start from the active-turn registry, so a
-/// (re)connecting client anchors its elapsed timer to the same instant the
-/// host did. The DB has no per-turn start column, so this is the only place
-/// the snapshot picks the timestamp up.
+/// Build the per-session status snapshot and enrich each live entry —
+/// running or waiting at a gate — with the server-stamped turn start from
+/// the active-turn registry, so a (re)connecting client anchors its elapsed
+/// timer to the same instant the host did. The DB has no per-turn start
+/// column, so this is the only place the snapshot picks the timestamp up.
 async fn session_status_snapshot_with_timers(
     app_state: &AppState,
 ) -> std::collections::HashMap<String, crate::domain::sessions::models::SessionStatusSnapshotEntry>
@@ -120,7 +120,7 @@ async fn session_status_snapshot_with_timers(
             .await
             .unwrap_or_default();
     for entry in states.values_mut() {
-        if entry.status == crate::domain::session_status::AgentStatus::Agent {
+        if entry.status != crate::domain::session_status::AgentStatus::Idle {
             entry.turn_started_at_ms = app_state.active_turns.started_at(entry.session_id).await;
         }
     }

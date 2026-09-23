@@ -3120,6 +3120,12 @@ describe("ws-session-store", () => {
         payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
       });
       vi.setSystemTime(9_000);
+      // The user answers the gate; the backend acks the respond envelope and
+      // the stream resumes.
+      store.respondToPermission("s1", "req-1", "allow_once");
+      const respondEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
+      useWsSessionStore.getState().sessions["s1"].pendingWsRequests.get(respondEnvelope.id)?.({});
+      await vi.advanceTimersByTimeAsync(0);
       streamTextMessage(ws, "resumed after permission");
       vi.setSystemTime(11_000);
       ws.simulateMessage({
@@ -3137,6 +3143,70 @@ describe("ws-session-store", () => {
       expect(session.blocks.at(-1)).toMatchObject({
         type: "turn_summary",
         content: "Worked - 7s · Agent 2s · Waiting 5s",
+      });
+      vi.useRealTimers();
+    });
+
+    it("keeps a gated turn paused while chunks stream, booking the wait as waiting", async () => {
+      const ws = await setupActiveSession();
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
+      });
+      vi.setSystemTime(6_000);
+      // A background subagent (or a parallel tool's trailing output) keeps
+      // streaming while the gate is open — it must not flip the turn back to
+      // active, or the whole gate wait is booked as agent time.
+      streamTextMessage(ws, "background subagent chunk");
+      expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
+        phase: "paused",
+        reason: "permission",
+      });
+
+      vi.setSystemTime(11_000);
+      ws.simulateMessage({
+        domain: "session",
+        action: "turn_complete",
+        payload: {},
+      });
+
+      const session = useWsSessionStore.getState().sessions["s1"];
+      expect(session.turnTiming.completed).toEqual({
+        totalMs: 10_000,
+        activeMs: 0,
+        userPendingMs: 10_000,
+      });
+      vi.useRealTimers();
+    });
+
+    it("keeps the turn paused while answering one gate with another still queued", async () => {
+      const ws = await setupActiveSession();
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
+      });
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-2", tool_name: "Bash", tool_input: {} },
+      });
+      vi.setSystemTime(5_000);
+      // Answering req-1 does not end the wait: req-2 is still queued, so a
+      // streamed chunk must not flip the turn back to active.
+      useWsSessionStore.getState().respondToPermission("s1", "req-1", "allow_once");
+      streamTextMessage(ws, "chunk while second gate queued");
+
+      expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
+        phase: "paused",
+        reason: "permission",
       });
       vi.useRealTimers();
     });

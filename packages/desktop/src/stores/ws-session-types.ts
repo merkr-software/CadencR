@@ -64,6 +64,12 @@ export interface PendingPlanApproval {
 export interface PersistedStatePayload {
   blocks: AgentBlockData[];
   lifecycle: TurnLifecycle;
+  /**
+   * Server-anchored timing for a turn already running at hydration
+   * (`anchorTurnTiming`). Applied only when the entry has no live timer, so
+   * a re-hydration never wipes buckets accrued by the live stream.
+   */
+  turnTiming?: TurnTimingState;
   hasMore?: boolean;
   oldestMessageId?: number | null;
   /** Highest DB message id in this snapshot — seeds the resync cursor. */

@@ -33,7 +33,7 @@ import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { updateSession, type SessionEntry, type WsSessionStore } from "@/stores/ws-session-types";
 import { transitionTurn, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import { startTurnTiming } from "@/stores/ws-turn-timing";
+import { anchorTurnTiming } from "@/stores/ws-turn-timing";
 import { buildClearedGatePatch } from "@/stores/ws-gate-state";
 import {
   applySnapshot,
@@ -202,10 +202,11 @@ function lifecyclePatchFromStatus(
   const lifecycleChanged = lifecycle !== session.lifecycle;
 
   // A second device observing a turn start via the global status: the
-  // lifecycle flips idle→active here. Anchor the timer to the server-stamped
-  // start so every device shows the same elapsed time. (When the server
-  // didn't supply one we fall through to `updateSession`'s local-clock
-  // default, preserving prior behavior for pre-field turns.)
+  // lifecycle flips idle→active here. Anchor `startedAt` to the server stamp
+  // so every device shows the same elapsed time; the accrual segment opens
+  // at the local clock so a turn observed hours late doesn't book its whole
+  // unobserved span into one bucket. (When the server didn't supply a stamp
+  // we fall through to `updateSession`'s local-clock default.)
   const startsFreshTurn =
     lifecycleChanged &&
     !isInProgressLifecycle(session.lifecycle) &&
@@ -221,10 +222,10 @@ function lifecyclePatchFromStatus(
 
   if (!lifecycleChanged && !resetStaleActiveTiming) return null;
   if (startsFreshTurn) {
-    return { lifecycle, turnTiming: startTurnTiming(entry.turnStartedAtMs as number) };
+    return { lifecycle, turnTiming: anchorTurnTiming(entry.turnStartedAtMs as number) };
   }
   if (resetStaleActiveTiming) {
-    return { lifecycle, turnTiming: startTurnTiming(entry.turnStartedAtMs ?? Date.now()) };
+    return { lifecycle, turnTiming: anchorTurnTiming(entry.turnStartedAtMs ?? Date.now()) };
   }
   return { lifecycle };
 }

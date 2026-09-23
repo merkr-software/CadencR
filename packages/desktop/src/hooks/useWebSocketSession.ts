@@ -27,8 +27,9 @@ import {
   createIdleTurnLifecycle,
   persistedSessionToLifecycle,
 } from "@/stores/ws-turn-lifecycle";
-import { createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing";
+import { anchorTurnTiming, createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing";
 import { useSessionStatus } from "@/stores/session-status-selectors";
+import { useSessionStatusStore } from "@/stores/session-status-store";
 import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import type { DisplayRowMode } from "@/components/agentStreamDisplay";
@@ -222,7 +223,21 @@ function usePersistedSessionLoader(
     const lastSession = sessions[sessions.length - 1];
     const restoredBlocks = serverBlocksToAgentBlocks(lastSession.blocks);
 
-    const restoredLifecycle = persistedSessionToLifecycle(lastSession);
+    // The live status store (fed by the backend's session_status snapshot) is
+    // the source of truth for "is a turn live" — the persisted `running`
+    // column alone can be stale after a crash. When it confirms a live turn
+    // (streaming or waiting at a gate), hydrate straight into it and anchor
+    // Worked to the server-stamped turn start instead of leaving the
+    // lifecycle idle until the next event.
+    const statusEntry =
+      lastSession.sessionDbId != null
+        ? useSessionStatusStore.getState().bySession[lastSession.sessionDbId]
+        : undefined;
+    const turnLive = statusEntry?.status === "agent" || statusEntry?.status === "question";
+    const restoredLifecycle = persistedSessionToLifecycle(
+      lastSession,
+      turnLive ? { runningStatus: "active" } : undefined,
+    );
 
     const persistedContextUsage: ContextUsageState | null =
       lastSession.inputTokens > 0 ||
@@ -238,6 +253,9 @@ function usePersistedSessionLoader(
     store.setPersistedState(sessionId, {
       blocks: restoredBlocks,
       lifecycle: restoredLifecycle,
+      ...(turnLive
+        ? { turnTiming: anchorTurnTiming(statusEntry?.turnStartedAtMs ?? Date.now()) }
+        : {}),
       hasMore: lastSession.hasMore,
       oldestMessageId: lastSession.oldestMessageId,
       maxMessageId: lastSession.maxMessageId,
