@@ -104,6 +104,8 @@ pub(crate) enum RegistryCommand {
     PromotePublication(PromoteArgs),
     /// Sign a catalog only from verified publications and public artifact bytes.
     SignPublicationCatalog(SignCatalogArgs),
+    /// Publish an explicitly confirmed signed catalog to its immutable GitHub release.
+    PublishCatalog(PublishCatalogArgs),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -187,4 +189,30 @@ pub(crate) struct SignCatalogArgs {
     pub(crate) key_id: String,
     #[arg(long)]
     pub(crate) output: PathBuf,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PublishCatalogArgs {
+    #[arg(long)]
+    pub(crate) catalog: PathBuf,
+    /// Exact previous catalog file, or the literal bootstrap for the first publication.
+    #[arg(long)]
+    pub(crate) previous_index: String,
+    #[arg(long)]
+    pub(crate) public_key: PathBuf,
+    #[arg(long)]
+    pub(crate) key_id: String,
+    #[arg(long)]
+    pub(crate) manifest: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) confirm_repository: String,
+    /// Must exactly match catalog-<SHA-256 of the canonical signed catalog>.
+    #[arg(long)]
+    pub(crate) confirm_publish: String,
 }

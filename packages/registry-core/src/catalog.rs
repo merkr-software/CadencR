@@ -68,6 +68,13 @@ pub fn prepare_publication_index(
 }
 
 fn validate_catalog_identities(packages: &[Value]) -> Result<(), RegistryError> {
+    validate_catalog_identities_with_label(packages, "repository")
+}
+
+pub(crate) fn validate_catalog_identities_with_label(
+    packages: &[Value],
+    ownership_label: &str,
+) -> Result<(), RegistryError> {
     let mut normalized = HashMap::<String, String>::new();
     let mut owners = HashMap::<String, String>::new();
     for package in packages {
@@ -96,7 +103,7 @@ fn validate_catalog_identities(packages: &[Value]) -> Result<(), RegistryError> 
         if let Some(prior) = owners.get(id) {
             if prior != &owner {
                 return Err(RegistryError::single(format!(
-                    "provider {id} has conflicting publisher or repository ownership"
+                    "provider {id} has conflicting publisher or {ownership_label} ownership"
                 )));
             }
         } else {

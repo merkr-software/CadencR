@@ -4,12 +4,29 @@ use serde_json::{Map, Value};
 use crate::error::RegistryError;
 use crate::index::validate_index;
 use crate::json::canonical_json_bytes;
+use crate::package::valid_identifier;
 
 use super::DOCUMENT_LIMIT;
+
+pub fn validate_signing_key_id(key_id: &str) -> Result<(), RegistryError> {
+    if valid_identifier(key_id) {
+        Ok(())
+    } else {
+        Err(RegistryError::single("signing key id is invalid"))
+    }
+}
 
 pub(crate) fn validate_signing_payload(
     value: &Value,
     allow_expired: bool,
+) -> Result<Vec<u8>, RegistryError> {
+    validate_signing_payload_at(value, allow_expired, Utc::now())
+}
+
+pub(crate) fn validate_signing_payload_at(
+    value: &Value,
+    allow_expired: bool,
+    now: chrono::DateTime<Utc>,
 ) -> Result<Vec<u8>, RegistryError> {
     let canonical = canonical_json_bytes(value);
     if canonical.len() as u64 > DOCUMENT_LIMIT {
@@ -19,7 +36,7 @@ pub(crate) fn validate_signing_payload(
     }
     validate_canonical_timestamps(value)?;
     validate_optional_fields(value)?;
-    validate_index(value, Utc::now(), allow_expired)?;
+    validate_index(value, now, allow_expired)?;
     Ok(canonical)
 }
 

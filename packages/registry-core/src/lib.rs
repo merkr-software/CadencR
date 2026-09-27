@@ -8,6 +8,7 @@ mod package;
 mod publication_plan;
 mod safe_io;
 mod signing;
+mod snapshot;
 mod submission;
 mod tree;
 
@@ -28,6 +29,7 @@ pub use signing::{
     assemble_signed_index, sign_index, sign_index_payload, sign_prepared_index,
     validate_signing_key_id, verify_signed_index,
 };
+pub use snapshot::{prepare_catalog_snapshot, CatalogSnapshot, PreviousCatalog};
 
 use diagnostics::Diagnostics;
 use package::{identity, normalized_provider_id, validate_package};

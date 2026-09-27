@@ -1,4 +1,4 @@
-use crate::args::{MirrorArgs, PromoteArgs};
+use crate::args::{MirrorArgs, PromoteArgs, PublishCatalogArgs};
 use crate::{operation_error, Diagnostic};
 
 const MIRROR_FAILED: &str = "REGISTRY_MIRROR_FAILED";
@@ -67,4 +67,54 @@ fn preflight(args: &MirrorArgs, code: &'static str) -> Result<serde_json::Value,
 fn publication_token(code: &'static str) -> Result<String, Diagnostic> {
     std::env::var("CADENCR_REGISTRY_GITHUB_TOKEN")
         .map_err(|_| operation_error(code, "CADENCR_REGISTRY_GITHUB_TOKEN is required"))
+}
+
+pub(crate) fn publish_catalog(args: &PublishCatalogArgs) -> Result<Option<String>, Diagnostic> {
+    const CODE: &str = "REGISTRY_CATALOG_PUBLICATION_FAILED";
+    if args.confirm_repository != args.repository {
+        return Err(operation_error(
+            CODE,
+            "repository confirmation does not match",
+        ));
+    }
+    let previous = if args.previous_index == "bootstrap" {
+        cadencr_registry_core::PreviousCatalog::Bootstrap
+    } else {
+        cadencr_registry_core::PreviousCatalog::File(std::path::Path::new(&args.previous_index))
+    };
+    let snapshot = cadencr_registry_core::prepare_catalog_snapshot()
+        .catalog_file(&args.catalog)
+        .previous(previous)
+        .public_key_file(&args.public_key)
+        .key_id(&args.key_id)
+        .repository(&args.repository)
+        .registry_commit(&args.registry_commit)
+        .call()
+        .map_err(|error| operation_error(CODE, error))?;
+    cadencr_registry_publisher::preflight_catalog_publication(
+        &snapshot,
+        &args.manifest,
+        &args.directory,
+    )
+    .map_err(|error| operation_error(CODE, error))?;
+    if args.confirm_publish != snapshot.tag() {
+        return Err(operation_error(
+            CODE,
+            "publish confirmation must exactly match the catalog tag",
+        ));
+    }
+    let token = publication_token(CODE)?;
+    let receipt = cadencr_registry_publisher::publish_catalog(
+        cadencr_registry_publisher::PublishCatalogRequest::builder()
+            .snapshot(&snapshot)
+            .manifest(&args.manifest)
+            .directory(&args.directory)
+            .token(&token)
+            .build(),
+    )
+    .map_err(|error| operation_error(CODE, error))?;
+    Ok(Some(format!(
+        "published and verified catalog: {}",
+        receipt.release_tag
+    )))
 }

@@ -59,7 +59,7 @@ fn mirror_locked(
         revalidate_release(client, &release, registry_commit, &binding.body)?;
         verify_tag(client, &binding.tag, registry_commit)?;
         validate_local_artifact(artifact)?;
-        upload_one(client, release.id, artifact, &binding.expected, directory)?;
+        let _ = upload_one(client, release.id, artifact, &binding.expected, directory)?;
         // Detect foreign assets before the next mutation, retaining this snapshot.
         assets = validated_assets(client.list_assets(release.id)?, &binding.expected, false)?;
     }

@@ -116,7 +116,8 @@ fn promote_locked(
 
 mod release;
 use local::require_same_assets;
-use release::{publish_bound_draft, validate_bound_id, validate_final, verify_exact_tag};
+pub(crate) use release::verify_exact_tag;
+use release::{publish_bound_draft, validate_bound_id, validate_final};
 
 #[cfg(test)]
 mod tests {

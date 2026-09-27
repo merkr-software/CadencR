@@ -942,6 +942,40 @@ alone cannot close them.
   discovery updates and recovery/pipeline remain subsequent migrations. Keep
   active JavaScript until parity and an authorized real CLI release/cutover.
 
+### Versioned catalog publication Rust migration — 2026-09-27
+
+- Resume from signed local commits `5ae025301` (macOS process cleanup) and
+  `b5820b7b5` (publication-backed catalog signing); no release or push implied.
+- Add explicit `registry publish-catalog` with all ten existing publication
+  flags. Core owns one immutable, cryptographically verified candidate/baseline
+  snapshot; publisher owns manifest/receipt gates and the GitHub state machine;
+  CLI owns confirmation and credential ordering. No new dependencies are needed.
+- Bind the previous catalog by its exact input-byte digest. Require increasing
+  timestamps, preserve previous package versions and ownership, and keep strict
+  whole-second signing timestamps. Candidate/baseline and canonical catalog
+  bytes are each bounded to 1 MiB; public keys remain bounded to 16 KiB.
+- Keep the same prepared snapshot from confirmation through publication, rather
+  than rereading an operator-confirmed file. Recheck freshness around slow work
+  and mutations. The locked manifest read must bind its repository and payload
+  together; forged receipts fail before public downloads or GitHub calls.
+- Require the immutable catalog tag to already resolve to the exact registry
+  commit. Tag creation belongs to the later protected pipeline migration.
+  This standalone command does not create/move tags or update stable discovery.
+- Reconcile lost draft/create/upload/publish responses by reading exact state;
+  do not blindly retry writes. Verify authenticated artifact bytes before the
+  single promotion, bind asset identity across rechecks, and verify independent
+  public bytes plus final release/tag state before issuing an immutable receipt.
+- Validation: 159 targeted Rust tests pass (core 48, publisher 49, CLI 41,
+  plugin core 21), with all-target Clippy denying warnings, Rust formatting and
+  diff checks green. Separate reuse, quality and efficiency finish-job reviews
+  cleared the final implementation, including resumed-draft authentication,
+  lost-response recovery, receipt replay and mutation-boundary expiry tests.
+- Active JavaScript and registry CI remain unchanged until parity and an
+  authorized real CLI release allow a pinned-binary cutover. Tests use isolated
+  fixtures; real GitHub lifecycle QA remains a delivery gate.
+- Next migration: stable catalog discovery advancement, followed by protected
+  pipeline/tag creation and recovery. Do not delete the active JS tooling yet.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).
