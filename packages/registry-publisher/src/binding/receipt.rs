@@ -72,13 +72,19 @@ pub(crate) fn validate_publication_receipt(
     release_id: u64,
 ) -> Result<(), PublisherError> {
     validate_release_id(release_id)?;
-    let expected = build_publication_receipt()
-        .binding(binding)
-        .repository(repository)
-        .registry_commit(registry_commit)
-        .release_id(release_id)
-        .call();
-    if actual != &expected {
+    if !publication_receipt_identity_matches(
+        actual,
+        repository,
+        registry_commit,
+        &binding.tag,
+        &binding.plan_sha256,
+        Some(release_id),
+    ) {
+        return Err(PublisherError::new(
+            "existing publication receipt conflicts",
+        ));
+    }
+    if actual.artifacts != compact_artifacts(&binding.expected) {
         return Err(PublisherError::new(
             "existing publication receipt conflicts",
         ));
@@ -86,8 +92,27 @@ pub(crate) fn validate_publication_receipt(
     Ok(())
 }
 
+pub(crate) fn publication_receipt_identity_matches(
+    receipt: &PublicationReceipt,
+    repository: &str,
+    registry_commit: &str,
+    release_tag: &str,
+    plan_sha256: &str,
+    release_id: Option<u64>,
+) -> bool {
+    receipt.schema_version == 1
+        && receipt.status == "published_verified"
+        && receipt.repository == repository
+        && receipt.registry_commit == registry_commit
+        && receipt.release_tag == release_tag
+        && receipt.tag_commit == registry_commit
+        && receipt.plan_sha256 == plan_sha256
+        && super::valid_release_id(receipt.release_id)
+        && release_id.is_none_or(|expected| receipt.release_id == expected)
+}
+
 fn validate_release_id(release_id: u64) -> Result<(), PublisherError> {
-    if !(1..=9_007_199_254_740_991).contains(&release_id) {
+    if !super::valid_release_id(release_id) {
         return Err(PublisherError::new("publication release id is invalid"));
     }
     Ok(())

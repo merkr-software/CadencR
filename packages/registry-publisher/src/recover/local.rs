@@ -1,14 +1,16 @@
 use std::path::Path;
 
 use crate::binding::{
-    read_mirror_receipt, read_unbound_publication_receipt, validate_publication_receipt,
-    MirrorReceipt, PublicationBinding,
+    mirror_receipt_identity_matches, publication_receipt_identity_matches, read_mirror_receipt,
+    read_unbound_publication_receipt, validate_publication_receipt, CompactArtifact, MirrorReceipt,
+    PublicationBinding, PublicationPrebinding,
 };
+use crate::stage::MAX_ARCHIVE_BYTES;
 use crate::{publication_local, PublisherError};
 
-pub(super) struct ExistingReceipts {
-    pub(super) mirror: Option<MirrorReceipt>,
-    pub(super) release_id: Option<u64>,
+pub(crate) struct ExistingReceipts {
+    pub(crate) mirror: Option<MirrorReceipt>,
+    pub(crate) release_id: Option<u64>,
 }
 
 pub(super) fn preflight(
@@ -24,7 +26,7 @@ pub(super) fn preflight(
     validate_expected_tag(&plan, expected_release_tag)
 }
 
-pub(super) fn validate_expected_tag(
+pub(crate) fn validate_expected_tag(
     plan: &serde_json::Value,
     expected_release_tag: &str,
 ) -> Result<(), PublisherError> {
@@ -41,7 +43,110 @@ pub(super) fn validate_expected_tag(
     Ok(())
 }
 
-pub(super) fn receipts(
+pub(crate) fn prebound_receipts(
+    directory: &Path,
+    binding: &PublicationPrebinding,
+    repository: &str,
+    registry_commit: &str,
+) -> Result<ExistingReceipts, PublisherError> {
+    let mirror = crate::binding::read_optional::<MirrorReceipt>(
+        directory,
+        crate::binding::MIRROR_RECEIPT,
+        "mirror receipt",
+    )?;
+    if let Some(receipt) = &mirror {
+        validate_prebound_mirror(receipt, binding, repository, registry_commit)?;
+    }
+    let publication = read_unbound_publication_receipt(directory)?;
+    if let Some(receipt) = &publication {
+        let valid = publication_receipt_identity_matches(
+            receipt,
+            repository,
+            registry_commit,
+            &binding.tag,
+            &binding.plan_sha256,
+            None,
+        ) && validate_prebound_artifacts(&receipt.artifacts, binding).is_ok();
+        if !valid {
+            return Err(PublisherError::new(
+                "existing publication receipt conflicts",
+            ));
+        }
+    }
+    let mirror_id = mirror.as_ref().map(|receipt| receipt.release_id);
+    let publication_id = publication.as_ref().map(|receipt| receipt.release_id);
+    if mirror_id.is_some() && publication_id.is_some() && mirror_id != publication_id {
+        return Err(PublisherError::new(
+            "existing publication receipt conflicts with mirror receipt",
+        ));
+    }
+    Ok(ExistingReceipts {
+        mirror,
+        release_id: mirror_id.or(publication_id),
+    })
+}
+
+fn validate_prebound_mirror(
+    receipt: &MirrorReceipt,
+    binding: &PublicationPrebinding,
+    repository: &str,
+    registry_commit: &str,
+) -> Result<(), PublisherError> {
+    let valid = mirror_receipt_identity_matches(
+        receipt,
+        repository,
+        registry_commit,
+        &binding.tag,
+        &binding.plan_sha256,
+    ) && validate_prebound_artifacts(&receipt.artifacts, binding).is_ok();
+    if !valid {
+        return Err(PublisherError::new(
+            "existing mirror receipt conflicts with publication",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_prebound_artifacts(
+    actual: &[CompactArtifact],
+    binding: &PublicationPrebinding,
+) -> Result<(), PublisherError> {
+    if actual.len() != binding.expected.len() {
+        return Err(PublisherError::new(
+            "publication receipt artifact cardinality conflicts",
+        ));
+    }
+    let mut aggregate = 0_u64;
+    for (actual, expected) in actual.iter().zip(&binding.expected) {
+        if actual.name != expected.name || actual.sha256 != expected.sha256 {
+            return Err(PublisherError::new(
+                "publication receipt artifact conflicts",
+            ));
+        }
+        match expected.size {
+            Some(size) if actual.size != size => {
+                return Err(PublisherError::new("publication provenance size conflicts"));
+            }
+            Some(_) => {}
+            None => {
+                if actual.size > MAX_ARCHIVE_BYTES {
+                    return Err(PublisherError::new("publication archive size is invalid"));
+                }
+                aggregate = aggregate
+                    .checked_add(actual.size)
+                    .ok_or_else(|| PublisherError::new("publication archive sizes overflow"))?;
+            }
+        }
+    }
+    if aggregate > crate::stage::MAX_MANAGED_BYTES {
+        return Err(PublisherError::new(
+            "publication archive aggregate exceeds 1 GiB",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn receipts(
     directory: &Path,
     binding: &PublicationBinding,
     repository: &str,
@@ -74,11 +179,93 @@ pub(super) fn receipts(
 #[cfg(test)]
 mod tests {
     use super::super::fixture::{published, run, COMMIT, REPOSITORY};
+    use super::*;
     use crate::binding::{
         build_publication_binding, build_publication_receipt, MIRROR_RECEIPT, PUBLICATION_RECEIPT,
     };
     use crate::publication_local::RefusingDownloader;
     use crate::StageRequest;
+    use serde_json::json;
+
+    #[test]
+    fn prebound_receipts_reject_every_untrusted_identity_and_shape() {
+        let plan = json!({
+            "release":{"tag":"provider-acme-v1"},
+            "targets":[{"asset":"a.tgz","sha256":"11".repeat(32),"destination_url":"https://github.com/cadencr/registry/releases/download/provider-acme-v1/a.tgz"}]
+        });
+        let binding =
+            crate::binding::build_publication_prebinding(&plan, REPOSITORY, COMMIT).unwrap();
+        let provenance = binding.expected.last().unwrap();
+        let artifacts = json!([
+            {"name":"a.tgz","sha256":"11".repeat(32),"size":7},
+            {"name":provenance.name,"sha256":provenance.sha256,"size":provenance.size.unwrap()}
+        ]);
+        for kind in ["mirror", "publication"] {
+            for mode in [
+                "schema",
+                "status",
+                "repository",
+                "commit",
+                "tag-commit",
+                "tag",
+                "plan",
+                "id",
+                "cardinality",
+                "order",
+                "name",
+                "digest",
+                "archive-size",
+                "provenance-size",
+                "unknown",
+                "malformed",
+            ] {
+                let root = tempfile::tempdir().unwrap();
+                let mut value = if kind == "mirror" {
+                    json!({"schema_version":1,"status":"draft_verified","repository":REPOSITORY,"registry_commit":COMMIT,"release_id":7,"release_tag":binding.tag,"plan_sha256":binding.plan_sha256,"artifacts":artifacts})
+                } else {
+                    json!({"schema_version":1,"status":"published_verified","repository":REPOSITORY,"registry_commit":COMMIT,"release_id":7,"release_tag":binding.tag,"tag_commit":COMMIT,"plan_sha256":binding.plan_sha256,"artifacts":artifacts})
+                };
+                match mode {
+                    "schema" => value["schema_version"] = 2.into(),
+                    "status" => value["status"] = "wrong".into(),
+                    "repository" => value["repository"] = "other/repo".into(),
+                    "commit" => value["registry_commit"] = "a".repeat(40).into(),
+                    "tag-commit" => value["tag_commit"] = "a".repeat(40).into(),
+                    "tag" => value["release_tag"] = "wrong".into(),
+                    "plan" => value["plan_sha256"] = "22".repeat(32).into(),
+                    "id" => value["release_id"] = 0.into(),
+                    "cardinality" => {
+                        value["artifacts"].as_array_mut().unwrap().pop();
+                    }
+                    "order" => value["artifacts"].as_array_mut().unwrap().swap(0, 1),
+                    "name" => value["artifacts"][0]["name"] = "wrong".into(),
+                    "digest" => value["artifacts"][0]["sha256"] = "33".repeat(32).into(),
+                    "archive-size" => {
+                        value["artifacts"][0]["size"] = (MAX_ARCHIVE_BYTES + 1).into()
+                    }
+                    "provenance-size" => value["artifacts"][1]["size"] = 0.into(),
+                    "unknown" => value["unexpected"] = true.into(),
+                    "malformed" => {}
+                    _ => unreachable!(),
+                }
+                let name = if kind == "mirror" {
+                    MIRROR_RECEIPT
+                } else {
+                    PUBLICATION_RECEIPT
+                };
+                let bytes = if mode == "malformed" {
+                    b"{".to_vec()
+                } else {
+                    serde_json::to_vec(&value).unwrap()
+                };
+                std::fs::write(root.path().join(name), bytes).unwrap();
+                assert!(
+                    prebound_receipts(root.path(), &binding, REPOSITORY, COMMIT).is_err(),
+                    "{kind}/{mode}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn malformed_or_conflicting_publication_receipts_fail_before_api() {

@@ -1,7 +1,9 @@
 use std::path::Path;
 
 use serde_json::Value;
+use sha2::{Digest as _, Sha256};
 
+use crate::binding::PublicationPrebinding;
 use crate::fs::{read_bounded, write_private_synced};
 use crate::stage::{partial_path, StageReceipt, RECEIPT};
 use crate::PublisherError;
@@ -28,6 +30,56 @@ pub(crate) fn validate_existing_receipt(
     {
         return Err(PublisherError::new(
             "staging directory belongs to a different publication plan",
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_existing_receipt_prebound(
+    directory: &Path,
+    binding: &PublicationPrebinding,
+) -> Result<(), PublisherError> {
+    let path = directory.join(RECEIPT);
+    let bytes = match std::fs::symlink_metadata(&path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(PublisherError::io("inspect staging receipt", error)),
+        Ok(_) => read_bounded(&path, MAX_RECEIPT_BYTES, "staging receipt")?,
+    };
+    let value = cadencr_registry_core::parse_json_bytes(&bytes)
+        .map_err(|_| PublisherError::new("existing staging receipt is invalid"))?;
+    let receipt: StageReceipt = serde_json::from_value(value)
+        .map_err(|_| PublisherError::new("existing staging receipt is invalid"))?;
+    let plan_matches = crate::hex(&Sha256::digest(
+        cadencr_registry_core::canonical_json_bytes(&receipt.plan),
+    )) == binding.plan_sha256;
+    if receipt.schema_version != 1 || !plan_matches {
+        return Err(PublisherError::new(
+            "staging directory belongs to a different publication plan",
+        ));
+    }
+    if receipt.artifacts.len() + 1 != binding.expected.len() {
+        return Err(PublisherError::new(
+            "existing staging receipt artifact cardinality conflicts",
+        ));
+    }
+    let mut aggregate = 0_u64;
+    for (actual, expected) in receipt.artifacts.iter().zip(&binding.expected) {
+        if expected.size.is_some()
+            || actual.asset != expected.name
+            || actual.sha256 != expected.sha256
+            || actual.size > crate::stage::MAX_ARCHIVE_BYTES
+        {
+            return Err(PublisherError::new(
+                "existing staging receipt artifact conflicts",
+            ));
+        }
+        aggregate = aggregate
+            .checked_add(actual.size)
+            .ok_or_else(|| PublisherError::new("staging artifact sizes overflow"))?;
+    }
+    if aggregate > crate::stage::MAX_MANAGED_BYTES {
+        return Err(PublisherError::new(
+            "staging artifact aggregate exceeds 1 GiB",
         ));
     }
     Ok(())
@@ -150,6 +202,62 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn prebound_staging_receipt_rejects_untrusted_shape_identity_and_sizes() {
+        let plan = json!({"release":{"tag":"provider-acme-v1"},"targets":[
+            {"asset":"a.tgz","sha256":"11".repeat(32),"destination_url":"https://example/a.tgz"},
+            {"asset":"b.tgz","sha256":"22".repeat(32),"destination_url":"https://example/b.tgz"}
+        ]});
+        let binding = crate::binding::build_publication_prebinding(
+            &plan,
+            "cadencr/registry",
+            &"b".repeat(40),
+        )
+        .unwrap();
+        for mode in [
+            "schema",
+            "plan",
+            "cardinality",
+            "order",
+            "name",
+            "digest",
+            "size",
+            "unknown",
+            "nested-unknown",
+            "malformed",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let mut value = json!({"schema_version":1,"plan":plan,"artifacts":[
+                {"asset":"a.tgz","sha256":"11".repeat(32),"size":7},
+                {"asset":"b.tgz","sha256":"22".repeat(32),"size":8}
+            ]});
+            match mode {
+                "schema" => value["schema_version"] = 2.into(),
+                "plan" => value["plan"]["release"]["tag"] = "wrong".into(),
+                "cardinality" => {
+                    value["artifacts"].as_array_mut().unwrap().pop();
+                }
+                "order" => value["artifacts"].as_array_mut().unwrap().swap(0, 1),
+                "name" => value["artifacts"][0]["asset"] = "wrong".into(),
+                "digest" => value["artifacts"][0]["sha256"] = "33".repeat(32).into(),
+                "size" => {
+                    value["artifacts"][0]["size"] = (crate::stage::MAX_ARCHIVE_BYTES + 1).into()
+                }
+                "unknown" => value["unexpected"] = true.into(),
+                "nested-unknown" => value["artifacts"][0]["unexpected"] = true.into(),
+                "malformed" => {}
+                _ => unreachable!(),
+            }
+            let bytes = if mode == "malformed" {
+                b"{".to_vec()
+            } else {
+                serde_json::to_vec(&value).unwrap()
+            };
+            std::fs::write(root.path().join(RECEIPT), bytes).unwrap();
+            assert!(validate_existing_receipt_prebound(root.path(), &binding).is_err());
+        }
+    }
 
     #[test]
     fn canonical_receipt_replay_preserves_equivalent_original_bytes() {

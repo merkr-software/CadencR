@@ -1044,6 +1044,39 @@ alone cannot close them.
   publication or app/production database access. Real GitHub lifecycle QA and
   release/pin activation remain external delivery gates.
 
+### Fresh-runner managed restoration Rust migration — 2026-09-27
+
+- Resume from signed local recovery commit `5f931c9b8`. Parallel-advisor splits
+  managed staging/budgets, immutable receipt prebinding and read-only orchestration;
+  parent owns CLI integration, subprocess proof and documentation.
+- Add explicit `registry restore-publication` with repository, exact commit and
+  `--confirm-restore` release-tag confirmation. Require an existing nonsymlink
+  empty or partial directory. No GitHub writes, tag creation or author fallback.
+- Validate existing staging/mirror/publication receipts before acquisition.
+  Bind the already published release, exact tag/commit/body and managed asset set
+  before downloading; retain its release ID through final recovery verification.
+- Download only missing managed destination assets without rewriting the immutable
+  source plan. Verify retained targets before downloads, enforce a cumulative
+  `1 GiB` archive staging budget including retained bytes and `256 MiB` per target.
+  Independent later byte-verification traffic is outside this staging budget.
+- Reuse strict recovery verification and canonical mirror proof. Preserve existing
+  valid receipt bytes; never manufacture a publication receipt. Promotion verification
+  remains the separate way to reconstruct that receipt for an already published release.
+- Validation: 224 targeted Rust tests pass (publisher 95, CLI 56, core 52,
+  plugin core 21), plus all 252 registry JS tests. All-target Clippy with warnings
+  denied, formatting and diff checks pass. Three independent Sol finish-job
+  reviews cleared the final implementation after shared staging/metadata/receipt
+  cleanup and a final local-artifact rehash before mirror proof.
+- QA includes true-empty and partial directories, destination-only failures,
+  strict receipt matrices, retained-plus-download budgets, release-ID drift and
+  same-length local corruption during public verification. A real GitHub client
+  uses a bounded loopback server enforcing 13 authenticated GETs; actual CLI
+  subprocesses cover confirmations and local rejection paths. This is isolated
+  HTTP/CLI proof, not a real GitHub publication or a production-app test.
+- Next: protected pipeline orchestration and explicit tag creation, then real GitHub
+  lifecycle QA. Active JS tooling remains until parity and an explicitly selected
+  CLI release with pinned artifacts; no release version or tag is inferred here.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

@@ -1,22 +1,22 @@
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use sha2::{Digest as _, Sha256};
 
 use crate::fs::read_bounded;
 use crate::{PublisherError, StageReceipt};
 
+mod prebinding;
 mod receipt;
+pub(crate) use prebinding::{build_publication_prebinding, PublicationPrebinding};
 pub use receipt::PublicationReceipt;
 pub(crate) use receipt::{
-    build_publication_receipt, read_publication_receipt, read_unbound_publication_receipt,
-    validate_publication_receipt,
+    build_publication_receipt, publication_receipt_identity_matches, read_publication_receipt,
+    read_unbound_publication_receipt, validate_publication_receipt,
 };
 
 pub(crate) const MAX_PUBLICATION_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 pub(crate) const MIRROR_RECEIPT: &str = "mirror-receipt.json";
 pub(crate) const PUBLICATION_RECEIPT: &str = "publication-receipt.json";
-const PROVENANCE: &str = "publication-plan.json";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -61,73 +61,65 @@ pub struct MirrorReceipt {
     pub artifacts: Vec<CompactArtifact>,
 }
 
-#[derive(Deserialize)]
-struct PlanView {
-    release: ReleaseView,
-    targets: Vec<TargetView>,
-}
-
-#[derive(Deserialize)]
-struct ReleaseView {
-    tag: String,
-}
-
-#[derive(Deserialize)]
-struct TargetView {
-    asset: String,
-    destination_url: String,
-}
-
 pub(crate) fn build_publication_binding(
     staged: &StageReceipt,
     repository: &str,
     registry_commit: &str,
     directory: &Path,
 ) -> Result<PublicationBinding, PublisherError> {
-    let mut plan_bytes = cadencr_registry_core::canonical_json_bytes(&staged.plan);
-    let plan_sha256 = digest(&plan_bytes);
-    plan_bytes.push(b'\n');
-    if plan_bytes.len() as u64 > MAX_PUBLICATION_METADATA_BYTES {
-        return Err(PublisherError::new("publication plan exceeds 4 MiB"));
-    }
-    let plan: PlanView = serde_json::from_value(staged.plan.clone())
-        .map_err(|_| PublisherError::new("publication plan binding is invalid"))?;
-    let mut expected = Vec::with_capacity(staged.artifacts.len() + 1);
-    for artifact in &staged.artifacts {
-        let target = plan
-            .targets
-            .iter()
-            .find(|target| target.asset == artifact.asset)
-            .ok_or_else(|| {
-                PublisherError::new("staged artifact is absent from publication plan")
-            })?;
+    build_publication_prebinding(&staged.plan, repository, registry_commit)?.bind(staged, directory)
+}
+
+impl PublicationPrebinding {
+    pub(crate) fn bind(
+        self,
+        staged: &StageReceipt,
+        directory: &Path,
+    ) -> Result<PublicationBinding, PublisherError> {
+        if staged.artifacts.len() + 1 != self.expected.len() {
+            return Err(PublisherError::new(
+                "staged artifacts do not match publication plan",
+            ));
+        }
+        let mut expected = Vec::with_capacity(self.expected.len());
+        for (artifact, target) in staged.artifacts.iter().zip(&self.expected) {
+            if target.name != artifact.asset
+                || target.sha256 != artifact.sha256
+                || target.size.is_some()
+            {
+                return Err(PublisherError::new(
+                    "staged artifact does not match publication plan",
+                ));
+            }
+            expected.push(ExpectedArtifact {
+                name: artifact.asset.clone(),
+                sha256: artifact.sha256.clone(),
+                size: artifact.size,
+                source: ArtifactSource::File(directory.join(&artifact.asset)),
+                expected_url: target.expected_url.clone(),
+            });
+        }
+        let provenance = self
+            .expected
+            .into_iter()
+            .last()
+            .ok_or_else(|| PublisherError::new("publication provenance is missing"))?;
         expected.push(ExpectedArtifact {
-            name: artifact.asset.clone(),
-            sha256: artifact.sha256.clone(),
-            size: artifact.size,
-            source: ArtifactSource::File(directory.join(&artifact.asset)),
-            expected_url: target.destination_url.clone(),
+            name: provenance.name,
+            sha256: provenance.sha256,
+            size: provenance
+                .size
+                .ok_or_else(|| PublisherError::new("publication provenance size is missing"))?,
+            source: ArtifactSource::Bytes(self.provenance_bytes),
+            expected_url: provenance.expected_url,
         });
+        Ok(PublicationBinding {
+            tag: self.tag,
+            plan_sha256: self.plan_sha256,
+            body: self.body,
+            expected,
+        })
     }
-    expected.push(ExpectedArtifact {
-        name: PROVENANCE.to_owned(),
-        sha256: digest(&plan_bytes),
-        size: plan_bytes.len() as u64,
-        source: ArtifactSource::Bytes(plan_bytes.clone()),
-        expected_url: format!(
-            "https://github.com/{repository}/releases/download/{}/{PROVENANCE}",
-            plan.release.tag
-        ),
-    });
-    let body = format!(
-        "cadencr-registry-mirror-v1\nplan-sha256:{plan_sha256}\nregistry-commit:{registry_commit}"
-    );
-    Ok(PublicationBinding {
-        tag: plan.release.tag,
-        plan_sha256,
-        body,
-        expected,
-    })
 }
 
 pub(crate) fn compact_artifacts(expected: &[ExpectedArtifact]) -> Vec<CompactArtifact> {
@@ -152,23 +144,42 @@ pub(crate) fn read_mirror_receipt(
     else {
         return Ok(None);
     };
-    let valid = receipt.schema_version == 1
-        && matches!(
-            receipt.status.as_str(),
-            "draft_verified" | "published_recovered"
-        )
-        && receipt.repository == repository
-        && receipt.registry_commit == registry_commit
-        && receipt.release_tag == binding.tag
-        && receipt.plan_sha256 == binding.plan_sha256
-        && (1..=9_007_199_254_740_991).contains(&receipt.release_id)
-        && receipt.artifacts == compact_artifacts(&binding.expected);
+    let valid = mirror_receipt_identity_matches(
+        &receipt,
+        repository,
+        registry_commit,
+        &binding.tag,
+        &binding.plan_sha256,
+    ) && receipt.artifacts == compact_artifacts(&binding.expected);
     if !valid {
         return Err(PublisherError::new(
             "existing mirror receipt conflicts with publication",
         ));
     }
     Ok(Some(receipt))
+}
+
+pub(crate) fn mirror_receipt_identity_matches(
+    receipt: &MirrorReceipt,
+    repository: &str,
+    registry_commit: &str,
+    release_tag: &str,
+    plan_sha256: &str,
+) -> bool {
+    receipt.schema_version == 1
+        && matches!(
+            receipt.status.as_str(),
+            "draft_verified" | "published_recovered"
+        )
+        && receipt.repository == repository
+        && receipt.registry_commit == registry_commit
+        && receipt.release_tag == release_tag
+        && receipt.plan_sha256 == plan_sha256
+        && valid_release_id(receipt.release_id)
+}
+
+pub(crate) fn valid_release_id(value: u64) -> bool {
+    (1..=9_007_199_254_740_991).contains(&value)
 }
 
 pub(super) fn read_optional<T: serde::de::DeserializeOwned>(
@@ -190,15 +201,12 @@ pub(super) fn read_optional<T: serde::de::DeserializeOwned>(
         .map_err(|_| PublisherError::new(format!("existing {label} is invalid")))
 }
 
-fn digest(bytes: &[u8]) -> String {
-    crate::hex(&Sha256::digest(bytes))
-}
-
 #[cfg(test)]
 mod tests {
     use std::process::Command;
 
     use serde_json::json;
+    use sha2::{Digest as _, Sha256};
 
     use super::*;
     use crate::StageArtifact;
@@ -210,7 +218,7 @@ mod tests {
             schema_version: 1,
             plan: json!({
                 "release":{"tag":"provider-acme-v1"},
-                "targets":[{"asset":"provider.tgz","destination_url":"https://github.com/cadencr/registry/releases/download/provider-acme-v1/provider.tgz"}]
+                "targets":[{"asset":"provider.tgz","sha256":"11".repeat(32),"destination_url":"https://github.com/cadencr/registry/releases/download/provider-acme-v1/provider.tgz"}]
             }),
             artifacts: vec![StageArtifact {
                 asset: "provider.tgz".to_owned(),
@@ -255,7 +263,9 @@ process.stdout.write(JSON.stringify({tag:value.tag,planSha256:value.planSha256,b
         });
         assert_eq!(actual, expected);
         assert_eq!(
-            digest(&cadencr_registry_core::canonical_json_bytes(&staged.plan)),
+            crate::hex(&Sha256::digest(
+                cadencr_registry_core::canonical_json_bytes(&staged.plan)
+            )),
             binding.plan_sha256
         );
         assert_ne!(binding.plan_sha256, binding.expected.last().unwrap().sha256);

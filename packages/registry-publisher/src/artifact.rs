@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use crate::fs::{hash_regular, remove_owned, Identity};
-use crate::stage::{StageArtifact, Target, MAX_ARCHIVE_BYTES};
+use crate::stage::{StageArtifact, Target};
 use crate::{Downloaded, PublisherError};
 
 pub(crate) fn finish_target(
@@ -10,19 +10,20 @@ pub(crate) fn finish_target(
     partial_identity: Identity,
     final_path: &Path,
     downloaded: Downloaded,
+    max_bytes: u64,
 ) -> Result<StageArtifact, PublisherError> {
-    if downloaded.sha256 != target.sha256.to_ascii_lowercase() {
+    let actual = hash_regular(partial, max_bytes, "downloaded asset")?;
+    if downloaded != actual {
         return Err(PublisherError::new(format!(
-            "downloaded asset hash mismatch: {}",
+            "downloaded asset result is dishonest: {}",
             target.asset
         )));
     }
-    let verified = hash_regular(partial, MAX_ARCHIVE_BYTES, "downloaded asset")?;
-    let verified = artifact_from_verified(target, verified)?;
+    let verified = artifact_from_verified(target, actual)?;
     match std::fs::hard_link(partial, final_path) {
         Ok(()) => verify_published_target(target, final_path, partial_identity, verified),
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let winner = hash_regular(final_path, MAX_ARCHIVE_BYTES, "existing asset")?;
+            let winner = hash_regular(final_path, max_bytes, "existing asset")?;
             artifact_from_verified(target, winner)
         }
         Err(error) => Err(PublisherError::io("publish staged asset", error)),
@@ -82,6 +83,7 @@ mod tests {
         let target = Target {
             asset: "asset".into(),
             source_url: "unused".into(),
+            destination_url: "unused".into(),
             sha256: digest.clone(),
         };
         (root, target, digest)
@@ -105,6 +107,7 @@ mod tests {
                     sha256: digest,
                     size: 4,
                 },
+                crate::stage::MAX_ARCHIVE_BYTES,
             );
             assert_eq!(result.is_ok(), accepted);
             assert_eq!(std::fs::read(&final_path).unwrap(), winner);

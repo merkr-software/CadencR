@@ -104,6 +104,8 @@ pub(crate) enum RegistryCommand {
     PromotePublication(PromoteArgs),
     /// Recover local mirror proof for an already published, fully staged release.
     RecoverPublication(RecoverArgs),
+    /// Restore missing archives from an already published managed release and verify proof.
+    RestorePublication(RestoreArgs),
     /// Sign a catalog only from verified publications and public artifact bytes.
     SignPublicationCatalog(SignCatalogArgs),
     /// Publish an explicitly confirmed signed catalog to its immutable GitHub release.
@@ -239,4 +241,13 @@ pub(crate) struct RecoverArgs {
     /// Must exactly match the planned published release tag; never publishes it.
     #[arg(long)]
     pub(crate) confirm_recover: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RestoreArgs {
+    #[command(flatten)]
+    pub(crate) publication: MirrorArgs,
+    /// Must exactly match the planned published release tag; never publishes it.
+    #[arg(long)]
+    pub(crate) confirm_restore: String,
 }

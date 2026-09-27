@@ -10,12 +10,12 @@ use crate::{Downloader, PublisherError};
 const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
 
 #[cfg(test)]
-mod fixture;
+pub(crate) mod fixture;
 
 /// Reconstructs the remote proof for a publication without mutating GitHub or
 /// local receipt state. The caller owns locking and local binding validation.
 #[bon::builder]
-pub(super) fn verify(
+pub(crate) fn verify(
     binding: &PublicationBinding,
     registry_commit: &str,
     expected_release_id: Option<u64>,
