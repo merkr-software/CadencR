@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod fixture;
+pub(crate) mod fixture;
 mod manifest;
 
 use std::path::{Path, PathBuf};
@@ -18,6 +18,20 @@ const MAX_SUBMISSION_BYTES: u64 = 1024 * 1024;
 const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
 const MAX_REMOTE_BYTES: u64 = 1024 * 1024 * 1024;
 
+pub(crate) fn validate_manifest_repository(
+    path: &Path,
+    repository: &str,
+) -> Result<(), PublisherError> {
+    let manifest = read_manifest(&absolute_lexical(path)?)?;
+    validate_manifest(&manifest)?;
+    if manifest.repository != repository {
+        return Err(PublisherError::new(
+            "publication manifest repository does not match catalog snapshot",
+        ));
+    }
+    Ok(())
+}
+
 struct PreparedEntry {
     directory: PathBuf,
     expected: Vec<ExpectedArtifact>,
@@ -30,10 +44,16 @@ pub(crate) fn prepare(
     generated_at: &str,
     expires_at: &str,
     downloader: &impl Downloader,
+    expected_repository: Option<&str>,
 ) -> Result<cadencr_registry_core::PreparedSigningPayload, PublisherError> {
     let manifest_file = absolute_lexical(manifest)?;
     let manifest = read_manifest(&manifest_file)?;
     validate_manifest(&manifest)?;
+    if expected_repository.is_some_and(|expected| expected != manifest.repository) {
+        return Err(PublisherError::new(
+            "publication manifest repository does not match catalog snapshot",
+        ));
+    }
     let base = manifest_file
         .parent()
         .ok_or_else(|| PublisherError::new("publication manifest has no parent directory"))?;

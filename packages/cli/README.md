@@ -8,6 +8,8 @@ can upload already verified local artifacts to an explicitly confirmed GitHub
 draft; it never promotes that draft to a published release.
 `promote-publication` separately requires the exact planned tag as confirmation
 before publishing and independently checking public downloads.
+`publish-catalog` independently publishes a verified signed catalog snapshot;
+it does not create its Git tag or update the stable discovery pointer.
 
 ## Commands
 
@@ -38,6 +40,11 @@ cadencr registry promote-publication --submission <submission.json> \
 cadencr registry sign-publication-catalog --manifest <publications.json> \
   --generated-at <timestamp> --expires-at <timestamp> \
   --private-key <private.pem> --key-id <key-id> --output <new-catalog.json>
+cadencr registry publish-catalog --catalog <signed-catalog.json> \
+  --previous-index <previous-catalog.json|bootstrap> --public-key <public.pem> \
+  --key-id <key-id> --manifest <publications.json> --repository <owner/repository> \
+  --registry-commit <40-lowercase-hex> --directory <publication-directory> \
+  --confirm-repository <owner/repository> --confirm-publish <catalog-sha256-tag>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -117,6 +124,22 @@ an existing catalog. The manifest limit is 1 MiB and 100 entries; aggregate
 submission input and catalog payload limits are 32 MiB, and public downloads are
 bounded to 1 GiB in total. The result is signed locally, not published remotely.
 
+`publish-catalog` verifies the candidate and optional previous signed catalog with
+one explicit public key. The previous digest binds its exact input bytes;
+existing package versions cannot disappear or change, and the catalog timestamp
+must advance. Both input catalogs and the canonical output are limited to 1 MiB.
+The manifest must produce exactly the signed payload from verified publications.
+
+The publication directory must already exist and must not be a symlink. Exact
+repository and computed `catalog-<sha256>` confirmation precede credential access.
+The protected `CADENCR_REGISTRY_GITHUB_TOKEN` environment variable authorizes the
+GitHub release operation; no token is accepted as a command-line argument.
+The computed Git tag must already resolve to `--registry-commit`. Publication
+never creates or moves it. Draft creation, upload and promotion reconcile lost
+responses without blindly repeating writes. Only independently verified public
+bytes may produce `catalog-publication-receipt.json`; replay refuses conflicts.
+The existing trusted-directory ancestry limitation applies here too.
+
 ## Diagnostics and exit codes
 
 Pass `--json` for one structured diagnostic object. For `build-index` without
@@ -140,7 +163,8 @@ building this crate locally.
 Numeric canonicalization matches JavaScript and is covered by a deterministic
 263-case Node oracle. The app accepts the shared canonical signature format and
 retains explicit legacy verification, including the exact verified-byte hashes
-in existing receipts. These commands do not publish a catalog.
+in existing receipts. Catalog publication is explicit; stable discovery and
+pipeline/recovery orchestration remain subsequent migrations.
 
 ## Initial release runtime
 

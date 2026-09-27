@@ -7,17 +7,17 @@ use sha2::{Digest as _, Sha256};
 use crate::binding::{build_publication_binding, compact_artifacts, MirrorReceipt};
 use crate::{DownloadRequest, Downloaded, Downloader, PublisherError};
 
-pub(super) enum Mode {
+pub(crate) enum Mode {
     Good,
     WrongDigest,
     WrongSize,
 }
 
-pub(super) struct FixtureDownloader {
-    pub(super) values: HashMap<String, Vec<u8>>,
-    pub(super) calls: Cell<u64>,
-    pub(super) requests: RefCell<Vec<String>>,
-    pub(super) mode: Mode,
+pub(crate) struct FixtureDownloader {
+    pub(crate) values: HashMap<String, Vec<u8>>,
+    pub(crate) calls: Cell<u64>,
+    pub(crate) requests: RefCell<Vec<String>>,
+    pub(crate) mode: Mode,
 }
 
 impl Downloader for FixtureDownloader {
@@ -43,14 +43,26 @@ impl Downloader for FixtureDownloader {
     }
 }
 
-pub(super) struct Fixture {
-    _root: tempfile::TempDir,
-    pub(super) manifest: PathBuf,
-    pub(super) receipt_files: Vec<PathBuf>,
-    pub(super) downloader: FixtureDownloader,
+impl FixtureDownloader {
+    pub(crate) fn insert(&mut self, url: String, bytes: Vec<u8>) {
+        self.values.insert(url, bytes);
+    }
 }
 
-pub(super) fn build(count: usize, mode: Mode) -> Fixture {
+pub(crate) struct Fixture {
+    _root: tempfile::TempDir,
+    pub(crate) manifest: PathBuf,
+    pub(crate) receipt_files: Vec<PathBuf>,
+    pub(crate) downloader: FixtureDownloader,
+}
+
+impl Fixture {
+    pub(crate) fn directory(&self) -> &std::path::Path {
+        self.manifest.parent().unwrap()
+    }
+}
+
+pub(crate) fn build(count: usize, mode: Mode) -> Fixture {
     let root = tempfile::tempdir().unwrap();
     let mut publications = Vec::new();
     let mut receipt_files = Vec::new();

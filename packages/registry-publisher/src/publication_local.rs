@@ -6,6 +6,14 @@ use crate::{DownloadRequest, Downloaded, Downloader, PublisherError};
 const LOCK: &str = ".mirror.lock";
 
 pub(crate) fn acquire(directory: &Path, operation: &str) -> Result<OwnedLock, PublisherError> {
+    validate_existing_directory(directory, operation)?;
+    OwnedLock::acquire(&directory.join(LOCK))
+}
+
+pub(crate) fn validate_existing_directory(
+    directory: &Path,
+    operation: &str,
+) -> Result<(), PublisherError> {
     let metadata = std::fs::symlink_metadata(directory)
         .map_err(|error| PublisherError::io(&format!("inspect {operation} directory"), error))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -13,7 +21,7 @@ pub(crate) fn acquire(directory: &Path, operation: &str) -> Result<OwnedLock, Pu
             "{operation} path must be a non-symlink directory"
         )));
     }
-    OwnedLock::acquire(&directory.join(LOCK))
+    Ok(())
 }
 
 pub(crate) struct RefusingDownloader {

@@ -78,13 +78,13 @@ fn verify_one(
     combine_cleanup(result, cleanup)
 }
 
-pub(super) fn upload_one(
+pub(crate) fn upload_one(
     client: &impl ReleaseClient,
     release_id: u64,
     artifact: &ExpectedArtifact,
     expected: &[ExpectedArtifact],
     directory: &Path,
-) -> Result<(), PublisherError> {
+) -> Result<Option<Asset>, PublisherError> {
     let mut owned = None;
     let file = match &artifact.source {
         ArtifactSource::File(path) => path.as_path(),
@@ -103,11 +103,14 @@ pub(super) fn upload_one(
             .size(artifact.size)
             .build(),
     ) {
-        Ok(_) => Ok(()),
+        Ok(_) => Ok(None),
         Err(primary) => {
             let assets = validated_assets(client.list_assets(release_id)?, expected, false)?;
             match asset(&assets, &artifact.name) {
-                Some(remote) => verify_one(client, remote, artifact, directory),
+                Some(remote) => {
+                    verify_one(client, remote, artifact, directory)?;
+                    Ok(Some(remote.clone()))
+                }
                 None => Err(primary),
             }
         }

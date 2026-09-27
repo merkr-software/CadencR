@@ -3,6 +3,7 @@
 mod artifact;
 mod binding;
 mod catalog;
+mod catalog_publish;
 mod download;
 mod error;
 mod fs;
@@ -16,6 +17,7 @@ mod stage;
 use std::path::{Path, PathBuf};
 
 pub use binding::{CompactArtifact, MirrorReceipt, PublicationReceipt};
+pub use catalog_publish::{CatalogPublicationReceipt, PublishCatalogRequest};
 pub use error::PublisherError;
 pub use stage::{StageArtifact, StageReceipt};
 
@@ -151,4 +153,26 @@ pub fn sign_publication_catalog(
         .call()?;
     cadencr_registry_core::sign_prepared_index(payload, request.private_key, request.key_id)
         .map_err(Into::into)
+}
+
+/// Validate all local catalog publication inputs before credentials are read.
+pub fn preflight_catalog_publication(
+    snapshot: &cadencr_registry_core::CatalogSnapshot,
+    manifest: &Path,
+    directory: &Path,
+) -> Result<(), PublisherError> {
+    catalog_publish::preflight(snapshot, manifest, directory)
+}
+
+/// Publish one already prepared, immutable catalog snapshot.
+pub fn publish_catalog(
+    request: PublishCatalogRequest<'_>,
+) -> Result<CatalogPublicationReceipt, PublisherError> {
+    let client = github::GitHubClient::new(request.snapshot.repository(), request.token)?;
+    catalog_publish::publish(
+        request.snapshot,
+        request.manifest,
+        request.directory,
+        &client,
+    )
 }

@@ -15,7 +15,8 @@ use crate::safe_io::read_bounded_regular;
 use crate::PreparedSigningPayload;
 
 mod payload;
-pub(crate) use payload::validate_signing_payload;
+pub use payload::validate_signing_key_id;
+pub(crate) use payload::{validate_signing_payload, validate_signing_payload_at};
 
 const DOCUMENT_LIMIT: u64 = 32 * 1024 * 1024;
 const KEY_LIMIT: u64 = 16 * 1024;
@@ -29,11 +30,7 @@ pub fn sign_index(
     sign_index_payload(&signed, private_key_file, key_id)
 }
 
-/// Sign an already prepared in-memory index payload.
-///
-/// Numbers use the registry's JavaScript `JSON.stringify`-compatible binary64
-/// canonicalization, including rounding programmatically constructed unsafe
-/// integer values exactly as the JavaScript publication tooling does.
+/// Sign an already prepared in-memory index with JavaScript-compatible number canonicalization.
 pub fn sign_index_payload(
     signed: &Value,
     private_key_file: &Path,
@@ -44,8 +41,7 @@ pub fn sign_index_payload(
     sign_canonical_payload(&payload, private_key_file, key_id)
 }
 
-/// Sign a payload prepared by [`crate::prepare_publication_index`] without
-/// repeating its immutable package validation or canonicalization.
+/// Sign a prepared payload without repeating immutable validation or canonicalization.
 pub fn sign_prepared_index(
     payload: PreparedSigningPayload,
     private_key_file: &Path,
@@ -113,20 +109,52 @@ pub fn verify_signed_index(
 ) -> Result<(), RegistryError> {
     validate_signing_key_id(key_id)?;
     let envelope = read_json(index_file, DOCUMENT_LIMIT, "signed index")?;
-    let validated = validate_envelope(&envelope, allow_expired)?;
+    let validated = validate_envelope_at(&envelope, allow_expired, Utc::now())?;
+    validate_envelope_key_id(&validated, key_id)?;
+    let pem = read_file(public_key_file, KEY_LIMIT, "public key")?;
+    let key = parse_public_key(&pem)?;
+    verify_validated_signature(validated, &key).map(|_| ())
+}
+
+pub(crate) fn parse_public_key(bytes: &[u8]) -> Result<VerifyingKey, RegistryError> {
+    let (label, der) = pem_rfc7468::decode_vec(bytes).map_err(|_| public_key_error())?;
+    if label != "PUBLIC KEY" {
+        return Err(public_key_error());
+    }
+    VerifyingKey::from_public_key_der(&der).map_err(|_| public_key_error())
+}
+
+pub(crate) fn verify_envelope_at(
+    envelope: &Value,
+    key: &VerifyingKey,
+    key_id: &str,
+    allow_expired: bool,
+    now: chrono::DateTime<Utc>,
+) -> Result<Vec<u8>, RegistryError> {
+    let validated = validate_envelope_at(envelope, allow_expired, now)?;
+    validate_envelope_key_id(&validated, key_id)?;
+    verify_validated_signature(validated, key)
+}
+
+fn validate_envelope_key_id(
+    validated: &ValidatedEnvelope<'_>,
+    key_id: &str,
+) -> Result<(), RegistryError> {
     if validated.signature.get("key_id").and_then(Value::as_str) != Some(key_id) {
         return Err(RegistryError::single(
             "envelope signing key id does not match",
         ));
     }
-    let pem = read_file(public_key_file, KEY_LIMIT, "public key")?;
-    let (label, der) = pem_rfc7468::decode_vec(&pem).map_err(|_| public_key_error())?;
-    if label != "PUBLIC KEY" {
-        return Err(public_key_error());
-    }
-    let key = VerifyingKey::from_public_key_der(&der).map_err(|_| public_key_error())?;
+    Ok(())
+}
+
+fn verify_validated_signature(
+    validated: ValidatedEnvelope<'_>,
+    key: &VerifyingKey,
+) -> Result<Vec<u8>, RegistryError> {
     key.verify_strict(&validated.payload, &validated.decoded)
-        .map_err(|_| RegistryError::single("envelope signature verification failed"))
+        .map_err(|_| RegistryError::single("envelope signature verification failed"))?;
+    Ok(validated.payload)
 }
 
 pub fn assemble_signed_index(
@@ -147,9 +175,10 @@ struct ValidatedEnvelope<'a> {
     payload: Vec<u8>,
 }
 
-fn validate_envelope(
+fn validate_envelope_at(
     envelope: &Value,
     allow_expired: bool,
+    now: chrono::DateTime<Utc>,
 ) -> Result<ValidatedEnvelope<'_>, RegistryError> {
     let object = envelope
         .as_object()
@@ -158,7 +187,7 @@ fn validate_envelope(
     let signed = object
         .get("signed")
         .ok_or_else(|| RegistryError::single("envelope.signed is required"))?;
-    let payload = validate_signing_payload(signed, allow_expired)?;
+    let payload = validate_signing_payload_at(signed, allow_expired, now)?;
     let signature = object.get("signature").and_then(Value::as_object);
     let decoded = validate_signature(signature)?;
     Ok(ValidatedEnvelope {
@@ -202,14 +231,6 @@ fn decode_signature(signature: &Map<String, Value>) -> Result<Signature, Registr
         return Err(signature_encoding_error());
     }
     Signature::from_slice(&bytes).map_err(|_| signature_encoding_error())
-}
-
-pub fn validate_signing_key_id(key_id: &str) -> Result<(), RegistryError> {
-    if valid_identifier(key_id) {
-        Ok(())
-    } else {
-        Err(RegistryError::single("signing key id is invalid"))
-    }
 }
 
 fn reject_unknown(

@@ -86,7 +86,7 @@ pub(super) fn validate_final(
     validate_published_release(&release, &binding.tag, commit, &binding.body, id)
 }
 
-pub(super) fn verify_exact_tag(
+pub(crate) fn verify_exact_tag(
     client: &impl ReleaseClient,
     tag: &str,
     commit: &str,
