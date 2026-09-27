@@ -8,7 +8,10 @@ use crate::{PublisherError, StageReceipt};
 
 mod receipt;
 pub use receipt::PublicationReceipt;
-pub(crate) use receipt::{build_publication_receipt, read_publication_receipt};
+pub(crate) use receipt::{
+    build_publication_receipt, read_publication_receipt, read_unbound_publication_receipt,
+    validate_publication_receipt,
+};
 
 pub(crate) const MAX_PUBLICATION_METADATA_BYTES: u64 = 4 * 1024 * 1024;
 pub(crate) const MIRROR_RECEIPT: &str = "mirror-receipt.json";
@@ -46,6 +49,7 @@ pub(crate) struct PublicationBinding {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MirrorReceipt {
     pub schema_version: u64,
     pub status: String,

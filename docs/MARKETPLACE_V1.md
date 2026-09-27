@@ -1010,6 +1010,40 @@ alone cannot close them.
   pipeline, tag creation, recovery and real GitHub lifecycle QA remain subsequent
   work.
 
+### Published-provider recovery Rust migration — 2026-09-27
+
+- Resume from signed local discovery commit `31b3de409`; no push or remote
+  publication. Parallel-advisor chooses strict published-only recovery, rather
+  than porting optional draft/probe behavior with no current Rust consumer.
+- Split implementation between local orchestration/receipt binding and remote
+  verification/HTTP proof; parent owns explicit `registry recover-publication`,
+  subprocess tests and documentation. Preserve existing standalone tag behavior:
+  mirror/promotion/catalog commands do not gain automatic tag creation.
+- Require complete local staging and exact repository/release-tag confirmation.
+  Never download author sources or create/upload/promote any remote object.
+  Reuse bounded staging, immutable bindings, authenticated/public verification,
+  tag checks, owned locks and atomic canonical receipts.
+- Validate all existing local receipts before API reads, including a publication
+  receipt without a mirror receipt; bind the observed remote release ID to any
+  historical proof. Existing valid mirror receipts stay byte-for-byte unchanged,
+  even when their original status was draft_verified, after full published checks.
+- Only a missing mirror receipt is reconstructed as published_recovered. Recovery
+  does not manufacture a publication receipt; subsequent promotion verification
+  supplies it without publishing again when the remote is already published.
+- Scope boundary: this is the recovery primitive for already staged bytes, not
+  end-to-end empty-runner recovery. Managed-release acquisition with aggregate
+  budgets belongs to pipeline staging, followed by protected orchestration and
+  explicit tag creation. Keep the active JS workflow until CLI delivery/parity.
+- Validation: 201 targeted Rust tests pass (publisher 76, CLI 52, core 52,
+  plugin core 21), together with all 252 registry JS tests. All-target Clippy
+  with warnings denied, formatting and diff checks pass. Three separate Sol
+  finish-job reviews cleared reuse, quality and efficiency; supplemental receipt
+  tests cover malformed/null/oversized/symlink inputs and exact JS output bytes.
+- HTTP proof uses a real client against a bounded loopback server: authenticated
+  GETs only, deliberately lost response, failure then safe retry. No real GitHub
+  publication or app/production database access. Real GitHub lifecycle QA and
+  release/pin activation remain external delivery gates.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).
