@@ -1,4 +1,4 @@
-mod local;
+pub(crate) mod local;
 pub(crate) mod public;
 
 use crate::binding::{

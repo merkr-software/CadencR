@@ -12,6 +12,8 @@ before publishing and independently checking public downloads.
 it does not create its Git tag or update the stable discovery pointer.
 `advance-catalog` separately advances an explicitly confirmed, existing discovery
 branch after verifying the published catalog and its local receipt.
+`recover-publication` rebuilds missing local mirror proof for an already published
+release; it never writes to GitHub and requires fully staged local archives.
 
 ## Commands
 
@@ -39,6 +41,10 @@ cadencr registry promote-publication --submission <submission.json> \
   --repository <owner/repository> --registry-commit <40-lowercase-hex> \
   --directory <staging-directory> --confirm-repository <owner/repository> \
   --confirm-publish <planned-release-tag>
+cadencr registry recover-publication --submission <submission.json> \
+  --repository <owner/repository> --registry-commit <40-lowercase-hex> \
+  --directory <staging-directory> --confirm-repository <owner/repository> \
+  --confirm-recover <planned-release-tag>
 cadencr registry sign-publication-catalog --manifest <publications.json> \
   --generated-at <timestamp> --expires-at <timestamp> \
   --private-key <private.pem> --key-id <key-id> --output <new-catalog.json>
@@ -121,6 +127,22 @@ Prereleases are refused. Already-published replay verifies public bytes without
 redownloading the same assets through the authenticated API.
 This operation does not sign or publish a catalog or update discovery.
 
+`recover-publication` requires a published, non-prerelease release at the exact
+reviewed tag and registry commit. Repository, tag, commit and submission checks
+precede credentials. The same protected token environment is used for authenticated
+read access, never for a GitHub mutation. Local archives must already be fully
+staged: missing bytes fail without any author/source download.
+
+Recovery verifies local receipt bindings, authenticated asset bytes, exact tag,
+independent public bytes, stable asset identities and final remote state before
+writing a missing `mirror-receipt.json` with status `published_recovered`. Existing
+valid mirror receipts are preserved, including historical `draft_verified` status,
+but only after verifying the remote release is now published. A matching existing
+publication receipt is allowed even without a mirror receipt. Recovery never
+creates `publication-receipt.json`; use promotion verification afterward. Replays
+recheck remote evidence and never overwrite conflicting receipts. Acquisition of
+managed archives on an entirely empty runner belongs to the later pipeline.
+
 `sign-publication-catalog` reads a manifest containing `schema_version: 1`,
 `repository`, and `publications` entries with `submission`, `directory`, and
 `registry_commit`. Relative paths resolve from the manifest parent. Every entry
@@ -188,7 +210,8 @@ Numeric canonicalization matches JavaScript and is covered by a deterministic
 263-case Node oracle. The app accepts the shared canonical signature format and
 retains explicit legacy verification, including the exact verified-byte hashes
 in existing receipts. Catalog publication and stable discovery are explicit;
-pipeline/recovery orchestration remain subsequent migrations.
+protected pipeline orchestration and fresh-runner managed staging remain
+subsequent migrations.
 
 ## Initial release runtime
 

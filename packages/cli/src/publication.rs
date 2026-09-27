@@ -1,4 +1,4 @@
-use crate::args::{AdvanceCatalogArgs, MirrorArgs, PromoteArgs, PublishCatalogArgs};
+use crate::args::{AdvanceCatalogArgs, MirrorArgs, PromoteArgs, PublishCatalogArgs, RecoverArgs};
 use crate::{operation_error, Diagnostic};
 
 const MIRROR_FAILED: &str = "REGISTRY_MIRROR_FAILED";
@@ -162,5 +162,33 @@ pub(crate) fn advance_catalog(args: &AdvanceCatalogArgs) -> Result<Option<String
     Ok(Some(format!(
         "advanced discovery {} to {}",
         receipt.branch, receipt.snapshot_sha256
+    )))
+}
+
+pub(crate) fn recover(args: &RecoverArgs) -> Result<Option<String>, Diagnostic> {
+    const CODE: &str = "REGISTRY_PUBLICATION_RECOVERY_FAILED";
+    let publication = &args.publication;
+    let plan = preflight(publication, CODE)?;
+    if plan["release"]["tag"].as_str() != Some(args.confirm_recover.as_str()) {
+        return Err(operation_error(
+            CODE,
+            "recovery confirmation must exactly match the planned release tag",
+        ));
+    }
+    let token = publication_token(CODE)?;
+    let receipt = cadencr_registry_publisher::recover_publication(
+        cadencr_registry_publisher::RecoverRequest::builder()
+            .submission(&publication.submission)
+            .repository(&publication.repository)
+            .registry_commit(&publication.registry_commit)
+            .expected_release_tag(&args.confirm_recover)
+            .directory(&publication.directory)
+            .token(&token)
+            .build(),
+    )
+    .map_err(|error| operation_error(CODE, error))?;
+    Ok(Some(format!(
+        "verified published release; local mirror proof recovered: {}",
+        receipt.release_tag
     )))
 }

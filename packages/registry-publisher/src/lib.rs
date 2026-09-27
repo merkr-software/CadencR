@@ -13,6 +13,7 @@ mod mirror;
 mod promote;
 mod publication_local;
 mod receipt;
+mod recover;
 mod stage;
 
 use std::path::{Path, PathBuf};
@@ -127,6 +128,34 @@ pub fn promote_publication(
             .registry_commit(request.registry_commit)
             .release_tag(request.expected_release_tag)
             .build(),
+        &client,
+        &download::ProductionDownloader::default(),
+    )
+}
+
+/// Inputs for strict recovery of an already published release.
+#[derive(bon::Builder)]
+pub struct RecoverRequest<'a> {
+    pub submission: &'a Path,
+    pub repository: &'a str,
+    pub registry_commit: &'a str,
+    pub expected_release_tag: &'a str,
+    pub directory: &'a Path,
+    pub token: &'a str,
+}
+
+/// Verify an already published release and recover only its local mirror receipt.
+pub fn recover_publication(request: RecoverRequest<'_>) -> Result<MirrorReceipt, PublisherError> {
+    recover::preflight(&request)?;
+    let client = github::GitHubClient::new(request.repository, request.token)?;
+    recover::recover(
+        StageRequest::builder()
+            .submission(request.submission)
+            .repository(request.repository)
+            .directory(request.directory)
+            .build(),
+        request.registry_commit,
+        request.expected_release_tag,
         &client,
         &download::ProductionDownloader::default(),
     )

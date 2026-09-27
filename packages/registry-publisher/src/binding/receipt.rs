@@ -49,26 +49,48 @@ pub(crate) fn read_publication_receipt(
     registry_commit: &str,
     release_id: u64,
 ) -> Result<Option<PublicationReceipt>, PublisherError> {
-    if !(1..=9_007_199_254_740_991).contains(&release_id) {
-        return Err(PublisherError::new("publication release id is invalid"));
-    }
-    let actual =
-        read_optional::<PublicationReceipt>(directory, PUBLICATION_RECEIPT, "publication receipt")?;
+    validate_release_id(release_id)?;
+    let actual = read_unbound_publication_receipt(directory)?;
     let Some(actual) = actual else {
         return Ok(None);
     };
+    validate_publication_receipt(&actual, binding, repository, registry_commit, release_id)?;
+    Ok(Some(actual))
+}
+
+pub(crate) fn read_unbound_publication_receipt(
+    directory: &Path,
+) -> Result<Option<PublicationReceipt>, PublisherError> {
+    read_optional::<PublicationReceipt>(directory, PUBLICATION_RECEIPT, "publication receipt")
+}
+
+pub(crate) fn validate_publication_receipt(
+    actual: &PublicationReceipt,
+    binding: &PublicationBinding,
+    repository: &str,
+    registry_commit: &str,
+    release_id: u64,
+) -> Result<(), PublisherError> {
+    validate_release_id(release_id)?;
     let expected = build_publication_receipt()
         .binding(binding)
         .repository(repository)
         .registry_commit(registry_commit)
         .release_id(release_id)
         .call();
-    if actual != expected {
+    if actual != &expected {
         return Err(PublisherError::new(
             "existing publication receipt conflicts",
         ));
     }
-    Ok(Some(actual))
+    Ok(())
+}
+
+fn validate_release_id(release_id: u64) -> Result<(), PublisherError> {
+    if !(1..=9_007_199_254_740_991).contains(&release_id) {
+        return Err(PublisherError::new("publication release id is invalid"));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -93,6 +115,14 @@ mod tests {
             directory.path(),
         )
         .unwrap();
+        assert!(read_publication_receipt()
+            .directory(directory.path())
+            .binding(&binding)
+            .repository("cadencr/registry")
+            .registry_commit(&"b".repeat(40))
+            .release_id(0)
+            .call()
+            .is_err());
         assert!(read_publication_receipt()
             .directory(directory.path())
             .binding(&binding)
