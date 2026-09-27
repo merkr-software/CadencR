@@ -7,11 +7,11 @@ use super::*;
 use crate::mirror::tests::{run as mirror, staged, FakeClient};
 use crate::{DownloadRequest, Downloaded};
 
-pub(super) const REPOSITORY: &str = "cadencr/registry";
-pub(super) const COMMIT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+pub(crate) const REPOSITORY: &str = "cadencr/registry";
+pub(crate) const COMMIT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const TAG: &str = "provider-acme-v1.0.0";
 
-pub(super) struct Public<'a>(pub(super) &'a FakeClient);
+pub(crate) struct Public<'a>(pub(crate) &'a FakeClient);
 
 impl Downloader for Public<'_> {
     fn download(&self, request: DownloadRequest<'_>) -> Result<Downloaded, PublisherError> {
@@ -32,7 +32,7 @@ impl Downloader for Public<'_> {
     }
 }
 
-pub(super) fn published() -> (
+pub(crate) fn published() -> (
     tempfile::TempDir,
     std::path::PathBuf,
     FakeClient,

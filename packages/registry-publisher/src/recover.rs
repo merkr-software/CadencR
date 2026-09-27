@@ -4,11 +4,11 @@ use crate::publication_local::{self, RefusingDownloader};
 use crate::receipt::publish_canonical_receipt;
 use crate::{Downloader, PublisherError, RecoverRequest, StageRequest};
 
-mod local;
-mod verify;
+pub(crate) mod local;
+pub(crate) mod verify;
 
 #[cfg(test)]
-mod fixture;
+pub(crate) mod fixture;
 
 pub(crate) fn preflight(request: &RecoverRequest<'_>) -> Result<(), PublisherError> {
     local::preflight(
@@ -61,14 +61,41 @@ fn recover_locked(
     local::validate_expected_tag(&staged.plan, expected_release_tag)?;
     let binding = build_publication_binding(&staged, repository, registry_commit, directory)?;
     let prior = local::receipts(directory, &binding, repository, registry_commit)?;
+    let expected_release_id = prior.release_id;
+    finish_verified()
+        .binding(binding)
+        .repository(repository)
+        .registry_commit(registry_commit)
+        .directory(directory)
+        .prior(prior)
+        .maybe_expected_release_id(expected_release_id)
+        .client(client)
+        .downloader(downloader)
+        .call()
+}
+
+#[bon::builder]
+pub(crate) fn finish_verified(
+    binding: crate::binding::PublicationBinding,
+    repository: &str,
+    registry_commit: &str,
+    directory: &std::path::Path,
+    prior: local::ExistingReceipts,
+    expected_release_id: Option<u64>,
+    client: &impl ReleaseClient,
+    downloader: &impl Downloader,
+) -> Result<MirrorReceipt, PublisherError> {
     let release_id = verify::verify()
         .binding(&binding)
         .registry_commit(registry_commit)
-        .maybe_expected_release_id(prior.release_id)
+        .maybe_expected_release_id(expected_release_id)
         .directory(directory)
         .client(client)
         .downloader(downloader)
         .call()?;
+    for artifact in &binding.expected {
+        crate::mirror::artifacts::validate_local_artifact(artifact)?;
+    }
     if let Some(receipt) = prior.mirror {
         return Ok(receipt);
     }
@@ -88,12 +115,37 @@ fn recover_locked(
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+
     use super::fixture::{node_oracle, published, run, Public, COMMIT, REPOSITORY};
     use super::*;
     use crate::binding::{
         build_publication_binding, build_publication_receipt, PUBLICATION_RECEIPT,
     };
     use crate::publication_local::RefusingDownloader;
+
+    struct MutatingPublic<'a> {
+        client: &'a crate::mirror::tests::FakeClient,
+        artifact: &'a std::path::Path,
+        mutated: Cell<bool>,
+    }
+
+    impl Downloader for MutatingPublic<'_> {
+        fn download(
+            &self,
+            request: crate::DownloadRequest<'_>,
+        ) -> Result<crate::Downloaded, PublisherError> {
+            let result = Public(self.client).download(request)?;
+            if !self.mutated.replace(true) {
+                let size = std::fs::metadata(self.artifact)
+                    .map_err(|error| PublisherError::io("inspect staged fixture", error))?
+                    .len() as usize;
+                std::fs::write(self.artifact, vec![0; size])
+                    .map_err(|error| PublisherError::io("mutate staged fixture", error))?;
+            }
+            Ok(result)
+        }
+    }
 
     #[test]
     fn recovers_published_release_without_remote_writes_and_replays_raw_receipt() {
@@ -161,6 +213,43 @@ mod tests {
         std::fs::write(&publication_path, &bytes).unwrap();
         assert_eq!(run(&root, &submission, &client).unwrap().release_id, 7);
         assert_eq!(std::fs::read(publication_path).unwrap(), bytes);
+    }
+
+    #[test]
+    fn local_artifact_changed_during_final_verification_creates_no_mirror_proof() {
+        let (root, submission, client, mirror) = published();
+        std::fs::remove_file(root.path().join(MIRROR_RECEIPT)).unwrap();
+        let staged = crate::stage::stage(
+            StageRequest::builder()
+                .submission(&submission)
+                .repository(REPOSITORY)
+                .directory(root.path())
+                .build(),
+            &RefusingDownloader::for_operation("recovery test"),
+        )
+        .unwrap();
+        let artifact = root.path().join(&staged.artifacts[0].asset);
+        let binding = build_publication_binding(&staged, REPOSITORY, COMMIT, root.path()).unwrap();
+        let prior = local::receipts(root.path(), &binding, REPOSITORY, COMMIT).unwrap();
+
+        let result = finish_verified()
+            .binding(binding)
+            .repository(REPOSITORY)
+            .registry_commit(COMMIT)
+            .directory(root.path())
+            .prior(prior)
+            .expected_release_id(mirror.release_id)
+            .client(&client)
+            .downloader(&MutatingPublic {
+                client: &client,
+                artifact: &artifact,
+                mutated: Cell::new(false),
+            })
+            .call();
+
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("staged mirror artifact changed"), "{error}");
+        assert!(!root.path().join(MIRROR_RECEIPT).exists());
     }
 
     #[test]

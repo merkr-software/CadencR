@@ -7,9 +7,33 @@ use crate::fs::{hash_regular, remove_owned, write_private_synced, Identity};
 use crate::github::{Asset, ReleaseClient, UploadAssetRequest, VerifyAssetRequest};
 use crate::PublisherError;
 
+pub(crate) struct AssetMetadata<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) size: Option<u64>,
+    pub(crate) expected_url: &'a str,
+}
+
 pub(crate) fn validated_assets(
     list: Vec<Asset>,
     expected: &[ExpectedArtifact],
+    complete: bool,
+) -> Result<Vec<Asset>, PublisherError> {
+    let metadata = expected
+        .iter()
+        .map(|artifact| AssetMetadata {
+            name: &artifact.name,
+            size: Some(artifact.size),
+            expected_url: &artifact.expected_url,
+        })
+        .collect::<Vec<_>>();
+    validated_metadata(list, &metadata, complete)
+}
+
+/// A missing expected size defers only byte length; all other asset identity
+/// checks remain identical for pre-acquisition and fully bound verification.
+pub(crate) fn validated_metadata(
+    list: Vec<Asset>,
+    expected: &[AssetMetadata<'_>],
     complete: bool,
 ) -> Result<Vec<Asset>, PublisherError> {
     let mut output = Vec::with_capacity(list.len());
@@ -23,7 +47,7 @@ pub(crate) fn validated_assets(
                 item.name
             )));
         }
-        validate_asset_metadata(&item, expected.size, &expected.expected_url)?;
+        validate_asset_metadata(&item, expected)?;
         output.push(item);
     }
     if complete && output.len() != expected.len() {
@@ -38,28 +62,28 @@ pub(crate) fn validated_named_asset(
     size: u64,
     expected_url: &str,
 ) -> Result<Asset, PublisherError> {
-    if list.len() != 1 {
-        return Err(PublisherError::new(
-            "release is missing expected assets or contains unexpected assets",
-        ));
-    }
-    let asset = list.into_iter().next().expect("length checked");
-    if asset.name != name {
-        return Err(PublisherError::new("release contains an unexpected asset"));
-    }
-    validate_asset_metadata(&asset, size, expected_url)?;
-    Ok(asset)
+    let mut assets = validated_metadata(
+        list,
+        &[AssetMetadata {
+            name,
+            size: Some(size),
+            expected_url,
+        }],
+        true,
+    )?;
+    Ok(assets.pop().expect("complete single-asset set"))
 }
 
 fn validate_asset_metadata(
     asset: &Asset,
-    size: u64,
-    expected_url: &str,
+    expected: &AssetMetadata<'_>,
 ) -> Result<(), PublisherError> {
     if asset.state != "uploaded" {
         return Err(PublisherError::new("release asset is not uploaded"));
     }
-    if asset.size != size || asset.browser_download_url != expected_url {
+    if expected.size.is_some_and(|size| asset.size != size)
+        || asset.browser_download_url != expected.expected_url
+    {
         return Err(PublisherError::new(
             "release asset metadata does not match publication",
         ));
@@ -151,7 +175,7 @@ pub(crate) fn upload_one(
     combine_cleanup(result, cleanup)
 }
 
-pub(super) fn validate_local_artifact(artifact: &ExpectedArtifact) -> Result<(), PublisherError> {
+pub(crate) fn validate_local_artifact(artifact: &ExpectedArtifact) -> Result<(), PublisherError> {
     match &artifact.source {
         ArtifactSource::File(path) => {
             let actual = hash_regular(path, artifact.size, "staged mirror artifact")?;

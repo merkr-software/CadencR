@@ -14,6 +14,8 @@ it does not create its Git tag or update the stable discovery pointer.
 branch after verifying the published catalog and its local receipt.
 `recover-publication` rebuilds missing local mirror proof for an already published
 release; it never writes to GitHub and requires fully staged local archives.
+`restore-publication` also fetches missing archives from that published managed
+release into an existing empty or partial directory, never from author sources.
 
 ## Commands
 
@@ -45,6 +47,10 @@ cadencr registry recover-publication --submission <submission.json> \
   --repository <owner/repository> --registry-commit <40-lowercase-hex> \
   --directory <staging-directory> --confirm-repository <owner/repository> \
   --confirm-recover <planned-release-tag>
+cadencr registry restore-publication --submission <submission.json> \
+  --repository <owner/repository> --registry-commit <40-lowercase-hex> \
+  --directory <existing-directory> --confirm-repository <owner/repository> \
+  --confirm-restore <planned-release-tag>
 cadencr registry sign-publication-catalog --manifest <publications.json> \
   --generated-at <timestamp> --expires-at <timestamp> \
   --private-key <private.pem> --key-id <key-id> --output <new-catalog.json>
@@ -141,7 +147,22 @@ but only after verifying the remote release is now published. A matching existin
 publication receipt is allowed even without a mirror receipt. Recovery never
 creates `publication-receipt.json`; use promotion verification afterward. Replays
 recheck remote evidence and never overwrite conflicting receipts. Acquisition of
-managed archives on an entirely empty runner belongs to the later pipeline.
+managed archives on an empty runner is available separately through
+`restore-publication`.
+
+`restore-publication` requires the same confirmations (using `--confirm-restore`),
+token and immutable release binding. The destination directory must already exist
+and must not be a symlink. Existing receipts are checked before remote acquisition;
+archive-size equality is checked after staging. The release must already be
+published and its exact tag, commit, body and managed assets must match before
+missing archives are fetched. No author URL fallback or GitHub mutation occurs.
+
+Retained and downloaded target archives share a `1 GiB` staging budget, with
+`256 MiB` per archive. This is not a total network-traffic budget: subsequent
+independent public-byte verification downloads artifacts again. Restoration
+preserves the original plan and valid receipts, reuses full recovery verification,
+and creates only missing staging/mirror proof, never a publication receipt.
+The initial release identity remains bound through final verification.
 
 `sign-publication-catalog` reads a manifest containing `schema_version: 1`,
 `repository`, and `publications` entries with `submission`, `directory`, and

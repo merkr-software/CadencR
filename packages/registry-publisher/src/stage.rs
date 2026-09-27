@@ -1,20 +1,22 @@
-use crate::artifact::{artifact_from_verified, finish_target};
-use crate::fs::{ensure_directory, hash_regular, remove_owned, Identity, OwnedLock};
-use crate::receipt::{publish_receipt, validate_existing_receipt};
-use crate::{DownloadRequest, Downloader, PublisherError, StageRequest};
+use crate::{Downloader, PublisherError, StageRequest};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest as _, Sha256};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+mod acquisition;
+mod managed;
+pub(crate) use managed::stage_managed;
 pub(crate) const RECEIPT: &str = "staging-receipt.json";
 const LOCK: &str = ".stage.lock";
 const MAX_TARGETS: usize = 6;
 pub(crate) const MAX_ARCHIVE_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_MANAGED_BYTES: u64 = 1024 * 1024 * 1024;
 static NONCE: AtomicU64 = AtomicU64::new(0);
 /// One immutable staged artifact.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StageArtifact {
     pub asset: String,
     pub sha256: String,
@@ -22,6 +24,7 @@ pub struct StageArtifact {
 }
 /// Immutable receipt recording the verified artifacts in a publication plan.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct StageReceipt {
     pub schema_version: u64,
     pub plan: Value,
@@ -31,6 +34,7 @@ pub struct StageReceipt {
 pub(crate) struct Target {
     pub(crate) asset: String,
     pub(crate) source_url: String,
+    pub(crate) destination_url: String,
     pub(crate) sha256: String,
 }
 pub(crate) fn stage(
@@ -59,40 +63,14 @@ fn stage_plan(
     plan: Value,
     downloader: &impl Downloader,
 ) -> Result<StageReceipt, PublisherError> {
-    let targets = parse_targets(&plan)?;
-    ensure_directory(directory)?;
-    let lock = OwnedLock::acquire(&directory.join(LOCK))?;
-    let result = stage_locked(directory, plan, targets, downloader);
-    match result {
-        Ok(receipt) => {
-            lock.release(None)?;
-            Ok(receipt)
-        }
-        Err(error) => {
-            lock.release(Some(error))?;
-            unreachable!("release returns the primary error")
-        }
-    }
-}
-fn stage_locked(
-    directory: &Path,
-    plan: Value,
-    targets: Vec<Target>,
-    downloader: &impl Downloader,
-) -> Result<StageReceipt, PublisherError> {
-    validate_existing_receipt(directory, &plan)?;
-    let mut artifacts = Vec::with_capacity(targets.len());
-    for target in targets {
-        artifacts.push(stage_target(directory, &target, downloader)?);
-    }
-    let receipt = StageReceipt {
-        schema_version: 1,
+    acquisition::stage_plan_with_policy(
+        directory,
         plan,
-        artifacts,
-    };
-    publish_receipt(directory, &receipt)?;
-    Ok(receipt)
+        downloader,
+        acquisition::StagingPolicy::Source,
+    )
 }
+
 fn parse_targets(plan: &Value) -> Result<Vec<Target>, PublisherError> {
     let targets = plan
         .get("targets")
@@ -121,47 +99,6 @@ fn safe_asset_name(value: &str) -> Result<(), PublisherError> {
     }
     Ok(())
 }
-fn stage_target(
-    directory: &Path,
-    target: &Target,
-    downloader: &impl Downloader,
-) -> Result<StageArtifact, PublisherError> {
-    let final_path = directory.join(&target.asset);
-    match std::fs::symlink_metadata(&final_path) {
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(PublisherError::io("inspect existing asset", error)),
-        Ok(_) => {
-            return artifact_from_verified(
-                target,
-                hash_regular(&final_path, MAX_ARCHIVE_BYTES, "existing asset")?,
-            )
-        }
-    }
-    let partial = partial_path(directory, &target.asset);
-    let downloaded = downloader.download(DownloadRequest {
-        url: &target.source_url,
-        sha256: &target.sha256,
-        output: partial.clone(),
-        max_bytes: MAX_ARCHIVE_BYTES,
-    })?;
-    let identity = Identity::from_metadata(
-        &std::fs::symlink_metadata(&partial)
-            .map_err(|error| PublisherError::io("inspect downloaded asset", error))?,
-    );
-    let result = finish_target(target, &partial, identity, &final_path, downloaded);
-    let cleanup = remove_owned(&partial, identity);
-    match (result, cleanup) {
-        (Ok(artifact), Ok(())) => Ok(artifact),
-        (Ok(_), Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            Err(PublisherError::new("owned staging partial disappeared"))
-        }
-        (Ok(_), Err(error)) => Err(PublisherError::io("remove staging partial", error)),
-        (Err(primary), Ok(())) => Err(primary),
-        (Err(primary), Err(error)) if error.kind() == std::io::ErrorKind::NotFound => Err(primary),
-        (Err(primary), Err(_)) => Err(PublisherError::cleanup(primary, 1)),
-    }
-}
-
 pub(crate) fn partial_path(directory: &Path, name: &str) -> PathBuf {
     let sequence = NONCE.fetch_add(1, Ordering::Relaxed);
     let time = SystemTime::now()
@@ -174,6 +111,8 @@ pub(crate) fn partial_path(directory: &Path, name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::artifact::finish_target;
+    use crate::fs::Identity;
     use crate::{DownloadRequest, Downloaded};
     use serde_json::json;
     use std::collections::HashMap;
@@ -337,13 +276,22 @@ mod tests {
         let target = Target {
             asset: "asset".into(),
             source_url: "unused".into(),
+            destination_url: "unused".into(),
             sha256: digest.clone(),
         };
         let downloaded = crate::Downloaded {
             sha256: digest,
             size: 3,
         };
-        assert!(finish_target(&target, &partial, identity, &final_path, downloaded).is_err());
+        assert!(finish_target(
+            &target,
+            &partial,
+            identity,
+            &final_path,
+            downloaded,
+            MAX_ARCHIVE_BYTES,
+        )
+        .is_err());
         assert!(!final_path.exists());
         assert_eq!(std::fs::read(&partial).unwrap(), b"foreign");
     }

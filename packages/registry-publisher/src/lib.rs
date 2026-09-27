@@ -14,6 +14,7 @@ mod promote;
 mod publication_local;
 mod receipt;
 mod recover;
+mod restore;
 mod stage;
 
 use std::path::{Path, PathBuf};
@@ -142,6 +143,29 @@ pub struct RecoverRequest<'a> {
     pub expected_release_tag: &'a str,
     pub directory: &'a Path,
     pub token: &'a str,
+}
+
+/// Inputs for restoring local state from an already published release.
+#[derive(bon::Builder)]
+pub struct RestoreRequest<'a> {
+    pub submission: &'a Path,
+    pub repository: &'a str,
+    pub registry_commit: &'a str,
+    pub expected_release_tag: &'a str,
+    pub directory: &'a Path,
+    pub token: &'a str,
+}
+
+/// Restore missing managed staging files from a strictly bound public release.
+pub fn restore_publication(request: RestoreRequest<'_>) -> Result<MirrorReceipt, PublisherError> {
+    let plan = restore::preflight(&request)?;
+    let client = github::GitHubClient::new(request.repository, request.token)?;
+    restore::restore(
+        request,
+        plan,
+        &client,
+        &download::ProductionDownloader::default(),
+    )
 }
 
 /// Verify an already published release and recover only its local mirror receipt.

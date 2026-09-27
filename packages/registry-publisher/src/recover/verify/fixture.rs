@@ -8,14 +8,30 @@ use serde_json::json;
 use crate::github::{Asset, Release};
 
 #[derive(Default)]
-pub(super) struct Observed {
-    pub(super) paths: Vec<String>,
-    pub(super) authenticated: usize,
+pub(crate) struct Observed {
+    pub(crate) paths: Vec<String>,
+    pub(crate) authenticated: usize,
 }
 
 pub(super) fn serve(
     release: Release,
     assets: Vec<(Asset, Vec<u8>)>,
+) -> (String, Arc<Mutex<Observed>>, std::thread::JoinHandle<()>) {
+    serve_with(release, assets, 11, true)
+}
+
+pub(crate) fn serve_restore(
+    release: Release,
+    assets: Vec<(Asset, Vec<u8>)>,
+) -> (String, Arc<Mutex<Observed>>, std::thread::JoinHandle<()>) {
+    serve_with(release, assets, 13, false)
+}
+
+fn serve_with(
+    release: Release,
+    assets: Vec<(Asset, Vec<u8>)>,
+    expected_requests: usize,
+    lose_first_release: bool,
 ) -> (String, Arc<Mutex<Observed>>, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
@@ -25,7 +41,7 @@ pub(super) fn serve(
     let handle = std::thread::spawn(move || {
         let deadline = Instant::now() + Duration::from_secs(5);
         let mut lost = false;
-        while shared.lock().unwrap().paths.len() < 11 {
+        while shared.lock().unwrap().paths.len() < expected_requests {
             assert!(
                 Instant::now() < deadline,
                 "fixture accept deadline exceeded"
@@ -58,7 +74,8 @@ pub(super) fn serve(
                 state.authenticated += 1;
                 state.paths.push(path.clone());
             }
-            if path.starts_with("/repos/cadencr/registry/releases?") && !lost {
+            if lose_first_release && path.starts_with("/repos/cadencr/registry/releases?") && !lost
+            {
                 lost = true;
                 continue;
             }
