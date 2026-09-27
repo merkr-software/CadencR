@@ -23,20 +23,48 @@ pub(crate) fn validated_assets(
                 item.name
             )));
         }
-        if item.state != "uploaded" {
-            return Err(PublisherError::new("release asset is not uploaded"));
-        }
-        if item.size != expected.size || item.browser_download_url != expected.expected_url {
-            return Err(PublisherError::new(
-                "release asset metadata does not match publication",
-            ));
-        }
+        validate_asset_metadata(&item, expected.size, &expected.expected_url)?;
         output.push(item);
     }
     if complete && output.len() != expected.len() {
         return Err(PublisherError::new("release is missing expected assets"));
     }
     Ok(output)
+}
+
+pub(crate) fn validated_named_asset(
+    list: Vec<Asset>,
+    name: &str,
+    size: u64,
+    expected_url: &str,
+) -> Result<Asset, PublisherError> {
+    if list.len() != 1 {
+        return Err(PublisherError::new(
+            "release is missing expected assets or contains unexpected assets",
+        ));
+    }
+    let asset = list.into_iter().next().expect("length checked");
+    if asset.name != name {
+        return Err(PublisherError::new("release contains an unexpected asset"));
+    }
+    validate_asset_metadata(&asset, size, expected_url)?;
+    Ok(asset)
+}
+
+fn validate_asset_metadata(
+    asset: &Asset,
+    size: u64,
+    expected_url: &str,
+) -> Result<(), PublisherError> {
+    if asset.state != "uploaded" {
+        return Err(PublisherError::new("release asset is not uploaded"));
+    }
+    if asset.size != size || asset.browser_download_url != expected_url {
+        return Err(PublisherError::new(
+            "release asset metadata does not match publication",
+        ));
+    }
+    Ok(())
 }
 
 fn asset<'a>(assets: &'a [Asset], name: &str) -> Option<&'a Asset> {

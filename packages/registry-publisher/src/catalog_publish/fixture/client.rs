@@ -1,3 +1,4 @@
+use crate::github::discovery::{DiscoveryClient, DiscoveryHead, SetDiscoveryRequest};
 use crate::github::{
     Asset, CreateDraftRequest, Release, ReleaseClient, UploadAssetRequest, VerifyAssetRequest,
 };
@@ -14,6 +15,7 @@ struct State {
     verifies: u64,
     api: u64,
     tag_calls: u64,
+    find_calls: u64,
     list_calls: u64,
     lost: bool,
     fail_patch: bool,
@@ -23,6 +25,13 @@ struct State {
     fail_list: Option<u64>,
     asset_fault: Option<&'static str>,
     fail_verify: bool,
+    discovery: Option<DiscoveryHead>,
+    discovery_gets: u64,
+    discovery_sets: u64,
+    lost_set: bool,
+    drift_get: Option<u64>,
+    drift_release: Option<u64>,
+    foreign_lost: bool,
 }
 
 pub(crate) struct Client {
@@ -53,9 +62,6 @@ impl Client {
         let s = self.state.borrow();
         (s.create, s.upload, s.patch)
     }
-    pub(crate) fn api_calls(&self) -> u64 {
-        self.state.borrow().api
-    }
     pub(crate) fn verifies(&self) -> u64 {
         self.state.borrow().verifies
     }
@@ -67,6 +73,14 @@ impl Client {
     }
     pub(crate) fn fail_tag_at(&self, n: u64) {
         self.state.borrow_mut().fail_tag = Some(n);
+    }
+    pub(crate) fn fail_tag_after(&self, offset: u64) {
+        let mut state = self.state.borrow_mut();
+        state.fail_tag = Some(state.tag_calls + offset);
+    }
+    pub(crate) fn drift_release_after(&self, offset: u64) {
+        let mut state = self.state.borrow_mut();
+        state.drift_release = Some(state.find_calls + offset);
     }
     pub(crate) fn drift_asset_id_at(&self, n: u64) {
         self.state.borrow_mut().drift_asset = Some(n);
@@ -96,6 +110,36 @@ impl Client {
     pub(crate) fn fail_verify(&self) {
         self.state.borrow_mut().fail_verify = true;
     }
+    pub(crate) fn discovery_counts(&self) -> (u64, u64) {
+        let state = self.state.borrow();
+        (state.discovery_gets, state.discovery_sets)
+    }
+    pub(crate) fn reset_api_observations(&self) {
+        let mut state = self.state.borrow_mut();
+        state.api = 0;
+        state.discovery_gets = 0;
+        state.discovery_sets = 0;
+    }
+    pub(crate) fn api_calls(&self) -> u64 {
+        self.state.borrow().api
+    }
+    pub(crate) fn set_lost_discovery(&self, value: bool) {
+        self.state.borrow_mut().lost_set = value;
+    }
+    pub(crate) fn foreign_winner_on_lost_set(&self) {
+        let mut state = self.state.borrow_mut();
+        state.lost_set = true;
+        state.foreign_lost = true;
+    }
+    pub(crate) fn drift_discovery_at(&self, get: u64) {
+        self.state.borrow_mut().drift_get = Some(get);
+    }
+    pub(crate) fn set_discovery_head(&self, bytes: Vec<u8>) {
+        self.state.borrow_mut().discovery = Some(DiscoveryHead {
+            sha: "d".repeat(40),
+            bytes,
+        });
+    }
     fn release(&self, draft: bool) -> Release {
         Release {
             id: 7,
@@ -116,6 +160,50 @@ impl Client {
         }
     }
 }
+impl DiscoveryClient for Client {
+    fn get_discovery(&self, branch: &str) -> Result<Option<DiscoveryHead>, PublisherError> {
+        assert_eq!(branch, "main");
+        let mut state = self.state.borrow_mut();
+        state.discovery_gets += 1;
+        let mut head = state.discovery.clone();
+        if state.drift_get == Some(state.discovery_gets) {
+            if let Some(value) = &mut head {
+                value.sha = "e".repeat(40);
+            } else {
+                head = Some(DiscoveryHead {
+                    sha: "e".repeat(40),
+                    bytes: b"{}\n".to_vec(),
+                });
+            }
+        }
+        Ok(head)
+    }
+    fn set_discovery(&self, request: SetDiscoveryRequest<'_>) -> Result<(), PublisherError> {
+        assert_eq!(request.branch, "main");
+        let mut state = self.state.borrow_mut();
+        assert_eq!(
+            request.expected_sha,
+            state.discovery.as_ref().map(|head| head.sha.as_str())
+        );
+        state.discovery_sets += 1;
+        state.discovery = Some(if state.foreign_lost {
+            DiscoveryHead {
+                sha: "e".repeat(40),
+                bytes: b"{}\n".to_vec(),
+            }
+        } else {
+            DiscoveryHead {
+                sha: "c".repeat(40),
+                bytes: request.bytes.to_vec(),
+            }
+        });
+        if state.lost_set {
+            Err(PublisherError::new("lost discovery PUT"))
+        } else {
+            Ok(())
+        }
+    }
+}
 impl ReleaseClient for Client {
     fn get_tag_commit(&self, tag: &str) -> Result<Option<String>, PublisherError> {
         assert_eq!(tag, self.tag);
@@ -132,7 +220,14 @@ impl ReleaseClient for Client {
         assert_eq!(tag, self.tag);
         let mut s = self.state.borrow_mut();
         s.api += 1;
-        Ok(s.release.clone())
+        s.find_calls += 1;
+        let mut release = s.release.clone();
+        if s.drift_release == Some(s.find_calls) {
+            if let Some(value) = &mut release {
+                value.body.push_str(" drift");
+            }
+        }
+        Ok(release)
     }
     fn create_draft(&self, r: CreateDraftRequest<'_>) -> Result<Release, PublisherError> {
         assert_eq!(r.tag, self.tag);

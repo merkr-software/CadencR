@@ -976,6 +976,40 @@ alone cannot close them.
 - Next migration: stable catalog discovery advancement, followed by protected
   pipeline/tag creation and recovery. Do not delete the active JS tooling yet.
 
+### Stable catalog discovery Rust migration — 2026-09-27
+
+- Previous phase delivered as signed local commit `9cc75b871`, with normal
+  workspace hooks passing. No remote publication was performed.
+- Parallel-advisor split: core branch/URL and baseline policy; publisher receipt,
+  verification and compare-and-swap lifecycle; strict GitHub transport and public
+  download policy. Parent integrates the explicit `registry advance-catalog` CLI.
+- Require an existing branch, bootstrap only an absent file, and accept exact
+  candidate replay. Compare the current raw bytes against the exact previous
+  input digest. Finish-job found the earlier JS canonicalized-head comparison
+  violated this binding; correct both Rust and JS with whitespace regressions.
+- Bind publication/discovery receipts before credentials and network access.
+  Validate ref/commit/tree/content plus Git blob identity; reject truncated trees,
+  symlinks, malformed base64, conflicting state and oversized files.
+- Verify published catalog, manifest, exact tag and stable head before one CAS
+  write. Reconcile lost responses only when the candidate wins. Independently
+  verify raw public bytes without credentials or redirects, then final head and
+  freshness before publishing the receipt. No branch creation or forced update.
+- Reuse already locked base64/SHA-1 crates for GitHub transport only; SHA-256 and
+  Ed25519 remain the publication integrity and authenticity mechanisms.
+- Validation: 182 targeted Rust tests pass (core 52, publisher 62, CLI 47,
+  plugin core 21), together with all 252 registry JavaScript tests. Clippy with
+  warnings denied, formatting and diff checks pass. Separate reuse, quality and
+  efficiency reviews cleared the corrected implementation. HTTP proof uses
+  isolated loopback fixtures, not a real GitHub publication.
+- Removed redundant head assessment and a third production preflight, and reused
+  borrowed asset metadata instead of cloning a full catalog just for validation.
+  Keep post-PUT and post-public-download authenticated reads as distinct gates.
+- Active JS remains the registry CI gate, with the exact-baseline correctness
+  fix applied in both implementations.
+  No workflow cutover before parity and actual authorized CLI delivery. Protected
+  pipeline, tag creation, recovery and real GitHub lifecycle QA remain subsequent
+  work.
+
 ### Decisions that must not be invented by implementation
 
 - Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).

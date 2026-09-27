@@ -1,4 +1,4 @@
-use crate::args::{MirrorArgs, PromoteArgs, PublishCatalogArgs};
+use crate::args::{AdvanceCatalogArgs, MirrorArgs, PromoteArgs, PublishCatalogArgs};
 use crate::{operation_error, Diagnostic};
 
 const MIRROR_FAILED: &str = "REGISTRY_MIRROR_FAILED";
@@ -69,11 +69,13 @@ fn publication_token(code: &'static str) -> Result<String, Diagnostic> {
         .map_err(|_| operation_error(code, "CADENCR_REGISTRY_GITHUB_TOKEN is required"))
 }
 
-pub(crate) fn publish_catalog(args: &PublishCatalogArgs) -> Result<Option<String>, Diagnostic> {
-    const CODE: &str = "REGISTRY_CATALOG_PUBLICATION_FAILED";
+fn prepare_catalog(
+    args: &PublishCatalogArgs,
+    code: &'static str,
+) -> Result<cadencr_registry_core::CatalogSnapshot, Diagnostic> {
     if args.confirm_repository != args.repository {
         return Err(operation_error(
-            CODE,
+            code,
             "repository confirmation does not match",
         ));
     }
@@ -90,19 +92,25 @@ pub(crate) fn publish_catalog(args: &PublishCatalogArgs) -> Result<Option<String
         .repository(&args.repository)
         .registry_commit(&args.registry_commit)
         .call()
-        .map_err(|error| operation_error(CODE, error))?;
+        .map_err(|error| operation_error(code, error))?;
     cadencr_registry_publisher::preflight_catalog_publication(
         &snapshot,
         &args.manifest,
         &args.directory,
     )
-    .map_err(|error| operation_error(CODE, error))?;
+    .map_err(|error| operation_error(code, error))?;
     if args.confirm_publish != snapshot.tag() {
         return Err(operation_error(
-            CODE,
+            code,
             "publish confirmation must exactly match the catalog tag",
         ));
     }
+    Ok(snapshot)
+}
+
+pub(crate) fn publish_catalog(args: &PublishCatalogArgs) -> Result<Option<String>, Diagnostic> {
+    const CODE: &str = "REGISTRY_CATALOG_PUBLICATION_FAILED";
+    let snapshot = prepare_catalog(args, CODE)?;
     let token = publication_token(CODE)?;
     let receipt = cadencr_registry_publisher::publish_catalog(
         cadencr_registry_publisher::PublishCatalogRequest::builder()
@@ -116,5 +124,43 @@ pub(crate) fn publish_catalog(args: &PublishCatalogArgs) -> Result<Option<String
     Ok(Some(format!(
         "published and verified catalog: {}",
         receipt.release_tag
+    )))
+}
+
+pub(crate) fn advance_catalog(args: &AdvanceCatalogArgs) -> Result<Option<String>, Diagnostic> {
+    const CODE: &str = "REGISTRY_CATALOG_DISCOVERY_FAILED";
+    cadencr_registry_core::validate_discovery_branch(&args.discovery_branch)
+        .map_err(|error| operation_error(CODE, error))?;
+    let snapshot = prepare_catalog(&args.catalog, CODE)?;
+    let expected_url =
+        cadencr_registry_core::discovery_url(snapshot.repository(), &args.discovery_branch)
+            .map_err(|error| operation_error(CODE, error))?;
+    if args.confirm_discovery != expected_url {
+        return Err(operation_error(
+            CODE,
+            "discovery confirmation must exactly match the raw discovery URL",
+        ));
+    }
+    cadencr_registry_publisher::preflight_catalog_discovery(
+        &snapshot,
+        &args.catalog.manifest,
+        &args.catalog.directory,
+        &args.discovery_branch,
+    )
+    .map_err(|error| operation_error(CODE, error))?;
+    let token = publication_token(CODE)?;
+    let receipt = cadencr_registry_publisher::advance_catalog(
+        cadencr_registry_publisher::AdvanceCatalogRequest::builder()
+            .snapshot(&snapshot)
+            .manifest(&args.catalog.manifest)
+            .directory(&args.catalog.directory)
+            .discovery_branch(&args.discovery_branch)
+            .token(&token)
+            .build(),
+    )
+    .map_err(|error| operation_error(CODE, error))?;
+    Ok(Some(format!(
+        "advanced discovery {} to {}",
+        receipt.branch, receipt.snapshot_sha256
     )))
 }

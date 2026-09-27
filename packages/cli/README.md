@@ -10,6 +10,8 @@ draft; it never promotes that draft to a published release.
 before publishing and independently checking public downloads.
 `publish-catalog` independently publishes a verified signed catalog snapshot;
 it does not create its Git tag or update the stable discovery pointer.
+`advance-catalog` separately advances an explicitly confirmed, existing discovery
+branch after verifying the published catalog and its local receipt.
 
 ## Commands
 
@@ -45,6 +47,12 @@ cadencr registry publish-catalog --catalog <signed-catalog.json> \
   --key-id <key-id> --manifest <publications.json> --repository <owner/repository> \
   --registry-commit <40-lowercase-hex> --directory <publication-directory> \
   --confirm-repository <owner/repository> --confirm-publish <catalog-sha256-tag>
+cadencr registry advance-catalog --catalog <signed-catalog.json> \
+  --previous-index <previous-catalog.json|bootstrap> --public-key <public.pem> \
+  --key-id <key-id> --manifest <publications.json> --repository <owner/repository> \
+  --registry-commit <40-lowercase-hex> --directory <publication-directory> \
+  --confirm-repository <owner/repository> --confirm-publish <catalog-sha256-tag> \
+  --discovery-branch <existing-branch> --confirm-discovery <exact-raw-GitHub-URL>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -140,6 +148,22 @@ responses without blindly repeating writes. Only independently verified public
 bytes may produce `catalog-publication-receipt.json`; replay refuses conflicts.
 The existing trusted-directory ancestry limitation applies here too.
 
+`advance-catalog` requires `catalog-publication-receipt.json` from the matching
+published snapshot. Repository, catalog tag, and raw URL confirmation plus local
+receipt validation precede token access. The discovery branch must already exist;
+`bootstrap` means only that its `managed-index.json` is absent. No branch is
+created automatically. Branch names are 1–64 ASCII letters/digits/underscores/
+hyphens and must start with a letter or digit.
+
+The current discovery file must match the baseline, or exactly equal the candidate
+for replay. Before a single compare-and-swap Contents API write, the command
+rechecks the head, manifest, published catalog, tag and freshness. A lost write
+response is reconciled, never blindly retried. The raw public URL is downloaded
+without authentication or redirects; exact bytes and a stable final head are
+required before `discovery-receipt.json` is written. Files are bounded to 1 MiB.
+Keep the exact published baseline file: its raw-byte digest must match the
+current discovery bytes, including insignificant JSON whitespace.
+
 ## Diagnostics and exit codes
 
 Pass `--json` for one structured diagnostic object. For `build-index` without
@@ -163,7 +187,7 @@ building this crate locally.
 Numeric canonicalization matches JavaScript and is covered by a deterministic
 263-case Node oracle. The app accepts the shared canonical signature format and
 retains explicit legacy verification, including the exact verified-byte hashes
-in existing receipts. Catalog publication is explicit; stable discovery and
+in existing receipts. Catalog publication and stable discovery are explicit;
 pipeline/recovery orchestration remain subsequent migrations.
 
 ## Initial release runtime

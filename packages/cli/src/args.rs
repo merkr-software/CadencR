@@ -106,6 +106,8 @@ pub(crate) enum RegistryCommand {
     SignPublicationCatalog(SignCatalogArgs),
     /// Publish an explicitly confirmed signed catalog to its immutable GitHub release.
     PublishCatalog(PublishCatalogArgs),
+    /// Advance a confirmed stable discovery branch to an already published catalog.
+    AdvanceCatalog(Box<AdvanceCatalogArgs>),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -215,4 +217,15 @@ pub(crate) struct PublishCatalogArgs {
     /// Must exactly match catalog-<SHA-256 of the canonical signed catalog>.
     #[arg(long)]
     pub(crate) confirm_publish: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct AdvanceCatalogArgs {
+    #[command(flatten)]
+    pub(crate) catalog: PublishCatalogArgs,
+    #[arg(long)]
+    pub(crate) discovery_branch: String,
+    /// Must exactly match the canonical raw GitHub discovery URL.
+    #[arg(long)]
+    pub(crate) confirm_discovery: String,
 }

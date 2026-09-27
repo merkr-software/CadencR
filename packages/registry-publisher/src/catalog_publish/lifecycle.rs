@@ -129,7 +129,7 @@ fn publish_locked(
     Ok(receipt)
 }
 
-fn authoritative_prepare(
+pub(crate) fn authoritative_prepare(
     snapshot: &cadencr_registry_core::CatalogSnapshot,
     manifest: &Path,
     downloader: &impl Downloader,

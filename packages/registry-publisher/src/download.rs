@@ -11,6 +11,9 @@ use url::Url;
 use crate::fs::{private_create, remove_owned, Identity};
 use crate::{DownloadRequest, Downloaded, Downloader, PublisherError};
 
+mod discovery;
+pub(crate) use discovery::DiscoveryDownloader;
+
 const MAX_REDIRECTS: usize = 3;
 const TIMEOUT: Duration = Duration::from_secs(120);
 
