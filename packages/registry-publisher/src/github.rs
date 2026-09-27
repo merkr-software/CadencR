@@ -1,3 +1,4 @@
+pub(crate) mod discovery;
 mod model;
 mod request;
 mod upload;

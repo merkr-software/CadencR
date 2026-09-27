@@ -1,6 +1,7 @@
 mod archive;
 mod catalog;
 mod diagnostics;
+mod discovery;
 mod error;
 mod index;
 mod json;
@@ -19,6 +20,10 @@ pub use archive::{
     pack_archive, pack_provider, PackProviderRequest, PackSpec, PackedArchive, PackedProvider,
 };
 pub use catalog::{prepare_publication_index, PreparedSigningPayload};
+pub use discovery::{
+    assess_discovery_head, discovery_url, validate_discovery_branch, DISCOVERY_FILENAME,
+    MAX_DISCOVERY_BYTES,
+};
 pub use error::RegistryError;
 pub use index::build_index;
 pub use json::{canonical_json_bytes, parse_json as parse_json_bytes};

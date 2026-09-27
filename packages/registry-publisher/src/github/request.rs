@@ -108,6 +108,15 @@ impl Requester {
         self.send(Method::PATCH, path, Some(body), StatusCode::OK)
     }
 
+    pub(super) fn put<B: Serialize, T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &B,
+        expected: StatusCode,
+    ) -> Result<T, PublisherError> {
+        self.send(Method::PUT, path, Some(body), expected)
+    }
+
     fn send<B: Serialize, T: DeserializeOwned>(
         &self,
         method: Method,

@@ -1,18 +1,20 @@
 use std::path::Path;
 
 #[cfg(test)]
-mod fixture;
+pub(crate) mod fixture;
 mod lifecycle;
 mod receipt;
 
-use receipt::{build_receipt, read_receipt};
+pub(crate) use lifecycle::authoritative_prepare;
+use receipt::build_receipt;
+pub(crate) use receipt::read_receipt;
 pub use receipt::{CatalogPublicationReceipt, PublishCatalogRequest};
 
 use crate::github::{Asset, CreateDraftRequest, Release, ReleaseClient};
 use crate::mirror::artifacts::{combine_cleanup, OwnedDirectory};
 use crate::{DownloadRequest, Downloader, PublisherError};
 
-const ASSET: &str = "managed-index.json";
+pub(crate) const ASSET: &str = "managed-index.json";
 const LOCK: &str = ".catalog.lock";
 const RECEIPT: &str = "catalog-publication-receipt.json";
 const MAX_SAFE_ID: u64 = 9_007_199_254_740_991;
@@ -43,7 +45,7 @@ pub(crate) fn publish(
     )
 }
 
-fn validate_release(
+pub(crate) fn validate_release(
     release: &Release,
     snapshot: &cadencr_registry_core::CatalogSnapshot,
     expected_id: Option<u64>,
@@ -91,7 +93,7 @@ fn verify_tag(
     crate::promote::verify_exact_tag(client, snapshot.tag(), snapshot.registry_commit(), timing)
 }
 
-fn expected_artifact(
+pub(crate) fn expected_artifact(
     snapshot: &cadencr_registry_core::CatalogSnapshot,
 ) -> Result<crate::binding::ExpectedArtifact, PublisherError> {
     let size = u64::try_from(snapshot.size())
@@ -105,7 +107,7 @@ fn expected_artifact(
     })
 }
 
-fn catalog_assets(
+pub(crate) fn catalog_assets(
     list: Vec<Asset>,
     expected: &crate::binding::ExpectedArtifact,
     complete: bool,

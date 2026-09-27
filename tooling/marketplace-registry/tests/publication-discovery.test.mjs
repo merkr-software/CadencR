@@ -376,7 +376,7 @@ test("rejects a symbolic catalog lock before snapshot or API work", async (t) =>
   assert.deepEqual(client.calls, { get: 0, put: 0, find: 0, tag: 0 });
 });
 
-test("advances from the exact canonical signed baseline", async (t) => {
+test("advances only from the exact raw signed baseline bytes", async (t) => {
   const state = await fixture(t);
   const baselinePayload = structuredClone(state.envelope.signed);
   baselinePayload.generated_at = "2026-09-19T09:59:00Z";
@@ -385,13 +385,27 @@ test("advances from the exact canonical signed baseline", async (t) => {
     keyId: "release-2026",
     now: fresh,
   });
-  const baselineBytes = Buffer.from(`${canonicalJson(baselineEnvelope)}\n`);
+  const canonicalBaseline = Buffer.from(`${canonicalJson(baselineEnvelope)}\n`);
+  const baselineBytes = Buffer.concat([canonicalBaseline, Buffer.from(" \n")]);
   const baselineFile = path.join(state.root, "baseline.json");
   await writeFile(baselineFile, baselineBytes);
   state.base.previousIndex = baselineFile;
   state.snapshot = await prepareCatalogSnapshot(state.base);
   state.publicBytes.set(state.snapshot.expectedUrl, state.snapshot.bytes);
   await writeCatalogReceipt(state.directory, state.snapshot);
+  const reformatted = discoveryClient(state, {
+    head: { sha: "d".repeat(40), bytes: canonicalBaseline },
+  });
+  await assert.rejects(
+    advanceCatalogDiscovery({
+      ...state.base,
+      client: reformatted,
+      discoveryBranch: "catalog",
+      downloadDiscovery: discoveryDownload(state),
+    }),
+    /does not match the signed baseline/,
+  );
+  assert.equal(reformatted.calls.put, 0);
   const client = discoveryClient(state, {
     head: { sha: "d".repeat(40), bytes: baselineBytes },
   });

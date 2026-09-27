@@ -46,7 +46,7 @@ pub(super) fn build_receipt(
     }
 }
 
-pub(super) fn read_receipt(
+pub(crate) fn read_receipt(
     directory: &Path,
     snapshot: &cadencr_registry_core::CatalogSnapshot,
 ) -> Result<Option<CatalogPublicationReceipt>, PublisherError> {

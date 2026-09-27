@@ -139,20 +139,10 @@ function assessHead(head, snapshot) {
     if (head !== null) throw new Error("discovery is not absent for bootstrap");
     return false;
   }
-  if (head === null || canonicalDigest(head.bytes) !== snapshot.previousSha256) {
+  if (head === null || digest(head.bytes) !== snapshot.previousSha256) {
     throw new Error("discovery does not match the signed baseline");
   }
   return false;
-}
-
-function canonicalDigest(bytes) {
-  let value;
-  try {
-    value = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new Error("discovery contains invalid JSON");
-  }
-  return digest(Buffer.from(`${canonicalJson(value)}\n`));
 }
 
 function normalizeDiscovery(value) {

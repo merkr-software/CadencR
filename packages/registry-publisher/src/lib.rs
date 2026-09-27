@@ -3,6 +3,7 @@
 mod artifact;
 mod binding;
 mod catalog;
+mod catalog_discovery;
 mod catalog_publish;
 mod download;
 mod error;
@@ -17,6 +18,7 @@ mod stage;
 use std::path::{Path, PathBuf};
 
 pub use binding::{CompactArtifact, MirrorReceipt, PublicationReceipt};
+pub use catalog_discovery::{AdvanceCatalogRequest, DiscoveryReceipt};
 pub use catalog_publish::{CatalogPublicationReceipt, PublishCatalogRequest};
 pub use error::PublisherError;
 pub use stage::{StageArtifact, StageReceipt};
@@ -173,6 +175,36 @@ pub fn publish_catalog(
         request.snapshot,
         request.manifest,
         request.directory,
+        &client,
+    )
+}
+
+/// Validate all local discovery-advancement inputs before credentials are read.
+pub fn preflight_catalog_discovery(
+    snapshot: &cadencr_registry_core::CatalogSnapshot,
+    manifest: &Path,
+    directory: &Path,
+    branch: &str,
+) -> Result<(), PublisherError> {
+    catalog_discovery::preflight(snapshot, manifest, directory, branch)
+}
+
+/// Advance the public discovery pointer to a published catalog snapshot.
+pub fn advance_catalog(
+    request: AdvanceCatalogRequest<'_>,
+) -> Result<DiscoveryReceipt, PublisherError> {
+    catalog_discovery::preflight(
+        request.snapshot,
+        request.manifest,
+        request.directory,
+        request.discovery_branch,
+    )?;
+    let client = github::GitHubClient::new(request.snapshot.repository(), request.token)?;
+    catalog_discovery::advance(
+        request.snapshot,
+        request.manifest,
+        request.directory,
+        request.discovery_branch,
         &client,
     )
 }

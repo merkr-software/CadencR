@@ -12,30 +12,30 @@ mod client;
 
 use super::receipt::build_receipt;
 use super::{CatalogPublicationReceipt, RECEIPT};
-use client::Client;
+pub(crate) use client::Client;
 
 const PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH\n-----END PRIVATE KEY-----\n";
 const PUBLIC_KEY: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=\n-----END PUBLIC KEY-----\n";
 
 #[derive(Clone, Copy)]
-pub(super) enum PublicMode {
+pub(crate) enum PublicMode {
     Good,
     WrongDigest,
     WrongSize,
     CleanupDrift,
 }
 
-pub(super) struct FlowFixture {
+pub(crate) struct FlowFixture {
     _catalog: crate::catalog::fixture::Fixture,
-    pub(super) snapshot: cadencr_registry_core::CatalogSnapshot,
-    pub(super) manifest: PathBuf,
-    pub(super) directory: PathBuf,
-    pub(super) client: Client,
-    pub(super) downloader: FlowDownloader,
+    pub(crate) snapshot: cadencr_registry_core::CatalogSnapshot,
+    pub(crate) manifest: PathBuf,
+    pub(crate) directory: PathBuf,
+    pub(crate) client: Client,
+    pub(crate) downloader: FlowDownloader,
 }
 
 impl FlowFixture {
-    pub(super) fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut catalog = build(1, Mode::Good);
         let directory = catalog.directory().join("catalog-publication");
         std::fs::create_dir(&directory).unwrap();
@@ -88,7 +88,7 @@ impl FlowFixture {
             downloader,
         }
     }
-    pub(super) fn publish(&self) -> Result<CatalogPublicationReceipt, PublisherError> {
+    pub(crate) fn publish(&self) -> Result<CatalogPublicationReceipt, PublisherError> {
         publish_with(
             &self.snapshot,
             &self.manifest,
@@ -126,7 +126,7 @@ impl FlowFixture {
         let receipt = build_receipt(&self.snapshot, id);
         std::fs::write(self.receipt(), serde_json::to_vec(&receipt).unwrap()).unwrap();
     }
-    pub(super) fn set_manifest_repository(&self, repository: &str) {
+    pub(crate) fn set_manifest_repository(&self, repository: &str) {
         let mut value: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&self.manifest).unwrap()).unwrap();
         value["repository"] = repository.into();
@@ -151,18 +151,24 @@ impl FlowFixture {
     }
 }
 
-pub(super) struct FlowDownloader {
+pub(crate) struct FlowDownloader {
     inner: std::collections::HashMap<String, Vec<u8>>,
     calls: Cell<u64>,
     public_url: String,
     mode: Cell<PublicMode>,
 }
 impl FlowDownloader {
-    pub(super) fn set_public_mode(&self, mode: PublicMode) {
+    pub(crate) fn insert(&mut self, url: String, bytes: Vec<u8>) {
+        self.inner.insert(url, bytes);
+    }
+    pub(crate) fn set_public_mode(&self, mode: PublicMode) {
         self.mode.set(mode);
     }
-    pub(super) fn calls(&self) -> u64 {
+    pub(crate) fn calls(&self) -> u64 {
         self.calls.get()
+    }
+    pub(crate) fn reset_calls(&self) {
+        self.calls.set(0);
     }
 }
 impl Downloader for FlowDownloader {
