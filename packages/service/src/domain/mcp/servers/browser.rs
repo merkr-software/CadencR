@@ -276,8 +276,6 @@ impl ServerHandler for BrowserServer {
         server_info("cadencr-browser")
     }
 
-    /// Restrict negotiation to the shared Cadencr version list, which
-    /// excludes `2026-07-28` (issue #208).
     fn supported_protocol_versions(
         &self,
     ) -> std::borrow::Cow<'static, [rmcp::model::ProtocolVersion]> {
@@ -289,7 +287,7 @@ impl ServerHandler for BrowserServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, ErrorData>> + Send + '_ {
-        std::future::ready(Ok(ListToolsResult::with_all_items(tools())))
+        std::future::ready(Ok(super::tool_list_result(tools())))
     }
 
     fn call_tool(

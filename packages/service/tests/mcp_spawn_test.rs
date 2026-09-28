@@ -45,14 +45,10 @@ async fn test_mcp_stdio_server_responds_to_tools_list() {
     shutdown_mcp_process(process).await;
 }
 
-/// Regression test for issue #208: a client requesting protocol `2026-07-28`
-/// must be negotiated down to the pinned version, and `tools/list` must keep
-/// the legacy wire shape (no top-level `resultType`). rmcp 3.1.1 tags
-/// `2026-07-28` results with `resultType` but omits the SEP-2549-mandatory
-/// `ttlMs`/`cacheScope`, which spec-conformant clients such as Claude Code
-/// reject — leaving the session with zero tools.
+/// Keep the initialize(2026-07-28) path from issue #208 covered: its tool
+/// response must now include every field required by the negotiated version.
 #[tokio::test]
-async fn test_mcp_negotiates_below_2026_07_28_and_keeps_legacy_result_shape() {
+async fn test_mcp_modern_initialize_returns_conformant_tools() {
     let (_tmp, db_path) = setup_browser_test_db().await;
     let Some(mut process) = spawn_mcp_process(&db_path, "browser") else {
         return;
@@ -66,7 +62,7 @@ async fn test_mcp_negotiates_below_2026_07_28_and_keeps_legacy_result_shape() {
         .expect("timed out waiting for initialize response")
         .unwrap();
     let init_resp: serde_json::Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(init_resp["result"]["protocolVersion"], "2025-11-25");
+    assert_eq!(init_resp["result"]["protocolVersion"], "2026-07-28");
 
     let initialized = r#"{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}"#;
     write_json_line(&mut process.stdin, initialized).await;
@@ -79,10 +75,9 @@ async fn test_mcp_negotiates_below_2026_07_28_and_keeps_legacy_result_shape() {
         .expect("timed out waiting for tools/list response")
         .unwrap();
     let tools_resp: serde_json::Value = serde_json::from_str(&tools_line).unwrap();
-    assert!(
-        tools_resp["result"].get("resultType").is_none(),
-        "tools/list must keep the legacy wire shape, got: {tools_resp}"
-    );
+    assert_eq!(tools_resp["result"]["resultType"], "complete");
+    assert_eq!(tools_resp["result"]["ttlMs"], 0);
+    assert_eq!(tools_resp["result"]["cacheScope"], "private");
     assert!(!tools_resp["result"]["tools"].as_array().unwrap().is_empty());
 
     shutdown_mcp_process(process).await;

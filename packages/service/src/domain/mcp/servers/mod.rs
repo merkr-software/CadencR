@@ -8,7 +8,10 @@ pub mod workspace;
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use rmcp::model::{Implementation, ProtocolVersion, ServerCapabilities, ServerInfo};
+use rmcp::model::{
+    CacheScope, Implementation, ListToolsResult, ProtocolVersion, ServerCapabilities, ServerInfo,
+    Tool,
+};
 
 use self::{browser::BrowserServer, project::ProjectServer, workspace::WorkspaceServer};
 use super::context::McpContext;
@@ -102,36 +105,37 @@ pub fn mcp_server_name(agent_type: AgentType) -> String {
     format!("cadencr-{}", agent_type.short_name())
 }
 
-/// Highest MCP protocol version the Cadencr servers negotiate.
-///
-/// `2026-07-28` is deliberately excluded from negotiation: rmcp 3.1.1 tags
-/// results for that version with `resultType` but omits the `ttlMs` and
-/// `cacheScope` fields that SEP-2549 makes mandatory on `tools/list`, so
-/// spec-conformant clients (Claude Code >= 2.1.232) reject the response and
-/// the session ends up with zero tools (issue #208). Re-allow it only once
-/// rmcp emits conformant cacheable results.
-const PINNED_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
+/// Keep the initialize fallback compatible with clients using the legacy lifecycle.
+const DEFAULT_PROTOCOL_VERSION: ProtocolVersion = ProtocolVersion::V_2025_11_25;
 
-/// Protocol versions the Cadencr MCP servers accept during `initialize`
-/// negotiation — every rmcp-known version except `2026-07-28` (see
-/// [`PINNED_PROTOCOL_VERSION`]).
+/// Versions covered by our wire tests. Modern discovery avoids rmcp 3.1.1's
+/// broken transition from a rejected discover probe to legacy initialize.
 fn supported_protocol_versions() -> Cow<'static, [ProtocolVersion]> {
     const SUPPORTED: &[ProtocolVersion] = &[
         ProtocolVersion::V_2024_11_05,
         ProtocolVersion::V_2025_03_26,
         ProtocolVersion::V_2025_06_18,
         ProtocolVersion::V_2025_11_25,
+        ProtocolVersion::V_2026_07_28,
     ];
     Cow::Borrowed(SUPPORTED)
 }
 
+/// rmcp's constructor omits SEP-2549 fields required by the modern protocol.
+/// Keep catalogs private to the connection's scope and immediately revalidatable.
+fn tool_list_result(tools: Vec<Tool>) -> ListToolsResult {
+    ListToolsResult::with_all_items(tools)
+        .with_ttl_ms(0)
+        .with_cache_scope(CacheScope::Private)
+}
+
 /// Build the `initialize` result for the named Cadencr server: tools-only
-/// capabilities, the pinned protocol version, and orchestration instructions
+/// capabilities, a legacy fallback version, and orchestration instructions
 /// for `cadencr-project`.
 fn server_info(name: &str) -> ServerInfo {
     let caps = ServerCapabilities::builder().enable_tools().build();
     let mut info = ServerInfo::new(caps).with_server_info(Implementation::new(name, "1.0.0"));
-    info.protocol_version = PINNED_PROTOCOL_VERSION;
+    info.protocol_version = DEFAULT_PROTOCOL_VERSION;
     if name == "cadencr-project" {
         return info.with_instructions(
             "CadencR project orchestration is reactive. Inter-agent messages, gates, and awaited replies steer active turns by default. After spawning with follow or requesting a reply, wait for automatically delivered <cadencr-gate> and <cadencr-reply> events; do not poll session tails, status, or pending gates. Queueing is opt-in through delivery=next_turn only.",
@@ -172,13 +176,11 @@ mod tests {
         assert!(cadencr_mcp_required_tools("legacy-session").is_empty());
     }
 
-    /// Guard for issue #208: `2026-07-28` must stay out of negotiation until
-    /// rmcp emits SEP-2549-conformant results.
     #[test]
-    fn negotiation_never_offers_2026_07_28() {
+    fn negotiation_supports_modern_discovery_and_legacy_initialize() {
         let versions = super::supported_protocol_versions();
-        assert!(!versions.contains(&rmcp::model::ProtocolVersion::V_2026_07_28));
-        assert!(versions.contains(&super::PINNED_PROTOCOL_VERSION));
+        assert!(versions.contains(&rmcp::model::ProtocolVersion::V_2026_07_28));
+        assert!(versions.contains(&super::DEFAULT_PROTOCOL_VERSION));
         assert!(
             server_info("cadencr-project").protocol_version
                 < rmcp::model::ProtocolVersion::V_2026_07_28
