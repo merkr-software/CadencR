@@ -54,6 +54,7 @@ test("AJV consumes a hardened fast-uri while valid URI operations still work", a
   const uri = imported.default ?? imported;
 
   assert.equal(uri.normalize("HTTPS://Example.COM/a/../b"), "https://example.com/b");
+  assert.equal(uri.normalize("http://%45XAMPLE.com/"), "http://example.com/");
   assert.match(uri.parse("http://[::not-valid]/private").error, /host/i);
   assert.notEqual(
     uri.normalize("http://%256c%256f%2563%2561%256c%2568%256f%2573%2574/"),
@@ -63,6 +64,31 @@ test("AJV consumes a hardened fast-uri while valid URI operations still work", a
     () => uri.serialize({ scheme: "http", host: "trusted.example", port: "@evil.example" }),
     /port/i,
   );
+});
+
+test("Mermaid's DOMPurify neutralizes descendants detached by after-sanitize hooks", (context) => {
+  const { JSDOM } = rootRequire("jsdom");
+  const { window } = new JSDOM("<!DOCTYPE html><body></body>");
+  context.after(() => window.close());
+  const createDOMPurify = rootRequire(dependency("mermaid", "dompurify"));
+
+  for (const hook of ["afterSanitizeElements", "afterSanitizeAttributes"]) {
+    const purifier = createDOMPurify(window);
+    const root = window.document.createElement("div");
+    root.innerHTML = '<section id="detached"><img src="x" onerror="alert(1)"></section>';
+    window.document.body.append(root);
+    const image = root.querySelector("img");
+    purifier.addHook(hook, (node) => {
+      if (node.id === "detached") node.remove();
+    });
+
+    purifier.sanitize(root, { IN_PLACE: true });
+
+    assert.equal(root.querySelector("section"), null, `${hook} must detach the subtree`);
+    assert.equal(image.hasAttribute("onerror"), false, `${hook} left an armed handler`);
+    assert.equal(purifier.sanitize("<b>safe</b>"), "<b>safe</b>");
+    root.remove();
+  }
 });
 
 test("electron-updater consumes js-yaml with bounded omap and merge processing", () => {
