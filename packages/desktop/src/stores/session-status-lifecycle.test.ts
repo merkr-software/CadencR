@@ -133,7 +133,9 @@ describe("session status lifecycle sync", () => {
 
     const updated = useWsSessionStore.getState().sessions.s2;
     expect(updated.turnTiming.startedAt).toBe(42_000);
-    expect(updated.turnTiming.segmentStartedAt).toBe(42_000);
+    // The accrual segment opens at the local clock: the span this device never
+    // observed must not be booked wholesale into the next segment's bucket.
+    expect(updated.turnTiming.segmentStartedAt).toBe(100_000);
   });
 
   it("clears a pending gate when the session leaves the question state", () => {

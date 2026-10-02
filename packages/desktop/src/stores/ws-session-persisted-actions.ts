@@ -76,6 +76,12 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     : payload.currentProviderId && payload.currentModelId
       ? { providerId: payload.currentProviderId, modelId: payload.currentModelId }
       : undefined;
+  // The server anchor is only for a turn this client has not timed yet: an
+  // entry with a live timer keeps its accrued Agent/Waiting buckets.
+  const canAnchorTurnTiming =
+    payload.turnTiming !== undefined &&
+    !shouldPreservePromptLifecycle &&
+    (existing == null || existing.turnTiming.startedAt == null);
   return {
     persistedLoaded: true,
     historyPrependDisplayOffset: 0,
@@ -88,6 +94,7 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     lifecycle:
       shouldPreservePromptLifecycle && existing ? existing.lifecycle : lifecycleWithPendingGate,
     ...(canHydrateSelection && resolvedSelection ? { currentSelection: resolvedSelection } : {}),
+    ...(canAnchorTurnTiming ? { turnTiming: payload.turnTiming } : {}),
     ...(payload.currentProfile ? { currentProfile: payload.currentProfile } : {}),
     ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
     ...(payload.accessMode ? { accessMode: parseAccessMode(payload.accessMode) } : {}),

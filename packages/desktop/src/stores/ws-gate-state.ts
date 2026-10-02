@@ -11,6 +11,16 @@ export function isGateClosingErrorCode(code: string | undefined): boolean {
   return code != null && GATE_CLOSING_ERROR_CODES.has(code);
 }
 
+/** Whether the session is waiting on a user gate (permission / question / plan). */
+export function hasOpenGate(session: SessionEntry): boolean {
+  return (
+    session.pendingPermission != null ||
+    session.pendingPermissionQueue.length > 0 ||
+    session.pendingQuestions.length > 0 ||
+    session.pendingPlanApproval != null
+  );
+}
+
 export function buildClearedGatePatch(session: SessionEntry): Partial<SessionEntry> | null {
   const hasGateState =
     session.pendingPermission != null ||
