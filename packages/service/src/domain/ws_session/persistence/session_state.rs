@@ -213,18 +213,6 @@ impl WsSessionPersistence {
         broadcaster.broadcast(session_id, feature_id, status, kind);
     }
 
-    /// Convenience: broadcast a [`ProviderSignal`] (TurnStarted /
-    /// AwaitingUser(kind) / TurnEnded). Equivalent to calling
-    /// `broadcast_session_status` with the signal's status + kind, but
-    /// callers that already speak the signal vocabulary stay readable.
-    pub fn broadcast_session_signal(
-        broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
-        session_id: i64,
-        feature_id: i64,
-        signal: crate::domain::session_status::ProviderSignal,
-    ) {
-        broadcaster.signal(session_id, feature_id, signal);
-    }
 
     #[cfg(test)]
     pub async fn mark_completed(&self) {

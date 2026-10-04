@@ -13,6 +13,7 @@ mod mode;
 mod model;
 mod permission;
 mod permission_dispatch;
+mod permission_gate;
 mod permission_user_message;
 mod power;
 mod profile;

@@ -177,15 +177,9 @@ function processMessageBlocks(
   // Streamed chunks arrive while a user gate is open (background subagents,
   // trailing results of parallel tool calls). They must not flip the paused
   // lifecycle back to active, or the whole gate wait is booked as agent time
-  // in the turn summary. An in-flight answer only ends the wait when it
-  // covers the last open gate — with more gates queued behind it the user
-  // is still being waited on.
-  const submittingLastGate =
-    currentSession.submittingPermissionRequestId != null &&
-    currentSession.pendingPermissionQueue.length === 0 &&
-    currentSession.pendingQuestions.length === 0 &&
-    currentSession.pendingPlanApproval == null;
-  const awaitingUserGate = hasOpenGate(currentSession) && !submittingLastGate;
+  // in the turn summary. Sending an answer does not resolve the gate until
+  // the backend acknowledges that exact request.
+  const awaitingUserGate = hasOpenGate(currentSession);
   const lifecycle =
     manualCompactBoundaryObserved && currentSession.pendingManualCompact
       ? transitionTurn(currentSession.lifecycle, {

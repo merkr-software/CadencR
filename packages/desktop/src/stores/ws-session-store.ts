@@ -10,7 +10,11 @@ import * as branch from "./ws-session-branch";
 import type { BranchDeps } from "./ws-session-branch";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload } from "./ws-envelope-payload";
-import { buildClearedGatePatch, isGateClosingErrorCode } from "./ws-gate-state";
+import {
+  buildClearedGatePatch,
+  buildResolvedGatePatch,
+  isGateClosingErrorCode,
+} from "./ws-gate-state";
 import {
   makeErrorBlock,
   buildQueuedInitEnvelopes,
@@ -25,7 +29,6 @@ import {
 import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
 import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
-import { advancePendingPermissionQueue } from "@/lib/pending-permission-queue";
 import type { SocketHandlerDeps } from "./ws-session-socket-handler";
 import { connectSession } from "./ws-session-connect";
 import { createWsSessionSimpleActions } from "./ws-session-simple-actions";
@@ -165,12 +168,10 @@ function handlePermissionResponse(
   }
   const responseUuids = new Map(session.permissionResponseMessageUuids);
   responseUuids.delete(currentRequestId);
-  const permissionPatch = advancePendingPermissionQueue(session.pendingPermissionQueue);
+  const permissionPatch = buildResolvedGatePatch(session, currentRequestId);
   set(
     updateSession(get(), sessionId, {
       ...permissionPatch,
-      pendingRequestId: permissionPatch.pendingPermission?.requestId ?? "",
-      submittingPermissionRequestId: null,
       permissionResponseMessageUuids: responseUuids,
     }),
   );

@@ -29,7 +29,9 @@ use tokio::sync::broadcast;
 
 mod provider;
 
-pub use provider::{event_starts_fresh_turn, provider_signal_for_event, ProviderSignal};
+#[cfg(test)]
+pub use provider::ProviderSignal;
+pub use provider::{event_starts_fresh_turn, provider_signal_for_event};
 
 /// The canonical 3-value agent status, identical wire format on Rust and TS.
 ///
@@ -89,7 +91,7 @@ pub enum PendingKind {
 }
 
 /// Live status update broadcast to subscribed WS clients.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, bon::Builder)]
 pub struct SessionStatusEvent {
     pub session_id: i64,
     pub feature_id: i64,
@@ -101,12 +103,16 @@ pub struct SessionStatusEvent {
     /// the same kind on the same session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
+    /// Only an explicit successful response resolves this gate on other devices.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_request_id: Option<String>,
     /// Server wall-clock (epoch ms) when the current turn started. Carried on
     /// `Agent` events (and in the snapshot for a running session) so every
     /// connected client anchors its elapsed timer to one source of truth
     /// instead of each device's local clock-at-first-render.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub turn_started_at_ms: Option<i64>,
+    #[builder(default)]
     pub seq: u64,
 }
 
@@ -207,24 +213,23 @@ impl SessionStatusBroadcaster {
         request_id: Option<String>,
         turn_started_at_ms: Option<i64>,
     ) -> u64 {
-        let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
-        let _ = self.tx.send(SessionStatusEvent {
+        self.broadcast_event(SessionStatusEvent {
             session_id,
             feature_id,
             status,
             kind,
             request_id,
+            resolved_request_id: None,
             turn_started_at_ms,
-            seq,
-        });
-        seq
+            seq: 0,
+        })
     }
 
-    /// Convenience: emit a [`ProviderSignal`]. Stream-derived signals
-    /// never carry a [`PendingKind`] (those go through
-    /// `mark_awaiting_user_static`), so we hardcode `kind = None`.
-    pub fn signal(&self, session_id: i64, feature_id: i64, signal: ProviderSignal) -> u64 {
-        self.broadcast(session_id, feature_id, signal.status(), None)
+    pub(crate) fn broadcast_event(&self, mut event: SessionStatusEvent) -> u64 {
+        let seq = self.seq.fetch_add(1, Ordering::Relaxed) + 1;
+        event.seq = seq;
+        let _ = self.tx.send(event);
+        seq
     }
 }
 

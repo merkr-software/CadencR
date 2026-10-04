@@ -18,6 +18,7 @@ import { useWebSocketSession } from "./useWebSocketSession";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { anchorTurnTiming } from "@/stores/ws-turn-timing";
 
 // --- Mock WebSocket ---
 
@@ -114,7 +115,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.currentSelection).toBeNull();
   });
 
-  it("restarts stale local timing when backend live status first reports agent", async () => {
+  it("starts fresh timing when the server confirms a different turn", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);
     const { result } = renderHook(() => useWebSocketSession("test-id"));
@@ -129,6 +130,7 @@ describe("useWebSocketSession", () => {
         lifecycle: { phase: "active" },
         sessionDbId: 123,
         featureId: 7,
+        turnTiming: anchorTurnTiming(1_000),
       });
     });
     act(() => {
@@ -160,6 +162,7 @@ describe("useWebSocketSession", () => {
           status: "agent",
           kind: null,
           seq: 2,
+          turn_started_at_ms: 181_000,
         },
       });
     });

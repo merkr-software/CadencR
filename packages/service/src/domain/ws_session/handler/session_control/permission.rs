@@ -9,6 +9,7 @@ use super::super::post_plan_mode::{
 use super::super::session_prompt::PermissionResponse;
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use super::permission_dispatch::finish_gate_claim;
+use super::permission_gate::clear_answered_gate_preserving_replacement;
 use super::permission_user_message::persist_question_answer;
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
@@ -49,32 +50,6 @@ fn acknowledge_permission_response(sender: &WsSender, envelope_id: &str) {
     let _ = sender.send(Message::Text(String::from(ack).into()));
 }
 
-async fn clear_answered_gate_preserving_replacement(
-    pool: &sqlx::SqlitePool,
-    db_session_id: i64,
-    answered_request_id: &str,
-) -> Result<bool, sqlx::Error> {
-    let remaining: Option<String> = sqlx::query_scalar(
-        "UPDATE agent_sessions SET \
-            pending_permission = CASE \
-                WHEN pending_permission IS NOT NULL \
-                    AND json_valid(pending_permission) \
-                    AND json_extract(pending_permission, '$.request_id') IS NOT NULL \
-                    AND json_extract(pending_permission, '$.request_id') != ? \
-                THEN pending_permission \
-                ELSE NULL \
-            END, \
-            pending_questions = NULL \
-         WHERE id = ? \
-         RETURNING pending_permission",
-    )
-    .bind(answered_request_id)
-    .bind(db_session_id)
-    .fetch_one(pool)
-    .await?;
-    Ok(remaining.is_some())
-}
-
 async fn lookup_active_permission_handle(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
@@ -107,7 +82,7 @@ async fn finish_accepted_runtime_permission(
     permission_kind: RuntimePermissionResponseKind,
     payload: &PermissionRespondPayload,
     answer_to_persist: Option<&serde_json::Value>,
-) -> bool {
+) -> Option<crate::domain::session_status::AgentStatus> {
     let is_plan_approval = permission_kind == RuntimePermissionResponseKind::PlanApproval;
     let turn_feedback = if is_plan_approval {
         Some(payload.feedback.as_deref().unwrap_or("Plan feedback"))
@@ -125,9 +100,8 @@ async fn finish_accepted_runtime_permission(
             payload.decision.clone(),
             turn_feedback,
         );
-    let has_stacked_permission = if denial_completes_session {
+    if denial_completes_session {
         clear_runtime_resolved_gate(app_state, db_session_id).await;
-        false
     } else {
         match clear_answered_gate_preserving_replacement(
             &app_state.write_pool,
@@ -136,10 +110,10 @@ async fn finish_accepted_runtime_permission(
         )
         .await
         {
-            Ok(has_replacement) => has_replacement,
+            Ok(_) => {}
             Err(error) => {
                 send_error(sender, envelope_id, "DB_ERROR", &error.to_string());
-                return false;
+                return None;
             }
         }
     };
@@ -167,16 +141,7 @@ async fn finish_accepted_runtime_permission(
         payload.message_uuid.as_deref(),
     )
     .await;
-    if !has_stacked_permission {
-        WsSessionPersistence::broadcast_session_status(
-            &app_state.session_status_tx,
-            db_session_id,
-            feature_id,
-            next_status,
-            None,
-        );
-    }
-    true
+    Some(next_status)
 }
 
 async fn clear_runtime_resolved_gate(app_state: &AppState, db_session_id: i64) {
@@ -346,6 +311,11 @@ pub(super) async fn respond_permission_claimed(
         return;
     };
     let answer_to_persist = payload.updated_input.clone();
+    let resolution = crate::domain::session_status::SessionStatusEvent::builder()
+        .session_id(db_session_id)
+        .feature_id(runtime.active.feature_id)
+        .resolved_request_id(payload.request_id.clone())
+        .maybe_turn_started_at_ms(app_state.active_turns.started_at(db_session_id).await);
     match respond_runtime_permission(
         &runtime,
         &payload,
@@ -357,7 +327,7 @@ pub(super) async fn respond_permission_claimed(
     .await
     {
         Some(RuntimePermissionOutcome::Accepted(permission_kind)) => {
-            let succeeded = finish_accepted_runtime_permission(
+            let next_status = finish_accepted_runtime_permission(
                 sender,
                 envelope_id,
                 app_state,
@@ -368,7 +338,16 @@ pub(super) async fn respond_permission_claimed(
                 answer_to_persist.as_ref(),
             )
             .await;
-            finish_gate_claim(app_state, db_session_id, &payload.request_id, succeeded).await;
+            finish_gate_claim(
+                app_state,
+                resolution
+                    .status(
+                        next_status.unwrap_or(crate::domain::session_status::AgentStatus::Agent),
+                    )
+                    .build(),
+                next_status.is_some(),
+            )
+            .await;
             return;
         }
         Some(RuntimePermissionOutcome::UsePermissionChannel) => {}
@@ -380,7 +359,6 @@ pub(super) async fn respond_permission_claimed(
             return;
         }
     }
-    let request_id = payload.request_id.clone();
     let succeeded = send_permission_channel_response(
         runtime.active.permission_tx,
         payload,
@@ -392,5 +370,12 @@ pub(super) async fn respond_permission_claimed(
         answer_to_persist,
     )
     .await;
-    finish_gate_claim(app_state, db_session_id, &request_id, succeeded).await;
+    finish_gate_claim(
+        app_state,
+        resolution
+            .status(crate::domain::session_status::AgentStatus::Agent)
+            .build(),
+        succeeded,
+    )
+    .await;
 }

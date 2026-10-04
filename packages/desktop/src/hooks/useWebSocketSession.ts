@@ -253,8 +253,8 @@ function usePersistedSessionLoader(
     store.setPersistedState(sessionId, {
       blocks: restoredBlocks,
       lifecycle: restoredLifecycle,
-      ...(turnLive
-        ? { turnTiming: anchorTurnTiming(statusEntry?.turnStartedAtMs ?? Date.now()) }
+      ...(turnLive && statusEntry?.turnStartedAtMs != null
+        ? { turnTiming: anchorTurnTiming(statusEntry.turnStartedAtMs) }
         : {}),
       hasMore: lastSession.hasMore,
       oldestMessageId: lastSession.oldestMessageId,

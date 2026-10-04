@@ -81,6 +81,38 @@ impl GateRegistry {
         Self::default()
     }
 
+    /// Select status and publish under the registry lock: background output
+    /// cannot overtake a pending or claimed user gate.
+    pub(crate) async fn broadcast_status(
+        &self,
+        broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
+        mut event: crate::domain::session_status::SessionStatusEvent,
+    ) {
+        let mut gates = self.gates.lock().await;
+        let entries = gates.entry(event.session_id).or_default();
+        if let Some(request_id) = &event.resolved_request_id {
+            if let Some(entry) = entries
+                .iter_mut()
+                .find(|entry| &entry.request_id == request_id)
+            {
+                entry.state = GateState::Resolved;
+                entry.gate = None;
+            }
+        }
+        if let Some(gate) = entries
+            .iter()
+            .rev()
+            .filter(|entry| entry.state != GateState::Resolved)
+            .find_map(|entry| entry.gate.as_ref())
+        {
+            event.status = crate::domain::session_status::AgentStatus::Question;
+            event.kind = Some(gate.kind.as_session_kind());
+            event.request_id = Some(gate.request_id.clone());
+        }
+        broadcaster.broadcast_event(event);
+        trim_entries(entries);
+    }
+
     pub async fn register(&self, session_id: i64, gate: PendingGate) {
         let mut gates = self.gates.lock().await;
         let entries = gates.entry(session_id).or_default();
@@ -299,5 +331,48 @@ mod tests {
             registry.claim(7, "r1").await,
             Err(GateClaimError::AlreadyClaimed)
         );
+    }
+
+    #[tokio::test]
+    async fn background_activity_and_claims_preserve_unanswered_gates() {
+        use crate::domain::session_status::{
+            AgentStatus, SessionStatusBroadcaster, SessionStatusEvent,
+        };
+        let registry = GateRegistry::new();
+        let (tx, mut rx) = tokio::sync::broadcast::channel(8);
+        let broadcaster = SessionStatusBroadcaster::new(
+            tx,
+            std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        );
+        registry.register(7, gate("a")).await;
+        registry.register(7, gate("b")).await;
+        registry.claim(7, "a").await.unwrap();
+        let event = || {
+            SessionStatusEvent::builder()
+                .session_id(7)
+                .feature_id(8)
+                .status(AgentStatus::Agent)
+        };
+        registry
+            .broadcast_status(&broadcaster, event().build())
+            .await;
+        assert_eq!(rx.recv().await.unwrap().status, AgentStatus::Question);
+        registry
+            .broadcast_status(
+                &broadcaster,
+                event().resolved_request_id("b".into()).build(),
+            )
+            .await;
+        let remaining = rx.recv().await.unwrap();
+        assert_eq!(remaining.status, AgentStatus::Question);
+        assert_eq!(remaining.request_id.as_deref(), Some("a"));
+        assert_eq!(remaining.resolved_request_id.as_deref(), Some("b"));
+        registry
+            .broadcast_status(
+                &broadcaster,
+                event().resolved_request_id("a".into()).build(),
+            )
+            .await;
+        assert_eq!(rx.recv().await.unwrap().status, AgentStatus::Agent);
     }
 }

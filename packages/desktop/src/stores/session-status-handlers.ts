@@ -146,12 +146,15 @@ export function applyUpdate(
   featureId: number | null;
   prevStatus: LiveAgentStatus | undefined;
   nextStatus: LiveAgentStatus | null;
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "requestId" | "turnStartedAtMs"> | null;
+  entry: Pick<
+    SessionStatusEntry,
+    "status" | "kind" | "requestId" | "turnStartedAtMs" | "resolvedRequestId"
+  > | null;
 } {
   const sessionId = typeof payload.session_id === "number" ? payload.session_id : null;
   const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
   const seq = typeof payload.seq === "number" ? payload.seq : 0;
-  const turnStartedAtMs =
+  let turnStartedAtMs =
     typeof payload.turn_started_at_ms === "number" ? payload.turn_started_at_ms : null;
   if (sessionId == null || featureId == null) {
     return {
@@ -177,6 +180,11 @@ export function applyUpdate(
   const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
 
   const existing = prev[sessionId];
+  const resolvedRequestId =
+    typeof payload.resolved_request_id === "string" ? payload.resolved_request_id : null;
+  if (payload.status !== "idle" && existing?.status !== "idle") {
+    turnStartedAtMs ??= existing?.turnStartedAtMs ?? null;
+  }
   if (existing && seq <= existing.seq) {
     // Out-of-order — drop.
     return {
@@ -186,25 +194,6 @@ export function applyUpdate(
       prevStatus: existing.status,
       nextStatus: null,
       entry: null,
-    };
-  }
-
-  const sameValue =
-    existing?.status === payload.status &&
-    (existing?.kind ?? null) === kind &&
-    (existing?.requestId ?? null) === requestId &&
-    existing?.featureId === featureId;
-
-  if (sameValue) {
-    // Skipping the `set` keeps every selector subscribed to `bySession`
-    // referentially stable through the long Agent-streaming runs.
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: existing.status,
-      nextStatus: payload.status,
-      entry: { status: payload.status, kind, requestId, turnStartedAtMs },
     };
   }
 
@@ -224,7 +213,7 @@ export function applyUpdate(
     featureId,
     prevStatus: existing?.status,
     nextStatus: payload.status,
-    entry: { status: payload.status, kind, requestId, turnStartedAtMs },
+    entry: { status: payload.status, kind, requestId, turnStartedAtMs, resolvedRequestId },
   };
 }
 

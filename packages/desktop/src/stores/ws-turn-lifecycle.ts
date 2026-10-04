@@ -65,7 +65,7 @@ export function transitionTurn(current: TurnLifecycle, event: TurnEvent): TurnLi
     case "prompt_sent":
       return { phase: "active" };
     case "initialized":
-      return current.phase === "active" ? current : { phase: "idle" };
+      return current;
     case "permission_requested":
       return { phase: "paused", reason: "permission" };
     case "question_requested":
@@ -84,9 +84,6 @@ export function transitionTurn(current: TurnLifecycle, event: TurnEvent): TurnLi
     case "turn_errored":
       return { phase: "error", ...(event.message ? { message: event.message } : {}) };
     case "connection_lost":
-      if (current.phase === "active") {
-        return { phase: "terminal", reason: "streamClosed" };
-      }
       return current;
     case "stream_activity":
       return current.phase === "active" ? current : { phase: "active" };

@@ -1,11 +1,48 @@
 use tracing::info;
 
-use crate::domain::agents::adapter::RuntimeError;
+use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+use crate::domain::session_status::AgentStatus;
+use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 use super::super::QueryState;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
+    pub(super) async fn broadcast_runtime_signal(
+        &self,
+        state: &mut StreamReaderState,
+        runtime_event: &RuntimeEvent,
+    ) {
+        let Some(signal) = crate::domain::session_status::provider_signal_for_event(runtime_event)
+        else {
+            return;
+        };
+        let next = signal.status();
+        if !state.turn_state.record_signal_status(next) {
+            return;
+        }
+        if runtime_event.is_turn_started_signal() && next == AgentStatus::Agent {
+            WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
+        }
+        self.app_state
+            .pending_gates
+            .broadcast_status(
+                &self.session_status_tx,
+                crate::domain::session_status::SessionStatusEvent::builder()
+                    .session_id(self.db_session_id)
+                    .feature_id(self.feature_id)
+                    .status(next)
+                    .maybe_turn_started_at_ms(
+                        self.app_state
+                            .active_turns
+                            .started_at(self.db_session_id)
+                            .await,
+                    )
+                    .build(),
+            )
+            .await;
+    }
+
     pub(super) async fn handle_reader_closed(&self, state: &mut StreamReaderState) {
         if self.discard_if_superseded("closed").await {
             return;

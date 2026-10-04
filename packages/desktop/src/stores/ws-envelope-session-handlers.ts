@@ -18,6 +18,7 @@ import { parseAccessMode } from "@/types/access-mode";
 import type { SessionEntry } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
+import { resumeTurnTimingAfterSuspend } from "./ws-turn-timing";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
@@ -58,6 +59,10 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
   const updates: Partial<SessionEntry> = {
     serverSessionId: p.session_id ?? "",
     lifecycle: transitionTurn(session.lifecycle, { type: "initialized" }),
+    ...(session.turnTiming.segmentStartedAt == null &&
+    (session.lifecycle.phase === "active" || session.lifecycle.phase === "paused")
+      ? { turnTiming: resumeTurnTimingAfterSuspend(session.turnTiming, Date.now()) }
+      : {}),
     mcpServers: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
   };
@@ -122,6 +127,7 @@ export function handlePermissionRequest(
   const p = parsePermissionPayload(payload);
   if (!p?.request_id || !p.tool_name) return;
   const session = ctx.get().sessions[sessionId];
+  if (session?.resolvedGateRequestIds?.includes(p.request_id)) return;
 
   if (p.tool_name === "ExitPlanMode") {
     const current = ctx.get();

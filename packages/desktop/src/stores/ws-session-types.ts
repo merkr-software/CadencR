@@ -148,6 +148,8 @@ export interface SessionEntry extends SessionConfigState {
   serverSessionId: string;
   lifecycle: TurnLifecycle;
   turnTiming: TurnTimingState;
+  /** Bounded request-id tombstones for cross-socket resolution/request races. */
+  resolvedGateRequestIds?: string[];
   streamingState: StreamingState;
   blocks: AgentBlockData[];
   /**

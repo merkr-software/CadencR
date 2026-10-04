@@ -8,6 +8,8 @@ export interface TurnDurationBreakdown {
 
 export interface TurnTimingState {
   startedAt: number | null;
+  /** Distinguishes a provisional local start from an authoritative turn anchor. */
+  serverStartedAt?: number | null;
   segmentStartedAt: number | null;
   activeMs: number;
   userPendingMs: number;
@@ -76,6 +78,7 @@ export function completeTurnTimingSegment(
       : timing.completed;
 
   return {
+    ...timing,
     startedAt: next.phase === "idle" ? null : timing.startedAt,
     segmentStartedAt: isTerminalLifecycle(next) || next.phase === "idle" ? null : nowMs,
     activeMs: next.phase === "idle" ? 0 : activeMs,
@@ -131,11 +134,28 @@ export function startTurnTiming(nowMs: number): TurnTimingState {
 export function anchorTurnTiming(startedAtMs: number, nowMs: number = Date.now()): TurnTimingState {
   return {
     startedAt: startedAtMs,
+    serverStartedAt: startedAtMs,
     segmentStartedAt: nowMs,
     activeMs: 0,
     userPendingMs: 0,
     completed: null,
   };
+}
+
+/** Adopt the first server anchor; only a different confirmed turn resets buckets. */
+export function reconcileTurnAnchor(
+  timing: TurnTimingState,
+  startedAtMs: number,
+  nowMs: number = Date.now(),
+): TurnTimingState {
+  if (
+    timing.startedAt == null ||
+    (timing.serverStartedAt != null && timing.serverStartedAt !== startedAtMs)
+  ) {
+    return anchorTurnTiming(startedAtMs, nowMs);
+  }
+  if (timing.serverStartedAt === startedAtMs) return timing;
+  return { ...timing, startedAt: startedAtMs, serverStartedAt: startedAtMs };
 }
 
 /**

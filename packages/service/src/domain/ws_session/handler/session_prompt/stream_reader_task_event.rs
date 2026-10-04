@@ -8,7 +8,6 @@ use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent, RuntimeT
 use crate::domain::runtime_stream::{
     capture_runtime_session_id, permission_request_payload, persist_usage,
 };
-use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::{PendingUserInput, WsSessionPersistence};
 use crate::domain::ws_session::protocol::{
     permission_request_envelope, PermissionRequestPayload, WsEnvelope,
@@ -265,30 +264,6 @@ impl StreamReaderTask {
             self.broadcast_runtime_signal(state, runtime_event).await;
         }
         runtime_event.is_turn_started_signal()
-    }
-
-    async fn broadcast_runtime_signal(
-        &self,
-        state: &mut StreamReaderState,
-        runtime_event: &RuntimeEvent,
-    ) {
-        let Some(signal) = crate::domain::session_status::provider_signal_for_event(runtime_event)
-        else {
-            return;
-        };
-        let next = signal.status();
-        if !state.turn_state.record_signal_status(next) {
-            return;
-        }
-        if runtime_event.is_turn_started_signal() && next == AgentStatus::Agent {
-            WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
-        }
-        WsSessionPersistence::broadcast_session_signal(
-            &self.session_status_tx,
-            self.db_session_id,
-            self.feature_id,
-            signal,
-        );
     }
 
     async fn persist_and_forward_event(

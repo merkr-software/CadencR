@@ -138,7 +138,7 @@ describe("session status lifecycle sync", () => {
     expect(updated.turnTiming.segmentStartedAt).toBe(100_000);
   });
 
-  it("clears a pending gate when the session leaves the question state", () => {
+  it("preserves unanswered gates when background output reports agent status", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
 
     const session = createSessionEntry();
@@ -169,8 +169,45 @@ describe("session status lifecycle sync", () => {
     });
 
     const updated = useWsSessionStore.getState().sessions.s3;
-    expect(updated.pendingPermission).toBeNull();
-    expect(updated.pendingRequestId).toBe("");
+    expect(updated.pendingPermission?.requestId).toBe("req-1");
+    expect(updated.pendingRequestId).toBe("req-1");
+    expect(updated.lifecycle).toEqual({ phase: "paused", reason: "permission" });
+  });
+
+  it("adopts a late server anchor without losing observed time or the sequence watermark", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const session = createSessionEntry();
+    session.sessionDbId = 10;
+    session.lifecycle = { phase: "active" };
+    session.turnTiming = { ...startTurnTiming(5_000), activeMs: 2_000, userPendingMs: 1_000 };
+    useWsSessionStore.setState({ sessions: { s1: session } });
+    useSessionStatusStore.setState({
+      bySession: { 10: { status: "agent", kind: null, featureId: 1, seq: 1 } },
+    });
+    useSessionStatusStore.getState().connect();
+    MockWebSocket.instances.at(-1)?.simulateMessage({
+      domain: "app",
+      action: "session_status.update",
+      payload: {
+        session_id: 10,
+        feature_id: 1,
+        status: "agent",
+        seq: 3,
+        turn_started_at_ms: 1_000,
+      },
+    });
+    expect(useWsSessionStore.getState().sessions.s1.turnTiming).toMatchObject({
+      startedAt: 1_000,
+      segmentStartedAt: 5_000,
+      activeMs: 2_000,
+      userPendingMs: 1_000,
+    });
+    expect(useSessionStatusStore.getState().bySession[10]).toMatchObject({
+      seq: 3,
+      turnStartedAtMs: 1_000,
+    });
   });
 
   it("tracks the active gate request id from snapshots and updates", () => {
@@ -212,6 +249,49 @@ describe("session status lifecycle sync", () => {
 
     expect(useSessionStatusStore.getState().bySession[31]?.requestId).toBe("req-32");
   });
+
+  it.each([true, false])(
+    "reconciles REST and global status in either order (status first: %s)",
+    (statusFirst) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(10_000);
+      vi.stubGlobal("WebSocket", MockWebSocket);
+      const session = createSessionEntry();
+      session.lifecycle = { phase: "active" };
+      session.turnTiming = { ...startTurnTiming(5_000), activeMs: 200, userPendingMs: 300 };
+      useWsSessionStore.setState({ sessions: { s1: session } });
+      useSessionStatusStore.getState().connect();
+      const status = () =>
+        MockWebSocket.instances.at(-1)?.simulateMessage({
+          domain: "app",
+          action: "session_status.snapshot",
+          payload: {
+            seq: 1,
+            states: { 10: { status: "agent", feature_id: 1, turn_started_at_ms: 1_000 } },
+          },
+        });
+      const hydrate = () =>
+        useWsSessionStore.getState().setPersistedState("s1", {
+          blocks: [],
+          lifecycle: { phase: "active" },
+          sessionDbId: 10,
+          featureId: 1,
+        });
+      if (statusFirst) {
+        status();
+        hydrate();
+      } else {
+        hydrate();
+        status();
+      }
+      expect(useWsSessionStore.getState().sessions.s1.turnTiming).toMatchObject({
+        startedAt: 1_000,
+        segmentStartedAt: 5_000,
+        activeMs: 200,
+        userPendingMs: 300,
+      });
+    },
+  );
 
   it("invalidates editor content and tree caches when file watcher events arrive", () => {
     const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
