@@ -21,7 +21,7 @@ interface LinkRoutingProviderProps {
  * Supplies the shared link router to the terminal and agent chat within a
  * feature. Reads the domain policy and default cookie mode once, then exposes
  * stable callbacks (so cached markdown subtrees never re-render):
- *  - `activate` opens a link on Cmd/Ctrl+Click using the domain policy.
+ *  - `activate` opens a link on click using the domain policy.
  *  - `activateConversation` resolves and navigates to an internal conversation.
  *  - `setHoverLink` keeps the native context menu informed of the link the
  *    pointer is over, scoped to this feature.

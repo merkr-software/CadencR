@@ -1,4 +1,4 @@
-import { useState, type ReactElement, type ReactNode } from "react";
+import { useRef, useState, type ReactElement, type ReactNode } from "react";
 import { Loader2Icon } from "lucide-react";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { useLinkRouting, type LinkRouting } from "@/components/links/LinkRoutingContext";
@@ -42,13 +42,46 @@ export function MarkdownLink({
     );
   }
   return (
+    <ExternalLink href={href} routing={routing}>
+      {children}
+    </ExternalLink>
+  );
+}
+
+function ExternalLink({
+  href,
+  routing,
+  children,
+}: {
+  href: string;
+  routing: LinkRouting;
+  children: ReactNode;
+}): ReactElement {
+  // A click whose pointerdown happened more than a few pixels away is a
+  // text-selection drag that started on the link — don't hijack it.
+  const pointerDownRef = useRef<{ x: number; y: number } | null>(null);
+  return (
     <a
       href={href}
       rel="noopener noreferrer"
       className={LINK_CLASS}
+      onPointerDown={(event) => {
+        pointerDownRef.current = { x: event.clientX, y: event.clientY };
+      }}
       onClick={(event) => {
         event.preventDefault();
-        if (event.metaKey || event.ctrlKey) routing.activate(href);
+        const origin = pointerDownRef.current;
+        pointerDownRef.current = null;
+        // Keyboard clicks (Enter) carry detail 0 and no pointer coordinates —
+        // never treat them as drags, even after a stale pointerdown that
+        // ended without a click (e.g. press on the link, release outside).
+        if (
+          event.detail !== 0 &&
+          origin &&
+          Math.hypot(event.clientX - origin.x, event.clientY - origin.y) > 4
+        )
+          return;
+        routing.activate(href);
       }}
       onMouseEnter={() => routing.setHoverLink(href)}
       onMouseLeave={() => routing.setHoverLink(null)}

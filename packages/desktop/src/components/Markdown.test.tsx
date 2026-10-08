@@ -44,6 +44,64 @@ describe("Markdown", () => {
     expect(link).toHaveAttribute("target", "_blank");
   });
 
+  it("opens an external link on plain click", async () => {
+    const activate = vi.fn();
+    const routing: LinkRouting = {
+      activate,
+      activateConversation: vi.fn(async () => undefined),
+      setHoverLink: vi.fn(),
+    };
+    const { user } = render(
+      <LinkRoutingContext.Provider value={routing}>
+        <Markdown content="[Docs](https://example.com)" />
+      </LinkRoutingContext.Provider>,
+    );
+
+    await user.click(screen.getByRole("link", { name: "Docs" }));
+    expect(activate).toHaveBeenCalledWith("https://example.com");
+  });
+
+  it("ignores an external-link click that ends a text-selection drag", () => {
+    const activate = vi.fn();
+    const routing: LinkRouting = {
+      activate,
+      activateConversation: vi.fn(async () => undefined),
+      setHoverLink: vi.fn(),
+    };
+    render(
+      <LinkRoutingContext.Provider value={routing}>
+        <Markdown content="[Docs](https://example.com)" />
+      </LinkRoutingContext.Provider>,
+    );
+
+    const link = screen.getByRole("link", { name: "Docs" });
+    fireEvent.pointerDown(link, { clientX: 10, clientY: 10 });
+    // detail: 1 marks a pointer-generated click, so the drag guard applies.
+    fireEvent.click(link, { clientX: 50, clientY: 50, detail: 1 });
+    expect(activate).not.toHaveBeenCalled();
+  });
+
+  it("opens an external link on keyboard activation despite a stale pointerdown", () => {
+    const activate = vi.fn();
+    const routing: LinkRouting = {
+      activate,
+      activateConversation: vi.fn(async () => undefined),
+      setHoverLink: vi.fn(),
+    };
+    render(
+      <LinkRoutingContext.Provider value={routing}>
+        <Markdown content="[Docs](https://example.com)" />
+      </LinkRoutingContext.Provider>,
+    );
+
+    const link = screen.getByRole("link", { name: "Docs" });
+    // Press on the link, release outside: no click fires, the pointer origin
+    // stays stale. A later Enter synthesizes a click with detail 0.
+    fireEvent.pointerDown(link, { clientX: 10, clientY: 10 });
+    fireEvent.click(link, { detail: 0 });
+    expect(activate).toHaveBeenCalledWith("https://example.com");
+  });
+
   it("opens a serialized conversation reference when its full label is clicked", async () => {
     const activateConversation = vi.fn(async () => undefined);
     const routing: LinkRouting = {
