@@ -9,8 +9,8 @@ const KEYBOARD_INSET_THRESHOLD = 120;
  * Keeps the mobile app shell sized to the *visible* viewport while the
  * on-screen keyboard is open.
  *
- * The whole mobile layout flows from the `--app-vh` CSS variable (index.css),
- * set to `100dvh`/`100lvh`. Those units track the URL bar but NOT the keyboard,
+ * The whole mobile layout flows from the `--app-vh` CSS variable (app-viewport.css),
+ * based on the viewport height. CSS viewport units do NOT track the keyboard,
  * so an input pinned to the bottom of the screen — the terminal prompt, most
  * visibly — ends up hidden behind the keyboard with no way to see what you type.
  *
@@ -21,9 +21,8 @@ const KEYBOARD_INSET_THRESHOLD = 120;
  * the focused input stays in view. The terminal's own ResizeObserver
  * (TerminalCoreInstance) refits the PTY to the smaller box, lifting the prompt clear.
  *
- * Below the threshold we drop the override so the CSS unit takes back over.
- * That fallback is deliberate: it never regresses the iOS standalone case,
- * where only `lvh` spans the full screen (see index.css).
+ * Below the threshold we drop the override so the browser/standalone CSS
+ * sizing takes back over, including the installed status-bar mode (app-viewport.css).
  */
 export function useVisualViewportHeight(enabled: boolean): void {
   useEffect(() => {

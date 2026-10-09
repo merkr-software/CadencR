@@ -1,0 +1,26 @@
+/* WebKit samples the computed background color of a fixed element at the
+ * top edge to suppress its system scroll-edge blur. This requires the PWA's
+ * default status-bar mode; black-translucent disables the color extension.
+ * Keep the element outside transformed route ancestors and above overlays.
+ * https://zenn.dev/uakihir0/articles/260920-ios27-pwa-blur
+ */
+.mobile-status-bar {
+  display: none;
+}
+
+@supports (-webkit-touch-callout: none) {
+  .is-standalone .mobile-status-bar {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 2147483647;
+    /* The native sampler reads 4px inside the edge and requires >10px.
+     * Clip the background to this empty element's text: WebKit still reads
+     * its opaque color, but it paints nothing over the title at any zoom. */
+    height: 12px;
+    background-color: var(--ambient-base, var(--background));
+    -webkit-background-clip: text;
+    background-clip: text;
+    pointer-events: none;
+  }
+}

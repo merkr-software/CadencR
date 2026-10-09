@@ -42,6 +42,7 @@ function MobileAppShell({
       >
         {children}
       </main>
+      <div aria-hidden className="mobile-status-bar" />
       <MobileDrawer
         collapsed={collapsed}
         onClose={() => setCollapsed(true)}
@@ -126,9 +127,9 @@ function DesktopAppShell({
  * from `SidebarContext`, so the topbar's expand button doubles as the mobile
  * drawer trigger.
  *
- * Mobile heights flow from the `--app-vh` variable (`index.css`), which is
- * `dvh` in a browser but `lvh` in an iOS standalone app — see that file for
- * why. The sidebar rides in a `MobileDrawer`, positioned `absolute` within this
+ * Mobile heights flow from the `--app-vh` variable (`app-viewport.css`), which is
+ * `dvh` in a browser and accounts for the installed status-bar mode in a PWA.
+ * The sidebar rides in a `MobileDrawer`, positioned `absolute` within this
  * `relative` shell (see that component for the iOS-standalone rationale).
  */
 export function AppShell({

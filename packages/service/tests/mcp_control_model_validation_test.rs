@@ -125,7 +125,8 @@ async fn project_spawn_session_normalizes_common_claude_model_aliases() {
         .await
         .unwrap();
 
-    assert_eq!(response.status(), StatusCode::OK);
+    let status = response.status();
+    assert_eq!(status, StatusCode::OK, "{}", response_text(response).await);
     let session: (String, String) = sqlx::query_as(
         "SELECT runtime_provider, model FROM agent_sessions WHERE id != 777 ORDER BY id DESC LIMIT 1",
     )
