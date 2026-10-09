@@ -15,6 +15,7 @@ import { parseAnsi } from "@/lib/ansi-to-html";
 import { copyToClipboard } from "@/lib/clipboard";
 import { extractBashResultOutput } from "@/lib/tool-adapter";
 import { useControllableBoolean } from "@/hooks/useControllableBoolean";
+import { useTouchSafeTriggerProps } from "@/hooks/useTouchSafeTriggerProps";
 import { CollapsibleBlock } from "@/components/ui/collapsible-block";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
@@ -151,6 +152,7 @@ export const BashBlock = memo(function BashBlock({
 }: BashBlockProps): ReactElement {
   const lines = content?.split("\n") ?? [];
   const totalLines = lines.length;
+  const triggerProps = useTouchSafeTriggerProps();
 
   const hasOutput = typeof content === "string" && content.length > 0;
   const formattedCommand = useMemo(
@@ -170,7 +172,7 @@ export const BashBlock = memo(function BashBlock({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild {...triggerProps}>
         <div data-bash-block className="min-w-0 max-w-full">
           <CollapsibleBlock
             totalCount={totalLines}

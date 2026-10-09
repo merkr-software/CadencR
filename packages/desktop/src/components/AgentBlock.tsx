@@ -1,4 +1,4 @@
-import { useState, useCallback, memo, useMemo, type ReactNode } from "react";
+import { useState, useCallback, memo, useMemo, useRef, type ReactNode } from "react";
 import { toRelativePath } from "@/lib/utils";
 import { CopyIcon, CheckIcon } from "lucide-react";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
@@ -17,6 +17,7 @@ import { renderFileChangeBlocks } from "@/components/file-change-block";
 import { UserMessageBlock } from "@/components/UserMessageBlock";
 import { renderGeneratedSessionMessage } from "@/components/session-generated-message";
 import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
+import { CopyAsMenu } from "@/components/agent-session/CopyAsMenu";
 import { TaskAgentBlock } from "@/components/TaskAgentBlock";
 import { PlanBlock } from "@/components/PlanBlock";
 import { BashBlock } from "@/components/BashBlock";
@@ -27,6 +28,7 @@ import { ErrorBlock } from "@/components/ErrorBlock";
 import { FullContentPreview } from "@/components/FullContentPreview";
 import { CodeBlockHeader } from "@/components/CodeBlockHeader";
 import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
+import { copyAs } from "@/lib/markdown-export";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 import { semanticSkillPresentation, shouldHideToolCall } from "@/lib/tool-display-policy";
@@ -267,7 +269,7 @@ function UserMessageContent({
       content={block.content}
       origin={block.origin}
       deliveryState={block.promptDeliveryState}
-      actions={<UserMessageActions block={block} />}
+      renderActions={(bubbleRef) => <UserMessageActions block={block} bubbleRef={bubbleRef} />}
     />
   );
 }
@@ -312,25 +314,26 @@ const TextBlock = memo(function TextBlock({
   disableCache?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   // Throttle re-parse of the actively streaming block; copy always uses the
   // full latest content.
   const displayContent = useStreamingMarkdownThrottle(content, !!isStreaming);
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(content);
+    void copyAs("markdown", content);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }, [content]);
 
   return (
-    <div className="group/textblock">
+    <div className="group/textblock" ref={rootRef}>
       <Markdown
         content={displayContent}
         cacheKey={cacheKey}
         isStreaming={isStreaming}
         disableCache={disableCache}
       />
-      <div className="opacity-0 group-hover/textblock:opacity-100 transition-colors">
+      <div className="flex items-center gap-1 opacity-0 group-hover/textblock:opacity-100 transition-colors">
         <button
           type="button"
           onClick={handleCopy}
@@ -349,6 +352,7 @@ const TextBlock = memo(function TextBlock({
             </>
           )}
         </button>
+        {!isStreaming && <CopyAsMenu content={content} sourceRef={rootRef} />}
       </div>
     </div>
   );
