@@ -885,9 +885,9 @@ describe("ws-session-store", () => {
     // Regression: a re-seed (app relaunch, dev HMR reload, reconnect rebuild)
     // must rehydrate the persisted mode rather than keep the createSessionEntry
     // default. Without this, sticky bypassPermissions silently reverts to
-    // acceptEdits.
+    // the provider default.
     useWsSessionStore.getState().connect("s1");
-    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("acceptEdits");
+    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("auto");
     useWsSessionStore.getState().setPersistedState("s1", {
       blocks: [{ id: "b1", type: "text" as const, content: "restored" }],
       lifecycle: { phase: "terminal", reason: "completed" },
@@ -904,7 +904,7 @@ describe("ws-session-store", () => {
       lifecycle: { phase: "terminal", reason: "completed" },
       currentSelection: { providerId: "claude_code", modelId: "haiku" },
     });
-    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("acceptEdits");
+    expect(useWsSessionStore.getState().sessions["s1"].permissionMode).toBe("auto");
   });
 
   it("runtime_session_id action sets runtimeSessionId on the session", async () => {

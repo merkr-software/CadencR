@@ -49,6 +49,14 @@ export interface ProviderMode {
 
 const CLAUDE_CODE_MODES: ProviderMode[] = [
   {
+    id: "auto",
+    label: "Auto",
+    icon: Sparkles,
+    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
+    description:
+      "Classifier-backed: safe actions auto-run, risky ones blocked. Requires Sonnet 4.6 / Opus 4.6+.",
+  },
+  {
     id: "acceptEdits",
     label: "Auto-Accept Edits",
     icon: FileEditIcon,
@@ -70,14 +78,6 @@ const CLAUDE_CODE_MODES: ProviderMode[] = [
     chipClass: "bg-[var(--acc-red)]/15 text-[var(--acc-red)] hover:bg-[var(--acc-red)]/25",
     description: "Dangerous: skip Claude Code permission prompts and checks.",
     optIn: true,
-  },
-  {
-    id: "auto",
-    label: "Auto",
-    icon: Sparkles,
-    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
-    description:
-      "Classifier-backed: safe actions auto-run, risky ones blocked. Requires Sonnet 4.6 / Opus 4.6+.",
   },
 ];
 

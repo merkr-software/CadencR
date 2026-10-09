@@ -434,7 +434,7 @@ async fn claude_init_downgrades_bypass_without_capability() {
     assert!(!options.allow_bypass_permissions);
     assert_eq!(
         options.permission_mode,
-        Some(RuntimePermissionMode::AcceptEdits),
+        Some(RuntimePermissionMode::Auto),
         "bypass without the capability must downgrade to the Claude default"
     );
 }

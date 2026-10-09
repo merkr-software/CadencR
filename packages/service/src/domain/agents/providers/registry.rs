@@ -504,7 +504,7 @@ mod tests {
         let expected: &[(&str, &str, Option<&str>, &[&str])] = &[
             (
                 "claude_code",
-                "acceptEdits",
+                "auto",
                 None,
                 &[
                     ".claude/settings.local.json",

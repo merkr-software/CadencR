@@ -146,7 +146,7 @@ describe("ScheduleComposer", () => {
     // The resolved default, not the words "project default".
     expect(screen.getByText("Sonnet")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: /Sonnet/ }));
+    await user.click(screen.getByRole("button", { name: /^Sonnet/ }));
     await user.click(await screen.findByRole("option", { name: /Haiku/i }));
 
     const target = currentTarget();
@@ -212,11 +212,13 @@ describe("ScheduleComposer", () => {
     const { user } = render(<Harness initial={{ kind: "new_conversation", project_id: 1 }} />);
 
     // Unpinned shows what a new conversation on this agent would start in.
-    const chip = screen.getByRole("button", { name: /Permission mode: Auto-Accept Edits/ });
+    const chip = screen.getByRole("button", { name: /Permission mode: Auto\./ });
     await user.click(chip);
 
-    expect(currentTarget().permission_mode).toBe("plan");
-    expect(screen.getByRole("button", { name: /Permission mode: Plan/ })).toBeInTheDocument();
+    expect(currentTarget().permission_mode).toBe("acceptEdits");
+    expect(
+      screen.getByRole("button", { name: /Permission mode: Auto-Accept Edits/ }),
+    ).toBeInTheDocument();
   });
 
   // An unpinned schedule inherits the conversation's mode, so the chip has to
