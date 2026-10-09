@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(handle.config.env.as_ref(), Some(&profile_env));
         assert_eq!(
             handle.config.permission_mode,
-            Some(crate::domain::agents::adapter::RuntimePermissionMode::AcceptEdits)
+            Some(crate::domain::agents::adapter::RuntimePermissionMode::Auto)
         );
         let QueryState::Pending(options) = handle.state else {
             panic!("expected pending handle");

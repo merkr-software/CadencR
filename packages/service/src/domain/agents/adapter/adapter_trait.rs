@@ -296,13 +296,9 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.compaction_strategy().is_some()
     }
 
-    /// Whether this provider's CLI can run a given permission mode. Used by
-    /// the WS handler to reject `mode.set` requests the active provider
-    /// doesn't support. Mirrored on the frontend by `lib/provider-modes.ts`.
-    ///
-    /// Default conservatively rejects every mode — adapters must opt in
-    /// explicitly so a new provider doesn't silently accept Claude-flavored
-    /// modes its CLI can't actually execute.
+    /// Whether this provider's CLI can run a permission mode; `mode.set` rejects
+    /// the rest (frontend mirror: `lib/provider-modes.ts`). Defaults to none, so
+    /// a new provider never silently accepts modes its CLI can't execute.
     fn supports_permission_mode(&self, _mode: &RuntimePermissionMode) -> bool {
         false
     }
@@ -365,6 +361,12 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         &self,
         _failed_mode_wire: &str,
     ) -> Option<Cow<'static, str>> {
+        None
+    }
+
+    /// Mode to spawn with instead of the spawn config's when the runtime would
+    /// silently ignore it for that model. `None` keeps the requested mode.
+    async fn spawn_mode_fallback(&self, _: &RuntimeSpawnConfig) -> Option<RuntimePermissionMode> {
         None
     }
 

@@ -12,10 +12,10 @@ import { PROVIDER_IDS } from "./providers";
 describe("provider-modes catalog", () => {
   it("exposes the documented mode set per provider", () => {
     expect(PROVIDER_MODES[PROVIDER_IDS.CLAUDE_CODE].map((m) => m.id)).toEqual([
+      "auto",
       "acceptEdits",
       "plan",
       "bypassPermissions",
-      "auto",
     ]);
     expect(PROVIDER_MODES[PROVIDER_IDS.OPENCODE].map((m) => m.id)).toEqual(["acceptEdits", "plan"]);
     expect(PROVIDER_MODES[PROVIDER_IDS.CODEX_CLI].map((m) => m.id)).toEqual(["default", "plan"]);
@@ -45,12 +45,12 @@ describe("provider-modes catalog", () => {
 describe("getVisibleModes", () => {
   it("hides opt-in modes when their toggle is off", () => {
     const visible = getVisibleModes(PROVIDER_IDS.CLAUDE_CODE, []);
-    expect(visible.map((m) => m.id)).toEqual(["acceptEdits", "plan", "auto"]);
+    expect(visible.map((m) => m.id)).toEqual(["auto", "acceptEdits", "plan"]);
   });
 
   it("adds Claude bypass to normal modes when explicitly enabled", () => {
     const visible = getVisibleModes(PROVIDER_IDS.CLAUDE_CODE, ["bypassPermissions"]);
-    expect(visible.map((m) => m.id)).toEqual(["acceptEdits", "plan", "bypassPermissions", "auto"]);
+    expect(visible.map((m) => m.id)).toEqual(["auto", "acceptEdits", "plan", "bypassPermissions"]);
   });
 
   it("does not leak opt-in modes from the wrong provider", () => {
@@ -147,7 +147,7 @@ describe("nextProviderMode (cycle)", () => {
 
 describe("defaultEditModeFor", () => {
   it("returns the first mode of each provider's catalog", () => {
-    expect(defaultEditModeFor(PROVIDER_IDS.CLAUDE_CODE)).toBe("acceptEdits");
+    expect(defaultEditModeFor(PROVIDER_IDS.CLAUDE_CODE)).toBe("auto");
     expect(defaultEditModeFor(PROVIDER_IDS.OPENCODE)).toBe("acceptEdits");
     expect(defaultEditModeFor(PROVIDER_IDS.CODEX_CLI)).toBe("default");
     expect(defaultEditModeFor(PROVIDER_IDS.CURSOR)).toBe("default");

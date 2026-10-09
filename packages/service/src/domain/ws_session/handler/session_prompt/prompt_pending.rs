@@ -1,5 +1,6 @@
 mod active_session;
 mod delivery_lifecycle;
+mod mode_fallback;
 mod runtime_registration;
 use super::super::{send_error, SdkSessions, SessionConfig, WsSender};
 use super::bridge::{PermissionResponse, WsBridgeCanUseTool};
@@ -135,6 +136,7 @@ pub(super) async fn handle_pending_prompt(mut context: PendingPromptContext) -> 
         return reported_failure(internal_replay, "failed to attach MCP servers");
     }
     validate_resume_id(&*adapter, &mut context);
+    mode_fallback::apply_spawn_mode_fallback(&mut context, &*adapter).await;
     let shell_delivery_id = context
         .payload
         .message_uuid

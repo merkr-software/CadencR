@@ -102,7 +102,7 @@ fn default_permission_mode_wire_matches_frontend_catalog() {
     // These wire strings must match `defaultEditModeFor` in
     // packages/desktop/src/lib/provider-modes.ts. Drift between BE/FE here
     // would silently put the chip in a state the backend never wrote.
-    assert_eq!(default_permission_mode_wire("claude_code"), "acceptEdits");
+    assert_eq!(default_permission_mode_wire("claude_code"), "auto");
     assert_eq!(default_permission_mode_wire("opencode"), "acceptEdits");
     assert_eq!(default_permission_mode_wire("codex_cli"), "default");
     assert_eq!(default_permission_mode_wire("cursor"), "default");
@@ -451,15 +451,16 @@ async fn provider_set_resets_permission_mode_and_broadcasts_mode_changed() {
         "expected mode.changed envelope after provider switch"
     );
 
-    // Internal state was scrubbed — next spawn will pick the Codex
-    // adapter's default rather than carry the stale Claude `Plan`.
+    // Internal state was reset to the Codex default the chip now shows,
+    // rather than carrying the stale Claude `Plan` into the next spawn.
     let sessions = sdk_sessions.lock().await;
     let db_id: i64 = session_id.parse().unwrap();
     let handle = sessions.get(&db_id).unwrap();
-    assert!(handle.desired_permission_mode.is_none());
-    assert!(handle.config.permission_mode.is_none());
+    let codex_default = Some(RuntimePermissionMode::Default);
+    assert_eq!(handle.desired_permission_mode, codex_default);
+    assert_eq!(handle.config.permission_mode, codex_default);
     if let QueryState::Pending(options) = &handle.state {
-        assert!(options.permission_mode.is_none());
+        assert_eq!(options.permission_mode, codex_default);
     } else {
         panic!("expected pending state");
     }

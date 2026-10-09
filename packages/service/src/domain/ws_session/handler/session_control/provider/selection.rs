@@ -1,6 +1,6 @@
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{access_mode_wire, RuntimeSpawnConfig};
-use crate::domain::agents::permission_modes::permission_mode_wire;
+use crate::domain::agents::permission_modes::{effective_permission_mode, permission_mode_wire};
 use crate::domain::agents::providers::{
     resolve_requested_model_or_provider_default, runtime_adapter,
 };
@@ -64,7 +64,9 @@ pub(super) async fn resolve(
         runtime.overrides = Default::default();
         runtime.thinking_effort = None;
         runtime.fast_mode = false;
-        runtime.permission_mode = None;
+        // Spawn in the mode the chip is about to show (`permission_mode_wire`
+        // below), exactly as `session.init` resolves it.
+        runtime.permission_mode = effective_permission_mode(&payload.provider, None);
         runtime.access_mode = adapter.configured_access_mode(&state.read_pool).await;
         runtime.allow_bypass_permissions = false;
     }

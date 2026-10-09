@@ -147,7 +147,13 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             RuntimePermissionMode::Ask | RuntimePermissionMode::OpenCodeAgent(_)
         )
     }
-    // Default edit mode maps to Claude Code's primary edit mode.
+
+    /// New sessions start in the classifier-backed `auto` mode, matching the
+    /// Claude Code CLI's own default; `spawn_mode_fallback` covers models
+    /// without auto support.
+    fn default_permission_mode_wire(&self) -> Cow<'static, str> {
+        Cow::Borrowed("auto")
+    }
 
     /// Post-plan-approval target: prefer the classifier-backed `auto` mode
     /// when the active model can run it (Sonnet 4.6+ / Opus 4.6+), fall back
@@ -182,6 +188,13 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         } else {
             None
         }
+    }
+
+    async fn spawn_mode_fallback(
+        &self,
+        config: &RuntimeSpawnConfig,
+    ) -> Option<RuntimePermissionMode> {
+        self.auto_spawn_fallback(config).await
     }
 
     async fn catalog_entry_live(&self) -> ProviderCatalogEntry {

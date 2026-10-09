@@ -1075,10 +1075,10 @@ describe("useWebSocketSession", () => {
     expect(result.current.pendingPlanApproval).toBeNull();
     // Chip stays at the pre-approval mode (the FE never observed an
     // EnterPlanMode signal in this test, so it's the post-init default
-    // `acceptEdits`) — the backend bridge owns the post-approval mode
+    // `auto`) — the backend bridge owns the post-approval mode
     // transition and will broadcast `mode.changed` once the live CLI has
     // accepted the new mode.
-    expect(result.current.permissionMode).toBe("acceptEdits");
+    expect(result.current.permissionMode).toBe("auto");
     expect(result.current.status).toBe("agent");
 
     // FE must NOT send `mode.set` — backend bridge does it atomically

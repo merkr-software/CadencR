@@ -1,4 +1,5 @@
 mod adapter_impl;
+mod auto_mode;
 mod background_agents;
 mod branching;
 mod catalog;
