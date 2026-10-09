@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use codex_app_server_sdk_rs::{AppServerSpawnOptions, CodexAppServerClient, CodexModel};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use super::revision_cache;
 use super::timeouts::{with_probe_timeout, PROBE_TIMEOUT};
 
 pub(super) use super::native_config::{
@@ -87,6 +89,11 @@ pub(super) async fn effective_config_revision(
     cwd: &Path,
     stored_revision: &str,
 ) -> Result<String, RuntimeError> {
+    let key = revision_cache::RevisionKey::new(&env, &env_unset, cwd, stored_revision);
+    if let Some(revision) = revision_cache::cached(&key) {
+        return Ok(revision);
+    }
+    let probe_started = SystemTime::now();
     let client = CodexAppServerClient::spawn_with_options(app_server_spawn_options(
         Some(env),
         env_unset,
@@ -101,15 +108,22 @@ pub(super) async fn effective_config_revision(
     }
     .await;
     client.shutdown().await;
-    fingerprint_effective_config(stored_revision, &result?)
+    let mut config = result?;
+    let revision = fingerprint_effective_config(stored_revision, &mut config)?;
+    revision_cache::store(key, revision.clone(), &config, probe_started);
+    Ok(revision)
 }
 
 fn fingerprint_effective_config(
     stored_revision: &str,
-    config: &Value,
+    config: &mut Value,
 ) -> Result<String, RuntimeError> {
     let mut digest = Sha256::new();
     digest.update(stored_revision.as_bytes());
+    // Codex serializes config maps from a HashMap, so key order differs on
+    // every app-server; hash key-sorted or every prompt looks like a config
+    // change and forces a respawn.
+    config.sort_all_objects();
     digest.update(serde_json::to_vec(config).map_err(|_| {
         RuntimeError::new("Codex effective configuration could not be fingerprinted")
     })?);
@@ -256,21 +270,33 @@ mod tests {
     }
 
     #[test]
+    fn effective_revision_ignores_object_key_order() {
+        let mut ordered: serde_json::Value =
+            serde_json::from_str(r#"{"config":{"a":1,"b":{"x":1,"y":2}}}"#).unwrap();
+        let mut shuffled: serde_json::Value =
+            serde_json::from_str(r#"{"config":{"b":{"y":2,"x":1},"a":1}}"#).unwrap();
+        assert_eq!(
+            fingerprint_effective_config("stored", &mut ordered).unwrap(),
+            fingerprint_effective_config("stored", &mut shuffled).unwrap()
+        );
+    }
+
+    #[test]
     fn effective_revision_tracks_config_layers_and_profile_changes() {
-        let config = json!({"config": {"model": "native", "model_reasoning_effort": "low"}});
-        let before = fingerprint_effective_config("stored", &config).unwrap();
+        let mut config = json!({"config": {"model": "native", "model_reasoning_effort": "low"}});
+        let before = fingerprint_effective_config("stored", &mut config).unwrap();
         assert_eq!(
             before,
-            fingerprint_effective_config("stored", &config).unwrap()
+            fingerprint_effective_config("stored", &mut config).unwrap()
         );
         assert_ne!(
             before,
-            fingerprint_effective_config("changed-env", &config).unwrap()
+            fingerprint_effective_config("changed-env", &mut config).unwrap()
         );
-        let layered = json!({"config": {"model": "project", "model_reasoning_effort": "high"}});
+        let mut layered = json!({"config": {"model": "project", "model_reasoning_effort": "high"}});
         assert_ne!(
             before,
-            fingerprint_effective_config("stored", &layered).unwrap()
+            fingerprint_effective_config("stored", &mut layered).unwrap()
         );
     }
 }

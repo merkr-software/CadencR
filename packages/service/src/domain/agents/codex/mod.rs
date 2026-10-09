@@ -47,6 +47,7 @@ pub mod profiles;
 mod prompt_receipts;
 mod raw_tool_names;
 mod responses;
+mod revision_cache;
 pub mod routes;
 mod runtime_error;
 mod session;
