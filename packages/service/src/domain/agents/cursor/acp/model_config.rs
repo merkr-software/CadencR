@@ -49,8 +49,14 @@ impl CompanionValueKind {
 }
 
 impl CursorModelConfigState {
-    /// Merge advertised options. Only clears fields that the payload replaces
-    /// so partial `configOptions` updates do not wipe unrelated caches.
+    /// Merge advertised options. A partial `configOptions` update only clears
+    /// the fields it replaces, so it does not wipe unrelated caches.
+    ///
+    /// A payload carrying the `model` option is different — it is the agent's
+    /// full snapshot for that model: Cursor answers `set_config_option(model=…)` with `mode`,
+    /// `model`, and only the companions the new model supports (`default` has
+    /// no `fast`). Companions it omits no longer exist, and setting one fails
+    /// the spawn with "Unknown model config option".
     pub(super) fn observe(&mut self, options: &[SessionConfigOption]) {
         let saw_model = options.iter().any(|option| {
             matches!(option.category, Some(SessionConfigOptionCategory::Model))
@@ -67,10 +73,10 @@ impl CursorModelConfigState {
         if saw_model {
             self.model_values.clear();
         }
-        if saw_fast {
+        if saw_model || saw_fast {
             self.fast_option_kind = None;
         }
-        if saw_thought {
+        if saw_model || saw_thought {
             self.thought_level_config_id = None;
             self.thinking_config = None;
         }
@@ -444,6 +450,60 @@ mod tests {
             vec![(
                 "fast".to_string(),
                 RuntimeSessionConfigValue::Select("false".to_string())
+            )]
+        );
+    }
+
+    #[test]
+    fn switching_to_a_model_without_companions_stops_sending_them() {
+        // Real Cursor sequence: `session/new` advertises `fast` for the
+        // default composer model, but the `set_config_option(model=default)`
+        // response lists only `mode` + `model`. Sending the stale `fast` then
+        // fails the whole spawn ("Unknown model config option: fast").
+        let mut state = CursorModelConfigState::default();
+        let model = |current: &'static str| {
+            SessionConfigOption::select(
+                "model",
+                "Model",
+                current,
+                vec![
+                    SessionConfigSelectOption::new("default", "Auto"),
+                    SessionConfigSelectOption::new("composer-2.5", "Composer 2.5"),
+                ],
+            )
+            .category(SessionConfigOptionCategory::Model)
+        };
+        let fast = SessionConfigOption::select(
+            "fast",
+            "Fast",
+            "false",
+            vec![
+                SessionConfigSelectOption::new("false", "Off"),
+                SessionConfigSelectOption::new("true", "Fast"),
+            ],
+        )
+        .category(SessionConfigOptionCategory::ModelConfig);
+        let effort = SessionConfigOption::select(
+            "effort",
+            "Effort",
+            "high",
+            vec![SessionConfigSelectOption::new("high", "High")],
+        )
+        .category(SessionConfigOptionCategory::ThoughtLevel);
+        state.observe(&[model("composer-2.5"), fast.clone(), effort]);
+
+        state.observe(&[model("default")]);
+        assert!(state.companions("auto").is_empty());
+        assert!(state.companions("cursor-grok-4.5-high").is_empty());
+        assert!(state.thinking_effort_config_id().is_none());
+
+        // Switching back to a model that has `fast` re-advertises it.
+        state.observe(&[model("composer-2.5"), fast]);
+        assert_eq!(
+            state.companions("composer-2.5-fast"),
+            vec![(
+                "fast".to_string(),
+                RuntimeSessionConfigValue::Select("true".to_string())
             )]
         );
     }
