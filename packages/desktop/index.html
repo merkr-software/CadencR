@@ -16,11 +16,12 @@
     />
     <!-- iOS Safari/Chrome have no JS Fullscreen API, so the only way to drop the
          browser chrome on a phone is "Add to Home Screen": these tell iOS to
-         launch the saved icon in standalone (chromeless) mode. `black-translucent`
-         lets the UI run under the status bar (paired with the safe-area insets). -->
+         launch the saved icon in standalone (chromeless) mode. Use `default`:
+         `black-translucent` prevents WebKit's fixed-color extension from
+         suppressing the system scroll-edge blur over the feature title. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="Cadencr" />
     <meta name="theme-color" content="#131416" />
     <!-- Icons live at the web root (public/) with stable names: browsers and iOS

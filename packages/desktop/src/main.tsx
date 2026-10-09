@@ -9,15 +9,12 @@ import { apiErrorMessage } from "./lib/api-errors";
 import { installGlobalRendererErrorHandlers } from "./lib/renderer-error-reporting";
 import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
 import { detectStandalone } from "./hooks/useFullscreen";
+import { initializeStandaloneViewport } from "./lib/standalone-viewport";
 import "./index.css";
 
-// In an iOS "Add to Home Screen" standalone app, `dvh`/`%`/`fixed` resolve to
-// the screen height *minus the status-bar inset* (a top-anchored short
-// viewport), while only `lvh` spans the full screen. Tag the document so CSS
-// can switch the `--app-vh` height unit accordingly (see index.css). The
-// `display-mode: standalone` media query is unreliable on iOS, so this relies
-// on `navigator.standalone`.
-if (detectStandalone()) document.documentElement.classList.add("is-standalone");
+// iOS caches the status-bar mode when installing a PWA. Seed its viewport
+// before React mounts so both new/default and older/translucent installs fit.
+if (detectStandalone()) initializeStandaloneViewport();
 
 // Apply the user's last-known theme synchronously before React mounts.
 // The server-side workspace setting remains the source of truth; this

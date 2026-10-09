@@ -1,4 +1,6 @@
 @import "./sidebar-rows.css";
+@import "./mobile-status-bar.css";
+@import "./app-viewport.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 /*
@@ -104,41 +106,6 @@
  */
 html {
   scrollbar-color: var(--scrollbar-thumb) transparent;
-}
-
-/*
- * `--app-vh` is the height the app shell fills. `100dvh` (the dynamic viewport)
- * is right in a mobile browser, where it tracks the show/hide of the URL bar.
- * But an iOS "Add to Home Screen" standalone app reports `dvh`/`%`/`fixed` as
- * the screen height MINUS the status-bar inset, anchored to the top — leaving a
- * dead strip at the bottom. There, only `lvh` spans the full screen, so
- * `main.tsx` adds `.is-standalone` and we switch the unit. One variable feeds
- * the whole chain (root elements + shell + drawer) so nothing clips.
- *
- * Mobile UI zoom (see `useZoom`) scales the root font-size rather than using CSS
- * `zoom`: it resizes rem-based text without touching these viewport units, so the
- * shell never under/overflows the screen the way a `zoom`-scaled box would.
- */
-html {
-  --app-vh: 100dvh;
-}
-html.is-standalone {
-  --app-vh: 100lvh;
-}
-
-/*
- * Lock the document to the viewport so the app never page-scrolls — scrolling
- * belongs to the inner surfaces (agent stream, terminal, diff, editor). On
- * mobile this is what keeps the feature header and prompt bar pinned while only
- * the active tab's content scrolls. `overscroll-behavior: none` also kills the
- * iOS rubber-band bounce that would otherwise reveal a blank strip.
- */
-html,
-body,
-#root {
-  height: var(--app-vh);
-  overflow: hidden;
-  overscroll-behavior: none;
 }
 
 /* Programmatic app-sidebar collapse/expand updates both panel flex weights.
