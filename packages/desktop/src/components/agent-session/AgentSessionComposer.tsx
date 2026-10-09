@@ -1,6 +1,6 @@
 import { memo, useCallback, useMemo, type RefObject, type ReactElement } from "react";
 import { parseThinkingEffort } from "@/shared/thinking-effort";
-import { normalizeContextWindow } from "@/types/agent";
+import { contextUsageToShow } from "@/types/agent";
 import { AgentPromptBar, type AgentPromptBarHandle } from "../AgentPromptBar";
 import { ContextUsageBar } from "../ContextUsageBar";
 import type { AgentSessionProps } from "./types";
@@ -104,11 +104,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
       {metaBar}
       {promptBar}
       {secondaryBar}
-      <ComposerContextUsage
-        contextUsage={contextUsage}
-        isAgentWorking={props.isAgentWorking}
-        collapsible={props.collapsible}
-      />
+      <ComposerContextUsage contextUsage={contextUsage} isAgentWorking={props.isAgentWorking} />
     </div>
   );
 });
@@ -290,16 +286,11 @@ function AgentSessionSecondary(props: AgentSessionComposerProps): ReactElement {
 function ComposerContextUsage({
   contextUsage,
   isAgentWorking,
-  collapsible,
 }: {
   contextUsage: AgentSessionProps["contextUsage"];
   isAgentWorking: boolean;
-  collapsible: boolean;
 }) {
-  const shouldShow = collapsible
-    ? !!contextUsage
-    : normalizeContextWindow(contextUsage?.contextWindow) != null;
-  if (!contextUsage || !shouldShow) return null;
+  if (!contextUsageToShow(contextUsage, isAgentWorking)) return null;
 
   return (
     <div className={CONTEXT_USAGE_CLASS}>

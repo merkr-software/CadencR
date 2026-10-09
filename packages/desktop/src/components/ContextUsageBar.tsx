@@ -1,5 +1,5 @@
 import { memo, type ReactElement, useState } from "react";
-import { normalizeContextWindow, totalTokens, type ContextUsageState } from "@/types/agent";
+import { contextUsageToShow, totalTokens, usageRatio, type ContextUsageState } from "@/types/agent";
 import { cn } from "@/lib/utils";
 import {
   getContextUsageAppearance,
@@ -7,6 +7,7 @@ import {
 } from "@/lib/context-usage-appearance";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { formatCompactTokens } from "@/components/settings/stats/usage-chart-palette";
 
 export function ContextUsageBar({
   usage,
@@ -17,19 +18,29 @@ export function ContextUsageBar({
   className?: string;
   isStreaming: boolean;
 }): ReactElement | null {
+  const shown = contextUsageToShow(usage, isStreaming);
+  if (!shown) return null;
+  return <ContextUsageTrigger usage={shown} className={className} isStreaming={isStreaming} />;
+}
+
+function ContextUsageTrigger({
+  usage,
+  className,
+  isStreaming,
+}: {
+  usage: ContextUsageState;
+  className?: string;
+  isStreaming: boolean;
+}): ReactElement {
   const [open, setOpen] = useState(false);
-
-  if (!usage) return null;
-  const windowSize = normalizeContextWindow(usage.contextWindow);
-  if (windowSize == null) return null;
-
   const used = totalTokens(usage);
-  const ratio = Math.min(1, used / windowSize);
-  const percent = Math.round(ratio * 100);
-  const appearance = getContextUsageAppearance(ratio);
   const usedFormatted = used.toLocaleString();
-  const windowFormatted = windowSize.toLocaleString();
-  const ariaLabel = `Context usage ${percent}%: ${usedFormatted} of ${windowFormatted} tokens`;
+  const ratio = usageRatio(usage);
+  const percent = ratio == null ? null : Math.round(ratio * 100);
+  const ariaLabel =
+    percent == null
+      ? `Context usage: ${usedFormatted} tokens, window size not reported yet`
+      : `Context usage ${percent}%: ${usedFormatted} of ${usage.contextWindow?.toLocaleString()} tokens`;
 
   return (
     <div className={cn("flex items-center gap-2 px-3 py-1", className)}>
@@ -47,9 +58,9 @@ export function ContextUsageBar({
             onFocus={() => setOpen(true)}
             onBlur={() => setOpen(false)}
           >
-            <ContextUsageMeter ratio={ratio} appearance={appearance} isStreaming={isStreaming} />
+            <UsageMeter ratio={ratio} isStreaming={isStreaming} />
             <span className="shrink-0 text-[10.5px] font-medium tabular-nums text-muted-foreground">
-              {percent}%
+              {percent != null ? `${percent}%` : used > 0 ? formatCompactTokens(used) : "—"}
             </span>
           </button>
         </PopoverTrigger>
@@ -61,7 +72,7 @@ export function ContextUsageBar({
           onOpenAutoFocus={(event) => event.preventDefault()}
           onCloseAutoFocus={(event) => event.preventDefault()}
         >
-          <ContextUsageDetails usage={usage} />
+          <ContextUsageDetails usage={usage} ratio={ratio} />
         </PopoverContent>
       </Popover>
       <PromptKeyboardHint />
@@ -69,15 +80,37 @@ export function ContextUsageBar({
   );
 }
 
+/** A measured window fills the track; an unknown one gets the pending meter. */
+function UsageMeter({
+  ratio,
+  isStreaming,
+  className,
+}: {
+  ratio: number | null;
+  isStreaming: boolean;
+  className?: string;
+}): ReactElement {
+  return ratio == null ? (
+    <PendingContextMeter isStreaming={isStreaming} className={className} />
+  ) : (
+    <ContextUsageMeter
+      ratio={ratio}
+      appearance={getContextUsageAppearance(ratio)}
+      isStreaming={isStreaming}
+      className={className}
+    />
+  );
+}
+
 const ContextUsageMeter = memo(function ContextUsageMeter({
   ratio,
   appearance,
-  isStreaming = false,
+  isStreaming,
   className,
 }: {
   ratio: number;
   appearance: ContextUsageAppearance;
-  isStreaming?: boolean;
+  isStreaming: boolean;
   className?: string;
 }): ReactElement {
   return (
@@ -100,18 +133,48 @@ const ContextUsageMeter = memo(function ContextUsageMeter({
   );
 });
 
-function ContextUsageDetails({ usage }: { usage: ContextUsageState }): ReactElement {
-  const windowSize = normalizeContextWindow(usage.contextWindow);
-  const used = totalTokens(usage);
-  const ratio = windowSize == null ? 0 : Math.min(1, used / windowSize);
-  const appearance = getContextUsageAppearance(ratio);
-  const usedLabel = `${used.toLocaleString()} / ${windowSize?.toLocaleString() ?? "—"}`;
+/**
+ * No provider has reported the window size yet. A soft sweep says "measuring"
+ * while the agent works; idle, the empty track stays still rather than
+ * implying progress that is not happening.
+ */
+function PendingContextMeter({
+  isStreaming,
+  className,
+}: {
+  isStreaming: boolean;
+  className?: string;
+}): ReactElement {
+  return (
+    <div
+      className={cn("relative h-[3px] flex-1 overflow-hidden rounded-full bg-border/80", className)}
+      data-context-usage-style="pending"
+    >
+      {isStreaming ? (
+        <div className="context-usage-pending absolute inset-y-0 left-0 w-[30%] rounded-full" />
+      ) : null}
+    </div>
+  );
+}
+
+function ContextUsageDetails({
+  usage,
+  ratio,
+}: {
+  usage: ContextUsageState;
+  ratio: number | null;
+}): ReactElement {
+  const windowLabel = ratio == null ? "—" : usage.contextWindow?.toLocaleString();
+  const usedLabel = `${totalTokens(usage).toLocaleString()} / ${windowLabel}`;
 
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-[11px] font-medium text-foreground">Context</span>
-      <ContextUsageMeter ratio={ratio} appearance={appearance} className="h-1" />
+      <UsageMeter ratio={ratio} isStreaming={false} className="h-1" />
       <p className="font-mono text-[10.5px] tabular-nums text-muted-foreground">{usedLabel}</p>
+      {ratio == null ? (
+        <p className="text-[10.5px] text-muted-foreground">Window size not reported yet</p>
+      ) : null}
       {usage.wasCompacted ? (
         <p className="border-t border-border pt-2 text-[10.5px] font-medium text-[var(--acc-orange)]">
           Context compacted

@@ -1172,6 +1172,30 @@
   will-change: opacity;
 }
 
+/* Context window not reported yet: a soft segment sweeps the track while the
+ * agent works. Transform-only, so it composites instead of repainting next to
+ * the stream. */
+.context-usage-pending {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--acc-green) 85%, transparent),
+    transparent
+  );
+  animation: browser-progress 1.8s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+  will-change: transform;
+}
+
+/* Motion off: the kill-switch would freeze the sweep on a random frame, so
+ * settle on a faint full-track tint that still reads as "measuring". */
+html[data-animations="off"] .context-usage-pending {
+  animation-name: none;
+  will-change: auto;
+  width: 100%;
+  opacity: 0.3;
+  background: var(--acc-green);
+}
+
 /* Pulsing glow on the "Thinking" label while reasoning tokens stream in. Uses
  * `currentColor` so it inherits the thinking accent. Honours the global
  * `data-animations="off"` kill-switch (which zeroes animation-duration). */
