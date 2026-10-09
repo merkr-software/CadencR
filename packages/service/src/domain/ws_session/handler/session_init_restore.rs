@@ -98,7 +98,7 @@ mod tests {
                 codex_permission_mode TEXT DEFAULT 'default',
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 pending_permission TEXT,
                 pending_questions TEXT,
                 thinking_effort TEXT,

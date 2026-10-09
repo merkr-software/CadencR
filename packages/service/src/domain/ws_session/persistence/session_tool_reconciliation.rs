@@ -105,7 +105,7 @@ mod session_tool_reconciliation_tests {
                 codex_permission_mode TEXT DEFAULT 'default',
                 input_tokens INTEGER DEFAULT 0,
                 output_tokens INTEGER DEFAULT 0,
-                context_window INTEGER DEFAULT 200000,
+                context_window INTEGER,
                 was_compacted INTEGER DEFAULT 0
             )",
         )

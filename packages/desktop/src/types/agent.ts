@@ -52,7 +52,31 @@ export function totalTokens(usage: ContextUsageState): number {
   return usage.inputTokens + usage.outputTokens;
 }
 
-export function usageRatio(usage: ContextUsageState): number {
-  if (!usage.contextWindow || usage.contextWindow <= 0) return 0;
-  return Math.min(1, totalTokens(usage) / usage.contextWindow);
+const UNKNOWN_CONTEXT_USAGE: ContextUsageState = {
+  inputTokens: 0,
+  outputTokens: 0,
+  contextWindow: null,
+  wasCompacted: false,
+};
+
+/**
+ * The usage the context meter should render, or `null` to hide it.
+ * Provider-neutral: a window no provider has reported yet (Claude Code only
+ * sends it when a turn ends; Cursor never does) shows as "unknown" while the
+ * agent works — even before any usage arrived — or once tokens were spent.
+ */
+export function contextUsageToShow(
+  usage: ContextUsageState | null | undefined,
+  isAgentWorking: boolean,
+): ContextUsageState | null {
+  if (!usage) return isAgentWorking ? UNKNOWN_CONTEXT_USAGE : null;
+  const hasSomethingToSay =
+    isAgentWorking || totalTokens(usage) > 0 || normalizeContextWindow(usage.contextWindow) != null;
+  return hasSomethingToSay ? usage : null;
+}
+
+/** Share of the window in use, or `null` while the window is unknown. */
+export function usageRatio(usage: ContextUsageState): number | null {
+  const windowSize = normalizeContextWindow(usage.contextWindow);
+  return windowSize == null ? null : Math.min(1, totalTokens(usage) / windowSize);
 }

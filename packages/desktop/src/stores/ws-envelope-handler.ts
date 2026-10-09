@@ -330,7 +330,7 @@ function handleModelSetOk(ctx: StoreAccessors, sessionId: string, payload: unkno
   const existing = session.contextUsage;
   // The window belongs to the model, so the outgoing one is never carried over.
   // The backend seeds the incoming model's window when its adapter can answer;
-  // otherwise the bar hides until the next `result`, which beats scaling by the
+  // otherwise the bar shows the window as unknown until the next `result`, which beats scaling by the
   // old model's window (1M → 200k reads 5x low, 200k → 1M reads 5x high).
   const nextContextWindow = normalizeContextWindow(p.context_window);
   const nextUsage = existing

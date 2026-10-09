@@ -2,9 +2,11 @@
 //!
 //! Claude Code advertises no context window in its model catalog or its `init`
 //! message — the only authoritative source is `result.modelUsage[<model>]
-//! .contextWindow`, which lands at the *end* of a turn. That leaves the first
-//! turn on any model with nothing to scale the usage bar by. Banking every
-//! window the CLI reports closes that gap for every later turn and session.
+//! .contextWindow`, which lands at the *end* of a turn. Banking every window
+//! the CLI reports closes that gap for every later turn and session; the very
+//! first turn on a model the bank has never seen runs with an unknown window
+//! (the UI shows a pending meter). Windows are never inferred from model ids —
+//! a `[1m]` marker or a family list goes stale with every new model.
 //!
 //! # Keys are the CLI's fully-qualified ids, never normalized
 //!
@@ -16,18 +18,60 @@
 //! fuzzy-matching the marker would conflate them, so lookups are exact and
 //! `message_start` ids are deliberately never used as keys.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::RwLock;
 
 use serde_json::Value;
 
-use super::events::{init_model_context_window, model_usage_windows};
+use super::events::model_usage_windows;
 use super::ClaudeCodeAdapter;
+use crate::domain::settings_store;
+
+pub(super) type LearnedWindows = BTreeMap<String, u64>;
+
+const LEARNED_WINDOWS_FILE: &str = "claude-code-context-windows.json";
+
+fn learned_windows_path() -> PathBuf {
+    settings_store::dir::sibling_dir("cache").join(LEARNED_WINDOWS_FILE)
+}
+
+/// The persisted bank, or an empty one. A missing file is the normal first
+/// run; an unreadable one is only a cache, so it is reported and relearned.
+fn load_learned_windows(path: &Path) -> LearnedWindows {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return LearnedWindows::new(),
+        Err(error) => {
+            tracing::warn!(%error, path = %path.display(), "failed to read learned Claude context windows; relearning");
+            return LearnedWindows::new();
+        }
+    };
+    serde_json::from_str::<LearnedWindows>(&content)
+        .map(|windows| windows.into_iter().filter(|(_, window)| *window > 0).collect())
+        .unwrap_or_else(|error| {
+            tracing::warn!(%error, path = %path.display(), "learned Claude context windows are corrupt; relearning");
+            LearnedWindows::new()
+        })
+}
+
+fn save_learned_windows(path: &Path, windows: &LearnedWindows) {
+    let result = serde_json::to_string_pretty(windows)
+        .map_err(|error| error.to_string())
+        .and_then(|content| {
+            crate::shared::atomic_file::write_atomic(path, &content).map_err(|e| e.to_string())
+        });
+    if let Err(error) = result {
+        // In-memory windows still serve this process; only the next restart
+        // loses them, so a cache write failure is not worth failing a turn.
+        tracing::warn!(%error, path = %path.display(), "failed to persist learned Claude context windows");
+    }
+}
 
 impl ClaudeCodeAdapter {
-    fn context_windows_cell(&self) -> &RwLock<HashMap<String, u64>> {
+    fn context_windows_cell(&self) -> &RwLock<LearnedWindows> {
         self.cached_context_windows
-            .get_or_init(|| RwLock::new(HashMap::new()))
+            .get_or_init(|| RwLock::new(load_learned_windows(&learned_windows_path())))
     }
 
     /// Learn every model's window from a raw `result` payload.
@@ -41,7 +85,7 @@ impl ClaudeCodeAdapter {
         // lock and skip the write entirely — this lock is shared by every
         // session's stream reader.
         let cell = self.context_windows_cell();
-        let unchanged = |guard: &HashMap<String, u64>| {
+        let unchanged = |guard: &LearnedWindows| {
             model_usage_windows(raw).all(|(model, window)| guard.get(model) == Some(&window))
         };
         match cell.read() {
@@ -60,10 +104,17 @@ impl ClaudeCodeAdapter {
                 return;
             }
         };
+        let mut learned = false;
         for (model, window) in model_usage_windows(raw) {
             if guard.insert(model.to_string(), window) != Some(window) {
                 tracing::debug!(%model, window, "learned Claude Code context window");
+                learned = true;
             }
+        }
+        // Written under the lock so two sessions learning different models
+        // cannot persist their snapshots out of order. Rare: once per model.
+        if learned {
+            save_learned_windows(&learned_windows_path(), &guard);
         }
     }
 
@@ -80,14 +131,6 @@ impl ClaudeCodeAdapter {
             }
         }
     }
-
-    /// The window for `model`, preferring what the CLI actually reported over
-    /// what its id implies. Single source of precedence for both the
-    /// per-event resolution and the model-switch seed, which otherwise drift.
-    pub(super) fn context_window_for_model_id(&self, model: &str) -> Option<u64> {
-        self.learned_context_window(model)
-            .or_else(|| init_model_context_window(model))
-    }
 }
 
 #[cfg(test)]
@@ -95,6 +138,7 @@ mod tests {
     use serde_json::json;
 
     use super::super::test_support::new_test_adapter;
+    use super::learned_windows_path;
 
     #[test]
     fn records_every_model_usage_entry_and_looks_up_by_exact_id() {
@@ -143,22 +187,52 @@ mod tests {
     }
 
     #[test]
-    fn what_the_cli_reported_outranks_what_the_id_implies() {
-        // A Fable deployment provisioned below its family default: the id says
-        // 1M, the CLI says otherwise, and the CLI wins.
-        let adapter = new_test_adapter();
+    fn learned_windows_survive_a_restart() {
+        // Each test thread gets its own settings dir, so a second adapter on
+        // this thread reads exactly what the first one persisted.
+        let before = new_test_adapter();
+        before.record_context_windows(&json!({
+            "type": "result",
+            "modelUsage": { "claude-opus-6": { "contextWindow": 1_000_000 } }
+        }));
+
+        let after_restart = new_test_adapter();
         assert_eq!(
-            adapter.context_window_for_model_id("claude-fable-5"),
+            after_restart.learned_context_window("claude-opus-6"),
             Some(1_000_000)
         );
+    }
+
+    #[test]
+    fn a_corrupt_bank_is_relearned_instead_of_failing() {
+        let path = learned_windows_path();
+        std::fs::create_dir_all(path.parent().expect("cache dir")).expect("create cache dir");
+        std::fs::write(&path, "{not json").expect("write corrupt bank");
+
+        let adapter = new_test_adapter();
+        assert_eq!(adapter.learned_context_window("claude-opus-6"), None);
 
         adapter.record_context_windows(&json!({
             "type": "result",
-            "modelUsage": { "claude-fable-5": { "contextWindow": 200_000 } }
+            "modelUsage": { "claude-opus-6": { "contextWindow": 1_000_000 } }
         }));
-
         assert_eq!(
-            adapter.context_window_for_model_id("claude-fable-5"),
+            new_test_adapter().learned_context_window("claude-opus-6"),
+            Some(1_000_000)
+        );
+    }
+
+    #[test]
+    fn persisted_zero_windows_are_ignored() {
+        let path = learned_windows_path();
+        std::fs::create_dir_all(path.parent().expect("cache dir")).expect("create cache dir");
+        std::fs::write(&path, r#"{"claude-opus-6": 0, "claude-haiku-5": 200000}"#)
+            .expect("write bank");
+
+        let adapter = new_test_adapter();
+        assert_eq!(adapter.learned_context_window("claude-opus-6"), None);
+        assert_eq!(
+            adapter.learned_context_window("claude-haiku-5"),
             Some(200_000)
         );
     }
