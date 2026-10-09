@@ -213,7 +213,7 @@ mod session_bootstrap_tests {
                 has_file_changes INTEGER NOT NULL DEFAULT 0,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 started_at TEXT,
                 ended_at TEXT
             )"#,

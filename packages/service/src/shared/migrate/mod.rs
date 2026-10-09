@@ -11,6 +11,8 @@ mod checksum_repair_data;
 #[cfg(test)]
 mod codex_permission_mode_migration_tests;
 #[cfg(test)]
+mod context_window_null_default_migration_tests;
+#[cfg(test)]
 mod custom_model_effort_migration_tests;
 #[cfg(test)]
 mod mcp_orchestration_migration_tests;
@@ -288,6 +290,7 @@ mod tests {
         let pool = test_pool(path).await;
         create_pre_ws_feature_removal_schema(&pool).await;
         test_fixtures::seed_applied_migrations_before(&pool, REMOVE_WS_FEATURE_VERSION).await;
+        test_fixtures::ensure_agent_session_context_window(&pool).await;
 
         sqlx::raw_sql(
             r#"INSERT INTO projects (id, name, path) VALUES (1, 'p', '/tmp/p');

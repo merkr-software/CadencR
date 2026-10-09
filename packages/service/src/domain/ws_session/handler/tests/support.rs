@@ -226,7 +226,7 @@ pub(crate) async fn make_test_app_state() -> AppState {
                 pending_permission TEXT,
                 input_tokens INTEGER NOT NULL DEFAULT 0,
                 output_tokens INTEGER NOT NULL DEFAULT 0,
-                context_window INTEGER NOT NULL DEFAULT 200000,
+                context_window INTEGER,
                 thinking_effort TEXT,
                 fast_mode INTEGER NOT NULL DEFAULT 0,
                 runtime_overrides TEXT

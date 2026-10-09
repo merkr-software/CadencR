@@ -96,6 +96,7 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
     )
     .await;
     ensure_column(pool, "agent_messages", "created_at", "TEXT").await;
+    ensure_agent_session_context_window(pool).await;
     // The FTS narrowing migration (20260803122000) filters on message_type in
     // both its triggers and its repopulate.
     ensure_column(
@@ -103,6 +104,20 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
         "agent_messages",
         "message_type",
         "TEXT NOT NULL DEFAULT 'text'",
+    )
+    .await;
+}
+
+/// The context-window default migration (20261009120000) swaps
+/// `agent_sessions.context_window`, which every real schema has had since the
+/// baseline but minimal fixtures omit. Era-accurate: the baseline's 200000
+/// default.
+pub(crate) async fn ensure_agent_session_context_window(pool: &SqlitePool) {
+    ensure_column(
+        pool,
+        "agent_sessions",
+        "context_window",
+        "INTEGER DEFAULT 200000",
     )
     .await;
 }

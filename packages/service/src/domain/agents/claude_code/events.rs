@@ -6,9 +6,7 @@ use serde_json::Value;
 
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventMetadata, RuntimeUsage};
 use classification::classify_message;
-pub(super) use mapping::{
-    context_window_for_model_from_raw, init_model_context_window, model_usage_windows,
-};
+pub(super) use mapping::{context_window_for_model_from_raw, model_usage_windows};
 use token_usage::claude_token_usage;
 
 pub(super) fn normalize_event(msg: claude_agent_sdk_rs::SdkMessage) -> RuntimeEvent {
@@ -233,50 +231,22 @@ mod tests {
     }
 
     #[test]
-    fn normalize_event_resolves_1m_context_window_from_init_model() {
-        // Regression: the usage bar divided by the session's stale 200k
-        // default for the whole first turn of a 1M-context model, climbing
-        // to 100% until the turn's Result corrected the window.
-        let event = normalize_event(init_message("claude-fable-5[1m]"));
-        let init = event.init().expect("init kind");
-        assert_eq!(init.context_window, Some(1_000_000));
-        assert_eq!(init.model.as_deref(), Some("claude-fable-5[1m]"));
-    }
-
-    #[test]
-    fn normalize_event_resolves_1m_window_for_bedrock_vertex_style_id() {
-        // Under Bedrock/Vertex the resolved id carries region/routing affixes,
-        // so the `[1m]` marker is not at the end. The 1M beta is still 1M
-        // tokens on every backend, so the hint must fire regardless of affix.
-        let event = normalize_event(init_message("us.anthropic.claude-sonnet-4-5[1m]"));
-        assert_eq!(
-            event.init().expect("init kind").context_window,
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn normalize_event_resolves_1m_window_for_natively_1m_model_without_marker() {
-        // The CLI reports `claude-fable-5` on init even when Cadencr passes
-        // `claude-fable-5[1m]`, because 1M is Fable's default and there is no
-        // beta to mark. Keying only off `[1m]` left every Fable turn with no
-        // window at all, so the bar divided by whatever the session last
-        // persisted (200k in the common case) and read ~5x too high until the
-        // turn's Result landed.
-        let event = normalize_event(init_message("claude-fable-5"));
-        assert_eq!(
-            event.init().expect("init kind").context_window,
-            Some(1_000_000)
-        );
-    }
-
-    #[test]
-    fn normalize_event_leaves_context_window_unresolved_without_1m_marker() {
-        // No guess for plain ids: a hardcoded 200k would override a window
-        // learned from a previous turn's Result, and would be wrong for a
-        // Bedrock-pinned or custom/proxy model. Defer to the CLI's Result.
-        let event = normalize_event(init_message("us.anthropic.claude-sonnet-4-5"));
-        assert_eq!(event.init().expect("init kind").context_window, None);
+    fn normalize_event_never_guesses_a_window_from_the_init_model_id() {
+        // The CLI reports no window on init, and an id is not a window: the
+        // `[1m]` marker is absent for natively-1M models (Fable, Opus 5.5) and
+        // a hardcoded family list lags every new model. The adapter answers
+        // from windows the CLI actually reported instead.
+        for model in [
+            "claude-fable-5[1m]",
+            "us.anthropic.claude-sonnet-4-5[1m]",
+            "claude-opus-5-5",
+            "us.anthropic.claude-sonnet-4-5",
+        ] {
+            let event = normalize_event(init_message(model));
+            let init = event.init().expect("init kind");
+            assert_eq!(init.model.as_deref(), Some(model));
+            assert_eq!(init.context_window, None, "{model}");
+        }
     }
 
     #[test]

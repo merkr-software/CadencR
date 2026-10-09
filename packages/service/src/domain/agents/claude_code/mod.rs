@@ -54,9 +54,9 @@ pub struct ClaudeCodeAdapter {
     /// Context windows learned from `result.modelUsage`, keyed by the CLI's
     /// model id. The CLI advertises no window in its catalog or `init`, so
     /// this is the only way a model's window is known before its first
-    /// `result`. Same process-lifetime semantics as `cached_models`.
-    cached_context_windows:
-        std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, u64>>>,
+    /// `result`. Loaded from disk on first use and written back whenever a
+    /// window is learned, so it outlives the process (see `context_windows`).
+    cached_context_windows: std::sync::OnceLock<std::sync::RwLock<context_windows::LearnedWindows>>,
 }
 
 #[derive(Default)]

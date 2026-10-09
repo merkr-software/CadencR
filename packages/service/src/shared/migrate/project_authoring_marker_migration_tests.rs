@@ -29,6 +29,7 @@ async fn migration_preserves_existing_projects_and_children_unmarked() {
     .await
     .unwrap();
     seed_migrations_before_target(&pool).await;
+    super::test_fixtures::ensure_agent_session_context_window(&pool).await;
 
     run_migrations(&MigrationContext::pool_only(&pool))
         .await

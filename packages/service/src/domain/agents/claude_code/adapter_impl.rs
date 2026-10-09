@@ -267,7 +267,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
     /// Used by the model-switch path to reseed the session window instead of
     /// leaving the previous model's in place.
     async fn context_window_for_model(&self, model_id: &str) -> Option<u64> {
-        self.context_window_for_model_id(model_id)
+        self.learned_context_window(model_id)
     }
 
     fn context_window_for_event(
@@ -292,14 +292,14 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
 
         runtime_event.context_window().or_else(|| {
             // The init model id is fully qualified (it keeps the `[1m]` marker,
-            // unlike `message_start`), so it can be resolved exactly. This is
-            // what makes the *first* turn correct for a model whose id
-            // advertises nothing: without it the window stays unknown until the
-            // turn's `result` lands.
+            // unlike `message_start`), so it matches the learned windows'
+            // keys exactly. This is what scales the bar from the first event of
+            // a turn on any model a previous `result` already reported; a model
+            // never seen before stays unknown until this turn's `result`.
             runtime_event
                 .init()
                 .and_then(|init| init.model.as_deref())
-                .and_then(|model| self.context_window_for_model_id(model))
+                .and_then(|model| self.learned_context_window(model))
         })
     }
 
@@ -477,15 +477,18 @@ mod tests {
     }
 
     #[test]
-    fn resolves_1m_window_at_init_for_a_natively_1m_model() {
-        // The bug: the CLI reports `claude-fable-5` (no `[1m]` — 1M is its
-        // default), so the whole turn ran with no window and the bar divided
-        // by the session's stale one until the turn's result landed.
+    fn never_infers_a_window_from_the_init_model_id() {
+        // Neither the `[1m]` marker nor a "natively 1M" family name is a
+        // window: both went stale (Opus 5.5 is 1M with no marker). Unknown
+        // until the CLI reports it beats a confident guess.
         let adapter = new_test_adapter();
-        assert_eq!(
-            adapter.context_window_for_event(&init_event("claude-fable-5"), None),
-            Some(1_000_000)
-        );
+        for model in ["claude-fable-5", "claude-opus-5-5", "claude-sonnet-5[1m]"] {
+            assert_eq!(
+                adapter.context_window_for_event(&init_event(model), None),
+                None,
+                "{model}"
+            );
+        }
     }
 
     #[test]
@@ -527,11 +530,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn answers_context_window_for_model_from_marker_and_learned_history() {
+    async fn answers_context_window_for_model_from_learned_history_only() {
         let adapter = new_test_adapter();
         assert_eq!(
             adapter.context_window_for_model("claude-fable-5[1m]").await,
-            Some(1_000_000)
+            None
         );
         assert_eq!(adapter.context_window_for_model("seed-unknown").await, None);
 

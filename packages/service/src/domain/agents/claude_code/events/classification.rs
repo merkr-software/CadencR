@@ -2,8 +2,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use super::mapping::{
-    api_error_text, init_model_context_window, map_content_block, map_stream_event,
-    map_user_message, raw_type,
+    api_error_text, map_content_block, map_stream_event, map_user_message, raw_type,
 };
 use crate::domain::agents::adapter::{
     RuntimeAssistantMessage, RuntimeCompactMetadata, RuntimeEventKind, RuntimeInitEvent,
@@ -120,7 +119,6 @@ fn classify_system_message(
         claude_agent_sdk_rs::messages::SystemMessage::Init {
             model, mcp_servers, ..
         } => {
-            let context_window = init_model_context_window(&model);
             RuntimeEventKind::Init(RuntimeInitEvent {
                 model: Some(model),
                 mcp_servers: mcp_servers
@@ -130,7 +128,9 @@ fn classify_system_message(
                         status: server.status,
                     })
                     .collect(),
-                context_window,
+                // The CLI's init carries no window; the adapter resolves it
+                // from windows learned off earlier results.
+                context_window: None,
             })
         }
         claude_agent_sdk_rs::messages::SystemMessage::CompactBoundary {
