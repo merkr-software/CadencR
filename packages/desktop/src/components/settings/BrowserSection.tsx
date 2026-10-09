@@ -89,7 +89,7 @@ export function BrowserSection(): React.JSX.Element {
         </SettingsSubsection>
         <SettingsSubsection
           title="Open in Cadencr's browser"
-          description="Links to these domains (and their subdomains) open in a Cadencr browser tab when Cmd/Ctrl+clicked in the terminal or agent chat. Everything else opens in your system browser."
+          description="Links to these domains (and their subdomains) open in a Cadencr browser tab when clicked in agent chat or Cmd/Ctrl+clicked in the terminal. Everything else opens in your system browser."
         >
           <InternalDomainsEditor />
         </SettingsSubsection>

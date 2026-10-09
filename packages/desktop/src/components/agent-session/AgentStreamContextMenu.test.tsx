@@ -15,6 +15,8 @@ vi.mock("@/lib/email-export", () => ({
 vi.mock("./use-message-branch-actions", () => ({
   useMessageBranchActions,
 }));
+const useIsTouchDevice = vi.hoisted(() => vi.fn(() => false));
+vi.mock("@/hooks/useIsTouchDevice", () => ({ useIsTouchDevice }));
 
 function select(element: Element): void {
   const range = document.createRange();
@@ -27,6 +29,7 @@ describe("AgentStreamContextMenu", () => {
   beforeEach(() => {
     copyAs.mockClear();
     useMessageBranchActions.mockClear();
+    useIsTouchDevice.mockReturnValue(false);
     window.getSelection()?.removeAllRanges();
   });
 
@@ -70,5 +73,19 @@ describe("AgentStreamContextMenu", () => {
     await user.click(screen.getByRole("menuitem", { name: /Copy as/i }));
     fireEvent.click(await screen.findByRole("menuitem", { name: /^Email$/i }));
     expect(copyAs).toHaveBeenCalledWith("email", "Reply source", expect.stringContaining("<h2"));
+  });
+
+  it("leaves touch long-press to native text selection", () => {
+    useIsTouchDevice.mockReturnValue(true);
+    render(
+      <AgentStreamContextMenu block={{ id: "text-1", type: "text", content: "Body" }}>
+        <p>Rendered body</p>
+      </AgentStreamContextMenu>,
+    );
+    const body = screen.getByText("Rendered body");
+
+    // An unhandled contextmenu (Android long-press) keeps its native default.
+    expect(fireEvent.contextMenu(body)).toBe(true);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

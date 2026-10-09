@@ -8,7 +8,7 @@
  * doesn't re-parse the whole buffer on the main thread.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@/test-utils";
+import { fireEvent, render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 
 const parseAnsiMock = vi.fn((text: string) => text);
@@ -26,6 +26,9 @@ vi.mock("@/api/generated", () => ({
   ],
 }));
 
+const useIsTouchDevice = vi.hoisted(() => vi.fn(() => false));
+vi.mock("@/hooks/useIsTouchDevice", () => ({ useIsTouchDevice }));
+
 import { BashBlock } from "./BashBlock";
 
 // Build content long enough to force the collapse toggle (>10 default lines).
@@ -34,6 +37,7 @@ function bigContent(lines: number): string {
 }
 
 beforeEach(() => {
+  useIsTouchDevice.mockReturnValue(false);
   parseAnsiMock.mockClear();
   getMessageFullContentMock.mockReset();
 });
@@ -213,5 +217,14 @@ describe("BashBlock server-truncated output", () => {
     expect(await screen.findByText(/line-79/)).toBeInTheDocument();
     expect(getMessageFullContentMock).toHaveBeenCalledTimes(1);
     expect(getMessageFullContentMock).toHaveBeenCalledWith(2585, expect.any(AbortSignal));
+  });
+
+  it("leaves touch long-press to native selection of the output", () => {
+    useIsTouchDevice.mockReturnValue(true);
+    const { container } = render(<BashBlock command="ls" content="file.txt" />);
+    const block = container.querySelector("[data-bash-block]") as HTMLElement;
+
+    expect(fireEvent.contextMenu(block)).toBe(true);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 });

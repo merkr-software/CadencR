@@ -1,5 +1,5 @@
 import { PaperclipIcon } from "lucide-react";
-import { useMemo, type ReactElement, type ReactNode } from "react";
+import { useMemo, useRef, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Markdown } from "@/components/Markdown";
 import { UserMessageImages } from "@/components/UserMessageImages";
 import { GeneratedBySessionBadge } from "@/components/GeneratedBySessionBadge";
@@ -13,8 +13,11 @@ interface UserMessageBlockProps {
   content: string;
   deliveryState?: PromptDeliveryState;
   origin?: AgentMessageOrigin | null;
-  /** On-hover action row (Copy / Fork / Rewind) rendered under the bubble. */
-  actions?: ReactNode;
+  /**
+   * On-hover action row (Copy / Fork / Rewind) rendered under the bubble.
+   * Receives the bubble so actions can serialize the rendered message.
+   */
+  renderActions?: (bubbleRef: RefObject<HTMLDivElement | null>) => ReactNode;
 }
 
 const DELIVERY_BUBBLE_STYLES: Record<PromptDeliveryState, string> = {
@@ -28,8 +31,9 @@ export function UserMessageBlock({
   content,
   deliveryState,
   origin,
-  actions,
+  renderActions,
 }: UserMessageBlockProps): ReactElement {
+  const bubbleRef = useRef<HTMLDivElement>(null);
   const {
     text: textContent,
     images,
@@ -43,6 +47,7 @@ export function UserMessageBlock({
   return (
     <div className="group/usermsg my-1 flex flex-col items-end">
       <div
+        ref={bubbleRef}
         data-testid="user-message-bubble"
         data-prompt-delivery-state={deliveryState}
         className={cn(
@@ -82,7 +87,7 @@ export function UserMessageBlock({
           <span>Message was not delivered to the agent</span>
         </div>
       )}
-      {actions}
+      {renderActions?.(bubbleRef)}
     </div>
   );
 }

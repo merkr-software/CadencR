@@ -1,9 +1,10 @@
 import { useState, type ReactElement, type ReactNode } from "react";
-import { Loader2Icon } from "lucide-react";
+import { ArrowUpRightIcon, Loader2Icon } from "lucide-react";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { useLinkRouting, type LinkRouting } from "@/components/links/LinkRoutingContext";
 import { parseConversationReferenceHref } from "@/components/prompt-editor/conversation-reference";
 import { parseFileReferenceHref } from "@/components/prompt-editor/file-reference";
+import { isUserOpenableUrl } from "@/lib/safe-url";
 
 const LINK_CLASS =
   "text-[var(--acc-cyan)] underline underline-offset-2 hover:text-[var(--acc-purple)]";
@@ -34,28 +35,63 @@ export function MarkdownLink({
       </ConversationReferenceLink>
     );
   }
-  if (!routing || !href) {
+  if (!href) {
+    return <a className={LINK_CLASS}>{children}</a>;
+  }
+  // Markdown labels hide the URL (`[docs](https://…)`): name the destination
+  // on hover and mark links that leave the conversation. A native `title`
+  // keeps each link a bare <a> — a tooltip primitive per link is real cost in
+  // a long, streaming transcript.
+  const isWeb = isUserOpenableUrl(href);
+  const title = isWeb ? href : undefined;
+  const externalMark = isWeb ? (
+    <ArrowUpRightIcon
+      aria-hidden
+      className="ml-px inline size-[0.85em] align-[-0.05em] opacity-70"
+    />
+  ) : null;
+  if (!routing) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
+      <a href={href} title={title} target="_blank" rel="noopener noreferrer" className={LINK_CLASS}>
         {children}
+        {externalMark}
       </a>
     );
   }
   return (
     <a
       href={href}
+      title={title}
       rel="noopener noreferrer"
       className={LINK_CLASS}
       onClick={(event) => {
+        // Never the default: it would navigate the app window itself. Web
+        // links open on a plain click or tap; anything else (mailto:, paths,
+        // fragments) keeps needing Cmd/Ctrl, since the router may refuse it.
         event.preventDefault();
-        if (event.metaKey || event.ctrlKey) routing.activate(href);
+        if (isSelectingLinkText(event.currentTarget)) return;
+        if (isWeb || event.metaKey || event.ctrlKey) routing.activate(href);
       }}
       onMouseEnter={() => routing.setHoverLink(href)}
       onMouseLeave={() => routing.setHoverLink(null)}
     >
       {children}
+      {externalMark}
     </a>
   );
+}
+
+/**
+ * Dragging across link text to select it finishes with a click on the link;
+ * opening it then would throw the selection away.
+ */
+function isSelectingLinkText(link: HTMLElement): boolean {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return false;
+  for (let i = 0; i < selection.rangeCount; i++) {
+    if (selection.getRangeAt(i).intersectsNode(link)) return true;
+  }
+  return false;
 }
 
 function ConversationReferenceLink({

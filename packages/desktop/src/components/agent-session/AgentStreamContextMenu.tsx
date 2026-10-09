@@ -25,16 +25,11 @@ import {
   selectionSnapshotToMarkdown,
   type SelectionSnapshot,
 } from "@/lib/selection-to-markdown";
-import {
-  ClipboardCopyIcon,
-  FileTextIcon,
-  GitBranchIcon,
-  MailIcon,
-  MessageSquareIcon,
-  RotateCcwIcon,
-} from "lucide-react";
+import { ClipboardCopyIcon, FileTextIcon, GitBranchIcon, RotateCcwIcon } from "lucide-react";
 import { type AgentBlockData } from "../AgentBlock";
 import { useMessageBranchActions } from "./use-message-branch-actions";
+import { useTouchSafeTriggerProps } from "@/hooks/useTouchSafeTriggerProps";
+import { COPY_AS_FORMATS } from "./CopyAsMenu";
 
 type CopyScope = "selection-or-block" | "block";
 
@@ -86,6 +81,9 @@ function applySavedRanges(
  * Wrapping the per-item Virtuoso row (rather than the scroller itself)
  * keeps `block` correctly bound: Virtuoso recycles DOM nodes, so a single
  * outer trigger would drift across blocks during scroll.
+ *
+ * Touch devices get no menu (see `useTouchSafeTriggerProps`); the copy
+ * formats they need live on the message action rows (`CopyAsMenu`).
  */
 function AgentStreamContextMenu({
   block,
@@ -97,6 +95,7 @@ function AgentStreamContextMenu({
   const savedSelectionRef = useRef<SelectionSnapshot | null>(null);
   const isRestoringRef = useRef(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const triggerProps = useTouchSafeTriggerProps();
 
   function captureOnRightMouseDown(e: ReactMouseEvent<HTMLDivElement>) {
     if (e.button !== 2) return;
@@ -151,7 +150,7 @@ function AgentStreamContextMenu({
   // message id and gates on session liveness.
   return (
     <ContextMenu onOpenChange={setMenuOpen}>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild {...triggerProps}>
         <div onMouseDownCapture={captureOnRightMouseDown}>{children}</div>
       </ContextMenuTrigger>
       <ContextMenuContent>
@@ -178,30 +177,15 @@ const AgentStreamMenuItems = memo(function AgentStreamMenuItems({
       <ContextMenuSub>
         <ContextMenuSubActionTrigger icon={ClipboardCopyIcon}>Copy as</ContextMenuSubActionTrigger>
         <ContextMenuSubContent>
-          <ContextMenuActionItem
-            icon={FileTextIcon}
-            onSelect={() => copy("markdown", "selection-or-block")}
-          >
-            Markdown
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={MessageSquareIcon}
-            onSelect={() => copy("slack", "selection-or-block")}
-          >
-            Slack mrkdwn
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={ClipboardCopyIcon}
-            onSelect={() => copy("plain", "selection-or-block")}
-          >
-            Plain text
-          </ContextMenuActionItem>
-          <ContextMenuActionItem
-            icon={MailIcon}
-            onSelect={() => copy("email", "selection-or-block")}
-          >
-            Email
-          </ContextMenuActionItem>
+          {COPY_AS_FORMATS.map(({ format, label, icon }) => (
+            <ContextMenuActionItem
+              key={format}
+              icon={icon}
+              onSelect={() => copy(format, "selection-or-block")}
+            >
+              {label}
+            </ContextMenuActionItem>
+          ))}
         </ContextMenuSubContent>
       </ContextMenuSub>
       <ContextMenuSeparator />
