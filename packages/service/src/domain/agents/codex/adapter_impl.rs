@@ -178,9 +178,8 @@ impl AgentRuntimeAdapter for CodexAdapter {
         let mcp_config = launch::effective_thread_config(&config, &effective_config);
         let mcp_server_names = mcp_server_names(&mcp_config);
         let thread_id = launch::start_or_resume_thread(&client, &config, &mcp_config).await?;
-        let mcp_servers = mcp_server_statuses(&client, &mut mcp_status_rx, &mcp_server_names).await;
         let session = CodexSession::new(
-            client,
+            client.clone(),
             thread_id,
             event_rx,
             session::CodexSessionOptions {
@@ -192,14 +191,21 @@ impl AgentRuntimeAdapter for CodexAdapter {
                 permission_mode: config.permission_mode,
                 access_mode: config.access_mode,
                 cwd: config.cwd,
-                mcp_servers,
                 context_window: None,
             },
         );
-        session.send_init_event().await;
+        // Start the turn before reading MCP statuses: `mcpServerStatus/list`
+        // blocks until every MCP server has started (seconds for npx-launched
+        // ones), and Codex already holds the turn's first model request on that
+        // same startup. Awaiting the list first stacked the two waits. Turn
+        // events queue until the stream is taken, and `take_message_rx` puts
+        // the queued init event ahead of them.
         if !content.is_null() {
             session.start_initial_turn(content).await?;
         }
+        let mcp_servers = mcp_server_statuses(&client, &mut mcp_status_rx, &mcp_server_names).await;
+        session.set_mcp_servers(mcp_servers).await;
+        session.send_init_event().await;
         Ok(Box::new(session))
     }
 }

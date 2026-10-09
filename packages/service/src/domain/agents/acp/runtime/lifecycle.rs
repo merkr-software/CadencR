@@ -85,6 +85,31 @@ pub async fn negotiate_session(
     context_window: Option<u64>,
     hooks: &dyn AcpProviderHooks,
 ) -> Result<NegotiatedSession, RuntimeError> {
+    // MCP statuses only describe the session; they don't feed the handshake.
+    // Discovering them can shell out to the provider CLI (OpenCode: ~0.5 s),
+    // so overlap it with the agent round trips instead of serializing it
+    // before the first prompt.
+    let mcp_statuses = async {
+        Ok::<_, RuntimeError>(
+            hooks
+                .available_mcp_servers(&config.cwd, mcp_status_list(config.mcp_servers.as_ref()))
+                .await,
+        )
+    };
+    let (mut session, mcp_statuses) = tokio::try_join!(
+        handshake(client, config, context_window, hooks),
+        mcp_statuses
+    )?;
+    session.mcp_servers = mcp_statuses;
+    Ok(session)
+}
+
+async fn handshake(
+    client: &AcpClient,
+    config: &RuntimeSpawnConfig,
+    context_window: Option<u64>,
+    hooks: &dyn AcpProviderHooks,
+) -> Result<NegotiatedSession, RuntimeError> {
     let init_result = client
         .send_request_typed(initialize_request(client, hooks), INIT_TIMEOUT)
         .await
@@ -119,9 +144,6 @@ pub async fn negotiate_session(
 
     let model_id = config.model.clone();
     let mcp_servers = build_stdio_mcp_payload(config.mcp_servers.as_ref());
-    let mcp_statuses = hooks
-        .available_mcp_servers(&config.cwd, mcp_status_list(config.mcp_servers.as_ref()))
-        .await;
     if let Some(resume_id) = resume_id {
         let (current_mode, session_config, may_replay_history) = if capabilities.resume_session {
             let (current_mode, session_config) =
@@ -135,7 +157,7 @@ pub async fn negotiate_session(
         return Ok(NegotiatedSession {
             session_id: resume_id.to_string(),
             model: model_id,
-            mcp_servers: mcp_statuses,
+            mcp_servers: Vec::new(),
             context_window,
             current_mode,
             session_config,
@@ -149,7 +171,7 @@ pub async fn negotiate_session(
     Ok(NegotiatedSession {
         session_id,
         model: model_id,
-        mcp_servers: mcp_statuses,
+        mcp_servers: Vec::new(),
         context_window,
         current_mode,
         session_config,
