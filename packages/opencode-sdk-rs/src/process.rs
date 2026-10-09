@@ -33,6 +33,15 @@ pub fn opencode_discovery_spec() -> DiscoverySpec {
 /// Set once by the host app at startup (e.g. read from settings).
 static BINARY_OVERRIDE: Lazy<RwLock<Option<PathBuf>>> = Lazy::new(|| RwLock::new(None));
 
+/// Discovery result keyed on the override snapshot. Every ACP spawn, MCP
+/// discovery and model probe resolves the binary; uncached, each call re-walks
+/// PATH and spawns a `--version` per candidate (~0.4 s before the agent even
+/// starts).
+static RESOLVED: Lazy<RwLock<Option<ResolvedBinary>>> = Lazy::new(|| RwLock::new(None));
+
+/// `(override snapshot, resolved path)`.
+type ResolvedBinary = (Option<PathBuf>, PathBuf);
+
 #[cfg(test)]
 static TEST_DISCOVERY_LOCK: Lazy<tokio::sync::Mutex<()>> =
     Lazy::new(|| tokio::sync::Mutex::new(()));
@@ -44,6 +53,9 @@ static TEST_DISCOVERY_LOCK: Lazy<tokio::sync::Mutex<()>> =
 pub fn set_binary_override(path: Option<PathBuf>) {
     if let Ok(mut guard) = BINARY_OVERRIDE.write() {
         *guard = path;
+    }
+    if let Ok(mut cache) = RESOLVED.write() {
+        *cache = None;
     }
 }
 
@@ -61,13 +73,22 @@ pub async fn resolve_binary() -> Result<PathBuf, SdkError> {
             });
         }
     }
+    if let Some((cached_override, cached)) = RESOLVED.read().ok().and_then(|guard| guard.clone()) {
+        if cached_override == override_path {
+            return Ok(cached);
+        }
+    }
     let candidates = cli_discovery::discover_all(&spec, override_path.as_deref()).await;
     let Some(best) = cli_discovery::select_best(&candidates) else {
         return Err(SdkError::CliNotFound {
             searched: cli_discovery::searched_dirs(&spec).await,
         });
     };
-    Ok(best.path.clone())
+    let resolved = best.path.clone();
+    if let Ok(mut cache) = RESOLVED.write() {
+        *cache = Some((override_path, resolved.clone()));
+    }
+    Ok(resolved)
 }
 
 fn is_executable_file(path: &Path) -> bool {

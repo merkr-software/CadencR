@@ -98,6 +98,37 @@ where
     entry
 }
 
+/// Spawn-path read. Model context windows rarely change, so serve whatever is
+/// cached — refreshing a stale entry in the background — instead of blocking
+/// the first prompt on a fresh `opencode models` probe (~0.7 s). Only an empty
+/// cache waits for the probe.
+pub(super) async fn cached_catalog_entry() -> CatalogCacheEntry {
+    cached_catalog_entry_with(live_catalog_entry, || {
+        tokio::spawn(live_catalog_entry());
+    })
+    .await
+}
+
+async fn cached_catalog_entry_with<L, LFut>(
+    load: L,
+    refresh_in_background: impl FnOnce(),
+) -> CatalogCacheEntry
+where
+    L: FnOnce() -> LFut,
+    LFut: Future<Output = CatalogCacheEntry>,
+{
+    let cached = catalog_cache().read().await.clone();
+    match cached {
+        Some(entry) => {
+            if entry.fetched_at.elapsed() >= CATALOG_TTL {
+                refresh_in_background();
+            }
+            entry
+        }
+        None => load().await,
+    }
+}
+
 fn entry_from_response(response: ConfigProvidersResponse) -> CatalogCacheEntry {
     let (catalog, context_windows) = super::catalog_from_response(response);
     CatalogCacheEntry {
@@ -176,6 +207,43 @@ mod tests {
         let second = live_catalog_entry_with(&probe).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(first.catalog.default_model, second.catalog.default_model);
+        reset_for_test().await;
+    }
+
+    #[tokio::test]
+    async fn spawn_path_serves_a_stale_entry_and_refreshes_in_background() {
+        let _guard = TEST_LOCK.lock().await;
+        reset_for_test().await;
+        let _ = live_catalog_entry_with(|| async { Ok(sample_response()) }).await;
+        force_expire_for_test().await;
+
+        let mut refreshed = false;
+        let entry = cached_catalog_entry_with(
+            || async { panic!("a cached entry must not block on a probe") },
+            || refreshed = true,
+        )
+        .await;
+
+        assert!(refreshed, "a stale entry schedules a refresh");
+        assert_eq!(
+            entry.context_windows.get("anthropic/claude-sonnet-4-5"),
+            Some(&200_000)
+        );
+        reset_for_test().await;
+    }
+
+    #[tokio::test]
+    async fn spawn_path_waits_for_the_probe_on_an_empty_cache() {
+        let _guard = TEST_LOCK.lock().await;
+        reset_for_test().await;
+        let entry = cached_catalog_entry_with(
+            || live_catalog_entry_with(|| async { Ok(sample_response()) }),
+            || panic!("nothing cached to refresh"),
+        )
+        .await;
+        assert!(entry
+            .context_windows
+            .contains_key("anthropic/claude-sonnet-4-5"));
         reset_for_test().await;
     }
 

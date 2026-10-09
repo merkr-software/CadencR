@@ -52,7 +52,7 @@ pub(crate) async fn catalog_entry_live() -> ProviderCatalogEntry {
 /// describe has an unknown window — never a guessed one, which would misscale
 /// the usage bar with false confidence.
 pub(crate) async fn context_window_for_model(model_id: &str) -> Option<u64> {
-    let entry = cache::live_catalog_entry().await;
+    let entry = cache::cached_catalog_entry().await;
     entry.context_windows.get(model_id).copied()
 }
 

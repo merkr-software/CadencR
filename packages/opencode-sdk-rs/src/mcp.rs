@@ -108,7 +108,23 @@ async fn run_opencode_command<const N: usize>(
     if let Some(cwd) = cwd {
         command.current_dir(cwd);
     }
-    let output = tokio::time::timeout(MCP_LIST_TIMEOUT, command.output())
+    // OpenCode exits before draining a piped stdout, so `debug config` comes
+    // back cut at the 64 KiB pipe buffer. A file receives every byte; it is
+    // owner-only (the resolved config can carry provider API keys) and removed
+    // on drop, cancellation included.
+    let stdout_capture = tempfile::NamedTempFile::new()?;
+    command.stdout(std::process::Stdio::from(stdout_capture.reopen()?));
+    read_command_stdout(command, stdout_capture.path()).await
+}
+
+async fn read_command_stdout(
+    mut command: tokio::process::Command,
+    stdout_path: &Path,
+) -> Result<String, SdkError> {
+    // `output()` would re-pipe stdout; `spawn` keeps the file redirection.
+    command.stderr(std::process::Stdio::piped());
+    let child = command.spawn()?;
+    let output = tokio::time::timeout(MCP_LIST_TIMEOUT, child.wait_with_output())
         .await
         .map_err(|_| SdkError::Timeout("opencode mcp list".to_string()))??;
 
@@ -119,7 +135,8 @@ async fn run_opencode_command<const N: usize>(
         )));
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    let stdout = std::fs::read(stdout_path)?;
+    Ok(String::from_utf8_lossy(&stdout).into_owned())
 }
 
 pub fn parse_mcp_config_output(raw: &str) -> Result<Vec<OpenCodeMcpServerStatus>, SdkError> {
