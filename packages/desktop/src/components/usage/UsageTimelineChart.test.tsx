@@ -6,16 +6,14 @@ import type { UsageChartData } from "./usage-stats-model";
 
 function chartOf(days: string[]): UsageChartData {
   return {
-    series: [
-      { key: "claude", label: "Claude", colorIndex: 0, inputTokens: 0, outputTokens: 0, value: 0 },
-    ],
+    series: [{ key: "claude", colorIndex: 0, inputTokens: 0, outputTokens: 0 }],
     days: days.map((day, index) => ({
       day,
       total: (index + 1) * 1_000,
       segments: [{ key: "claude", colorIndex: 0, value: (index + 1) * 1_000 }],
     })),
     max: days.length * 1_000,
-    grandTotal: 0,
+    foldedCount: 0,
   };
 }
 
@@ -25,6 +23,7 @@ function renderChart(data: UsageChartData) {
   return render(
     <UsageTimelineChart
       data={data}
+      labelOf={String}
       density="comfortable"
       scale="absolute"
       metricLabel="tokens exchanged"
@@ -80,6 +79,7 @@ describe("UsageTimelineChart", () => {
     rerender(
       <UsageTimelineChart
         data={chartOf(["2026-07-25"])}
+        labelOf={String}
         density="comfortable"
         scale="absolute"
         metricLabel="tokens exchanged"
@@ -92,8 +92,8 @@ describe("UsageTimelineChart", () => {
   it("stacks the largest series at the base of each column", () => {
     renderChart({
       series: [
-        { key: "big", label: "Big", colorIndex: 0, inputTokens: 0, outputTokens: 0, value: 0 },
-        { key: "small", label: "Small", colorIndex: 1, inputTokens: 0, outputTokens: 0, value: 0 },
+        { key: "big", colorIndex: 0, inputTokens: 0, outputTokens: 0 },
+        { key: "small", colorIndex: 1, inputTokens: 0, outputTokens: 0 },
       ],
       days: [
         {
@@ -106,7 +106,7 @@ describe("UsageTimelineChart", () => {
         },
       ],
       max: 12,
-      grandTotal: 12,
+      foldedCount: 0,
     });
 
     // The column stacks bottom-up from its first cell.

@@ -1,8 +1,8 @@
 import { useGetUsageStats, type UsageStatsEntry } from "@/api/generated";
-import { UsagePlotSkeleton } from "@/components/settings/stats/UsagePlotPlaceholder";
-import { UsageTimelineChart } from "@/components/settings/stats/UsageTimelineChart";
-import { useUsageCharts } from "@/components/settings/stats/use-usage-charts";
-import { resolveEndDay, USAGE_METRIC_UNIT } from "@/components/settings/stats/usage-stats-model";
+import { UsagePlotSkeleton } from "@/components/usage/UsagePlotPlaceholder";
+import { UsageTimelineChart } from "@/components/usage/UsageTimelineChart";
+import { useUsageCharts } from "@/components/usage/use-usage-charts";
+import { resolveEndDay, USAGE_METRIC_UNIT } from "@/components/usage/usage-stats-model";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 /**
@@ -24,7 +24,7 @@ const NO_ENTRIES: UsageStatsEntry[] = [];
  */
 export function SessionUsageChart(): React.JSX.Element | null {
   const { data, isLoading, error } = useGetUsageStats({ days: OVERVIEW_DAYS });
-  const { chart } = useUsageCharts({
+  const { chart, labelOf } = useUsageCharts({
     entries: data?.entries ?? NO_ENTRIES,
     windowDays: OVERVIEW_DAYS,
     endDay: resolveEndDay(data?.end_day),
@@ -56,6 +56,7 @@ export function SessionUsageChart(): React.JSX.Element | null {
       ) : null}
       <UsageTimelineChart
         data={chart}
+        labelOf={labelOf}
         density="compact"
         scale="absolute"
         metricLabel={USAGE_METRIC_UNIT.total}

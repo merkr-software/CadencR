@@ -26,7 +26,6 @@ function entry(overrides: Partial<UsageStatsEntry> = {}): UsageStatsEntry {
 }
 
 const byProvider = (row: UsageStatsEntry): string => row.provider_id;
-const identity = (key: string): string => key;
 
 describe("metricValue", () => {
   it("splits the exchange into sent, received, and their sum", () => {
@@ -80,7 +79,6 @@ describe("buildUsageChart", () => {
       entries: [entry({ day: "2026-07-25" })],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -98,7 +96,6 @@ describe("buildUsageChart", () => {
       ],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -107,10 +104,8 @@ describe("buildUsageChart", () => {
       key: "claude_code",
       inputTokens: 4,
       outputTokens: 6,
-      value: 10,
     });
     expect(chart.max).toBe(10);
-    expect(chart.grandTotal).toBe(10);
   });
 
   it("charts only the selected metric but still reports both halves", () => {
@@ -118,7 +113,6 @@ describe("buildUsageChart", () => {
       entries: [entry({ input_tokens: 10, output_tokens: 90 })],
       metric: "input",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -134,9 +128,7 @@ describe("buildUsageChart", () => {
       entry({ provider_id: "quiet", input_tokens: 100, output_tokens: 1 }),
     ];
     const forEachMetric = (["total", "input", "output"] as const).map(
-      (metric) =>
-        buildUsageChart({ entries, metric, seriesKeyOf: byProvider, labelOf: identity, axis })
-          .series[0].key,
+      (metric) => buildUsageChart({ entries, metric, seriesKeyOf: byProvider, axis }).series[0].key,
     );
 
     expect(forEachMetric).toEqual(["loud", "loud", "loud"]);
@@ -154,7 +146,6 @@ describe("buildUsageChart", () => {
       ],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -172,7 +163,6 @@ describe("buildUsageChart", () => {
         entries,
         metric: "total",
         seriesKeyOf: byProvider,
-        labelOf: identity,
         axis,
       }).series.find((series) => series.key === key)!.colorIndex;
 
@@ -194,8 +184,7 @@ describe("buildUsageChart", () => {
       ],
       metric: "total",
       seriesKeyOf: (row) => `${row.provider_id}/${row.model_id}`,
-      labelOf: identity,
-      slotKeyOf: (key) => key.split("/")[0]!,
+      preferredSlotOf: (key) => preferredSeriesSlot(key.split("/")[0]!),
       axis,
     });
 
@@ -218,7 +207,6 @@ describe("buildUsageChart", () => {
       entries,
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -227,9 +215,12 @@ describe("buildUsageChart", () => {
     const other = chart.series.at(-1)!;
     expect(other.key).toBe(OTHER_SERIES_KEY);
     expect(other.colorIndex).toBe(-1);
-    expect(other.label).toBe(`Other (${FOLDED_COUNT})`);
-    expect(other.value).toBe(expectedFoldedTotal);
-    expect(chart.days.at(-1)!.total).toBe(chart.grandTotal);
+    expect(chart.foldedCount).toBe(FOLDED_COUNT);
+    expect(chart.days.at(-1)!.segments.at(-1)).toEqual({
+      key: OTHER_SERIES_KEY,
+      colorIndex: -1,
+      value: expectedFoldedTotal,
+    });
   });
 
   it("excludes entries outside the axis window", () => {
@@ -237,13 +228,11 @@ describe("buildUsageChart", () => {
       entries: [entry({ day: "2026-01-01" })],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
     expect(chart.series).toEqual([]);
     expect(chart.max).toBe(0);
-    expect(chart.grandTotal).toBe(0);
   });
 
   it("produces an empty chart with a full axis when there is no usage", () => {
@@ -251,7 +240,6 @@ describe("buildUsageChart", () => {
       entries: [],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -285,11 +273,10 @@ describe("providerModelSeriesKey", () => {
       ],
       metric: "total",
       seriesKeyOf: (row) => providerModelSeriesKey(row.provider_id, row.model_id),
-      labelOf: identity,
       axis: dayAxis(1, "2026-07-25"),
     });
 
     expect(chart.series).toHaveLength(1);
-    expect(chart.series[0].value).toBe(6);
+    expect(chart.days[0]!.total).toBe(6);
   });
 });

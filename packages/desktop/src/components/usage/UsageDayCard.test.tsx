@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@/test-utils";
 import { UsageDayCard } from "./UsageDayCard";
-import type { UsageSeries } from "./usage-stats-model";
 
-function series(key: string, label: string, colorIndex: number): UsageSeries {
-  return { key, label, colorIndex, inputTokens: 0, outputTokens: 0, value: 0 };
-}
+const LABELS: Record<string, string> = {
+  claude: "Claude · opus",
+  codex: "Codex · gpt-5",
+  opencode: "OpenCode · kimi",
+};
 
-const SERIES = [
-  series("claude", "Claude · opus", 0),
-  series("codex", "Codex · gpt-5", 1),
-  series("opencode", "OpenCode · kimi", 2),
-];
+const labelOf = (key: string): string => LABELS[key] ?? key;
 
 describe("UsageDayCard", () => {
   it("names the day and its total, then lists only the series used that day", () => {
@@ -25,7 +22,7 @@ describe("UsageDayCard", () => {
             { key: "opencode", colorIndex: 2, value: 500 },
           ],
         }}
-        series={SERIES}
+        labelOf={labelOf}
         scale="absolute"
       />,
     );
@@ -50,7 +47,7 @@ describe("UsageDayCard", () => {
             { key: "codex", colorIndex: 1, value: 1_000 },
           ],
         }}
-        series={SERIES}
+        labelOf={labelOf}
         scale="share"
       />,
     );

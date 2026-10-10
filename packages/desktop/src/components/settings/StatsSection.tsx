@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { keepPreviousData } from "@tanstack/react-query";
 import { useGetUsageStats } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -8,19 +9,16 @@ import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
 import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBanner";
 import { UsageSegmentedControl } from "@/components/settings/stats/UsageSegmentedControl";
 import { UsageSummaryTiles } from "@/components/settings/stats/UsageSummaryTiles";
-import {
-  UsagePlotPlaceholder,
-  UsagePlotSkeleton,
-} from "@/components/settings/stats/UsagePlotPlaceholder";
-import { UsageTimelineChart } from "@/components/settings/stats/UsageTimelineChart";
-import { useUsageCharts } from "@/components/settings/stats/use-usage-charts";
+import { UsagePlotPlaceholder, UsagePlotSkeleton } from "@/components/usage/UsagePlotPlaceholder";
+import { UsageTimelineChart } from "@/components/usage/UsageTimelineChart";
+import { useUsageCharts } from "@/components/usage/use-usage-charts";
 import {
   resolveEndDay,
   USAGE_METRIC_UNIT,
   type UsageGrouping,
   type UsageMetric,
   type UsageScale,
-} from "@/components/settings/stats/usage-stats-model";
+} from "@/components/usage/usage-stats-model";
 import { UsageRecordingWarning } from "@/components/settings/stats/UsageRecordingWarning";
 import { cn } from "@/lib/utils";
 
@@ -52,13 +50,19 @@ export function StatsSection(): React.JSX.Element {
   const [grouping, setGrouping] = useState<UsageGrouping>("provider");
   const [scale, setScale] = useState<UsageScale>("absolute");
 
-  const windowDays = Number(range);
-  const { data, isLoading, error } = useGetUsageStats({ days: windowDays });
+  // The last range stays on screen while the next one loads, so switching
+  // ranges never flashes a skeleton.
+  const { data, isLoading, error } = useGetUsageStats(
+    { days: Number(range) },
+    { query: { placeholderData: keepPreviousData } },
+  );
+  // The window of the data on screen, which lags the selection until it lands.
+  const windowDays = data?.days ?? Number(range);
   const entries = useMemo(() => data?.entries ?? [], [data?.entries]);
   // The backend computes the window's last day from the same clock that stamped
   // the rows; deriving it here would drift across UTC midnight.
   const endDay = resolveEndDay(data?.end_day);
-  const { chart, summary } = useUsageCharts({
+  const { chart, labelOf, summary } = useUsageCharts({
     entries,
     windowDays,
     endDay,
@@ -125,6 +129,7 @@ export function StatsSection(): React.JSX.Element {
               {chart.max > 0 ? (
                 <UsageTimelineChart
                   data={chart}
+                  labelOf={labelOf}
                   density="comfortable"
                   scale={scale}
                   metricLabel={USAGE_METRIC_UNIT[metric]}

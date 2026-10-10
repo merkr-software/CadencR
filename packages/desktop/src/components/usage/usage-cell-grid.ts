@@ -42,9 +42,14 @@ export function gridWidthCss(days: number): string {
   return `calc(${days} * var(--cell) + ${Math.max(0, days - 1) * CELL_GAP_PX}px)`;
 }
 
-/** The horizontal centre of column `index`, on the grid's pitch. */
+/** The left edge of column `index`, on the grid's pitch. */
+export function columnLeftCss(index: number): string {
+  return `calc(${index} * (var(--cell) + ${CELL_GAP_PX}px))`;
+}
+
+/** The horizontal centre of column `index`. */
 export function columnCenterCss(index: number): string {
-  return `calc(${index} * (var(--cell) + ${CELL_GAP_PX}px) + var(--cell) / 2)`;
+  return `calc(${columnLeftCss(index)} + var(--cell) / 2)`;
 }
 
 /** The height of a loaded chart, dates included, for placeholders standing in for it. */

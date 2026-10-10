@@ -1,4 +1,4 @@
-import type { UsageDay, UsageScale, UsageSeries } from "./usage-stats-model";
+import type { UsageDay, UsageScale } from "./usage-stats-model";
 import { formatChartTokens, formatDayLabel, formatShare, seriesColor } from "./usage-chart-palette";
 
 /**
@@ -8,14 +8,13 @@ import { formatChartTokens, formatDayLabel, formatShare, seriesColor } from "./u
  */
 export function UsageDayCard({
   day,
-  series,
+  labelOf,
   scale,
 }: {
   day: UsageDay;
-  series: UsageSeries[];
+  labelOf: (seriesKey: string) => string;
   scale: UsageScale;
 }): React.JSX.Element {
-  const labelOf = new Map(series.map((entry) => [entry.key, entry.label]));
   return (
     <div className="min-w-40 space-y-2 text-xs">
       <div className="flex items-baseline justify-between gap-4">
@@ -30,9 +29,7 @@ export function UsageDayCard({
               className="size-2 shrink-0 rounded-[2px]"
               style={{ backgroundColor: seriesColor(segment.colorIndex) }}
             />
-            <span className="min-w-0 text-muted-foreground">
-              {labelOf.get(segment.key) ?? segment.key}
-            </span>
+            <span className="min-w-0 text-muted-foreground">{labelOf(segment.key)}</span>
             <span className="ml-auto pl-4 tabular-nums text-foreground">
               {scale === "share"
                 ? formatShare(segment.value, day.total)

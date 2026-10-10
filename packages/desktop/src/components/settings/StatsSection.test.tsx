@@ -1,6 +1,43 @@
-import { describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
-import { StatsBody } from "./StatsSection";
+import { StatsBody, StatsSection } from "./StatsSection";
+
+const useGetUsageStats = vi.fn();
+
+vi.mock("@/api/generated", () => ({
+  useGetUsageStats: (...args: unknown[]) => useGetUsageStats(...args),
+}));
+
+describe("StatsSection", () => {
+  it("keeps the last range on screen while the next one loads", async () => {
+    // The 30-day response, still served as placeholder data after 90d is picked.
+    useGetUsageStats.mockReturnValue({
+      data: {
+        days: 30,
+        end_day: "2026-07-25",
+        entries: [
+          {
+            day: "2026-07-25",
+            provider_id: "claude_code",
+            model_id: "opus",
+            thinking_effort: "high",
+            input_tokens: 10,
+            output_tokens: 20,
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    });
+    render(<StatsSection />);
+
+    await userEvent.setup().click(screen.getByRole("radio", { name: "90d" }));
+
+    expect(useGetUsageStats).toHaveBeenLastCalledWith({ days: 90 }, expect.anything());
+    expect(screen.getAllByRole("img", { name: /tokens exchanged/ })).toHaveLength(30);
+  });
+});
 
 describe("StatsBody", () => {
   it("keeps cached usage visible when a background refresh fails", () => {

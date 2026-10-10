@@ -28,15 +28,13 @@ export const MAX_COLORED_SERIES = 4;
 
 export const OTHER_SERIES_KEY = "__other__";
 
+/** A series is numbers only: callers name it, so labels follow the live provider catalog. */
 export interface UsageSeries {
   key: string;
-  label: string;
   /** Palette slot `0…MAX_COLORED_SERIES-1`, or `-1` for the "Other" bucket. */
   colorIndex: number;
   inputTokens: number;
   outputTokens: number;
-  /** The metric currently being charted. */
-  value: number;
 }
 
 export interface UsageSegment {
@@ -60,7 +58,8 @@ export interface UsageChartData {
   days: UsageDay[];
   /** Largest single-day total, which fills a column. `0` when there is no usage. */
   max: number;
-  grandTotal: number;
+  /** How many series the "Other" bucket stands for; `0` when nothing folds. */
+  foldedCount: number;
 }
 
 export function metricValue(entry: UsageStatsEntry, metric: UsageMetric): number {
@@ -140,11 +139,10 @@ function rankKeysByTotalTokens(totalTokensByKey: Map<string, number>): string[] 
 }
 
 /**
- * The slot a series prefers, derived from its key alone (32-bit FNV-1a).
- *
- * This is what makes color follow the entity rather than its rank: switching
- * the range from 7 to 90 days, or a series dropping out, does not repaint the
- * survivors, because each one starts from the same preferred slot every time.
+ * The slot a key prefers, derived from the key alone (32-bit FNV-1a): the
+ * fallback when the caller knows no better order. Two keys can share a slot,
+ * and then the higher-ranked one wins it, so prefer a stable order when one
+ * exists.
  */
 export function preferredSeriesSlot(key: string): number {
   let hash = 0x811c9dc5;
@@ -160,18 +158,17 @@ export function preferredSeriesSlot(key: string): number {
  * preferred slot unless a higher-ranked series already holds it; then it takes
  * the lowest free slot. Two series never share a hue.
  *
- * `slotKeyOf` names the entity a series belongs to, so a series can prefer its
- * parent's hue: the top model of a provider takes that provider's color in the
- * model chart, as the provider itself does in the provider chart.
+ * This is what makes color follow the entity rather than its rank: as long as
+ * preferences do not collide, switching the range or a series dropping out does
+ * not repaint the survivors.
  */
 function assignSeriesSlots(
   rankedKeys: string[],
-  slotKeyOf: (key: string) => string = (key) => key,
+  preferredSlotOf: (key: string) => number,
 ): number[] {
   const taken = new Set<number>();
   return rankedKeys.map((key) => {
-    const preferred = preferredSeriesSlot(slotKeyOf(key));
-    let slot = preferred;
+    let slot = preferredSlotOf(key);
     if (taken.has(slot)) {
       slot = 0;
       while (taken.has(slot)) slot += 1;
@@ -185,9 +182,11 @@ interface BuildUsageChartParams {
   entries: UsageStatsEntry[];
   metric: UsageMetric;
   seriesKeyOf: (entry: UsageStatsEntry) => string;
-  labelOf: (key: string) => string;
-  /** The entity a series' color is preferred from; defaults to the series itself. */
-  slotKeyOf?: (key: string) => string;
+  /**
+   * The palette slot a series prefers, `0…MAX_COLORED_SERIES-1`. Defaults to a
+   * hash of its key.
+   */
+  preferredSlotOf?: (key: string) => number;
   /** Every day of the window, from `dayAxis`. */
   axis: string[];
 }
@@ -195,7 +194,6 @@ interface BuildUsageChartParams {
 interface SeriesTotals {
   inputTokens: number;
   outputTokens: number;
-  value: number;
 }
 
 /**
@@ -209,8 +207,7 @@ export function buildUsageChart({
   entries,
   metric,
   seriesKeyOf,
-  labelOf,
-  slotKeyOf,
+  preferredSlotOf = preferredSeriesSlot,
   axis,
 }: BuildUsageChartParams): UsageChartData {
   const inWindow = new Set(axis);
@@ -218,13 +215,12 @@ export function buildUsageChart({
   const perDay = new Map<string, Map<string, number>>();
 
   for (const entry of entries) {
-    const key = seriesKeyOf(entry);
     if (!inWindow.has(entry.day)) continue;
+    const key = seriesKeyOf(entry);
 
-    const running = totals.get(key) ?? { inputTokens: 0, outputTokens: 0, value: 0 };
+    const running = totals.get(key) ?? { inputTokens: 0, outputTokens: 0 };
     running.inputTokens += entry.input_tokens;
     running.outputTokens += entry.output_tokens;
-    running.value += metricValue(entry, metric);
     totals.set(key, running);
 
     const day = perDay.get(entry.day) ?? new Map<string, number>();
@@ -246,23 +242,20 @@ export function buildUsageChart({
   const foldedKeys = new Set(folded.map(([key]) => key));
   const slots = assignSeriesSlots(
     colored.map(([key]) => key),
-    slotKeyOf,
+    preferredSlotOf,
   );
 
   const series: UsageSeries[] = colored.map(([key, running], index) => ({
     key,
-    label: labelOf(key),
     colorIndex: slots[index]!,
     ...running,
   }));
   if (folded.length > 0) {
     series.push({
       key: OTHER_SERIES_KEY,
-      label: `Other (${folded.length})`,
       colorIndex: -1,
       inputTokens: folded.reduce((sum, [, running]) => sum + running.inputTokens, 0),
       outputTokens: folded.reduce((sum, [, running]) => sum + running.outputTokens, 0),
-      value: folded.reduce((sum, [, running]) => sum + running.value, 0),
     });
   }
 
@@ -283,7 +276,7 @@ export function buildUsageChart({
     series,
     days,
     max: days.reduce((peak, day) => Math.max(peak, day.total), 0),
-    grandTotal: series.reduce((sum, entry) => sum + entry.value, 0),
+    foldedCount: folded.length,
   };
 }
 

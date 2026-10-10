@@ -1,13 +1,5 @@
-import { formatChartTokens, formatExactNumber } from "./usage-chart-palette";
-
-export interface UsageSummary {
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  /** Display label of the provider with the most tokens exchanged. */
-  topProvider: string | null;
-  /** The busiest model, and its full "provider · model" label for the tile's title. */
-  topModel: { name: string; label: string } | null;
-}
+import { formatChartTokens, formatExactNumber } from "@/components/usage/usage-chart-palette";
+import type { UsageSummary } from "@/components/usage/use-usage-charts";
 
 /**
  * The headline numbers, above the chart. A single value with no shape to it is a
