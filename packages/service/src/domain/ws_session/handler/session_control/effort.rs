@@ -13,6 +13,9 @@ use crate::error::AppError;
 pub(super) enum EffortChangeError {
     SessionNotFound,
     Sdk(String),
+    /// Recording the user's choice as the model's last-used level failed; the
+    /// session was left untouched.
+    Persistence(String),
 }
 
 /// Handle session.effort.set: change the thinking effort for subsequent turns.
@@ -66,6 +69,11 @@ pub(crate) async fn handle_effort_set(
             send_error(sender, &envelope.id, "SDK_ERROR", &error);
             return;
         }
+        Err(EffortChangeError::Persistence(error)) => {
+            error!(db_session_id, %error, "failed to record the thinking effort choice");
+            send_error(sender, &envelope.id, "DB_ERROR", &error);
+            return;
+        }
     };
 
     send_effort_set_ok(
@@ -78,44 +86,44 @@ pub(crate) async fn handle_effort_set(
     .await;
 }
 
-/// What a session effort change resolved to, so the caller can decide what to
-/// remember for the workspace.
-struct AppliedEffort {
-    feature_id: i64,
-    runtime_provider: String,
-    current_model: Option<String>,
-}
-
-/// Apply a user's explicit effort choice: the live session plus the workspace
-/// default for the model it runs on. Resets (None) keep the stored default, so
-/// clearing one conversation does not surprise the next.
+/// Apply a user's explicit effort choice: record it as the last-used level of
+/// the model the session runs on, then apply it to the session. Recording comes
+/// first so a failure leaves the session untouched. Resets (None) keep the
+/// stored level, so clearing one conversation does not surprise the next.
 pub(super) async fn apply_effort_change(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
     db_session_id: i64,
     thinking_effort: Option<String>,
 ) -> Result<i64, EffortChangeError> {
-    let applied = apply_session_effort(
-        sdk_sessions,
-        app_state,
-        db_session_id,
-        thinking_effort.clone(),
-    )
-    .await?;
-    if let (Some(effort), Some(model_id)) = (thinking_effort.as_deref(), &applied.current_model) {
-        if let Err(error) =
-            persist_model_thinking_default(app_state, &applied.runtime_provider, model_id, effort)
+    if let Some(effort) = thinking_effort.as_deref() {
+        let (provider, model) = session_model(sdk_sessions, app_state, db_session_id).await?;
+        if let Some(model) = model {
+            persist_model_thinking_default(app_state, &provider, &model, effort)
                 .await
-        {
-            error!(
-                db_session_id,
-                %error,
-                model = %model_id,
-                "failed to persist per-model thinking effort default"
-            );
+                .map_err(|error| EffortChangeError::Persistence(error.to_string()))?;
         }
     }
-    Ok(applied.feature_id)
+    apply_session_effort(sdk_sessions, app_state, db_session_id, thinking_effort).await
+}
+
+/// The provider and model a session's effort applies to right now.
+async fn session_model(
+    sdk_sessions: &SdkSessions,
+    app_state: &AppState,
+    db_session_id: i64,
+) -> Result<(String, Option<String>), EffortChangeError> {
+    let owner_sessions =
+        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+    let sessions = owner_sessions.lock().await;
+    let handle = sessions
+        .get(&db_session_id)
+        .ok_or(EffortChangeError::SessionNotFound)?;
+    let model = handle
+        .desired_model
+        .clone()
+        .or_else(|| handle.spawned_model.clone());
+    Ok((handle.runtime_provider.clone(), model))
 }
 
 /// Apply an effort to the session without touching the workspace default.
@@ -126,22 +134,13 @@ async fn apply_session_effort(
     app_state: &AppState,
     db_session_id: i64,
     thinking_effort: Option<String>,
-) -> Result<AppliedEffort, EffortChangeError> {
+) -> Result<i64, EffortChangeError> {
     // Reach the map that owns the live runtime, not just this viewer.
     let effective_sessions =
         super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
-    // Snapshot the (provider, model) at the moment of the change so the per-
-    // model workspace default is keyed against the model that's actually in
-    // use right now. If the user later switches models, that's a separate
-    // event and should not back-propagate to the previous model's default.
-    let (active_query, runtime_provider, current_model, feature_id): (
-        Option<RuntimeSessionHandle>,
-        String,
-        Option<String>,
-        i64,
-    ) = {
+    let (active_query, feature_id): (Option<RuntimeSessionHandle>, i64) = {
         let mut sessions = sdk_sessions.lock().await;
         let handle = match sessions.get_mut(&db_session_id) {
             Some(h) => h,
@@ -156,11 +155,6 @@ async fn apply_session_effort(
         handle.desired_thinking_effort = thinking_effort.clone();
         handle.config.thinking_effort = thinking_effort.clone();
 
-        let provider = handle.runtime_provider.clone();
-        let model = handle
-            .desired_model
-            .clone()
-            .or_else(|| handle.spawned_model.clone());
         let feature_id = handle.feature_id;
 
         let active = match &mut handle.state {
@@ -170,7 +164,7 @@ async fn apply_session_effort(
             }
             QueryState::Active { query, .. } => Some(query.clone()),
         };
-        (active, provider, model, feature_id)
+        (active, feature_id)
     };
 
     if let Some(query) = active_query {
@@ -198,11 +192,7 @@ async fn apply_session_effort(
     )
     .await;
 
-    Ok(AppliedEffort {
-        feature_id,
-        runtime_provider,
-        current_model,
-    })
+    Ok(feature_id)
 }
 
 /// Apply the effort a model switch resumes (its last-used level, or `None`).
@@ -229,6 +219,10 @@ pub(super) async fn apply_model_default_effort(
         Err(EffortChangeError::Sdk(error)) => {
             error!(db_session_id, %error, "failed to apply the new model's thinking effort");
             send_error(sender, envelope_id, "SDK_ERROR", &error);
+            false
+        }
+        Err(EffortChangeError::Persistence(error)) => {
+            send_error(sender, envelope_id, "DB_ERROR", &error);
             false
         }
     }

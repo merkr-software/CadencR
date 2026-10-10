@@ -482,3 +482,42 @@ pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
         manual_compact_spawn_pending: Arc::new(AtomicBool::new(false)),
     }
 }
+
+/// Register a Claude custom model with known effort metadata. Catalog lookups
+/// merge custom models on top of whatever the installed CLI reports, so tests
+/// that depend on a model's thinking levels stay independent of the machine.
+pub(crate) async fn add_claude_custom_model(
+    app_state: &AppState,
+    model_id: &str,
+    levels: &[&str],
+    default_level: Option<&str>,
+) {
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS claude_code_custom_models (\
+            id INTEGER PRIMARY KEY, \
+            model_id TEXT NOT NULL UNIQUE, \
+            label TEXT NOT NULL, \
+            description TEXT, \
+            supports_effort BOOLEAN, \
+            supported_effort_levels_json TEXT, \
+            default_effort_level TEXT, \
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP\
+        )",
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+    crate::domain::agents::claude_code::custom_models::upsert_custom_model(
+        &app_state.write_pool,
+        model_id,
+        model_id,
+        None,
+        crate::domain::agents::claude_code::custom_models::CustomModelEffort {
+            supports_effort: Some(true),
+            supported_effort_levels: Some(levels.iter().map(|level| level.to_string()).collect()),
+            default_effort_level: default_level.map(ToOwned::to_owned),
+        },
+    )
+    .await
+    .unwrap();
+}

@@ -7,6 +7,7 @@ use crate::domain::ws_session::protocol::{
     RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope, WsSessionAction,
 };
 use crate::error::AppError;
+use serde_json::Value;
 
 use super::super::{parse_session_id, send_error, SdkSessions, WsSender};
 use super::effort::persist_model_thinking_default;
@@ -83,15 +84,12 @@ pub(crate) async fn handle_runtime_overrides_set(
             "Cannot safely reset reasoning effort for this resumed session. Configure an explicit default reasoning effort in the provider configuration first.",
         );
     }
-    let explicit_effort = patch
-        .get("thinking_effort")
-        .and_then(serde_json::Value::as_str);
     if let Err(error) = persist_overrides(
         app_state,
         session_id,
         &provider,
         &overrides,
-        explicit_effort,
+        patch.get("thinking_effort").and_then(Value::as_str),
         &effective,
     )
     .await
@@ -249,12 +247,14 @@ fn unsafe_unresolved_effort_reset(
     let clears_effort = patch
         .get("thinking_effort")
         .is_some_and(serde_json::Value::is_null);
-    let changes_model_while_effort_inherited = patch.contains_key("model")
-        && !patch.contains_key("thinking_effort")
-        && previous.thinking_effort.is_none();
+    // A model switch without an explicit effort re-derives the level (see
+    // `resolve_switched_model`), so it can drop a previously explicit effort
+    // just like a clear does.
+    let switches_model_without_effort =
+        patch.contains_key("model") && !patch.contains_key("thinking_effort");
     has_runtime_state
         && effective.thinking_effort.is_none()
-        && (clears_effort || changes_model_while_effort_inherited)
+        && (clears_effort || switches_model_without_effort)
         && (previous.thinking_effort.is_some() || previous.model.is_some())
 }
 
@@ -354,6 +354,32 @@ mod tests {
             &previous,
             &RuntimeEffectiveConfig::default(),
             false,
+        ));
+    }
+
+    #[test]
+    fn resumed_model_switch_dropping_an_explicit_effort_fails_closed() {
+        let patch = serde_json::json!({"model": "other-model"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let previous = RuntimeConfigOverrides {
+            model: Some("model".to_string()),
+            thinking_effort: Some("high".to_string()),
+            ..Default::default()
+        };
+        assert!(unsafe_unresolved_effort_reset(
+            &patch,
+            &previous,
+            &RuntimeEffectiveConfig::default(),
+            true,
+        ));
+        let resolved = RuntimeEffectiveConfig {
+            thinking_effort: Some("medium".to_string()),
+            ..Default::default()
+        };
+        assert!(!unsafe_unresolved_effort_reset(
+            &patch, &previous, &resolved, true,
         ));
     }
 }

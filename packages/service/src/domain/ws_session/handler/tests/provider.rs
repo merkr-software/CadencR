@@ -521,10 +521,11 @@ async fn same_provider_model_switch_preserves_profile_and_other_controls() {
         handle.desired_permission_mode =
             Some(crate::domain::agents::adapter::RuntimePermissionMode::Plan);
     }
-    // The target model's own last-used level is what a switch resumes; the
-    // outgoing model's "high" must not carry over.
+    // The target model's own last-used level is what a switch resumes: not the
+    // outgoing "high", and not the model's catalog default ("high" as well).
+    add_claude_custom_model(&state, "effort-test-model", &["low", "high"], Some("high")).await;
     crate::domain::settings_store::global_set(
-        &crate::domain::settings::thinking_effort_model_key("claude_code", "sonnet"),
+        &crate::domain::settings::thinking_effort_model_key("claude_code", "effort-test-model"),
         "low",
     )
     .await
@@ -534,7 +535,7 @@ async fn same_provider_model_switch_preserves_profile_and_other_controls() {
             "session",
             "provider.set",
             serde_json::json!({
-                "session_id": id, "provider": "claude_code", "model": "sonnet",
+                "session_id": id, "provider": "claude_code", "model": "effort-test-model",
             }),
         ),
         &tx,
@@ -552,7 +553,7 @@ async fn same_provider_model_switch_preserves_profile_and_other_controls() {
     let QueryState::Pending(config) = &handle.state else {
         panic!("pending expected")
     };
-    assert_eq!(config.model.as_deref(), Some("sonnet"));
+    assert_eq!(config.model.as_deref(), Some("effort-test-model"));
     assert_eq!(config.env.as_ref().unwrap()["TOKEN"], "kept");
     assert_eq!(config.env_unset, ["UNSET_ME"]);
     assert_eq!(config.profile_revision.as_deref(), Some("kept-revision"));

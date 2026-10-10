@@ -19,7 +19,7 @@ pub async fn list_agent_providers(ctx: &McpContext) -> Result<serde_json::Value,
             .into_iter()
             .map(|(provider, aliases)| json!({ "provider": provider, "aliases": aliases }))
             .collect::<Vec<_>>(),
-        "spawn_tip": "Use canonical provider/model ids in project_spawn_session. Set thinking_level to one of the selected model's thinking_levels. When omitted, CadencR reuses that provider/model pair's last user-selected level, then its default_thinking_level; if the CLI advertises no default, the field stays unset so the CLI applies its native default."
+        "spawn_tip": "Use canonical provider/model ids in project_spawn_session. Set thinking_level to one of the selected model's thinking_levels. When omitted, CadencR reuses that provider/model pair's last user-selected level, then its default_thinking_level. Providers driven by a configuration profile skip that default and keep the profile's own level; if there is no default either, the field stays unset so the CLI applies its native default."
     }))
 }
 

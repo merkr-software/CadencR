@@ -2,7 +2,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::{access_mode_wire, RuntimeSpawnConfig};
 use crate::domain::agents::permission_modes::{effective_permission_mode, permission_mode_wire};
 use crate::domain::agents::providers::{
-    provider_model_catalog_entry, resolve_requested_model_or_provider_default, runtime_adapter,
+    resolve_requested_model_entry_or_provider_default, runtime_adapter,
 };
 use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::protocol::{ProviderSetOkPayload, ProviderSetPayload};
@@ -77,7 +77,7 @@ pub(super) async fn resolve(
             .then_some(runtime.model.as_deref())
             .flatten()
     });
-    runtime.model = resolve_requested_model_or_provider_default(
+    let entry = resolve_requested_model_entry_or_provider_default(
         &state.read_pool,
         Some(&runtime.cwd),
         &payload.provider,
@@ -85,8 +85,14 @@ pub(super) async fn resolve(
         runtime.profile.as_deref(),
     )
     .await;
+    runtime.model = entry.as_ref().map(|entry| entry.id.clone());
     if provider_changed || runtime.model != previous_model {
-        let effort = resumed_thinking_effort(state, &runtime, &payload.provider).await;
+        // A new provider/model resumes its last-used level, else its default,
+        // exactly like a spawn without an explicit level.
+        let effort = match entry.as_ref() {
+            Some(entry) => target_thinking_effort(&state.read_pool, &payload.provider, entry).await,
+            None => None,
+        };
         runtime.thinking_effort = effort.clone();
         runtime.overrides.thinking_effort = effort;
     }
@@ -121,24 +127,6 @@ pub(super) async fn resolve(
         provider_changed,
         permission_mode_wire: mode_wire,
     })
-}
-
-/// Effort a newly selected provider/model resumes: its last-used level, else
-/// its default. Mirrors what a spawn without an explicit level resolves to.
-async fn resumed_thinking_effort(
-    state: &AppState,
-    runtime: &RuntimeSpawnConfig,
-    provider: &str,
-) -> Option<String> {
-    let entry = provider_model_catalog_entry(
-        &state.read_pool,
-        Some(runtime.cwd.as_path()),
-        provider,
-        runtime.model.as_deref(),
-        runtime.profile.as_deref(),
-    )
-    .await?;
-    target_thinking_effort(&state.read_pool, provider, &entry).await
 }
 
 fn record_explicit_model(runtime: &mut RuntimeSpawnConfig, requested_model: Option<&str>) {

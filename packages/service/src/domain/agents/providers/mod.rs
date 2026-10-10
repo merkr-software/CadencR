@@ -246,27 +246,28 @@ pub async fn provider_default_model(read_pool: &SqlitePool, provider_id: &str) -
     None
 }
 
-/// Resolves the model to use for `provider_id`. Prefers `requested_model` when
-/// it belongs to that provider's catalog; falls back to the provider's
-/// default (e.g. when the requested model is absent, belongs to a different
-/// provider's catalog, or was never set).
+/// Resolves the catalog entry of the model to use for `provider_id`. Prefers
+/// `requested_model` when it belongs to that provider's catalog; falls back to
+/// the provider's default (e.g. when the requested model is absent, belongs to
+/// a different provider's catalog, or was never set). Returning the entry lets
+/// a caller read the model's capabilities, such as its thinking levels,
+/// without probing the catalog a second time.
 ///
 /// Both branches read the same `cwd`/`profile`-scoped catalog, so the fallback
 /// can never come from a different scope than the one the request was
 /// validated against.
-pub async fn resolve_requested_model_or_provider_default(
+pub async fn resolve_requested_model_entry_or_provider_default(
     read_pool: &SqlitePool,
     cwd: Option<&Path>,
     provider_id: &str,
     requested_model: Option<&str>,
     profile: Option<&str>,
-) -> Option<String> {
+) -> Option<ModelCatalogEntry> {
     if let Some(model) = requested_model {
-        if provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile)
-            .await
-            .is_some()
+        if let Some(entry) =
+            provider_model_catalog_entry(read_pool, cwd, provider_id, Some(model), profile).await
         {
-            return Some(model.to_string());
+            return Some(entry);
         }
         tracing::info!(
             requested_model = %model,
@@ -274,9 +275,7 @@ pub async fn resolve_requested_model_or_provider_default(
             "requested model does not belong to the provider; falling back to provider default"
         );
     }
-    provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile)
-        .await
-        .map(|entry| entry.id)
+    provider_model_catalog_entry(read_pool, cwd, provider_id, None, profile).await
 }
 
 pub fn spawn_runtime_startup_warmups() {
