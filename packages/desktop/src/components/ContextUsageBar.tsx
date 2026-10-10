@@ -7,7 +7,7 @@ import {
 } from "@/lib/context-usage-appearance";
 import { KbdShortcut } from "@/components/KbdShortcut";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatCompactTokens } from "@/components/settings/stats/usage-chart-palette";
+import { formatCompactTokens } from "@/components/usage/usage-chart-palette";
 
 export function ContextUsageBar({
   usage,

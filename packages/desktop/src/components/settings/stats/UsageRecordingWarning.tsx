@@ -10,7 +10,7 @@ import { apiErrorMessage } from "@/lib/api-errors";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBanner";
-import { formatExactNumber } from "./usage-chart-palette";
+import { formatExactNumber } from "@/components/usage/usage-chart-palette";
 
 /**
  * Shown when the backend reports that at least one usage data operation failed.

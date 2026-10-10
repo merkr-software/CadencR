@@ -3,6 +3,22 @@ import type { UsageStatsEntry } from "@/api/generated";
 /** Which half of the exchange a chart is showing. */
 export type UsageMetric = "total" | "input" | "output";
 
+/** What a series is: the provider, or the provider and model pair. */
+export type UsageGrouping = "provider" | "model";
+
+/**
+ * What a column's height encodes: the day's tokens against the window's busiest
+ * day, or the day's mix alone, with every day filled to the same height.
+ */
+export type UsageScale = "absolute" | "share";
+
+/** What each metric counts, as a phrase for labels: "1,234 tokens exchanged". */
+export const USAGE_METRIC_UNIT: Record<UsageMetric, string> = {
+  total: "tokens exchanged",
+  input: "input tokens",
+  output: "output tokens",
+};
+
 /**
  * Number of distinct colors the chart can assign — see `SERIES_COLORS` for why
  * it is four. Anything past the fourth-largest series folds into a single muted
@@ -12,21 +28,26 @@ export const MAX_COLORED_SERIES = 4;
 
 export const OTHER_SERIES_KEY = "__other__";
 
+/** A series is numbers only: callers name it, so labels follow the live provider catalog. */
 export interface UsageSeries {
   key: string;
-  label: string;
   /** Palette slot `0…MAX_COLORED_SERIES-1`, or `-1` for the "Other" bucket. */
   colorIndex: number;
   inputTokens: number;
   outputTokens: number;
-  /** The metric currently being charted — what the bar heights encode. */
+}
+
+export interface UsageSegment {
+  key: string;
+  /** The series' palette slot, as in `UsageSeries.colorIndex`. */
+  colorIndex: number;
   value: number;
 }
 
 export interface UsageDay {
   day: string;
   /** One entry per series with a non-zero value, in series order. */
-  segments: { key: string; value: number }[];
+  segments: UsageSegment[];
   total: number;
 }
 
@@ -35,9 +56,10 @@ export interface UsageChartData {
   series: UsageSeries[];
   /** Every day in the window, oldest first — including days with no usage. */
   days: UsageDay[];
-  /** Largest single-day total; the y-axis top. `0` when there is no usage. */
+  /** Largest single-day total, which fills a column. `0` when there is no usage. */
   max: number;
-  grandTotal: number;
+  /** How many series the "Other" bucket stands for; `0` when nothing folds. */
+  foldedCount: number;
 }
 
 export function metricValue(entry: UsageStatsEntry, metric: UsageMetric): number {
@@ -46,21 +68,21 @@ export function metricValue(entry: UsageStatsEntry, metric: UsageMetric): number
   return entry.input_tokens + entry.output_tokens;
 }
 
-/**
- * Composite key for the model chart. The user reads a model and its thinking
- * level as one thing ("Opus · High"), so they are one series, not two
- * dimensions.
- */
-/** U+0000 — not producible by any model id or effort level. */
-const MODEL_KEY_SEPARATOR = "\u0000";
+/** U+0000 — not producible by any provider or model id. */
+const KEY_SEPARATOR = "\u0000";
 
-export function modelSeriesKey(modelId: string, thinkingEffort: string): string {
-  return `${modelId}${MODEL_KEY_SEPARATOR}${thinkingEffort}`;
+/**
+ * Composite key for a provider + model. Thinking level is deliberately not part
+ * of it: the overview answers "which model did I use", and the per-effort split
+ * is too fine a cut for a series chart.
+ */
+export function providerModelSeriesKey(providerId: string, modelId: string): string {
+  return `${providerId}${KEY_SEPARATOR}${modelId}`;
 }
 
-export function splitModelSeriesKey(key: string): { modelId: string; thinkingEffort: string } {
-  const [modelId = "", thinkingEffort = ""] = key.split(MODEL_KEY_SEPARATOR);
-  return { modelId, thinkingEffort };
+export function splitProviderModelSeriesKey(key: string): { providerId: string; modelId: string } {
+  const [providerId = "", modelId = ""] = key.split(KEY_SEPARATOR);
+  return { providerId, modelId };
 }
 
 /**
@@ -108,46 +130,84 @@ export function dayAxis(days: number, endDay: string): string[] {
 /**
  * Keys that saw usage, busiest first. Ranking is on *total* tokens whatever
  * metric is on screen, and ties break on the key so the order is stable.
- *
- * Shared so the chart's series order and the provider filter's order cannot
- * drift apart: they are the same list, ranked once.
  */
-export function rankKeysByTotalTokens(totalTokensByKey: Map<string, number>): string[] {
+function rankKeysByTotalTokens(totalTokensByKey: Map<string, number>): string[] {
   return [...totalTokensByKey.entries()]
     .filter(([, tokens]) => tokens > 0)
     .sort(([keyA, a], [keyB, b]) => b - a || keyA.localeCompare(keyB))
     .map(([key]) => key);
 }
 
+/**
+ * The slot a key prefers, derived from the key alone (32-bit FNV-1a): the
+ * fallback when the caller knows no better order. Two keys can share a slot,
+ * and then the higher-ranked one wins it, so prefer a stable order when one
+ * exists.
+ */
+export function preferredSeriesSlot(key: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % MAX_COLORED_SERIES;
+}
+
+/**
+ * One distinct slot per colored series, in rank order. A series keeps its
+ * preferred slot unless a higher-ranked series already holds it; then it takes
+ * the lowest free slot. Two series never share a hue.
+ *
+ * This is what makes color follow the entity rather than its rank: as long as
+ * preferences do not collide, switching the range or a series dropping out does
+ * not repaint the survivors.
+ */
+function assignSeriesSlots(
+  rankedKeys: string[],
+  preferredSlotOf: (key: string) => number,
+): number[] {
+  const taken = new Set<number>();
+  return rankedKeys.map((key) => {
+    let slot = preferredSlotOf(key);
+    if (taken.has(slot)) {
+      slot = 0;
+      while (taken.has(slot)) slot += 1;
+    }
+    taken.add(slot);
+    return slot;
+  });
+}
+
 interface BuildUsageChartParams {
   entries: UsageStatsEntry[];
   metric: UsageMetric;
-  /** Bucket an entry into a series, or `null` to exclude it entirely. */
-  seriesKeyOf: (entry: UsageStatsEntry) => string | null;
-  labelOf: (key: string) => string;
-  /** Day axis; usually `dayAxis(windowDays, utcToday())`. */
+  seriesKeyOf: (entry: UsageStatsEntry) => string;
+  /**
+   * The palette slot a series prefers, `0…MAX_COLORED_SERIES-1`. Defaults to a
+   * hash of its key.
+   */
+  preferredSlotOf?: (key: string) => number;
+  /** Every day of the window, from `dayAxis`. */
   axis: string[];
 }
 
 interface SeriesTotals {
   inputTokens: number;
   outputTokens: number;
-  value: number;
 }
 
 /**
- * Pivot flat per-day buckets into a stacked-bar timeline.
+ * Pivot flat per-day buckets into a stacked timeline.
  *
- * Series are ranked — and therefore colored — by *total* tokens exchanged, never
- * by the metric currently on screen. Toggling Input / Output / Total changes
- * the bar heights, not who owns which hue, so the eye can follow one provider
- * across all three views.
+ * Series are ranked by *total* tokens exchanged, never by the metric on screen,
+ * so the order of the day card is stable across Input / Output / Total. Colors
+ * come from `assignSeriesSlots`, keyed by entity, so they are stable too.
  */
 export function buildUsageChart({
   entries,
   metric,
   seriesKeyOf,
-  labelOf,
+  preferredSlotOf = preferredSeriesSlot,
   axis,
 }: BuildUsageChartParams): UsageChartData {
   const inWindow = new Set(axis);
@@ -155,13 +215,12 @@ export function buildUsageChart({
   const perDay = new Map<string, Map<string, number>>();
 
   for (const entry of entries) {
+    if (!inWindow.has(entry.day)) continue;
     const key = seriesKeyOf(entry);
-    if (key === null || !inWindow.has(entry.day)) continue;
 
-    const running = totals.get(key) ?? { inputTokens: 0, outputTokens: 0, value: 0 };
+    const running = totals.get(key) ?? { inputTokens: 0, outputTokens: 0 };
     running.inputTokens += entry.input_tokens;
     running.outputTokens += entry.output_tokens;
-    running.value += metricValue(entry, metric);
     totals.set(key, running);
 
     const day = perDay.get(entry.day) ?? new Map<string, number>();
@@ -181,32 +240,33 @@ export function buildUsageChart({
   const colored = ranked.slice(0, MAX_COLORED_SERIES);
   const folded = ranked.slice(MAX_COLORED_SERIES);
   const foldedKeys = new Set(folded.map(([key]) => key));
+  const slots = assignSeriesSlots(
+    colored.map(([key]) => key),
+    preferredSlotOf,
+  );
 
   const series: UsageSeries[] = colored.map(([key, running], index) => ({
     key,
-    label: labelOf(key),
-    colorIndex: index,
+    colorIndex: slots[index]!,
     ...running,
   }));
   if (folded.length > 0) {
     series.push({
       key: OTHER_SERIES_KEY,
-      label: `Other (${folded.length})`,
       colorIndex: -1,
       inputTokens: folded.reduce((sum, [, running]) => sum + running.inputTokens, 0),
       outputTokens: folded.reduce((sum, [, running]) => sum + running.outputTokens, 0),
-      value: folded.reduce((sum, [, running]) => sum + running.value, 0),
     });
   }
 
   const days: UsageDay[] = axis.map((day) => {
     const raw = perDay.get(day);
-    const segments: { key: string; value: number }[] = [];
+    const segments: UsageSegment[] = [];
     let total = 0;
     for (const entry of series) {
       const value =
         entry.key === OTHER_SERIES_KEY ? sumKeys(raw, foldedKeys) : (raw?.get(entry.key) ?? 0);
-      if (value > 0) segments.push({ key: entry.key, value });
+      if (value > 0) segments.push({ key: entry.key, colorIndex: entry.colorIndex, value });
       total += value;
     }
     return { day, segments, total };
@@ -216,7 +276,7 @@ export function buildUsageChart({
     series,
     days,
     max: days.reduce((peak, day) => Math.max(peak, day.total), 0),
-    grandTotal: series.reduce((sum, entry) => sum + entry.value, 0),
+    foldedCount: folded.length,
   };
 }
 

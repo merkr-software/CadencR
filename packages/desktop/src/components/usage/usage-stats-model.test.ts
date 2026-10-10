@@ -5,10 +5,11 @@ import {
   dayAxis,
   MAX_COLORED_SERIES,
   metricValue,
-  modelSeriesKey,
   OTHER_SERIES_KEY,
+  preferredSeriesSlot,
+  providerModelSeriesKey,
   resolveEndDay,
-  splitModelSeriesKey,
+  splitProviderModelSeriesKey,
   utcToday,
 } from "./usage-stats-model";
 
@@ -25,7 +26,6 @@ function entry(overrides: Partial<UsageStatsEntry> = {}): UsageStatsEntry {
 }
 
 const byProvider = (row: UsageStatsEntry): string => row.provider_id;
-const identity = (key: string): string => key;
 
 describe("metricValue", () => {
   it("splits the exchange into sent, received, and their sum", () => {
@@ -33,26 +33,6 @@ describe("metricValue", () => {
     expect(metricValue(row, "input")).toBe(3);
     expect(metricValue(row, "output")).toBe(7);
     expect(metricValue(row, "total")).toBe(10);
-  });
-});
-
-describe("modelSeriesKey", () => {
-  it("round-trips a model and its thinking level", () => {
-    expect(splitModelSeriesKey(modelSeriesKey("claude-opus-5", "xhigh"))).toEqual({
-      modelId: "claude-opus-5",
-      thinkingEffort: "xhigh",
-    });
-  });
-
-  it("keeps the same model at different efforts apart", () => {
-    expect(modelSeriesKey("opus", "high")).not.toBe(modelSeriesKey("opus", "low"));
-  });
-
-  it("does not collide when a model id contains spaces or dashes", () => {
-    expect(splitModelSeriesKey(modelSeriesKey("gpt 5-codex", ""))).toEqual({
-      modelId: "gpt 5-codex",
-      thinkingEffort: "",
-    });
   });
 });
 
@@ -99,7 +79,6 @@ describe("buildUsageChart", () => {
       entries: [entry({ day: "2026-07-25" })],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -117,7 +96,6 @@ describe("buildUsageChart", () => {
       ],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -126,10 +104,8 @@ describe("buildUsageChart", () => {
       key: "claude_code",
       inputTokens: 4,
       outputTokens: 6,
-      value: 10,
     });
     expect(chart.max).toBe(10);
-    expect(chart.grandTotal).toBe(10);
   });
 
   it("charts only the selected metric but still reports both halves", () => {
@@ -137,7 +113,6 @@ describe("buildUsageChart", () => {
       entries: [entry({ input_tokens: 10, output_tokens: 90 })],
       metric: "input",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -153,30 +128,68 @@ describe("buildUsageChart", () => {
       entry({ provider_id: "quiet", input_tokens: 100, output_tokens: 1 }),
     ];
     const forEachMetric = (["total", "input", "output"] as const).map(
-      (metric) =>
-        buildUsageChart({ entries, metric, seriesKeyOf: byProvider, labelOf: identity, axis })
-          .series[0].key,
+      (metric) => buildUsageChart({ entries, metric, seriesKeyOf: byProvider, axis }).series[0].key,
     );
 
     expect(forEachMetric).toEqual(["loud", "loud", "loud"]);
   });
 
-  it("assigns one palette slot per series in rank order", () => {
+  it("gives every colored series its own slot, even when their preferred slots collide", () => {
+    const first = "k0";
+    const collider = Array.from({ length: 64 }, (_, index) => `k${index + 1}`).find(
+      (key) => preferredSeriesSlot(key) === preferredSeriesSlot(first),
+    )!;
     const chart = buildUsageChart({
       entries: [
-        entry({ provider_id: "a", input_tokens: 0, output_tokens: 5 }),
-        entry({ provider_id: "b", input_tokens: 0, output_tokens: 50 }),
+        entry({ provider_id: first, input_tokens: 0, output_tokens: 50 }),
+        entry({ provider_id: collider, input_tokens: 0, output_tokens: 5 }),
       ],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
-    expect(chart.series.map((series) => [series.key, series.colorIndex])).toEqual([
-      ["b", 0],
-      ["a", 1],
-    ]);
+    const slots = chart.series.map((series) => series.colorIndex);
+    expect(new Set(slots).size).toBe(slots.length);
+  });
+
+  it("keeps a series' color when other series come and go", () => {
+    const anchor = "anchor";
+    const other = ["b", "c", "d", "e", "f", "g"].find(
+      (key) => preferredSeriesSlot(key) !== preferredSeriesSlot(anchor),
+    )!;
+    const colorOf = (entries: UsageStatsEntry[], key: string) =>
+      buildUsageChart({
+        entries,
+        metric: "total",
+        seriesKeyOf: byProvider,
+        axis,
+      }).series.find((series) => series.key === key)!.colorIndex;
+
+    const alone = colorOf([entry({ provider_id: anchor })], anchor);
+    // The newcomer ranks above the anchor, so the anchor is no longer first.
+    const crowded = colorOf(
+      [entry({ provider_id: other, output_tokens: 900 }), entry({ provider_id: anchor })],
+      anchor,
+    );
+
+    expect(crowded).toBe(alone);
+  });
+
+  it("lets a series prefer its parent's hue, while siblings stay apart", () => {
+    const chart = buildUsageChart({
+      entries: [
+        entry({ provider_id: "x", model_id: "big", output_tokens: 900 }),
+        entry({ provider_id: "x", model_id: "small", output_tokens: 10 }),
+      ],
+      metric: "total",
+      seriesKeyOf: (row) => `${row.provider_id}/${row.model_id}`,
+      preferredSlotOf: (key) => preferredSeriesSlot(key.split("/")[0]!),
+      axis,
+    });
+
+    expect(chart.series[0]!.colorIndex).toBe(preferredSeriesSlot("x"));
+    expect(chart.series[1]!.colorIndex).not.toBe(chart.series[0]!.colorIndex);
   });
 
   it("folds everything past the palette into one Other bucket", () => {
@@ -194,7 +207,6 @@ describe("buildUsageChart", () => {
       entries,
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
@@ -203,22 +215,12 @@ describe("buildUsageChart", () => {
     const other = chart.series.at(-1)!;
     expect(other.key).toBe(OTHER_SERIES_KEY);
     expect(other.colorIndex).toBe(-1);
-    expect(other.label).toBe(`Other (${FOLDED_COUNT})`);
-    expect(other.value).toBe(expectedFoldedTotal);
-    expect(chart.days.at(-1)!.total).toBe(chart.grandTotal);
-  });
-
-  it("excludes entries the bucketer rejects", () => {
-    const chart = buildUsageChart({
-      entries: [entry({ provider_id: "keep" }), entry({ provider_id: "drop" })],
-      metric: "total",
-      seriesKeyOf: (row) => (row.provider_id === "keep" ? row.provider_id : null),
-      labelOf: identity,
-      axis,
+    expect(chart.foldedCount).toBe(FOLDED_COUNT);
+    expect(chart.days.at(-1)!.segments.at(-1)).toEqual({
+      key: OTHER_SERIES_KEY,
+      colorIndex: -1,
+      value: expectedFoldedTotal,
     });
-
-    expect(chart.series.map((series) => series.key)).toEqual(["keep"]);
-    expect(chart.grandTotal).toBe(100);
   });
 
   it("excludes entries outside the axis window", () => {
@@ -226,13 +228,11 @@ describe("buildUsageChart", () => {
       entries: [entry({ day: "2026-01-01" })],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
     expect(chart.series).toEqual([]);
     expect(chart.max).toBe(0);
-    expect(chart.grandTotal).toBe(0);
   });
 
   it("produces an empty chart with a full axis when there is no usage", () => {
@@ -240,12 +240,43 @@ describe("buildUsageChart", () => {
       entries: [],
       metric: "total",
       seriesKeyOf: byProvider,
-      labelOf: identity,
       axis,
     });
 
     expect(chart.series).toEqual([]);
     expect(chart.days).toHaveLength(3);
     expect(chart.max).toBe(0);
+  });
+});
+
+describe("providerModelSeriesKey", () => {
+  it("round-trips a provider and its model", () => {
+    expect(splitProviderModelSeriesKey(providerModelSeriesKey("codex_cli", "gpt 5-codex"))).toEqual(
+      {
+        providerId: "codex_cli",
+        modelId: "gpt 5-codex",
+      },
+    );
+  });
+
+  it("keeps the same model under two providers apart", () => {
+    expect(providerModelSeriesKey("claude_code", "opus")).not.toBe(
+      providerModelSeriesKey("cursor", "opus"),
+    );
+  });
+
+  it("folds thinking levels into one series for the same provider and model", () => {
+    const chart = buildUsageChart({
+      entries: [
+        entry({ thinking_effort: "low", input_tokens: 1, output_tokens: 1 }),
+        entry({ thinking_effort: "high", input_tokens: 2, output_tokens: 2 }),
+      ],
+      metric: "total",
+      seriesKeyOf: (row) => providerModelSeriesKey(row.provider_id, row.model_id),
+      axis: dayAxis(1, "2026-07-25"),
+    });
+
+    expect(chart.series).toHaveLength(1);
+    expect(chart.days[0]!.total).toBe(6);
   });
 });
