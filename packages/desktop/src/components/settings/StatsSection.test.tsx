@@ -5,7 +5,12 @@ import { StatsBody } from "./StatsSection";
 describe("StatsBody", () => {
   it("keeps cached usage visible when a background refresh fails", () => {
     render(
-      <StatsBody isLoading={false} error={new Error("Network unavailable")} hasUsage>
+      <StatsBody
+        windowDays={30}
+        isLoading={false}
+        error={new Error("Network unavailable")}
+        hasUsage
+      >
         <p>Cached usage chart</p>
       </StatsBody>,
     );
@@ -18,7 +23,12 @@ describe("StatsBody", () => {
 
   it("uses the blocking error state when there is no usable data", () => {
     render(
-      <StatsBody isLoading={false} error={new Error("Network unavailable")} hasUsage={false}>
+      <StatsBody
+        windowDays={30}
+        isLoading={false}
+        error={new Error("Network unavailable")}
+        hasUsage={false}
+      >
         <p>Unavailable usage chart</p>
       </StatsBody>,
     );

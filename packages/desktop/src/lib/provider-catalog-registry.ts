@@ -7,11 +7,29 @@ export interface CatalogProviderMetadata {
 
 let providers = new Map<string, CatalogProviderMetadata>();
 const listeners = new Map<string, Set<() => void>>();
+const catalogListeners = new Set<() => void>();
 
 export function getCatalogProviderMetadata(
   providerId?: string | null,
 ): CatalogProviderMetadata | null {
   return providerId ? (providers.get(providerId) ?? null) : null;
+}
+
+/**
+ * Every provider's metadata. The map is replaced on each change, never mutated,
+ * so it is a valid `useSyncExternalStore` snapshot for views that read many
+ * providers at once.
+ */
+export function getProviderCatalog(): ReadonlyMap<string, CatalogProviderMetadata> {
+  return providers;
+}
+
+/** Calls `listener` after any provider's label or icon changes. */
+export function subscribeProviderCatalogChanges(listener: () => void): () => void {
+  catalogListeners.add(listener);
+  return () => {
+    catalogListeners.delete(listener);
+  };
 }
 
 export function subscribeProviderCatalog(
@@ -42,6 +60,7 @@ export function setProviderCatalogMetadata(entries: ProviderCatalogResponseEntry
   const changedProviderIds = changedProviders(providers, next);
   if (changedProviderIds.length === 0) return;
   providers = next;
+  for (const listener of catalogListeners) listener();
   for (const providerId of changedProviderIds) {
     for (const listener of listeners.get(providerId) ?? []) listener();
   }

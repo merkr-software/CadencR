@@ -22,7 +22,7 @@ export function nextFocusIndex(key: string, current: number, dayCount: number): 
 }
 
 /** Most x-axis labels a timeline can show before "Jun 20" starts colliding. */
-const MAX_TICKS = 6;
+const MAX_TICKS = 4;
 
 /**
  * Which columns get an x-axis label. Always the first and last, then as many

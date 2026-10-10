@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { axisTickIndexes, nextFocusIndex } from "./usage-axis";
-import { seriesColor, formatCompactTokens, formatDayLabel } from "./usage-chart-palette";
+import {
+  seriesColor,
+  formatChartTokens,
+  formatCompactTokens,
+  formatDayLabel,
+  formatShare,
+} from "./usage-chart-palette";
 import { MAX_COLORED_SERIES } from "./usage-stats-model";
-import { MIN_SEGMENT_PX, SEGMENT_GAP_PX, segmentHeights } from "./usage-bar-heights";
 
 describe("axisTickIndexes", () => {
   it("always labels the first and last day", () => {
@@ -58,51 +63,6 @@ describe("nextFocusIndex", () => {
   });
 });
 
-describe("segmentHeights", () => {
-  const PLOT = 156;
-  const stackHeight = (heights: number[]): number =>
-    heights.reduce((sum, height) => sum + height, 0) + SEGMENT_GAP_PX * (heights.length - 1);
-
-  it("makes the busiest day reach the axis maximum, gaps included", () => {
-    for (const values of [[100], [60, 40], [50, 30, 15, 5]]) {
-      const max = values.reduce((sum, value) => sum + value, 0);
-      expect(stackHeight(segmentHeights(values, max, PLOT))).toBeCloseTo(PLOT, 5);
-    }
-  });
-
-  it("keeps a quiet day proportional to the busiest one", () => {
-    const [half] = segmentHeights([50], 100, PLOT);
-    expect(half).toBeCloseTo(PLOT / 2, 5);
-  });
-
-  it("never renders a non-zero day thinner than the floor", () => {
-    const heights = segmentHeights([1000, 1, 1, 1], 1003, PLOT);
-    for (const height of heights) expect(height).toBeGreaterThanOrEqual(MIN_SEGMENT_PX);
-  });
-
-  it("pays for the floor out of the segments that have room, not out of the plot", () => {
-    const heights = segmentHeights([1000, 1, 1, 1], 1003, PLOT);
-    expect(stackHeight(heights)).toBeLessThanOrEqual(PLOT + 0.001);
-    expect(heights[0]).toBeGreaterThan(PLOT * 0.8);
-  });
-
-  it("draws nothing for a series with no usage that day", () => {
-    const [used, unused] = segmentHeights([100, 0], 100, PLOT);
-    expect(unused).toBe(0);
-    expect(used).toBeGreaterThan(0);
-  });
-
-  it("keeps the busiest day at the axis maximum when a series is empty", () => {
-    const heights = segmentHeights([100, 0, 0], 100, PLOT);
-    expect(stackHeight(heights)).toBeCloseTo(PLOT, 5);
-  });
-
-  it("handles empty and zero-max stacks", () => {
-    expect(segmentHeights([], 100, PLOT)).toEqual([]);
-    expect(segmentHeights([5], 0, PLOT)).toEqual([0]);
-  });
-});
-
 describe("seriesColor", () => {
   it("gives every palette slot a distinct color", () => {
     const assigned = Array.from({ length: MAX_COLORED_SERIES }, (_, index) => seriesColor(index));
@@ -122,9 +82,22 @@ describe("seriesColor", () => {
 });
 
 describe("formatting", () => {
+  it("never rounds a non-zero share down to a misleading 0%", () => {
+    expect(formatShare(4_200_000, 5_600_000_000)).toBe("<1%");
+    expect(formatShare(0, 5_600_000_000)).toBe("0%");
+    expect(formatShare(1, 2)).toBe("50%");
+  });
+
   it("compacts large token counts", () => {
     expect(formatCompactTokens(1_234_000)).toMatch(/1\.2M/);
     expect(formatCompactTokens(0)).toBe("0");
+  });
+
+  it("reads chart figures as two significant digits in K, M and B", () => {
+    expect(formatChartTokens(1_801_292_560)).toBe("1.8B");
+    expect(formatChartTokens(320_456_000)).toBe("320M");
+    expect(formatChartTokens(1_520)).toBe("1.5K");
+    expect(formatChartTokens(12_345)).toBe("12K");
   });
 
   it("labels a day in UTC, not the local zone", () => {

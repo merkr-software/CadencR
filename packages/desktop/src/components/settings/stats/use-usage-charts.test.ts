@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { renderHook } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import type { UsageStatsEntry } from "@/api/generated";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 import { useUsageCharts } from "./use-usage-charts";
 
 const END_DAY = "2026-07-25";
@@ -16,45 +17,72 @@ function entry(partial: Partial<UsageStatsEntry> & { provider_id: string }): Usa
   };
 }
 
-function render(entries: UsageStatsEntry[], selectedProviderId: string | null = null) {
+function render(entries: UsageStatsEntry[], grouping: "provider" | "model" = "provider") {
   return renderHook(() =>
     useUsageCharts({
       entries,
       windowDays: 30,
       endDay: END_DAY,
       metric: "total",
-      selectedProviderId,
+      grouping,
     }),
   ).result.current;
 }
 
 describe("useUsageCharts", () => {
-  it("ranks providers by total tokens and follows the busiest one by default", () => {
-    const charts = render([
+  afterEach(() => setProviderCatalogMetadata([]));
+
+  it("relabels the series when the provider catalog lands after the usage", () => {
+    const { result } = renderHook(() =>
+      useUsageCharts({
+        entries: [entry({ provider_id: "acme" })],
+        windowDays: 30,
+        endDay: END_DAY,
+        metric: "total",
+        grouping: "provider",
+      }),
+    );
+    expect(result.current.summary.topProvider).toBe("Acme");
+
+    act(() =>
+      setProviderCatalogMetadata([
+        {
+          id: "acme",
+          label: "Acme Agent",
+          origin: "installed_local",
+          status: "available",
+          models: [],
+        },
+      ]),
+    );
+
+    expect(result.current.chart.series[0]?.label).toBe("Acme Agent");
+    expect(result.current.summary.topProvider).toBe("Acme Agent");
+  });
+
+  it("ranks providers by total tokens for the provider chart", () => {
+    const { chart, summary } = render([
       entry({ provider_id: "codex_cli", input_tokens: 1, output_tokens: 1 }),
       entry({ provider_id: "claude_code", input_tokens: 50, output_tokens: 500 }),
     ]);
 
-    expect(charts.providerIds).toEqual(["claude_code", "codex_cli"]);
-    // Derived, not synced into state: the model chart must never render every
-    // provider at once while an effect catches up.
-    expect(charts.activeProviderId).toBe("claude_code");
-    expect(charts.summary.topProvider).toBe("Claude");
+    expect(chart.series.map((series) => series.key)).toEqual(["claude_code", "codex_cli"]);
+    expect(summary.topProvider).toBe("Claude");
   });
 
-  it("keeps the user's pick while it still has usage", () => {
-    const entries = [
-      entry({ provider_id: "claude_code", input_tokens: 50, output_tokens: 500 }),
-      entry({ provider_id: "codex_cli" }),
-    ];
+  it("charts provider and model pairs when grouped by model, folding thinking levels", () => {
+    const { chart } = render(
+      [
+        entry({ provider_id: "claude_code", model_id: "opus", thinking_effort: "low" }),
+        entry({ provider_id: "claude_code", model_id: "opus", thinking_effort: "high" }),
+        entry({ provider_id: "codex_cli", model_id: "opus", thinking_effort: "high" }),
+      ],
+      "model",
+    );
 
-    expect(render(entries, "codex_cli").activeProviderId).toBe("codex_cli");
-  });
-
-  it("falls back to the busiest provider when the pick has no usage in range", () => {
-    const charts = render([entry({ provider_id: "claude_code" })], "cursor_agent");
-
-    expect(charts.activeProviderId).toBe("claude_code");
+    // The same model id under two providers is two series, and the two efforts
+    // of one provider/model pair are one.
+    expect(chart.series.map((series) => series.label)).toEqual(["Claude · opus", "Codex · opus"]);
   });
 
   it("reports window totals that include providers folded into Other", () => {
@@ -68,8 +96,17 @@ describe("useUsageCharts", () => {
     expect(summary.totalOutputTokens).toBe(12);
   });
 
-  it("names the busiest model and effort pairing across every provider", () => {
-    const charts = render([
+  it("keeps the tiles on providers whichever grouping is on screen", () => {
+    const { summary } = render(
+      [entry({ provider_id: "claude_code", model_id: "opus", output_tokens: 900 })],
+      "model",
+    );
+
+    expect(summary.topProvider).toBe("Claude");
+  });
+
+  it("names the busiest provider and model pairing across every provider", () => {
+    const { summary } = render([
       entry({ provider_id: "claude_code", model_id: "haiku", thinking_effort: "low" }),
       entry({
         provider_id: "codex_cli",
@@ -79,15 +116,14 @@ describe("useUsageCharts", () => {
       }),
     ]);
 
-    expect(charts.summary.topModel).toBe("gpt-5.5 · High");
+    expect(summary.topModel).toEqual({ name: "gpt-5.5", label: "Codex · gpt-5.5" });
   });
 
   it("has no usage to chart when every row falls outside the window", () => {
-    const charts = render([entry({ provider_id: "claude_code", day: "2020-01-01" })]);
+    const { chart, summary } = render([entry({ provider_id: "claude_code", day: "2020-01-01" })]);
 
-    expect(charts.providerIds).toEqual([]);
-    expect(charts.activeProviderId).toBeNull();
-    expect(charts.summary.topModel).toBeNull();
-    expect(charts.summary.totalOutputTokens).toBe(0);
+    expect(chart.series).toEqual([]);
+    expect(summary.topModel).toBeNull();
+    expect(summary.totalOutputTokens).toBe(0);
   });
 });

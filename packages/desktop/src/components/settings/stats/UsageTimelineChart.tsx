@@ -1,226 +1,249 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import type { UsageChartData, UsageDay } from "./usage-stats-model";
-import {
-  formatCompactTokens,
-  formatDayLabel,
-  formatExactNumber,
-  seriesColor,
-} from "./usage-chart-palette";
-import { UsageChartTooltip } from "./UsageChartTooltip";
 import { axisTickIndexes, nextFocusIndex } from "./usage-axis";
-import { PLOT_HEIGHT_PX, segmentHeights } from "./usage-bar-heights";
+import {
+  allocateCells,
+  CELL_DENSITY,
+  CELL_GAP_PX,
+  cellScopeStyle,
+  columnCenterCss,
+  DATE_BAND_CSS,
+  gridWidthCss,
+  type UsageDensity,
+} from "./usage-cell-grid";
+import { formatDayLabel, formatExactNumber, seriesColor } from "./usage-chart-palette";
+import { UsageDayCard } from "./UsageDayCard";
+import type { UsageChartData, UsageDay, UsageScale } from "./usage-stats-model";
 
 interface UsageTimelineChartProps {
+  /** Must hold some usage: callers show their own empty state. */
   data: UsageChartData;
-  /** Names the measure the bar heights encode, e.g. "tokens exchanged". */
+  density: UsageDensity;
+  scale: UsageScale;
+  /** Names the measure the cells encode, for screen readers. */
   metricLabel: string;
-  emptyMessage: string;
+}
+
+/** The column under the pointer or focus, which anchors the day card. */
+interface ActiveColumn {
+  index: number;
+  element: HTMLElement;
+}
+
+const GAP_STYLE = { gap: CELL_GAP_PX };
+
+function preventDefault(event: Event): void {
+  event.preventDefault();
+}
+
+function columnOf(target: EventTarget | null): HTMLElement | null {
+  return target instanceof Element ? target.closest<HTMLElement>("[data-day-column]") : null;
 }
 
 /**
- * Stacked-bar timeline: one column per day, one segment per series.
+ * One column of square cells per day, centred in its container. Each series
+ * takes a run of cells, the largest at the base, and the empty cells are a faint
+ * track. Hovering or focusing a column fades the others and opens that day's
+ * card, a single popover shared by every column.
  *
- * Plain flex-box bars rather than SVG — the column widths then track the
- * settings pane's own width with no layout measurement, which keeps this off
- * the "read layout on every resize" path.
+ * Cell size comes from CSS, so the grid tracks the pane width without any
+ * layout measurement.
  */
 function UsageTimelineChartImpl({
   data,
+  density,
+  scale,
   metricLabel,
-  emptyMessage,
 }: UsageTimelineChartProps): React.JSX.Element {
-  const [hoveredDay, setHoveredDay] = useState<string | null>(null);
-  // Roving tab stop: only this column is tabbable, the arrow keys move it.
-  const [focusedIndex, setFocusedIndex] = useState(0);
+  const { rows, dates, rounded } = CELL_DENSITY[density];
+  const dayCount = data.days.length;
+  const [active, setActive] = useState<ActiveColumn | null>(null);
+  // Roving tab stop, clamped: a shorter range can drop the column it was on.
+  const [tabStop, setTabStop] = useState(0);
+  const tabStopIndex = Math.min(tabStop, dayCount - 1);
+  const cardId = useId();
+  const activeDay = active ? data.days[active.index] : undefined;
 
-  const labels = useMemo(
-    () => new Map(data.series.map((series) => [series.key, series.label])),
-    [data.series],
+  const stacks = useMemo(
+    () => data.days.map((day) => stackCells(day, scale === "share" ? day.total : data.max, rows)),
+    [data, rows, scale],
   );
-  const colors = useMemo(
-    () => new Map(data.series.map((series) => [series.key, seriesColor(series.colorIndex)])),
-    [data.series],
-  );
-  const hovered = useMemo(
-    () => data.days.find((day) => day.day === hoveredDay) ?? null,
-    [data.days, hoveredDay],
-  );
-  const axisTicks = useMemo(() => axisTickIndexes(data.days.length), [data.days.length]);
-
-  const onKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const columns = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-day-column]")];
-      // Where focus *is*, not where the last render thought it was: two key
-      // presses within one frame would otherwise both move from the same stale
-      // index, and the second would jump backwards.
-      const current = columns.indexOf(document.activeElement as HTMLElement);
-      const next = nextFocusIndex(event.key, current, data.days.length);
-      if (next === null) return;
-      event.preventDefault();
-      setFocusedIndex(next);
-      // Move the real focus with the tab stop, so the reader hears the day it
-      // landed on rather than staying on the one it left.
-      columns[next]?.focus();
-    },
-    [data.days.length],
+  const scopeStyle = useMemo(
+    () => ({ ...cellScopeStyle(dayCount), width: gridWidthCss(dayCount) }),
+    [dayCount],
   );
 
-  if (data.max === 0) {
-    return (
-      <div className="grid h-[196px] place-items-center rounded-lg border border-dashed border-border/60 px-6 text-center text-xs text-muted-foreground">
-        {emptyMessage}
-      </div>
-    );
-  }
+  const activate = (target: EventTarget | null): number | null => {
+    const element = columnOf(target);
+    if (!element) return null;
+    const index = Number(element.dataset.index);
+    // Moving between the cells of one column must not re-render the chart.
+    setActive((current) => (current?.element === element ? current : { index, element }));
+    return index;
+  };
+
+  const onFocus = (event: React.FocusEvent<HTMLDivElement>) => {
+    const index = activate(event.target);
+    if (index !== null) setTabStop(index);
+  };
+
+  const onBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (!event.currentTarget.contains(event.relatedTarget)) setActive(null);
+  };
+
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const current = columnOf(event.target);
+    if (!current) return;
+    const next = nextFocusIndex(event.key, Number(current.dataset.index), dayCount);
+    if (next === null) return;
+    event.preventDefault();
+    // Focus moves for real, so the reader hears the day it landed on; `onFocus`
+    // then moves the tab stop and the card.
+    event.currentTarget.querySelector<HTMLElement>(`[data-index="${next}"]`)?.focus();
+  };
 
   return (
-    <div className="relative">
-      <div className="flex gap-2">
-        <YAxis max={data.max} />
-        <div className="min-w-0 flex-1">
+    <Popover
+      open={activeDay !== undefined}
+      onOpenChange={(open) => {
+        if (!open) setActive(null);
+      }}
+      modal={false}
+    >
+      <div className="@container w-full">
+        <div className="mx-auto" style={scopeStyle}>
           {/* One tab stop for the whole chart, arrow keys within it: a 90-day
-              timeline would otherwise put 90 stops between the reader and the
-              next control, twice over. */}
+              timeline would otherwise put 90 stops before the next control. */}
           <div
-            className="relative flex items-end gap-[2px]"
-            style={{ height: PLOT_HEIGHT_PX }}
             role="group"
             aria-label={`Daily ${metricLabel}. Use the left and right arrow keys to read each day.`}
-            onMouseLeave={() => setHoveredDay(null)}
+            data-active={active ? "" : undefined}
+            // Rounding clips the grid itself: the corner cells take the curve.
+            className={cn("group/plot flex", rounded && "overflow-hidden rounded-lg")}
+            style={GAP_STYLE}
+            onPointerOver={(event) => activate(event.target)}
+            onPointerLeave={() => setActive(null)}
+            onFocus={onFocus}
+            onBlur={onBlur}
             onKeyDown={onKeyDown}
           >
-            <Gridlines />
             {data.days.map((day, index) => (
               <DayColumn
                 key={day.day}
-                day={day}
-                max={data.max}
-                colors={colors}
-                dimmed={hoveredDay !== null && hoveredDay !== day.day}
-                metricLabel={metricLabel}
-                focusable={index === focusedIndex}
-                onHover={setHoveredDay}
+                index={index}
+                cells={stacks[index]!}
+                label={`${formatDayLabel(day.day)}: ${formatExactNumber(day.total)} ${metricLabel}`}
+                isTabStop={index === tabStopIndex}
+                isActive={active?.index === index}
+                cardId={cardId}
               />
             ))}
           </div>
-          {/* Tick labels are wider than one column, so they are positioned
-              over the plot rather than laid out inside it — a per-column cell
-              would clip "Jun 26" down to "J…". */}
-          <div className="relative mt-1.5 h-3">
-            {data.days.map((day, index) =>
-              axisTicks.has(index) ? (
-                <span
-                  key={day.day}
-                  className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
-                  style={{ left: `${((index + 0.5) / data.days.length) * 100}%` }}
-                >
-                  {formatDayLabel(day.day)}
-                </span>
-              ) : null,
-            )}
-          </div>
+          {dates ? <DateLabels days={data.days} /> : null}
         </div>
       </div>
-
-      {hovered ? (
-        <UsageChartTooltip day={hovered} labels={labels} colors={colors} unit={metricLabel} />
-      ) : null}
-    </div>
+      {active ? <PopoverAnchor virtualRef={{ current: active.element }} /> : null}
+      <PopoverContent
+        id={cardId}
+        role="tooltip"
+        side="top"
+        sideOffset={6}
+        collisionPadding={8}
+        className="pointer-events-none w-max p-2"
+        onOpenAutoFocus={preventDefault}
+        onCloseAutoFocus={preventDefault}
+        // Focus and pointer moving to another column must not dismiss the card.
+        onInteractOutside={preventDefault}
+      >
+        {activeDay ? <UsageDayCard day={activeDay} series={data.series} scale={scale} /> : null}
+      </PopoverContent>
+    </Popover>
   );
 }
 
-function YAxis({ max }: { max: number }): React.JSX.Element {
+/**
+ * Date labels under the grid, on the pitch of their columns. A label per column
+ * would clip "Jun 26" down to "J…", so only a few columns carry one.
+ */
+function DateLabels({ days }: { days: UsageDay[] }): React.JSX.Element {
+  const ticks = useMemo(() => axisTickIndexes(days.length), [days.length]);
   return (
-    <div
-      className="flex w-10 shrink-0 flex-col justify-between text-right text-[10px] leading-none text-muted-foreground"
-      style={{ height: PLOT_HEIGHT_PX }}
-      aria-hidden
-    >
-      <span>{formatCompactTokens(max)}</span>
-      <span>{formatCompactTokens(max / 2)}</span>
-      <span>0</span>
-    </div>
-  );
-}
-
-/** Recessive half and full gridlines; the bars sit above them. */
-function Gridlines(): React.JSX.Element {
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden>
-      <div className="absolute inset-x-0 top-0 border-t border-border/40" />
-      <div className="absolute inset-x-0 top-1/2 border-t border-border/40" />
-      <div className="absolute inset-x-0 bottom-0 border-t border-border/70" />
+    <div className="relative" style={{ height: DATE_BAND_CSS }}>
+      {days.map((day, index) =>
+        ticks.has(index) ? (
+          <span
+            key={day.day}
+            className="absolute top-1.5 -translate-x-1/2 whitespace-nowrap text-[10px] leading-none text-muted-foreground"
+            style={{ left: columnCenterCss(index) }}
+          >
+            {formatDayLabel(day.day)}
+          </span>
+        ) : null,
+      )}
     </div>
   );
 }
 
 interface DayColumnProps {
-  day: UsageDay;
-  max: number;
-  colors: Map<string, string>;
-  dimmed: boolean;
-  metricLabel: string;
-  /** This column currently holds the chart's single tab stop. */
-  focusable: boolean;
-  onHover: (day: string | null) => void;
+  index: number;
+  /** Bottom-up: a series color per filled cell, `null` for the track. */
+  cells: (string | null)[];
+  label: string;
+  isTabStop: boolean;
+  isActive: boolean;
+  cardId: string;
 }
 
-/**
- * Memoized because hovering flips `dimmed` on every column: without it a single
- * mouse move over a 90-day chart re-renders all 90 and rebuilds each one's
- * reversed segment list.
- */
+/** Memoized so moving the pointer re-renders only the two columns it crosses. */
 const DayColumn = memo(function DayColumn({
-  day,
-  max,
-  colors,
-  dimmed,
-  metricLabel,
-  focusable,
-  onHover,
+  index,
+  cells,
+  label,
+  isTabStop,
+  isActive,
+  cardId,
 }: DayColumnProps): React.JSX.Element {
-  // Bottom-up in stack order, so the largest series sits at the base.
-  const stacked = [...day.segments].reverse();
-  const heights = segmentHeights(
-    stacked.map((segment) => segment.value),
-    max,
-  );
-
   return (
     <div
-      // The whole column is the hit target, not just the painted bar, so a
-      // quiet day is as hoverable as a busy one.
-      className="group relative flex h-full min-w-0 flex-1 cursor-default flex-col justify-end gap-[2px]"
       data-day-column
-      onMouseEnter={() => onHover(day.day)}
-      onFocus={() => onHover(day.day)}
-      onBlur={() => onHover(null)}
-      tabIndex={focusable ? 0 : -1}
+      data-index={index}
+      data-active={isActive ? "" : undefined}
       role="img"
-      aria-label={`${formatDayLabel(day.day)}: ${formatExactNumber(day.total)} ${metricLabel}`}
+      aria-label={label}
+      aria-describedby={isActive ? cardId : undefined}
+      tabIndex={isTabStop ? 0 : -1}
+      className="flex shrink-0 cursor-default flex-col-reverse outline-none transition-opacity duration-150 group-data-[active]/plot:not-data-[active]:opacity-35 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+      style={GAP_STYLE}
     >
-      {stacked.map((segment, index) => (
-        <div
-          key={segment.key}
-          className={cn(
-            "w-full transition-opacity duration-150",
-            // Data-ends round; the segments below stay square so the stack
-            // reads as one bar.
-            index === stacked.length - 1 && "rounded-t-[4px]",
-            dimmed && "opacity-40",
-          )}
-          style={{
-            height: heights[index],
-            // The heights already account for the gaps between them, so a
-            // flex shrink here would undo that and shorten the tallest day.
-            flexShrink: 0,
-            backgroundColor: colors.get(segment.key),
-          }}
+      {cells.map((color, row) => (
+        <span
+          // Cells are positional: the row is the key, and a row keeps its place.
+          key={row}
+          aria-hidden
+          className={cn("size-(--cell) shrink-0 rounded-[2px]", color === null && "bg-border/40")}
+          style={color === null ? undefined : { backgroundColor: color }}
         />
       ))}
     </div>
   );
 });
+
+/**
+ * One day's stack, bottom-up: the series' cells first (largest series lowest),
+ * then empty track cells (`null`) up to the full height.
+ */
+function stackCells(day: UsageDay, max: number, rows: number): (string | null)[] {
+  const counts = allocateCells(
+    day.segments.map((segment) => segment.value),
+    max,
+    rows,
+  );
+  const cells: (string | null)[] = day.segments.flatMap((segment, index) =>
+    Array.from({ length: counts[index] ?? 0 }, () => seriesColor(segment.colorIndex)),
+  );
+  while (cells.length < rows) cells.push(null);
+  return cells;
+}
 
 export const UsageTimelineChart = memo(UsageTimelineChartImpl);

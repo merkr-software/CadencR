@@ -26,6 +26,7 @@ import {
   type ShortcutScope,
 } from "@/lib/shortcuts/registry";
 import { SESSION_HINT_BEHAVIORS } from "./session-hint-behaviors";
+import { SessionUsageChart } from "./SessionUsageChart";
 
 interface Hint {
   shortcut: Shortcut;
@@ -84,6 +85,8 @@ export function SessionHint() {
         <h2 className="text-base font-semibold text-foreground">Start your first turn</h2>
         <p className="text-xs text-muted-foreground">A quick tip while you draft.</p>
       </div>
+
+      <SessionUsageChart />
 
       <div
         key={rerollKey}

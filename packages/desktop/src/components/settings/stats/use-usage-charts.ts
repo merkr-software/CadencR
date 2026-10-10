@@ -1,41 +1,47 @@
-import { useMemo } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import type { UsageStatsEntry } from "@/api/generated";
+import {
+  getProviderCatalog,
+  subscribeProviderCatalogChanges,
+} from "@/lib/provider-catalog-registry";
 import { getProviderMetadata } from "@/lib/providers";
-import { parseThinkingEffort, thinkingEffortLabel } from "@/shared/thinking-effort";
 import {
   buildUsageChart,
   dayAxis,
-  modelSeriesKey,
-  rankKeysByTotalTokens,
-  splitModelSeriesKey,
+  OTHER_SERIES_KEY,
+  providerModelSeriesKey,
+  splitProviderModelSeriesKey,
   type UsageChartData,
+  type UsageGrouping,
   type UsageMetric,
 } from "./usage-stats-model";
 import type { UsageSummary } from "./UsageSummaryTiles";
 
-export function providerLabel(providerId: string): string {
-  return getProviderMetadata(providerId)?.label ?? providerId;
-}
-
 /**
- * "Opus · High" — the model and its thinking level read as one thing, which is
- * exactly the pairing the second chart exists to compare.
+ * Resolves a provider id to its display label. A new function whenever the
+ * provider catalog changes: the catalog can land after the usage does, and the
+ * charts that bake labels in must re-derive them then.
  */
-export function modelLabel(seriesKey: string): string {
-  const { modelId, thinkingEffort } = splitModelSeriesKey(seriesKey);
-  const model = modelId || "Unknown model";
-  const effort = parseThinkingEffort(thinkingEffort);
-  return effort ? `${model} · ${thinkingEffortLabel(effort)}` : model;
+function useProviderLabelOf(): (providerId: string) => string {
+  const catalog = useSyncExternalStore(subscribeProviderCatalogChanges, getProviderCatalog);
+  return useMemo(
+    () => (providerId: string) =>
+      getProviderMetadata(providerId, null, "color", catalog.get(providerId) ?? null)?.label ??
+      providerId,
+    [catalog],
+  );
 }
 
-export interface UsageCharts {
-  providerChart: UsageChartData;
-  modelChart: UsageChartData;
-  /** Providers seen in the window, busiest first — drives the model filter. */
-  providerIds: string[];
-  /** The provider the model chart is actually showing. */
-  activeProviderId: string | null;
-  summary: UsageSummary;
+function modelIdOf(seriesKey: string): string {
+  return splitProviderModelSeriesKey(seriesKey).modelId || "Unknown model";
+}
+
+function providerOfModelSeriesKey(seriesKey: string): string {
+  return splitProviderModelSeriesKey(seriesKey).providerId;
+}
+
+function modelSeriesKeyOf(entry: UsageStatsEntry): string {
+  return providerModelSeriesKey(entry.provider_id, entry.model_id);
 }
 
 export interface UseUsageChartsParams {
@@ -44,37 +50,26 @@ export interface UseUsageChartsParams {
   /** The window's last UTC day as the backend computed it. */
   endDay: string;
   metric: UsageMetric;
-  /** The user's pick, or `null` to follow the busiest provider. */
-  selectedProviderId: string | null;
+  grouping: UsageGrouping;
 }
 
 /**
- * Pivots one flat `/api/usage-stats` payload into both timelines plus the
- * headline tiles.
+ * Pivots one flat `/api/usage-stats` payload into the chart and the headline
+ * tiles. The tiles always read providers and models, whichever grouping is on
+ * screen, so "Top provider" never depends on a display choice.
  *
- * Split into dep-accurate memos so the cheap parts survive a filter click: the
- * provider ranking and totals depend only on the rows, and switching provider
- * leaves the provider chart alone.
+ * Both groupings are built: the model chart also names the top model, and a
+ * window holds at most a few hundred rows.
  */
 export function useUsageCharts({
   entries,
   windowDays,
   endDay,
   metric,
-  selectedProviderId,
-}: UseUsageChartsParams): UsageCharts {
+  grouping,
+}: UseUsageChartsParams): { chart: UsageChartData; summary: UsageSummary } {
   const axis = useMemo(() => dayAxis(windowDays, endDay), [windowDays, endDay]);
-
-  const providerIds = useMemo(
-    () => rankByTotalTokens(entries, axis, (entry) => entry.provider_id),
-    [entries, axis],
-  );
-  // Resolving the fallback here rather than syncing it into state keeps the
-  // model chart from rendering every provider at once on the first paint.
-  const activeProviderId =
-    selectedProviderId !== null && providerIds.includes(selectedProviderId)
-      ? selectedProviderId
-      : (providerIds[0] ?? null);
+  const providerLabel = useProviderLabelOf();
 
   const providerChart = useMemo(
     () =>
@@ -85,7 +80,7 @@ export function useUsageCharts({
         seriesKeyOf: (entry) => entry.provider_id,
         labelOf: providerLabel,
       }),
-    [entries, metric, axis],
+    [entries, metric, axis, providerLabel],
   );
 
   const modelChart = useMemo(
@@ -94,58 +89,30 @@ export function useUsageCharts({
         entries,
         metric,
         axis,
-        seriesKeyOf: (entry) =>
-          activeProviderId !== null && entry.provider_id !== activeProviderId
-            ? null
-            : modelSeriesKey(entry.model_id, entry.thinking_effort),
-        labelOf: modelLabel,
+        seriesKeyOf: modelSeriesKeyOf,
+        labelOf: (key) => `${providerLabel(providerOfModelSeriesKey(key))} · ${modelIdOf(key)}`,
+        // A provider's top model takes the provider's own color.
+        slotKeyOf: providerOfModelSeriesKey,
       }),
-    [entries, metric, axis, activeProviderId],
+    [entries, metric, axis, providerLabel],
   );
 
-  // Ranked by total tokens, so the tile agrees with the chart order whichever
-  // metric is on screen.
-  const topModelKey = useMemo(
-    () =>
-      rankByTotalTokens(entries, axis, (entry) =>
-        modelSeriesKey(entry.model_id, entry.thinking_effort),
-      )[0],
-    [entries, axis],
-  );
-
-  const summary = useMemo<UsageSummary>(
-    () => ({
+  const summary = useMemo<UsageSummary>(() => {
+    // Series are ranked by total tokens whatever the metric, and "Other" is
+    // always last, so the first series is the busiest model.
+    const topModel = modelChart.series[0];
+    return {
       // Every in-window row lands in exactly one series — including the folded
       // "Other" — so the series totals are the window totals.
       totalInputTokens: providerChart.series.reduce((total, s) => total + s.inputTokens, 0),
       totalOutputTokens: providerChart.series.reduce((total, s) => total + s.outputTokens, 0),
       topProvider: providerChart.series[0]?.label ?? null,
-      topModel: topModelKey === undefined ? null : modelLabel(topModelKey),
-    }),
-    [providerChart, topModelKey],
-  );
+      topModel:
+        topModel === undefined || topModel.key === OTHER_SERIES_KEY
+          ? null
+          : { name: modelIdOf(topModel.key), label: topModel.label },
+    };
+  }, [providerChart, modelChart]);
 
-  return useMemo(
-    () => ({ providerChart, modelChart, providerIds, activeProviderId, summary }),
-    [providerChart, modelChart, providerIds, activeProviderId, summary],
-  );
-}
-
-/**
- * Keys present in the window, busiest first — ranked by the same helper
- * `buildUsageChart` ranks its series with, so the two can't disagree.
- */
-function rankByTotalTokens(
-  entries: UsageStatsEntry[],
-  axis: string[],
-  keyOf: (entry: UsageStatsEntry) => string,
-): string[] {
-  const inWindow = new Set(axis);
-  const totals = new Map<string, number>();
-  for (const entry of entries) {
-    if (!inWindow.has(entry.day)) continue;
-    const key = keyOf(entry);
-    totals.set(key, (totals.get(key) ?? 0) + entry.input_tokens + entry.output_tokens);
-  }
-  return rankKeysByTotalTokens(totals);
+  return { chart: grouping === "provider" ? providerChart : modelChart, summary };
 }
