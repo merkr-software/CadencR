@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { LoaderCircleIcon, PanelRightDashedIcon, TriangleAlertIcon } from "lucide-react";
 
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -21,6 +21,10 @@ import { useFeatureLayoutContext } from "./FeatureLayoutContext";
 export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNode {
   const { active, isLoading, error, isSaving, setActive } = useAutoLayoutMode(featureId);
   const pulse = useAutoLayoutStore((s) => s.pulse[featureId] ?? 0);
+  // The count outlives this button: it remounts on every feature switch, undo
+  // or reset, and replaying the last ring then would credit auto layout with
+  // the user's own change. Only reveals made while mounted pulse.
+  const [pulseAtMount] = useState(pulse);
   const hotkeysEnabled = useFeatureLayoutContext()?.hotkeysEnabled ?? true;
   const { keys } = useResolvedShortcut("layout-auto-toggle");
   const failed = error !== null;
@@ -56,7 +60,7 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
       >
         {/* Keyed by the pulse count: a new key remounts the ring, replaying
             its one-shot animation; it rests invisible afterwards. */}
-        {pulse > 0 && <span key={pulse} aria-hidden className="auto-layout-pulse" />}
+        {pulse > pulseAtMount && <span key={pulse} aria-hidden className="auto-layout-pulse" />}
         {failed ? (
           <TriangleAlertIcon className="size-4 text-destructive" />
         ) : isSaving ? (
