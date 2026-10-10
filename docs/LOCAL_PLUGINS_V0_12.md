@@ -251,16 +251,16 @@ Requirements:
 
 1. Generated-scaffold/build/use/rebuild and mixed resume/non-resume host behavior
    now pass in the development app with deterministic connector fixtures; see the
-   [2026-09-16 QA report](./LOCAL_PLUGINS_QA_2026_09_16.md). The external Pi connector
+   [2026-09-16 QA report](./qa/LOCAL_PLUGINS_QA_2026_09_16.md). The external Pi connector
    separately passed real model/permission/resume QA in the
-   [2026-09-13 report](./LOCAL_PLUGINS_QA_2026_09_13.md). Neither result alone
+   [2026-09-13 report](./qa/LOCAL_PLUGINS_QA_2026_09_13.md). Neither result alone
    certifies a new production AI connector or closes packaged lifecycle gate L4.
 2. Extend packaged lifecycle coverage to providers and the remaining release
    target matrix. **macOS arm64 theme QA passes** in the actual packaged Electron
    app: creation/application, in-app and external live edits, automatic rename,
    invalid-theme recovery, reopen, full restart and native Trash cleanup preserving
    all 34 theme/Git files. See the final section of the
-   [2026-09-17 packaged QA report](./LOCAL_PLUGINS_QA_2026_09_17.md).
+   [2026-09-17 packaged QA report](./qa/LOCAL_PLUGINS_QA_2026_09_17.md).
    Isolated pnpm inspection unblocked packaging; launching from Terminal unblocked
    native UI QA. The earlier watcher failure does not reproduce there. Production
    DB/WAL/SHM remain unchanged. These theme checks alone do not close L4/L5.

@@ -3,7 +3,7 @@
 //! defense), and revoke. Runs against the real self-signed TLS listener using a
 //! rustls client.
 
-mod common;
+use crate::common;
 
 use std::sync::Arc;
 use std::time::Duration;

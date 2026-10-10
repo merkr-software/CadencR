@@ -4,7 +4,7 @@
 //! real axum router → `tree-all` handler → JSON, the same path the desktop
 //! file tree hits with `exclude_gitignored=true`.
 
-mod common;
+use crate::common;
 
 use common::{find_file_row, start_test_server};
 

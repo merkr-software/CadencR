@@ -102,7 +102,7 @@ fn activate_revision_locked(
         ensure_descriptor_id_available(
             descriptors,
             &receipt.agent.id,
-            &super::super::super::registry::builtin_provider_identifiers(),
+            super::super::super::registry::builtin_provider_identifiers(),
         )?;
     }
     state.transition(

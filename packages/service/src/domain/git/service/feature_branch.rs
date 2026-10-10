@@ -70,7 +70,7 @@ pub async fn resolve_feature_branch(
     if let Some(branch) = recorded_feature_branch(read_pool, feature_id).await? {
         return Ok(Some(branch));
     }
-    Ok(checked_out_branch(path).await?)
+    checked_out_branch(path).await
 }
 
 async fn checked_out_branch(path: &Path) -> Result<Option<String>, AppError> {

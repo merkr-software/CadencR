@@ -26,15 +26,18 @@
         in
         {
           default = pkgs.mkShell {
+            # pnpm is not listed: corepack_22's shims run the exact version
+            # pinned by package.json `packageManager`. The Rust toolchain and
+            # its components come from rust-toolchain.toml through rustup.
             packages = with pkgs; [
-              cargo-watch
+              corepack_22
               git
               nodejs_22
               openssl
               pkg-config
-              pnpm_9
               rustup
               sqlite
+              watchexec
             ] ++ darwinPackages;
 
             RUST_SRC_PATH = pkgs.rustPlatform.rustLibSrc;
@@ -47,8 +50,9 @@
               if rustc --version >/dev/null 2>&1; then
                 echo "Rust: $(rustc --version)"
               else
-                echo "Rust: install a toolchain with: rustup toolchain install stable --component rustfmt --component clippy"
+                echo "Rust: run 'rustup toolchain install' (reads rust-toolchain.toml)"
               fi
+              echo "Next: pnpm install && pnpm setup:dev && pnpm doctor"
             '';
           };
         });

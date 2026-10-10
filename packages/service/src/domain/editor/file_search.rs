@@ -85,7 +85,7 @@ pub fn recent_files(
         entries.push((rel, mtime, false));
     }
 
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     entries.truncate(limit);
 
     Ok(entries
@@ -180,7 +180,7 @@ pub fn fuzzy_search_files(
         );
     }
 
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    scored.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     scored.truncate(limit);
 
     Ok(scored

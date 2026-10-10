@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import type { AgentBlockData } from "@/components/AgentBlock";
 import type { DisplayItem } from "@/components/agentStreamDisplay";

@@ -27,19 +27,31 @@ pub fn parse_version_string(raw: &str) -> Option<VersionKey> {
 
 pub async fn query_version(command: &Path, args: &[&str]) -> Option<VersionKey> {
     let args: Vec<String> = args.iter().map(|arg| (*arg).to_string()).collect();
-    probe_version(command, &args).await.and_then(|(v, _)| v)
+    probe_version(command, &args)
+        .await
+        .and_then(|probe| probe.version)
 }
 
-/// Probe `command --args[..]` and return `(parsed_version, raw_output)`.
+/// What one `--version` run printed and how it ended.
+pub(crate) struct VersionProbe {
+    pub(crate) version: Option<VersionKey>,
+    output: String,
+    success: bool,
+}
+
+impl VersionProbe {
+    /// The `version_must_contain` shim guard (see `DiscoverySpec`).
+    pub(crate) fn passes_filter(&self, needle: &str) -> bool {
+        self.success && self.version.is_some() && contains_ci(&self.output, needle)
+    }
+}
+
+/// Probe `command --args[..]`.
 ///
 /// Returns `None` only when the subprocess itself fails (timeout, spawn
-/// error). A successful run with un-parseable output returns
-/// `Some((None, "..."))` so callers can still inspect the text for filters
-/// (e.g. the `version_must_contain` shim guard).
-pub(crate) async fn probe_version(
-    command: &Path,
-    args: &[String],
-) -> Option<(Option<VersionKey>, String)> {
+/// error). Any run that completes returns its output and exit status, even
+/// when unparseable or failed, so the shim guard can inspect it.
+pub(crate) async fn probe_version(command: &Path, args: &[String]) -> Option<VersionProbe> {
     let output = tokio::time::timeout(
         Duration::from_secs(5),
         Command::new(command).args(args).kill_on_drop(true).output(),
@@ -55,11 +67,14 @@ pub(crate) async fn probe_version(
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let version = parse_version_string(&combined);
-    Some((version, combined))
+    Some(VersionProbe {
+        version: parse_version_string(&combined),
+        output: combined,
+        success: output.status.success(),
+    })
 }
 
-pub(crate) fn contains_ci(haystack: &str, needle: &str) -> bool {
+fn contains_ci(haystack: &str, needle: &str) -> bool {
     haystack.to_lowercase().contains(&needle.to_lowercase())
 }
 
@@ -89,5 +104,23 @@ mod tests {
             make_executable_with_body(dir.path(), "thing", "#!/bin/sh\necho '2.7.1 build'\n");
         let version = query_version(&path, &["--version"]).await;
         assert_eq!(version, Some(VersionKey(2, 7, 1)));
+    }
+
+    #[tokio::test]
+    async fn shim_guard_rejects_a_failed_probe_whose_error_names_a_version() {
+        // Run the fixtures through `sh -c` rather than writing scripts: on
+        // Linux, exec'ing a just-written file races with other tests' forks
+        // (ETXTBSY), which surfaces as a failed probe.
+        let sh = |script: &str| vec!["-c".to_string(), script.to_string()];
+        // rustup with a toolchain pinned to `1.96.0`: the error mentions the
+        // binary and a semver, but the shim exits non-zero.
+        let shim = sh("echo \"error: Unknown binary 'rust-analyzer' in official toolchain '1.96.0-aarch64-apple-darwin'.\" 1>&2; exit 1");
+        let probe = probe_version(Path::new("/bin/sh"), &shim).await.unwrap();
+        assert_eq!(probe.version, Some(VersionKey(1, 96, 0)));
+        assert!(!probe.passes_filter("rust-analyzer"));
+
+        let real = sh("echo 'rust-analyzer 1.96.0 (abc 2026-05-25)'");
+        let probe = probe_version(Path::new("/bin/sh"), &real).await.unwrap();
+        assert!(probe.passes_filter("rust-analyzer"));
     }
 }

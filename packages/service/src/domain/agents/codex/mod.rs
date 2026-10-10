@@ -91,9 +91,11 @@ const DEFAULT_MODE_REQUEST_USER_INPUT_FEATURE: &str = "default_mode_request_user
 pub(super) const FAST_SERVICE_TIER: &str = "priority";
 
 pub(super) fn fast_service_tier_value(enabled: bool) -> Value {
-    enabled
-        .then(|| Value::String(FAST_SERVICE_TIER.to_string()))
-        .unwrap_or(Value::Null)
+    if enabled {
+        Value::String(FAST_SERVICE_TIER.to_string())
+    } else {
+        Value::Null
+    }
 }
 
 #[derive(Clone)]

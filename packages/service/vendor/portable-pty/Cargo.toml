@@ -118,3 +118,7 @@ features = [
 
 [target."cfg(windows)".dependencies.winreg]
 version = "0.10"
+
+# Cadencr: hold the vendored copy to the workspace lint policy.
+[lints]
+workspace = true

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { applyThemeToDocument, readPersistedTheme, writePersistedThemeSettings } from "./apply";
 import { setUserThemes } from "./user-registry";

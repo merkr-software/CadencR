@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import {

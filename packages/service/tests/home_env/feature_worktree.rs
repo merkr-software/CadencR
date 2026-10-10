@@ -1,12 +1,12 @@
 //! Provisioning cases for `worktree::ensure_worktree`. The HTTP create-feature
 //! handler only persists settings; the dispatcher logic exercised here lives
-//! one layer below. Validation cases are in `feature_create_test.rs`.
+//! one layer below. Validation cases are in `integration/feature_create.rs`.
 //!
 //! `ensure_worktree` writes provisioned worktrees to `~/.cadencr/worktrees`.
 //! To avoid polluting the developer's home dir, these tests redirect `$HOME`
 //! to a tempdir for the duration of each test via `common::worktree::HomeGuard`.
 
-mod common;
+use crate::common;
 
 use cadencr_service::domain::workflow::worktree::{
     ensure_worktree, get_setting, WorktreeMode, WorktreeSetupRegistry,

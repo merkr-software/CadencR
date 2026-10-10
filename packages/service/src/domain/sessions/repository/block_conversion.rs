@@ -24,7 +24,7 @@ pub(super) fn convert_block(idx: usize, all: &[MutableBlock]) -> AgentBlock {
     AgentBlock {
         id: b.id.clone(),
         message_uuid: b.message_uuid.clone(),
-        prompt_delivery_state: b.prompt_delivery_state.clone(),
+        prompt_delivery_state: b.prompt_delivery_state,
         type_: b.type_.clone(),
         content: content.clone(),
         tool_name: b.tool_name.clone(),

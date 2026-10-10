@@ -1,8 +1,8 @@
 //! Integration tests for `GET /api/git/branches` and `GET /api/git/status`.
-//! Sibling of `git_workflow_test.rs`; split out to keep each file under the
+//! Sibling of `home_env/git_workflow.rs`; split out to keep each file under the
 //! 400-line cap.
 
-mod common;
+use crate::common;
 
 use common::{git_in, stage_file, start_test_server, write_unstaged};
 

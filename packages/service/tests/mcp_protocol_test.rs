@@ -1,5 +1,8 @@
 //! Exercise real server handlers over JSON-RPC, including Claude Code's
 //! discovery-first startup. No CLI binary, model, or on-disk database is needed.
+//!
+//! Own test binary: it calls `settings_store::init` (a first-call-wins
+//! `OnceLock`) with a tempdir that is deleted when the test ends.
 
 mod support;
 

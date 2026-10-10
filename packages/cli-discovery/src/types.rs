@@ -15,9 +15,10 @@ pub struct DiscoverySpec {
     pub well_known_absolute: Vec<String>,
     /// Args to pass when querying the binary's version (typically `["--version"]`).
     pub version_args: Vec<String>,
-    /// When `Some(needle)`, a candidate must satisfy both:
-    /// 1. its `--version` output contains `needle` (case-insensitive), and
-    /// 2. the output parses as a valid semver triple.
+    /// When `Some(needle)`, a candidate must satisfy all of:
+    /// 1. its `--version` output contains `needle` (case-insensitive),
+    /// 2. the output parses as a valid semver triple, and
+    /// 3. the probe exits successfully.
     ///
     /// Otherwise the candidate is excluded.
     ///
@@ -27,10 +28,11 @@ pub struct DiscoverySpec {
     /// registered, the shim either prints rustup's own help (parses as
     /// rustup's `1.28.x` but doesn't mention "rust-analyzer") or prints
     /// `error: Unknown binary 'rust-analyzer' in official toolchain ...`
-    /// (mentions the name in quotes but has no semver). Either way the
-    /// process never speaks JSON-RPC, so we need both checks: the real
-    /// rust-analyzer prints `rust-analyzer 0.3.x-standalone (commit)` which
-    /// satisfies both.
+    /// (mentions the name in quotes but has no semver — unless the toolchain
+    /// is pinned to a version such as `1.96.0`, whose name then supplies one;
+    /// current rustup exits non-zero there). Either way the process never
+    /// speaks JSON-RPC, so we need every check: the real rust-analyzer prints
+    /// `rust-analyzer 0.3.x-standalone (commit)` and exits 0.
     pub version_must_contain: Option<String>,
 }
 

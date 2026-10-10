@@ -15,8 +15,8 @@ pub(super) async fn runtime_allows_resume_persistence(
         return false;
     };
     let session = runtime.read().await;
-    let allows_persistence = session.allows_resume_persistence();
-    allows_persistence
+
+    session.allows_resume_persistence()
 }
 
 pub(super) async fn transition_active_to_pending_on_stream_end(

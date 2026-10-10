@@ -28,7 +28,7 @@ async fn content_revision_migration_preserves_rows_and_tracks_real_edits() {
     .unwrap();
 
     sqlx::raw_sql(include_str!(
-        "../migrations/20260906120000_agent_message_content_revisions.sql"
+        "../../migrations/20260906120000_agent_message_content_revisions.sql"
     ))
     .execute(&pool)
     .await

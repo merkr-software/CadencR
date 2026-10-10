@@ -28,10 +28,9 @@ pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> 
     .fetch_all(pool)
     .await?;
 
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .map(project_from_row)
-        .collect::<Result<Vec<_>, _>>()?)
+        .collect::<Result<Vec<_>, _>>()
 }
 
 pub async fn create_project(

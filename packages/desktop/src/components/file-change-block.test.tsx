@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { renderFileChangeBlocks } from "./file-change-block";
 
@@ -48,6 +48,18 @@ function ControlledFileChangeHarness(): ReactElement | null {
 }
 
 describe("renderFileChangeBlocks", () => {
+  // `CollapsibleSection` keeps a collapsing body mounted for its 200ms close
+  // animation once the expand rAFs have fired, so "collapsed" assertions only
+  // held when the runner was fast enough to click again before those frames.
+  // The kill-switch makes mount/unmount synchronous; animation timing has its
+  // own coverage in `collapsible-section.test.tsx`.
+  beforeEach(() => {
+    document.documentElement.dataset.animations = "off";
+  });
+  afterEach(() => {
+    delete document.documentElement.dataset.animations;
+  });
+
   it("expands only the clicked inline diff in a multi-file patch", async () => {
     const { user } = render(<ControlledFileChangeHarness />);
 

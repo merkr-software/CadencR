@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { EditorView } from "@codemirror/view";
 import { LSPClient, type Transport } from "@codemirror/lsp-client";
 import { diagnosticCount } from "@codemirror/lint";

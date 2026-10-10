@@ -353,19 +353,20 @@ impl StreamReaderTask {
                 .send_and_mirror(Message::Text(String::from(envelope).into()))
                 .await;
         }
-        if runtime_event.is_result() && state.live_background_agents.is_empty() {
-            if interrupted_generation.is_none() {
-                if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_completed(
-                    &self.app_state,
-                    self.db_session_id,
-                )
-                .await
-                {
-                    error!(self.db_session_id, error = %error, "failed to deliver MCP session reply");
-                }
-                self.drain_queued_message_after_result().await;
-                let _ = self.refresh_mcp_servers_after_turn().await;
+        if runtime_event.is_result()
+            && state.live_background_agents.is_empty()
+            && interrupted_generation.is_none()
+        {
+            if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_completed(
+                &self.app_state,
+                self.db_session_id,
+            )
+            .await
+            {
+                error!(self.db_session_id, error = %error, "failed to deliver MCP session reply");
             }
+            self.drain_queued_message_after_result().await;
+            let _ = self.refresh_mcp_servers_after_turn().await;
         }
     }
 

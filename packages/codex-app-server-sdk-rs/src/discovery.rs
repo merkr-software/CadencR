@@ -143,6 +143,11 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(
+        clippy::await_holding_lock,
+        reason = "serializes against sync tests on other threads; the \
+                  current-thread runtime never contends for it across the await"
+    )]
     async fn missing_explicit_override_does_not_fall_through_to_path() {
         let _guard = test_lock();
         let prior = current_binary_override();

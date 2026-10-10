@@ -1,11 +1,10 @@
-import "@testing-library/jest-dom/vitest";
+// Shared test setup — runs for every test file, in both the `node` and `dom`
+// vitest projects (see `vitest.config.ts`). Anything that needs `window` or
+// `document` belongs in `./test-setup-dom.ts`, which is only loaded when the
+// file runs in a DOM environment.
 import { vi, afterEach, afterAll, beforeAll, beforeEach } from "vitest";
-import { cleanup } from "@testing-library/react";
 import { server } from "./test/msw-server";
 import { setDeltaFlushScheduler } from "./stores/ws-delta-scheduler";
-
-// Automatically cleanup DOM after each test
-afterEach(cleanup);
 
 // ---------------------------------------------------------------------------
 // Stream-delta coalescing — apply synchronously in tests
@@ -26,7 +25,7 @@ beforeEach(() => {
 //
 // Many component tests mount real components whose React Query hooks fire
 // axios requests against `http://127.0.0.1:5005`. There is no backend in
-// jsdom, so without MSW every unmocked hook would emit a full `AxiosError:
+// tests, so without MSW every unmocked hook would emit a full `AxiosError:
 // Network Error` stack via React Query's default `onError` — dozens of lines
 // per test. MSW's catch-all handler (see `./test/msw-server.ts`) returns an
 // empty JSON body for any request, so hooks resolve to an empty payload and
@@ -55,99 +54,16 @@ afterAll(() => server.close());
 // navigator.platform — pretend tests run on macOS
 // ---------------------------------------------------------------------------
 //
-// jsdom reports an empty `navigator.platform`, which shortcut display and
-// TanStack's `Mod` resolver use to decide whether the primary modifier is
-// Command (macOS) or Control (Windows/Linux). Forcing the platform to mac here
-// keeps tests aligned with the desktop default; cross-platform resolver and
-// matcher coverage lives in the shortcut unit tests.
+// Neither the test DOMs nor Node report a macOS `navigator.platform` on every
+// host. Shortcut display and TanStack's `Mod` resolver use it to decide
+// whether the primary modifier is Command (macOS) or Control (Windows/Linux). Forcing the
+// platform to mac here keeps tests aligned with the desktop default (and
+// identical on Linux CI); cross-platform resolver and matcher coverage lives in
+// the shortcut unit tests.
 Object.defineProperty(navigator, "platform", {
   configurable: true,
   value: "MacIntel",
 });
-
-// ---------------------------------------------------------------------------
-// window.matchMedia
-// ---------------------------------------------------------------------------
-
-Object.defineProperty(window, "matchMedia", {
-  writable: true,
-  value: vi.fn().mockImplementation((query: string) => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
-
-// ---------------------------------------------------------------------------
-// ResizeObserver
-// ---------------------------------------------------------------------------
-
-class MockResizeObserver {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
-}
-
-Object.defineProperty(window, "ResizeObserver", {
-  writable: true,
-  value: MockResizeObserver,
-});
-
-// ---------------------------------------------------------------------------
-// IntersectionObserver
-// ---------------------------------------------------------------------------
-
-class MockIntersectionObserver {
-  root = null;
-  rootMargin = "";
-  thresholds = [];
-  private callback: IntersectionObserverCallback;
-
-  constructor(callback: IntersectionObserverCallback) {
-    this.callback = callback;
-  }
-
-  observe = vi.fn((el: Element) => {
-    // Immediately fire the callback with isIntersecting: true so that
-    // useNearViewport resolves to true in tests, causing all DiffFileBlocks
-    // to render their full content as before.
-    this.callback(
-      [{ isIntersecting: true, target: el } as IntersectionObserverEntry],
-      this as unknown as IntersectionObserver,
-    );
-  });
-  unobserve = vi.fn();
-  disconnect = vi.fn();
-  takeRecords = vi.fn(() => []);
-}
-
-Object.defineProperty(window, "IntersectionObserver", {
-  writable: true,
-  value: MockIntersectionObserver,
-});
-
-// ---------------------------------------------------------------------------
-// scrollIntoView (not implemented in jsdom)
-// ---------------------------------------------------------------------------
-
-window.HTMLElement.prototype.scrollIntoView = vi.fn();
-
-// ---------------------------------------------------------------------------
-// Canvas (for components that use canvas text measurement)
-// ---------------------------------------------------------------------------
-
-HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
-  font: "",
-  measureText: vi.fn(() => ({ width: 100 })),
-  fillText: vi.fn(),
-  clearRect: vi.fn(),
-  fillRect: vi.fn(),
-})) as unknown as typeof HTMLCanvasElement.prototype.getContext;
 
 // ---------------------------------------------------------------------------
 // react-virtuoso
@@ -159,3 +75,10 @@ HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
 // callbacks (atBottomStateChange, startReached, etc.) can still call
 // `vi.mock("react-virtuoso", ...)` locally — the local mock wins.
 vi.mock("react-virtuoso", () => import("./test/react-virtuoso-mock"));
+
+// ---------------------------------------------------------------------------
+// DOM-only setup (jest-dom, Testing Library cleanup, layout API stubs)
+// ---------------------------------------------------------------------------
+if (typeof window !== "undefined") {
+  await import("./test-setup-dom");
+}

@@ -496,8 +496,7 @@ async fn failed_selection_restoration_reports_database_error() {
 
     let error = restore_persisted_selection(&app_state.write_pool, db_id, &previous)
         .await
-        .err()
-        .expect("failed compensation must surface");
+        .expect_err("failed compensation must surface");
     assert_eq!(error.code, "DB_ERROR");
     assert!(error.message.contains("could not be restored"));
 }

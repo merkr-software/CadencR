@@ -1,6 +1,6 @@
 //! Helpers for tests that drive `worktree::ensure_worktree` directly. Lives
-//! under `common/` so the validation tests (`feature_create_test.rs`) and the
-//! provisioning tests (`feature_worktree_test.rs`) can share fixtures without
+//! under `common/` so the validation tests (`integration/feature_create.rs`) and the
+//! provisioning tests (`home_env/feature_worktree.rs`) can share fixtures without
 //! either file blowing past the 400-line cap.
 
 #![allow(dead_code)]

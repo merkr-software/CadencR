@@ -1,9 +1,9 @@
 //! Validation cases for `POST /api/features` — exercised through the HTTP
-//! handler. Sibling of `feature_worktree_test.rs` which covers the
+//! handler. Sibling of `home_env/feature_worktree.rs` which covers the
 //! `ensure_worktree` provisioning paths; split out so each file stays under
 //! the 400-line cap.
 
-mod common;
+use crate::common;
 
 use common::{git_in, start_test_server};
 

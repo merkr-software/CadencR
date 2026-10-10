@@ -136,7 +136,7 @@ pub(super) async fn dispatch_owner_phase(
                 }
                 OwnerPromptTarget::Pending(owner_sessions) => {
                     spawn_pending_prompt(
-                        &envelope,
+                        envelope,
                         sender,
                         &owner_sessions,
                         app_state,

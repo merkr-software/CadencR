@@ -6,7 +6,7 @@ use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
-static SETTINGS_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+use crate::SETTINGS_TEST_LOCK;
 
 async fn activity_ctx() -> Arc<McpContext> {
     global_write_content(r#"{"workspace_mcp_enabled":"true"}"#)

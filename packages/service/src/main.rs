@@ -1,12 +1,8 @@
-mod api;
-mod app_state;
-mod config;
-mod dev_env;
-mod domain;
-mod error;
-mod remote;
-mod shared;
-mod shutdown;
+//! Thin binary entry point. Every module lives in the `cadencr_service` lib so
+//! the crate compiles (and its unit tests run) once; declaring them again here
+//! with `mod` would build a second full copy of the service.
+
+use cadencr_service::{api, app_state, config, dev_env, domain, remote, shared, shutdown};
 
 use axum::http::header::{HeaderName, CONTENT_TYPE};
 use axum::http::Method;
@@ -96,10 +92,11 @@ async fn main() -> anyhow::Result<()> {
             let write_pool = db::create_write_pool(&db_path).await?;
             shared::migrate::run_migrations(&shared::migrate::MigrationContext {
                 pool: &write_pool,
-                db_path: Some(std::path::Path::new(&db_path)),
+                db_path: dev_env::migration_backup_path(std::path::Path::new(&db_path)),
                 app_version: config.app_version.as_deref(),
             })
             .await?;
+            dev_env::consume_fresh_clone_marker(std::path::Path::new(&db_path))?;
             // The one-time image backfill needs its destination before it can
             // run. Production uses `~/.cadencr/blobs`; an ad-hoc/dev database
             // gets an isolated directory named after that exact database.
@@ -224,16 +221,16 @@ async fn main() -> anyhow::Result<()> {
                     data_dir: remote_data_dir.clone(),
                 }));
 
-            let state = AppState::for_server(
-                read_pool,
-                write_pool,
-                db_path.clone(),
-                auth_token,
-                config.frontend_port,
-                config.port,
-                remote_controller,
-                &remote_data_dir,
-            );
+            let state = AppState::for_server()
+                .read_pool(read_pool)
+                .write_pool(write_pool)
+                .db_path(db_path.clone())
+                .auth_token(auth_token)
+                .frontend_port(config.frontend_port)
+                .port(config.port)
+                .remote(remote_controller)
+                .remote_data_dir(&remote_data_dir)
+                .build();
 
             // Watch the settings dir so external edits to the JSON files push a
             // live refresh to connected clients.

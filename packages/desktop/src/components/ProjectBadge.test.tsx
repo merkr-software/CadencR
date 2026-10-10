@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: asserts computed colors (happy-dom does not normalize them to rgb()) and the icon's blob-URL load.
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@/test-utils";
 import { ProjectBadge } from "@/components/ProjectBadge";

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import type { TerminalOutputOptions } from "celeritty";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

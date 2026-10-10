@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: suggestions open from focus/caret state, which happy-dom does not reproduce.
 import { createRef, useState, type ReactElement, type RefObject } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { Project } from "@/api/generated";

@@ -6,10 +6,12 @@ import test from "node:test";
 import { CARGO_LAST_USED_FILE } from "./cargo-env.mjs";
 import { parseWorktreeList } from "./git-worktrees.mts";
 import {
+  BLOATED_TARGET_BYTES,
   collectDirectoryStats,
   parseAge,
   parseCleanArgs,
   parsePruneArgs,
+  targetWarning,
   selectPruneCandidates,
 } from "./rust-storage.mjs";
 
@@ -72,4 +74,10 @@ test("prune candidates exclude current, main, recent, missing, and symlink targe
   assert.deepEqual(selectPruneCandidates(entries, "/repo/current", "/repo/main", 500), [
     entries[2],
   ]);
+});
+
+test("flags symlinked and bloated targets, not fresh ones", () => {
+  assert.equal(targetWarning({ isSymlink: false, size: 7 * 1024 ** 3 }), "");
+  assert.match(targetWarning({ isSymlink: false, size: BLOATED_TARGET_BYTES + 1 }), /rust:clean/);
+  assert.match(targetWarning({ isSymlink: true, size: 0 }), /symlink/);
 });

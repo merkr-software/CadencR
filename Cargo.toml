@@ -21,13 +21,22 @@ dead_code = "deny"
 unused_imports = "deny"
 unused_variables = "deny"
 
+# Incremental compilation is on for the local crates (dependencies are never
+# built incrementally). Measured on the service: after editing one file,
+# `pnpm rust -- test -p cadencr-service --no-run` drops from ~59 s to ~15 s.
+# The price is disk: ~1.5 GB of `target/debug/incremental` per service build
+# variant (run, test, clippy), so a fresh worktree that runs dev + test + lint
+# holds ~4 GB of it in a ~7.5 GB target (see BLOATED_TARGET_BYTES in
+# scripts/rust-storage.mjs). `pnpm rust:prune` reclaims it from idle
+# worktrees, `pnpm rust:clean -- --apply` from this one. One-shot builds (CI)
+# gain nothing from it: set CARGO_INCREMENTAL=0 there.
 [profile.dev]
 debug = false
-incremental = false
+incremental = true
 
 [profile.test]
 debug = false
-incremental = false
+incremental = true
 
 [profile.test.package."*"]
 debug = false

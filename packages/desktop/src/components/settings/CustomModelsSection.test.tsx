@@ -49,15 +49,19 @@ describe("custom model effort fields", () => {
     const user = userEvent.setup();
     render(<CustomModelsSection />);
 
+    // Fill fields with one paste each: per-keystroke `user.type` re-renders the
+    // form ~70 times, which blew the 5s test budget on a loaded CI runner. The
+    // assertion is about the submitted payload, not keystroke handling.
+    const fill = async (placeholder: string, value: string) => {
+      await user.click(screen.getByPlaceholderText(placeholder));
+      await user.paste(value);
+    };
     await user.click(screen.getByRole("button", { name: "New model" }));
-    await user.type(screen.getByPlaceholderText("claude-sonnet-3-5-20241022"), "gpt-5.6-luna");
-    await user.type(screen.getByPlaceholderText("Sonnet 3.5 (legacy)"), "GPT-5.6 Luna");
+    await fill("claude-sonnet-3-5-20241022", "gpt-5.6-luna");
+    await fill("Sonnet 3.5 (legacy)", "GPT-5.6 Luna");
     await user.click(screen.getByRole("switch", { name: "Supports thinking effort" }));
-    await user.type(
-      screen.getByPlaceholderText("low, medium, high, xhigh"),
-      "low, medium, high, xhigh, max",
-    );
-    await user.type(screen.getByPlaceholderText("medium (optional)"), "medium");
+    await fill("low, medium, high, xhigh", "low, medium, high, xhigh, max");
+    await fill("medium (optional)", "medium");
     await user.click(screen.getByRole("button", { name: "Save model" }));
 
     expect(mocks.mutate).toHaveBeenCalledWith(

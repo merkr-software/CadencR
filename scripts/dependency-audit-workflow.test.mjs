@@ -18,6 +18,22 @@ test("dependency audits cover pull requests, releases and newly disclosed adviso
   assert.deepEqual(workflow.permissions, { contents: "read" });
 });
 
+test("pull requests are audited whenever a dependency input or the audit itself changes", () => {
+  const paths = workflow.on.pull_request?.paths ?? [];
+  for (const input of [
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "**/package.json",
+    "patches/**",
+    ".github/workflows/dependency-audit.yml",
+  ]) {
+    assert.ok(paths.includes(input), `pull_request.paths must include ${input}`);
+  }
+  // Pushes, tags and the schedule must keep auditing every revision.
+  assert.equal(workflow.on.push.paths, undefined);
+  assert.equal(workflow.on.push["paths-ignore"], undefined);
+});
+
 test("the audit includes development dependencies and fails closed at every severity", () => {
   const job = workflow.jobs["pnpm-audit"];
   const audit = job.steps.find(({ run }) => run?.startsWith("pnpm audit"));
