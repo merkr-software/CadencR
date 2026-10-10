@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore, applyMutations, createStreamingState } from "./ws-session-store";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { updateSession } from "./ws-session-types";
+import { anchorTurnTiming } from "./ws-turn-timing";
 import { invalidateWorktreeQueries } from "@/lib/worktreeQueries";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
 
@@ -82,6 +83,47 @@ afterEach(() => {
 function getWs(): MockWebSocket {
   return MockWebSocket.instances[MockWebSocket.instances.length - 1];
 }
+
+it.each(["active", "paused"] as const)(
+  "preserves a %s turn across transport loss and initialization",
+  async (phase) => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(6_000);
+      useWsSessionStore.getState().connect("reconnect-timing");
+      await Promise.resolve();
+      useWsSessionStore.setState(
+        updateSession(useWsSessionStore.getState(), "reconnect-timing", {
+          lifecycle: phase === "active" ? { phase } : { phase, reason: "permission" },
+          turnTiming: { ...anchorTurnTiming(1_000, 5_000), activeMs: 200, userPendingMs: 300 },
+        }),
+      );
+      getWs().fireEvent("close", { code: 1000 });
+      const closed = useWsSessionStore.getState().sessions["reconnect-timing"];
+      expect(closed.lifecycle.phase).toBe(phase);
+      expect(closed.blocks.some((block) => block.type === "turn_summary")).toBe(false);
+      expect(closed.turnTiming).toMatchObject({
+        startedAt: 1_000,
+        segmentStartedAt: null,
+        activeMs: phase === "active" ? 1_200 : 200,
+        userPendingMs: phase === "paused" ? 1_300 : 300,
+      });
+      vi.setSystemTime(10_000);
+      useWsSessionStore.getState().connect("reconnect-timing");
+      await Promise.resolve();
+      getWs().simulateMessage({
+        domain: "session",
+        action: "initialized",
+        payload: { session_id: "10" },
+      });
+      const restored = useWsSessionStore.getState().sessions["reconnect-timing"];
+      expect(restored.lifecycle).toEqual(closed.lifecycle);
+      expect(restored.turnTiming).toEqual({ ...closed.turnTiming, segmentStartedAt: 10_000 });
+    } finally {
+      vi.useRealTimers();
+    }
+  },
+);
 
 function tick(): Promise<void> {
   return new Promise((resolve) => {
@@ -3017,7 +3059,7 @@ describe("ws-session-store", () => {
       expect(sent.payload.request_id).toBe("req-2");
     });
 
-    it("paused lifecycle returns to active when the agent keeps streaming after a deny", async () => {
+    it("keeps waiting for confirmation when output races an in-flight deny", async () => {
       const ws = await setupPermissionPending();
       useWsSessionStore.getState().respondToPermission("s1", "req-1", "deny");
 
@@ -3035,7 +3077,8 @@ describe("ws-session-store", () => {
       });
 
       expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
-        phase: "active",
+        phase: "paused",
+        reason: "permission",
       });
     });
   });
@@ -3120,6 +3163,12 @@ describe("ws-session-store", () => {
         payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
       });
       vi.setSystemTime(9_000);
+      // The user answers the gate; the backend acks the respond envelope and
+      // the stream resumes.
+      store.respondToPermission("s1", "req-1", "allow_once");
+      const respondEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
+      useWsSessionStore.getState().sessions["s1"].pendingWsRequests.get(respondEnvelope.id)?.({});
+      await vi.advanceTimersByTimeAsync(0);
       streamTextMessage(ws, "resumed after permission");
       vi.setSystemTime(11_000);
       ws.simulateMessage({
@@ -3137,6 +3186,70 @@ describe("ws-session-store", () => {
       expect(session.blocks.at(-1)).toMatchObject({
         type: "turn_summary",
         content: "Worked - 7s · Agent 2s · Waiting 5s",
+      });
+      vi.useRealTimers();
+    });
+
+    it("keeps a gated turn paused while chunks stream, booking the wait as waiting", async () => {
+      const ws = await setupActiveSession();
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
+      });
+      vi.setSystemTime(6_000);
+      // A background subagent (or a parallel tool's trailing output) keeps
+      // streaming while the gate is open — it must not flip the turn back to
+      // active, or the whole gate wait is booked as agent time.
+      streamTextMessage(ws, "background subagent chunk");
+      expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
+        phase: "paused",
+        reason: "permission",
+      });
+
+      vi.setSystemTime(11_000);
+      ws.simulateMessage({
+        domain: "session",
+        action: "turn_complete",
+        payload: {},
+      });
+
+      const session = useWsSessionStore.getState().sessions["s1"];
+      expect(session.turnTiming.completed).toEqual({
+        totalMs: 10_000,
+        activeMs: 0,
+        userPendingMs: 10_000,
+      });
+      vi.useRealTimers();
+    });
+
+    it("keeps the turn paused while answering one gate with another still queued", async () => {
+      const ws = await setupActiveSession();
+      vi.useFakeTimers();
+      vi.setSystemTime(1_000);
+
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
+      });
+      ws.simulateMessage({
+        domain: "session",
+        action: "permission.request",
+        payload: { request_id: "req-2", tool_name: "Bash", tool_input: {} },
+      });
+      vi.setSystemTime(5_000);
+      // Answering req-1 does not end the wait: req-2 is still queued, so a
+      // streamed chunk must not flip the turn back to active.
+      useWsSessionStore.getState().respondToPermission("s1", "req-1", "allow_once");
+      streamTextMessage(ws, "chunk while second gate queued");
+
+      expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
+        phase: "paused",
+        reason: "permission",
       });
       vi.useRealTimers();
     });

@@ -73,13 +73,18 @@ pub(crate) async fn handle_permission_respond(
 
 pub(super) async fn finish_gate_claim(
     state: &AppState,
-    session_id: i64,
-    request_id: &str,
+    event: crate::domain::session_status::SessionStatusEvent,
     success: bool,
 ) {
     if success {
-        state.pending_gates.complete(session_id, request_id).await;
-    } else {
-        state.pending_gates.release(session_id, request_id).await;
+        state
+            .pending_gates
+            .broadcast_status(&state.session_status_tx, event)
+            .await;
+    } else if let Some(request_id) = event.resolved_request_id {
+        state
+            .pending_gates
+            .release(event.session_id, &request_id)
+            .await;
     }
 }

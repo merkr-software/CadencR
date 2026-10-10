@@ -16,7 +16,8 @@ import { flushStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { createSessionEntry, type SessionEntry, updateSession } from "./ws-session-types";
-import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
+import { isTurnActive } from "./ws-turn-lifecycle";
+import { suspendTurnTiming } from "./ws-turn-timing";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { handleSocketMessage, type SocketHandlerDeps } from "./ws-session-socket-handler";
 
@@ -85,9 +86,9 @@ function handleConnectionClose(
       conn: null,
       isConnected: false,
       // Session IDs are stable across transport hiccups; onOpen replays init.
-      lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
-        type: "connection_lost",
-      }),
+      ...(session
+        ? { turnTiming: suspendTurnTiming(session.turnTiming, session.lifecycle, Date.now()) }
+        : {}),
       ...closedDerived,
     }),
   );
@@ -124,9 +125,9 @@ function handleConnectionError(context: SessionConnectionContext, intentional: b
       conn: null,
       isConnected: false,
       // Session IDs are stable across transport hiccups; onOpen replays init.
-      lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
-        type: "turn_errored",
-      }),
+      ...(session
+        ? { turnTiming: suspendTurnTiming(session.turnTiming, session.lifecycle, Date.now()) }
+        : {}),
     }),
   );
   useConnectionStatusStore

@@ -13,6 +13,8 @@ import { type PersistedStatePayload, type SessionEntry, updateSession } from "./
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { parseAccessMode } from "@/types/access-mode";
 import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
+import { hasOpenGate } from "./ws-gate-state";
+import { reconcileTurnAnchor } from "./ws-turn-timing";
 
 interface DecodedQuestion {
   questions: AgentQuestion[];
@@ -76,6 +78,12 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     : payload.currentProviderId && payload.currentModelId
       ? { providerId: payload.currentProviderId, modelId: payload.currentModelId }
       : undefined;
+  // A late server anchor replaces the provisional start, not the observed
+  // Agent/Waiting buckets. Only a different confirmed turn resets them.
+  const canAnchorTurnTiming =
+    payload.turnTiming !== undefined &&
+    !shouldPreservePromptLifecycle &&
+    payload.turnTiming.startedAt != null;
   return {
     persistedLoaded: true,
     historyPrependDisplayOffset: 0,
@@ -86,8 +94,20 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     featureId: payload.featureId ?? null,
     sessionDbId: payload.sessionDbId ?? null,
     lifecycle:
-      shouldPreservePromptLifecycle && existing ? existing.lifecycle : lifecycleWithPendingGate,
+      existing &&
+      (shouldPreservePromptLifecycle ||
+        hasOpenGate(existing) ||
+        existing.lifecycle.phase === "active")
+        ? existing.lifecycle
+        : lifecycleWithPendingGate,
     ...(canHydrateSelection && resolvedSelection ? { currentSelection: resolvedSelection } : {}),
+    ...(canAnchorTurnTiming && payload.turnTiming?.startedAt != null
+      ? {
+          turnTiming: existing
+            ? reconcileTurnAnchor(existing.turnTiming, payload.turnTiming.startedAt)
+            : payload.turnTiming,
+        }
+      : {}),
     ...(payload.currentProfile ? { currentProfile: payload.currentProfile } : {}),
     ...(payload.permissionMode ? { permissionMode: payload.permissionMode } : {}),
     ...(payload.accessMode ? { accessMode: parseAccessMode(payload.accessMode) } : {}),
@@ -127,14 +147,22 @@ export function applyPersistedState(
   // Race guard: a live `permission.request` envelope can arrive before the
   // REST snapshot resolves; the live state is always fresher.
   const canHydrateFromSnapshot = (existing?.pendingRequestId ?? "") === "";
-  const decodedPermission =
+  let decodedPermission =
     canHydrateFromSnapshot && pendingPermissionSnapshot != null
       ? decodeSnapshotPermission(pendingPermissionSnapshot)
       : null;
-  const decodedQuestion =
+  let decodedQuestion =
     canHydrateFromSnapshot && pendingQuestionsSnapshot != null
       ? decodeSnapshotQuestion(pendingQuestionsSnapshot)
       : null;
+
+  if (
+    decodedPermission?.requestId &&
+    existing?.resolvedGateRequestIds?.includes(decodedPermission.requestId)
+  )
+    decodedPermission = null;
+  if (decodedQuestion && existing?.resolvedGateRequestIds?.includes(decodedQuestion.requestId))
+    decodedQuestion = null;
 
   let lifecycleWithPendingGate = lifecycle;
   if (pendingPlanApproval != null) {

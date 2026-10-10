@@ -18,6 +18,7 @@ import {
   buildMessagePatch,
 } from "./ws-message-processing";
 import { trackStreamSeq } from "./ws-session-resync";
+import { hasOpenGate } from "./ws-gate-state";
 import { pendingPromptTailStartIndex } from "./ws-pending-prompts";
 import type { SessionEntry } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
@@ -173,13 +174,21 @@ function processMessageBlocks(
         };
   }
 
+  // Streamed chunks arrive while a user gate is open (background subagents,
+  // trailing results of parallel tool calls). They must not flip the paused
+  // lifecycle back to active, or the whole gate wait is booked as agent time
+  // in the turn summary. Sending an answer does not resolve the gate until
+  // the backend acknowledges that exact request.
+  const awaitingUserGate = hasOpenGate(currentSession);
   const lifecycle =
     manualCompactBoundaryObserved && currentSession.pendingManualCompact
       ? transitionTurn(currentSession.lifecycle, {
           type: "turn_ended",
           reason: "completed",
         })
-      : transitionTurn(currentSession.lifecycle, { type: "stream_activity" });
+      : awaitingUserGate
+        ? currentSession.lifecycle
+        : transitionTurn(currentSession.lifecycle, { type: "stream_activity" });
   if (lifecycle !== currentSession.lifecycle) patch.lifecycle = lifecycle;
   if (manualCompactBoundaryObserved && currentSession.pendingManualCompact) {
     patch.pendingManualCompact = false;

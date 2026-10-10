@@ -8,6 +8,8 @@ export interface TurnDurationBreakdown {
 
 export interface TurnTimingState {
   startedAt: number | null;
+  /** Distinguishes a provisional local start from an authoritative turn anchor. */
+  serverStartedAt?: number | null;
   segmentStartedAt: number | null;
   activeMs: number;
   userPendingMs: number;
@@ -30,22 +32,30 @@ export function transitionTurnTiming(
   next: TurnLifecycle,
   nowMs: number = Date.now(),
 ): TurnTimingState {
-  // Any transition from a non-in-progress phase (idle / terminal / error)
-  // into an in-progress phase (active / paused) starts a fresh timer. The
-  // paused entry-point matters when a session is bootstrapped mid-turn from
-  // a persisted snapshot that already has a pending question or permission —
-  // without it, `startedAt` stays null and the live "Working - Xs" label
-  // can never tick, even though the badge / streaming cursor display
-  // "Working".
-  if (!isInProgressPhase(previous) && isInProgressPhase(next)) {
+  // Any transition from a non-timed phase (idle / terminal / error / at-rest
+  // paused) into a timed phase (active / mid-turn paused) starts a fresh
+  // timer. The paused entry-point matters when a session is bootstrapped
+  // mid-turn from a persisted snapshot that already has a pending question
+  // or permission — without it, `startedAt` stays null and the live
+  // "Working - Xs" label can never tick, even though the badge / streaming
+  // cursor display "Working".
+  if (!isTimedPhase(previous) && isTimedPhase(next)) {
     return startTurnTiming(nowMs);
   }
 
   return completeTurnTimingSegment(timing, previous, next, timing.segmentStartedAt, nowMs);
 }
 
-function isInProgressPhase(lifecycle: TurnLifecycle): boolean {
-  return lifecycle.phase === "active" || lifecycle.phase === "paused";
+/**
+ * Phases that belong to a live turn. `paused/user` is excluded: it only
+ * arises from hydrating a session whose persisted status is `paused` /
+ * `waiting` — a conversation at rest, not a mid-turn wait. Treating it as
+ * in-progress would start a phantom timer at hydration and fold the whole
+ * time the conversation sat open into the next turn's totals.
+ */
+function isTimedPhase(lifecycle: TurnLifecycle): boolean {
+  if (lifecycle.phase === "active") return true;
+  return lifecycle.phase === "paused" && lifecycle.reason !== "user";
 }
 
 export function completeTurnTimingSegment(
@@ -68,6 +78,7 @@ export function completeTurnTimingSegment(
       : timing.completed;
 
   return {
+    ...timing,
     startedAt: next.phase === "idle" ? null : timing.startedAt,
     segmentStartedAt: isTerminalLifecycle(next) || next.phase === "idle" ? null : nowMs,
     activeMs: next.phase === "idle" ? 0 : activeMs,
@@ -112,6 +123,75 @@ export function startTurnTiming(nowMs: number): TurnTimingState {
     userPendingMs: 0,
     completed: null,
   };
+}
+
+/**
+ * Timer for a turn that began before this client observed it. `startedAt`
+ * (Worked) is anchored to the server stamp, but the accrual segment opens at
+ * `nowMs`: the unobserved span must not land in whichever bucket happens to
+ * be current when the next transition closes the segment.
+ */
+export function anchorTurnTiming(startedAtMs: number, nowMs: number = Date.now()): TurnTimingState {
+  return {
+    startedAt: startedAtMs,
+    serverStartedAt: startedAtMs,
+    segmentStartedAt: nowMs,
+    activeMs: 0,
+    userPendingMs: 0,
+    completed: null,
+  };
+}
+
+/** Adopt the first server anchor; only a different confirmed turn resets buckets. */
+export function reconcileTurnAnchor(
+  timing: TurnTimingState,
+  startedAtMs: number,
+  nowMs: number = Date.now(),
+): TurnTimingState {
+  if (
+    timing.startedAt == null ||
+    (timing.serverStartedAt != null && timing.serverStartedAt !== startedAtMs)
+  ) {
+    return anchorTurnTiming(startedAtMs, nowMs);
+  }
+  if (timing.serverStartedAt === startedAtMs) return timing;
+  return { ...timing, startedAt: startedAtMs, serverStartedAt: startedAtMs };
+}
+
+/**
+ * Fold the open segment into its bucket and stop accrual — called on the OS
+ * suspend signal, before the renderer freezes, so the clock gap spent asleep
+ * lands in no bucket (a turn active at 11pm would otherwise report the whole
+ * night as agent time).
+ */
+export function suspendTurnTiming(
+  timing: TurnTimingState,
+  lifecycle: TurnLifecycle,
+  nowMs: number,
+): TurnTimingState {
+  if (timing.segmentStartedAt == null) return timing;
+  const folded = completeTurnTimingSegment(
+    timing,
+    lifecycle,
+    lifecycle,
+    timing.segmentStartedAt,
+    nowMs,
+  );
+  return { ...folded, segmentStartedAt: null };
+}
+
+/**
+ * Re-open the segment at wake time. Also covers the case where the suspend
+ * signal never ran (renderer froze first): the stale pre-sleep segment is
+ * dropped rather than booked across the sleep gap. `startedAt` is kept, so
+ * Worked still reports the turn's true wall-clock span.
+ */
+export function resumeTurnTimingAfterSuspend(
+  timing: TurnTimingState,
+  nowMs: number,
+): TurnTimingState {
+  if (timing.startedAt == null) return timing;
+  return { ...timing, segmentStartedAt: nowMs };
 }
 
 function isTerminalLifecycle(lifecycle: TurnLifecycle): boolean {
