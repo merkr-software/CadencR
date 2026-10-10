@@ -8,6 +8,8 @@
   },
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "setup:dev": "node scripts/setup-dev.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "dev:configure-worktree": "node scripts/configure-worktree-dev.mts",
     "dev:precompile": "env -u BASH_ENV scripts/precompile-dev.sh",
     "build:agents-md": "node scripts/build-agents-md.mjs",

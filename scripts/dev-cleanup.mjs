@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
+import { RUN_ARGS } from "./service-dev-watch.mjs";
 
 const PROCESS_LIST_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const DEV_COMMAND_PATTERNS = [
   /node_modules\/\.bin\/turbo run dev/,
@@ -9,6 +11,9 @@ const DEV_COMMAND_PATTERNS = [
   /node .*electron-vite\.mjs dev/,
   /Electron\.app\/Contents\/MacOS\/Electron \./,
   /cargo-watch watch .*cadencr-service/,
+  // scripts/service-dev-watch.mjs and the watchexec it prefers over cargo-watch.
+  /node .*scripts\/service-dev-watch\.mjs/,
+  new RegExp(`watchexec .*-- cargo ${escapeRegExp(RUN_ARGS.join(" "))}`),
   /target\/debug\/cadencr-service/,
   /node .*astro dev/,
 ];

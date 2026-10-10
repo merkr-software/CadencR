@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  collectDevProcessGroups,
-  remainingDevProcessGroups,
-} from "./dev-cleanup.mjs";
+import { collectDevProcessGroups, remainingDevProcessGroups } from "./dev-cleanup.mjs";
 
 const repoRoot = "/repo/cadencr";
 
@@ -43,7 +40,7 @@ test("collectDevProcessGroups tracks only descendants of this dev launcher", () 
       pid: 105,
       ppid: 102,
       pgid: 300,
-      command: `/Users/rle/.cargo/bin/cargo-watch watch -w src -w .env -x run --bin cadencr-service`,
+      command: `/home/dev/.cargo/bin/cargo-watch watch -w src -w .env -x run --bin cadencr-service`,
     },
     {
       pid: 106,
@@ -73,17 +70,11 @@ test("collectDevProcessGroups tracks only descendants of this dev launcher", () 
       pid: 204,
       ppid: 1,
       pgid: 204,
-      command:
-        "/Applications/Cadencr.app/Contents/Resources/cadencr-service --port 5004",
+      command: "/Applications/Cadencr.app/Contents/Resources/cadencr-service --port 5004",
     },
   ];
 
-  assert.deepEqual(collectDevProcessGroups(rows, repoRoot, 99999, 101), [
-    101,
-    200,
-    300,
-    301,
-  ]);
+  assert.deepEqual(collectDevProcessGroups(rows, repoRoot, 99999, 101), [101, 200, 300, 301]);
 });
 
 test("remainingDevProcessGroups keeps only observed groups that still host dev tasks", () => {
@@ -110,12 +101,24 @@ test("remainingDevProcessGroups keeps only observed groups that still host dev t
       pid: 303,
       ppid: 1,
       pgid: 300,
-      command: `/Users/rle/.cargo/bin/cargo-watch watch -w src -w .env -x run --bin cadencr-service`,
+      command: `/home/dev/.cargo/bin/cargo-watch watch -w src -w .env -x run --bin cadencr-service`,
     },
   ];
 
-  assert.deepEqual(remainingDevProcessGroups(rows, [101, 200, 300]), [
-    200,
-    300,
-  ]);
+  assert.deepEqual(remainingDevProcessGroups(rows, [101, 200, 300]), [200, 300]);
+});
+
+test("matches the watchexec-based service watcher and its node wrapper", () => {
+  const rows = [
+    { pid: 10, ppid: 1, pgid: 10, command: `node ${repoRoot}/scripts/service-dev-watch.mjs` },
+    {
+      pid: 11,
+      ppid: 10,
+      pgid: 11,
+      command:
+        "watchexec --restart --no-project-ignore --watch src -- cargo run --bin cadencr-service",
+    },
+    { pid: 12, ppid: 1, pgid: 12, command: "watchexec --watch src -- make" },
+  ];
+  assert.deepEqual(collectDevProcessGroups(rows, repoRoot, 999, 10), [10, 11]);
 });
