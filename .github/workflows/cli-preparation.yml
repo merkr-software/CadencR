@@ -1,0 +1,83 @@
+name: Prepare Linux CLI artifacts (no publication)
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_commit:
+        description: Full reviewed source commit SHA
+        required: true
+        type: string
+      source_branch:
+        description: Coordinated source branch (commit must be its current tip)
+        required: true
+        type: string
+      release_tag:
+        description: Explicit stable vX.Y.Z matching the source CLI package version
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SOURCE_COMMIT: ${{ inputs.source_commit }}
+      SOURCE_BRANCH: ${{ inputs.source_branch }}
+      RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      # Guard comes from the selected workflow revision, not the candidate source.
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+
+      - name: Validate source topology and explicit version
+        run: |
+          git check-ref-format "refs/heads/$SOURCE_BRANCH"
+          git fetch --depth=1 --no-tags origin "refs/heads/$SOURCE_BRANCH:refs/remotes/cli-preparation/source"
+          node scripts/check-cli-preparation.mjs > "$RUNNER_TEMP/cli-preparation.json"
+
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ inputs.source_commit }}
+          path: cli-source
+          persist-credentials: false
+
+      - name: Install Rust stable toolchain
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Test CLI and supporting libraries
+        working-directory: cli-source
+        run: |
+          node scripts/cargo-env.mjs cargo test --locked \
+            -p cadencr-cli -p cadencr-plugin-core \
+            -p cadencr-registry-core -p cadencr-registry-publisher
+
+      - name: Build Linux CLI
+        working-directory: cli-source
+        run: node scripts/cargo-env.mjs cargo build --locked --release -p cadencr-cli
+
+      - name: Smoke test and checksum artifacts
+        working-directory: cli-source
+        run: |
+          scripts/package-cli-release.sh "$RELEASE_TAG" \
+            x86_64-unknown-linux-gnu target/release/cadencr "$RUNNER_TEMP/cli-release"
+          cp "$RUNNER_TEMP/cli-preparation.json" "$RUNNER_TEMP/cli-release/preparation.json"
+
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: cadencr-cli-linux-preparation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cli-release/
+          if-no-files-found: error
+          retention-days: 7
