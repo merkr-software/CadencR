@@ -73,4 +73,4 @@ pub(crate) fn advance(
     )
 }
 
-mod lifecycle;
+pub(crate) mod lifecycle;

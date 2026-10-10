@@ -112,6 +112,8 @@ pub(crate) enum RegistryCommand {
     PublishCatalog(PublishCatalogArgs),
     /// Advance a confirmed stable discovery branch to an already published catalog.
     AdvanceCatalog(Box<AdvanceCatalogArgs>),
+    /// Run an explicitly confirmed protected publication pipeline.
+    PublishRegistry(PublishRegistryArgs),
     /// Sign a validated canonical index with an Ed25519 PKCS8 PEM key.
     SignIndex {
         #[arg(long)]
@@ -250,4 +252,21 @@ pub(crate) struct RestoreArgs {
     /// Must exactly match the planned published release tag; never publishes it.
     #[arg(long)]
     pub(crate) confirm_restore: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PublishRegistryArgs {
+    #[arg(long)]
+    pub(crate) request: PathBuf,
+    #[arg(long)]
+    pub(crate) directory: PathBuf,
+    #[arg(long)]
+    pub(crate) repository: String,
+    #[arg(long)]
+    pub(crate) registry_commit: String,
+    #[arg(long)]
+    pub(crate) private_key: PathBuf,
+    /// Exact SHA-256 of the reviewed protected publication request bytes.
+    #[arg(long)]
+    pub(crate) confirm_request_sha256: String,
 }

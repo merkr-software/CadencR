@@ -10,6 +10,7 @@ mod error;
 mod fs;
 mod github;
 mod mirror;
+mod pipeline;
 mod promote;
 mod publication_local;
 mod receipt;
@@ -23,6 +24,10 @@ pub use binding::{CompactArtifact, MirrorReceipt, PublicationReceipt};
 pub use catalog_discovery::{AdvanceCatalogRequest, DiscoveryReceipt};
 pub use catalog_publish::{CatalogPublicationReceipt, PublishCatalogRequest};
 pub use error::PublisherError;
+pub use pipeline::{
+    prepare_registry_publication, publish_registry, PipelineReceipt, PipelineRequest,
+    PreparedPipeline,
+};
 pub use stage::{StageArtifact, StageReceipt};
 
 /// Inputs for one publication staging operation.

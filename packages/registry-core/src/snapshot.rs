@@ -9,7 +9,7 @@ use crate::json::canonical_json_bytes;
 use crate::signing::{parse_public_key, validate_signing_key_id, verify_envelope_at};
 use crate::valid_publication_repository;
 
-mod continuity;
+pub(crate) mod continuity;
 mod io;
 mod output;
 use continuity::validate_continuity;

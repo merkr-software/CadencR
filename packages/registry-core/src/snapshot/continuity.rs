@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::error::RegistryError;
 use crate::package::identity;
 
-pub(super) fn validate_continuity(
+pub(crate) fn validate_continuity(
     previous: &Value,
     candidate: &Value,
 ) -> Result<(), RegistryError> {
