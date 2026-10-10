@@ -96,6 +96,7 @@ async fn main() -> anyhow::Result<()> {
                 app_version: config.app_version.as_deref(),
             })
             .await?;
+            dev_env::consume_fresh_clone_marker(std::path::Path::new(&db_path))?;
             // The one-time image backfill needs its destination before it can
             // run. Production uses `~/.cadencr/blobs`; an ad-hoc/dev database
             // gets an isolated directory named after that exact database.

@@ -7,6 +7,7 @@ import { parseEnv as parseEnvText } from "node:util";
 import {
   cloneOrCopy,
   configureWorktreeDev,
+  FRESH_CLONE_MARKER,
   parseListeningPorts,
 } from "./configure-worktree-dev.mts";
 
@@ -98,7 +99,7 @@ test("copies dev files and allocates ports unused by worktrees or listeners", as
       frontendPort: 1423,
       servicePort: 5101,
       remotePort: 6101,
-      skipDbBackup: true,
+      freshClone: true,
     });
 
     const desktop = readEnv(join(current, "packages", "desktop", ".env"));
@@ -111,7 +112,8 @@ test("copies dev files and allocates ports unused by worktrees or listeners", as
     assert.equal(service.CADENCR_FRONTEND_PORT, "1423");
     assert.equal(service.CADENCR_RUST_PORT, "5101");
     assert.equal(service.CADENCR_REMOTE_PORT, "6101");
-    assert.equal(service.CADENCR_DEV_SKIP_DB_BACKUP, "1");
+    assert.equal(service.CADENCR_DEV_SKIP_DB_BACKUP, undefined);
+    assert.match(readFileSync(join(current, FRESH_CLONE_MARKER), "utf8"), /first service start/);
     assert.equal(
       readFileSync(join(current, "packages", "service", "cadencr.local.db"), "utf8"),
       "base-database",
@@ -130,8 +132,8 @@ test("reuses a worktree assignment and preserves its existing database", async (
   const root = mkdtempSync(join(tmpdir(), "cadencr-worktree-dev-"));
   const main = join(root, "main");
   const current = join(root, "feature-current");
-  // Even a skip flag inherited from the main checkout must not reach a
-  // database that holds the worktree's own data.
+  // The legacy skip flag, inherited from the main checkout, is dropped; and a
+  // database that holds the worktree's own data never gets a marker.
   createCheckout(main, { withFiles: true, serviceExtra: ["CADENCR_DEV_SKIP_DB_BACKUP=1"] });
   createCheckout(current, {
     withFiles: true,
@@ -155,7 +157,7 @@ test("reuses a worktree assignment and preserves its existing database", async (
       frontendPort: 1450,
       servicePort: 5150,
       remotePort: 6150,
-      skipDbBackup: false,
+      freshClone: false,
     });
     assert.equal(
       readFileSync(join(current, "packages", "service", "cadencr.local.db"), "utf8"),
@@ -163,6 +165,7 @@ test("reuses a worktree assignment and preserves its existing database", async (
     );
     const serviceEnv = readFileSync(join(current, "packages", "service", ".env"), "utf8");
     assert.doesNotMatch(serviceEnv, /CADENCR_DEV_SKIP_DB_BACKUP/);
+    assert.equal(existsSync(join(current, FRESH_CLONE_MARKER)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -177,14 +180,15 @@ test("keeps backups when CADENCR_DB_PATH names a database other than the clone",
   createCheckout(main, { withFiles: true, dbPath: shared });
   createCheckout(current);
   try {
-    const { skipDbBackup } = await configureWorktreeDev({
+    const { freshClone } = await configureWorktreeDev({
       currentRoot: current,
       mainRoot: main,
       worktreeRoots: [main, current],
       lockPath: join(root, "allocation.lock"),
       listeningPorts: new Set(),
     });
-    assert.equal(skipDbBackup, false);
+    assert.equal(freshClone, false);
+    assert.equal(existsSync(join(current, FRESH_CLONE_MARKER)), false);
     const service = readEnv(join(current, "packages", "service", ".env"));
     assert.equal(service.CADENCR_DB_PATH, shared);
     assert.equal(service.CADENCR_DEV_SKIP_DB_BACKUP, undefined);
@@ -227,10 +231,7 @@ test("works from a fresh main checkout without a root .env or a dev database", a
     );
     assert.equal(existsSync(join(current, ".env")), false);
     assert.equal(existsSync(join(current, "packages", "service", "cadencr.local.db")), false);
-    assert.equal(
-      readEnv(join(current, "packages", "service", ".env")).CADENCR_DEV_SKIP_DB_BACKUP,
-      undefined,
-    );
+    assert.equal(existsSync(join(current, FRESH_CLONE_MARKER)), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -69,35 +69,63 @@ pub fn validate_required_env_keys(
     )
 }
 
-/// Dev-only opt-out of the pre-migration backup. `pnpm dev:configure-worktree`
-/// sets it only when it has just cloned the main checkout's database
-/// (copy-on-write) into the worktree: a `VACUUM INTO` snapshot of that clone is
-/// a full, unshared copy (several GB) of data the main checkout still holds.
-pub const SKIP_DB_BACKUP_ENV: &str = "CADENCR_DEV_SKIP_DB_BACKUP";
+/// Suffix of the marker `pnpm dev:configure-worktree` writes next to a database
+/// it has just cloned (copy-on-write) from the main checkout. Until the service
+/// has started once on it, that clone holds only data the main checkout still
+/// has, so a pre-migration `VACUUM INTO` snapshot would be a full, unshared
+/// copy (several GB) protecting nothing. Mirrors `FRESH_CLONE_MARKER` in
+/// scripts/configure-worktree-dev.mts.
+pub const FRESH_CLONE_MARKER_SUFFIX: &str = ".fresh-clone";
+
+fn fresh_clone_marker(db_path: &Path) -> PathBuf {
+    let mut marker = db_path.as_os_str().to_owned();
+    marker.push(FRESH_CLONE_MARKER_SUFFIX);
+    PathBuf::from(marker)
+}
 
 /// Whether to skip the pre-migration backup. Never in release builds: the
 /// packaged app always refuses to migrate without a backup.
-pub fn skip_db_backup(debug_build: bool, value: Option<&str>) -> bool {
-    debug_build && value.is_some_and(|value| value.trim() == "1")
+fn skip_db_backup(debug_build: bool, fresh_clone: bool) -> bool {
+    debug_build && fresh_clone
 }
 
-/// The database file to back up before migrating, or `None` when this dev
-/// checkout opted out via [`SKIP_DB_BACKUP_ENV`].
+/// The database file to back up before migrating, or `None` for a dev
+/// database that is still an untouched worktree clone.
 pub fn migration_backup_path(db_path: &Path) -> Option<&Path> {
-    let value = std::env::var(SKIP_DB_BACKUP_ENV).ok();
-    if skip_db_backup(cfg!(debug_assertions), value.as_deref()) {
+    let marker = fresh_clone_marker(db_path);
+    if skip_db_backup(cfg!(debug_assertions), marker.is_file()) {
         tracing::warn!(
-            "{SKIP_DB_BACKUP_ENV}=1: pre-migration backups are disabled for this dev database"
+            "{}: untouched clone of the main checkout's database, skipping this start's \
+             pre-migration backup",
+            marker.display()
         );
         return None;
     }
     Some(db_path)
 }
 
+/// Run once migrations succeeded: from then on the database may hold data only
+/// this worktree has, so every later migration backs it up.
+pub fn consume_fresh_clone_marker(db_path: &Path) -> anyhow::Result<()> {
+    if !cfg!(debug_assertions) {
+        return Ok(());
+    }
+    let marker = fresh_clone_marker(db_path);
+    match std::fs::remove_file(&marker) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(anyhow::anyhow!(
+            "Failed to remove `{}`; delete it by hand so later migrations back up: {error}",
+            marker.display()
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        load_optional_package_dotenv, require_dev_env_file, service_dotenv_path, skip_db_backup,
+        consume_fresh_clone_marker, fresh_clone_marker, load_optional_package_dotenv,
+        migration_backup_path, require_dev_env_file, service_dotenv_path, skip_db_backup,
         validate_required_env_keys, REQUIRED_DEV_ENV_KEYS, SERVICE_DOTENV_DISPLAY_PATH,
     };
     // The crate-wide lock: other lib tests set CADENCR_AUTH_TOKEN too.
@@ -168,15 +196,29 @@ mod tests {
     }
 
     #[test]
-    fn skips_backup_only_in_debug_builds_with_explicit_opt_in() {
-        assert!(skip_db_backup(true, Some("1")));
-        assert!(skip_db_backup(true, Some(" 1\n")));
+    fn skips_backup_only_for_a_fresh_clone_in_debug_builds() {
+        assert!(skip_db_backup(true, true));
         assert!(
-            !skip_db_backup(false, Some("1")),
+            !skip_db_backup(false, true),
             "release builds always back up"
         );
-        assert!(!skip_db_backup(true, None));
-        assert!(!skip_db_backup(true, Some("0")));
-        assert!(!skip_db_backup(true, Some("true")));
+        assert!(!skip_db_backup(true, false));
+    }
+
+    #[test]
+    fn fresh_clone_marker_skips_one_start_then_backups_resume() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("cadencr.local.db");
+        let marker = fresh_clone_marker(&db_path);
+        assert_eq!(marker, dir.path().join("cadencr.local.db.fresh-clone"));
+
+        assert_eq!(migration_backup_path(&db_path), Some(db_path.as_path()));
+        fs::write(&marker, "fresh").unwrap();
+        assert_eq!(migration_backup_path(&db_path), None);
+
+        consume_fresh_clone_marker(&db_path).unwrap();
+        assert!(!marker.exists());
+        assert_eq!(migration_backup_path(&db_path), Some(db_path.as_path()));
+        consume_fresh_clone_marker(&db_path).unwrap();
     }
 }

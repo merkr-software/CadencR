@@ -6,6 +6,7 @@ import {
   mkdirSync,
   realpathSync,
   rmSync,
+  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +27,11 @@ const repoRoot = dirname(dirname(scriptPath));
 // The service runs from its package dir, so a relative CADENCR_DB_PATH resolves there.
 const SERVICE_DIR = join("packages", "service");
 const DEV_DATABASE = join(SERVICE_DIR, "cadencr.local.db");
+// Written next to a database this script has just cloned. Debug builds of the
+// service skip the pre-migration backup while it exists and remove it on their
+// first successful start, once the clone may hold data of its own. Mirrors
+// FRESH_CLONE_MARKER_SUFFIX in packages/service/src/dev_env.rs.
+export const FRESH_CLONE_MARKER = `${DEV_DATABASE}.fresh-clone`;
 
 interface PortAssignment {
   frontendPort: number;
@@ -34,8 +40,8 @@ interface PortAssignment {
 }
 
 interface WorktreeDevResult extends PortAssignment {
-  /** Whether CADENCR_DEV_SKIP_DB_BACKUP=1 was written (see `usesFreshClone`). */
-  skipDbBackup: boolean;
+  /** Whether FRESH_CLONE_MARKER was written (see `usesFreshClone`). */
+  freshClone: boolean;
 }
 
 interface CheckoutDevConfig {
@@ -228,11 +234,7 @@ function chooseAssignment({
   };
 }
 
-function writeAssignment(
-  currentRoot: string,
-  assignment: PortAssignment,
-  skipDbBackup: boolean,
-): void {
+function writeAssignment(currentRoot: string, assignment: PortAssignment): void {
   updateEnvFile(currentRoot, DESKTOP_ENV, {
     VITE_FRONTEND_PORT: assignment.frontendPort,
     VITE_API_URL: `http://127.0.0.1:${assignment.servicePort}`,
@@ -242,10 +244,9 @@ function writeAssignment(
     CADENCR_FRONTEND_PORT: assignment.frontendPort,
     CADENCR_RUST_PORT: assignment.servicePort,
     CADENCR_REMOTE_PORT: assignment.remotePort,
-    // A fresh copy-on-write clone of the main checkout's database: a
-    // pre-migration snapshot would be a full, unshared multi-GB copy of data
-    // the main checkout still holds. Removed in every other case.
-    CADENCR_DEV_SKIP_DB_BACKUP: skipDbBackup ? 1 : undefined,
+    // Earlier versions skipped backups through this flag for good, even once
+    // the worktree held data of its own; FRESH_CLONE_MARKER replaces it.
+    CADENCR_DEV_SKIP_DB_BACKUP: undefined,
   });
 }
 
@@ -276,9 +277,16 @@ export async function configureWorktreeDev({
       worktreeRoots: knownRoots,
       listeningPorts: activeListeningPorts,
     });
-    const skipDbBackup = usesFreshClone(currentRoot, copyBaseFiles(mainRoot, currentRoot));
-    writeAssignment(currentRoot, assignment, skipDbBackup);
-    return { ...assignment, skipDbBackup };
+    const freshClone = usesFreshClone(currentRoot, copyBaseFiles(mainRoot, currentRoot));
+    writeAssignment(currentRoot, assignment);
+    if (freshClone) {
+      writeFileSync(
+        join(currentRoot, FRESH_CLONE_MARKER),
+        "Untouched clone of the main checkout's dev database: the first service start skips\n" +
+          "its pre-migration backup, then deletes this file.\n",
+      );
+    }
+    return { ...assignment, freshClone };
   } finally {
     releaseLock();
   }
@@ -302,8 +310,8 @@ async function main(): Promise<void> {
   console.log(`  remote port: ${result.remotePort}`);
   console.log(`  profile:  ${basename(repoRoot)}`);
   console.log(
-    result.skipDbBackup
-      ? "  database: fresh clone of the main checkout's; pre-migration backups skipped"
+    result.freshClone
+      ? "  database: fresh clone of the main checkout's; its first start skips the pre-migration backup"
       : "  database: pre-migration backups kept",
   );
 }

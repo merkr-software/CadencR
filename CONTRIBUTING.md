@@ -106,14 +106,14 @@ them cheap:
   almost nothing per worktree. Worktrees created before this change hold full
   copies.
 - Only when that run clones the database, and the worktree's `CADENCR_DB_PATH`
-  points at the clone, does it set `CADENCR_DEV_SKIP_DB_BACKUP=1` in the
-  worktree's service `.env`. Debug builds then skip the pre-migration
+  points at the clone, does it write a `cadencr.local.db.fresh-clone` marker
+  next to it. The first start of a debug build then skips the pre-migration
   `VACUUM INTO` snapshot, which would be a full, unshared copy of data the main
-  checkout still holds. Every other database keeps its backups: one the
-  worktree already had (it holds the worktree's own data, so rerunning the
-  script never replaces it and drops the flag), and a custom `CADENCR_DB_PATH`,
-  which may name a shared database. The main checkout and release builds
-  always back up before migrating.
+  checkout still holds, and deletes the marker: from then on the worktree may
+  hold data of its own, so every later migration backs up as usual. A database
+  the worktree already had (rerunning the script never replaces it), a custom
+  `CADENCR_DB_PATH` that may name a shared database, the main checkout and
+  release builds always back up before migrating.
 
 `pnpm rust:storage` lists every dev database and the installed app's
 `~/.cadencr/database`, and names the backups the service never rotates (legacy
