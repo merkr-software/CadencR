@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
 
@@ -59,6 +59,32 @@ test("the Rust job runs fmt, clippy and streamed tests under a step timeout", ()
   const tests = steps.find((step) => step.run?.includes("run test"));
   assert.ok(tests["timeout-minutes"] > 0);
   assert.ok(steps.some((step) => step.uses?.startsWith("Swatinem/rust-cache@")));
+  const { scripts } = JSON.parse(
+    readFileSync(new URL("../packages/service/package.json", import.meta.url), "utf8"),
+  );
+  assert.match(scripts["format:check"], /cargo fmt --all\b/);
+  assert.match(scripts.lint, /cargo clippy --workspace --all-targets\b/);
+  assert.match(scripts.test, /cargo test --workspace\b/);
+});
+
+test("the Web job excludes packages whose checks belong to the Rust workspace", () => {
+  const run = ci.jobs.web.steps.find((step) => step.run?.includes("pnpm turbo run"))?.run;
+  assert.ok(run, "Web must run its Turbo checks");
+  const packagesDir = new URL("../packages/", import.meta.url);
+  const webScripts = new Set(["format:check", "lint", "ts-check", "knip"]);
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const manifest = new URL(`${entry.name}/package.json`, packagesDir);
+    if (!existsSync(manifest)) continue;
+    const { name, scripts = {} } = JSON.parse(readFileSync(manifest, "utf8"));
+    const runsRust = Object.entries(scripts).some(
+      ([script, command]) =>
+        webScripts.has(script) && /scripts\/cargo-env\.mjs\s+cargo\b/.test(command),
+    );
+    if (runsRust) {
+      assert.ok(run.includes(`--filter='!${name}'`), `${name} must stay in the Rust job`);
+    }
+  }
 });
 
 test("only branch pushes save the Turbo cache", () => {
