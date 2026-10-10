@@ -135,6 +135,10 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     "model_auto_name",
     "agent_runtime_session",
     "agent_runtime_auto_name",
+    // Custom system prompt for session auto-naming. Free-form; empty or unset
+    // means the built-in default (DEFAULT_AUTO_NAME_SYSTEM_PROMPT in
+    // domain/ws_session/auto_name). Empty write = reset to default.
+    "auto_name_system_prompt",
     // First-run onboarding overlay state.
     // `onboarding_step` is one of the values defined in
     // packages/desktop/src/lib/onboarding-step.ts; missing/unset is treated as

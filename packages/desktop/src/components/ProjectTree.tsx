@@ -35,6 +35,7 @@ import {
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { clearProjectAutoExpandSkip, shouldSkipProjectAutoExpand } from "@/lib/project-auto-expand";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { PROJECT_COLORS } from "@/lib/project-colors";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
@@ -121,9 +122,18 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const [importProject, setImportProject] = useState<ProjectDialogTarget | null>(null);
   const [deleteProject, setDeleteProject] = useState<ProjectDialogTarget | null>(null);
   useEffect(() => {
-    if (props.activeProjectId != null) {
-      setExpanded((previous) => ({ ...previous, [props.activeProjectId!]: true }));
+    const activeId = props.activeProjectId;
+    // Leaving the project list (e.g. opening Settings) must not leave a stale
+    // pinned-navigation marker behind: returning to the project later is an
+    // ordinary navigation and should expand it.
+    if (activeId == null) {
+      clearProjectAutoExpandSkip();
+      return;
     }
+    // A pinned-row navigation marks its project so the tree stays folded.
+    if (shouldSkipProjectAutoExpand(activeId)) return;
+    clearProjectAutoExpandSkip();
+    setExpanded((previous) => ({ ...previous, [activeId]: true }));
   }, [props.activeProjectId]);
   const startSession = useCallback(
     (projectId: number) => {

@@ -2,14 +2,19 @@ import { renderHook, act } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useDebouncedSetting } from "./useDebouncedSetting";
 
-const mockMutate = vi.fn();
+const mockMutateAsync = vi.fn();
+const mockToastError = vi.fn();
 const mockInvalidateQueries = vi.fn();
 const mockUseQuery = vi.fn(() => ({ data: { value: "stored-value" }, isLoading: false }));
 
 vi.mock("../api/generated", () => ({
   useGetWorkspaceSetting: () => mockUseQuery(),
-  useSetWorkspaceSetting: vi.fn(() => ({ mutate: mockMutate, isPending: false })),
+  useSetWorkspaceSetting: vi.fn(() => ({ mutateAsync: mockMutateAsync, isPending: false })),
   getGetWorkspaceSettingQueryKey: vi.fn((key: string) => ["workspace", "settings", key]),
+}));
+
+vi.mock("sonner", () => ({
+  toast: { error: (message: string) => mockToastError(message) },
 }));
 
 const mockSetQueryData = vi.fn();
@@ -31,7 +36,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 describe("useDebouncedSetting", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    mockMutate.mockReset();
+    mockMutateAsync.mockReset();
+    mockMutateAsync.mockResolvedValue({});
+    mockToastError.mockClear();
     mockInvalidateQueries.mockClear();
     mockSetQueryData.mockClear();
     mockGetQueryData.mockClear();
@@ -62,7 +69,7 @@ describe("useDebouncedSetting", () => {
     act(() => {
       result.current.setValue("new-value");
     });
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
   });
 
   it("calls mutate after debounce delay", () => {
@@ -73,10 +80,37 @@ describe("useDebouncedSetting", () => {
     act(() => {
       vi.advanceTimersByTime(300);
     });
-    expect(mockMutate).toHaveBeenCalledWith(
-      { key: "my-key", data: { value: "new-value" } },
-      expect.any(Object),
-    );
+    expect(mockMutateAsync).toHaveBeenCalledWith({ key: "my-key", data: { value: "new-value" } });
+  });
+
+  it("flushes the pending write on unmount instead of dropping it", () => {
+    const { result, unmount } = renderHook(() => useDebouncedSetting("my-key", 500));
+    act(() => {
+      result.current.setValue("new-value");
+    });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+    unmount();
+    expect(mockMutateAsync).toHaveBeenCalledWith({ key: "my-key", data: { value: "new-value" } });
+  });
+
+  it("restores the cache and toasts when a write flushed on unmount is rejected", async () => {
+    mockMutateAsync.mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    const { result, unmount } = renderHook(() => useDebouncedSetting("my-key", 500));
+    act(() => {
+      result.current.setValue("new-value");
+    });
+    unmount();
+    // Let the rejection handlers run (they fire after unmount, so per-call
+    // mutate callbacks would never see them).
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockSetQueryData).toHaveBeenLastCalledWith(["workspace", "settings", "my-key"], {
+      value: "stored-value",
+    });
+    expect(mockToastError).toHaveBeenCalledWith('Could not save setting "my-key": boom');
   });
 
   it("persists immediately when debounce is zero", () => {
@@ -84,10 +118,7 @@ describe("useDebouncedSetting", () => {
     act(() => {
       result.current.setValue("new-value");
     });
-    expect(mockMutate).toHaveBeenCalledWith(
-      { key: "my-key", data: { value: "new-value" } },
-      expect.any(Object),
-    );
+    expect(mockMutateAsync).toHaveBeenCalledWith({ key: "my-key", data: { value: "new-value" } });
   });
 
   it("debounces multiple rapid calls — only calls mutate once", () => {
@@ -100,11 +131,8 @@ describe("useDebouncedSetting", () => {
     act(() => {
       vi.advanceTimersByTime(300);
     });
-    expect(mockMutate).toHaveBeenCalledTimes(1);
-    expect(mockMutate).toHaveBeenCalledWith(
-      { key: "my-key", data: { value: "val3" } },
-      expect.any(Object),
-    );
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledWith({ key: "my-key", data: { value: "val3" } });
   });
 
   it("uses custom debounce interval", () => {
@@ -115,11 +143,11 @@ describe("useDebouncedSetting", () => {
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    expect(mockMutate).not.toHaveBeenCalled();
+    expect(mockMutateAsync).not.toHaveBeenCalled();
     act(() => {
       vi.advanceTimersByTime(500);
     });
-    expect(mockMutate).toHaveBeenCalledTimes(1);
+    expect(mockMutateAsync).toHaveBeenCalledTimes(1);
   });
 
   it("returns null when query returns no data", () => {
@@ -151,10 +179,7 @@ describe("useDebouncedSetting", () => {
     act(() => {
       vi.advanceTimersByTime(300);
     });
-    expect(mockMutate).toHaveBeenCalledWith(
-      { key: "my-key", data: { value: "new-value" } },
-      expect.any(Object),
-    );
+    expect(mockMutateAsync).toHaveBeenCalledWith({ key: "my-key", data: { value: "new-value" } });
   });
 
   it("isLoading reflects query loading state", () => {

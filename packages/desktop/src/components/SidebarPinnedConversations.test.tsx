@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
     navigate,
     mutate,
     invalidateByUrlPrefix: vi.fn(),
+    skipProjectAutoExpand: vi.fn(),
     setPinned: (features: Feature[]) => {
       pinned = features;
     },
@@ -54,6 +55,10 @@ vi.mock("@/lib/queryClient", () => ({
 
 vi.mock("@/lib/feature-focus-handoff", () => ({
   getFocusedTabForFeature: () => undefined,
+}));
+
+vi.mock("@/lib/project-auto-expand", () => ({
+  skipProjectAutoExpand: mocks.skipProjectAutoExpand,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
@@ -106,6 +111,7 @@ describe("SidebarPinnedConversations", () => {
     mocks.navigate.mockClear();
     mocks.mutate.mockClear();
     mocks.invalidateByUrlPrefix.mockClear();
+    mocks.skipProjectAutoExpand.mockClear();
     mocks.setPinned([]);
   });
 
@@ -133,6 +139,14 @@ describe("SidebarPinnedConversations", () => {
         search: { cwd: "/p9", featureId: 1, projectId: 9 },
       }),
     );
+  });
+
+  it("marks the parent project so the tree does not auto-expand it on navigation", async () => {
+    const user = userEvent.setup();
+    mocks.setPinned([feature(1, 9)]);
+    renderSection();
+    await user.click(screen.getByText("open-1"));
+    expect(mocks.skipProjectAutoExpand).toHaveBeenCalledWith(9);
   });
 
   it("unpins via the feature pin column and refreshes the feature caches", async () => {
