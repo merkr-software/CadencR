@@ -11,6 +11,8 @@ const query = vi.hoisted(() => ({
   error: null as Error | null,
 }));
 vi.mock("@/api/generated", () => ({ useAlacrittyConfigRoute: () => ({ ...query }) }));
+const toastMock = vi.hoisted(() => ({ warning: vi.fn(), dismiss: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMock }));
 
 describe("terminal options", () => {
   beforeEach(() => {
@@ -67,6 +69,20 @@ describe("terminal options", () => {
     expect(resolveTerminalOptions(response).font.family).toBe("config-font");
   });
 
+  it("applies a lone partial palette override without touching the other colors", () => {
+    const palette = { ...DEFAULT_TERMINAL_PALETTE };
+    const options = resolveTerminalOptions(
+      {
+        found: true,
+        config: { colors: { normal: { red: "#ff0000" } } },
+      },
+      { palette },
+    );
+    expect(options.colors.red).toBe("#ff0000");
+    expect(options.colors.green).toBe(DEFAULT_TERMINAL_PALETTE.green);
+    expect(options.colors.brightRed).toBe(DEFAULT_TERMINAL_PALETTE.brightRed);
+  });
+
   it("keeps loading and configuration errors explicit", () => {
     query.data = undefined;
     query.isLoading = true;
@@ -79,5 +95,22 @@ describe("terminal options", () => {
     query.error = new Error("Fetch failed");
     rerender();
     expect(result.current.error).toBe("Fetch failed");
+  });
+
+  it("warns about unavailable live reload without blocking the terminal", () => {
+    toastMock.warning.mockClear();
+    toastMock.dismiss.mockClear();
+    query.data = { config: {}, found: true, watch_error: "failed to watch /themes: denied" };
+    const { result, rerender } = renderHook(() => useTerminalOptions());
+    expect(result.current.error).toBeNull();
+    expect(result.current.options).toBeDefined();
+    expect(toastMock.warning).toHaveBeenCalledWith(
+      "Terminal config live reload is unavailable: failed to watch /themes: denied",
+      { id: "alacritty-config-watch-error" },
+    );
+
+    query.data = { config: {}, found: true, watch_error: null };
+    rerender();
+    expect(toastMock.dismiss).toHaveBeenCalledWith("alacritty-config-watch-error");
   });
 });
