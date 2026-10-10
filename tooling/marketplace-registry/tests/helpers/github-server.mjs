@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 
-export async function startGitHubFixture(t, token) {
+export async function startGitHubFixture(t, token, options = {}) {
   const state = {
+    ...options,
     releases: [],
     sourceArchives: new Map(),
     strictTags: false,
@@ -46,6 +47,7 @@ export async function startGitHubFixture(t, token) {
 
 async function handle(request, response, state, token) {
   const url = new URL(request.url, "http://fixture.invalid");
+  if (state.repository) url.pathname = url.pathname.replace(state.repository, "acme/registry");
   state.requests.push({
     method: request.method,
     path: url.pathname,
@@ -64,7 +66,7 @@ async function handle(request, response, state, token) {
   }
   if (url.pathname.startsWith("/api/repos/acme/registry/git/ref/heads/")) {
     return json(response, 200, {
-      ref: "refs/heads/catalog",
+      ref: `refs/heads/${state.branch ?? "catalog"}`,
       object: { type: "commit", sha: "b".repeat(40) },
     });
   }
@@ -117,7 +119,9 @@ function servePublicAsset(response, state, url) {
     return;
   }
   const asset = state.assets.find(
-    (entry) => `/public${new URL(entry.browser_download_url).pathname}` === url.pathname,
+    (entry) =>
+      `/public${new URL(entry.browser_download_url).pathname.replace(state.repository ?? "acme/registry", "acme/registry")}` ===
+      url.pathname,
   );
   const release = state.releases.find((entry) => entry.id === asset?.release_id);
   if (
@@ -127,6 +131,11 @@ function servePublicAsset(response, state, url) {
     (state.catalogPublicUnavailable && asset.name === "managed-index.json")
   )
     return json(response, 404, {});
+  if (state.inlineAssets) {
+    response.writeHead(200, { "content-length": asset.bytes.length });
+    response.end(asset.bytes);
+    return;
+  }
   response.writeHead(302, {
     location: `https://release-assets.githubusercontent.com/${asset.id}`,
   });
@@ -195,7 +204,13 @@ async function handleReleaseApi(request, response, state, url) {
   }
   if (url.pathname.startsWith(`${releasePath}/assets/`) && request.method === "GET") {
     const id = Number(url.pathname.split("/").at(-1));
-    if (!state.assets.some((entry) => entry.id === id)) return json(response, 404, {});
+    const asset = state.assets.find((entry) => entry.id === id);
+    if (!asset) return json(response, 404, {});
+    if (state.inlineAssets) {
+      response.writeHead(200, { "content-length": asset.bytes.length });
+      response.end(asset.bytes);
+      return;
+    }
     response.writeHead(302, {
       location: `https://release-assets.githubusercontent.com/${id}?opaque=test-only`,
     });
@@ -219,7 +234,7 @@ async function handleReleaseApi(request, response, state, url) {
       name,
       size: bytes.length,
       state: "uploaded",
-      browser_download_url: `https://github.com/acme/registry/releases/download/${release.tag_name}/${name}`,
+      browser_download_url: `https://github.com/${state.repository ?? "acme/registry"}/releases/download/${release.tag_name}/${name}`,
     };
     state.assets.push({ ...asset, bytes });
     return json(response, 201, asset);
@@ -252,7 +267,7 @@ async function handleDiscovery(request, response, state, url) {
   }
   if (request.method !== "PUT") return json(response, 405, {});
   const input = JSON.parse((await readBody(request)).toString());
-  if (input.branch !== "catalog" || input.sha !== state.discovery?.sha)
+  if (input.branch !== (state.branch ?? "catalog") || input.sha !== state.discovery?.sha)
     return json(response, 409, {});
   const bytes = Buffer.from(input.content, "base64");
   const sha = createHash("sha1").update(`blob ${bytes.length}\0`).update(bytes).digest("hex");

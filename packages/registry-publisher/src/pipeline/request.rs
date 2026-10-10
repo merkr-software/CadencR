@@ -25,8 +25,20 @@ pub(super) struct Request {
 #[serde(deny_unknown_fields)]
 struct Publication {
     submission: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present_registry_commit",
+        skip_serializing_if = "Option::is_none"
+    )]
     registry_commit: Option<String>,
+}
+
+// Missing is optional; a present field must be a string, never JSON null.
+fn present_registry_commit<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(Some)
 }
 
 pub(super) fn prepare(input: PipelineRequest<'_>) -> Result<PreparedPipeline, PublisherError> {
@@ -243,4 +255,64 @@ fn identity(package: &Value) -> String {
             .as_str()
             .expect("validated version")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(publication: Value) -> Value {
+        json!({"schema_version":1,"repository":"cadencr/registry","key_id":"test-key",
+            "discovery_branch":"main","generated_at":"2026-10-10T00:00:00Z",
+            "expires_at":"2026-10-11T00:00:00Z","previous_index":"bootstrap",
+            "public_key":"public.pem","publications":[publication]})
+    }
+
+    #[test]
+    fn publication_commit_accepts_omission_and_exact_lowercase_hex() {
+        for publication in [
+            json!({"submission":"submission.json"}),
+            json!({"submission":"submission.json","registry_commit":"a".repeat(40)}),
+        ] {
+            let parsed: Request = serde_json::from_value(request(publication.clone())).unwrap();
+            validate_request(&parsed, "cadencr/registry").unwrap();
+            assert_eq!(
+                serde_json::to_value(parsed).unwrap()["publications"][0],
+                publication
+            );
+        }
+    }
+
+    #[test]
+    fn publication_commit_rejects_null_wrong_types_and_unknown_fields() {
+        for value in [Value::Null, json!(false), json!(40), json!([]), json!({})] {
+            assert!(serde_json::from_value::<Request>(request(json!({
+                "submission":"submission.json","registry_commit":value
+            })))
+            .is_err());
+        }
+        assert!(serde_json::from_value::<Request>(request(json!({
+            "submission":"submission.json","unknown":true
+        })))
+        .is_err());
+        let mut unknown = request(json!({"submission":"submission.json"}));
+        unknown["unknown"] = json!(true);
+        assert!(serde_json::from_value::<Request>(unknown).is_err());
+    }
+
+    #[test]
+    fn publication_commit_rejects_non_exact_strings() {
+        for value in [
+            "a".repeat(39),
+            "a".repeat(41),
+            "A".repeat(40),
+            "g".repeat(40),
+        ] {
+            let parsed: Request = serde_json::from_value(request(json!({
+                "submission":"submission.json","registry_commit":value
+            })))
+            .unwrap();
+            assert!(validate_request(&parsed, "cadencr/registry").is_err());
+        }
+    }
 }

@@ -200,6 +200,8 @@ fn publish_entry(
 #[cfg(test)]
 mod fixture;
 #[cfg(test)]
+mod handoff;
+#[cfg(test)]
 mod tests {
     use super::fixture::*;
     use super::*;
