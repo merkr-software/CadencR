@@ -1,5 +1,62 @@
 # Marketplace V1 — GitHub-only distribution
 
+## Parallel execution update — 2026-10-10
+
+Three implementation tracks run with GPT-6.1-Sol workers, followed by independent
+reuse, quality and efficiency reviews under the same model.
+
+- **Protected Rust orchestration:** `cadencr registry publish-registry` composes
+  checked request binding, bounded staging/restoration, tag reconciliation,
+  mirroring/promotion, pinned-key signing, catalog publication and discovery.
+  Standalone commands keep their previous authority boundaries. The transitional
+  JavaScript workflow remains active until released-CLI parity and deployment.
+- **CLI delivery preparation:** a manual read-only Linux workflow validates an
+  explicit source branch tip and matching version, runs locked tests/build, and
+  uploads executable/checksum/source evidence. It does not publish or activate
+  registry pins. Release version and shared-versus-independent topology remain
+  explicit decisions; bootstrap currently expects `vX.Y.Z` releases.
+- **Marketplace interface:** providers-only browsing/search, exact-version
+  install/update, installed enable/disable/remove, history and diagnostics.
+  Requests preserve the original signed envelope and wait for backend confirmation.
+  Loading, errors, unknown transport outcomes and restart requirements are visible.
+  Theme distribution and history rollback UI are not included.
+- **Verification:** isolated renderer/backend QA uses a newly created database and
+  ephemeral test trust, never the developer's production database, keys or tokens.
+  Local/fake-transport evidence is not live GitHub or packaged-app certification.
+- **Review corrections:** canonical manifest replay reuses existing receipt
+  reconciliation; pending operations/errors survive Details navigation; package
+  grouping is linear and history work is gated. Live QA caught zero-height
+  Virtuoso lists; bounded parents and layout regressions cover all three lists.
+- **Live QA evidence:** real isolated backend/renderer verifies unavailable and
+  verified-cache states, search/details/exact-version selection, surfaced artifact
+  download failure/quarantine and empty history, plus tampered-signature rejection.
+  Successful provider installation/execution against a real published registry,
+  packaged-app restart and cross-platform certification remain separate gates.
+
+- **Hook-blocker correction:** recognized Claude family aliases no longer depend
+  on unversioned display labels. Exact custom/concrete IDs retain case sensitivity;
+  versioned-label unit regressions and all nine model-validation integration tests
+  pass. This provider-local fix is delivered separately from marketplace changes.
+
+- **Local delivery checks:** full normal pre-commit checks pass after the alias
+  correction, including 4,989 frontend tests. Delivery remains local and signed;
+  no push, release, registry pin or official trust activation is inferred.
+
+### Remaining dependency gates
+
+Local delivery uses scoped signed commits with normal hooks, without push,
+tag or release. The remaining deployment gates are:
+
+1. Choose the release version/topology and coordinate the reviewed source commit;
+   produce and actually publish the supported CLI artifact and checksum.
+2. Pin the released CLI in registry CI, switch the protected pipeline only after
+   parity checks, then remove the superseded JavaScript runtime tooling.
+3. Configure official catalog/discovery URLs, trust roots, protected signing and
+   renewal/revocation operations with documented ownership.
+4. Exercise real GitHub contribution, publication/replay and fresh-runner recovery;
+   complete supported-platform and packaged-app installation/update/removal QA.
+5. Open the public beta only after deployment, trust and operational gates pass.
+
 ## Execution update — 2026-09-20
 
 Marketplace implementation is now authorized, following the local-plugin work.
@@ -46,13 +103,13 @@ contract; including themes in the first public marketplace is awaiting confirmat
 | D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending                       |
 | E    | Publish first/new version from a marked Cadencr project              | E1-E3 and E4 local contribution export implemented/reviewed; registry PR automation implemented locally; live deployment/QA remains gated |
 | F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                                                |
-| G    | In-app browsing, installation and installed-version management       | Not implemented                                                                                                                           |
+| G    | In-app browsing, installation and installed-version management       | Implemented/reviewed locally; isolated dev QA passed; packaged/public QA pending                                                          |
 | H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                                      |
 | I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                                   |
 
 Each implementation step uses delegated workers and parent review, followed by
-reuse/quality/efficiency review and relevant checks before proceeding. Changes
-remain uncommitted until a proposed commit is explicitly approved. Public opening
+reuse/quality/efficiency review and relevant checks before proceeding. The current execution contract auto-approves scoped signed local commits after
+review and checks; it does not authorize pushes, tags or releases. Public opening
 requires all runtime, trust, operational and packaged-app gates; local tooling
 alone cannot close them.
 

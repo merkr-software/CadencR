@@ -9,6 +9,7 @@ import {
   getAuthTokenSync,
   preloadRuntimeConfig,
   publicationOperationTimeout,
+  managedProviderOperationTimeout,
   resolveApiBaseUrlSync,
   shouldAttachAbortSignal,
   strictModeStableReadRequestKey,
@@ -195,5 +196,32 @@ describe("workspace setting bulk adapter", () => {
       value: null,
     });
     expect(workspaceSettingFromBulk({ key: "known", value: "yes" }, "known")).toBeUndefined();
+  });
+});
+
+describe("managed provider timeout policy", () => {
+  it.each([
+    "/api/agents/managed-providers",
+    "/api/agents/managed-providers/example/update",
+    "/api/agents/managed-providers/example/rollback",
+  ])("allows bounded download and conformance: %s", (url) => {
+    expect(managedProviderOperationTimeout({ method: "POST", url })).toBe(180000);
+  });
+  it.each([
+    { method: "GET", url: "/api/agents/managed-providers" },
+    { method: "POST", url: "/api/agents/managed-providers/catalog/refresh" },
+    { method: "PUT", url: "/api/agents/managed-providers/example/enabled" },
+    { method: "POST", url: "/api/agents/managed-providers/example/update/extra" },
+  ])("does not change unrelated requests", (config) => {
+    expect(managedProviderOperationTimeout(config)).toBeUndefined();
+  });
+  it("preserves explicit timeout", () => {
+    expect(
+      managedProviderOperationTimeout({
+        method: "POST",
+        url: "/api/agents/managed-providers",
+        timeout: 5000,
+      }),
+    ).toBe(5000);
   });
 });
