@@ -93,9 +93,14 @@ export function noteUserLayoutChange(featureId: number, { structural = false } =
   if (structural) useAutoLayoutStore.getState().clearUndo(featureId);
 }
 
-/** A new user prompt starts a new turn: the agent may reveal once more. */
+/**
+ * A new user prompt starts a new turn: the agent may reveal once more. Sending
+ * it also ends whatever arranging came before — "click the agent tab, then
+ * prompt" is the common path, and the reveal it leads to must not be held.
+ */
 export function noteUserPrompt(featureId: number): void {
   agentRevealSpent.delete(featureId);
+  lastUserLayoutChangeAt.delete(featureId);
 }
 
 /** Restore the layout from before the last auto restructure. */

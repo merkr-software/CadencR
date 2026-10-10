@@ -100,6 +100,15 @@ describe("requestAutoReveal", () => {
     expect(browserPaneId()).not.toBe("root");
   });
 
+  it("lets the agent reveal right after a prompt that follows a manual change", () => {
+    vi.useFakeTimers();
+    register();
+    noteUserLayoutChange(FEATURE);
+    noteUserPrompt(FEATURE);
+    expect(requestAutoReveal(FEATURE, "browser", "agent")).not.toBe("held");
+    expect(browserPaneId()).not.toBe("root");
+  });
+
   it("drops the undo snapshot after a structural manual change", () => {
     register();
     requestAutoReveal(FEATURE, "browser", "user-link");

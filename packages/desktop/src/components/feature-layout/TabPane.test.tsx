@@ -3,6 +3,7 @@ import { BotIcon, CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import { ROOT_LEAF_ID, type LayoutLeaf } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
@@ -10,6 +11,7 @@ import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 import { TabPane } from "./TabPane";
 import type { FeatureTabs } from "./types";
 
+vi.mock("@/lib/auto-layout/auto-layout-controller", () => ({ noteUserLayoutChange: vi.fn() }));
 vi.mock("./AutoLayoutToggle", () => ({ AutoLayoutToggle: (): null => null }));
 vi.mock("./LayoutMenu", () => ({
   LayoutMenu: (): null => null,
@@ -34,6 +36,7 @@ const tabs: FeatureTabs = {
 };
 
 function resetStores(): void {
+  vi.mocked(noteUserLayoutChange).mockClear();
   useFeatureLayoutStore.setState({ features: {} });
   useTabHostRegistry.setState({ hosts: {} });
 }
@@ -142,6 +145,20 @@ describe("TabPane", () => {
     const terminalTab = screen.getByText("Terminal").closest("button");
     if (!(terminalTab instanceof HTMLElement)) throw new Error("Terminal tab was not rendered");
     expect(terminalTab).toHaveClass("data-[state=active]:after:bg-transparent");
+  });
+
+  it("only counts switching to another tab as a manual layout change", () => {
+    render(
+      <DndContext>
+        <TabPane featureId={FEATURE_ID} leaf={leaf} tabs={tabs} />
+      </DndContext>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /agent/i }));
+    expect(noteUserLayoutChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /terminal/i }));
+    expect(noteUserLayoutChange).toHaveBeenCalledWith(FEATURE_ID);
   });
 
   it("marks the pane focused when clicking an already-active tab", () => {

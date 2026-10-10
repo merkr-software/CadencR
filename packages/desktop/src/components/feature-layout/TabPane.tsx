@@ -92,13 +92,17 @@ export function TabPane({
   const activateTab = useCallback(
     (tab: TabKind): void => {
       markPaneFocused();
-      noteUserLayoutChange(featureId);
       if (activatedTabRef.current === tab) return;
       activatedTabRef.current = tab;
       queueMicrotask(() => {
         if (activatedTabRef.current === tab) activatedTabRef.current = null;
       });
-      if (leaf.activeTabId !== tab) setPaneActiveTab(featureId, leaf.id, tab);
+      // Re-clicking the tab already showing isn't arranging anything, so it
+      // must not hold off the agent's next reveal.
+      if (leaf.activeTabId !== tab) {
+        noteUserLayoutChange(featureId);
+        setPaneActiveTab(featureId, leaf.id, tab);
+      }
       notifyTabActivation(tab);
     },
     [featureId, leaf.activeTabId, leaf.id, markPaneFocused, notifyTabActivation, setPaneActiveTab],
