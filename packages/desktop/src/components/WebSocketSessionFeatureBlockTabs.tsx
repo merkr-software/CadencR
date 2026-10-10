@@ -2,7 +2,12 @@ import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from 
 import { CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import { FeatureGitTab } from "@/components/FeatureGitTab";
 import { FeatureTerminalTab } from "@/components/FeatureTerminalTab";
+import { AgentBrowserActivityDot } from "@/components/feature-layout/AgentBrowserActivityDot";
 import { GitBadge } from "@/components/feature-layout/GitBadge";
+import {
+  OpenDiffInEditorProvider,
+  type OpenDiffInEditor,
+} from "@/components/diff/OpenDiffInEditorContext";
 import type { FeatureTabDef, FeatureTabs } from "@/components/feature-layout/types";
 import {
   claudeProfileForPrompt,
@@ -35,10 +40,12 @@ export interface UseSessionTabsArgs {
   tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
+  /** Opener for file references clicked inside the agent conversation. */
+  openAgentFileInEditor: OpenDiffInEditor;
 }
 
 export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
-  const agentTab = useAgentTab(args);
+  const agentTab = useAgentFileLinksTab(useAgentTab(args), args.openAgentFileInEditor);
   const terminalTab = useTerminalTab(args);
   const gitTab = useGitTab(args);
   const editorTab = useEditorTab(args);
@@ -52,6 +59,25 @@ export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
       browser: browserTab,
     }),
     [agentTab, browserTab, editorTab, gitTab, terminalTab],
+  );
+}
+
+/**
+ * Scope the agent conversation's file links (edit blocks, path links) to their
+ * own opener, so auto layout can split the Editor in beside the agent while
+ * the Git tab's opener keeps switching tabs in place.
+ */
+function useAgentFileLinksTab(tab: FeatureTabDef, openFile: OpenDiffInEditor): FeatureTabDef {
+  return useMemo(
+    () => ({
+      ...tab,
+      content: (
+        <OpenDiffInEditorProvider onOpenFileInEditor={openFile}>
+          {tab.content}
+        </OpenDiffInEditorProvider>
+      ),
+    }),
+    [openFile, tab],
   );
 }
 
@@ -130,6 +156,7 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       label: "Browser",
       Icon: GlobeIcon,
       shortcut: ["cmd", "shift", "B"],
+      badge: <AgentBrowserActivityDot featureId={featureId} />,
       content: browserReady ? (
         <Suspense fallback={null}>
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />

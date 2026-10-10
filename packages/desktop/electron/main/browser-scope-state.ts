@@ -8,7 +8,8 @@ import type { BrowserBounds, BrowserStateSnapshot } from "./browser-types";
  * Tabs are isolated by scope (see `BrowserTabMetadata.scopeId`) so a tab opened
  * in one feature's Browser never leaks into another's. A scope enters these
  * maps once its workspace opens a tab or reports non-empty viewport bounds.
- * Scopeless (`null`) tabs are agent/MCP automation targets with no UI workspace.
+ * Agent/MCP tabs carry their feature's scope; scopeless (`null`) tabs only come
+ * from automation calls without a feature and have no UI workspace.
  */
 export class BrowserScopeState {
   readonly active = new Map<number | null, string>();

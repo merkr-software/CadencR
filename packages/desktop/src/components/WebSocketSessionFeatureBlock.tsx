@@ -1,6 +1,9 @@
 import { useEffect, useRef, type ReactElement, type RefObject } from "react";
 import { EditorFuzzyShortcut } from "@/components/editor/EditorFuzzyShortcut";
-import { OpenDiffInEditorProvider } from "@/components/diff/OpenDiffInEditorContext";
+import {
+  OpenDiffInEditorProvider,
+  type OpenDiffInEditor,
+} from "@/components/diff/OpenDiffInEditorContext";
 import { LinkRoutingProvider } from "@/components/links/LinkRoutingProvider";
 import { FeatureContentSearchShortcut } from "@/components/FeatureContentSearchShortcut";
 import { FeatureTopBar } from "@/components/FeatureTopBar";
@@ -102,7 +105,7 @@ interface SessionFeatureViewProps {
   refs: ReturnType<typeof useSessionRefs>;
   tabs: ReturnType<typeof useFeatureBlockTabs>;
   sectionRef: RefObject<HTMLElement | null>;
-  openDiffFileInEditor: ReturnType<typeof useOpenDiffFileInEditor>;
+  openDiffFileInEditor: OpenDiffInEditor;
   promptDropTargetId: string;
   agentDropZone: ReturnType<typeof useSessionPromptDropZone>["agentDropZone"];
   splitsEnabled: boolean;
@@ -239,12 +242,13 @@ function WebSocketSessionFeatureBody(
   });
   const refs = useSessionRefs();
   const sectionRef = useRef<HTMLElement>(null);
-  const openDiffFileInEditor = useOpenDiffFileInEditor({
-    featureId,
-    layoutFeatureId,
-    rootPath: data.effectiveCwd || data.projectPath || cwd,
-    refs,
-  });
+  const { openInPlace: openDiffFileInEditor, openBesideAgent: openAgentFileInEditor } =
+    useOpenDiffFileInEditor({
+      featureId,
+      layoutFeatureId,
+      rootPath: data.effectiveCwd || data.projectPath || cwd,
+      refs,
+    });
 
   const { sendFromGitTab } = useSessionFeatureActions({ layoutFeatureId, controls, refs });
 
@@ -285,6 +289,7 @@ function WebSocketSessionFeatureBody(
     tabReady: readiness.tabReady,
     hotkeysEnabled,
     sendFromGitTab,
+    openAgentFileInEditor,
   });
 
   return (

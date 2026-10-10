@@ -126,6 +126,7 @@ function bridge(): CadencrBrowserBridge {
     clearBrowserCommentBadges: vi.fn(() => Promise.resolve()),
     onBrowserState: vi.fn(() => () => undefined),
     onBrowserTabCounts: vi.fn(() => () => undefined),
+    onBrowserAgentActivity: vi.fn(() => () => undefined),
     onBrowserDownloadsChanged: vi.fn(() => () => undefined),
     onBrowserDownloadCounts: vi.fn(() => () => undefined),
     onBrowserShortcut: vi.fn(() => () => undefined),

@@ -8,6 +8,7 @@ import {
   useSensors,
 } from "@dnd-kit/core";
 
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
 import type { TabKind } from "@/stores/feature-layout-schema";
 
@@ -64,10 +65,12 @@ export function useFeatureDnd({
       const tab: TabKind = source.tab;
       switch (target.kind) {
         case "pane-edge":
+          noteUserLayoutChange(featureId, { structural: true });
           splitTabAt(featureId, tab, target.paneId, target.edge);
           break;
         case "pane-strip":
           if (source.paneId === target.paneId) return; // no-op (drag onto own strip)
+          noteUserLayoutChange(featureId, { structural: true });
           moveTabToPane(featureId, tab, target.paneId);
           break;
       }

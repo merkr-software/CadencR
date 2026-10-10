@@ -5,8 +5,16 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useVimModeLevel } from "@/hooks/useVimModeLevel";
 import { focusNeovimEditor } from "./focusNeovimEditor";
 
-/** Opens a path in the feature's Neovim session, at an optional 1-indexed line. */
-export type OpenInNeovim = (filePath: string, line?: number, col?: number) => void;
+/**
+ * Opens a path in the feature's Neovim session, at an optional 1-indexed line.
+ * `onOpened` runs once Neovim confirms the open, e.g. to reveal the Editor.
+ */
+export type OpenInNeovim = (
+  filePath: string,
+  line?: number,
+  col?: number,
+  onOpened?: () => void,
+) => void;
 
 /**
  * `undefined` unless the editor pane is actually showing Neovim — the caller
@@ -16,14 +24,14 @@ export type OpenInNeovim = (filePath: string, line?: number, col?: number) => vo
  */
 export function useOpenFileInNeovim(
   featureId: number,
-  { ensureStarted = false, onOpened }: { ensureStarted?: boolean; onOpened?: () => void } = {},
+  { ensureStarted = false }: { ensureStarted?: boolean } = {},
 ): OpenInNeovim | undefined {
   const vimModeLevel = useVimModeLevel();
   const isMobile = useIsMobile();
   const { mutateAsync } = useOpenFileRoute();
 
   const openInNeovim = useCallback<OpenInNeovim>(
-    (filePath, line, col) => {
+    (filePath, line, col, onOpened) => {
       const pending = toast.loading(`Opening ${filePath} in Neovim…`);
       void (async () => {
         try {
@@ -45,7 +53,7 @@ export function useOpenFileInNeovim(
         }
       })();
     },
-    [featureId, mutateAsync, ensureStarted, onOpened],
+    [featureId, mutateAsync, ensureStarted],
   );
 
   return vimModeLevel === "2" && !isMobile ? openInNeovim : undefined;

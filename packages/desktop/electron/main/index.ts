@@ -21,6 +21,7 @@ import { sendToWindow } from "./safe-send";
 import { registerBrowserIpc } from "./browser-ipc";
 import { startBrowserBridgeServer, type BrowserBridgeHandle } from "./browser-bridge-server";
 import { dispatchBrowserMcpTool } from "./browser-mcp-dispatch";
+import { agentActivityFor } from "./browser-agent-activity";
 import type { BrowserManager } from "./browser-manager";
 import { handleStartupRecoveryAction } from "./startup-recovery-actions";
 import { buildStartupRecovery, type StartupRecoveryState } from "./startup-recovery";
@@ -199,14 +200,18 @@ async function bootstrap(): Promise<void> {
   }
   installCsp();
   browserBridge = await startBrowserBridgeServer({
-    dispatch: (toolName, args, featureId) => {
+    dispatch: async (toolName, args, featureId) => {
       if (!browserManager) throw new Error("Browser manager is not ready.");
       // Shield the renderer's focus (most visibly the agent prompt) from being
       // stolen by the guest page while the agent drives the browser.
       const manager = browserManager;
-      return manager.focusGuard.run(() =>
+      const result = await manager.focusGuard.run(() =>
         dispatchBrowserMcpTool(manager, toolName, args, featureId),
       );
+      // Let the renderer follow the agent (auto layout, activity indicator).
+      const activity = agentActivityFor(toolName, featureId);
+      if (activity) sendToWindow(mainWindow, "browser:agent-activity", activity);
+      return result;
     },
   });
   installApplicationMenu(requestQuit);

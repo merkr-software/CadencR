@@ -14,6 +14,7 @@ import {
 } from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 
+import { restoreTabFocus, useTabFocusMemory } from "./tab-focus-preservation";
 import type { FeatureTabs } from "./types";
 
 interface TabContentRegistryProps {
@@ -75,6 +76,7 @@ export function TabContentRegistry({
     };
   }, [tabMounts]);
 
+  const focusMemory = useTabFocusMemory(tabMounts);
   const storeLayoutState = useFeatureLayoutStore(selectFeatureLayout(featureId));
   const layoutState = layoutStateOverride ?? storeLayoutState;
   const hosts = useTabHostRegistry((s) => s.hosts);
@@ -117,6 +119,7 @@ export function TabContentRegistry({
   // back on screen, so we don't need to force RO to fire here.
   useLayoutEffect(() => {
     if (typeof document === "undefined") return;
+    let moved = false;
     for (const tab of ALL_TAB_KINDS) {
       const mount = tabMounts[tab];
       if (!mount) continue;
@@ -134,10 +137,13 @@ export function TabContentRegistry({
       const desiredParent = host ?? document.body;
       if (mount.parentNode !== desiredParent) {
         desiredParent.appendChild(mount);
+        moved = true;
       }
       mount.style.display = willBeVisible ? "" : "none";
     }
-  }, [featureId, hosts, layoutState, mountVisibleOnly, tabMounts, visitedTabs]);
+    // A split re-parents the pane the user was typing in; keep their focus.
+    if (moved) restoreTabFocus(focusMemory.current);
+  }, [featureId, focusMemory, hosts, layoutState, mountVisibleOnly, tabMounts, visitedTabs]);
 
   return (
     <div style={{ display: "contents" }}>

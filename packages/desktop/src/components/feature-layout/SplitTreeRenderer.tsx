@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { LayoutNode } from "@/stores/feature-layout-schema";
 import { useFeatureLayoutStore, type SplitPath } from "@/stores/feature-layout-store";
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 
 import { TabPane } from "./TabPane";
 import type { FeatureTabActivationHandlers, FeatureTabs } from "./types";
@@ -59,6 +60,7 @@ export function SplitTreeRenderer({
     const sizeA = layout[idA];
     const sizeB = layout[idB];
     if (typeof sizeA !== "number" || typeof sizeB !== "number") return;
+    noteUserLayoutChange(featureId);
     setSplitSizes(featureId, path, [sizeA, sizeB]);
   };
 

@@ -12,6 +12,7 @@ import {
   type FeatureLayout,
 } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import {
   parseLayoutState,
   serializeLayoutForSave,
@@ -142,7 +143,13 @@ export function useSavedLayouts(featureId: number) {
         toast.error(`Layout "${layout.name}" is malformed.`);
         return;
       }
-      const next: FeatureLayoutState = { ...parsed, appliedLayoutId: layout.id };
+      // A template carries no size memory; keep what auto layout learned here.
+      const next: FeatureLayoutState = {
+        ...parsed,
+        appliedLayoutId: layout.id,
+        autoShares: useFeatureLayoutStore.getState().features[featureId]?.autoShares,
+      };
+      noteUserLayoutChange(featureId, { structural: true });
       setStoreState(featureId, next);
     },
     [featureId, setStoreState],

@@ -7,6 +7,7 @@ import {
 } from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 import { useFreezeWidthDuringResize } from "@/lib/use-freeze-width-during-resize";
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import { PaneChrome } from "./PaneChrome";
 import type { FeatureTabActivationHandlers, FeatureTabs } from "./types";
 
@@ -91,6 +92,7 @@ export function TabPane({
   const activateTab = useCallback(
     (tab: TabKind): void => {
       markPaneFocused();
+      noteUserLayoutChange(featureId);
       if (activatedTabRef.current === tab) return;
       activatedTabRef.current = tab;
       queueMicrotask(() => {
@@ -122,7 +124,10 @@ export function TabPane({
       onFocusPane={markPaneFocused}
       onTabChange={handleTabChange}
       onActivateTab={activateTab}
-      onDockTab={(tab) => dockTab(featureId, tab)}
+      onDockTab={(tab) => {
+        noteUserLayoutChange(featureId, { structural: true });
+        dockTab(featureId, tab);
+      }}
     />
   );
 }

@@ -1,3 +1,5 @@
+import { fileUriToPath } from "@/lib/lsp/file-uri";
+
 /**
  * Detects `path/to/file.ext`, `path/to/file.ext:LINE`, and
  * `path/to/file.ext:LINE:COL` patterns in prose text, and builds/parses the
@@ -135,4 +137,56 @@ export function parseFileReferenceHref(href: string): ParsedFileReferenceHref | 
     line: lineRaw !== null ? Number(lineRaw) : undefined,
     col: colRaw !== null ? Number(colRaw) : undefined,
   };
+}
+
+/** `scheme:` prefixes that are never file paths, even without `//`. */
+const NON_FILE_SCHEME = /^(?:[a-z][a-z0-9+.-]*:\/\/|mailto:|tel:|data:|javascript:|cadencr-)/i;
+/** `localhost:5173/x`: a web address the author forgot to prefix. */
+const HOST_PORT = /^[\w.-]+:\d+\//;
+/** `:line` or `:line:col` suffix (VS Code / compiler style). */
+const COLON_POSITION = /^(.*?):(\d+)(?::(\d+))?$/;
+/** GitHub-style `#L42`, `#L42C7`, `#L42-L50`. */
+const HASH_POSITION = /^(.*?)#L(\d+)(?:C(\d+))?(?:-L?\d+(?:C\d+)?)?$/;
+
+/**
+ * The plain markdown file links agents write — `[foo.ts](src/foo.ts:42)`,
+ * `[foo.ts](src/foo.ts#L42)`, `[x](/abs/x.rs)`, `[x](file:///abs/x.rs)` — so
+ * clicking one opens the file like a `cadencr-file:` link does. Anything that
+ * looks like a web or app URL is left to the regular link router.
+ */
+export function parseAgentFileHref(href: string): ParsedFileReferenceHref | null {
+  const raw = href.trim();
+  let decoded: string | null;
+  if (raw.startsWith("file://")) {
+    decoded = fileUriToPath(raw);
+  } else if (NON_FILE_SCHEME.test(raw) || HOST_PORT.test(raw) || /^[#?]/.test(raw)) {
+    return null;
+  } else {
+    try {
+      decoded = decodeURIComponent(raw);
+    } catch {
+      return null;
+    }
+  }
+  if (!decoded) return null;
+
+  const position = HASH_POSITION.exec(decoded) ?? COLON_POSITION.exec(decoded);
+  const path = position ? position[1] : decoded;
+  if (!looksLikeFilePath(path)) return null;
+  return {
+    path,
+    ...(position?.[2] ? { line: Number(position[2]) } : {}),
+    ...(position?.[3] ? { col: Number(position[3]) } : {}),
+  };
+}
+
+/**
+ * A path, not prose or a domain: it has a directory separator, or a bare file
+ * name with a known extension (so `example.com` or `v1.2` stay web links).
+ */
+function looksLikeFilePath(path: string): boolean {
+  if (path.length === 0 || /[?#]/.test(path) || /^www\./i.test(path)) return false;
+  if (path.includes("/")) return true;
+  const extension = /\.([A-Za-z0-9]+)$/.exec(path)?.[1];
+  return extension !== undefined && KNOWN_EXTENSIONS.has(extension.toLowerCase());
 }

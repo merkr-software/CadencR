@@ -184,6 +184,7 @@ const browserBridge: CadencrBrowserBridge = {
   clearBrowserCommentBadges: () => Promise.resolve(),
   onBrowserState: () => () => undefined,
   onBrowserTabCounts: () => () => undefined,
+  onBrowserAgentActivity: () => () => undefined,
   onBrowserShortcut: () => () => undefined,
   onBrowserFindResult: () => () => undefined,
   onBrowserLibraryChanged: () => () => undefined,

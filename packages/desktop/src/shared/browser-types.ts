@@ -68,9 +68,10 @@ export interface BrowserTabMetadata {
   responsive: BrowserResponsiveState;
   /**
    * The feature-layout scope that owns this tab. Tabs are isolated per scope so
-   * a tab opened in one feature's Browser never leaks into another's. `null` is
-   * a scopeless tab — created by agent/MCP automation, which has no UI feature
-   * context, so it isn't shown in any feature's tab strip.
+   * a tab opened in one feature's Browser never leaks into another's. Agent/MCP
+   * tabs are scoped too: the browser MCP is pinned to its feature, so they show
+   * in that feature's tab strip. `null` (scopeless) only remains for automation
+   * calls that carry no feature.
    */
   scopeId: number | null;
 }
@@ -206,6 +207,20 @@ export interface BrowserNetworkEntry {
   resourceType?: string;
   timestamp: string;
   failureReason?: string;
+}
+
+/**
+ * Pushed on `browser:agent-activity` after an agent's browser MCP tool call
+ * succeeds, so the renderer can follow the agent (auto layout, activity dot).
+ */
+export interface BrowserAgentActivity {
+  /** The calling feature (the MCP's pinned feature id). */
+  scopeId: number;
+  /**
+   * `open`: the agent opened a page, which earns it a reveal. `interact`: it
+   * clicked, typed or inspected a page it already had open.
+   */
+  action: "open" | "interact";
 }
 
 export interface BrowserStateSnapshot {

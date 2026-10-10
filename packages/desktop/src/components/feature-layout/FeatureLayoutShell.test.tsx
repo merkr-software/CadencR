@@ -27,6 +27,7 @@ vi.mock("@/hooks/useFeatureLayoutPersistence", () => ({
   useFeatureLayoutPersistence: (): void => {},
 }));
 vi.mock("@/hooks/useFeatureLayoutHotkeys", () => ({ useFeatureLayoutHotkeys: (): void => {} }));
+vi.mock("@/lib/auto-layout/useAutoLayoutTarget", () => ({ useAutoLayoutTarget: (): void => {} }));
 
 const FEATURE_ID = 11;
 

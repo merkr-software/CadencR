@@ -63,6 +63,22 @@ export interface FeatureLayoutState {
   focusedPaneId: string | null;
   /** Id of the saved layout currently applied (for the "Update X" menu item). */
   appliedLayoutId: number | null;
+  /**
+   * Auto layout's size memory: the share (percent) the user last gave a pane
+   * holding this tab when it sat beside the agent. Seeds the next split auto
+   * layout opens for that tab. Per-feature only — never part of a saved layout.
+   */
+  autoShares?: AutoShares;
+}
+
+export type AutoShares = Partial<Record<TabKind, number>>;
+
+/** Bounds a remembered auto-layout share is clamped to, in percent. */
+const MIN_AUTO_SHARE = 20;
+const MAX_AUTO_SHARE = 80;
+
+export function clampAutoShare(share: number): number {
+  return Math.round(Math.min(MAX_AUTO_SHARE, Math.max(MIN_AUTO_SHARE, share)));
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +219,16 @@ function normalizeLayoutNode(node: LayoutNode): LayoutNode {
   return appendTabsToRoot(node, missingTabs);
 }
 
+function parseAutoShares(value: unknown): AutoShares | undefined {
+  if (!isObject(value)) return undefined;
+  const shares: AutoShares = {};
+  for (const [tab, share] of Object.entries(value)) {
+    if (!isTabKind(tab) || typeof share !== "number" || !Number.isFinite(share)) continue;
+    shares[tab] = clampAutoShare(share);
+  }
+  return Object.keys(shares).length > 0 ? shares : undefined;
+}
+
 /**
  * Parse + validate a serialized FeatureLayoutState. Returns `null` when the
  * payload is malformed so callers can fall back to a flat default and surface
@@ -244,11 +270,13 @@ export function parseLayoutState(input: unknown): FeatureLayoutState | null {
         : undefined;
   if (appliedLayoutId === undefined) return null;
 
+  const autoShares = parseAutoShares(value.autoShares);
   return {
     version: 1,
     splitRoot: normalizeLayoutNode(splitRoot),
     focusedPaneId,
     appliedLayoutId,
+    ...(autoShares ? { autoShares } : {}),
   };
 }
 
@@ -256,13 +284,14 @@ export function serializeLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify(state);
 }
 
-/** Serialize the per-feature current layout, preserving the focused pane. */
+/** Serialize the per-feature current layout, preserving focus and size memory. */
 export function serializeCurrentLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify({
     version: 1,
     splitRoot: state.splitRoot,
     focusedPaneId: state.focusedPaneId,
     appliedLayoutId: null,
+    autoShares: state.autoShares,
   });
 }
 

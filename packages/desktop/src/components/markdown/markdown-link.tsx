@@ -3,7 +3,10 @@ import { ArrowUpRightIcon, Loader2Icon } from "lucide-react";
 import { useOpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 import { useLinkRouting, type LinkRouting } from "@/components/links/LinkRoutingContext";
 import { parseConversationReferenceHref } from "@/components/prompt-editor/conversation-reference";
-import { parseFileReferenceHref } from "@/components/prompt-editor/file-reference";
+import {
+  parseAgentFileHref,
+  parseFileReferenceHref,
+} from "@/components/prompt-editor/file-reference";
 import { isUserOpenableUrl } from "@/lib/safe-url";
 
 const LINK_CLASS =
@@ -19,7 +22,11 @@ export function MarkdownLink({
 }): ReactElement {
   const routing = useLinkRouting();
   const openInEditor = useOpenDiffInEditor();
-  const fileReference = href ? parseFileReferenceHref(href) : null;
+  // `@file` mentions carry their own scheme; agents write plain path links.
+  // Those only become file links where an Editor can open them.
+  const fileReference = href
+    ? (parseFileReferenceHref(href) ?? (openInEditor ? parseAgentFileHref(href) : null))
+    : null;
   if (href && fileReference !== null) {
     return (
       <FileReferenceLink reference={fileReference} openInEditor={openInEditor}>
