@@ -1,4 +1,4 @@
-mod common;
+use crate::common;
 
 use common::{apply_ws_upgrade_headers, start_test_server};
 

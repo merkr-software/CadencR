@@ -1,4 +1,4 @@
-mod support;
+use crate::support;
 
 use axum::http::StatusCode;
 use cadencr_service::app_state::AppState;

@@ -1,12 +1,8 @@
-mod api;
-mod app_state;
-mod config;
-mod dev_env;
-mod domain;
-mod error;
-mod remote;
-mod shared;
-mod shutdown;
+//! Thin binary entry point. Every module lives in the `cadencr_service` lib so
+//! the crate compiles (and its unit tests run) once; declaring them again here
+//! with `mod` would build a second full copy of the service.
+
+use cadencr_service::{api, app_state, config, dev_env, domain, remote, shared, shutdown};
 
 use axum::http::header::{HeaderName, CONTENT_TYPE};
 use axum::http::Method;
@@ -224,16 +220,16 @@ async fn main() -> anyhow::Result<()> {
                     data_dir: remote_data_dir.clone(),
                 }));
 
-            let state = AppState::for_server(
-                read_pool,
-                write_pool,
-                db_path.clone(),
-                auth_token,
-                config.frontend_port,
-                config.port,
-                remote_controller,
-                &remote_data_dir,
-            );
+            let state = AppState::for_server()
+                .read_pool(read_pool)
+                .write_pool(write_pool)
+                .db_path(db_path.clone())
+                .auth_token(auth_token)
+                .frontend_port(config.frontend_port)
+                .port(config.port)
+                .remote(remote_controller)
+                .remote_data_dir(&remote_data_dir)
+                .build();
 
             // Watch the settings dir so external edits to the JSON files push a
             // live refresh to connected clients.

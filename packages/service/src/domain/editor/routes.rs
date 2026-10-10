@@ -149,7 +149,7 @@ pub async fn read_file_handler(
         })?;
 
         let line_count = content.lines().count() as u64;
-        let large = metadata.len() >= file_size::LARGE_FILE_OPEN_BYTES;
+        let large = file_size::is_large_file(metadata.len());
 
         Ok(ReadFileResponse {
             content,

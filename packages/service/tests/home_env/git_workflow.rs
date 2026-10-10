@@ -1,8 +1,8 @@
 //! Integration tests for the write-side Git workflow endpoints — `commit`,
 //! `push-input`, `target-branch`, `uncommitted-files`. Branches/status live in
-//! the sibling `git_status_test.rs`.
+//! the sibling `integration/git_status.rs`.
 
-mod common;
+use crate::common;
 
 use common::worktree::{worktree_remove, HomeGuard};
 use common::{

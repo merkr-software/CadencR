@@ -231,6 +231,7 @@ pub struct AppState {
     pub fallback_palette: crate::domain::terminal::alacritty_config::AnsiPalette,
 }
 
+#[bon::bon]
 impl AppState {
     /// Read max_parallel_agents from CADENCR_MAX_PARALLEL env var, defaulting to 3.
     pub fn max_parallel_from_env() -> usize {
@@ -250,7 +251,8 @@ impl AppState {
 
     /// Production constructor used by `main`. Creates the broadcast channels and
     /// every shared registry. Kept next to the struct (mirroring `with_pool`) so
-    /// the entrypoint stays lean.
+    /// the entrypoint stays lean (a builder: pools and ports swap positionally).
+    #[builder(finish_fn = build)]
     pub fn for_server(
         read_pool: SqlitePool,
         write_pool: SqlitePool,

@@ -187,7 +187,7 @@ pub(super) fn parse_descriptor(
     raw: &str,
 ) -> Result<LoadedDescriptor, DescriptorRejection> {
     let unattributed = |code, message| DescriptorRejection::new(path, code, message);
-    let descriptor: ProviderDescriptor = serde_json::from_str(&raw).map_err(|error| {
+    let descriptor: ProviderDescriptor = serde_json::from_str(raw).map_err(|error| {
         // serde already knows which of the two this is: a data error means the
         // JSON parsed but did not fit the descriptor shape.
         let code = if error.is_data() {

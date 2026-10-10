@@ -6,7 +6,7 @@ use cadencr_service::domain::settings_store::global_write_content;
 use serde_json::json;
 use sqlx::sqlite::SqlitePoolOptions;
 
-static SETTINGS_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+use crate::SETTINGS_TEST_LOCK;
 
 #[tokio::test]
 async fn workspace_tools_reject_reads_when_workspace_mcp_is_disabled() {

@@ -3,9 +3,5 @@
   "private": true,
   "version": "0.12.1",
   "description": "Rust SDK wrapping the OpenCode CLI — used by Cadencr to stream and control OpenCode sessions.",
-  "license": "Apache-2.0",
-  "scripts": {
-    "format": "cargo fmt",
-    "format:check": "cargo fmt -- --check"
-  }
+  "license": "Apache-2.0"
 }

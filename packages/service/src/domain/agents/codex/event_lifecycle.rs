@@ -119,18 +119,18 @@ impl SessionLifecycle {
                     self.defer_result(root, events);
                 }
             }
+            // Only reconcile status-only activity. An explicit turn still owes
+            // us turn/completed (including its error and usage).
             "thread/status/changed"
-                if params["status"]["type"] == "idle" && !self.explicit_root_turn =>
+                if params["status"]["type"] == "idle"
+                    && !self.explicit_root_turn
+                    && self.root_active =>
             {
-                // Only reconcile status-only activity. An explicit turn still
-                // owes us turn/completed (including its error and usage).
-                if self.root_active {
-                    self.root_active = false;
-                    self.pending_result = Some(RuntimeEvent::new(
-                        metadata(root, json!({"type":"result", "session_id":root})),
-                        RuntimeEventKind::Result,
-                    ));
-                }
+                self.root_active = false;
+                self.pending_result = Some(RuntimeEvent::new(
+                    metadata(root, json!({"type":"result", "session_id":root})),
+                    RuntimeEventKind::Result,
+                ));
             }
             _ => {}
         }

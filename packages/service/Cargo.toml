@@ -87,9 +87,18 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_Threading",
 ] }
 
+# Both binaries are thin wrappers over the lib and carry no unit tests, so
+# skip building and running an empty test harness for each. All unit tests live
+# in the lib (`src/lib.rs`) and run exactly once.
+[[bin]]
+name = "cadencr-service"
+path = "src/main.rs"
+test = false
+
 [[bin]]
 name = "dump-openapi"
 path = "src/bin/dump_openapi.rs"
+test = false
 
 [lints]
 workspace = true

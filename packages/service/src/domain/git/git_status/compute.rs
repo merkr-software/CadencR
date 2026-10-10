@@ -214,7 +214,7 @@ fn derive_provider_fields(
         Some(info) => {
             let url = host::compare_url(info, target, head);
             let label = host::pr_label(&info.host).to_string();
-            (Some(info.host.clone()), url, Some(label))
+            (Some(info.host), url, Some(label))
         }
         None => (None, None, None),
     }

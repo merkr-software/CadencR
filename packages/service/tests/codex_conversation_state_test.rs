@@ -1,5 +1,8 @@
 //! Deterministic subprocess -> adapter -> WS -> persistence regression replay.
 //! No real Codex/model/subagents and no existing database are used.
+//!
+//! Own test binary: it calls `settings_store::init` (a first-call-wins
+//! `OnceLock`) and installs a process-global Codex binary override.
 mod common;
 
 use std::path::Path;

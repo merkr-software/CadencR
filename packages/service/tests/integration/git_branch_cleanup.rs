@@ -1,6 +1,6 @@
 //! Integration tests for branch cleanup edge cases in the archive flow.
 
-mod common;
+use crate::common;
 
 use common::{git_capture, git_in, start_test_server};
 

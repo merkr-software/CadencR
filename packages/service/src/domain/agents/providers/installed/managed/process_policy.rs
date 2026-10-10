@@ -398,6 +398,10 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    #[allow(
+        clippy::zombie_processes,
+        reason = "the exit-parent mode deliberately orphans the descendant"
+    )]
     fn managed_descendant_helper() {
         let Some(pid_file) = std::env::var_os("PROCESS_TREE_TEST_PID_FILE") else {
             return;

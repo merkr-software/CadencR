@@ -232,9 +232,7 @@ mod tests {
     #[test]
     fn editor_vim_mode_level_is_in_workspace_allowlist() {
         assert!(
-            WORKSPACE_ALLOWED_KEYS
-                .iter()
-                .any(|&k| k == "editor_vim_mode_level"),
+            WORKSPACE_ALLOWED_KEYS.contains(&"editor_vim_mode_level"),
             "editor_vim_mode_level must be in WORKSPACE_ALLOWED_KEYS"
         );
     }

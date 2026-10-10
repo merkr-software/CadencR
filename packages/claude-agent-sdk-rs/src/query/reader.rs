@@ -191,7 +191,7 @@ while True:
         interrupted = False
     time.sleep(0.01)
 "#;
-        let script_path = write_mock_cli(dir.path(), &script);
+        let script_path = write_mock_cli(dir.path(), script);
         let options = Options {
             path_to_cli: Some(script_path),
             mcp_servers: None,

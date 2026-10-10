@@ -72,7 +72,7 @@ pub(super) fn model_probe_cache_key(env: Option<&HashMap<String, String>>) -> Mo
 
     1u8.hash(&mut hasher);
     let mut entries = env.iter().collect::<Vec<_>>();
-    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    entries.sort_by_key(|(left, _)| *left);
     for (key, value) in entries {
         key.hash(&mut hasher);
         0xffu8.hash(&mut hasher);

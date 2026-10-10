@@ -214,10 +214,10 @@ fn validate_display_name(value: &str) -> Result<String, AppError> {
 }
 
 fn ensure_workspace_directory(root: &Path, provider_id: &str) -> Result<PathBuf, AppError> {
-    std::fs::create_dir_all(&root).map_err(|error| {
+    std::fs::create_dir_all(root).map_err(|error| {
         AppError::Internal(format!("failed to create provider workspace root: {error}"))
     })?;
-    let root = std::fs::canonicalize(&root).map_err(|error| {
+    let root = std::fs::canonicalize(root).map_err(|error| {
         AppError::Internal(format!(
             "failed to resolve provider workspace root: {error}"
         ))
