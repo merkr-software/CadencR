@@ -1,5 +1,33 @@
 # Marketplace V1 — GitHub-only distribution
 
+## Cross-implementation state handoff — 2026-10-10
+
+- Execution uses GPT-6.1-Sol delegated implementation, followed by independent
+  reuse/quality/efficiency review and normal signed local delivery.
+- Close the optional-commit schema mismatch by accepting omission/exact lowercase
+  commit strings and rejecting explicit `null`, wrong types and unknown fields.
+  Compare negative cases through the actual JS pipeline entry point and actual
+  Rust CLI subprocess, before credentials or state creation.
+- Exercise JS-to-Rust and Rust-to-JS against one persistent loopback GitHub fixture
+  and the same state directory. Production HTTP injection remains unavailable;
+  Rust fixture transport is compiled only in unit tests, and download bytes still
+  pass through the shared production digest/size streaming verifier.
+- Acceptance includes byte-preserving canonical receipts/catalog replay without
+  duplicate mutations, interrupted public verification/discovery, managed recovery
+  with retired author URLs and fail-closed conflicting local state.
+- Verification: 14 Rust pipeline tests (including three cross-implementation
+  regressions), two actual CLI integration tests and all 260 registry tests pass.
+  Eight directional replay/interruption/fresh-state cases preserve canonical bytes;
+  completed/discovery resumes make no extra mutations, and provider resume permits
+  exactly five ordered new catalog/discovery writes. Existing release records and
+  remote discovery SHA/byte digest remain unchanged where replay requires it.
+- Reviews closed their findings after strengthening discovery-resume assertions.
+  A separate negative test records JS rejection of noncanonical manifests without
+  altering local state or remote history; semantic Rust replay remains unchanged.
+- These are local source-implementation checks, not tests of a released Linux asset,
+  real GitHub availability, a packaged app or production keys. `PENDING` pins and
+  transitional JavaScript remain unchanged until release/deployment gates pass.
+
 ## Released CLI CI preparation — 2026-10-10
 
 - Shared trusted shell bootstrap parses the release pin as data, constructs the
@@ -33,11 +61,11 @@
 3. Exercise JS-to-Rust and Rust-to-JS canonical state handoff, interrupted remote
    boundaries, no-duplicate-write replay and retired-author-URL recovery. Local
    implementation tests alone do not establish parity of a released artifact.
-4. Resolve/document acceptance differences: Rust treats an explicit optional
-   publication commit `null` as absent while JS rejects it; Rust permits semantic
-   manifest replay while JS requires canonical bytes. Use omitted/exact-string
-   commits and canonical manifests for interoperable handoff. Preserve Rust's
-   stricter historical-publication and pinned-signing checks.
+4. Optional publication commits now share the strict omitted/exact-string
+   contract; explicit `null` is rejected. Rust still permits semantic manifest
+   replay while JS requires canonical bytes. Use canonical manifests for
+   interoperable handoff; preserve Rust's stricter historical-publication and
+   pinned-signing checks.
 5. Retain transitional JS until replacement delivery and applicable parity pass;
    then remove superseded runtime tooling in a separate reviewed increment.
 

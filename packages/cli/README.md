@@ -251,7 +251,8 @@ CLI platform distribution remains outside this initial registry-only release.
 `schema_version: 1`, `repository`, `key_id`, `discovery_branch`, `generated_at`,
 `expires_at`, `previous_index` (`bootstrap` or a relative file), `public_key`
 (relative PEM file), and `publications` containing relative `submission` paths
-and optional exact `registry_commit` values. Confirm the SHA-256 of the exact
+and optional exact `registry_commit` values (omit the field instead of using
+`null`). Confirm the SHA-256 of the exact
 reviewed request bytes. The private key must remain outside the state directory.
 Local request, continuity, key-pair and existing-state checks precede reading
 `CADENCR_REGISTRY_GITHUB_TOKEN` or creating state/network writes.

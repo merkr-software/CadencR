@@ -89,6 +89,89 @@ writeFileSync(join(base,'request.json'),JSON.stringify({schema_version:1,reposit
     );
     let mut request: Value =
         serde_json::from_slice(&std::fs::read(base.join("request.json")).unwrap()).unwrap();
+    let javascript_rejects = |message: &str| {
+        // Exercise the existing private JS validator through its public pipeline entry point.
+        let script = r#"
+import {runPublicationPipeline} from './tooling/marketplace-registry/scripts/publication/pipeline.mjs';
+import {readFileSync,existsSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+import {join} from 'node:path';
+const base=process.argv[1], expected=process.argv[2];
+const client=Object.fromEntries(['ensurePublicationTag','findRelease','createDraft','listAssets','uploadAsset','verifyAsset','getTagCommit','publishDraft','getDiscovery','setDiscovery'].map(name=>[name,()=>{throw new Error('unexpected network access')} ]));
+try {
+  await runPublicationPipeline({requestFile:join(base,'request.json'),directory:join(base,'js-state'),repository:'cadencr/registry',registryCommit:'b'.repeat(40),privateKeyFile:join(base,'private.pem'),confirmRequestSha256:createHash('sha256').update(readFileSync(join(base,'request.json'))).digest('hex'),client});
+  throw new Error('unexpected schema acceptance');
+} catch(error) {
+  if(!error.message.includes(expected)) throw error;
+}
+if(existsSync(join(base,'js-state'))) throw new Error('unexpected state write');
+"#;
+        let output = Command::new("node")
+            .current_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+            .args(["--input-type=module", "-e", script])
+            .arg(&base)
+            .arg(message)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    };
+    // Accepted entries finish local preflight, while malformed entries fail before credentials.
+    let original = request.clone();
+    for commit in [None, Some(json!("a".repeat(40)))] {
+        request = original.clone();
+        if let Some(commit) = commit {
+            request["publications"][0]["registry_commit"] = commit;
+        }
+        std::fs::write(
+            base.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        diagnostic(
+            run(&hash(), "cadencr/registry"),
+            "CADENCR_REGISTRY_GITHUB_TOKEN is required",
+        );
+        assert!(!base.join("state").exists());
+    }
+    for commit in [Value::Null, json!(false), json!(40), json!([]), json!({})] {
+        request = original.clone();
+        request["publications"][0]["registry_commit"] = commit;
+        std::fs::write(
+            base.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        javascript_rejects("registry_commit is invalid");
+        diagnostic(
+            run(&hash(), "cadencr/registry"),
+            "request schema is invalid",
+        );
+        assert!(!base.join("state").exists());
+    }
+    for field in ["publication", "request"] {
+        request = original.clone();
+        if field == "publication" {
+            request["publications"][0]["unknown"] = json!(true);
+        } else {
+            request["unknown"] = json!(true);
+        }
+        std::fs::write(
+            base.join("request.json"),
+            serde_json::to_vec(&request).unwrap(),
+        )
+        .unwrap();
+        javascript_rejects("unknown is not allowed");
+        diagnostic(
+            run(&hash(), "cadencr/registry"),
+            "request schema is invalid",
+        );
+        assert!(!base.join("state").exists());
+    }
+    request = original;
     request["publications"][0]["submission"] = json!("../escape.json");
     std::fs::write(
         base.join("request.json"),

@@ -129,8 +129,9 @@ Provisioning this shared pin now affects **both contribution checks and protecte
 publication**. Before doing so, review the actual released Linux asset and prove
 cross-implementation canonical state handoff and interrupted/replayed publication
 without duplicate writes. Keep omitted/exact-string publication commits and
-canonical manifests: Rust accepts explicit optional commit `null` and semantically
-equivalent manifests that JavaScript rejects. Preserve Rust's stricter historical
+canonical manifests: both implementations reject explicit optional commit `null`,
+but Rust accepts semantically equivalent manifests that JavaScript rejects.
+Preserve Rust's stricter historical
 publication and signing checks rather than weakening them for superficial parity.
 
 The pin remains `PENDING`; this preparation neither deploys the template nor
