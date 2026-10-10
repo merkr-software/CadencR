@@ -129,6 +129,9 @@ impl PtyManager {
         // Ensure the program knows it's running inside an xterm-compatible
         // terminal. Without this, programs emit wrong escape sequences.
         cmd.env("TERM", "xterm-256color");
+        // The renderer is truecolor-capable. Without this, TUIs that probe
+        // COLORTERM quantize their palettes to the 256-color cube.
+        cmd.env("COLORTERM", "truecolor");
 
         let mut child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);

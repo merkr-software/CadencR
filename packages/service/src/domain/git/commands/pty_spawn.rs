@@ -68,6 +68,9 @@ pub(super) async fn spawn_pty_git(
     // running `git` from a normal shell.
     crate::shared::security::inherit_sanitized_pty_env(&mut cmd);
     cmd.env("TERM", "xterm-256color");
+    // The renderer is truecolor-capable. Without this, TUIs that probe
+    // COLORTERM quantize their palettes to the 256-color cube.
+    cmd.env("COLORTERM", "truecolor");
     cmd.env("FORCE_COLOR", "1");
     cmd.env("PYTHONUNBUFFERED", "1");
     // `/dev/tty` resolves inside the child to its controlling terminal —

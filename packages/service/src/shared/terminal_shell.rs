@@ -61,6 +61,9 @@ pub async fn run_terminal_shell_script_cancellable(
     crate::shared::security::inherit_sanitized_pty_env(&mut command);
     command.cwd(cwd);
     command.env("TERM", "xterm-256color");
+    // The renderer is truecolor-capable. Without this, TUIs that probe
+    // COLORTERM quantize their palettes to the 256-color cube.
+    command.env("COLORTERM", "truecolor");
     command.env("FORCE_COLOR", "1");
     for argument in &shell.args {
         command.arg(argument);
