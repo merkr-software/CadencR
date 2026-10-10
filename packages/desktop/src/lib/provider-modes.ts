@@ -18,7 +18,7 @@ import {
 
 import { PROVIDER_IDS, type ProviderId } from "./providers";
 import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
-import type { PermissionMode } from "@/types/permission-mode";
+import { OPENCODE_AGENT_MODE_PREFIX, type PermissionMode } from "@/types/permission-mode";
 
 export interface ProviderMode {
   /** Wire value sent to the backend. */
@@ -228,6 +228,17 @@ export function findProviderMode(
 ): ProviderMode | null {
   const normalizedModeId = normalizeProviderModeId(providerId, modeId);
   return getProviderModes(providerId, catalogModes).find((m) => m.id === normalizedModeId) ?? null;
+}
+
+/**
+ * Whether a session on `providerId` can hold `modeId`: a catalog mode, or an
+ * OpenCode custom agent (those come from the live agent list, not the catalog).
+ */
+export function providerAcceptsMode(
+  providerId: string | null | undefined,
+  modeId: PermissionMode,
+): boolean {
+  return !!findProviderMode(providerId, modeId) || modeId.startsWith(OPENCODE_AGENT_MODE_PREFIX);
 }
 
 function normalizeProviderModeId(

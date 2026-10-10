@@ -17,6 +17,13 @@ interface SplitTreeRendererProps extends FeatureTabActivationHandlers {
   splitsEnabled?: boolean;
 }
 
+/** Panel sizes are float percentages; anything finer than this is rounding. */
+const SIZE_EPSILON = 0.1;
+
+function isSameSize(reported: number, current: number): boolean {
+  return Math.abs(reported - current) < SIZE_EPSILON;
+}
+
 /**
  * Recursively renders a `LayoutNode` tree. Splits map to `ResizablePanelGroup`,
  * leaves to `<TabPane>`. Resize events bubble up to the store so sizes
@@ -52,14 +59,16 @@ export function SplitTreeRenderer({
   const [a, b] = node.children;
   const [defaultA, defaultB] = node.sizes ?? [50, 50];
 
-  // `onLayoutChanged` fires after the user releases a resize handle. We persist
-  // the resulting sizes to the store so they survive reloads. Initial mount
-  // never fires this callback, so default 50/50 layouts won't overwrite a
-  // previously stored value.
+  // `onLayoutChanged` fires after the user releases (or keyboard-nudges) a
+  // resize handle, and we persist the result so it survives reloads. It also
+  // fires once on mount with the default sizes — that report changes nothing,
+  // and must neither hold off agent reveals nor teach `autoShares` a size the
+  // user never picked.
   const onLayoutChanged = (layout: Record<string, number>): void => {
     const sizeA = layout[idA];
     const sizeB = layout[idB];
     if (typeof sizeA !== "number" || typeof sizeB !== "number") return;
+    if (isSameSize(sizeA, defaultA) && isSameSize(sizeB, defaultB)) return;
     noteUserLayoutChange(featureId);
     setSplitSizes(featureId, path, [sizeA, sizeB]);
   };

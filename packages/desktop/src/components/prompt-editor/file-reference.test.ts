@@ -113,6 +113,21 @@ describe("parseAgentFileHref", () => {
     expect(parseAgentFileHref("./scripts/dev.mjs")).toEqual({ path: "./scripts/dev.mjs" });
   });
 
+  it("reads extensionless well-known names, Windows paths and line ranges", () => {
+    expect(parseAgentFileHref("docker/Dockerfile")).toEqual({ path: "docker/Dockerfile" });
+    expect(parseAgentFileHref("C:\\repo\\main.rs:7")).toEqual({
+      path: "C:\\repo\\main.rs",
+      line: 7,
+    });
+    expect(parseAgentFileHref("src/a.ts:42-50")).toEqual({ path: "src/a.ts", line: 42 });
+  });
+
+  it("leaves routes and folders that merely contain a slash to the link router", () => {
+    for (const href of ["/api/agents/x", "docs/", "src/components", "src/README", "a/b:12"]) {
+      expect(parseAgentFileHref(href)).toBeNull();
+    }
+  });
+
   it("leaves web, app and in-page links to the link router", () => {
     for (const href of [
       "https://example.com/a.ts",

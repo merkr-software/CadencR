@@ -30,7 +30,7 @@ function register(size: { width: number; height: number } | null = WIDE) {
 beforeEach(() => {
   resetAutoLayoutControllerForTests();
   useFeatureLayoutStore.setState({ features: { [FEATURE]: flatLayoutState() } });
-  useAutoLayoutStore.setState({ pulse: {}, revealed: {}, undo: {}, agentBrowserActive: {} });
+  useAutoLayoutStore.setState({ pulsedAt: {}, revealed: {}, undo: {}, agentBrowserActive: {} });
 });
 
 afterEach(() => {
@@ -50,7 +50,7 @@ describe("requestAutoReveal", () => {
     expect(requestAutoReveal(FEATURE, "browser", "agent")).toBe("split");
     expect(browserPaneId()).not.toBe("root");
     const auto = useAutoLayoutStore.getState();
-    expect(auto.pulse[FEATURE]).toBe(1);
+    expect(auto.pulsedAt[FEATURE]).toBeGreaterThan(0);
     expect(auto.revealed[FEATURE]?.kind).toBe("split");
     expect(auto.undo[FEATURE]).toEqual(flatLayoutState());
   });
@@ -97,6 +97,15 @@ describe("requestAutoReveal", () => {
     noteUserLayoutChange(FEATURE);
     vi.advanceTimersByTime(8_000);
     requestAutoReveal(FEATURE, "browser", "agent");
+    expect(browserPaneId()).not.toBe("root");
+  });
+
+  it("lets the agent reveal right after a prompt that follows a manual change", () => {
+    vi.useFakeTimers();
+    register();
+    noteUserLayoutChange(FEATURE);
+    noteUserPrompt(FEATURE);
+    expect(requestAutoReveal(FEATURE, "browser", "agent")).not.toBe("held");
     expect(browserPaneId()).not.toBe("root");
   });
 

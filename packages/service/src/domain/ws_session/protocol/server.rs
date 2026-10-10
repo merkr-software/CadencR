@@ -41,6 +41,11 @@ pub struct SessionInitializedPayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<String>,
     pub runtime_overrides: crate::domain::agents::adapter::RuntimeConfigOverrides,
+    /// Permission mode the session will run with — the requested one when the
+    /// provider supports it, else the provider default. `None` for providers
+    /// that negotiate permissions themselves (installed ACP).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codex_permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

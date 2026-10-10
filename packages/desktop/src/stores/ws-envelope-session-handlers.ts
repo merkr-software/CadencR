@@ -15,6 +15,8 @@ import { buildClearedGatePatch } from "./ws-gate-state";
 import { blocksPatchWithDerived, createStreamingState } from "./ws-message-processing";
 import { normalizeContextWindow } from "@/types/agent";
 import { parseAccessMode } from "@/types/access-mode";
+import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
+import { providerAcceptsMode } from "@/lib/provider-modes";
 import type { SessionEntry } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
@@ -51,6 +53,26 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
   );
 }
 
+/**
+ * The mode to hold once the backend has picked the session's provider. New
+ * entries are seeded with the default provider's mode (Claude's `auto`), which
+ * a Codex or Cursor session can't run; the backend then falls back to its
+ * provider default and reports it. Adopt that report only when the local mode
+ * doesn't fit the provider — a valid local mode may be a chip change made
+ * while `session.init` was in flight, which the init replay still has to send.
+ */
+function initializedPermissionMode(
+  session: SessionEntry,
+  provider: string | undefined,
+  reported: string | undefined,
+): PermissionMode | null {
+  const providerId = provider ?? session.currentSelection?.providerId;
+  if (!reported || !providerId || providerAcceptsMode(providerId, session.permissionMode)) {
+    return null;
+  }
+  return parsePermissionMode(reported);
+}
+
 export function handleInitialized(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseInitializedPayload(payload);
   if (!p) return;
@@ -69,6 +91,8 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     updates.currentSelection = { providerId: p.provider, modelId: p.model ?? "" };
   }
   if (p.profile) updates.currentProfile = p.profile;
+  const permissionMode = initializedPermissionMode(session, p.provider, p.permission_mode);
+  if (permissionMode) updates.permissionMode = permissionMode;
   if (p.runtime_overrides) updates.runtimeOverrides = p.runtime_overrides;
   const accessMode = p.access_mode ?? p.codex_permission_mode;
   if (accessMode) {

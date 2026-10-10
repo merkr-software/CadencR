@@ -848,6 +848,52 @@ describe("ws-session-store", () => {
     });
   });
 
+  // A new entry is seeded with Claude's `auto`; replaying it to a session that
+  // initialized on Codex made the backend answer MODE_NOT_SUPPORTED (a toast
+  // on every new non-Claude conversation).
+  it("replays the backend's mode when the seeded one doesn't fit the provider", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("auto");
+
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "default" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("default");
+    const sent = ws.sent.map((raw) => JSON.parse(raw));
+    expect(sent).toEqual([
+      expect.objectContaining({
+        action: "mode.set",
+        payload: expect.objectContaining({ mode: "default" }),
+      }),
+    ]);
+  });
+
+  it("keeps a valid mode picked while session.init was in flight", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+
+    store.setPermissionMode("s1", "plan");
+    ws.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", permission_mode: "default" },
+    });
+
+    expect(useWsSessionStore.getState().sessions.s1.permissionMode).toBe("plan");
+    expect(JSON.parse(ws.sent[0])).toMatchObject({
+      action: "mode.set",
+      payload: { mode: "plan" },
+    });
+  });
+
   it("setPersistedState sets blocks and lifecycle", () => {
     // Ensure session exists first
     useWsSessionStore.getState().connect("s1");

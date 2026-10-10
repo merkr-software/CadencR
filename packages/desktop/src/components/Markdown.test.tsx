@@ -261,6 +261,32 @@ describe("Markdown", () => {
       expect(openInEditor).toHaveBeenCalledWith("src/main.rs", 42, undefined);
     });
 
+    // A `<` anywhere in the message routes it through rehype-sanitize, whose
+    // protocol allowlist reads `foo.ts:` or `file:` as an unknown scheme.
+    it.each([
+      ["a bare file:line link", "[main.rs](main.rs:42)", "main.rs", 42],
+      ["a file:// link", "[main.rs](file:///repo/src/main.rs)", "/repo/src/main.rs", undefined],
+      ["a Windows drive link", "[main.rs](C:/repo/main.rs:7)", "C:/repo/main.rs", 7],
+    ])("keeps %s clickable in a message that contains raw HTML", (_, link, path, line) => {
+      const openInEditor = vi.fn();
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(openInEditor);
+      render(<Markdown content={`Returns Vec<T>, see ${link}`} />);
+      fireEvent.click(screen.getByText("main.rs"));
+      expect(openInEditor).toHaveBeenCalledWith(path, line, undefined);
+    });
+
+    it("drops a hand-written envelope that doesn't carry a file link", () => {
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(vi.fn());
+      render(<Markdown content={'<a href="cadencr-agent-file:javascript%3Aalert(1)">x</a>'} />);
+      expect(screen.getByText("x").closest("a")).not.toHaveAttribute("href");
+    });
+
+    it("still strips an unknown scheme that merely contains a slash", () => {
+      vi.mocked(useOpenDiffInEditor).mockReturnValue(vi.fn());
+      render(<Markdown content={"Vec<T> [x](vbscript:run/x.rs)"} />);
+      expect(screen.getByText("x").closest("a")).not.toHaveAttribute("href", "vbscript:run/x.rs");
+    });
+
     it("does nothing when rendered outside an editor context", () => {
       vi.mocked(useOpenDiffInEditor).mockReturnValue(undefined);
       render(<Markdown content="see src/main.rs:42 for details" />);

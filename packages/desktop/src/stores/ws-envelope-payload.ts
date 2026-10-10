@@ -222,6 +222,7 @@ export function parseInitializedPayload(payload: unknown): {
   thinking_effort?: string;
   fast_mode?: boolean;
   profile?: string;
+  permission_mode?: string;
   codex_permission_mode?: string;
   access_mode?: string;
   input_tokens?: number;
@@ -258,6 +259,7 @@ export function parseInitializedPayload(payload: unknown): {
     thinking_effort: optionalString(record, "thinking_effort"),
     fast_mode: optionalBoolean(record, "fast_mode"),
     profile: optionalString(record, "profile"),
+    permission_mode: optionalString(record, "permission_mode"),
     codex_permission_mode: optionalString(record, "codex_permission_mode"),
     access_mode: optionalString(record, "access_mode"),
     input_tokens: optionalNumber(record, "input_tokens"),

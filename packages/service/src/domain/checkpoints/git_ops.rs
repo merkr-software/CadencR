@@ -66,7 +66,7 @@ async fn snapshot_inner(
     label: &str,
     env: &[(&str, &str)],
 ) -> Result<String, AppError> {
-    if let Err(error) = copy_real_index(cwd, index_path).await {
+    if let Err(error) = copy_real_index(cwd, index_path, env).await {
         // No index yet, or a git too old for `--path-format`.
         debug!(%error, "checkpoint: real index unavailable as a seed, using HEAD");
         run_git_with_env(&["read-tree", "HEAD"], cwd, env).await?;
@@ -92,15 +92,59 @@ async fn snapshot_inner(
 /// `read-tree HEAD` index has no stat data and re-hashes every tracked file
 /// (~0.4 s per turn on a few-thousand-file repo, paid before the prompt is
 /// delivered). Paths the user staged for addition are therefore captured too.
-async fn copy_real_index(cwd: &Path, index_path: &Path) -> Result<(), AppError> {
+///
+/// Two things in a copied index would make `add -u` trust stale stat data, and
+/// both are undone here:
+/// - **The index file's mtime.** Git treats an entry as "racily clean" (and
+///   re-reads the file) when its mtime is not older than the index file's. A
+///   fresh copy is newer than every entry, so a same-size edit made in the same
+///   timestamp tick as the user's last index write would pass as unchanged.
+/// - **`assume-unchanged` bits.** `add -u` skips those paths outright, so a
+///   snapshot would hold the index blob instead of the user's local edit — and
+///   a rewind would then overwrite that edit.
+async fn copy_real_index(
+    cwd: &Path,
+    index_path: &Path,
+    env: &[(&str, &str)],
+) -> Result<(), AppError> {
     let real_index = run_git(
         &["rev-parse", "--path-format=absolute", "--git-path", "index"],
         cwd,
     )
     .await?;
-    tokio::fs::copy(real_index.trim(), index_path)
+    let real_index = Path::new(real_index.trim());
+    tokio::fs::copy(real_index, index_path)
         .await
+        .and_then(|_| copy_mtime(real_index, index_path))
         .map_err(|error| AppError::GitCommandError(format!("failed to copy git index: {error}")))?;
+    clear_assume_unchanged(cwd, env).await
+}
+
+fn copy_mtime(from: &Path, to: &Path) -> std::io::Result<()> {
+    let modified = std::fs::metadata(from)?.modified()?;
+    std::fs::File::options()
+        .write(true)
+        .open(to)?
+        .set_modified(modified)
+}
+
+/// Paths per `update-index` call, keeping argv well under `ARG_MAX`.
+const UPDATE_INDEX_BATCH: usize = 256;
+
+async fn clear_assume_unchanged(cwd: &Path, env: &[(&str, &str)]) -> Result<(), AppError> {
+    let listing = run_git_with_env(&["ls-files", "-v", "-z"], cwd, env).await?;
+    // `ls-files -v` tags assume-unchanged entries with a lowercase status letter.
+    let assumed: Vec<&str> = listing
+        .split('\0')
+        .filter_map(|entry| entry.split_once(' '))
+        .filter(|(tag, _)| tag.chars().all(|c| c.is_ascii_lowercase()))
+        .map(|(_, path)| path)
+        .collect();
+    for batch in assumed.chunks(UPDATE_INDEX_BATCH) {
+        let mut args = vec!["update-index", "--no-assume-unchanged", "--"];
+        args.extend_from_slice(batch);
+        run_git_with_env(&args, cwd, env).await?;
+    }
     Ok(())
 }
 
@@ -259,6 +303,57 @@ mod tests {
             content, "fresh-then-edited",
             "worktree content, not the staged blob"
         );
+    }
+
+    #[tokio::test]
+    async fn snapshot_captures_edits_to_assume_unchanged_paths() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        run_git(&["update-index", "--assume-unchanged", "tracked.txt"], p)
+            .await
+            .unwrap();
+        fs::write(p.join("tracked.txt"), "local-override").unwrap();
+
+        let sha = snapshot_commit(p, "refs/cadencr/checkpoints/1/assumed", "1/assumed")
+            .await
+            .unwrap();
+
+        let content = run_git_background(&["show", &format!("{sha}:tracked.txt")], p)
+            .await
+            .unwrap();
+        assert_eq!(content, "local-override");
+        let real = run_git_background(&["ls-files", "-v", "tracked.txt"], p)
+            .await
+            .unwrap();
+        assert!(
+            real.starts_with("h "),
+            "the user's own assume-unchanged bit stays set: {real:?}"
+        );
+    }
+
+    // macOS's clonefile-backed `fs::copy` already keeps the mtime; this guards
+    // platforms (Linux) where a copy gets a fresh one.
+    #[tokio::test]
+    async fn copied_index_keeps_the_real_index_mtime() {
+        let dir = init_repo().await;
+        let p = dir.path();
+        let real_index = p.join(".git").join("index");
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        fs::File::options()
+            .write(true)
+            .open(&real_index)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let index_path = scratch.path().join("index");
+        let index_str = index_path.to_string_lossy().to_string();
+
+        copy_real_index(p, &index_path, &[("GIT_INDEX_FILE", index_str.as_str())])
+            .await
+            .unwrap();
+
+        assert_eq!(fs::metadata(&index_path).unwrap().modified().unwrap(), old);
     }
 
     #[tokio::test]

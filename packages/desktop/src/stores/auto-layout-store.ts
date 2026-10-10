@@ -17,8 +17,12 @@ interface RevealedPane {
 }
 
 interface AutoLayoutStore {
-  /** Bumped whenever auto layout restructures the layout; keys the toggle's pulse. */
-  pulse: Record<number, number>;
+  /**
+   * When auto layout last restructured the layout (epoch ms); keys the
+   * toggle's pulse. A time, not a counter: the restructure itself remounts the
+   * toggle, so it can only tell a fresh pulse from a stale one by its age.
+   */
+  pulsedAt: Record<number, number>;
   /** Pane auto layout just revealed, until its entrance animation ends. */
   revealed: Record<number, RevealedPane>;
   /** Layout before the last auto restructure, while it can still be undone. */
@@ -39,7 +43,7 @@ function without<T>(record: Record<number, T>, key: number): Record<number, T> {
 }
 
 export const useAutoLayoutStore = create<AutoLayoutStore>((set) => ({
-  pulse: {},
+  pulsedAt: {},
   revealed: {},
   undo: {},
   agentBrowserActive: {},
@@ -49,7 +53,7 @@ export const useAutoLayoutStore = create<AutoLayoutStore>((set) => ({
       const restructured = pane.kind !== "activated";
       return {
         revealed: { ...s.revealed, [featureId]: pane },
-        pulse: restructured ? { ...s.pulse, [featureId]: (s.pulse[featureId] ?? 0) + 1 } : s.pulse,
+        pulsedAt: restructured ? { ...s.pulsedAt, [featureId]: Date.now() } : s.pulsedAt,
         undo: restructured ? { ...s.undo, [featureId]: before } : s.undo,
       };
     }),

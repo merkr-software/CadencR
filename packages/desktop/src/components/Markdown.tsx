@@ -15,6 +15,11 @@ import { parseConversationReferenceHref } from "@/components/prompt-editor/conve
 import { parseFileReferenceHref } from "@/components/prompt-editor/file-reference";
 import { fileReferenceRemarkPlugin } from "@/components/prompt-editor/file-reference-remark-plugin";
 import { defaultRemarkPlugins } from "streamdown";
+import {
+  AGENT_FILE_HREF_SCHEME,
+  protectAgentFileHrefs,
+  restoreAgentFileHrefs,
+} from "@/components/markdown/agent-file-href-sanitize";
 import { buildMarkdownComponents } from "@/components/markdown/markdown-components";
 import { markdownTreeCache } from "@/components/markdown/markdown-tree-cache";
 import "./dracula-highlight.css";
@@ -89,13 +94,19 @@ const markdownUrlTransform: UrlTransform = (url, key, node) =>
  * it drops `<script>`, event handlers, and dangerous URL schemes before they
  * reach the Electron renderer. We only widen it to keep our internal
  * `cadencr-conversation:` link scheme, which the default `href` allowlist would
- * otherwise strip.
+ * otherwise strip, plus the envelope agent file links cross it in (see
+ * `agent-file-href-sanitize.ts`).
  */
 const sanitizeSchema: typeof defaultSchema = {
   ...defaultSchema,
   protocols: {
     ...defaultSchema.protocols,
-    href: [...(defaultSchema.protocols?.href ?? []), "cadencr-conversation", "cadencr-file"],
+    href: [
+      ...(defaultSchema.protocols?.href ?? []),
+      "cadencr-conversation",
+      "cadencr-file",
+      AGENT_FILE_HREF_SCHEME,
+    ],
   },
 };
 
@@ -110,7 +121,12 @@ const sanitizeSchema: typeof defaultSchema = {
  * processor on plugin-array identity — rebuilding them per render would defeat
  * the cache on every streaming tick.
  */
-const RAW_HTML_PLUGINS: RehypePlugins = [rehypeRaw, [rehypeSanitize, sanitizeSchema]];
+const RAW_HTML_PLUGINS: RehypePlugins = [
+  rehypeRaw,
+  protectAgentFileHrefs,
+  [rehypeSanitize, sanitizeSchema],
+  restoreAgentFileHrefs,
+];
 /** Prose has no `<`, so it skips the parse5 re-parse and the sanitize walk. */
 const NO_RAW_HTML_PLUGINS: RehypePlugins = [];
 

@@ -143,8 +143,8 @@ export function parseFileReferenceHref(href: string): ParsedFileReferenceHref | 
 const NON_FILE_SCHEME = /^(?:[a-z][a-z0-9+.-]*:\/\/|mailto:|tel:|data:|javascript:|cadencr-)/i;
 /** `localhost:5173/x`: a web address the author forgot to prefix. */
 const HOST_PORT = /^[\w.-]+:\d+\//;
-/** `:line` or `:line:col` suffix (VS Code / compiler style). */
-const COLON_POSITION = /^(.*?):(\d+)(?::(\d+))?$/;
+/** `:line`, `:line:col` or `:line-endLine` suffix (VS Code / compiler style). */
+const COLON_POSITION = /^(.*?):(\d+)(?::(\d+))?(?:-\d+)?$/;
 /** GitHub-style `#L42`, `#L42C7`, `#L42-L50`. */
 const HASH_POSITION = /^(.*?)#L(\d+)(?:C(\d+))?(?:-L?\d+(?:C\d+)?)?$/;
 
@@ -172,7 +172,7 @@ export function parseAgentFileHref(href: string): ParsedFileReferenceHref | null
 
   const position = HASH_POSITION.exec(decoded) ?? COLON_POSITION.exec(decoded);
   const path = position ? position[1] : decoded;
-  if (!looksLikeFilePath(path)) return null;
+  if (!looksLikeFilePath(path, raw.startsWith("file://"))) return null;
   return {
     path,
     ...(position?.[2] ? { line: Number(position[2]) } : {}),
@@ -181,12 +181,15 @@ export function parseAgentFileHref(href: string): ParsedFileReferenceHref | null
 }
 
 /**
- * A path, not prose or a domain: it has a directory separator, or a bare file
- * name with a known extension (so `example.com` or `v1.2` stay web links).
+ * A file, not prose, a domain or a directory: a `file://` URI, or a path whose
+ * last segment has a known extension (`Makefile`-style names count as their
+ * own extension). A slash alone isn't enough — `/api/agents/x`, `docs/` and
+ * `src/components` are routes and folders the Editor can't open.
  */
-function looksLikeFilePath(path: string): boolean {
+function looksLikeFilePath(path: string, isFileUri: boolean): boolean {
   if (path.length === 0 || /[?#]/.test(path) || /^www\./i.test(path)) return false;
-  if (path.includes("/")) return true;
-  const extension = /\.([A-Za-z0-9]+)$/.exec(path)?.[1];
-  return extension !== undefined && KNOWN_EXTENSIONS.has(extension.toLowerCase());
+  if (isFileUri) return true;
+  const name = path.slice(Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")) + 1);
+  const extension = /\.([A-Za-z0-9]+)$/.exec(name)?.[1] ?? name;
+  return KNOWN_EXTENSIONS.has(extension.toLowerCase());
 }

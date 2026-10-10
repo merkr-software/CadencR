@@ -1,0 +1,55 @@
+/* Auto layout's "that was me" cue: when the mode rearranges the panes, a ring
+ * around its toggle blinks twice, then rests invisible. Opacity-only so it
+ * composites. With motion off there is no blink at all. */
+@keyframes auto-layout-pulse {
+  0%,
+  50%,
+  100% {
+    opacity: 0;
+  }
+  25%,
+  75% {
+    opacity: 1;
+  }
+}
+
+@utility auto-layout-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow:
+    0 0 0 1.5px color-mix(in oklab, var(--primary) 70%, transparent),
+    0 0 10px 1px color-mix(in oklab, var(--primary) 40%, transparent);
+  animation: auto-layout-pulse 1.1s ease-in-out 1;
+}
+
+html[data-animations="off"] .auto-layout-pulse {
+  animation-name: none;
+}
+
+/* A pane auto layout just revealed: a new split fades in, an existing pane
+ * flashes its edge. Opacity/outline only — a transform here would skew the
+ * bounds the native browser view is measured against. `outline-flash` is
+ * shared with the worktree-reuse cue and lives in index.css. */
+@keyframes auto-layout-pane-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+[data-auto-revealed="split"] {
+  animation: auto-layout-pane-enter 280ms var(--ease-fluid) 1;
+}
+
+[data-auto-revealed="moved"],
+[data-auto-revealed="activated"] {
+  --flash-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  outline: 2px solid transparent;
+  outline-offset: -2px;
+  animation: outline-flash 700ms ease-out 1;
+}

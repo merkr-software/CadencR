@@ -517,3 +517,73 @@ async fn provider_set_to_same_provider_is_a_noop_for_mode_state() {
         "permission mode preserved on same-provider re-set"
     );
 }
+
+#[tokio::test]
+async fn init_replaces_a_mode_the_provider_cannot_run_and_reports_it() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+
+    // The frontend seeds new conversations with Claude's `auto`, even one
+    // that starts on another provider (Cursor here; Codex alike).
+    let response = init_session_and_get_response(
+        &tx,
+        &mut rx,
+        &sdk_sessions,
+        &app_state,
+        SessionInitPayload {
+            provider: Some("cursor".to_string()),
+            model: None,
+            thinking_effort: None,
+            permission_mode: Some("auto".to_string()),
+            system_prompt: None,
+            cwd: Some("/tmp/test".to_string()),
+            feature_id: Some(1),
+        },
+    )
+    .await;
+
+    assert_eq!(response.permission_mode.as_deref(), Some("default"));
+    let db_id: i64 = response.session_id.parse().unwrap();
+    let handle_mode = sdk_sessions
+        .lock()
+        .await
+        .get(&db_id)
+        .unwrap()
+        .desired_permission_mode
+        .clone();
+    assert_eq!(handle_mode, Some(RuntimePermissionMode::Default));
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE id = ?")
+            .bind(db_id)
+            .fetch_one(&app_state.read_pool)
+            .await
+            .unwrap();
+    assert_eq!(stored.as_deref(), Some("default"));
+}
+
+#[tokio::test]
+async fn init_reports_a_supported_requested_mode_unchanged() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+
+    let response = init_session_and_get_response(
+        &tx,
+        &mut rx,
+        &sdk_sessions,
+        &app_state,
+        SessionInitPayload {
+            provider: Some("cursor".to_string()),
+            model: None,
+            thinking_effort: None,
+            permission_mode: Some("plan".to_string()),
+            system_prompt: None,
+            cwd: Some("/tmp/test".to_string()),
+            feature_id: Some(1),
+        },
+    )
+    .await;
+
+    assert_eq!(response.permission_mode.as_deref(), Some("plan"));
+}
