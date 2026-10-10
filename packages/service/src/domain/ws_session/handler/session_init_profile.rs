@@ -1,7 +1,10 @@
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::RuntimeSpawnConfig;
+use crate::domain::agents::adapter::{
+    RuntimeConfigOverrides, RuntimeEffectiveConfig, RuntimeSpawnConfig,
+};
 use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::agents::runtime_overrides::{self, RestoreOptions};
+use crate::domain::settings;
 use crate::domain::ws_session::handler::session_runtime_config;
 use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
 
@@ -91,7 +94,7 @@ pub(super) async fn resolve(
     if let Some(adapter) =
         runtime_adapter(provider).filter(|adapter| adapter.supports_profile_config_inheritance())
     {
-        let effective = adapter
+        let mut effective = adapter
             .resolve_profile_effective_config(
                 profile.as_deref(),
                 &runtime_config.cwd,
@@ -99,6 +102,15 @@ pub(super) async fn resolve(
             )
             .await
             .map_err(|error| ("PROFILE_CONFIG_ERROR", error.to_string()))?;
+        pin_last_used_effort(
+            app_state,
+            db_session_id,
+            provider,
+            row,
+            &mut runtime_config.overrides,
+            &mut effective,
+        )
+        .await?;
         effective_model = effective.model;
         effective_effort = effective.thinking_effort;
         runtime_config.model = effective_model.clone();
@@ -113,4 +125,113 @@ pub(super) async fn resolve(
         profile_effective_fast_mode: effective_fast_mode,
         inherits_profile_config: inherits,
     })
+}
+
+/// A brand-new session of a profile-inheriting provider (no override document
+/// and no runtime thread yet) starts at the user's last level for its effective
+/// model, as a spawn or a model switch would; without one, the profile's own
+/// level applies. The level is pinned as an explicit override so the session
+/// keeps it when it is reopened.
+async fn pin_last_used_effort(
+    app_state: &AppState,
+    db_session_id: i64,
+    provider: &str,
+    row: Option<&SessionRow>,
+    overrides: &mut RuntimeConfigOverrides,
+    effective: &mut RuntimeEffectiveConfig,
+) -> Result<(), (&'static str, String)> {
+    let fresh = row.is_some_and(|session| {
+        session.runtime_overrides.is_none() && session.runtime_session_id.is_none()
+    });
+    if !fresh || overrides.thinking_effort.is_some() {
+        return Ok(());
+    }
+    let Some(model) = effective.model.as_deref() else {
+        return Ok(());
+    };
+    let Some(level) =
+        settings::thinking_effort_model_default(&app_state.read_pool, provider, model).await
+    else {
+        return Ok(());
+    };
+    overrides.thinking_effort = Some(level.clone());
+    WsSessionPersistence::update_runtime_overrides_static(
+        &app_state.write_pool,
+        db_session_id,
+        overrides,
+    )
+    .await
+    .map_err(|error| ("DB_ERROR", error.to_string()))?;
+    effective.thinking_effort = Some(level);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::{init_session, make_test_app_state};
+    use crate::domain::ws_session::handler::types::SdkSessions;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{mpsc, Mutex};
+
+    #[tokio::test]
+    async fn fresh_profile_session_pins_the_last_used_level_of_its_model() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+        let app_state = make_test_app_state().await;
+        let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+        let db_id: i64 = session_id.parse().unwrap();
+        crate::domain::settings_store::global_set(
+            &crate::domain::settings::thinking_effort_model_key("codex_cli", "pin-test-model"),
+            "high",
+        )
+        .await
+        .unwrap();
+        let effective_for = || RuntimeEffectiveConfig {
+            model: Some("pin-test-model".to_string()),
+            ..Default::default()
+        };
+
+        // A session without provenance resumes the model's last-used level.
+        let fresh_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id).await;
+        let mut overrides = RuntimeConfigOverrides::default();
+        let mut effective = effective_for();
+        pin_last_used_effort(
+            &app_state,
+            db_id,
+            "codex_cli",
+            fresh_row.as_ref(),
+            &mut overrides,
+            &mut effective,
+        )
+        .await
+        .unwrap();
+        assert_eq!(overrides.thinking_effort.as_deref(), Some("high"));
+        assert_eq!(effective.thinking_effort.as_deref(), Some("high"));
+        let persisted: Option<String> =
+            sqlx::query_scalar("SELECT runtime_overrides FROM agent_sessions WHERE id = ?")
+                .bind(db_id)
+                .fetch_one(&app_state.read_pool)
+                .await
+                .unwrap();
+        assert!(persisted.unwrap().contains("\"high\""));
+
+        // Once it has an override document, its own provenance wins.
+        let known_row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_id).await;
+        let mut overrides = RuntimeConfigOverrides::default();
+        let mut effective = effective_for();
+        pin_last_used_effort(
+            &app_state,
+            db_id,
+            "codex_cli",
+            known_row.as_ref(),
+            &mut overrides,
+            &mut effective,
+        )
+        .await
+        .unwrap();
+        assert_eq!(overrides.thinking_effort, None);
+        assert_eq!(effective.thinking_effort, None);
+    }
 }

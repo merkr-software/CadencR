@@ -1,11 +1,16 @@
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::RuntimeConfigOverrides;
+use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveConfig};
+use crate::domain::agents::providers::resolve_model_or_error_for_profile;
+use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{
     RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope, WsSessionAction,
 };
+use crate::error::AppError;
+use serde_json::Value;
 
 use super::super::{parse_session_id, send_error, SdkSessions, WsSender};
+use super::effort::persist_model_thinking_default;
 
 pub(crate) async fn handle_runtime_overrides_set(
     envelope: WsEnvelope,
@@ -53,27 +58,23 @@ pub(crate) async fn handle_runtime_overrides_set(
     if let Err(error) = apply_patch(&mut overrides, patch) {
         return send_error(sender, &envelope.id, "INVALID_OVERRIDES", &error);
     }
-    let Some(adapter) = crate::domain::agents::providers::runtime_adapter(&provider) else {
-        return send_error(
-            sender,
-            &envelope.id,
-            "PROVIDER_UNAVAILABLE",
-            "Provider is unavailable",
-        );
-    };
-    let effective = match adapter
-        .resolve_profile_effective_config(profile.as_deref(), &cwd, &overrides)
+    if let Some(requested) = switched_model(patch, &previous_overrides) {
+        if let Err((code, message)) = resolve_switched_model(
+            app_state,
+            &provider,
+            profile.as_deref(),
+            &cwd,
+            requested,
+            &mut overrides,
+        )
         .await
-    {
-        Ok(effective) => effective,
-        Err(error) => {
-            return send_error(
-                sender,
-                &envelope.id,
-                "INVALID_OVERRIDES",
-                &error.to_string(),
-            )
+        {
+            return send_error(sender, &envelope.id, code, &message);
         }
+    }
+    let effective = match effective_config(&provider, profile.as_deref(), &cwd, &overrides).await {
+        Ok(effective) => effective,
+        Err((code, message)) => return send_error(sender, &envelope.id, code, &message),
     };
     if unsafe_unresolved_effort_reset(patch, &previous_overrides, &effective, has_runtime_state) {
         return send_error(
@@ -83,10 +84,13 @@ pub(crate) async fn handle_runtime_overrides_set(
             "Cannot safely reset reasoning effort for this resumed session. Configure an explicit default reasoning effort in the provider configuration first.",
         );
     }
-    if let Err(error) = WsSessionPersistence::update_runtime_overrides_static(
-        &app_state.write_pool,
+    if let Err(error) = persist_overrides(
+        app_state,
         session_id,
+        &provider,
         &overrides,
+        patch.get("thinking_effort").and_then(Value::as_str),
+        &effective,
     )
     .await
     {
@@ -105,6 +109,104 @@ pub(crate) async fn handle_runtime_overrides_set(
         },
     )
     .await;
+}
+
+/// Config the provider runs with once profile defaults fill in whatever the
+/// overrides leave inherited.
+async fn effective_config(
+    provider: &str,
+    profile: Option<&str>,
+    cwd: &std::path::Path,
+    overrides: &RuntimeConfigOverrides,
+) -> Result<RuntimeEffectiveConfig, (&'static str, String)> {
+    let Some(adapter) = crate::domain::agents::providers::runtime_adapter(provider) else {
+        return Err((
+            "PROVIDER_UNAVAILABLE",
+            "Provider is unavailable".to_string(),
+        ));
+    };
+    adapter
+        .resolve_profile_effective_config(profile, cwd, overrides)
+        .await
+        .map_err(|error| ("INVALID_OVERRIDES", error.to_string()))
+}
+
+/// The model a patch switches to. Only a real model change without an explicit
+/// effort in the same patch resets the effort; re-sending the current model
+/// keeps the session's explicit level.
+fn switched_model<'a>(
+    patch: &'a serde_json::Map<String, serde_json::Value>,
+    previous: &RuntimeConfigOverrides,
+) -> Option<&'a str> {
+    if patch.contains_key("thinking_effort") {
+        return None;
+    }
+    let requested = patch.get("model").and_then(serde_json::Value::as_str)?;
+    (previous.model.as_deref() != Some(requested)).then_some(requested)
+}
+
+/// A model switch resumes the new model's last-used level (or its default)
+/// rather than keeping the previous model's level.
+async fn resolve_switched_model(
+    app_state: &AppState,
+    provider: &str,
+    profile: Option<&str>,
+    cwd: &std::path::Path,
+    requested: &str,
+    overrides: &mut RuntimeConfigOverrides,
+) -> Result<(), (&'static str, String)> {
+    if crate::domain::agents::providers::runtime_adapter(provider).is_none() {
+        return Err((
+            "PROVIDER_UNAVAILABLE",
+            "Provider is unavailable".to_string(),
+        ));
+    }
+    let (model, entry) = resolve_model_or_error_for_profile(
+        &app_state.read_pool,
+        Some(cwd),
+        provider,
+        requested,
+        profile,
+    )
+    .await
+    .map_err(|error| ("INVALID_OVERRIDES", error.to_string()))?;
+    overrides.thinking_effort =
+        target_thinking_effort(&app_state.read_pool, provider, &entry).await;
+    overrides.model = Some(model);
+    Ok(())
+}
+
+async fn persist_overrides(
+    app_state: &AppState,
+    session_id: i64,
+    provider: &str,
+    overrides: &RuntimeConfigOverrides,
+    explicit_effort: Option<&str>,
+    effective: &RuntimeEffectiveConfig,
+) -> Result<(), AppError> {
+    // Workspace default first: if it fails, the session overrides stay untouched.
+    remember_explicit_effort(app_state, provider, explicit_effort, effective).await?;
+    WsSessionPersistence::update_runtime_overrides_static(
+        &app_state.write_pool,
+        session_id,
+        overrides,
+    )
+    .await?;
+    Ok(())
+}
+
+/// An explicit effort is the user's last choice for the model it resolves to,
+/// so remember it per provider/model the same way the non-inheriting path does.
+async fn remember_explicit_effort(
+    app_state: &AppState,
+    provider: &str,
+    explicit_effort: Option<&str>,
+    effective: &RuntimeEffectiveConfig,
+) -> Result<(), AppError> {
+    let (Some(effort), Some(model)) = (explicit_effort, effective.model.as_deref()) else {
+        return Ok(());
+    };
+    persist_model_thinking_default(app_state, provider, model, effort).await
 }
 
 async fn override_snapshot(
@@ -145,12 +247,14 @@ fn unsafe_unresolved_effort_reset(
     let clears_effort = patch
         .get("thinking_effort")
         .is_some_and(serde_json::Value::is_null);
-    let changes_model_while_effort_inherited = patch.contains_key("model")
-        && !patch.contains_key("thinking_effort")
-        && previous.thinking_effort.is_none();
+    // A model switch without an explicit effort re-derives the level (see
+    // `resolve_switched_model`), so it can drop a previously explicit effort
+    // just like a clear does.
+    let switches_model_without_effort =
+        patch.contains_key("model") && !patch.contains_key("thinking_effort");
     has_runtime_state
         && effective.thinking_effort.is_none()
-        && (clears_effort || changes_model_while_effort_inherited)
+        && (clears_effort || switches_model_without_effort)
         && (previous.thinking_effort.is_some() || previous.model.is_some())
 }
 
@@ -250,6 +354,32 @@ mod tests {
             &previous,
             &RuntimeEffectiveConfig::default(),
             false,
+        ));
+    }
+
+    #[test]
+    fn resumed_model_switch_dropping_an_explicit_effort_fails_closed() {
+        let patch = serde_json::json!({"model": "other-model"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let previous = RuntimeConfigOverrides {
+            model: Some("model".to_string()),
+            thinking_effort: Some("high".to_string()),
+            ..Default::default()
+        };
+        assert!(unsafe_unresolved_effort_reset(
+            &patch,
+            &previous,
+            &RuntimeEffectiveConfig::default(),
+            true,
+        ));
+        let resolved = RuntimeEffectiveConfig {
+            thinking_effort: Some("medium".to_string()),
+            ..Default::default()
+        };
+        assert!(!unsafe_unresolved_effort_reset(
+            &patch, &previous, &resolved, true,
         ));
     }
 }

@@ -2,17 +2,12 @@ import React from "react";
 import { renderHook } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { parseThinkingEffort } from "@/shared/thinking-effort";
 import { useResolvedModel } from "./useResolvedModel";
 import type { AgentSelectionResponse, ResolvedSelection } from "../api/generated";
 
 const mockSetModelMutate = vi.fn();
 const mockSetProviderMutate = vi.fn();
-const mockSetWorkspaceSettingMutate = vi.fn();
 
-type KvEntry = { key: string; value: string | null };
-
-const mockWorkspaceKvSettings = vi.fn((): { data: KvEntry[] } => ({ data: [] }));
 interface MockCatalogProvider {
   id: string;
   label: string;
@@ -61,21 +56,8 @@ vi.mock("../api/generated", () => ({
       opts?.mutation?.onSuccess?.();
     },
   })),
-  useSetWorkspaceSetting: vi.fn((opts?: { mutation?: { onSuccess?: () => void } }) => ({
-    mutate: (data: unknown) => {
-      mockSetWorkspaceSettingMutate(data);
-      opts?.mutation?.onSuccess?.();
-    },
-  })),
   getGetFeatureModelSettingsQueryKey: (id: number) => ["features", "modelSettings", id],
   getGetAgentSelectionQueryKey: () => ["/api/agent-runtime/selection"],
-}));
-
-vi.mock("@/api/settings", () => ({
-  useGetWorkspaceSettings: () => mockWorkspaceKvSettings(),
-  getWorkspaceSettingsQueryKey: () => ["workspace", "settings"] as const,
-  settingsArrayToMap: (entries: KvEntry[] | undefined) =>
-    Object.fromEntries((entries ?? []).map((entry) => [entry.key, entry.value ?? ""])),
 }));
 
 vi.mock("../api/agentRuntime", () => ({
@@ -104,13 +86,11 @@ describe("useResolvedModel", () => {
   beforeEach(() => {
     mockSetModelMutate.mockClear();
     mockSetProviderMutate.mockClear();
-    mockSetWorkspaceSettingMutate.mockClear();
     mockUseGetAgentSelection.mockReturnValue({
       data: undefined,
       error: undefined,
       isLoading: true,
     });
-    mockWorkspaceKvSettings.mockReturnValue({ data: [] });
     mockAgentCatalog.mockReturnValue({
       data: {
         default_provider: "claude_code",
@@ -201,77 +181,6 @@ describe("useResolvedModel", () => {
       featureId: 1,
       providerType: "session",
       provider: "opencode",
-    });
-  });
-
-  it("resolveModelThinkingEffort reads the per-model workspace setting", () => {
-    mockAgentCatalog.mockReturnValue({
-      data: {
-        default_provider: "claude_code",
-        providers: [
-          {
-            id: "claude_code",
-            label: "Claude",
-            status: "available",
-            default_model: "claude-opus-4",
-            models: [
-              {
-                id: "claude-opus-4",
-                supports_effort: true,
-                supported_effort_levels: ["low", "medium", "high"],
-              } as unknown,
-            ],
-          },
-        ],
-      },
-    });
-    mockWorkspaceKvSettings.mockReturnValue({
-      data: [{ key: "thinking_effort_model_claude_code_claude-opus-4", value: "high" }],
-    });
-    const { result } = renderHook(() => useResolvedModel(1, 1), { wrapper });
-    expect(result.current.resolveModelThinkingEffort("claude_code", "claude-opus-4")).toBe("high");
-  });
-
-  it("resolveModelThinkingEffort ignores values not supported by the model", () => {
-    mockAgentCatalog.mockReturnValue({
-      data: {
-        default_provider: "claude_code",
-        providers: [
-          {
-            id: "claude_code",
-            label: "Claude",
-            status: "available",
-            default_model: "claude-opus-4",
-            models: [
-              {
-                id: "claude-opus-4",
-                supports_effort: true,
-                supported_effort_levels: ["low", "medium"],
-              } as unknown,
-            ],
-          },
-        ],
-      },
-    });
-    mockWorkspaceKvSettings.mockReturnValue({
-      data: [{ key: "thinking_effort_model_claude_code_claude-opus-4", value: "max" }],
-    });
-    const { result } = renderHook(() => useResolvedModel(1, 1), { wrapper });
-    expect(
-      result.current.resolveModelThinkingEffort("claude_code", "claude-opus-4"),
-    ).toBeUndefined();
-  });
-
-  it("setModelThinkingEffort writes the per-model workspace setting", () => {
-    const { result } = renderHook(() => useResolvedModel(1, 1), { wrapper });
-    result.current.setModelThinkingEffort(
-      "claude_code",
-      "claude-opus-4",
-      parseThinkingEffort("high"),
-    );
-    expect(mockSetWorkspaceSettingMutate).toHaveBeenCalledWith({
-      key: "thinking_effort_model_claude_code_claude-opus-4",
-      data: { value: "high" },
     });
   });
 });

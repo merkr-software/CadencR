@@ -403,3 +403,91 @@ fn codex_spawned_provenance_beats_workspace_model_and_effort() {
     assert_eq!(restored.thinking_effort.as_deref(), Some("xhigh"));
     assert_eq!(restored.fast_mode, None);
 }
+
+#[tokio::test]
+async fn resending_the_current_model_keeps_the_explicit_effort() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+    let db_id: i64 = session_id.parse().unwrap();
+
+    {
+        let mut sessions = sdk_sessions.lock().await;
+        let handle = sessions.get_mut(&db_id).unwrap();
+        handle.config.overrides.model = Some("haiku".into());
+        handle.config.overrides.thinking_effort = Some("explicit-effort".into());
+    }
+    dispatch_envelope(
+        make_envelope(
+            "session",
+            "runtime_overrides.set",
+            serde_json::json!({
+                "session_id": session_id,
+                "runtime_overrides": { "model": "haiku" },
+            }),
+        ),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+    let Message::Text(reply) = rx.recv().await.unwrap() else {
+        panic!("text expected")
+    };
+    let reply: WsEnvelope = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply.action, "runtime_overrides.changed");
+
+    let sessions = sdk_sessions.lock().await;
+    let handle = sessions.get(&db_id).unwrap();
+    assert_eq!(
+        handle.config.overrides.thinking_effort.as_deref(),
+        Some("explicit-effort")
+    );
+}
+
+#[tokio::test]
+async fn model_switch_resumes_the_default_without_recording_it_as_a_choice() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    let session_id = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
+    let db_id: i64 = session_id.parse().unwrap();
+    add_claude_custom_model(
+        &app_state,
+        "default-test-model",
+        &["low", "high"],
+        Some("high"),
+    )
+    .await;
+    let key =
+        crate::domain::settings::thinking_effort_model_key("claude_code", "default-test-model");
+    crate::domain::settings_store::global_set(&key, "")
+        .await
+        .unwrap();
+
+    dispatch_envelope(
+        make_envelope(
+            "session",
+            "model.set",
+            serde_json::json!({ "session_id": session_id, "model": "default-test-model" }),
+        ),
+        &tx,
+        &sdk_sessions,
+        &app_state,
+    )
+    .await;
+    let Message::Text(reply) = rx.recv().await.unwrap() else {
+        panic!("text expected")
+    };
+    let reply: WsEnvelope = serde_json::from_str(&reply).unwrap();
+    assert_eq!(reply.action, "model.set.ok");
+
+    // The session runs at the model's default...
+    let sessions = sdk_sessions.lock().await;
+    let handle = sessions.get(&db_id).unwrap();
+    assert_eq!(handle.desired_thinking_effort.as_deref(), Some("high"));
+    // ...but the user never chose it, so it is not their last-used level.
+    let stored = crate::domain::settings_store::global_get(&key).filter(|value| !value.is_empty());
+    assert_eq!(stored, None);
+}

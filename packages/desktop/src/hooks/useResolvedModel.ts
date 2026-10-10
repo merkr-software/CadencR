@@ -6,22 +6,9 @@ import type { RuntimeSelection } from "../shared/models";
 import {
   getGetFeatureModelSettingsQueryKey,
   useSetFeatureModelSetting,
-  useSetWorkspaceSetting,
   getGetAgentSelectionQueryKey,
 } from "../api/generated";
-import {
-  getWorkspaceSettingsQueryKey,
-  settingsArrayToMap,
-  useGetWorkspaceSettings,
-} from "@/api/settings";
 import { useAgentCatalog, useSetFeatureProviderSetting } from "../api/agentRuntime";
-import {
-  isThinkingEffortSupported,
-  parseThinkingEffort,
-  supportedThinkingEffortLevels,
-  thinkingEffortModelKey,
-  type ThinkingEffortLevel,
-} from "@/shared/thinking-effort";
 import { useResolvedSelection } from "../api/agentSelection";
 import { toastError } from "@/lib/api-errors";
 
@@ -44,25 +31,16 @@ function useResolvedModelMutations(
       queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() });
     },
   });
-  const setWorkspaceSettingMutation = useSetWorkspaceSetting({
-    mutation: {
-      onSuccess: () => queryClient.invalidateQueries({ queryKey: getWorkspaceSettingsQueryKey() }),
-    },
-  });
-  return { setModelMutation, setProviderMutation, setWorkspaceSettingMutation };
+  return { setModelMutation, setProviderMutation };
 }
 
 export function useResolvedModel(featureId: number, projectId: number) {
   const queryClient = useQueryClient();
   const selectionQuery = useResolvedSelection({ projectId, featureId });
   const agentCatalog = useAgentCatalog({ staleTime: RESOLVED_MODEL_STALE_MS });
-  const workspaceKvSettings = useGetWorkspaceSettings();
-  const { setModelMutation, setProviderMutation, setWorkspaceSettingMutation } =
-    useResolvedModelMutations(queryClient, featureId);
-
-  const workspaceSettingMap = useMemo(
-    () => settingsArrayToMap(workspaceKvSettings.data),
-    [workspaceKvSettings.data],
+  const { setModelMutation, setProviderMutation } = useResolvedModelMutations(
+    queryClient,
+    featureId,
   );
 
   useEffect(() => {
@@ -100,35 +78,11 @@ export function useResolvedModel(featureId: number, projectId: number) {
     [resolveSelection, agentCatalog.data],
   );
 
-  const resolveModelThinkingEffort = useCallback(
-    (providerId: string, modelId: string): ThinkingEffortLevel | undefined => {
-      const model = agentCatalog.data?.providers
-        .find((provider) => provider.id === providerId)
-        ?.models.find((entry) => entry.id === modelId);
-      const levels = supportedThinkingEffortLevels(model);
-      const value = workspaceSettingMap[thinkingEffortModelKey(providerId, modelId)];
-      const effort = parseThinkingEffort(value);
-      return effort && isThinkingEffortSupported(levels, effort) ? effort : undefined;
-    },
-    [agentCatalog.data?.providers, workspaceSettingMap],
-  );
-
-  const setModelThinkingEffort = useCallback(
-    (providerId: string, modelId: string, effort: ThinkingEffortLevel | undefined): void => {
-      setWorkspaceSettingMutation.mutate({
-        key: thinkingEffortModelKey(providerId, modelId),
-        data: { value: effort ?? "" },
-      });
-    },
-    [setWorkspaceSettingMutation],
-  );
-
   return useMemo(
     () => ({
       resolveModel,
       resolveProvider,
       resolveSelection,
-      resolveModelThinkingEffort,
       handleModelChange: (agentType: AgentType, modelId: string) =>
         setModelMutation.mutate({
           id: featureId,
@@ -140,14 +94,11 @@ export function useResolvedModel(featureId: number, projectId: number) {
           providerType: agentType as AgentTypeSetting,
           provider: providerId,
         }),
-      setModelThinkingEffort,
     }),
     [
       resolveModel,
       resolveProvider,
       resolveSelection,
-      resolveModelThinkingEffort,
-      setModelThinkingEffort,
       setModelMutation,
       setProviderMutation,
       featureId,

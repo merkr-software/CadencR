@@ -4,6 +4,10 @@ use sqlx::{AssertSqlSafe, SqlitePool};
 
 use crate::domain::settings_store::{self, paths, store, Scope};
 
+mod thinking;
+
+pub use thinking::target_thinking_effort;
+
 /// Workspace setting key holding the last-used thinking effort for a given
 /// provider/model pair. Mirrors the frontend helper in
 /// `packages/desktop/src/shared/thinking-effort.ts`.

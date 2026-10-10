@@ -3,7 +3,6 @@ import { useQueryClient } from "@tanstack/react-query";
 import { BotIcon } from "lucide-react";
 import { AgentSession } from "@/components/agent-session";
 import { SessionInfoMcpServersProvider } from "@/components/agent-session/SessionInfoChip";
-import { supportedThinkingEffortLevels } from "@/shared/thinking-effort";
 import { resolveWorktreeChoice } from "@/lib/worktree-mode";
 import { toastError } from "@/lib/api-errors";
 import { checkoutSelectedBranch, saveWorktreeChoice } from "@/components/worktree-send-helpers";
@@ -294,15 +293,7 @@ export function handleModelChange(
     controls.ws.setProvider(nextProviderId, modelId);
   }
 
-  const nextModel = controls.agentCatalog.data?.providers
-    .find((provider) => provider.id === nextProviderId)
-    ?.models.find((model) => model.id === modelId);
-  const nextLevels = supportedThinkingEffortLevels(nextModel);
-  const nextEffort = controls.resolveModelThinkingEffort(nextProviderId, modelId);
-  if (!controls.supportsConfigInheritance) {
-    if (nextEffort) controls.ws.setThinkingEffort(nextEffort);
-    else if (!nextLevels.includes(controls.ws.currentThinkingEffort as never)) {
-      controls.ws.setThinkingEffort(undefined);
-    }
-  }
+  // The thinking level is not sent from here: the backend resumes the target
+  // model's last-used level (or its default) as part of the model/provider
+  // change, so the client never guesses it.
 }

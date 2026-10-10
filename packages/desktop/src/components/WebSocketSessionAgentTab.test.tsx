@@ -20,7 +20,6 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
         : undefined,
     },
     agentCatalog: { data: { providers: [] } },
-    resolveModelThinkingEffort: () => undefined,
     supportsConfigInheritance,
   } as unknown as Controls;
   return { controls, setProvider, setModel, setThinkingEffort, setRuntimeOverrides };
@@ -52,6 +51,15 @@ describe("handleModelChange", () => {
 
     expect(setProvider).toHaveBeenCalledWith("claude_code", "sonnet");
     expect(setModel).not.toHaveBeenCalled();
+  });
+
+  it("leaves the thinking level to the backend on every model change", () => {
+    const { controls, setThinkingEffort } = makeControls("claude_code");
+
+    handleModelChange("claude_code", "sonnet", controls);
+    handleModelChange("codex_cli", "gpt-5.6-sol", controls);
+
+    expect(setThinkingEffort).not.toHaveBeenCalled();
   });
 
   it("uses an explicit model override only when config inheritance is supported", () => {
