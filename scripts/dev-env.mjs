@@ -34,12 +34,14 @@ export function generateToken() {
 /**
  * Serialize a value so every `.env` reader here (Node's parseEnv, Vite's
  * dotenv, the service's dotenvy) reads it back unchanged: plain values as-is,
- * anything with `#`, `$`, quotes or spaces single-quoted (literal everywhere).
+ * others single-quoted (literal everywhere), and values with an apostrophe
+ * double-quoted unless they hold what double quotes would expand.
  */
 export function formatEnvValue(value) {
   const text = String(value);
   if (/^[\w@%+=:,./~-]*$/.test(text)) return text;
   if (!/['\r\n]/.test(text)) return `'${text}'`;
+  if (!/["$\\\r\n]/.test(text)) return `"${text}"`;
   throw new Error(`cannot write ${JSON.stringify(text)} to a .env file unambiguously`);
 }
 

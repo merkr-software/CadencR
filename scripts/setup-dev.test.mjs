@@ -69,11 +69,12 @@ test("setEnvValues rewrites in place, appends missing keys and keeps `$` literal
 });
 
 test("setEnvValues quotes values a .env reader would otherwise cut or change", () => {
-  for (const value of ["abc#def=ghi", "a b", 'say "hi"', "x$&y", "plain-123_./:@"]) {
+  for (const value of ["abc#def=ghi", "a b", 'say "hi"', "x$&y", "plain-123_./:@", "sam's-tree"]) {
     assert.equal(parseEnv(setEnvValues("", { K: value })).K, value, value);
   }
   assert.equal(setEnvValues("", { K: "abc#def" }), "\nK='abc#def'\n");
-  assert.throws(() => setEnvValues("", { K: "it's" }), /unambiguously/);
+  assert.equal(setEnvValues("", { K: "sam's-tree" }), '\nK="sam\'s-tree"\n');
+  assert.throws(() => setEnvValues("", { K: "it's $5" }), /unambiguously/);
 });
 
 test("setEnvValues removes a key given `undefined`, and ignores an absent one", () => {
