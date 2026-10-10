@@ -205,6 +205,8 @@ mod tests {
         assert!(!skip_db_backup(true, false));
     }
 
+    // Release builds never skip (see the truth table above).
+    #[cfg(debug_assertions)]
     #[test]
     fn fresh_clone_marker_skips_one_start_then_backups_resume() {
         let dir = tempdir().unwrap();
