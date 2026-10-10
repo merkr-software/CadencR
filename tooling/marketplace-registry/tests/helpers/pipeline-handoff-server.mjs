@@ -34,11 +34,10 @@ const routes = {
 async function fixtureFetch(input, options) {
   const target = new URL(input);
   if (!routes[target.hostname]) throw new Error("unknown handoff destination");
-  const result = await fetch(
+  return fetch(
     url + routes[target.hostname] + target.pathname + target.search,
     options,
   );
-  return new Response(result.body, { status: result.status, headers: result.headers });
 }
 async function control(input) {
   if (input.action === "configure") {

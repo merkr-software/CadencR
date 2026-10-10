@@ -96,7 +96,7 @@ async fn create_new_branch(
         .err();
     let actual =
         match transport
-            .get_optional::<GitRef>(input.token, &ref_path)
+            .get_optional::<GitRef>(input.token, ref_path)
             .await?
         {
             Some(value) => value,
