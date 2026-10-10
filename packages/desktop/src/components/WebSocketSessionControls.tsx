@@ -17,7 +17,6 @@ import { useGetProjectSettings, useSetProjectSetting } from "@/api/generated";
 import { toast } from "sonner";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { useResolvedModelContext } from "@/contexts/ResolvedModelContext";
-import type { useResolvedModel } from "@/hooks/useResolvedModel";
 import { useWebSocketSession } from "@/hooks/useWebSocketSession";
 import { useEnabledOptInModes } from "@/hooks/useEnabledOptInModes";
 import {
@@ -52,13 +51,11 @@ interface RuntimeSelectionControls {
   agentCatalog: ReturnType<typeof useAgentCatalog>;
   resolvedProviderId: string;
   resolvedModelId: string;
-  resolvedThinkingEffort: string | undefined;
   activeProviderId: string;
   supportedThinkingEfforts: ReturnType<typeof supportedThinkingEffortLevels>;
   enabledOptInModes: PermissionMode[];
   providerModes: readonly RuntimeProviderModeOption[];
   providerAccessModes: readonly RuntimeProviderAccessModeOption[];
-  resolveModelThinkingEffort: ReturnType<typeof useResolvedModel>["resolveModelThinkingEffort"];
 }
 
 interface AccessControls {
@@ -123,7 +120,7 @@ function useRuntimeSelection(
   catalogClaudeProfile: string | undefined,
   resolvedProviderId: string,
 ): RuntimeSelectionControls {
-  const { resolveModel, resolveModelThinkingEffort } = useResolvedModelContext();
+  const { resolveModel } = useResolvedModelContext();
   const activeProviderId = ws.currentSelection?.providerId ?? resolvedProviderId;
   const agentCatalog = useAgentCatalog({
     cwd: effectiveCwd,
@@ -133,7 +130,6 @@ function useRuntimeSelection(
     staleTime: 30_000,
   });
   const resolvedModelId = resolveModel("session");
-  const resolvedThinkingEffort = resolveModelThinkingEffort(resolvedProviderId, resolvedModelId);
   // `currentSelection` is the backend-confirmed pair; before it arrives, fall
   // back to the client-resolved provider so pre-connection UI (Claude profile
   // selector, catalog probe) isn't blocked on a round trip.
@@ -154,13 +150,11 @@ function useRuntimeSelection(
       agentCatalog,
       resolvedProviderId,
       resolvedModelId,
-      resolvedThinkingEffort,
       activeProviderId,
       supportedThinkingEfforts,
       enabledOptInModes,
       providerModes,
       providerAccessModes,
-      resolveModelThinkingEffort,
     }),
     [
       activeProviderId,
@@ -168,10 +162,8 @@ function useRuntimeSelection(
       enabledOptInModes,
       providerModes,
       providerAccessModes,
-      resolveModelThinkingEffort,
       resolvedModelId,
       resolvedProviderId,
-      resolvedThinkingEffort,
       supportedThinkingEfforts,
     ],
   );

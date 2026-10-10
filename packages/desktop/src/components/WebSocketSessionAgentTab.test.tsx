@@ -20,7 +20,6 @@ function makeControls(currentProviderId: string | undefined, supportsConfigInher
         : undefined,
     },
     agentCatalog: { data: { providers: [] } },
-    resolveModelThinkingEffort: () => undefined,
     supportsConfigInheritance,
   } as unknown as Controls;
   return { controls, setProvider, setModel, setThinkingEffort, setRuntimeOverrides };

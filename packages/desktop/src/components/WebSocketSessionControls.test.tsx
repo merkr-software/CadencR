@@ -19,7 +19,6 @@ vi.mock("@/contexts/ResolvedModelContext", () => ({
   useResolvedModelContext: () => ({
     resolveProvider: () => PROVIDER_IDS.CLAUDE_CODE,
     resolveModel: () => "claude-sonnet",
-    resolveModelThinkingEffort: () => undefined,
   }),
 }));
 vi.mock("@/api/generated", () => ({

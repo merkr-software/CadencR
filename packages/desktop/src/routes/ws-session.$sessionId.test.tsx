@@ -215,8 +215,6 @@ vi.mock("@/hooks/useResolvedModel", () => ({
   useResolvedModel: vi.fn(() => ({
     resolveProvider: vi.fn(() => "claude_code"),
     resolveModel: vi.fn(() => "claude-opus-4-5"),
-    resolveModelThinkingEffort: vi.fn(() => undefined),
-    setModelThinkingEffort: vi.fn(),
     handleProviderChange: vi.fn(),
     handleModelChange: vi.fn(),
   })),
@@ -227,8 +225,6 @@ vi.mock("@/contexts/ResolvedModelContext", () => ({
   useResolvedModelContext: vi.fn(() => ({
     resolveProvider: vi.fn(() => "claude_code"),
     resolveModel: vi.fn(() => "claude-opus-4-5"),
-    resolveModelThinkingEffort: vi.fn(() => undefined),
-    setModelThinkingEffort: vi.fn(),
     handleProviderChange: vi.fn(),
     handleModelChange: vi.fn(),
   })),
