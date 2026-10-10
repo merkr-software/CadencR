@@ -5,15 +5,39 @@ on:
   push:
     branches:
       - main
+      # Version integration branches (see CONTRIBUTING "Branching"). Pushes
+      # there also seed the Rust and Turbo caches that PRs targeting them read.
+      - "v*"
 
 permissions:
   contents: read
 
+# A new push to a PR supersedes the run in progress. Branch pushes are grouped
+# per commit, so every commit on main/vX.Y.Z keeps a full result and seeds the
+# caches instead of being cancelled or queued behind the next push.
+concurrency:
+  group: >-
+    ci-${{ github.event_name == 'pull_request'
+    && format('pr-{0}', github.event.pull_request.number)
+    || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+
 jobs:
-  precommit-checks:
-    name: Pre-commit checks
+  rust:
+    name: Rust (fmt, clippy, tests)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 40
+    env:
+      # The service scripts only need Node to run the cargo wrapper; skip
+      # pnpm's implicit install-before-run so this job never installs
+      # node_modules.
+      pnpm_config_verify_deps_before_run: "false"
+      # The profiles enable incremental compilation for local rebuilds; a
+      # one-shot CI build only pays its overhead (and bloats the cache).
+      CARGO_INCREMENTAL: "0"
     steps:
       # actions/checkout@v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -24,34 +48,191 @@ jobs:
       # actions/setup-node@v7.0.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22
-          cache: pnpm
+          node-version-file: .nvmrc
+          package-manager-cache: false
 
-      - name: Install Rust stable toolchain
-        run: rustup toolchain install stable --profile minimal
+      # With no argument, rustup installs the toolchain and components pinned
+      # by rust-toolchain.toml.
+      - name: Install Rust toolchain from rust-toolchain.toml
+        run: |
+          rustup toolchain install
+          rustc --version
+          cargo fmt --version
+          cargo clippy --version
+
+      # Swatinem/rust-cache@v2.9.2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6
+        with:
+          # PRs restore the cache of their base branch; only branch pushes
+          # write one, so PR runs cannot evict the main/vX.Y.Z entries.
+          save-if: ${{ github.event_name != 'pull_request' }}
+
+      - name: Rust format check
+        timeout-minutes: 5
+        run: pnpm --filter @cadencr/service run format:check
+
+      - name: Clippy
+        timeout-minutes: 20
+        run: pnpm --filter @cadencr/service run lint
+
+      # `--nocapture` streams test output, so a hanging test names itself in
+      # the log; the step timeout fails fast instead of burning the job limit.
+      - name: Rust tests
+        timeout-minutes: 20
+        run: pnpm --filter @cadencr/service run test -- --nocapture
+
+  web:
+    name: Web (format, lint, types, knip)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # Turbo does not include the root script tests run by `pnpm test`.
+      # Restore on every run; only branch pushes save (see the end of the job),
+      # so PR runs neither grow the archive nor evict the main/vX.Y.Z entries.
+      # actions/cache/restore@v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .turbo/cache
+          key: turbo-web-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-web-${{ runner.os }}-
+
+      # Rust packages are checked by the rust job.
+      - name: Format, lint, type-check and knip
+        run: >-
+          pnpm turbo run format:check lint ts-check knip
+          --filter='!@cadencr/service' --log-order=stream
+
+      # Turbo never prunes its local cache: drop week-old entries before saving
+      # so the restored archive doesn't grow with every push.
+      - name: Prune Turbo cache
+        if: github.event_name != 'pull_request'
+        run: "[ ! -d .turbo/cache ] || find .turbo/cache -type f -mtime +7 -delete"
+
+      # actions/cache/save@v6.1.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: github.event_name != 'pull_request'
+        with:
+          path: .turbo/cache
+          key: turbo-web-${{ runner.os }}-${{ github.sha }}
+
+  vitest:
+    name: Tests (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: desktop 1/2
+            cache: desktop-1
+            run: pnpm turbo run test --filter=@cadencr/desktop --log-order=stream -- --shard=1/2
+          - name: desktop 2/2
+            cache: desktop-2
+            run: pnpm turbo run test --filter=@cadencr/desktop --log-order=stream -- --shard=2/2
+          - name: landing + brand
+            cache: landing-brand
+            run: pnpm turbo run test --filter=@cadencr/landing --filter=@cadencr/brand --log-order=stream
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Same restore-always / save-on-push split as the web job.
+      # actions/cache/restore@v6.1.0
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: .turbo/cache
+          key: turbo-${{ matrix.cache }}-${{ runner.os }}-${{ github.sha }}
+          restore-keys: turbo-${{ matrix.cache }}-${{ runner.os }}-
+
+      - name: Run tests
+        run: ${{ matrix.run }}
+
+      - name: Prune Turbo cache
+        if: github.event_name != 'pull_request'
+        run: "[ ! -d .turbo/cache ] || find .turbo/cache -type f -mtime +7 -delete"
+
+      # actions/cache/save@v6.1.0
+      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        if: github.event_name != 'pull_request'
+        with:
+          path: .turbo/cache
+          key: turbo-${{ matrix.cache }}-${{ runner.os }}-${{ github.sha }}
+
+  scripts:
+    name: Repository scripts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # Some root tests resolve workspace packages (for example `yaml`).
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: AGENTS.md is in sync with .claude/rules
+        run: node scripts/build-agents-md.mjs --check
+
+      - name: Provider boundaries
+        run: pnpm run check:provider-boundaries
+
+      # Includes scripts/marketplace-registry.test.mjs, which runs the
+      # tooling/marketplace-registry suite.
       - name: Root script tests
-        timeout-minutes: 2
-        run: node --test scripts/*.test.mjs scripts/*.test.mts
+        timeout-minutes: 5
+        run: pnpm run test:scripts
 
-      # Run the Rust tests on their own, before the Turbo pipeline. Turbo
-      # buffers each task's output until it finishes, so a hanging test leaves
-      # no trace in the log — it just burns the job timeout in silence. A
-      # dedicated step with `--nocapture` streams progress and names the test
-      # that stalls, and the short step timeout fails fast instead of at 45m.
-      - name: Rust tests
-        timeout-minutes: 20
-        run: pnpm --filter @cadencr/service test -- --nocapture
+      - name: Release script tests
+        timeout-minutes: 5
+        run: pnpm run test:release-scripts
 
-      - name: Run pre-commit checks
+  # Branch protection requires a check with exactly this name. It aggregates the
+  # parallel jobs so the requirement stays a single, stable context.
+  precommit-checks:
+    name: Pre-commit checks
+    if: always()
+    needs: [rust, web, vitest, scripts]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every check job to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
         run: |
-          pnpm run test:release-scripts
-          node --test scripts/marketplace-registry.test.mjs
-          pnpm turbo run format:check lint ts-check knip --log-order=stream
-          # @cadencr/service already ran in the "Rust tests" step above —
-          # exclude it here so cargo test doesn't run twice.
-          pnpm turbo run test --filter='!@cadencr/service' --log-order=stream
+          echo "$RESULTS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
+          echo "$RESULTS" | jq -e 'to_entries | all(.value.result == "success")' > /dev/null
