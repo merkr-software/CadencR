@@ -69,10 +69,35 @@ pub fn validate_required_env_keys(
     )
 }
 
+/// Dev-only opt-out of the pre-migration backup. `pnpm dev:configure-worktree`
+/// sets it only when it has just cloned the main checkout's database
+/// (copy-on-write) into the worktree: a `VACUUM INTO` snapshot of that clone is
+/// a full, unshared copy (several GB) of data the main checkout still holds.
+pub const SKIP_DB_BACKUP_ENV: &str = "CADENCR_DEV_SKIP_DB_BACKUP";
+
+/// Whether to skip the pre-migration backup. Never in release builds: the
+/// packaged app always refuses to migrate without a backup.
+pub fn skip_db_backup(debug_build: bool, value: Option<&str>) -> bool {
+    debug_build && value.is_some_and(|value| value.trim() == "1")
+}
+
+/// The database file to back up before migrating, or `None` when this dev
+/// checkout opted out via [`SKIP_DB_BACKUP_ENV`].
+pub fn migration_backup_path(db_path: &Path) -> Option<&Path> {
+    let value = std::env::var(SKIP_DB_BACKUP_ENV).ok();
+    if skip_db_backup(cfg!(debug_assertions), value.as_deref()) {
+        tracing::warn!(
+            "{SKIP_DB_BACKUP_ENV}=1: pre-migration backups are disabled for this dev database"
+        );
+        return None;
+    }
+    Some(db_path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        load_optional_package_dotenv, require_dev_env_file, service_dotenv_path,
+        load_optional_package_dotenv, require_dev_env_file, service_dotenv_path, skip_db_backup,
         validate_required_env_keys, REQUIRED_DEV_ENV_KEYS, SERVICE_DOTENV_DISPLAY_PATH,
     };
     use std::fs;
@@ -144,5 +169,18 @@ mod tests {
         assert!(message.contains("CADENCR_FRONTEND_PORT"));
         assert!(message.contains("CADENCR_AUTH_TOKEN"));
         clear_env(&REQUIRED_DEV_ENV_KEYS);
+    }
+
+    #[test]
+    fn skips_backup_only_in_debug_builds_with_explicit_opt_in() {
+        assert!(skip_db_backup(true, Some("1")));
+        assert!(skip_db_backup(true, Some(" 1\n")));
+        assert!(
+            !skip_db_backup(false, Some("1")),
+            "release builds always back up"
+        );
+        assert!(!skip_db_backup(true, None));
+        assert!(!skip_db_backup(true, Some("0")));
+        assert!(!skip_db_backup(true, Some("true")));
     }
 }

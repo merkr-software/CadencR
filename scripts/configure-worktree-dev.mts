@@ -1,27 +1,31 @@
 import { spawnSync } from "node:child_process";
 import {
+  constants as fsConstants,
   copyFileSync,
   existsSync,
   mkdirSync,
-  readFileSync,
   realpathSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { parseEnv as parseEnvText } from "node:util";
 import { fileURLToPath } from "node:url";
-import { gitCommonDir, listGitWorktrees } from "./git-worktrees.mts";
+import {
+  DESKTOP_ENV,
+  SERVICE_ENV,
+  portMismatches,
+  readEnvFile,
+  updateEnvFile,
+  urlPort,
+  validPort,
+} from "./dev-env.mjs";
+import { gitCheckout, listGitWorktrees } from "./git-worktrees.mts";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repoRoot = dirname(dirname(scriptPath));
 
-interface CheckoutFiles {
-  repoEnv: string;
-  desktopEnv: string;
-  serviceEnv: string;
-  database: string;
-}
+// The service runs from its package dir, so a relative CADENCR_DB_PATH resolves there.
+const SERVICE_DIR = join("packages", "service");
+const DEV_DATABASE = join(SERVICE_DIR, "cadencr.local.db");
 
 interface PortAssignment {
   frontendPort: number;
@@ -29,8 +33,14 @@ interface PortAssignment {
   remotePort: number;
 }
 
+interface WorktreeDevResult extends PortAssignment {
+  /** Whether CADENCR_DEV_SKIP_DB_BACKUP=1 was written (see `usesFreshClone`). */
+  skipDbBackup: boolean;
+}
+
 interface CheckoutDevConfig {
   profileSuffix: string | undefined;
+  portsAgree: boolean;
   frontendPort: number | null;
   apiPort: number | null;
   serviceFrontendPort: number | null;
@@ -52,40 +62,12 @@ interface ChooseAssignmentOptions {
   listeningPorts: ReadonlySet<number>;
 }
 
-function envPaths(root: string): CheckoutFiles {
-  return {
-    repoEnv: join(root, ".env"),
-    desktopEnv: join(root, "packages", "desktop", ".env"),
-    serviceEnv: join(root, "packages", "service", ".env"),
-    database: join(root, "packages", "service", "cadencr.local.db"),
-  };
-}
-
-function readEnv(filePath: string): Record<string, string | undefined> {
-  if (!existsSync(filePath)) return {};
-  return parseEnvText(readFileSync(filePath, "utf8"));
-}
-
-function validPort(value: string | undefined): number | null {
-  const port = Number(value);
-  return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
-}
-
-function urlPort(value: string | undefined): number | null {
-  if (!value) return null;
-  try {
-    return validPort(new URL(value).port);
-  } catch {
-    return null;
-  }
-}
-
 function readDevConfig(root: string): CheckoutDevConfig {
-  const files = envPaths(root);
-  const desktop = readEnv(files.desktopEnv);
-  const service = readEnv(files.serviceEnv);
+  const desktop = readEnvFile(root, DESKTOP_ENV) ?? {};
+  const service = readEnvFile(root, SERVICE_ENV) ?? {};
   return {
     profileSuffix: desktop.CADENCR_DEV_USER_DATA_SUFFIX,
+    portsAgree: portMismatches(service, desktop).length === 0,
     frontendPort: validPort(desktop.VITE_FRONTEND_PORT),
     apiPort: urlPort(desktop.VITE_API_URL),
     serviceFrontendPort: validPort(service.CADENCR_FRONTEND_PORT),
@@ -101,8 +83,7 @@ function assignmentFromConfig(root: string, config: CheckoutDevConfig): PortAssi
     frontendPort === null ||
     servicePort === null ||
     remotePort === null ||
-    config.serviceFrontendPort !== frontendPort ||
-    config.apiPort !== servicePort
+    !config.portsAgree
   ) {
     return null;
   }
@@ -110,12 +91,10 @@ function assignmentFromConfig(root: string, config: CheckoutDevConfig): PortAssi
 }
 
 function reservePorts(root: string, reserved: Set<number>): void {
-  const config = readDevConfig(root);
-  const candidates = Object.values(config).filter(
-    (value): value is number => typeof value === "number",
-  );
-  for (const port of candidates) {
-    reserved.add(port);
+  const { frontendPort, apiPort, serviceFrontendPort, servicePort, remotePort } =
+    readDevConfig(root);
+  for (const port of [frontendPort, apiPort, serviceFrontendPort, servicePort, remotePort]) {
+    if (port !== null) reserved.add(port);
   }
 }
 
@@ -150,33 +129,60 @@ function nextPort(start: number, reserved: Set<number>, listening: ReadonlySet<n
   throw new Error(`No free TCP port available from ${start}`);
 }
 
-function setEnvValues(filePath: string, values: Record<string, string | number>): void {
-  let text = readFileSync(filePath, "utf8");
-  for (const [key, value] of Object.entries(values)) {
-    const line = `${key}=${value}`;
-    const pattern = new RegExp(`^${key}=.*$`, "m");
-    if (pattern.test(text)) text = text.replace(pattern, line);
-    else text = `${text.replace(/\s*$/, "")}\n${line}\n`;
+/**
+ * Copy `source` to `target` as a copy-on-write clone when the filesystem
+ * supports it, so a multi-GB dev database shares its blocks with the main
+ * checkout until either side writes. Node's FICLONE flag is a no-op on macOS
+ * (libuv never calls clonefile), so APFS goes through `cp -c`; elsewhere
+ * FICLONE reflinks on btrfs/XFS and silently falls back to a plain copy.
+ */
+export function cloneOrCopy(source: string, target: string, platform = process.platform): void {
+  if (platform === "darwin") {
+    const result = spawnSync("cp", ["-c", source, target], { encoding: "utf8" });
+    if (result.status === 0) return;
+    console.warn(
+      `copy-on-write clone failed (${result.stderr?.trim() || result.error?.message}); copying ${source} instead`,
+    );
   }
-  writeFileSync(filePath, text);
+  copyFileSync(source, target, fsConstants.COPYFILE_FICLONE);
 }
 
-function copyBaseFiles(mainRoot: string, currentRoot: string): CheckoutFiles {
-  const source = envPaths(mainRoot);
-  const target = envPaths(currentRoot);
-  for (const filePath of [source.repoEnv, source.desktopEnv, source.serviceEnv]) {
-    if (!existsSync(filePath)) throw new Error(`Missing main-checkout file: ${filePath}`);
-  }
-  copyFileSync(source.repoEnv, target.repoEnv);
-  copyFileSync(source.desktopEnv, target.desktopEnv);
-  copyFileSync(source.serviceEnv, target.serviceEnv);
-  if (!existsSync(target.database)) {
-    if (!existsSync(source.database)) {
-      throw new Error(`Missing main-checkout file: ${source.database}`);
+/** Copy the main checkout's `.env` files; returns whether it cloned the database. */
+function copyBaseFiles(mainRoot: string, currentRoot: string): boolean {
+  for (const envPath of [DESKTOP_ENV, SERVICE_ENV]) {
+    if (!existsSync(join(mainRoot, envPath))) {
+      throw new Error(
+        `Missing main-checkout file: ${join(mainRoot, envPath)} (run \`pnpm setup:dev\` in the main checkout)`,
+      );
     }
-    copyFileSync(source.database, target.database);
+    copyFileSync(join(mainRoot, envPath), join(currentRoot, envPath));
   }
-  return target;
+  // The repo-root .env is a legacy token file; nothing requires it anymore.
+  if (existsSync(join(mainRoot, ".env"))) {
+    copyFileSync(join(mainRoot, ".env"), join(currentRoot, ".env"));
+  }
+  // Seed the worktree with the main checkout's dev data when there is any. A
+  // main checkout that never ran the service has none; the worktree's service
+  // then creates its own database on first launch. An existing worktree
+  // database is never replaced.
+  const source = join(mainRoot, DEV_DATABASE);
+  const target = join(currentRoot, DEV_DATABASE);
+  if (existsSync(target) || !existsSync(source)) return false;
+  cloneOrCopy(source, target);
+  return true;
+}
+
+/**
+ * Whether the worktree service opens the database this run just cloned. Only
+ * then is a pre-migration backup redundant: the main checkout still holds the
+ * same data. A database the worktree already had holds data of its own, and a
+ * custom CADENCR_DB_PATH copied from the main checkout may name a shared
+ * database; both keep their backups.
+ */
+function usesFreshClone(currentRoot: string, clonedDatabase: boolean): boolean {
+  const dbPath = readEnvFile(currentRoot, SERVICE_ENV)?.CADENCR_DB_PATH?.trim();
+  if (!clonedDatabase || !dbPath) return false;
+  return resolve(currentRoot, SERVICE_DIR, dbPath) === join(currentRoot, DEV_DATABASE);
 }
 
 async function acquireLock(lockPath: string): Promise<() => void> {
@@ -223,19 +229,23 @@ function chooseAssignment({
 }
 
 function writeAssignment(
-  files: CheckoutFiles,
   currentRoot: string,
   assignment: PortAssignment,
+  skipDbBackup: boolean,
 ): void {
-  setEnvValues(files.desktopEnv, {
+  updateEnvFile(currentRoot, DESKTOP_ENV, {
     VITE_FRONTEND_PORT: assignment.frontendPort,
     VITE_API_URL: `http://127.0.0.1:${assignment.servicePort}`,
     CADENCR_DEV_USER_DATA_SUFFIX: basename(currentRoot),
   });
-  setEnvValues(files.serviceEnv, {
+  updateEnvFile(currentRoot, SERVICE_ENV, {
     CADENCR_FRONTEND_PORT: assignment.frontendPort,
     CADENCR_RUST_PORT: assignment.servicePort,
     CADENCR_REMOTE_PORT: assignment.remotePort,
+    // A fresh copy-on-write clone of the main checkout's database: a
+    // pre-migration snapshot would be a full, unshared multi-GB copy of data
+    // the main checkout still holds. Removed in every other case.
+    CADENCR_DEV_SKIP_DB_BACKUP: skipDbBackup ? 1 : undefined,
   });
 }
 
@@ -245,7 +255,7 @@ export async function configureWorktreeDev({
   worktreeRoots,
   lockPath,
   listeningPorts: activeListeningPorts,
-}: ConfigureWorktreeDevOptions): Promise<PortAssignment> {
+}: ConfigureWorktreeDevOptions): Promise<WorktreeDevResult> {
   currentRoot = resolve(currentRoot);
   mainRoot = resolve(mainRoot);
   const knownRoots = worktreeRoots.map((root) => resolve(root));
@@ -266,28 +276,36 @@ export async function configureWorktreeDev({
       worktreeRoots: knownRoots,
       listeningPorts: activeListeningPorts,
     });
-    const files = copyBaseFiles(mainRoot, currentRoot);
-    writeAssignment(files, currentRoot, assignment);
-    return assignment;
+    const skipDbBackup = usesFreshClone(currentRoot, copyBaseFiles(mainRoot, currentRoot));
+    writeAssignment(currentRoot, assignment, skipDbBackup);
+    return { ...assignment, skipDbBackup };
   } finally {
     releaseLock();
   }
 }
 
 async function main(): Promise<void> {
-  const commonDir = gitCommonDir(repoRoot);
+  const { commonDir, linkedWorktree } = gitCheckout(repoRoot);
+  if (!linkedWorktree) {
+    throw new Error("dev:configure-worktree must run from a linked worktree; use `pnpm setup:dev`");
+  }
   const mainRoot = dirname(commonDir);
-  const assignment = await configureWorktreeDev({
+  const result = await configureWorktreeDev({
     currentRoot: realpathSync(repoRoot),
     mainRoot: realpathSync(mainRoot),
     worktreeRoots: listGitWorktrees(repoRoot),
     lockPath: join(commonDir, "cadencr-dev-port-allocation.lock"),
   });
   console.log("Configured worktree development endpoints:");
-  console.log(`  renderer: http://127.0.0.1:${assignment.frontendPort}`);
-  console.log(`  service:  http://127.0.0.1:${assignment.servicePort}`);
-  console.log(`  remote port: ${assignment.remotePort}`);
+  console.log(`  renderer: http://127.0.0.1:${result.frontendPort}`);
+  console.log(`  service:  http://127.0.0.1:${result.servicePort}`);
+  console.log(`  remote port: ${result.remotePort}`);
   console.log(`  profile:  ${basename(repoRoot)}`);
+  console.log(
+    result.skipDbBackup
+      ? "  database: fresh clone of the main checkout's; pre-migration backups skipped"
+      : "  database: pre-migration backups kept",
+  );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === scriptPath) {

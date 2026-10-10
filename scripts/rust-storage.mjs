@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CARGO_LAST_USED_FILE, createCargoEnv } from "./cargo-env.mjs";
+import { printDatabaseReport } from "./dev-db-storage.mjs";
 import { gitCommonDir, listGitWorktrees } from "./git-worktrees.mts";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -96,8 +97,8 @@ export function collectDirectoryStats(root) {
   };
 }
 
-function targetEntries() {
-  return listGitWorktrees(repoRoot).map((worktree) => ({
+function targetEntries(worktrees) {
+  return worktrees.map((worktree) => ({
     worktree,
     target: join(worktree, "target"),
     ...collectDirectoryStats(join(worktree, "target")),
@@ -111,6 +112,19 @@ function formatBytes(bytes) {
   return `${(bytes / 1024 ** unit).toFixed(unit >= 3 ? 2 : 0)} ${units[unit]}`;
 }
 
+// A fresh target holding the dev, test and clippy builds is ~7.5 GiB. Cargo
+// never deletes superseded artifacts (old dependency versions, removed test
+// binaries), so a target well past that is mostly stale and worth a clean.
+export const BLOATED_TARGET_BYTES = 12 * 1024 ** 3;
+
+export function targetWarning(entry) {
+  if (entry.isSymlink) return " [symlink: cleanup disabled]";
+  if (entry.size > BLOATED_TARGET_BYTES) {
+    return " [mostly stale artifacts: run `pnpm rust:clean -- --apply` in that checkout]";
+  }
+  return "";
+}
+
 function printTargets(entries) {
   const existing = entries.filter((entry) => entry.exists);
   if (existing.length === 0) {
@@ -118,19 +132,20 @@ function printTargets(entries) {
     return;
   }
   for (const entry of existing) {
-    const warning = entry.isSymlink ? " [symlink: cleanup disabled]" : "";
-    console.log(`${formatBytes(entry.size).padStart(10)}  ${entry.target}${warning}`);
+    console.log(`${formatBytes(entry.size).padStart(10)}  ${entry.target}${targetWarning(entry)}`);
   }
   const total = existing.reduce((sum, entry) => sum + entry.size, 0);
   console.log(`${formatBytes(total).padStart(10)}  total Cargo targets`);
 }
 
 function status() {
+  const worktrees = listGitWorktrees(repoRoot);
   console.log("Cargo targets (one per worktree):");
-  printTargets(targetEntries());
+  printTargets(targetEntries(worktrees));
 
   const legacy = join(mainCheckoutRoot(), ".shared-cargo-target");
   console.log(`\nLegacy shared target: ${existsSync(legacy) ? `PRESENT at ${legacy}` : "absent"}`);
+  printDatabaseReport(worktrees, formatBytes);
 }
 
 function optionValue(args, index, option) {
@@ -191,7 +206,7 @@ function assertSafeTarget(entry) {
 
 function prune(args) {
   const options = parsePruneArgs(args);
-  const entries = targetEntries();
+  const entries = targetEntries(listGitWorktrees(repoRoot));
   const cutoffMs = Date.now() - options.olderThanMs;
   const candidates = selectPruneCandidates(entries, repoRoot, mainCheckoutRoot(), cutoffMs);
   console.log(options.apply ? "Pruning inactive worktree targets:" : "Dry-run prune candidates:");

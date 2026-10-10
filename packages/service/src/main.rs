@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             let write_pool = db::create_write_pool(&db_path).await?;
             shared::migrate::run_migrations(&shared::migrate::MigrationContext {
                 pool: &write_pool,
-                db_path: Some(std::path::Path::new(&db_path)),
+                db_path: dev_env::migration_backup_path(std::path::Path::new(&db_path)),
                 app_version: config.app_version.as_deref(),
             })
             .await?;
