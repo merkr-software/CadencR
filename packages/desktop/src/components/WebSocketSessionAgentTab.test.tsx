@@ -54,6 +54,15 @@ describe("handleModelChange", () => {
     expect(setModel).not.toHaveBeenCalled();
   });
 
+  it("leaves the thinking level to the backend on every model change", () => {
+    const { controls, setThinkingEffort } = makeControls("claude_code");
+
+    handleModelChange("claude_code", "sonnet", controls);
+    handleModelChange("codex_cli", "gpt-5.6-sol", controls);
+
+    expect(setThinkingEffort).not.toHaveBeenCalled();
+  });
+
   it("uses an explicit model override only when config inheritance is supported", () => {
     const { controls, setModel, setRuntimeOverrides } = makeControls("codex_cli", true);
     handleModelChange("codex_cli", "gpt-5.6-sol", controls);

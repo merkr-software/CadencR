@@ -4,13 +4,15 @@ use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
 use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkHandle, SdkSessions, WsSender};
-use super::effort::{apply_effort_change, send_effort_set_ok, EffortChangeError};
+use super::effort::{apply_model_default_effort, send_effort_set_ok};
 use super::fast_mode::{apply_fast_mode_change, send_fast_mode_set_ok, FastModeChangeError};
 use crate::app_state::AppState;
 use crate::domain::agents::providers::{
     canonical_provider_or_error, resolve_model_or_error_for_profile,
 };
+use crate::domain::agents::runtime::ModelCatalogEntry;
 use crate::domain::agents::runtime_adapter;
+use crate::domain::settings::target_thinking_effort;
 
 struct ModelSetSnapshot {
     runtime_provider: String,
@@ -34,7 +36,7 @@ pub(crate) async fn handle_model_set(
         super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
-    let Some((snapshot, model, supports_fast_mode)) = validate_model_set(
+    let Some((snapshot, model, entry)) = validate_model_set(
         sdk_sessions,
         app_state,
         sender,
@@ -46,6 +48,11 @@ pub(crate) async fn handle_model_set(
     else {
         return;
     };
+    let supports_fast_mode = entry.supports_fast_mode == Some(true);
+    // Switching models resumes the target's last-used level (or its default),
+    // never the outgoing model's level.
+    let target_effort =
+        target_thinking_effort(&app_state.read_pool, &snapshot.runtime_provider, &entry).await;
 
     let mut sessions = sdk_sessions.lock().await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
@@ -76,11 +83,7 @@ pub(crate) async fn handle_model_set(
         return;
     }
     let feature_id = handle.feature_id;
-    let should_clear_effort = super::super::thinking_effort::should_clear_for_model(
-        &snapshot.runtime_provider,
-        &model,
-        handle.desired_thinking_effort.as_deref(),
-    );
+    let effort_changes = handle.desired_thinking_effort.as_deref() != target_effort.as_deref();
     let should_clear_fast_mode = handle.config.fast_mode && !supports_fast_mode;
     if let Err(error) =
         apply_model_to_handle(handle, db_session_id, &snapshot.runtime_provider, &model).await
@@ -126,9 +129,16 @@ pub(crate) async fn handle_model_set(
     )
     .await;
 
-    if should_clear_effort
-        && !clear_unsupported_effort(sdk_sessions, app_state, sender, &envelope.id, db_session_id)
-            .await
+    if effort_changes
+        && !apply_model_default_effort(
+            sdk_sessions,
+            app_state,
+            sender,
+            &envelope.id,
+            db_session_id,
+            target_effort.clone(),
+        )
+        .await
     {
         return;
     }
@@ -157,8 +167,8 @@ pub(crate) async fn handle_model_set(
     )
     .await;
 
-    if should_clear_effort {
-        send_effort_set_ok(app_state, sender, &envelope.id, feature_id, None).await;
+    if effort_changes {
+        send_effort_set_ok(app_state, sender, &envelope.id, feature_id, target_effort).await;
     }
     if should_clear_fast_mode {
         send_fast_mode_set_ok(app_state, sender, &envelope.id, feature_id, false).await;
@@ -172,7 +182,7 @@ async fn validate_model_set(
     envelope_id: &str,
     db_session_id: i64,
     payload: &ModelSetPayload,
-) -> Option<(ModelSetSnapshot, String, bool)> {
+) -> Option<(ModelSetSnapshot, String, ModelCatalogEntry)> {
     let snapshot = {
         let sessions = sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
@@ -202,7 +212,7 @@ async fn validate_model_set(
     )
     .await
     {
-        Ok((model, entry)) => Some((snapshot, model, entry.supports_fast_mode == Some(true))),
+        Ok((model, entry)) => Some((snapshot, model, entry)),
         Err(error) => {
             send_error(
                 sender,
@@ -267,32 +277,6 @@ fn parse_model_set_request(
         }
     };
     Some((payload, db_session_id))
-}
-
-async fn clear_unsupported_effort(
-    sdk_sessions: &SdkSessions,
-    app_state: &AppState,
-    sender: &WsSender,
-    envelope_id: &str,
-    db_session_id: i64,
-) -> bool {
-    match apply_effort_change(sdk_sessions, app_state, db_session_id, None).await {
-        Ok(_) => true,
-        Err(EffortChangeError::SessionNotFound) => {
-            send_error(
-                sender,
-                envelope_id,
-                "SESSION_NOT_FOUND",
-                "Session not found",
-            );
-            false
-        }
-        Err(EffortChangeError::Sdk(error)) => {
-            error!(db_session_id, %error, "failed to clear unsupported thinking effort");
-            send_error(sender, envelope_id, "SDK_ERROR", &error);
-            false
-        }
-    }
 }
 
 async fn clear_unsupported_fast_mode(

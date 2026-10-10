@@ -16,9 +16,12 @@ pub(super) async fn insert_spawned_session(
     codex_permission_mode: Option<&str>,
 ) -> Result<i64, AppError> {
     let now = chrono::Utc::now().to_rfc3339();
+    // Persist the resolved model and level, not the raw request: providers
+    // that inherit profile config restore from this document, so an omitted
+    // level must carry the last-used/default level instead of inheriting.
     let overrides = crate::domain::agents::adapter::RuntimeConfigOverrides {
-        model: trimmed_optional(body.model.as_deref()),
-        thinking_effort: trimmed_optional(body.thinking_level.as_deref()),
+        model: runtime.model.clone(),
+        thinking_effort: runtime.thinking_level.clone(),
         fast_mode: None,
     };
     let overrides = serde_json::to_string(&overrides)

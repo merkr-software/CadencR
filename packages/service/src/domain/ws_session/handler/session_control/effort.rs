@@ -6,6 +6,9 @@ use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
+use crate::domain::settings;
+use crate::domain::settings_store;
+use crate::error::AppError;
 
 pub(super) enum EffortChangeError {
     SessionNotFound,
@@ -75,12 +78,55 @@ pub(crate) async fn handle_effort_set(
     .await;
 }
 
+/// What a session effort change resolved to, so the caller can decide what to
+/// remember for the workspace.
+struct AppliedEffort {
+    feature_id: i64,
+    runtime_provider: String,
+    current_model: Option<String>,
+}
+
+/// Apply a user's explicit effort choice: the live session plus the workspace
+/// default for the model it runs on. Resets (None) keep the stored default, so
+/// clearing one conversation does not surprise the next.
 pub(super) async fn apply_effort_change(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
     db_session_id: i64,
     thinking_effort: Option<String>,
 ) -> Result<i64, EffortChangeError> {
+    let applied = apply_session_effort(
+        sdk_sessions,
+        app_state,
+        db_session_id,
+        thinking_effort.clone(),
+    )
+    .await?;
+    if let (Some(effort), Some(model_id)) = (thinking_effort.as_deref(), &applied.current_model) {
+        if let Err(error) =
+            persist_model_thinking_default(app_state, &applied.runtime_provider, model_id, effort)
+                .await
+        {
+            error!(
+                db_session_id,
+                %error,
+                model = %model_id,
+                "failed to persist per-model thinking effort default"
+            );
+        }
+    }
+    Ok(applied.feature_id)
+}
+
+/// Apply an effort to the session without touching the workspace default.
+/// Model switches use this: they resume the target's level, which must not be
+/// recorded as if the user had chosen it.
+async fn apply_session_effort(
+    sdk_sessions: &SdkSessions,
+    app_state: &AppState,
+    db_session_id: i64,
+    thinking_effort: Option<String>,
+) -> Result<AppliedEffort, EffortChangeError> {
     // Reach the map that owns the live runtime, not just this viewer.
     let effective_sessions =
         super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
@@ -152,26 +198,57 @@ pub(super) async fn apply_effort_change(
     )
     .await;
 
-    // Update the per-model workspace default so newly opened conversations on
-    // the same model start at the level the user just chose. Resets (None)
-    // intentionally do not erase the default — clearing for one conversation
-    // shouldn't surprise the next new one.
-    if let (Some(ref effort), Some(ref model_id)) = (&thinking_effort, &current_model) {
-        let key = crate::domain::settings::thinking_effort_model_key(&runtime_provider, model_id);
-        if let Err(error) =
-            crate::domain::workspace::repository::set_setting(&app_state.write_pool, &key, effort)
-                .await
-        {
-            error!(
-                db_session_id,
-                %error,
-                key = %key,
-                "failed to persist per-model thinking effort default"
+    Ok(AppliedEffort {
+        feature_id,
+        runtime_provider,
+        current_model,
+    })
+}
+
+/// Apply the effort a model switch resumes (its last-used level, or `None`).
+/// Errors are reported to the caller's socket and yield `false`.
+pub(super) async fn apply_model_default_effort(
+    sdk_sessions: &SdkSessions,
+    app_state: &AppState,
+    sender: &WsSender,
+    envelope_id: &str,
+    db_session_id: i64,
+    thinking_effort: Option<String>,
+) -> bool {
+    match apply_session_effort(sdk_sessions, app_state, db_session_id, thinking_effort).await {
+        Ok(_) => true,
+        Err(EffortChangeError::SessionNotFound) => {
+            send_error(
+                sender,
+                envelope_id,
+                "SESSION_NOT_FOUND",
+                "Session not found",
             );
+            false
+        }
+        Err(EffortChangeError::Sdk(error)) => {
+            error!(db_session_id, %error, "failed to apply the new model's thinking effort");
+            send_error(sender, envelope_id, "SDK_ERROR", &error);
+            false
         }
     }
+}
 
-    Ok(feature_id)
+/// Record `effort` as the user's last choice for one provider/model pair, so a
+/// later model switch or MCP spawn on that pair resumes it.
+pub(super) async fn persist_model_thinking_default(
+    app_state: &AppState,
+    provider: &str,
+    model_id: &str,
+    effort: &str,
+) -> Result<(), AppError> {
+    let key = settings::thinking_effort_model_key(provider, model_id);
+    // A switch back to a model often re-sends the value already stored; skip
+    // the rewrite and its settings-changed broadcast in that case.
+    if settings_store::global_get(&key).as_deref() == Some(effort) {
+        return Ok(());
+    }
+    crate::domain::workspace::repository::set_setting(&app_state.write_pool, &key, effort).await
 }
 
 pub(super) async fn send_effort_set_ok(
