@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { parseEnv } from "node:util";
 import {
   isPlaceholderToken,
   portMismatches,
@@ -64,7 +65,15 @@ test("token sync plans: generate, copy one way, keep, or refuse a mismatch", () 
 
 test("setEnvValues rewrites in place, appends missing keys and keeps `$` literal", () => {
   const text = "# comment\nA=1\nB=2\n";
-  assert.equal(setEnvValues(text, { B: "x$&y", C: "3" }), "# comment\nA=1\nB=x$&y\nC=3\n");
+  assert.equal(setEnvValues(text, { B: "x$&y", C: "3" }), "# comment\nA=1\nB='x$&y'\nC=3\n");
+});
+
+test("setEnvValues quotes values a .env reader would otherwise cut or change", () => {
+  for (const value of ["abc#def=ghi", "a b", 'say "hi"', "x$&y", "plain-123_./:@"]) {
+    assert.equal(parseEnv(setEnvValues("", { K: value })).K, value, value);
+  }
+  assert.equal(setEnvValues("", { K: "abc#def" }), "\nK='abc#def'\n");
+  assert.throws(() => setEnvValues("", { K: "it's" }), /unambiguously/);
 });
 
 test("setEnvValues removes a key given `undefined`, and ignores an absent one", () => {

@@ -32,6 +32,18 @@ export function generateToken() {
 }
 
 /**
+ * Serialize a value so every `.env` reader here (Node's parseEnv, Vite's
+ * dotenv, the service's dotenvy) reads it back unchanged: plain values as-is,
+ * anything with `#`, `$`, quotes or spaces single-quoted (literal everywhere).
+ */
+export function formatEnvValue(value) {
+  const text = String(value);
+  if (/^[\w@%+=:,./~-]*$/.test(text)) return text;
+  if (!/['\r\n]/.test(text)) return `'${text}'`;
+  throw new Error(`cannot write ${JSON.stringify(text)} to a .env file unambiguously`);
+}
+
+/**
  * Replace `KEY=value` lines in place (appending missing keys) so comments and
  * unrelated settings in a developer's `.env` survive. An `undefined` value
  * removes the key.
@@ -43,7 +55,7 @@ export function setEnvValues(text, values) {
       next = next.replace(new RegExp(`^${key}=.*(?:\\r?\\n|$)`, "gm"), "");
       continue;
     }
-    const line = `${key}=${value}`;
+    const line = `${key}=${formatEnvValue(value)}`;
     const pattern = new RegExp(`^${key}=.*$`, "m");
     // A replacer function keeps `$` in a token from being read as a pattern.
     next = pattern.test(next)
