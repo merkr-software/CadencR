@@ -1,5 +1,30 @@
 # Marketplace V1 — GitHub-only distribution
 
+## Post-rebase integration validation — 2026-10-10
+
+- Rebased the current branch onto local `main` at `103bc6913`: no conflicts,
+  all 37 feature patches unchanged, and signed history verified. Local work and
+  QA can continue without merging; no merge, push or release was performed.
+- Independent GPT-6.1-Sol reuse/quality/efficiency reviews found no integration
+  regression. The local ACP full-turn integration test now also covers a
+  frontend-seeded Claude `auto` mode: initialization omits the host-owned mode,
+  and the turn completes without sending an unsupported ACP mode.
+- Full checks pass: all 25 format/lint/type/test/unused-code tasks, including
+  5,191 frontend tests, plus all 111 root script tests.
+- Four focused isolated dev QA cases pass: existing-folder provider import
+  preserves the source Git commit and clean working tree; the local ACP fixture
+  completes turns with both discovered models after restart and model switching;
+  a new theme is applied with its own project; the verified demo catalog supports
+  search, details, exact-version selection and refresh without a configured source.
+  API reads confirm both new `authoring_target` / `plugin_id` identities. No
+  browser-console errors were recorded. Only task-owned QA processes were stopped;
+  user databases were untouched and the isolated QA database was preserved.
+- This validates local source behavior, not successful managed installation,
+  packaged-app lifecycle or real GitHub deployment. Official trust and `PENDING`
+  release pins remain unchanged; the activation gates below still apply.
+- Linux is required for the Rust CLI used by GitHub CI runners, not a new desktop
+  delivery target. Supported desktop lifecycle QA remains a separate gate.
+
 ## Cross-implementation state handoff — 2026-10-10
 
 - Execution uses GPT-6.1-Sol delegated implementation, followed by independent
