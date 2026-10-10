@@ -433,6 +433,17 @@ export interface ArchivePreview {
   parent_ids: number[];
 }
 
+/**
+ * Result of archiving every eligible session of a project: the archived
+ * feature ids plus how many active sessions were kept because they are
+ * pinned or have an agent turn in flight.
+ */
+export interface ArchiveProjectSessionsResponse {
+  archived_ids: number[];
+  skipped_pinned: number;
+  skipped_running: number;
+}
+
 export interface ArchiveRequest {
   include_descendants?: boolean;
   include_parent?: boolean;
@@ -1084,16 +1095,14 @@ export interface CreateProjectRequest {
 }
 
 /**
- * Existing connector repository to import instead of scaffolding a new one.
- */
-export type CreateProviderWorkspaceRequestDirectory = string | null;
-
-/**
  * The stable identity and human label for a new provider connector project.
  */
 export interface CreateProviderWorkspaceRequest {
-  /** Existing connector repository to import instead of scaffolding a new one. */
-  directory?: CreateProviderWorkspaceRequestDirectory;
+  /**
+   * Existing connector repository to import instead of scaffolding a new one.
+   * @nullable
+   */
+  directory?: string | null;
   /** Human-readable name used in the project and scaffold. */
   display_name: string;
   /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
@@ -19580,6 +19589,75 @@ export const useDeleteProject = <TError = ErrorType<unknown>, TContext = unknown
   TContext
 > => {
   return useMutation(getDeleteProjectMutationOptions(options), queryClient);
+};
+
+export const archiveProjectSessions = (id: number, signal?: AbortSignal) => {
+  return customInstance<ArchiveProjectSessionsResponse>({
+    url: `/api/projects/${id}/archive-sessions`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getArchiveProjectSessionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof archiveProjectSessions>>,
+    TError,
+    ArchiveProjectSessionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof archiveProjectSessions>>,
+  TError,
+  ArchiveProjectSessionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["archiveProjectSessions"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof archiveProjectSessions>>,
+    ArchiveProjectSessionsMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return archiveProjectSessions(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ArchiveProjectSessionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof archiveProjectSessions>>
+>;
+
+export type ArchiveProjectSessionsMutationError = ErrorType<unknown>;
+export type ArchiveProjectSessionsMutationVariables = { id: number };
+
+export const useArchiveProjectSessions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof archiveProjectSessions>>,
+      TError,
+      ArchiveProjectSessionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof archiveProjectSessions>>,
+  TError,
+  ArchiveProjectSessionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getArchiveProjectSessionsMutationOptions(options), queryClient);
 };
 
 export const scanProjectIcons = (id: number, signal?: AbortSignal) => {

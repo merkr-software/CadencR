@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  Archive,
   ChevronRight,
   ChevronDown,
   Download,
@@ -18,6 +19,7 @@ import {
   useCreateFeature,
   useSetProjectSetting,
 } from "../api/generated";
+import { useArchiveProjectSessionsAction } from "@/hooks/useArchiveProjectSessionsAction";
 import { useOrderedProjects } from "@/hooks/useOrderedProjects";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -35,6 +37,7 @@ import {
 import { ContextMenuActionItem } from "@/components/ContextMenuActionItem";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { clearProjectAutoExpandSkip, shouldSkipProjectAutoExpand } from "@/lib/project-auto-expand";
 import { ProjectBadge } from "@/components/ProjectBadge";
 import { PROJECT_COLORS } from "@/lib/project-colors";
 import { useNewProjectOnboarding } from "@/lib/project-onboarding";
@@ -91,6 +94,7 @@ function useProjectTreeMutations(
       },
     },
   });
+  const archiveProjectSessions = useArchiveProjectSessionsAction();
   const createSession = useCreateFeature({
     mutation: {
       onSuccess: (session) => {
@@ -106,8 +110,14 @@ function useProjectTreeMutations(
     },
   });
   return useMemo(
-    () => ({ createProject, createSession, deleteProject, pendingProjectIdRef }),
-    [createProject, createSession, deleteProject],
+    () => ({
+      archiveProjectSessions,
+      createProject,
+      createSession,
+      deleteProject,
+      pendingProjectIdRef,
+    }),
+    [archiveProjectSessions, createProject, createSession, deleteProject],
   );
 }
 
@@ -120,10 +130,22 @@ function useProjectTreeController(props: ProjectTreeProps) {
   const [settingsProject, setSettingsProject] = useState<ProjectDialogTarget | null>(null);
   const [importProject, setImportProject] = useState<ProjectDialogTarget | null>(null);
   const [deleteProject, setDeleteProject] = useState<ProjectDialogTarget | null>(null);
+  const [archiveSessionsProject, setArchiveSessionsProject] = useState<ProjectDialogTarget | null>(
+    null,
+  );
   useEffect(() => {
-    if (props.activeProjectId != null) {
-      setExpanded((previous) => ({ ...previous, [props.activeProjectId!]: true }));
+    const activeId = props.activeProjectId;
+    // Leaving the project list (e.g. opening Settings) must not leave a stale
+    // pinned-navigation marker behind: returning to the project later is an
+    // ordinary navigation and should expand it.
+    if (activeId == null) {
+      clearProjectAutoExpandSkip();
+      return;
     }
+    // A pinned-row navigation marks its project so the tree stays folded.
+    if (shouldSkipProjectAutoExpand(activeId)) return;
+    clearProjectAutoExpandSkip();
+    setExpanded((previous) => ({ ...previous, [activeId]: true }));
   }, [props.activeProjectId]);
   const startSession = useCallback(
     (projectId: number) => {
@@ -148,6 +170,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
   return useMemo(
     () => ({
       addProject,
+      archiveSessionsProject,
       deleteProject,
       expanded,
       importProject,
@@ -155,6 +178,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
       mutations,
       onboarding,
       ordered,
+      setArchiveSessionsProject,
       setDeleteProject,
       setExpanded,
       setImportProject,
@@ -164,6 +188,7 @@ function useProjectTreeController(props: ProjectTreeProps) {
     }),
     [
       addProject,
+      archiveSessionsProject,
       deleteProject,
       expanded,
       importProject,
@@ -285,6 +310,7 @@ function ProjectRowActions({
           <span
             role="button"
             tabIndex={0}
+            aria-label="Project actions"
             className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-accent can-hover:opacity-0 can-hover:focus-visible:opacity-100 can-hover:group-hover/project:opacity-100"
             onClick={(event) => event.stopPropagation()}
           >
@@ -307,6 +333,14 @@ function ProjectRowActions({
             }}
           >
             <Download className="size-4" /> Import existing sessions
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={(event) => {
+              event.stopPropagation();
+              controller.setArchiveSessionsProject(target);
+            }}
+          >
+            <Archive className="size-4" /> Archive all sessions
           </DropdownMenuItem>
           <DropdownMenuItem
             className="text-destructive focus:text-destructive"
@@ -342,6 +376,12 @@ function ProjectRowContextMenu({
       </ContextMenuActionItem>
       <ContextMenuActionItem icon={Download} onSelect={() => controller.setImportProject(target)}>
         Import existing sessions
+      </ContextMenuActionItem>
+      <ContextMenuActionItem
+        icon={Archive}
+        onSelect={() => controller.setArchiveSessionsProject(target)}
+      >
+        Archive all sessions
       </ContextMenuActionItem>
       <ContextMenuActionItem
         icon={Trash2}

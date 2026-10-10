@@ -27,13 +27,18 @@ export function useDebouncedSetting(
   { immediateCache = true } = {},
 ): DebouncedSettingResult {
   const query = useGetWorkspaceSetting(key);
-  const { mutate, isPending: isSaving } = useSetWorkspaceSetting();
+  const { mutateAsync, isPending: isSaving } = useSetWorkspaceSetting();
   const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushRef = useRef<(() => void) | null>(null);
 
   useEffect((): (() => void) => {
     return (): void => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      // A pending debounced write must not be dropped on unmount: leaving the
+      // settings page within the debounce window still persists the edit.
+      flushRef.current?.();
+      flushRef.current = null;
     };
   }, []);
 
@@ -51,25 +56,25 @@ export function useDebouncedSetting(
       if (timerRef.current) clearTimeout(timerRef.current);
 
       const persistValue = (): void => {
-        mutate(
-          { key, data: { value } },
-          {
-            onSuccess: () => {
-              if (!immediateCache) queryClient.setQueryData(queryKey, { value });
-            },
-            onError: (err: unknown) => {
-              if (immediateCache) {
-                if (previousValue === undefined) {
-                  void queryClient.invalidateQueries({ queryKey });
-                } else {
-                  queryClient.setQueryData(queryKey, previousValue);
-                }
+        flushRef.current = null;
+        // mutateAsync with then/catch instead of per-call mutate callbacks:
+        // those callbacks do not run after unmount, and this flush can fire
+        // from the unmount cleanup.
+        void mutateAsync({ key, data: { value } })
+          .then(() => {
+            if (!immediateCache) queryClient.setQueryData(queryKey, { value });
+          })
+          .catch((err: unknown) => {
+            if (immediateCache) {
+              if (previousValue === undefined) {
+                void queryClient.invalidateQueries({ queryKey });
+              } else {
+                queryClient.setQueryData(queryKey, previousValue);
               }
-              const message = apiErrorMessage(err, "Unknown error");
-              toast.error(`Could not save setting "${key}": ${message}`);
-            },
-          },
-        );
+            }
+            const message = apiErrorMessage(err, "Unknown error");
+            toast.error(`Could not save setting "${key}": ${message}`);
+          });
       };
 
       if (debounceMs <= 0) {
@@ -77,9 +82,10 @@ export function useDebouncedSetting(
         return;
       }
 
+      flushRef.current = persistValue;
       timerRef.current = setTimeout(persistValue, debounceMs);
     },
-    [key, debounceMs, immediateCache, mutate, queryClient],
+    [key, debounceMs, immediateCache, mutateAsync, queryClient],
   );
 
   const value = query.data?.value ?? null;

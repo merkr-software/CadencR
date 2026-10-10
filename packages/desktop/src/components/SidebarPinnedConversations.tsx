@@ -13,6 +13,7 @@ import {
 import { PinnedConversationRow } from "@/components/PinnedConversationRow";
 import { wsSessionIdFromFeature } from "@/lib/ws-session-id";
 import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
+import { skipProjectAutoExpand } from "@/lib/project-auto-expand";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { apiErrorMessage } from "@/lib/api-errors";
 
@@ -55,6 +56,8 @@ export function SidebarPinnedConversations({
       const project = projectsById.get(feature.project_id);
       if (!project) return;
       onSelectFeature(feature.id);
+      // Opening from the pinned section must not unfold the parent project.
+      skipProjectAutoExpand(feature.project_id);
       const focusTab = getFocusedTabForFeature(activeFeatureIdRef.current);
       void navigate({
         to: "/ws-session/$sessionId",

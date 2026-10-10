@@ -1,6 +1,8 @@
 use sqlx::{QueryBuilder, Sqlite, SqlitePool, Transaction};
 
-use super::models::{ArchivePreview, ArchiveRequest, ArchiveResponse};
+use super::models::{
+    ArchivePreview, ArchiveProjectSessionsResponse, ArchiveRequest, ArchiveResponse,
+};
 use crate::error::AppError;
 
 mod graph;
@@ -34,6 +36,68 @@ pub async fn archive(
     archive_ids(&mut tx, &ids).await?;
     tx.commit().await?;
     Ok(ArchiveResponse { archived_ids: ids })
+}
+
+/// Archive every session of a project that is neither pinned nor running an
+/// agent turn. "Running" mirrors the session-status snapshot predicate
+/// (`domain::sessions::repository::queries::get_session_status_snapshot`):
+/// `status = 'running'` or a pending question/permission column set.
+pub async fn archive_project_sessions(
+    pool: &SqlitePool,
+    project_id: i64,
+) -> Result<ArchiveProjectSessionsResponse, AppError> {
+    let mut tx = pool.begin().await?;
+    let project_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM projects WHERE id = ?)")
+            .bind(project_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if !project_exists {
+        return Err(AppError::NotFound(format!(
+            "project {project_id} not found"
+        )));
+    }
+    let archived_ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT id FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 0 \
+           AND NOT EXISTS ( \
+             SELECT 1 FROM agent_sessions s \
+             WHERE s.feature_id = features.id \
+               AND (s.status = 'running' \
+                    OR s.pending_questions IS NOT NULL \
+                    OR s.pending_permission IS NOT NULL)) \
+         ORDER BY id",
+    )
+    .bind(project_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let skipped_pinned: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 1",
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let skipped_running: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM features \
+         WHERE project_id = ? AND status = 'active' AND is_pinned = 0 \
+           AND EXISTS ( \
+             SELECT 1 FROM agent_sessions s \
+             WHERE s.feature_id = features.id \
+               AND (s.status = 'running' \
+                    OR s.pending_questions IS NOT NULL \
+                    OR s.pending_permission IS NOT NULL))",
+    )
+    .bind(project_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    archive_ids(&mut tx, &archived_ids).await?;
+    tx.commit().await?;
+    Ok(ArchiveProjectSessionsResponse {
+        archived_ids,
+        skipped_pinned,
+        skipped_running,
+    })
 }
 
 async fn archive_ids(tx: &mut Transaction<'_, Sqlite>, ids: &[i64]) -> Result<(), AppError> {
@@ -370,5 +434,95 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(archived_at, "2020-01-01");
+    }
+
+    async fn add_pinned_feature(pool: &SqlitePool, project: i64) -> i64 {
+        sqlx::query_scalar(
+            "INSERT INTO features (project_id, title, status, is_pinned) \
+             VALUES (?, 'pinned', 'active', 1) RETURNING id",
+        )
+        .bind(project)
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
+    async fn add_agent_session(
+        pool: &SqlitePool,
+        feature: i64,
+        status: &str,
+        pending_questions: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO agent_sessions (feature_id, agent_type, status, pending_questions) \
+             VALUES (?, 'session', ?, ?)",
+        )
+        .bind(feature)
+        .bind(status)
+        .bind(pending_questions)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_keeps_pinned_and_running_sessions() {
+        let (pool, project, other_project) = setup().await;
+        let idle = add_feature(&pool, project, "active").await;
+        let pinned = add_pinned_feature(&pool, project).await;
+        let running = add_feature(&pool, project, "active").await;
+        let pending_question = add_feature(&pool, project, "active").await;
+        let already_archived = add_feature(&pool, project, "archived").await;
+        let other_project_idle = add_feature(&pool, other_project, "active").await;
+        add_agent_session(&pool, running, "running", None).await;
+        add_agent_session(
+            &pool,
+            pending_question,
+            "paused",
+            Some(r#"{"request_id":"r1"}"#),
+        )
+        .await;
+
+        let response = archive_project_sessions(&pool, project).await.unwrap();
+
+        assert_eq!(response.archived_ids, vec![idle]);
+        assert_eq!(response.skipped_pinned, 1);
+        assert_eq!(response.skipped_running, 2);
+        assert_eq!(
+            statuses(
+                &pool,
+                &[
+                    idle,
+                    pinned,
+                    running,
+                    pending_question,
+                    already_archived,
+                    other_project_idle
+                ]
+            )
+            .await,
+            vec!["archived", "active", "active", "active", "archived", "active"]
+        );
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_without_eligible_sessions_archives_nothing() {
+        let (pool, project, _) = setup().await;
+        add_pinned_feature(&pool, project).await;
+
+        let response = archive_project_sessions(&pool, project).await.unwrap();
+
+        assert_eq!(response.archived_ids, Vec::<i64>::new());
+        assert_eq!(response.skipped_pinned, 1);
+        assert_eq!(response.skipped_running, 0);
+    }
+
+    #[tokio::test]
+    async fn archive_project_sessions_unknown_project_is_not_found() {
+        let (pool, _, _) = setup().await;
+        assert!(matches!(
+            archive_project_sessions(&pool, 999).await,
+            Err(AppError::NotFound(_))
+        ));
     }
 }

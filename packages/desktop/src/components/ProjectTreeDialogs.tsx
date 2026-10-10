@@ -38,6 +38,28 @@ export function ProjectTreeDialogs({ controller }: { controller: ProjectTreeCont
         />
       )}
       <ConfirmDialog
+        open={controller.archiveSessionsProject !== null}
+        onOpenChange={(open) => {
+          if (!open) controller.setArchiveSessionsProject(null);
+        }}
+        title={`Archive all sessions in "${controller.archiveSessionsProject?.name}"?`}
+        description="This will archive every session in this project that is not pinned and not currently running. Archived sessions are hidden from the sidebar and this cannot be undone."
+        confirmText="Archive"
+        variant="destructive"
+        busy={controller.mutations.archiveProjectSessions.isPending}
+        onConfirm={async () => {
+          const target = controller.archiveSessionsProject;
+          if (!target) return;
+          try {
+            await controller.mutations.archiveProjectSessions.mutateAsync({ id: target.id });
+          } catch {
+            // Keep the dialog open so the user can retry; the mutation's
+            // onError already surfaced the failure as a toast.
+            return false;
+          }
+        }}
+      />
+      <ConfirmDialog
         open={controller.deleteProject !== null}
         onOpenChange={(open) => {
           if (!open) controller.setDeleteProject(null);

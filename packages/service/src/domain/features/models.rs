@@ -101,6 +101,16 @@ pub struct ArchiveResponse {
     pub archived_ids: Vec<i64>,
 }
 
+/// Result of archiving every eligible session of a project: the archived
+/// feature ids plus how many active sessions were kept because they are
+/// pinned or have an agent turn in flight.
+#[derive(Debug, PartialEq, Eq, Serialize, ToSchema)]
+pub struct ArchiveProjectSessionsResponse {
+    pub archived_ids: Vec<i64>,
+    pub skipped_pinned: i64,
+    pub skipped_running: i64,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateLabelRequest {
     pub label: Option<String>,
