@@ -72,6 +72,20 @@ test("released CLI bytes are verified before the offline fixture is executed", a
   t.after(() => rm(directory, { recursive: true, force: true }));
   const tools = path.join(directory, "tools");
   await mkdir(tools);
+  // CI uses coreutils timeout; this inert local shim exercises process-group
+  // cancellation quickly on macOS, which does not ship that utility.
+  await writeFile(
+    path.join(tools, "timeout"),
+    `#!/usr/bin/env node
+const { spawn } = require("node:child_process");
+const args = process.argv.slice(2);
+if (args.shift() !== "--kill-after=2s" || args.shift() !== "30s") process.exit(99);
+const child = spawn(args.shift(), args, { stdio: "inherit", detached: true });
+const timer = setTimeout(() => { process.kill(-child.pid, "SIGKILL"); }, 500);
+child.on("exit", (code) => { clearTimeout(timer); process.exit(code ?? 124); });
+`,
+    { mode: 0o700 },
+  );
   const marker = path.join(directory, "invocation.txt");
   const bytes = Buffer.from(
     `#!/bin/sh\nif [ "$1" = "--version" ]; then\n  echo 'cadencr 1.2.3'\n  exit 0\nfi\nprintf '%s\\n' "$@" > '${marker}'\n`,
@@ -266,8 +280,13 @@ test("bootstrap bounds the fixed official download and contains both tooling pat
     new URL("../scripts/ci/validate-provider-contribution.sh", import.meta.url),
     "utf8",
   );
-  assert.match(script, /https:\/\/github\.com\/merkr-software\/CadencR\/releases\/download\/v/);
-  assert.match(script, /--max-filesize 134217728/);
+  const helper = await readFile(
+    new URL("../scripts/ci/fetch-released-cli.sh", import.meta.url),
+    "utf8",
+  );
+  assert.match(script, /fetch-released-cli\.sh/);
+  assert.match(helper, /https:\/\/github\.com\/merkr-software\/CadencR\/releases\/download\/v/);
+  assert.match(helper, /--max-filesize 134217728/);
   assert.match(script, /npm ci --ignore-scripts --no-audit --no-fund/);
   assert.match(script, /registry build-index --packages/);
 });

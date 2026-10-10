@@ -1,5 +1,46 @@
 # Marketplace V1 — GitHub-only distribution
 
+## Released CLI CI preparation — 2026-10-10
+
+- Shared trusted shell bootstrap parses the release pin as data, constructs the
+  official HTTPS asset URL, bounds downloads/redirects and verifies digest and
+  version before command execution. It refuses existing output paths.
+- Contribution checks and the protected publisher consume the same reviewed pin.
+  Both values remain `PENDING`: the JavaScript implementation remains active.
+  Malformed/partial pins, download failure or verification failure never authorize
+  legacy fallback. Only the explicit wholly pending configuration does.
+- Publisher runtime selection runs independently on both runners, before signing
+  key materialization; a provisioned CLI must expose `registry publish-registry`.
+  No executable is restored from a recovery artifact. The workflow relies on exit
+  status and persisted receipts, not implementation-specific success text.
+- Preparation is not deployment: no release/tag/push, actual Linux artifact,
+  official trust activation or real GitHub publication is claimed.
+
+- Independent reuse/quality/efficiency reviews closed their findings: runtime
+  selection is shared, failure diagnostics remain visible, version probing has a
+  30-second timeout/2-second kill grace and 1 KiB output limit, and new fixtures
+  clean up their temporary files. All 260 registry tests pass with loopback
+  permissions; shell syntax, YAML parsing and formatting pass. An actual committed
+  `PENDING`-pin smoke selects legacy without creating a download directory.
+
+### Activation acceptance gates
+
+1. Explicitly select the release version and coordinated source. The current
+   bootstrap expects the existing app release namespace `vX.Y.Z`; an independent
+   namespace requires an approved coordinated change.
+2. Verify the actual released Linux asset, its checksum/version and orchestration
+   command before atomically provisioning both pin values in a reviewed change.
+3. Exercise JS-to-Rust and Rust-to-JS canonical state handoff, interrupted remote
+   boundaries, no-duplicate-write replay and retired-author-URL recovery. Local
+   implementation tests alone do not establish parity of a released artifact.
+4. Resolve/document acceptance differences: Rust treats an explicit optional
+   publication commit `null` as absent while JS rejects it; Rust permits semantic
+   manifest replay while JS requires canonical bytes. Use omitted/exact-string
+   commits and canonical manifests for interoperable handoff. Preserve Rust's
+   stricter historical-publication and pinned-signing checks.
+5. Retain transitional JS until replacement delivery and applicable parity pass;
+   then remove superseded runtime tooling in a separate reviewed increment.
+
 ## Parallel execution update — 2026-10-10
 
 Three implementation tracks run with GPT-6.1-Sol workers, followed by independent

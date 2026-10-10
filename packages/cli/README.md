@@ -235,8 +235,8 @@ Numeric canonicalization matches JavaScript and is covered by a deterministic
 263-case Node oracle. The app accepts the shared canonical signature format and
 retains explicit legacy verification, including the exact verified-byte hashes
 in existing receipts. Catalog publication and stable discovery are explicit;
-protected pipeline orchestration and fresh-runner managed staging remain
-subsequent migrations.
+protected pipeline orchestration and verified fresh-runner state recovery are
+implemented locally. Released-artifact parity and deployment remain gates.
 
 ## Initial release runtime
 
