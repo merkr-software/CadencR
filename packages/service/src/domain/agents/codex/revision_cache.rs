@@ -16,6 +16,12 @@ use serde_json::Value;
 /// Safety net for inputs no file stamp captures (managed preferences, ...).
 const MAX_AGE: Duration = Duration::from_secs(600);
 
+/// How far a file's mtime may lag the wall clock at the moment it was written.
+/// Filesystems stamp from a coarse clock (a kernel tick on Linux) or round to
+/// whole seconds (HFS+, ext3; FAT to two), so an edit made just after the probe
+/// started can carry an mtime from just before it.
+const MTIME_GRANULARITY: Duration = Duration::from_secs(2);
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(super) struct RevisionKey {
     env: Vec<(String, String)>,
@@ -68,8 +74,12 @@ pub(super) fn cached(key: &RevisionKey) -> Option<String> {
 
 /// Remember `revision` for `key`, stamping the layer files `config` (a
 /// `config/read` response with layers) was built from. A file modified since
-/// `probe_started` may postdate what Codex read, so nothing is cached then.
+/// `probe_started` may postdate what Codex read, so nothing is cached then —
+/// "since" widened by [`MTIME_GRANULARITY`], as mtimes lag the wall clock.
 pub(super) fn store(key: RevisionKey, revision: String, config: &Value, probe_started: SystemTime) {
+    let edit_horizon = probe_started
+        .checked_sub(MTIME_GRANULARITY)
+        .unwrap_or(SystemTime::UNIX_EPOCH);
     let stamps: Vec<_> = watched_paths(config, &key.cwd)
         .into_iter()
         .map(|path| {
@@ -79,7 +89,7 @@ pub(super) fn store(key: RevisionKey, revision: String, config: &Value, probe_st
         .collect();
     let edited_during_probe = stamps
         .iter()
-        .any(|(_, stamp)| stamp.is_some_and(|(modified, _)| modified >= probe_started));
+        .any(|(_, stamp)| stamp.is_some_and(|(modified, _)| modified >= edit_horizon));
     if edited_during_probe {
         return;
     }
@@ -131,47 +141,92 @@ mod tests {
         RevisionKey::new(&HashMap::new(), &[], cwd, stored_revision)
     }
 
-    /// A probe that started after the fixture files were written (the margin
-    /// absorbs coarse filesystem timestamps).
-    fn probe_start() -> SystemTime {
-        SystemTime::now() + Duration::from_secs(1)
+    /// Writes `path` and pins its mtime, so tests never depend on how the
+    /// filesystem clock relates to `SystemTime::now()`.
+    fn write_layer(path: &Path, contents: &str, modified: SystemTime) {
+        fs::write(path, contents).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
     }
 
     fn config_with_layer(file: &Path) -> Value {
         json!({ "config": {}, "layers": [{ "name": { "type": "user", "file": file } }] })
     }
 
-    #[test]
-    fn reuses_the_fingerprint_while_layer_files_are_unchanged() {
+    /// Stores a fingerprint for a single user layer whose mtime sits `offset`
+    /// away from the probe start, and reports whether it was cached.
+    fn cached_with_layer_mtime(name: &str, before: bool, offset: Duration) -> Option<String> {
         let dir = tempfile::tempdir().unwrap();
         let user_config = dir.path().join("config.toml");
-        fs::write(&user_config, "model = \"a\"").unwrap();
-        let key = key_for(dir.path(), "reuse");
+        let key = key_for(dir.path(), name);
+        let probe_started = SystemTime::now();
+        let modified = if before {
+            probe_started - offset
+        } else {
+            probe_started + offset
+        };
+        write_layer(&user_config, "model = \"a\"", modified);
 
         store(
             key.clone(),
             "rev-1".into(),
             &config_with_layer(&user_config),
-            probe_start(),
+            probe_started,
         );
 
-        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
+        cached(&key)
+    }
+
+    const LONG_AGO: Duration = Duration::from_secs(3600);
+
+    #[test]
+    fn reuses_the_fingerprint_while_layer_files_are_unchanged() {
+        assert_eq!(
+            cached_with_layer_mtime("reuse", true, LONG_AGO).as_deref(),
+            Some("rev-1")
+        );
     }
 
     #[test]
     fn a_layer_edit_invalidates_the_fingerprint() {
         let dir = tempfile::tempdir().unwrap();
         let user_config = dir.path().join("config.toml");
-        fs::write(&user_config, "model = \"a\"").unwrap();
+        let probe_started = SystemTime::now();
+        write_layer(&user_config, "model = \"a\"", probe_started - LONG_AGO);
         let key = key_for(dir.path(), "edit");
         store(
             key.clone(),
             "rev-1".into(),
             &config_with_layer(&user_config),
-            probe_start(),
+            probe_started,
         );
+        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
 
         fs::write(&user_config, "model = \"longer\"").unwrap();
+
+        assert_eq!(cached(&key), None);
+    }
+
+    #[test]
+    fn a_same_size_layer_edit_invalidates_the_fingerprint() {
+        let dir = tempfile::tempdir().unwrap();
+        let user_config = dir.path().join("config.toml");
+        let probe_started = SystemTime::now();
+        write_layer(&user_config, "model = \"a\"", probe_started - LONG_AGO);
+        let key = key_for(dir.path(), "same-size");
+        store(
+            key.clone(),
+            "rev-1".into(),
+            &config_with_layer(&user_config),
+            probe_started,
+        );
+        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
+
+        write_layer(&user_config, "model = \"b\"", probe_started - LONG_AGO / 2);
 
         assert_eq!(cached(&key), None);
     }
@@ -186,8 +241,9 @@ mod tests {
             key.clone(),
             "rev-1".into(),
             &json!({ "config": {}, "layers": [] }),
-            probe_start(),
+            SystemTime::now(),
         );
+        assert_eq!(cached(&key).as_deref(), Some("rev-1"));
 
         fs::create_dir_all(dir.path().join(".codex")).unwrap();
         fs::write(dir.path().join(".codex").join("config.toml"), "x = 1").unwrap();
@@ -211,6 +267,42 @@ mod tests {
         );
 
         assert_eq!(cached(&key), None);
+    }
+
+    #[test]
+    fn a_layer_stamped_after_the_probe_started_is_not_cached() {
+        assert_eq!(
+            cached_with_layer_mtime("after", false, Duration::from_millis(1)),
+            None
+        );
+    }
+
+    /// Linux stamps mtimes from the coarse tick clock: a write right after
+    /// the probe started can read a few milliseconds earlier than it.
+    #[test]
+    fn an_edit_behind_a_coarse_mtime_clock_is_not_cached() {
+        assert_eq!(
+            cached_with_layer_mtime("coarse-tick", true, Duration::from_millis(4)),
+            None
+        );
+    }
+
+    /// Second-granularity filesystems round a write down to the whole second.
+    #[test]
+    fn an_edit_rounded_down_to_the_second_is_not_cached() {
+        assert_eq!(
+            cached_with_layer_mtime("whole-second", true, Duration::from_millis(999)),
+            None
+        );
+    }
+
+    #[test]
+    fn a_layer_older_than_the_mtime_granularity_is_cached() {
+        let offset = MTIME_GRANULARITY + Duration::from_millis(1);
+        assert_eq!(
+            cached_with_layer_mtime("settled", true, offset).as_deref(),
+            Some("rev-1")
+        );
     }
 
     #[test]
