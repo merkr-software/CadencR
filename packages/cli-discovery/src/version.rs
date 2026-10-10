@@ -108,25 +108,19 @@ mod tests {
 
     #[tokio::test]
     async fn shim_guard_rejects_a_failed_probe_whose_error_names_a_version() {
+        // Run the fixtures through `sh -c` rather than writing scripts: on
+        // Linux, exec'ing a just-written file races with other tests' forks
+        // (ETXTBSY), which surfaces as a failed probe.
+        let sh = |script: &str| vec!["-c".to_string(), script.to_string()];
         // rustup with a toolchain pinned to `1.96.0`: the error mentions the
         // binary and a semver, but the shim exits non-zero.
-        let dir = TempDir::new().unwrap();
-        let shim = make_executable_with_body(
-            dir.path(),
-            "rust-analyzer",
-            "#!/bin/sh\necho \"error: Unknown binary 'rust-analyzer' in official toolchain '1.96.0-aarch64-apple-darwin'.\" 1>&2\nexit 1\n",
-        );
-        let args = vec!["--version".to_string()];
-        let probe = probe_version(&shim, &args).await.unwrap();
+        let shim = sh("echo \"error: Unknown binary 'rust-analyzer' in official toolchain '1.96.0-aarch64-apple-darwin'.\" 1>&2; exit 1");
+        let probe = probe_version(Path::new("/bin/sh"), &shim).await.unwrap();
         assert_eq!(probe.version, Some(VersionKey(1, 96, 0)));
         assert!(!probe.passes_filter("rust-analyzer"));
 
-        let real = make_executable_with_body(
-            dir.path(),
-            "real-analyzer",
-            "#!/bin/sh\necho 'rust-analyzer 1.96.0 (abc 2026-05-25)'\n",
-        );
-        let probe = probe_version(&real, &args).await.unwrap();
+        let real = sh("echo 'rust-analyzer 1.96.0 (abc 2026-05-25)'");
+        let probe = probe_version(Path::new("/bin/sh"), &real).await.unwrap();
         assert!(probe.passes_filter("rust-analyzer"));
     }
 }
