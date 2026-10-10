@@ -126,7 +126,8 @@ describe("handleAgentBrowserActivity", () => {
 
 describe("resolveAutoLayoutMode", () => {
   it("lets the feature override win over the workspace default", () => {
-    expect(resolveAutoLayoutMode(undefined, null)).toBe(false);
+    expect(resolveAutoLayoutMode(undefined, null)).toBe(true);
+    expect(resolveAutoLayoutMode(undefined, "false")).toBe(false);
     expect(resolveAutoLayoutMode(undefined, "true")).toBe(true);
     expect(resolveAutoLayoutMode("off", "true")).toBe(false);
     expect(resolveAutoLayoutMode("on", "false")).toBe(true);

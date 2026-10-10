@@ -13,7 +13,7 @@ import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { apiErrorMessage } from "@/lib/api-errors";
 
 /**
- * Workspace default for auto layout, `"true"` / `"false"`; unset means off.
+ * Workspace default for auto layout, `"true"` / `"false"`; unset means on.
  * Mirrors `layout_auto_mode_default` in the service's settings allowlist.
  */
 export const AUTO_LAYOUT_DEFAULT_KEY = "layout_auto_mode_default";
@@ -30,7 +30,7 @@ export function resolveAutoLayoutMode(
 ): boolean {
   if (featureValue === "on") return true;
   if (featureValue === "off") return false;
-  return defaultValue === "true";
+  return defaultValue !== "false";
 }
 
 /** The workspace-wide default, read and written from Settings. */
@@ -43,7 +43,7 @@ export function useAutoLayoutDefault(): {
   const { setValue } = setting;
   const setEnabled = useCallback((next: boolean) => setValue(String(next)), [setValue]);
   return {
-    enabled: setting.value === "true",
+    enabled: setting.value !== "false",
     setEnabled,
     isBusy: setting.isLoading || setting.isSaving,
   };
@@ -66,9 +66,12 @@ export function useAutoLayoutActive(
   const featureQuery = useGetFeatureSettings(featureId, {
     query: { enabled, select: selectFeatureMode },
   });
+  const isLoading = defaultQuery.isLoading || featureQuery.isLoading;
   return {
-    active: resolveAutoLayoutMode(featureQuery.data, defaultQuery.data?.value),
-    isLoading: defaultQuery.isLoading || featureQuery.isLoading,
+    // Off until both settings are in: on by default must not briefly override
+    // a feature (or workspace) the user switched off.
+    active: !isLoading && resolveAutoLayoutMode(featureQuery.data, defaultQuery.data?.value),
+    isLoading,
   };
 }
 

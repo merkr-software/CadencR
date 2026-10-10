@@ -93,11 +93,11 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "theme_follow_system"
         | "claude_bypass_permissions_enabled"
         | "codex_full_access_enabled"
-        | "onboarding_intro_shown"
-        | "layout_auto_mode_default" => SettingSpec::new(BOOL, Some("false")),
+        | "onboarding_intro_shown" => SettingSpec::new(BOOL, Some("false")),
         // These default on.
         "editor_auto_save"
         | "sidebar_provider_logos"
+        | "layout_auto_mode_default"
         | "animations_enabled"
         | "browser_mcp_enabled"
         | "project_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
@@ -171,6 +171,14 @@ mod tests {
         assert!(spec.is_valid("false"));
         assert!(!spec.is_valid("yes"));
         assert_eq!(spec.default, Some("true"));
+    }
+
+    #[test]
+    fn auto_layout_defaults_on() {
+        assert_eq!(
+            workspace_spec("layout_auto_mode_default").unwrap().default,
+            Some("true")
+        );
     }
 
     #[test]
