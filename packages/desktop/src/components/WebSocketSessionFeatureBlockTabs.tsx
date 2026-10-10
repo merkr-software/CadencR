@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useRef, type ReactElement } from 
 import { CodeIcon, GitCompareArrowsIcon, GlobeIcon, TerminalIcon } from "lucide-react";
 import { FeatureGitTab } from "@/components/FeatureGitTab";
 import { FeatureTerminalTab } from "@/components/FeatureTerminalTab";
+import { AgentBrowserActivityDot } from "@/components/feature-layout/AgentBrowserActivityDot";
 import { GitBadge } from "@/components/feature-layout/GitBadge";
 import type { FeatureTabDef, FeatureTabs } from "@/components/feature-layout/types";
 import {
@@ -130,6 +131,7 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
       label: "Browser",
       Icon: GlobeIcon,
       shortcut: ["cmd", "shift", "B"],
+      badge: <AgentBrowserActivityDot featureId={featureId} />,
       content: browserReady ? (
         <Suspense fallback={null}>
           <BrowserWorkspaceTab scopeId={featureId} onSendContext={sendContext} />

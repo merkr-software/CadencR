@@ -4,6 +4,7 @@ import { useBrowserShortcutRelay } from "@/hooks/useBrowserShortcutRelay";
 import { useShortcut } from "@/hooks/useShortcut";
 import { type BrowserShortcut } from "@/lib/desktop-bridge";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
+import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import type { TabKind } from "@/stores/feature-layout-schema";
 import type { FeatureTabActivationHandlers } from "@/components/feature-layout/types";
 
@@ -38,6 +39,7 @@ export function useFeatureLayoutHotkeys(
   const activate = useCallback(
     (tab: TabKind) => {
       if (!activateFeatureTab(featureId, tab)) return;
+      noteUserLayoutChange(featureId);
       if (tab === "terminal") onTerminalActivate?.();
       if (tab === "editor") onEditorActivate?.();
     },

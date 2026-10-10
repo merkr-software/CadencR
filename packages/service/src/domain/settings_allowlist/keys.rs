@@ -8,6 +8,10 @@ pub const FEATURE_ALLOWED_KEYS: &[&str] = &[
     "agent_runtime_session",
     "skip_worktree",
     "layout_state",
+    // Per-feature auto layout override: "on" / "off". Unset follows the
+    // workspace `layout_auto_mode_default`. See
+    // packages/desktop/src/lib/auto-layout/auto-layout-mode.ts.
+    "layout_auto_mode",
     "draft_prompt",
     // Git workflow (per-feature). `worktree_mode` selects how the worktree is
     // provisioned at feature creation: "new" (default), "reuse" (attach to an
@@ -151,6 +155,10 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // Master switch for fluid UI animations. When unset the frontend falls back
     // to the OS `prefers-reduced-motion` media query. Stored as "true" / "false".
     "animations_enabled",
+    // Workspace default for the feature page's auto layout mode (panes follow
+    // the agent and opened links). "true" / "false"; unset means off. Each
+    // feature can override it via `layout_auto_mode`.
+    "layout_auto_mode_default",
     // Monospace font family for the terminal, editor, and code snippets.
     // A missing value means "Default" (see DEFAULT_MONO_STACK in
     // packages/desktop/src/lib/fonts/constants.ts). Stored as the raw family

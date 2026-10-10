@@ -321,6 +321,16 @@ mod tests {
         assert!(!is_project_key_allowed("agent_stream_summary_mode"));
     }
     #[test]
+    fn auto_layout_keys_are_scoped() {
+        // Workspace default from Settings → Interface; per-feature override
+        // from the auto layout toggle beside the layout menu.
+        assert!(is_workspace_key_allowed("layout_auto_mode_default"));
+        assert!(!is_feature_key_allowed("layout_auto_mode_default"));
+        assert!(is_feature_key_allowed("layout_auto_mode"));
+        assert!(!is_workspace_key_allowed("layout_auto_mode"));
+    }
+
+    #[test]
     fn workspace_accepts_animations_enabled() {
         // Master switch for fluid UI animations, persisted from the Welcome
         // onboarding step and the Settings → Appearance toggle.

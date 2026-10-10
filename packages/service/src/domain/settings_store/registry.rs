@@ -93,7 +93,8 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "theme_follow_system"
         | "claude_bypass_permissions_enabled"
         | "codex_full_access_enabled"
-        | "onboarding_intro_shown" => SettingSpec::new(BOOL, Some("false")),
+        | "onboarding_intro_shown"
+        | "layout_auto_mode_default" => SettingSpec::new(BOOL, Some("false")),
         // These default on.
         "editor_auto_save"
         | "sidebar_provider_logos"

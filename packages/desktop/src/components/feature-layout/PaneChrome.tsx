@@ -6,8 +6,10 @@ import { XIcon } from "lucide-react";
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { LayoutLeaf, TabKind } from "@/stores/feature-layout-schema";
+import { useAutoLayoutStore } from "@/stores/auto-layout-store";
 import { cn } from "@/lib/utils";
 
+import { AutoLayoutToggle } from "./AutoLayoutToggle";
 import { LayoutMenu } from "./LayoutMenu";
 import type { DragSource, FeatureTabs } from "./types";
 
@@ -40,6 +42,9 @@ export function PaneChrome({
   onActivateTab,
   onDockTab,
 }: PaneChromeProps): ReactNode {
+  const autoRevealed = useAutoLayoutStore((s) =>
+    s.revealed[featureId]?.paneId === leaf.id ? s.revealed[featureId].kind : undefined,
+  );
   return (
     <div
       // `data-pane-frame` lets CadencR themes equalize the floating-pane gutter
@@ -52,6 +57,11 @@ export function PaneChrome({
         data-pane-id={leaf.id}
         data-pane-root={isRoot || undefined}
         data-pane-focused={isFocused}
+        data-auto-revealed={autoRevealed}
+        onAnimationEnd={(event) => {
+          if (event.target !== event.currentTarget || !autoRevealed) return;
+          useAutoLayoutStore.getState().clearRevealed(featureId, leaf.id);
+        }}
         className={cn(
           "relative flex h-full w-full flex-col bg-background outline-none",
           !isRoot && "overflow-hidden rounded-lg border border-border shadow-md",
@@ -72,7 +82,8 @@ export function PaneChrome({
             onDockTab={onDockTab}
           />
           {isRoot && splitsEnabled && (
-            <div className="ml-auto flex shrink-0 items-center pr-2">
+            <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
+              <AutoLayoutToggle featureId={featureId} />
               <LayoutMenu featureId={featureId} />
             </div>
           )}

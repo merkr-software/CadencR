@@ -1,4 +1,5 @@
 export type {
+  BrowserAgentActivity,
   BrowserBounds,
   BrowserCommentBadgeClick,
   BrowserConsoleEntry,

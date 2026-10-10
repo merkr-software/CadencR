@@ -220,6 +220,17 @@ const APP_SHORTCUTS = [
     description: "Editor tab",
     scope: "feature-panes",
   },
+  {
+    // ⌘⌥B: every free ⌘⇧ letter is taken, and B sits beside the Browser tab's
+    // ⌘⇧B — auto layout's headline move is splitting the Browser in. Off macOS
+    // this is Ctrl+Alt+B (an AltGr chord), and no common layout composes a
+    // character on AltGr+B. Cmd suppresses Option's composition on macOS.
+    id: "layout-auto-toggle",
+    keys: ["mod", "alt", "b"],
+    description: "Toggle auto layout",
+    scope: "feature-panes",
+    aliases: ["auto layout", "split"],
+  },
 
   // ─── Feature actions ─────────────────────────────────────────────────
   {

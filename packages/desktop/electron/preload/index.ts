@@ -19,6 +19,7 @@ import type {
   BrowserShortcut,
   BrowserStateSnapshot,
   BrowserTabMetadata,
+  BrowserAgentActivity,
 } from "../main/browser-types";
 
 type RouteType = "workflow" | "session";
@@ -369,6 +370,8 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("browser:state", cb),
   onBrowserTabCounts: (cb: (counts: Record<number, number>) => void): (() => void) =>
     onIpc("browser:tab-counts", cb),
+  onBrowserAgentActivity: (cb: (activity: BrowserAgentActivity) => void): (() => void) =>
+    onIpc("browser:agent-activity", cb),
   onBrowserShortcut: (cb: (shortcut: BrowserShortcut) => void): (() => void) =>
     onIpc("browser:shortcut", cb),
   onBrowserFindResult: (cb: (result: BrowserFindResult) => void): (() => void) =>

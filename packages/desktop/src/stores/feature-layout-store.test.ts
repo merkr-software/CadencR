@@ -10,7 +10,7 @@ import {
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "./feature-layout-store";
-import { ROOT_LEAF_ID } from "./feature-layout-schema";
+import { flatLayoutState, ROOT_LEAF_ID } from "./feature-layout-schema";
 
 const FEATURE = 42;
 
@@ -147,6 +147,14 @@ describe("feature-layout-store", () => {
     if (state.splitRoot.type === "leaf") {
       expect(state.splitRoot.tabIds).toEqual(["agent", "terminal", "git", "editor", "browser"]);
     }
+  });
+
+  it("resetToFlat keeps auto layout's size memory", () => {
+    const store = useFeatureLayoutStore.getState();
+    store.setState(FEATURE, { ...flatLayoutState(), autoShares: { browser: 35 } });
+    store.splitTabAt(FEATURE, "browser", ROOT_LEAF_ID, "right");
+    store.resetToFlat(FEATURE);
+    expect(getState().autoShares).toEqual({ browser: 35 });
   });
 
   it("setFocusedPane is a no-op when the pane is already focused", () => {

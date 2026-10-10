@@ -10,6 +10,7 @@ import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 import { TabPane } from "./TabPane";
 import type { FeatureTabs } from "./types";
 
+vi.mock("./AutoLayoutToggle", () => ({ AutoLayoutToggle: (): null => null }));
 vi.mock("./LayoutMenu", () => ({
   LayoutMenu: (): null => null,
 }));

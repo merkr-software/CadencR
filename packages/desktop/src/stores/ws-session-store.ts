@@ -26,6 +26,7 @@ import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
 import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
 import { advancePendingPermissionQueue } from "@/lib/pending-permission-queue";
+import { noteUserPrompt } from "@/lib/auto-layout/auto-layout-controller";
 import type { SocketHandlerDeps } from "./ws-session-socket-handler";
 import { connectSession } from "./ws-session-connect";
 import { createWsSessionSimpleActions } from "./ws-session-simple-actions";
@@ -265,6 +266,7 @@ function createPromptActions(set: WsStoreSet, get: WsStoreGet): Pick<WsSessionSt
   return {
     sendPrompt(sessionId, text, options: PromptDispatchOptions = {}) {
       const session = getSessionEntry(get, sessionId);
+      if (session.featureId !== null) noteUserPrompt(session.featureId);
       const messageUuid = options.messageUuid ?? crypto.randomUUID();
       if (session.serverSessionId) {
         sendRawEnvelope(
