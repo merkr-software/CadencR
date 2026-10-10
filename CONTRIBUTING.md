@@ -8,17 +8,26 @@ By participating, you agree to the [Code of Conduct](./.github/CODE_OF_CONDUCT.m
 
 ## Local Development
 
-Setup (prerequisites, `.env` files, `pnpm dev`) lives in the [README — Run from source](./README.md#run-from-source). Follow that first. The notes below assume your dev environment is running.
+Setup (prerequisites, `pnpm setup:dev`, `pnpm doctor`, worktrees) lives in the [README — Run from source](./README.md#run-from-source). Follow that first. The notes below assume your dev environment is running; when it is not, `pnpm doctor` names the problem and its fix.
 
 ## Common Commands
 
 ```bash
 pnpm dev             # run desktop app + backend service (the usual)
 pnpm start           # desktop only (skips the service watcher)
-pnpm test            # run all tests (vitest + cargo test)
-pnpm run lint        # oxlint + cargo check
+pnpm test            # run all tests (vitest + cargo test --workspace + repo scripts)
+pnpm run lint        # provider boundaries + oxlint + clippy (all Rust crates)
 pnpm run format      # auto-format (oxfmt + rustfmt)
 pnpm run format:check
+pnpm doctor          # check Node, pnpm, Rust, watcher, .env files, Electron
+pnpm setup:dev       # idempotent first-run setup of a main checkout
+```
+
+Run only the desktop tests that cover the files you touched (paths relative to
+`packages/desktop`):
+
+```bash
+pnpm --filter @cadencr/desktop exec vitest related --run src/lib/foo.ts
 ```
 
 Run a task for a single package:
@@ -33,9 +42,10 @@ pnpm --filter @cadencr/service <script>
 Cargo targets are intentionally isolated per Git worktree. The main checkout
 uses `./target/`; each linked worktree uses its own `<worktree>/target/`.
 Repository scripts deliberately do not use `sccache`: it did not produce cache
-hits between Cadencr worktrees, while disabling Cargo incremental compilation
-and consuming another large machine-wide cache. Cargo's own incremental cache
-instead accelerates repeated builds inside each active worktree.
+hits between Cadencr worktrees, while forcing Cargo incremental compilation off
+and consuming another large machine-wide cache. The development and test
+profiles keep Cargo's own incremental cache instead, which accelerates repeated
+builds inside each active worktree.
 
 Do not set `CARGO_TARGET_DIR` to `.shared-cargo-target` or another shared path.
 Sharing Cargo targets can mix branch artifacts, create lock contention, and
@@ -50,10 +60,11 @@ pnpm rust -- test -p cadencr-service shared::migrate
 pnpm rust -- check -p opencode-sdk-rs
 ```
 
-The default development and test profiles omit debug information and
-incremental state to keep every worktree's Cargo target small. This does not
-disable application logs. For a debugger-oriented test run with line tables,
-use:
+The default development and test profiles omit debug information to keep
+every worktree's Cargo target small; incremental state is the bulk of what
+remains, and `pnpm rust:clean` / `pnpm rust:prune` below reclaim it. Omitting
+debug information does not disable application logs. For a debugger-oriented
+test run with line tables, use:
 
 ```bash
 pnpm rust -- test --profile test-debug -p cadencr-service <test-name>
@@ -65,14 +76,15 @@ Precompile the Rust targets used by `pnpm dev` without starting the app:
 pnpm dev:precompile
 ```
 
-For Cadencr-managed worktrees, put this command after `pnpm install` in the
-project's worktree setup commands. The setup runs in the new worktree, so its
-local `target/` is warm before the first `pnpm dev`.
+For Cadencr-managed worktrees, set the project's worktree setup commands to
+`pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile`. The setup
+runs in the new worktree, so it gets its own `.env` ports and a warm local
+`target/` before the first `pnpm dev`.
 
 Inspect and clean storage with dry-run-first commands:
 
 ```bash
-pnpm rust:storage                         # targets and legacy-path check
+pnpm rust:storage                         # targets, dev databases and backups
 pnpm rust:clean                           # preview cleaning the current target
 pnpm rust:clean -- --release --apply      # remove current release artifacts
 pnpm rust:prune                           # preview non-main targets unused for 14 days
@@ -82,6 +94,32 @@ pnpm rust:prune -- --older-than 7d --apply
 `rust:prune` never cleans the main checkout, the current checkout, or symlinked
 targets. Deleted artifacts are safe to rebuild, but applying a
 cleanup causes the next Rust command in that worktree to perform a cold build.
+
+### Dev databases
+
+Dev databases are usually bigger than the Cargo targets, so worktrees keep
+them cheap:
+
+- `pnpm dev:configure-worktree` seeds a worktree's database as a copy-on-write
+  clone of the main checkout's (`cp -c` on APFS, reflink elsewhere). The clone
+  shares its blocks until either side writes, so a multi-GB database costs
+  almost nothing per worktree. Worktrees created before this change hold full
+  copies.
+- Only when that run clones the database, and the worktree's `CADENCR_DB_PATH`
+  points at the clone, does it set `CADENCR_DEV_SKIP_DB_BACKUP=1` in the
+  worktree's service `.env`. Debug builds then skip the pre-migration
+  `VACUUM INTO` snapshot, which would be a full, unshared copy of data the main
+  checkout still holds. Every other database keeps its backups: one the
+  worktree already had (it holds the worktree's own data, so rerunning the
+  script never replaces it and drops the flag), and a custom `CADENCR_DB_PATH`,
+  which may name a shared database. The main checkout and release builds
+  always back up before migrating.
+
+`pnpm rust:storage` lists every dev database and the installed app's
+`~/.cadencr/database`, and names the backups the service never rotates (legacy
+`<version>.<hour>` snapshots without a source identity, hand-made `.bck`
+copies). Nothing deletes those automatically: check you no longer need them,
+then remove them yourself.
 
 Troubleshoot the effective configuration with:
 
@@ -109,19 +147,19 @@ The three rules contributors hit most often:
 
 Maintainers keep labels intentionally simple. Contributors do not need to pick every label themselves, but please choose the most specific issue template and fill out the requested fields so maintainers can label quickly.
 
-| Label | Meaning |
-|---|---|
-| `Feature` | New user-visible capability or improvement |
-| `Fix` | Bug fix or regression |
-| `Desktop` | Electron/React desktop app |
-| `Backend` | Rust service or SDK/backend integration work |
-| `provider:claude` | Claude-specific behavior |
-| `provider:codex` | Codex-specific behavior |
-| `provider:opencode` | OpenCode-specific behavior |
-| `Planned` | Accepted and expected to be worked on |
-| `Will fix` | Confirmed fix for a bug/regression |
-| `Not planned` | Maintainers do not plan to work on this |
-| `Duplicated` | Duplicate of another issue or PR |
+| Label               | Meaning                                      |
+| ------------------- | -------------------------------------------- |
+| `Feature`           | New user-visible capability or improvement   |
+| `Fix`               | Bug fix or regression                        |
+| `Desktop`           | Electron/React desktop app                   |
+| `Backend`           | Rust service or SDK/backend integration work |
+| `provider:claude`   | Claude-specific behavior                     |
+| `provider:codex`    | Codex-specific behavior                      |
+| `provider:opencode` | OpenCode-specific behavior                   |
+| `Planned`           | Accepted and expected to be worked on        |
+| `Will fix`          | Confirmed fix for a bug/regression           |
+| `Not planned`       | Maintainers do not plan to work on this      |
+| `Duplicated`        | Duplicate of another issue or PR             |
 
 Provider labels should be used only when the work is truly provider-specific. Generic frontend/backend code should stay provider-neutral.
 
@@ -247,9 +285,42 @@ Commits follow **[Conventional Commits](https://www.conventionalcommits.org/)**:
 - **Types**: `feat`, `fix`, `refactor`, `chore`, `docs`, `style`, `test`, `perf`, `build`.
 - **Scopes** (optional): package or area — `desktop`, `service`, `session`, `providers`, `landing`, `agent`, etc.
 - One logical change per commit. Explain **why**, not just **what**, in the body when the diff is non-obvious.
-- Husky runs `pnpm turbo run format:check lint ts-check test knip` as a pre-commit hook. Do not bypass it (`--no-verify`) unless a maintainer asks.
+- Husky runs a scoped pre-commit check (see [Pre-commit checks](#pre-commit-checks)). Do not bypass it (`--no-verify`) unless a maintainer asks.
 
 Run `git log --oneline` in this repo for a large set of real examples.
+
+## Pre-commit checks
+
+`.husky/pre-commit` runs `node scripts/pre-commit.mjs`, which reads the staged
+file list and runs only the checks those files can affect, streaming their
+output and stopping at the first failure with the exact command to rerun:
+
+| Staged files                                                                                                                                                          | Checks                                                                                   |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| anything                                                                                                                                                              | `AGENTS.md` is in sync with `.claude/rules/`                                             |
+| docs only (`*.md` outside a package's `src/`, `docs/**`)                                                                                                              | nothing else                                                                             |
+| any other file                                                                                                                                                        | root script tests (`pnpm run test:scripts`, a few seconds)                               |
+| `packages/desktop`, `packages/landing`, `packages/brand`                                                                                                              | that package's `format:check`, `lint`, `ts-check`, `knip` through Turbo, and its tests   |
+| desktop sources                                                                                                                                                       | `vitest related --run` on the staged desktop files only                                  |
+| desktop `vitest.config.*`, `src/test-setup*`, `src/test/**`, `package.json`                                                                                           | the full desktop suite                                                                   |
+| desktop `src/lib/shortcuts/**`, `src/shared/**`                                                                                                                       | landing checks too (it imports the shortcut registry)                                    |
+| `packages/brand/src/**`                                                                                                                                               | desktop and landing checks too, tracing desktop tests that import the brand file         |
+| `packages/service/src`, `packages/desktop/src`                                                                                                                        | provider-boundary scan                                                                   |
+| Rust: `packages/service`, any `packages/*-rs`, `packages/cli-discovery`, `Cargo.toml`/`Cargo.lock`, `rust-toolchain.toml`                                             | `@cadencr/service` `format:check`, `lint` (clippy), `test` for the whole Cargo workspace |
+| release scripts, `homebrew/**`, `desktop-release.yml`                                                                                                                 | `pnpm run test:release-scripts`                                                          |
+| root tooling: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `turbo.json`, `.oxlintrc.json`, `.oxfmtrc.json`, `.npmrc`, `.nvmrc`, `.husky/**`, `patches/**` | everything                                                                               |
+
+Preview the plan without running it, or force the full workspace check (also
+what CI runs):
+
+```bash
+node scripts/pre-commit.mjs --dry-run
+CADENCR_PRECOMMIT_FULL=1 git commit
+```
+
+Checks run against your working tree, so unstaged edits in the same files are
+checked too. CI always runs everything, so a scoped pass locally is not a
+guarantee.
 
 ## Pull Request Process
 
@@ -259,12 +330,16 @@ Run `git log --oneline` in this repo for a large set of real examples.
 2. **Open early.** Draft PRs are welcome for feedback before the work is final.
 3. **Use the PR template.** It prompts for summary, motivation, and a test plan.
 4. **Keep PRs focused.** A PR should be reviewable in one sitting. Split large changes.
-5. **CI must be green** — lint, typecheck, tests, knip, and format checks all pass.
+5. **CI must be green** — lint, typecheck, tests, knip, and format checks all pass. `ci.yml` runs them as
+   parallel `rust`, `web`, `vitest` (sharded) and `scripts` jobs; the required `Pre-commit checks` status
+   passes only when all of them do.
 6. **Link the issue.** Use `Closes #123`, `Fixes #123`, or explain why there is no issue.
 7. **Show visible changes.** Include screenshots or recordings for UI changes.
-8. **Squash on merge.** PRs are squash-merged so the version branch stays linear; the squash commit
-   message must itself follow Conventional Commits. Promotions from a version branch to `main` are the
-   exception — those are `--no-ff` merge commits.
+8. **Merge with `--no-ff`.** Branches land as a merge commit (`git merge --no-ff`), never squashed or
+   fast-forwarded, so the history keeps each reviewed commit and the merge commit groups them. Every
+   commit on the branch must therefore follow Conventional Commits on its own. Rebase onto the target
+   branch first (step 3 of [Day-to-day work](#day-to-day-work)) so the merge carries no conflict
+   resolution. Promotions from a version branch to `main` work the same way.
 
 For a bugfix, include a test that fails without the fix. For a feature, include a test that exercises the new behavior end-to-end when practical.
 

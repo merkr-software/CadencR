@@ -29,7 +29,7 @@ Frontend path alias: `@` → `packages/desktop/src/`. Frontend ↔ backend is HT
 
 **`pnpm start` is not an alias for `pnpm dev`.** `start` is desktop-only: it builds the service binary once and never runs it, so the frontend talks to nothing unless a service is already up. `pnpm dev` runs both (plus the landing site). The first `pnpm dev` in a fresh worktree cold-builds the whole Rust tree — `pnpm dev:precompile` does that ahead of time.
 
-**Dev needs both `.env` files.** Debug builds of the service hard-fail without `packages/service/.env` (`CADENCR_DB_PATH`, `CADENCR_RUST_PORT`, `CADENCR_FRONTEND_PORT`, `CADENCR_AUTH_TOKEN`). `CADENCR_AUTH_TOKEN` must equal desktop's `VITE_API_TOKEN` or every request 401s — the client sends it as the `X-Cadencr-Token` header, not `Authorization`. Defaults: `1420` frontend, `5005` service.
+**Dev needs both `.env` files.** Debug builds of the service hard-fail without `packages/service/.env` (`CADENCR_DB_PATH`, `CADENCR_RUST_PORT`, `CADENCR_FRONTEND_PORT`, `CADENCR_AUTH_TOKEN`). `CADENCR_AUTH_TOKEN` must equal desktop's `VITE_API_TOKEN` or every request 401s — the client sends it as the `X-Cadencr-Token` header, not `Authorization`. Defaults: `1420` frontend, `5005` service. `pnpm setup:dev` creates both with one shared token (in a linked worktree use `pnpm dev:configure-worktree`, which also assigns per-worktree ports); `pnpm doctor` diagnoses token/port drift, toolchain, watcher and Electron.
 
 **sqlx runs queries at runtime, not compile time.** The service uses `sqlx::query(...)` exclusively — no `query!`/`query_as!` macros, no `DATABASE_URL` needed to build, no `.sqlx/` offline dir. Don't introduce the macros.
 
@@ -55,21 +55,23 @@ Frontend path alias: `@` → `packages/desktop/src/`. Frontend ↔ backend is HT
 
 ## Commands
 
-Requires `pnpm` and Node `>=22.19.0 <23.0.0`; `pnpm dev` needs `cargo-watch`.
+Requires `pnpm` and Node `>=22.19.0 <23.0.0` (`.nvmrc` pins 22.19.0); `pnpm dev` needs `watchexec` (or `cargo-watch`).
 
 ```bash
-pnpm dev            # frontend + service (+ landing)
+pnpm dev            # frontend + service (+ landing); needs watchexec (cargo-watch fallback)
 pnpm start          # desktop only — no service watcher
 pnpm rust -- test   # any cargo command (never bare `cargo`)
 pnpm build          # build the desktop app
-pnpm test           # turbo test (vitest + cargo test) plus scripts/*.test.mjs
-pnpm lint           # oxlint + cargo check
+pnpm test           # turbo test (vitest + cargo test --workspace) plus scripts/*.test.mjs
+pnpm lint           # provider boundaries + oxlint + clippy --workspace
 pnpm format         # oxfmt + cargo fmt
+pnpm doctor         # check Node, pnpm, Rust, watcher, .env files, Electron
 pnpm --filter @cadencr/desktop ts-check
 pnpm --filter @cadencr/desktop knip   # unused exports
+pnpm --filter @cadencr/desktop exec vitest related --run src/x.ts   # tests covering a file
 ```
 
-Pre-commit runs `format:check lint ts-check test knip` across the workspace, so `knip` is not optional.
+Pre-commit (`scripts/pre-commit.mjs`) runs only the checks the staged files can affect — `node scripts/pre-commit.mjs --dry-run` shows the plan, `CADENCR_PRECOMMIT_FULL=1` forces everything. CI always runs the full set, so `knip` is not optional.
 
 ## Definition of done
 

@@ -89,19 +89,29 @@ Or download the latest DMG/ZIP from [GitHub Releases](https://github.com/merkr-s
 
 ### Run from source
 
-Use this path if you want to try the latest code or contribute.
-
-On Linux, follow the [Linux development setup](./docs/LINUX_SETUP.md).
-
-On Windows, use WSL2/WSLg and follow the [Windows / WSL development setup](./docs/WINDOWS_WSL_SETUP.md).
+Use this path if you want to try the latest code or contribute. Linux and
+Windows have their own system-package notes: see the
+[Linux development setup](./docs/LINUX_SETUP.md) and, for WSL2/WSLg, the
+[Windows / WSL development setup](./docs/WINDOWS_WSL_SETUP.md).
 
 #### Requirements
 
-- **Node.js 22.x**: the repo enforces `>=22.19.0 <23.0.0`.
-- **pnpm**: managed through Corepack.
-- **Rust**: install with [rustup](https://rustup.rs/).
-- **cargo-watch**: required by `pnpm dev` for the Rust service watcher. Install with `cargo install cargo-watch`.
+- **Node.js 22.19.0**: pinned in `.nvmrc`; the repo accepts `>=22.19.0 <23.0.0`.
+  With [fnm](https://github.com/Schniz/fnm) (`fnm env --use-on-cd`) or
+  [nvm](https://github.com/nvm-sh/nvm) (`nvm use`), the right version is picked
+  from `.nvmrc` when you enter the repo.
+- **pnpm**: provided by Corepack (`corepack enable`) at the version pinned in
+  `package.json` `packageManager`. Don't install pnpm separately.
+- **Rust** through [rustup](https://rustup.rs/). The toolchain and its
+  `rustfmt` and `clippy` components come from `rust-toolchain.toml`: rustup
+  installs them on first use, or run `rustup toolchain install` in the repo.
+- **watchexec**: `pnpm dev` uses it to restart the Rust service on changes
+  (`brew install watchexec` or `cargo install --locked watchexec-cli`).
+  `cargo-watch` still works as a fallback.
 - At least one local agent CLI you want to use: Claude Code, OpenCode, or Codex.
+
+Using Nix? `nix develop` opens a shell with Node 22, rustup, watchexec, and the
+native libraries; Corepack provides pnpm inside it.
 
 #### Setup
 
@@ -111,42 +121,55 @@ cd CadencR
 
 corepack enable
 pnpm install
-
-cp packages/service/.env.example packages/service/.env
-cp packages/desktop/.env.example packages/desktop/.env
-```
-
-Set the same local token in both env files:
-
-- `CADENCR_AUTH_TOKEN` in `packages/service/.env`
-- `VITE_API_TOKEN` in `packages/desktop/.env`
-
-Then start the app:
-
-```bash
+pnpm setup:dev   # .env files, one shared dev token, Electron binary
+pnpm doctor      # verify Node, pnpm, Rust, watcher, .env files, Electron
 pnpm dev
 ```
 
-If you create Git worktrees through an automated setup hook, add
-`pnpm dev:precompile` after `pnpm install`. It builds the Rust targets used by
-`pnpm dev` without starting the app, so the first launch in that worktree does
-not pay the cold Cargo build cost.
+`pnpm setup:dev` is safe to rerun: it copies `packages/service/.env.example`
+and `packages/desktop/.env.example` only where the `.env` is missing, writes one
+random token to both `CADENCR_AUTH_TOKEN` (service) and `VITE_API_TOKEN`
+(desktop), and installs the Electron binary. It never overwrites a `.env` or
+touches a database. If the two tokens already differ (the classic first-run
+"every request 401s"), it warns; `pnpm setup:dev --fix-token` copies the service
+token into the desktop file. `pnpm setup:dev --precompile` also builds the Rust
+targets so the first `pnpm dev` skips the cold Cargo build.
+
+`pnpm doctor` prints a fix next to each problem and exits non-zero on errors.
+Run it whenever `pnpm dev` misbehaves.
+
+#### Git worktrees
+
+In a linked worktree, run `pnpm dev:configure-worktree` instead of
+`pnpm setup:dev`. It copies the main checkout's `.env` files (so the tokens
+match) and gives the worktree its own renderer, service, and remote ports and
+Electron profile, so it can run next to the main checkout and other worktrees.
+It also seeds the worktree with a copy of the main checkout's dev database when
+there is one. For an automated worktree setup hook, use:
+
+```bash
+pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile
+```
 
 ## Development
 
 ```bash
+pnpm dev                                # desktop + service (+ landing)
 pnpm build                              # build the desktop app
-pnpm test                               # Vitest + Rust tests
-pnpm lint                               # oxlint
+pnpm test                               # Vitest + Rust tests + repo script tests
+pnpm lint                               # oxlint + clippy
 pnpm format                             # oxfmt + cargo fmt
 pnpm --filter @cadencr/desktop ts-check # TypeScript checks
 pnpm --filter @cadencr/desktop knip     # unused export detection
+pnpm doctor                             # check the dev environment
 ```
 
-Rust build artifacts are isolated in each checkout's `target/`. Development
-profiles omit debug information and incremental state to keep each worktree's
-disk footprint bounded; application logs are unaffected. Run
-`pnpm rust:storage` to inspect disk use, or see
+The pre-commit hook runs only the checks your staged files can affect; see
+[CONTRIBUTING.md](./CONTRIBUTING.md#pre-commit-checks).
+
+Rust build artifacts are isolated in each checkout's `target/`, and Cargo's
+incremental cache speeds up rebuilds inside it. Run `pnpm rust:storage` to
+inspect disk use, or see
 [CONTRIBUTING.md](./CONTRIBUTING.md#rust-build-storage) for cleanup commands.
 
 ## How it works
