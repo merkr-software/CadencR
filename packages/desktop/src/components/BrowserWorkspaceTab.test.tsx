@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: relies on jsdom's focus handling for menu keyboard navigation.
 import { http, HttpResponse } from "msw";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";

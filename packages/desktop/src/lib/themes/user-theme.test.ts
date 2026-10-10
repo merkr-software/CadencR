@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import type { ThemeDocument, UserTheme } from "@/api/generated";
 import {

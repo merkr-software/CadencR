@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FULL_TREE_DEFER_MS, useDeferredFullTreeLoad } from "./useDeferredFullTreeLoad";

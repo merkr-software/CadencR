@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * Outbound-queue behavior of the WS session store: envelopes sent while the
  * socket is down are held and delivered after the reconnect, instead of being

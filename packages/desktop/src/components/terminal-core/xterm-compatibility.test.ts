@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TerminalOptions, TerminalTransport } from "celeritty";
 import { DEFAULT_TERMINAL_PALETTE } from "./terminal-palette";

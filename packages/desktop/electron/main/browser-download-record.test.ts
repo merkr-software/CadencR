@@ -1,9 +1,10 @@
-import { fstatSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { reserveBrowserDownloadPath } from "./browser-download-path";
 import { BrowserDownloadRecord } from "./browser-download-record";
+import { descriptorReleased } from "./test-descriptor";
 
 const roots: string[] = [];
 
@@ -46,7 +47,7 @@ describe("BrowserDownloadRecord", () => {
         () => undefined,
       );
       expect(reservation.descriptor).toBeNull();
-      expect(() => fstatSync(descriptor)).toThrow();
+      expect(descriptorReleased(descriptor, reservation)).toBe(true);
       if (scenario === "completed") expect(readFileSync(reservation.path)).toHaveLength(0);
       if (scenario === "snapshot-error") expect(record.public.error).toContain("snapshot failed");
     },

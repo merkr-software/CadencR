@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: asserts computed colors, which happy-dom does not normalize to rgb().
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CADENCR_THEME_LOGOS } from "@/lib/themes/logos";

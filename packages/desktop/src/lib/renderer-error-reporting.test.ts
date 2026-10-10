@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// Pinned to jsdom: happy-dom has no PromiseRejectionEvent.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   installGlobalRendererErrorHandlers,

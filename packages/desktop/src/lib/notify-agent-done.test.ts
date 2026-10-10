@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockToastError = vi.hoisted(() => vi.fn());

@@ -1,7 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["scripts/*.mjs", "src/index.mjs", "test/*.test.mjs"],
-  "project": ["src/**/*.mjs", "scripts/**/*.mjs", "test/**/*.mjs"],
-  "ignoreBinaries": ["oxlint", "oxfmt", "knip"],
-  "ignoreDependencies": ["oxlint", "oxfmt"]
+  "entry": ["scripts/*.mjs", "test/*.test.mjs"],
+  "project": ["src/**/*.mjs", "scripts/**/*.mjs", "test/**/*.mjs"]
 }

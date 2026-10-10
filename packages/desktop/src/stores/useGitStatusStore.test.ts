@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act, renderHook } from "@/test-utils";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { GitStatusSnapshot } from "@/api/generated";

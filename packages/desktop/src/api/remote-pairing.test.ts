@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetDeviceTokenMemoryForTests } from "@/lib/remote/device-token";
 import { ensurePaired, pairRemoteDevice, takeJustPaired, takePairingError } from "./remote-pairing";

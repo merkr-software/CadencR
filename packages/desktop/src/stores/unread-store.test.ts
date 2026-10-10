@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 /**
  * Unread sidebar dot: store/hook unit behaviour plus the turn-completion path
  * that flags a feature unread when the agent finishes off-screen.

@@ -16,6 +16,7 @@ import {
   reserveBrowserDownloadPath,
   sanitizeBrowserDownloadFilename,
 } from "./browser-download-path";
+import { descriptorReleased } from "./test-descriptor";
 
 const roots: string[] = [];
 
@@ -66,7 +67,7 @@ describe("browser download paths", () => {
     expect(fstatSync(descriptor).ino).not.toBe(replaced.inode);
     closeSync(descriptor);
     removeEmptyBrowserDownloadReservation(replaced);
-    expect(() => fstatSync(originalDescriptor)).toThrow();
+    expect(descriptorReleased(originalDescriptor, replaced)).toBe(true);
     expect(readFileSync(replaced.path)).toHaveLength(0);
   });
 

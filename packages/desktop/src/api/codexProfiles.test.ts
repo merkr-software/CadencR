@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act, renderHook } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";

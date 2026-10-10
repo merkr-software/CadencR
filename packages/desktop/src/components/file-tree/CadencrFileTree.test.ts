@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { FileTree, preloadFileTree, type FileTreeDirectoryHandle } from "@pierre/trees";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

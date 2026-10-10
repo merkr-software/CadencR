@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import type { ProviderCatalogResponseEntry, UsageStatsEntry } from "@/api/generated";

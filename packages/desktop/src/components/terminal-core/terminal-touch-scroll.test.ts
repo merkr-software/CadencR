@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest";
 import { attachTouchScroll } from "./terminal-touch-scroll";
 import type { TerminalEngine } from "./terminal-engine";

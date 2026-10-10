@@ -186,7 +186,10 @@ describe("FullContentPreview", () => {
 
   it("does not retain explicitly loaded full Markdown after collapse", async () => {
     const user = userEvent.setup();
-    const full = `# Full content\n\n\`\`\`typescript\n${"const value = 1;\n".repeat(4_000)}\`\`\``;
+    // Cache opt-out is driven by `disableCache` (explicitly loaded content), not
+    // by size, so a short highlighted block covers it. A 4,000-line block made
+    // this the slowest renderer test and timed out under CPU load.
+    const full = `# Full content\n\n\`\`\`typescript\n${"const value = 1;\n".repeat(40)}\`\`\``;
     fetchFull.mockResolvedValue({ content: full });
     render(
       <AgentBlock

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from "vitest";
 import { injectThemeCssVars, isSafeTokenValue } from "./inject";
 import { THEME_TOKEN_KEYS } from "./tokens";
