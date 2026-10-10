@@ -191,7 +191,9 @@ impl Downloader for FlowDownloader {
                 PublicMode::CleanupDrift => {
                     std::fs::remove_file(&request.output).unwrap();
                     let parent = request.output.parent().unwrap();
-                    std::fs::remove_dir(parent).unwrap();
+                    // Keep the original inode alive so Linux cannot reuse it for the replacement.
+                    std::fs::rename(parent, parent.with_file_name(".displaced-catalog-fixture"))
+                        .unwrap();
                     std::fs::create_dir(parent).unwrap();
                 }
             }
