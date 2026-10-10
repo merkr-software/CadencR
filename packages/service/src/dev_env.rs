@@ -100,14 +100,10 @@ mod tests {
         load_optional_package_dotenv, require_dev_env_file, service_dotenv_path, skip_db_backup,
         validate_required_env_keys, REQUIRED_DEV_ENV_KEYS, SERVICE_DOTENV_DISPLAY_PATH,
     };
+    // The crate-wide lock: other lib tests set CADENCR_AUTH_TOKEN too.
+    use crate::shared::test_env::env_lock;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     fn clear_env(keys: &[&str]) {
         for key in keys {
