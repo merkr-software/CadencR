@@ -53,31 +53,37 @@ function selectFeatureMode(settings: FeatureSetting[]): string | null {
   return settings.find((s) => s.key === AUTO_LAYOUT_FEATURE_KEY)?.value ?? null;
 }
 
+interface AutoLayoutActiveResult {
+  active: boolean;
+  isLoading: boolean;
+  /** Either setting failed to load; the mode stays off until it does. */
+  error: unknown;
+}
+
 /**
  * Effective auto layout mode for one feature: its override, else the
  * workspace default. Read-only, and it only re-renders when that one setting
  * changes, not on every other feature setting write (prompt drafts, layout).
  */
-export function useAutoLayoutActive(
-  featureId: number,
-  enabled = true,
-): { active: boolean; isLoading: boolean } {
+export function useAutoLayoutActive(featureId: number, enabled = true): AutoLayoutActiveResult {
   const defaultQuery = useGetWorkspaceSetting(AUTO_LAYOUT_DEFAULT_KEY, { query: { enabled } });
   const featureQuery = useGetFeatureSettings(featureId, {
     query: { enabled, select: selectFeatureMode },
   });
   const isLoading = defaultQuery.isLoading || featureQuery.isLoading;
+  const error = defaultQuery.error ?? featureQuery.error ?? null;
+  // Off until both settings are in — disabled queries and failed reads
+  // included: on by default must not override a feature (or workspace) the
+  // user switched off just because its setting couldn't be read.
+  const loaded = enabled && !isLoading && error === null;
   return {
-    // Off until both settings are in: on by default must not briefly override
-    // a feature (or workspace) the user switched off.
-    active: !isLoading && resolveAutoLayoutMode(featureQuery.data, defaultQuery.data?.value),
+    active: loaded && resolveAutoLayoutMode(featureQuery.data, defaultQuery.data?.value),
     isLoading,
+    error,
   };
 }
 
-interface AutoLayoutModeResult {
-  active: boolean;
-  isLoading: boolean;
+interface AutoLayoutModeResult extends AutoLayoutActiveResult {
   isSaving: boolean;
   setActive: (next: boolean) => void;
 }
@@ -85,7 +91,7 @@ interface AutoLayoutModeResult {
 /** `useAutoLayoutActive` plus the per-feature toggle. */
 export function useAutoLayoutMode(featureId: number): AutoLayoutModeResult {
   const queryClient = useQueryClient();
-  const { active, isLoading } = useAutoLayoutActive(featureId);
+  const { active, isLoading, error } = useAutoLayoutActive(featureId);
   const { mutate, isPending } = useSetFeatureSetting();
 
   const setActive = useCallback(
@@ -114,7 +120,7 @@ export function useAutoLayoutMode(featureId: number): AutoLayoutModeResult {
   );
 
   return useMemo(
-    () => ({ active, isLoading, isSaving: isPending, setActive }),
-    [active, isLoading, isPending, setActive],
+    () => ({ active, isLoading, error, isSaving: isPending, setActive }),
+    [active, error, isLoading, isPending, setActive],
   );
 }

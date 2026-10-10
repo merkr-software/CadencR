@@ -1,9 +1,10 @@
 import { type ReactNode } from "react";
-import { LoaderCircleIcon, PanelRightDashedIcon } from "lucide-react";
+import { LoaderCircleIcon, PanelRightDashedIcon, TriangleAlertIcon } from "lucide-react";
 
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
 import { Button } from "@/components/ui/button";
 import { useShortcut } from "@/hooks/useShortcut";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { useAutoLayoutMode } from "@/lib/auto-layout/auto-layout-mode";
 import { formatCombo } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
@@ -18,11 +19,12 @@ import { useFeatureLayoutContext } from "./FeatureLayoutContext";
  * change reads as the mode's doing rather than a glitch.
  */
 export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNode {
-  const { active, isLoading, isSaving, setActive } = useAutoLayoutMode(featureId);
+  const { active, isLoading, error, isSaving, setActive } = useAutoLayoutMode(featureId);
   const pulse = useAutoLayoutStore((s) => s.pulse[featureId] ?? 0);
   const hotkeysEnabled = useFeatureLayoutContext()?.hotkeysEnabled ?? true;
   const { keys } = useResolvedShortcut("layout-auto-toggle");
-  const busy = isLoading || isSaving;
+  const failed = error !== null;
+  const busy = isLoading || isSaving || failed;
   useShortcut(
     "layout-auto-toggle",
     (event) => {
@@ -31,7 +33,11 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
     },
     { enabled: hotkeysEnabled },
   );
-  const label = active ? "Auto layout on: opened pages split beside the agent" : "Auto layout off";
+  const label = failed
+    ? `Auto layout unavailable: ${apiErrorMessage(error, "its setting could not be loaded")}`
+    : active
+      ? "Auto layout on: opened pages split beside the agent"
+      : "Auto layout off";
 
   return (
     <ShortcutTooltip label={label} keys={formatCombo(keys)} alignRight>
@@ -51,7 +57,9 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
         {/* Keyed by the pulse count: a new key remounts the ring, replaying
             its one-shot animation; it rests invisible afterwards. */}
         {pulse > 0 && <span key={pulse} aria-hidden className="auto-layout-pulse" />}
-        {isSaving ? (
+        {failed ? (
+          <TriangleAlertIcon className="size-4 text-destructive" />
+        ) : isSaving ? (
           <LoaderCircleIcon className="size-4 animate-spin" aria-label="Saving auto layout" />
         ) : (
           <PanelRightDashedIcon className="size-4" />
