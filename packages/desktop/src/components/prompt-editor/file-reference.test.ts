@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { fileReferenceHref, parseFileReferenceHref, parseFileReferences } from "./file-reference";
+import {
+  fileReferenceHref,
+  parseAgentFileHref,
+  parseFileReferenceHref,
+  parseFileReferences,
+} from "./file-reference";
 
 describe("parseFileReferences", () => {
   it("finds a bare relative path with a recognized extension", () => {
@@ -77,5 +82,52 @@ describe("fileReferenceHref / parseFileReferenceHref", () => {
   it("returns null for an href using a different scheme", () => {
     expect(parseFileReferenceHref("cadencr-conversation:feature/1")).toBeNull();
     expect(parseFileReferenceHref("https://example.com")).toBeNull();
+  });
+});
+
+describe("parseAgentFileHref", () => {
+  it("reads repo-relative paths with optional line and column", () => {
+    expect(parseAgentFileHref("package.json")).toEqual({ path: "package.json" });
+    expect(parseAgentFileHref("src/lib/foo.ts:42")).toEqual({ path: "src/lib/foo.ts", line: 42 });
+    expect(parseAgentFileHref("foo.ts:42:7")).toEqual({ path: "foo.ts", line: 42, col: 7 });
+  });
+
+  it("reads GitHub-style line anchors", () => {
+    expect(parseAgentFileHref("src/foo.ts#L12")).toEqual({ path: "src/foo.ts", line: 12 });
+    expect(parseAgentFileHref("src/foo.ts#L12-L30")).toEqual({ path: "src/foo.ts", line: 12 });
+    expect(parseAgentFileHref("src/foo.ts#L12C4")).toEqual({
+      path: "src/foo.ts",
+      line: 12,
+      col: 4,
+    });
+  });
+
+  it("reads absolute and file:// paths, decoding escapes", () => {
+    expect(parseAgentFileHref("/Users/me/repo/a%20b.rs:3")).toEqual({
+      path: "/Users/me/repo/a b.rs",
+      line: 3,
+    });
+    expect(parseAgentFileHref("file:///Users/me/repo/Makefile")).toEqual({
+      path: "/Users/me/repo/Makefile",
+    });
+    expect(parseAgentFileHref("./scripts/dev.mjs")).toEqual({ path: "./scripts/dev.mjs" });
+  });
+
+  it("leaves web, app and in-page links to the link router", () => {
+    for (const href of [
+      "https://example.com/a.ts",
+      "http://127.0.0.1:5100/api/health",
+      "localhost:5173/settings",
+      "example.com",
+      "v1.2",
+      "mailto:a@b.co",
+      "cadencr-file:src%2Ffoo.ts",
+      "#section",
+      "www.example.com/docs",
+      "README",
+      "",
+    ]) {
+      expect(parseAgentFileHref(href)).toBeNull();
+    }
   });
 });

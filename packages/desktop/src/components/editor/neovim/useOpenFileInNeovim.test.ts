@@ -83,10 +83,8 @@ describe("shared Neovim file navigation", () => {
     const reveal = vi.fn(() => {
       addEditor(2);
     });
-    const { result } = renderHook(() =>
-      useOpenFileInNeovim(2, { ensureStarted: true, onOpened: reveal }),
-    );
-    act(() => result.current?.("main.rs", 4));
+    const { result } = renderHook(() => useOpenFileInNeovim(2, { ensureStarted: true }));
+    act(() => result.current?.("main.rs", 4, undefined, reveal));
     expect(mocks.start).toHaveBeenCalledWith(2);
     expect(mocks.open).not.toHaveBeenCalled();
     expect(reveal).not.toHaveBeenCalled();
@@ -102,10 +100,8 @@ describe("shared Neovim file navigation", () => {
     async (operation) => {
       mocks[operation].mockRejectedValueOnce(new Error("unavailable"));
       const reveal = vi.fn();
-      const { result } = renderHook(() =>
-        useOpenFileInNeovim(2, { ensureStarted: true, onOpened: reveal }),
-      );
-      await act(async () => result.current?.("main.rs"));
+      const { result } = renderHook(() => useOpenFileInNeovim(2, { ensureStarted: true }));
+      await act(async () => result.current?.("main.rs", undefined, undefined, reveal));
       expect(mocks.error).toHaveBeenCalledWith("Could not open main.rs in Neovim", {
         description: "unavailable",
       });

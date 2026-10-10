@@ -1,6 +1,5 @@
 import {
   memo,
-  useEffect,
   useRef,
   useState,
   useCallback,
@@ -37,6 +36,7 @@ import {
   useConfirmedConflictPaths,
 } from "./useAutoConflictResolution";
 import { EditorLeaveDialog } from "./EditorLeaveDialog";
+import { useFeatureEditorEffects } from "./useFeatureEditorEffects";
 import { focusNeovimEditor } from "./neovim/focusNeovimEditor";
 
 interface FeatureEditorTabProps {
@@ -200,35 +200,6 @@ function useEditorNavigationShortcuts({
   usePaneShortcut("editor-nav-pane-down", "down");
 }
 
-function useFeatureEditorEffects({
-  focus,
-  initFeature,
-  isEditorFocused,
-  persistedCollapsed,
-  sidebarVisible,
-  toggleSidebar,
-}: {
-  focus: EditorFocusState;
-  initFeature: () => void;
-  isEditorFocused: boolean;
-  persistedCollapsed: string | null;
-  sidebarVisible: boolean;
-  toggleSidebar: () => void;
-}): void {
-  const initializedRef = useRef(false);
-  useEffect(() => initFeature(), [initFeature]);
-  useEffect(() => {
-    if (!isEditorFocused || !focus.shouldRestoreEditorFocus()) return undefined;
-    const frame = requestAnimationFrame(focus.focusActiveEditor);
-    return () => cancelAnimationFrame(frame);
-  }, [focus, isEditorFocused]);
-  useEffect(() => {
-    if (initializedRef.current || persistedCollapsed === null) return;
-    initializedRef.current = true;
-    if ((persistedCollapsed !== "true") !== sidebarVisible) toggleSidebar();
-  }, [persistedCollapsed, sidebarVisible, toggleSidebar]);
-}
-
 const FeatureEditorTab = memo(
   forwardRef<FeatureEditorTabHandle, FeatureEditorTabProps>(function FeatureEditorTab(props, ref) {
     const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? props.featureId;
@@ -263,6 +234,7 @@ const FeatureEditorTab = memo(
       isEditorFocused,
       persistedCollapsed,
       sidebarVisible: editor.sidebarVisible,
+      sidebarAutoHidden: editor.sidebarAutoHidden === true,
       toggleSidebar: editor.toggleSidebar,
     });
     const isWorktree = Boolean(useFeatureWorktreePath(props.featureId, props.projectId));

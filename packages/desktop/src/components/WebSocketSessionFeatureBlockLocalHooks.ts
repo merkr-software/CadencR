@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { NonAgentTabReadiness } from "@/components/useAgentFirstNonAgentWork";
 import {
   claudeProfileForPrompt,
@@ -7,6 +7,7 @@ import {
   useSessionRefs,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
 import { useSessionTabs } from "@/components/WebSocketSessionFeatureBlockTabs";
+import { requestAutoReveal } from "@/lib/auto-layout/auto-layout-controller";
 import { toRelativePath } from "@/lib/utils";
 import { ROOT_LEAF_ID, type TabKind } from "@/stores/feature-layout-schema";
 import {
@@ -19,6 +20,16 @@ import { useEditorStore } from "@/stores/editor-store";
 import { useOpenFileInNeovim } from "@/components/editor/neovim/useOpenFileInNeovim";
 import type { OpenDiffInEditor } from "@/components/diff/OpenDiffInEditorContext";
 
+interface DiffFileOpeners {
+  /** Git tab and other surfaces: switch to the Editor where it lives. */
+  openInPlace: OpenDiffInEditor;
+  /**
+   * File references clicked in the agent conversation: with auto layout on,
+   * the Editor splits in beside the agent instead of replacing it.
+   */
+  openBesideAgent: OpenDiffInEditor;
+}
+
 export function useOpenDiffFileInEditor({
   featureId,
   layoutFeatureId,
@@ -29,44 +40,59 @@ export function useOpenDiffFileInEditor({
   layoutFeatureId: number;
   rootPath: string;
   refs: ReturnType<typeof useSessionRefs>;
-}): OpenDiffInEditor {
-  const revealEditor = useCallback(
-    () => activateFeatureTab(layoutFeatureId, "editor"),
-    [layoutFeatureId],
-  );
-  const openInNeovim = useOpenFileInNeovim(featureId, {
-    ensureStarted: true,
-    onOpened: revealEditor,
-  });
+}): DiffFileOpeners {
+  const openInNeovim = useOpenFileInNeovim(featureId, { ensureStarted: true });
 
-  const openInCodeMirror = useCallback(
-    (filePath: string, lineNumber?: number): void => {
+  const open = useCallback(
+    (
+      filePath: string,
+      lineNumber: number | undefined,
+      column: number | undefined,
+      reveal: () => void,
+    ): void => {
+      const relativePath = toRelativePath(filePath, rootPath).replace(/^\.\//, "");
+      if (openInNeovim) {
+        openInNeovim(relativePath, lineNumber, column, reveal);
+        return;
+      }
       const editor = useEditorStore.getState();
       editor.initFeature(featureId);
-      const feature = useEditorStore.getState().features[featureId];
-      const paneId = feature?.activePaneId ?? "main";
-      const relativePath = toRelativePath(filePath, rootPath).replace(/^\.\//, "");
+      const paneId = useEditorStore.getState().features[featureId]?.activePaneId ?? "main";
       // Always an ordinary open; if Git reports this exact path as unmerged the
       // resolver mounts automatically via `useAutoConflictResolution`.
       editor.openFile(featureId, paneId, relativePath, undefined, lineNumber);
-      activateFeatureTab(layoutFeatureId, "editor");
+      reveal();
       requestAnimationFrame(() => refs.editor.current?.focusActiveEditor());
     },
-    [featureId, layoutFeatureId, refs.editor, rootPath],
+    [featureId, openInNeovim, refs.editor, rootPath],
   );
 
-  return useCallback(
-    (filePath, lineNumber, column): void => {
-      if (!openInNeovim) {
-        openInCodeMirror(filePath, lineNumber);
-        return;
-      }
-
-      const relativePath = toRelativePath(filePath, rootPath).replace(/^\.\//, "");
-      openInNeovim(relativePath, lineNumber, column);
-    },
-    [openInCodeMirror, openInNeovim, rootPath],
+  return useMemo(
+    () => ({
+      openInPlace: (filePath, lineNumber, column) =>
+        open(filePath, lineNumber, column, () => activateFeatureTab(layoutFeatureId, "editor")),
+      openBesideAgent: (filePath, lineNumber, column) =>
+        open(filePath, lineNumber, column, () =>
+          revealEditorBesideAgent(featureId, layoutFeatureId),
+        ),
+    }),
+    [featureId, layoutFeatureId, open],
   );
+}
+
+function revealEditorBesideAgent(featureId: number, layoutFeatureId: number): void {
+  const outcome = requestAutoReveal(layoutFeatureId, "editor", "user-link");
+  if (outcome === "declined") {
+    activateFeatureTab(layoutFeatureId, "editor");
+    return;
+  }
+  // The Editor just landed in a narrow pane beside the agent: give the file
+  // its width by tucking the tree away (session-only, the preference stays).
+  // Not on later clicks, so a tree the user reopened stays open.
+  if (outcome === "split" || outcome === "moved") {
+    useEditorStore.getState().initFeature(featureId);
+    useEditorStore.getState().hideSidebarBesideAgent(featureId);
+  }
 }
 
 interface AgentDropZone {
@@ -139,6 +165,7 @@ export function useFeatureBlockTabs(args: {
   tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
+  openAgentFileInEditor: OpenDiffInEditor;
 }): ReturnType<typeof useSessionTabs> {
   return useSessionTabs({
     sessionId: args.sessionId,
@@ -152,6 +179,7 @@ export function useFeatureBlockTabs(args: {
     tabReady: args.tabReady,
     hotkeysEnabled: args.hotkeysEnabled,
     sendFromGitTab: args.sendFromGitTab,
+    openAgentFileInEditor: args.openAgentFileInEditor,
   });
 }
 
