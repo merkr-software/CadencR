@@ -35,7 +35,7 @@ pub(super) fn advance_with(
         .call()
 }
 
-pub(super) fn advance_preflighted(
+pub(crate) fn advance_preflighted(
     snapshot: &cadencr_registry_core::CatalogSnapshot,
     manifest: &Path,
     directory: &Path,

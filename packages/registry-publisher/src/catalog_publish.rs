@@ -2,7 +2,7 @@ use std::path::Path;
 
 #[cfg(test)]
 pub(crate) mod fixture;
-mod lifecycle;
+pub(crate) mod lifecycle;
 mod receipt;
 
 pub(crate) use lifecycle::authoritative_prepare;

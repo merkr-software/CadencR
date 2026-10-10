@@ -6,6 +6,7 @@ mod error;
 mod index;
 mod json;
 mod package;
+mod pipeline_preflight;
 mod publication_plan;
 mod safe_io;
 mod signing;
@@ -27,6 +28,7 @@ pub use discovery::{
 pub use error::RegistryError;
 pub use index::build_index;
 pub use json::{canonical_json_bytes, parse_json as parse_json_bytes};
+pub use pipeline_preflight::{preflight_publication_pipeline, sign_prepared_index_pinned};
 pub use publication_plan::{
     create_publication_plan, create_publication_plan_from_file, valid_publication_repository,
 };

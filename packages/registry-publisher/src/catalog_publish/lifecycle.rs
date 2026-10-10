@@ -2,7 +2,7 @@ use std::path::Path;
 
 use super::*;
 
-pub(super) fn publish_with(
+pub(crate) fn publish_with(
     snapshot: &cadencr_registry_core::CatalogSnapshot,
     manifest: &Path,
     directory: &Path,

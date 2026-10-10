@@ -2,10 +2,9 @@ use std::path::Path;
 
 use base64::prelude::{Engine as _, BASE64_STANDARD};
 use chrono::Utc;
-use ed25519_dalek::pkcs8::{DecodePrivateKey as _, DecodePublicKey as _};
-use ed25519_dalek::{Signature, Signer as _, SigningKey, VerifyingKey};
+use ed25519_dalek::pkcs8::DecodePublicKey as _;
+use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::{json, Map, Value};
-use zeroize::Zeroizing;
 
 use crate::error::RegistryError;
 use crate::index::{validate_fresh_window, validate_index};
@@ -14,7 +13,9 @@ use crate::package::valid_identifier;
 use crate::safe_io::read_bounded_regular;
 use crate::PreparedSigningPayload;
 
+mod envelope;
 mod payload;
+pub(crate) use envelope::{read_signing_key, sign_canonical_payload};
 pub use payload::validate_signing_key_id;
 pub(crate) use payload::{validate_signing_payload, validate_signing_payload_at};
 
@@ -38,7 +39,7 @@ pub fn sign_index_payload(
 ) -> Result<Vec<u8>, RegistryError> {
     let payload = validate_signing_payload(signed, false)?;
     validate_signing_key_id(key_id)?;
-    sign_canonical_payload(&payload, private_key_file, key_id)
+    sign_canonical_payload(&payload, private_key_file, key_id, None)
 }
 
 /// Sign a prepared payload without repeating immutable validation or canonicalization.
@@ -59,46 +60,7 @@ fn sign_prepared_index_at(
     validate_signing_key_id(key_id)?;
     let (generated_at, expires_at) = payload.window();
     validate_fresh_window(generated_at, expires_at, now)?;
-    sign_canonical_payload(payload.canonical_payload(), private_key_file, key_id)
-}
-
-fn sign_canonical_payload(
-    payload: &[u8],
-    private_key_file: &Path,
-    key_id: &str,
-) -> Result<Vec<u8>, RegistryError> {
-    let pem = Zeroizing::new(read_file(private_key_file, KEY_LIMIT, "private key")?);
-    let (label, der) = pem_rfc7468::decode_vec(&pem).map_err(|_| private_key_error())?;
-    let der = Zeroizing::new(der);
-    if label != "PRIVATE KEY" {
-        return Err(private_key_error());
-    }
-    let key = SigningKey::from_pkcs8_der(&der).map_err(|_| private_key_error())?;
-    let signature = key.sign(payload);
-    key.verifying_key()
-        .verify_strict(payload, &signature)
-        .map_err(|_| RegistryError::single("signature self-verification failed"))?;
-    let signature = json!({
-        "algorithm": "ed25519",
-        "key_id": key_id,
-        "value": BASE64_STANDARD.encode(signature.to_bytes()),
-    });
-    let signature = canonical_json_bytes(&signature);
-    signed_envelope(payload, &signature)
-}
-
-fn signed_envelope(payload: &[u8], signature: &[u8]) -> Result<Vec<u8>, RegistryError> {
-    let mut envelope = Vec::with_capacity(payload.len() + signature.len() + 26);
-    envelope.extend_from_slice(b"{\"signature\":");
-    envelope.extend_from_slice(signature);
-    envelope.extend_from_slice(b",\"signed\":");
-    envelope.extend_from_slice(payload);
-    envelope.extend_from_slice(b"}\n");
-    if envelope.len() as u64 > DOCUMENT_LIMIT {
-        Err(RegistryError::single("signed index exceeds 32 MiB"))
-    } else {
-        Ok(envelope)
-    }
+    sign_canonical_payload(payload.canonical_payload(), private_key_file, key_id, None)
 }
 
 pub fn verify_signed_index(
@@ -279,6 +241,7 @@ fn signature_encoding_error() -> RegistryError {
 
 #[cfg(test)]
 mod tests {
+    use super::envelope::signed_envelope;
     use super::*;
     use chrono::{Duration, SecondsFormat};
 

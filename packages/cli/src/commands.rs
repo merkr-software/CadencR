@@ -46,6 +46,7 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
         RegistryCommand::RestorePublication(args) => crate::publication::restore(args),
         RegistryCommand::SignPublicationCatalog(args) => signing::catalog(args),
         RegistryCommand::PublishCatalog(args) => crate::publication::publish_catalog(args),
+        RegistryCommand::PublishRegistry(args) => crate::pipeline::publish(args),
         RegistryCommand::AdvanceCatalog(args) => crate::publication::advance_catalog(args),
         RegistryCommand::SignIndex {
             payload,

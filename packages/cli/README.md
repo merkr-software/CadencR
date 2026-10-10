@@ -65,6 +65,10 @@ cadencr registry advance-catalog --catalog <signed-catalog.json> \
   --registry-commit <40-lowercase-hex> --directory <publication-directory> \
   --confirm-repository <owner/repository> --confirm-publish <catalog-sha256-tag> \
   --discovery-branch <existing-branch> --confirm-discovery <exact-raw-GitHub-URL>
+cadencr registry publish-registry --request <reviewed-request.json> \
+  --directory <pipeline-state-directory> --repository <owner/repository> \
+  --registry-commit <40-lowercase-hex> --private-key <private.pem> \
+  --confirm-request-sha256 <sha256-of-exact-request-bytes>
 ```
 
 Plugin validation currently covers local **provider** structure only. The
@@ -240,3 +244,43 @@ The first downloadable Linux binary targets the registry's Ubuntu 24.04 x86-64
 CI runners, matching its build and execution-smoke environment. Its GNU target
 name is not a promise of compatibility with older Linux distributions. General
 CLI platform distribution remains outside this initial registry-only release.
+
+## Protected registry pipeline
+
+`publish-registry` is an explicit protected-operator command. Its request contains
+`schema_version: 1`, `repository`, `key_id`, `discovery_branch`, `generated_at`,
+`expires_at`, `previous_index` (`bootstrap` or a relative file), `public_key`
+(relative PEM file), and `publications` containing relative `submission` paths
+and optional exact `registry_commit` values. Confirm the SHA-256 of the exact
+reviewed request bytes. The private key must remain outside the state directory.
+Local request, continuity, key-pair and existing-state checks precede reading
+`CADENCR_REGISTRY_GITHUB_TOKEN` or creating state/network writes.
+
+Unlike standalone publication commands, this pipeline explicitly creates missing
+package/catalog tags at the confirmed commits. Existing tags must match exactly;
+ambiguous writes are reconciled by reads, never blindly retried. Retained and
+new archives share the bounded staging budget. Already-published entries restore
+only verified managed destination bytes, never retired author URLs. Catalog
+signing follows verified publication/public-byte evidence; discovery follows
+verified catalog publication. State and matching receipts support replay without
+overwriting conflicts. Use protected credentials and a trusted, stable directory;
+no contributor executable is run by this pipeline.
+
+## Preparing Linux release artifacts
+
+The manual `cli-preparation.yml` workflow builds artifacts without publishing a
+release or creating a tag. Provide a full reviewed source SHA, its coordinated
+branch and an explicit stable `vX.Y.Z` matching `packages/cli/Cargo.toml`. The SHA
+must be the fetched branch tip; topology and version checks precede candidate
+checkout and execution. Supporting Rust tests and the CLI build use `--locked`.
+
+The seven-day workflow artifact contains the executable
+`cadencr-vX.Y.Z-x86_64-unknown-linux-gnu`, `cadencr-vX.Y.Z-SHA256SUMS`, and
+`preparation.json` recording source, version and target. Verify the checksum
+before use. These are preparation artifacts, not an activated registry CLI pin.
+
+The existing bootstrap downloads CLI binaries from `vX.Y.Z` releases. Choosing
+an independent CLI release namespace would require a coordinated bootstrap
+change; otherwise the CLI ships through the existing desktop release workflow.
+Select the version and release topology explicitly before publication. This
+preparation workflow has read-only repository permissions and no signing secrets.
