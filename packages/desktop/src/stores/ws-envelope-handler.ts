@@ -27,8 +27,8 @@ import { isRecord } from "./ws-message-processing";
 import { parseAccessMode } from "@/types/access-mode";
 import { createSessionConfigState, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
-import { findProviderMode } from "@/lib/provider-modes";
-import { OPENCODE_AGENT_MODE_PREFIX, parsePermissionMode } from "@/types/permission-mode";
+import { providerAcceptsMode } from "@/lib/provider-modes";
+import { parsePermissionMode } from "@/types/permission-mode";
 import type { StoreAccessors } from "./ws-envelope-types";
 import {
   handleCleared,
@@ -282,9 +282,7 @@ function handleModeChanged(ctx: StoreAccessors, sessionId: string, payload: unkn
   if (!parsedMode || !session) return;
   const providerId = session.currentSelection?.providerId;
   if (providerId == null) return;
-  const acceptsMode =
-    !!findProviderMode(providerId, parsedMode) || parsedMode.startsWith(OPENCODE_AGENT_MODE_PREFIX);
-  if (acceptsMode) {
+  if (providerAcceptsMode(providerId, parsedMode)) {
     ctx.set(updateSession(ctx.get(), sessionId, { permissionMode: parsedMode }));
   }
 }
