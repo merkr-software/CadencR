@@ -1,5 +1,5 @@
 import { act, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAutoLayoutStore } from "@/stores/auto-layout-store";
 
@@ -18,11 +18,9 @@ vi.mock("@/hooks/useShortcut", () => ({ useShortcut: (): void => {} }));
 
 const FEATURE = 9;
 
-function bumpPulse(): void {
+function pulseNow(): void {
   act(() => {
-    useAutoLayoutStore.setState((s) => ({
-      pulse: { ...s.pulse, [FEATURE]: (s.pulse[FEATURE] ?? 0) + 1 },
-    }));
+    useAutoLayoutStore.setState((s) => ({ pulsedAt: { ...s.pulsedAt, [FEATURE]: Date.now() } }));
   });
 }
 
@@ -30,18 +28,28 @@ const ring = (container: HTMLElement): Element | null =>
   container.querySelector(".auto-layout-pulse");
 
 describe("AutoLayoutToggle", () => {
-  beforeEach(() => useAutoLayoutStore.setState({ pulse: {} }));
+  beforeEach(() => {
+    vi.useFakeTimers();
+    useAutoLayoutStore.setState({ pulsedAt: {} });
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("pulses for a reveal made while it is mounted", () => {
     const { container } = render(<AutoLayoutToggle featureId={FEATURE} />);
     expect(ring(container)).toBeNull();
-    bumpPulse();
+    pulseNow();
     expect(ring(container)).not.toBeNull();
   });
 
-  it("doesn't replay an earlier reveal's pulse when it remounts", () => {
-    bumpPulse();
-    bumpPulse();
+  it("still pulses when the reveal itself remounts it", () => {
+    pulseNow();
+    const { container } = render(<AutoLayoutToggle featureId={FEATURE} />);
+    expect(ring(container)).not.toBeNull();
+  });
+
+  it("doesn't replay an earlier reveal's pulse when it remounts later", () => {
+    pulseNow();
+    vi.advanceTimersByTime(5_000);
     const { container } = render(<AutoLayoutToggle featureId={FEATURE} />);
     expect(ring(container)).toBeNull();
   });

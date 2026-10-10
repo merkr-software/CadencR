@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { LoaderCircleIcon, PanelRightDashedIcon, TriangleAlertIcon } from "lucide-react";
 
 import { ShortcutTooltip } from "@/components/ShortcutTooltip";
@@ -13,6 +13,9 @@ import { useAutoLayoutStore } from "@/stores/auto-layout-store";
 
 import { useFeatureLayoutContext } from "./FeatureLayoutContext";
 
+/** Length of the ring's one-shot animation (`auto-layout-pulse` in auto-layout.css). */
+const PULSE_DURATION_MS = 1_100;
+
 /**
  * On/off switch for the feature's auto layout mode, beside the layout menu.
  * Each time auto layout rearranges the panes the button pulses once, so the
@@ -20,11 +23,13 @@ import { useFeatureLayoutContext } from "./FeatureLayoutContext";
  */
 export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNode {
   const { active, isLoading, error, isSaving, setActive } = useAutoLayoutMode(featureId);
-  const pulse = useAutoLayoutStore((s) => s.pulse[featureId] ?? 0);
-  // The count outlives this button: it remounts on every feature switch, undo
-  // or reset, and replaying the last ring then would credit auto layout with
-  // the user's own change. Only reveals made while mounted pulse.
-  const [pulseAtMount] = useState(pulse);
+  const pulsedAt = useAutoLayoutStore((s) => s.pulsedAt[featureId] ?? 0);
+  // The button remounts on every feature switch, undo or reset — and on the
+  // very restructure that pulses it. Only a pulse still within its animation
+  // plays, so a remount later doesn't credit auto layout with the user's own
+  // change. (Read here, not in the selector: a time-dependent selector would
+  // return a different snapshot on every call.)
+  const pulsing = Date.now() - pulsedAt < PULSE_DURATION_MS;
   const hotkeysEnabled = useFeatureLayoutContext()?.hotkeysEnabled ?? true;
   const { keys } = useResolvedShortcut("layout-auto-toggle");
   const failed = error !== null;
@@ -58,9 +63,9 @@ export function AutoLayoutToggle({ featureId }: { featureId: number }): ReactNod
           active && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
         )}
       >
-        {/* Keyed by the pulse count: a new key remounts the ring, replaying
+        {/* Keyed by the pulse time: a new key remounts the ring, replaying
             its one-shot animation; it rests invisible afterwards. */}
-        {pulse > pulseAtMount && <span key={pulse} aria-hidden className="auto-layout-pulse" />}
+        {pulsing && <span key={pulsedAt} aria-hidden className="auto-layout-pulse" />}
         {failed ? (
           <TriangleAlertIcon className="size-4 text-destructive" />
         ) : isSaving ? (
