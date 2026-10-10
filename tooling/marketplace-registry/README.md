@@ -112,6 +112,32 @@ mode it runs the legacy candidate tests; once pinned, the trusted helper instead
 uses the released CLI to build the throwaway candidate index and never runs
 candidate scripts. No additional code change is required for that cutover.
 
+## Protected publisher runtime selection
+
+The protected workflow uses the same `ci/released-cli.env` as contribution CI.
+Shared `scripts/ci/fetch-released-cli.sh` accepts only trusted pin data and a new
+caller-owned output directory. It returns the verified executable path; exit `3`
+means both values are explicitly `PENDING`. Every other failure stops the job.
+
+Each isolated runner verifies the download independently. The protected job also
+checks `registry publish-registry --help` before materializing its signing key.
+Pending pins retain `node scripts/publish-registry.mjs`; provisioned pins select
+`cadencr registry publish-registry` with the same six reviewed arguments. No
+recovery artifact supplies executable code, and output text is not a receipt.
+
+Provisioning this shared pin now affects **both contribution checks and protected
+publication**. Before doing so, review the actual released Linux asset and prove
+cross-implementation canonical state handoff and interrupted/replayed publication
+without duplicate writes. Keep omitted/exact-string publication commits and
+canonical manifests: Rust accepts explicit optional commit `null` and semantically
+equivalent manifests that JavaScript rejects. Preserve Rust's stricter historical
+publication and signing checks rather than weakening them for superficial parity.
+
+The pin remains `PENDING`; this preparation neither deploys the template nor
+publishes a CLI release. Superseded JavaScript stays until delivery/parity gates
+pass. An independent CLI release namespace requires coordinated URL/bootstrap
+changes; the current fixed official path is the app's `vX.Y.Z` release namespace.
+
 ## Verified local archive staging
 
 ```bash

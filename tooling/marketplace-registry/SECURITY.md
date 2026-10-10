@@ -218,6 +218,14 @@ partially completed provider set from being newly advertised by this invocation.
 The CLI rejects a private-key target inside state; nevertheless, operators must
 keep unrelated secrets out of that directory before any artifact upload.
 
+The publisher and contribution CI share trusted release-pin data. The bootstrap
+never sources that file, never accepts an arbitrary asset URL, and verifies the
+bounded official HTTPS download and advertised version before execution. Both
+runners select their own runtime before signing-key materialization; a missing
+publisher command fails closed. Explicit wholly `PENDING` pins are the only
+legacy fallback, not an escape hatch for malformed pins or failed downloads.
+Provisioning affects both roles and requires reviewed artifact/parity evidence.
+
 The hosted template is manual/default-branch only, uses the exact dispatch commit,
 and gates credential access through an externally configured protected environment.
 The default `GITHUB_TOKEN` has read-only contents permission; the dedicated publish
