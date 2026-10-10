@@ -1,5 +1,40 @@
 # Changelog
 
+## v0.12.1 - 2026-10-10
+
+Previous release: v0.12.0 - 2026-09-21
+
+### ✨ Added
+
+- [**Desktop**] Added an explicit pending state for context usage when the provider has not reported its window size, showing known token counts without a guessed percentage; Claude's reported windows are remembered across restarts — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**provider:claude**] New Claude Code conversations now default to Auto permission mode, falling back to Accept Edits when the selected model is known not to support Auto and keeping the displayed mode in sync — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Reduced prompt startup delays by reusing the runtime when its configuration is unchanged and avoiding duplicated waits for MCP startup — [@rle-mino](https://github.com/rle-mino).
+- [**provider:opencode**] Reduced conversation startup delays and fixed incomplete MCP configuration discovery when OpenCode returns a large configuration — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Made per-turn checkpoints faster in larger repositories and included newly staged files in their snapshots — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Improved touch interactions in conversations: web links open on a tap or plain click, dragging link text preserves selection, long presses allow native text selection, and a mobile Copy as menu offers Markdown, Slack, plain text, and email formats — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**provider:claude**] Restored Cadencr's browser, project, and workspace MCP tools in current Claude Code versions while retaining compatibility with older clients — [@rle-mino](https://github.com/rle-mino).
+- [**provider:claude**] Fixed advertised model aliases such as Opus or Sonnet failing to resolve when their capitalization differs — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Fixed slow model discovery making Codex models disappear from the picker, while keeping Stop, session closure, and stream recovery responsive — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Fixed event-stream failures during bursts of agent or command output, preserving event order and reducing processing overhead for large outputs — [@rle-mino](https://github.com/rle-mino).
+- [**provider:codex**] Fixed resuming long conversations failing because their returned history exceeded the transport message limit — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed Cursor conversations failing to start after switching to Auto or another model that does not support the previous model's Fast or thinking options — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed missing Nerd Font glyphs and ignored font settings in Neovim by using the same font family and size resolution as the terminal; configuration errors now appear visibly without discarding an already running editor — [@edjubert](https://github.com/edjubert).
+- [**Desktop**] Fixed agent links written as bare absolute paths failing to open supported local documents in their default application — [@baptou12](https://github.com/baptou12).
+- [**Desktop**] Fixed terminals failing to load when accessing Cadencr remotely through a browser — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed the blurred top edge and incorrect viewport sizing in the installed iOS web app — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Aligned sidebar conversation status indicators with project logos and their title text — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed scrolling the pull-request checks list also moving the review timeline underneath it — [@rle-mino](https://github.com/rle-mino).
+
+### 🔒 Security
+
+- [**dependencies**] Updated vulnerable Electron, HTTP, Markdown, sanitization, image-processing, and build-tool dependencies, with additional hardening against unsafe HTTP cache reuse — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.12.0 - 2026-09-21
 
 Previous release: v0.11.5 - 2026-09-05
