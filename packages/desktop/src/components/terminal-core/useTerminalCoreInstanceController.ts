@@ -254,6 +254,36 @@ function useInitialNoticeAndCommand(
   }, [terminal, ptyReady, connection, refs]);
 }
 
+/**
+ * A focus requested while the engine is still loading (fresh pane, WASM /
+ * WebGPU init) would otherwise be silently dropped — `terminal` stays
+ * `undefined` for the first few hundred milliseconds — and callers like the
+ * Cmd+Shift+T terminal-tab activation only try once. Remember the intent and
+ * flush it as soon as the engine instance exists.
+ */
+function useDeferredEngineFocus(terminal: Terminal | undefined) {
+  const pendingFocusRef = useRef(false);
+  const focusTerminal = useCallback((t: Terminal | undefined): void => {
+    if (t) t.focus();
+    else pendingFocusRef.current = true;
+  }, []);
+  // `setActivePane` blurs every non-active pane on focus change. A pane whose
+  // engine is still loading must drop its pending focus there, otherwise the
+  // flush below would steal focus back from the pane the user is typing in.
+  const cancelPendingFocus = useCallback((): void => {
+    pendingFocusRef.current = false;
+  }, []);
+  useEffect(() => {
+    if (!terminal || !pendingFocusRef.current) return;
+    pendingFocusRef.current = false;
+    // Focus while the tab is hidden (mount div `display:none`) is a silent
+    // no-op in the DOM, so a stale pending focus can never steal focus back
+    // from the tab the user moved on to.
+    terminal.focus();
+  }, [terminal]);
+  return { focusTerminal, cancelPendingFocus };
+}
+
 export function useTerminalCoreInstanceController(
   props: TerminalCoreInstanceProps,
   ref: ForwardedRef<TerminalCoreInstanceHandle>,
@@ -326,21 +356,27 @@ export function useTerminalCoreInstanceController(
 
   useInitialNoticeAndCommand(terminal, ptyReady, connection, refs);
 
+  const { focusTerminal, cancelPendingFocus } = useDeferredEngineFocus(terminal);
+
   const handleRef = useRef<TerminalCoreInstanceHandle | null>(null);
+  /** Rebuilds the imperative handle whenever the engine instance changes. */
   const setHandle = useCallback(
     (t: typeof terminal) => {
       handleRef.current = {
-        focus: () => t?.focus(),
+        focus: () => focusTerminal(t),
         clearScreen: () => t?.clearScreen(),
         clearInput: () => connection.write("\x15"),
-        blur: () => t?.blur(),
+        blur: () => {
+          cancelPendingFocus();
+          t?.blur();
+        },
         markForKill: () => (refs.shouldKillRef.current = true),
         write: (data: string) => t?.write(data),
         getSelection: () => t?.getSelection() ?? null,
         paste: (text: string) => pasteTerminalText(hostRef.current, text),
       };
     },
-    [connection, refs, hostRef],
+    [connection, focusTerminal, cancelPendingFocus, refs, hostRef],
   );
 
   useEffect(() => {

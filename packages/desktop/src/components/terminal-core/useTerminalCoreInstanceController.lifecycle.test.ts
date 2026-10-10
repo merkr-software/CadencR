@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => ({
     forgetPty: vi.fn(),
     isConnected: true,
   },
-  terminal: { write: vi.fn(), on: vi.fn(() => vi.fn()) },
+  terminal: { write: vi.fn(), on: vi.fn(() => vi.fn()), focus: vi.fn(), blur: vi.fn() },
   callbacks: null as UseTerminalWebSocketOptions | null,
   transport: undefined as TerminalTransport | undefined,
   engineReady: false,
@@ -185,4 +185,58 @@ describe("shell terminal startup and reconnect", () => {
       expect(mocks.socket.connect).not.toHaveBeenCalled();
     },
   );
+});
+
+describe("focus deferral while the engine loads", () => {
+  it("defers a focus requested before the engine instance exists and flushes it on ready", () => {
+    const ref = createRef<TerminalCoreInstanceHandle>();
+    const { rerender } = renderHook(() =>
+      useTerminalCoreInstanceController({ featureId: 1, projectId: 2 }, ref),
+    );
+    // Engine still loading (fresh pane): the handle exists but `t` is undefined.
+    act(() => ref.current?.focus());
+    expect(mocks.terminal.focus).not.toHaveBeenCalled();
+    mocks.engineReady = true;
+    rerender();
+    expect(mocks.terminal.focus).toHaveBeenCalledOnce();
+  });
+
+  it("focuses immediately once the engine instance exists", () => {
+    mocks.engineReady = true;
+    const ref = createRef<TerminalCoreInstanceHandle>();
+    renderHook(() => useTerminalCoreInstanceController({ featureId: 1, projectId: 2 }, ref));
+    act(() => ref.current?.focus());
+    expect(mocks.terminal.focus).toHaveBeenCalledOnce();
+  });
+
+  it("does not refocus on later renders when no focus was requested", () => {
+    const ref = createRef<TerminalCoreInstanceHandle>();
+    const { rerender } = renderHook(() =>
+      useTerminalCoreInstanceController({ featureId: 1, projectId: 2 }, ref),
+    );
+    rerender();
+    mocks.engineReady = true;
+    rerender();
+    expect(mocks.terminal.focus).not.toHaveBeenCalled();
+  });
+
+  it("cancels a pending focus when the pane is blurred before the engine is ready", () => {
+    const ref = createRef<TerminalCoreInstanceHandle>();
+    const { rerender } = renderHook(() =>
+      useTerminalCoreInstanceController({ featureId: 1, projectId: 2 }, ref),
+    );
+    act(() => ref.current?.focus());
+    act(() => ref.current?.blur());
+    mocks.engineReady = true;
+    rerender();
+    expect(mocks.terminal.focus).not.toHaveBeenCalled();
+  });
+
+  it("forwards blur to the engine once it exists", () => {
+    mocks.engineReady = true;
+    const ref = createRef<TerminalCoreInstanceHandle>();
+    renderHook(() => useTerminalCoreInstanceController({ featureId: 1, projectId: 2 }, ref));
+    act(() => ref.current?.blur());
+    expect(mocks.terminal.blur).toHaveBeenCalledOnce();
+  });
 });
