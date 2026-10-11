@@ -85,20 +85,33 @@ fn resolve_bundle(output_root: &Path, project_id: i64, raw: &str) -> Result<Path
     if root_info.file_type().is_symlink() || !root_info.is_dir() {
         return Err(invalid("publication bundle root must be a real directory"));
     }
-    let parent = output_root.join(project_id.to_string());
+    let canonical_root = std::fs::canonicalize(output_root)
+        .map_err(|error| invalid(format!("cannot resolve publication bundle root: {error}")))?;
+    let parent = crate::domain::projects::publication_storage::child_path(
+        &canonical_root,
+        &project_id.to_string(),
+    )
+    .map_err(|error| invalid(format!("invalid project bundle path: {error}")))?;
     let parent_info = std::fs::symlink_metadata(&parent)
         .map_err(|error| invalid(format!("cannot inspect project bundle directory: {error}")))?;
     if parent_info.file_type().is_symlink() || !parent_info.is_dir() {
         return Err(invalid("project bundle directory must be a real directory"));
     }
-    let requested = parent.join(raw);
+    let canonical_parent = std::fs::canonicalize(&parent)
+        .map_err(|error| invalid(format!("cannot resolve bundle parent: {error}")))?;
+    if canonical_parent.parent() != Some(canonical_root.as_path()) {
+        return Err(invalid("project bundle directory escapes its storage root"));
+    }
+    let requested = crate::domain::projects::publication_storage::child_path(
+        &canonical_parent,
+        &id.to_string(),
+    )
+    .map_err(|error| invalid(format!("invalid publication bundle path: {error}")))?;
     let kind = std::fs::symlink_metadata(&requested)
         .map_err(|_| invalid("publication bundle does not exist"))?;
     if kind.file_type().is_symlink() || !kind.is_dir() {
         return Err(invalid("publication bundle must be a real directory"));
     }
-    let canonical_parent = std::fs::canonicalize(&parent)
-        .map_err(|error| invalid(format!("cannot resolve bundle parent: {error}")))?;
     let canonical = std::fs::canonicalize(requested)
         .map_err(|error| invalid(format!("cannot resolve publication bundle: {error}")))?;
     if canonical.parent() != Some(canonical_parent.as_path()) {
@@ -303,6 +316,48 @@ mod tests {
         assert_eq!(loaded.plan.tag, "v1.2.3-beta.1");
         assert!(loaded.plan.prerelease);
         assert_eq!(loaded.archive.as_ref(), archive.as_slice());
+    }
+
+    #[test]
+    fn rejects_path_like_and_noncanonical_bundle_ids() {
+        let root = tempfile::tempdir().unwrap();
+        for id in [
+            "../outside",
+            "/tmp/outside",
+            r"C:\outside",
+            r"..\outside",
+            "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+            "00000000000040008000000000000000",
+        ] {
+            assert!(resolve_bundle(root.path(), 1, id).is_err(), "accepted {id}");
+        }
+        assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_bundle_root_project_and_bundle_without_changes() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let sentinel = outside.path().join("sentinel");
+        std::fs::write(&sentinel, b"keep").unwrap();
+        let id = "00000000-0000-4000-8000-000000000000";
+        let storage = root.path().join("custom-storage");
+        symlink(outside.path(), &storage).unwrap();
+        assert!(resolve_bundle(&storage, 1, id).is_err());
+        std::fs::remove_file(&storage).unwrap();
+        std::fs::create_dir(&storage).unwrap();
+        let project = storage.join("1");
+        symlink(outside.path(), &project).unwrap();
+        assert!(resolve_bundle(&storage, 1, id).is_err());
+        std::fs::remove_file(&project).unwrap();
+        std::fs::create_dir(&project).unwrap();
+        let bundle = project.join(id);
+        symlink(outside.path(), &bundle).unwrap();
+        assert!(resolve_bundle(&storage, 1, id).is_err());
+        assert_eq!(std::fs::read(sentinel).unwrap(), b"keep");
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
     }
 
     #[test]
