@@ -11,6 +11,7 @@ mod pipeline;
 mod publication;
 mod signing;
 mod theme;
+mod trust;
 
 use args::Cli;
 

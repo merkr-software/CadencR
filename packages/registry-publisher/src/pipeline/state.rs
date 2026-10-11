@@ -41,6 +41,13 @@ pub(super) fn preflight(prepared: &PreparedPipeline) -> Result<(), PublisherErro
     let inputs = prepared.directory.join("inputs");
     inspect_directory(&inputs, false)?;
     check_bytes(&inputs.join("public-key.pem"), &prepared.public_key)?;
+    if let Some(trust) = &prepared.trust {
+        check_bytes(&inputs.join("trust-manifest.json"), &trust.manifest)?;
+        check_bytes(
+            &inputs.join("trust-root-public-key.pem"),
+            &trust.root_public_key,
+        )?;
+    }
     if let Some(bytes) = &prepared.previous {
         check_bytes(&inputs.join("previous-index.json"), bytes)?;
     }
@@ -110,6 +117,13 @@ pub(super) fn materialize(prepared: &PreparedPipeline) -> Result<(), PublisherEr
     ensure_directory(&inputs)?;
     ensure_directory(&prepared.directory.join("publications"))?;
     write_bytes_once(&inputs.join("public-key.pem"), &prepared.public_key)?;
+    if let Some(trust) = &prepared.trust {
+        write_bytes_once(&inputs.join("trust-manifest.json"), &trust.manifest)?;
+        write_bytes_once(
+            &inputs.join("trust-root-public-key.pem"),
+            &trust.root_public_key,
+        )?;
+    }
     if let Some(bytes) = &prepared.previous {
         write_bytes_once(&inputs.join("previous-index.json"), bytes)?;
     }
@@ -135,6 +149,16 @@ pub(super) fn manifest(prepared: &PreparedPipeline) -> Value {
             "public_key":"inputs/public-key.pem",
             "key_id":prepared.request.key_id
         });
+    }
+    if let Some(trust) = &prepared.request.trust {
+        if prepared.previous.is_some() {
+            manifest["baseline"]["trust"] = json!({
+                "manifest":"inputs/trust-manifest.json",
+                "root_public_key":"inputs/trust-root-public-key.pem",
+                "root_key_id":trust.root_key_id,
+                "minimum_generation":trust.minimum_generation,
+            });
+        }
     }
     manifest
 }

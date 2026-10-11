@@ -20,6 +20,11 @@ pub(crate) fn validate_package(value: &Value, label: &str, errors: &mut Diagnost
         crate::marketplace::validate(value, label, errors);
         return;
     }
+    validate_provider_content(value, label, errors);
+}
+
+/// Validate provider content only; envelopes are dispatched once at the entry boundary.
+pub(crate) fn validate_provider_content(value: &Value, label: &str, errors: &mut Diagnostics) {
     let Some(package) = object(value, label, errors) else {
         return;
     };

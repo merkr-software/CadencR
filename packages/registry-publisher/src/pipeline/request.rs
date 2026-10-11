@@ -21,6 +21,8 @@ pub(super) struct Request {
     pub(super) expires_at: String,
     pub(super) previous_index: String,
     pub(super) public_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) trust: Option<cadencr_registry_core::RegistryTrustFiles>,
     publications: Vec<Publication>,
 }
 #[derive(Deserialize, Serialize)]
@@ -77,6 +79,7 @@ pub(super) fn prepare(input: PipelineRequest<'_>) -> Result<PreparedPipeline, Pu
             "previous index",
         )?)
     };
+    let trust = super::trust::prepare(base, request.trust.as_ref())?;
     let directory = absolute(input.directory)?;
     state::inspect_directory(&directory, false)?;
     let mut entries = Vec::new();
@@ -111,11 +114,18 @@ pub(super) fn prepare(input: PipelineRequest<'_>) -> Result<PreparedPipeline, Pu
             "private key must be outside pipeline state directory",
         ));
     }
+    let trust_binding = trust.as_ref().map(|inputs| {
+        json!({
+            "manifest_sha256":crate::hex(&Sha256::digest(&inputs.manifest)),
+            "root_public_key_sha256":crate::hex(&Sha256::digest(&inputs.root_public_key)),
+        })
+    });
     let mut prepared = PreparedPipeline {
         request,
         directory,
         private_key,
         public_key,
+        trust,
         previous,
         entries,
         registry_commit: input.registry_commit.into(),
@@ -123,6 +133,9 @@ pub(super) fn prepare(input: PipelineRequest<'_>) -> Result<PreparedPipeline, Pu
             "request_sha256":input.confirm_request_sha256,"repository":input.repository,
             "registry_commit":input.registry_commit,"request":value}),
     };
+    if let Some(trust_binding) = trust_binding {
+        prepared.binding["trust_inputs"] = trust_binding;
+    }
     let required = validate_catalog(&prepared)?;
     for entry in &mut prepared.entries {
         entry.require_published = required.contains(&identity(&entry.plan["mirrored_package"]));
@@ -147,6 +160,7 @@ pub(super) fn validate_catalog(prepared: &PreparedPipeline) -> Result<Vec<String
     cadencr_registry_core::preflight_publication_pipeline()
         .payload(&payload)
         .maybe_previous_bytes(prepared.previous.as_deref())
+        .maybe_trust(prepared.trust.as_ref().map(|inputs| &inputs.verified))
         .public_key_bytes(&prepared.public_key)
         .private_key_file(&prepared.private_key)
         .key_id(&prepared.request.key_id)
@@ -159,6 +173,7 @@ pub(super) fn candidate_payload(
 ) -> Result<cadencr_registry_core::PreparedSigningPayload, PublisherError> {
     cadencr_registry_core::prepare_incremental_publication_index()
         .maybe_previous_bytes(prepared.previous.as_deref())
+        .maybe_trust(prepared.trust.as_ref().map(|inputs| &inputs.verified))
         .public_key_bytes(&prepared.public_key)
         .key_id(&prepared.request.key_id)
         .schema_version(prepared.request.schema_version)
@@ -197,6 +212,9 @@ fn validate_request(request: &Request, repository: &str) -> Result<(), Publisher
         ));
     }
     relative(&request.public_key)?;
+    if let Some(trust) = &request.trust {
+        super::trust::validate(trust)?;
+    }
     if request.previous_index != "bootstrap" {
         relative(&request.previous_index)?;
     }
@@ -209,7 +227,7 @@ fn validate_request(request: &Request, repository: &str) -> Result<(), Publisher
     Ok(())
 }
 
-fn relative(value: &str) -> Result<(), PublisherError> {
+pub(super) fn relative(value: &str) -> Result<(), PublisherError> {
     if value.is_empty()
         || value.contains(['\0', '\\'])
         || Path::new(value).is_absolute()
@@ -225,7 +243,7 @@ fn relative(value: &str) -> Result<(), PublisherError> {
     }
 }
 
-fn trusted_file(
+pub(super) fn trusted_file(
     base: &Path,
     value: &str,
     limit: u64,

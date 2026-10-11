@@ -166,7 +166,9 @@ fn validate_envelope_at(
     })
 }
 
-fn validate_signature(signature: Option<&Map<String, Value>>) -> Result<Signature, RegistryError> {
+pub(crate) fn validate_signature(
+    signature: Option<&Map<String, Value>>,
+) -> Result<Signature, RegistryError> {
     let signature =
         signature.ok_or_else(|| RegistryError::single("envelope.signature must be an object"))?;
     reject_unknown(

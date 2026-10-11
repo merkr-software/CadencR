@@ -115,6 +115,25 @@ mod tests {
     }
 
     #[test]
+    fn distributed_rejects_non_finite_colors_in_tokens_and_terminal_palette() {
+        for color in [
+            "rgb(nan 0 0)",
+            "rgb(infinity 0 0)",
+            "rgb(1e999 0 0)",
+            "oklch(0.5 0 nan)",
+        ] {
+            for (section, token) in [("cssVars", "--foreground"), ("xterm", "foreground")] {
+                let mut value = serde_json::to_value(valid_document()).unwrap();
+                value[section][token] = Value::String(color.into());
+                assert!(
+                    parse_distributed_document(&serde_json::to_vec(&value).unwrap()).is_err(),
+                    "accepted {color} in {section}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn textures_are_bounded_local_raster_bytes_not_scripts_or_svg() {
         assert!(validate_distributed_asset("paper.png", b"\x89PNG\r\n\x1a\nimage").is_err());
         for name in [

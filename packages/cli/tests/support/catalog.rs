@@ -74,7 +74,11 @@ console.log('catalog-' + createHash('sha256').update(bytes).digest('hex'));
             args.push(("--confirm-discovery", "https://raw.githubusercontent.com/acme/registry/refs/heads/catalog/managed-index.json".into()));
         }
         for (name, value) in overrides {
-            args.iter_mut().find(|(flag, _)| flag == name).unwrap().1 = (*value).into();
+            if let Some((_, current)) = args.iter_mut().find(|(flag, _)| flag == name) {
+                *current = (*value).into();
+            } else {
+                args.push((*name, (*value).into()));
+            }
         }
         let mut command = Command::new(env!("CARGO_BIN_EXE_cadencr"));
         command.args(["--json", "registry", subcommand]);

@@ -13,8 +13,9 @@ pub fn verify_publication_baseline(
     previous_bytes: &[u8],
     public_key_bytes: &[u8],
     key_id: &str,
+    trust: Option<&crate::VerifiedRegistryTrust>,
 ) -> Result<Vec<Value>, RegistryError> {
-    let baseline = verified_baseline(previous_bytes, public_key_bytes, key_id)?;
+    let baseline = verified_baseline(previous_bytes, public_key_bytes, key_id, trust)?;
     Ok(baseline["signed"]["packages"]
         .as_array()
         .expect("verified packages")
@@ -28,15 +29,23 @@ pub fn prepare_incremental_publication_index(
     previous_bytes: Option<&[u8]>,
     public_key_bytes: &[u8],
     key_id: &str,
+    trust: Option<&crate::VerifiedRegistryTrust>,
     packages: Vec<Value>,
     #[builder(default = 1)] schema_version: u64,
     #[builder(default)] allow_schema_upgrade: bool,
     generated_at: &str,
     expires_at: &str,
 ) -> Result<PreparedSigningPayload, RegistryError> {
+    let public_key = parse_public_key(public_key_bytes)?;
+    if let Some(trust) = trust {
+        if trust.active_key(key_id)? != &public_key {
+            return Err(RegistryError::single(
+                "current signer does not match trusted generation",
+            ));
+        }
+    }
     let Some(bytes) = previous_bytes else {
         crate::validate_signing_key_id(key_id)?;
-        parse_public_key(public_key_bytes)?;
         return super::prepare_publication_index()
             .packages(packages)
             .schema_version(schema_version)
@@ -44,7 +53,7 @@ pub fn prepare_incremental_publication_index(
             .expires_at(expires_at)
             .call();
     };
-    let baseline = verified_baseline(bytes, public_key_bytes, key_id)?;
+    let baseline = verified_baseline(bytes, public_key_bytes, key_id, trust)?;
     let previous_schema = baseline["signed"]["schema_version"]
         .as_u64()
         .expect("verified schema");
@@ -107,7 +116,12 @@ fn package_key(package: &Value) -> Result<(String, String), RegistryError> {
         .ok_or_else(|| RegistryError::single("publication package identity is invalid"))
 }
 
-fn verified_baseline(bytes: &[u8], key: &[u8], key_id: &str) -> Result<Value, RegistryError> {
+fn verified_baseline(
+    bytes: &[u8],
+    key: &[u8],
+    key_id: &str,
+    trust: Option<&crate::VerifiedRegistryTrust>,
+) -> Result<Value, RegistryError> {
     if bytes.len() > crate::MAX_CATALOG_BYTES || key.len() > 16 * 1024 {
         return Err(RegistryError::single(
             "publication baseline or key exceeds input limits",
@@ -117,7 +131,18 @@ fn verified_baseline(bytes: &[u8], key: &[u8], key_id: &str) -> Result<Value, Re
     let key = parse_public_key(key)?;
     let baseline = crate::parse_json_bytes(bytes)
         .map_err(|_| RegistryError::single("previous index must be valid JSON"))?;
-    verify_envelope_at(&baseline, &key, key_id, true, chrono::Utc::now())?;
+    match trust {
+        Some(trust) => {
+            trust.verify_catalog(
+                &baseline,
+                crate::CatalogTrustPurpose::Baseline,
+                chrono::Utc::now(),
+            )?;
+        }
+        None => {
+            verify_envelope_at(&baseline, &key, key_id, true, chrono::Utc::now())?;
+        }
+    }
     super::validate_catalog_identities(
         baseline["signed"]["packages"]
             .as_array()

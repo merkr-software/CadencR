@@ -55,7 +55,7 @@ pub(crate) fn validate(value: &Value, label: &str, errors: &mut Diagnostics) {
     };
     let content = value.get("package").unwrap_or(&Value::Null);
     if kind == "provider" {
-        package::validate_package(content, label, errors);
+        package::validate_provider_content(content, label, errors);
         return;
     }
     validate_theme(content, label, errors);
@@ -136,6 +136,52 @@ fn validate_theme(content: &Value, label: &str, errors: &mut Diagnostics) {
     validate_theme_host(content, label, errors);
 }
 
+/// Resolve the signed distribution origin independently from author provenance.
+/// Legacy schema-2 entries encode it in their signed archive URL; new mirrored
+/// entries also declare it explicitly. Neither form permits arbitrary HTTPS.
+pub fn theme_distribution_repository(
+    archive: &str,
+    explicit: Option<&Value>,
+) -> Result<String, RegistryError> {
+    let fail = || {
+        RegistryError::single("theme archive must be an exact GitHub release asset matching its distribution repository")
+    };
+    let url = url::Url::parse(archive).map_err(|_| fail())?;
+    let parts = url.path().split('/').collect::<Vec<_>>();
+    let segment = |s: &str| {
+        !s.is_empty()
+            && s != "."
+            && s != ".."
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    };
+    if url.scheme() != "https"
+        || url.host_str() != Some("github.com")
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.as_str() != archive
+        || parts.len() != 7
+        || !parts[0].is_empty()
+        || parts[3..5] != ["releases", "download"]
+        || ![parts[1], parts[2], parts[5], parts[6]]
+            .iter()
+            .all(|s| segment(s))
+        || parts[6].len() > 128
+        || (!parts[6].to_ascii_lowercase().ends_with(".tar.gz")
+            && !parts[6].to_ascii_lowercase().ends_with(".tgz"))
+    {
+        return Err(fail());
+    }
+    let repository = format!("https://github.com/{}/{}", parts[1], parts[2]);
+    if explicit.is_some_and(|value| value.as_str() != Some(repository.as_str())) {
+        return Err(fail());
+    }
+    Ok(repository)
+}
+
 fn validate_theme_distribution(
     theme: &serde_json::Map<String, Value>,
     label: &str,
@@ -145,26 +191,20 @@ fn validate_theme_distribution(
         errors.push(format!("{label}.theme.distribution must be an object"));
         return;
     };
-    package::reject_unknown(distribution, &["archive", "sha256"], label, errors);
-    if !distribution
-        .get("archive")
-        .and_then(Value::as_str)
-        .is_some_and(|s| {
-            url::Url::parse(s).is_ok_and(|u| {
-                u.scheme() == "https"
-                    && u.host_str().is_some()
-                    && u.username().is_empty()
-                    && u.password().is_none()
-                    && u.query().is_none()
-                    && u.fragment().is_none()
-                    && u.port().is_none()
-                    && u.as_str() == s
-                    && u.host_str() == Some("github.com")
-                    && u.path().contains("/releases/download/")
-            })
-        })
-    {
-        errors.push(format!("{label}.theme.distribution.archive must be HTTPS"));
+    package::reject_unknown(
+        distribution,
+        &["archive", "sha256", "repository"],
+        label,
+        errors,
+    );
+    if let Err(error) = theme_distribution_repository(
+        distribution
+            .get("archive")
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        distribution.get("repository"),
+    ) {
+        errors.push(format!("{label}.theme.distribution: {error}"));
     }
     if !distribution
         .get("sha256")
@@ -205,6 +245,28 @@ mod tests {
         json!({"kind":"theme","package":{"theme":{"id":"midnight","name":"Midnight","description":"Dark theme","version":"1.0.0","repository":"https://github.com/acme/themes","license":"MIT","document_version":1,"distribution":{"archive":"https://github.com/acme/themes/releases/download/v1/theme.tar.gz","sha256":"a".repeat(64)}},"host":{"publisher":"acme","compatibility":{"min_app_version":"1.0.0"}}}})
     }
     #[test]
+    fn distribution_archive_extension_matches_author_release_case_policy() {
+        for name in ["theme.tar.gz", "theme.TAR.GZ", "theme.tgz", "theme.TGZ"] {
+            let url = format!("https://github.com/acme/themes/releases/download/v1/{name}");
+            assert_eq!(
+                theme_distribution_repository(&url, None).unwrap(),
+                "https://github.com/acme/themes"
+            );
+        }
+    }
+    #[test]
+    fn explicit_distribution_repository_is_signed_and_must_match_archive() {
+        let mut value = theme();
+        value["package"]["theme"]["distribution"]["repository"] =
+            json!("https://github.com/acme/themes");
+        validate_marketplace_package(&value).unwrap();
+        value["package"]["theme"]["distribution"]["repository"] =
+            json!("https://github.com/other/themes");
+        assert!(validate_marketplace_package(&value).is_err());
+        value["package"]["theme"]["distribution"]["repository"] = Value::Null;
+        assert!(validate_marketplace_package(&value).is_err());
+    }
+    #[test]
     fn theme_contract_is_closed_platform_independent_and_no_assets_required() {
         let value = theme();
         validate_marketplace_package(&value).unwrap();
@@ -241,6 +303,15 @@ mod tests {
         bad["unknown"] = json!(true);
         assert!(validate_marketplace_package(&bad).is_err());
     }
+    #[test]
+    fn provider_content_cannot_dispatch_nested_marketplace_envelopes() {
+        for content in [theme(), json!({"kind":"provider", "package":theme()})] {
+            let value = json!({"kind":"provider", "package":content});
+            assert!(validate_marketplace_package(&value).is_err());
+            assert!(crate::parse_marketplace_package(&value).is_err());
+        }
+    }
+
     #[test]
     fn schema2_submissions_and_plans_preserve_discriminator_and_exact_source() {
         let submission = json!({"schema_version":2,"package":theme(),"source":{"repository":"https://github.com/acme/themes","commit":"b".repeat(40),"tag":"v1"},"changelog":"Release"});

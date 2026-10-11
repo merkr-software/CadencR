@@ -86,7 +86,9 @@ fn prepare_catalog(
     } else {
         cadencr_registry_core::PreviousCatalog::File(std::path::Path::new(&args.previous_index))
     };
+    let trust = crate::trust::load(&args.trust, code)?;
     let snapshot = cadencr_registry_core::prepare_catalog_snapshot()
+        .maybe_trust(trust.as_ref())
         .catalog_file(&args.catalog)
         .allow_schema_upgrade(args.allow_schema_upgrade)
         .previous(previous)

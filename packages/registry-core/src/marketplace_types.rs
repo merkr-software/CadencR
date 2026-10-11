@@ -41,6 +41,8 @@ pub struct ThemeDescriptor {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeDistribution {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     pub archive: String,
     pub sha256: String,
 }

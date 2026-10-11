@@ -204,3 +204,103 @@ fn real_cli_theme_blocklist_is_domain_bound_and_never_overwrites() {
     assert!(!run(&wrong).status.success());
     assert!(!rejected.exists());
 }
+
+#[test]
+fn real_cli_rejects_nested_envelopes_and_missing_identity_at_all_entry_boundaries() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../service/tests/fixtures/managed_provider_index/v1/valid.json"
+    ))
+    .unwrap();
+    let provider = fixture["signed"]["packages"][0].clone();
+    let nested = json!({"kind":"provider","package":{"kind":"provider","package":provider}});
+    let mut missing = json!({"kind":"provider","package":provider});
+    missing["package"]["agent"]
+        .as_object_mut()
+        .unwrap()
+        .remove("id");
+    let generated = (chrono::Utc::now() - chrono::Duration::minutes(1)).to_rfc3339();
+    let expires = (chrono::Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+    let theme = json!({"kind":"theme","package":{"theme":{"id":"midnight","name":"Midnight","description":"Dark theme","version":"1.0.0","repository":"https://github.com/acme/themes","license":"MIT","document_version":1,"distribution":{"archive":"https://github.com/acme/themes/releases/download/v1/theme.tar.gz","sha256":"a".repeat(64)}},"host":{"publisher":"acme","compatibility":{"min_app_version":"1.0.0"}}}});
+    let nested_theme = json!({"kind":"provider", "package":theme});
+    for package in [nested, nested_theme, missing] {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("base");
+        let candidate = root.path().join("candidate");
+        let packages = candidate.join("packages");
+        std::fs::create_dir_all(base.join("packages")).unwrap();
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::write(
+            packages.join("arbitrary-name.json"),
+            serde_json::to_vec(&package).unwrap(),
+        )
+        .unwrap();
+        assert!(!run(&[
+            "registry",
+            "validate",
+            "--base",
+            base.to_str().unwrap(),
+            "--candidate",
+            candidate.to_str().unwrap()
+        ])
+        .status
+        .success());
+        let output = root.path().join("index.json");
+        assert!(!run(&[
+            "registry",
+            "build-index",
+            "--schema-version",
+            "2",
+            "--packages",
+            packages.to_str().unwrap(),
+            "--generated-at",
+            &generated,
+            "--expires-at",
+            &expires,
+            "--output",
+            output.to_str().unwrap()
+        ])
+        .status
+        .success());
+        assert!(!output.exists());
+    }
+}
+
+#[test]
+fn real_cli_valid_content_does_not_skip_filename_and_provenance_controls() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../service/tests/fixtures/managed_provider_index/v1/valid.json"
+    ))
+    .unwrap();
+    let package = json!({"kind":"provider", "package":fixture["signed"]["packages"][0]});
+    let root = tempfile::tempdir().unwrap();
+    let base = root.path().join("base");
+    let candidate = root.path().join("candidate");
+    std::fs::create_dir_all(base.join("packages")).unwrap();
+    std::fs::create_dir_all(candidate.join("packages")).unwrap();
+    for name in ["arbitrary-name.json", "acme-agent-1.2.3.json"] {
+        let fresh = root.path().join(name);
+        std::fs::create_dir_all(fresh.join("packages")).unwrap();
+        std::fs::write(
+            fresh.join("packages").join(name),
+            serde_json::to_vec(&package).unwrap(),
+        )
+        .unwrap();
+        let result = run(&[
+            "registry",
+            "validate",
+            "--base",
+            base.to_str().unwrap(),
+            "--candidate",
+            fresh.to_str().unwrap(),
+        ]);
+        assert!(!result.status.success());
+        let error = String::from_utf8_lossy(&result.stderr);
+        assert!(
+            error.contains("new package versions require submissions"),
+            "{error}"
+        );
+        if name == "arbitrary-name.json" {
+            assert!(error.contains("filename must be"), "{error}");
+        }
+    }
+}

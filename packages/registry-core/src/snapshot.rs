@@ -47,6 +47,7 @@ pub fn prepare_catalog_snapshot(
     previous: PreviousCatalog<'_>,
     public_key_file: &Path,
     key_id: &str,
+    trust: Option<&crate::VerifiedRegistryTrust>,
     repository: &str,
     registry_commit: &str,
     #[builder(default)] allow_schema_upgrade: bool,
@@ -55,6 +56,13 @@ pub fn prepare_catalog_snapshot(
     let now = Utc::now();
     let key_bytes = read_file(public_key_file, KEY_LIMIT, "public key")?;
     let key = parse_public_key(&key_bytes)?;
+    if let Some(trust) = trust {
+        if trust.active_key(key_id)? != &key {
+            return Err(RegistryError::single(
+                "current signer does not match trusted generation",
+            ));
+        }
+    }
     let candidate_bytes = read_file(catalog_file, CATALOG_LIMIT, "catalog")?;
     let candidate = parse_document(&candidate_bytes, "catalog")?;
     let canonical_payload = verify_envelope_at(&candidate, &key, key_id, false, now)?;
@@ -66,7 +74,14 @@ pub fn prepare_catalog_snapshot(
         PreviousCatalog::File(path) => {
             let bytes = read_file(path, CATALOG_LIMIT, "previous index")?;
             let baseline = parse_document(&bytes, "previous index")?;
-            verify_envelope_at(&baseline, &key, key_id, true, now)?;
+            match trust {
+                Some(trust) => {
+                    trust.verify_catalog(&baseline, crate::CatalogTrustPurpose::Baseline, now)?;
+                }
+                None => {
+                    verify_envelope_at(&baseline, &key, key_id, true, now)?;
+                }
+            }
             if signed(&baseline)["schema_version"] != candidate_signed["schema_version"]
                 && !allow_schema_upgrade
             {

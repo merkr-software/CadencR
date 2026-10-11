@@ -15,9 +15,17 @@ pub fn preflight_publication_pipeline(
     public_key_bytes: &[u8],
     private_key_file: &Path,
     key_id: &str,
+    trust: Option<&crate::VerifiedRegistryTrust>,
 ) -> Result<Vec<String>, RegistryError> {
     crate::validate_signing_key_id(key_id)?;
     let public = parse_public_key(public_key_bytes)?;
+    if let Some(trust) = trust {
+        if trust.active_key(key_id)? != &public {
+            return Err(RegistryError::single(
+                "current signer does not match trusted generation",
+            ));
+        }
+    }
     let private = crate::signing::read_signing_key(private_key_file)?;
     if private.verifying_key() != public {
         return Err(RegistryError::single(
@@ -29,7 +37,18 @@ pub fn preflight_publication_pipeline(
     };
     let prior = crate::parse_json_bytes(bytes)
         .map_err(|_| RegistryError::single("previous index must be valid JSON"))?;
-    verify_envelope_at(&prior, &public, key_id, true, chrono::Utc::now())?;
+    match trust {
+        Some(trust) => {
+            trust.verify_catalog(
+                &prior,
+                crate::CatalogTrustPurpose::Baseline,
+                chrono::Utc::now(),
+            )?;
+        }
+        None => {
+            verify_envelope_at(&prior, &public, key_id, true, chrono::Utc::now())?;
+        }
+    }
     let candidate = crate::parse_json_bytes(payload.canonical_payload())
         .map_err(|_| RegistryError::single("prepared payload is invalid"))?;
     crate::snapshot::continuity::validate_continuity(&prior["signed"], &candidate)?;

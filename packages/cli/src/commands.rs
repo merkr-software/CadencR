@@ -73,6 +73,18 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             key_id,
             allow_expired,
         } => signing::verify(index, public_key, key_id, *allow_expired),
+        RegistryCommand::SignTrustManifest {
+            payload,
+            root_private_key,
+            root_key_id,
+            output,
+        } => crate::trust::sign(payload, root_private_key, root_key_id, output),
+        RegistryCommand::VerifyTrustManifest {
+            manifest,
+            root_public_key,
+            root_key_id,
+            minimum_generation,
+        } => crate::trust::verify(manifest, root_public_key, root_key_id, *minimum_generation),
         RegistryCommand::SignThemeBlocklist {
             payload,
             private_key,

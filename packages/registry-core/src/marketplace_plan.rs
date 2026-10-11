@@ -28,6 +28,8 @@ pub(crate) fn create(submission: &Value, repository: &str) -> Result<Value, Regi
     let destination = format!("https://github.com/{repository}/releases/download/{tag}/{asset}");
     let mut mirrored = entry.clone();
     mirrored["package"]["theme"]["distribution"]["archive"] = json!(destination);
+    mirrored["package"]["theme"]["distribution"]["repository"] =
+        json!(format!("https://github.com/{repository}"));
     Ok(json!({
         "schema_version":2,"repository":repository,
         "source":{"submission":submission,"identity":{"provider_id":id,"version":version,
@@ -36,4 +38,31 @@ pub(crate) fn create(submission: &Value, repository: &str) -> Result<Value, Regi
         "targets":[{"target":"theme","asset":asset,"source_url":source_url,"destination_url":destination,"sha256":distribution["sha256"]}],
         "mirrored_package":mirrored
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn mirrored_distribution_preserves_third_party_author_provenance() {
+        let submission = json!({"package":{"kind":"theme","package":{"theme":{
+            "id":"midnight","version":"1.0.0","repository":"https://github.com/author/themes",
+            "distribution":{"archive":"https://github.com/author/themes/releases/download/v1/theme.tar.gz","sha256":"a".repeat(64)}
+        }}},"source":{"repository":"author/themes","commit":"abc","tag":"v1"}});
+        let plan = create(&submission, "cadencr/registry").unwrap();
+        let theme = &plan["mirrored_package"]["package"]["theme"];
+        assert_eq!(theme["repository"], "https://github.com/author/themes");
+        assert_eq!(
+            theme["distribution"]["repository"],
+            "https://github.com/cadencr/registry"
+        );
+        assert_eq!(
+            crate::theme_distribution_repository(
+                theme["distribution"]["archive"].as_str().unwrap(),
+                theme["distribution"].get("repository")
+            )
+            .unwrap(),
+            "https://github.com/cadencr/registry"
+        );
+    }
 }

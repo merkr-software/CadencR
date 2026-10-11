@@ -4,6 +4,7 @@ mod catalog;
 mod request;
 mod staging;
 mod state;
+mod trust;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -30,6 +31,7 @@ pub struct PreparedPipeline {
     registry_commit: String,
     private_key: PathBuf,
     public_key: Vec<u8>,
+    trust: Option<trust::Inputs>,
     previous: Option<Vec<u8>>,
     entries: Vec<Entry>,
 }

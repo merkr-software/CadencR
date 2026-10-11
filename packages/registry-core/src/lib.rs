@@ -9,6 +9,7 @@ mod discovery;
 mod error;
 mod index;
 mod marketplace;
+pub use marketplace::theme_distribution_repository;
 mod marketplace_plan;
 mod marketplace_types;
 pub use marketplace::{
@@ -37,6 +38,12 @@ mod theme_verify;
 pub use theme_verify::{read_theme_archive, read_theme_archive_bytes, verify_theme_archive};
 mod tree;
 pub use theme_archive::{pack_theme, PackThemeRequest, PackedTheme};
+mod trust;
+pub use trust::{
+    decode_registry_public_key, sign_registry_trust_manifest, verify_registry_trust_manifest,
+    CatalogTrustPurpose, RegistryTrustFiles, RegistryTrustKey, RegistryTrustManifest,
+    SignedRegistryTrustManifest, VerifiedRegistryTrust, MAX_TRUST_MANIFEST_BYTES,
+};
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -140,6 +147,8 @@ fn validate_candidate(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
             if *name != expected {
                 errors.push(format!("packages/{name}: filename must be {expected}"));
             }
+        } else {
+            errors.push(format!("packages/{name}: package identity is required"));
         }
     }
     for (name, submission) in &candidate.submissions {
@@ -158,6 +167,7 @@ fn validate_candidate(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
             continue;
         };
         let Some((id, version)) = identity(package) else {
+            errors.push(format!("submissions/{name}: package identity is required"));
             continue;
         };
         let expected = format!("{id}-{version}.json");

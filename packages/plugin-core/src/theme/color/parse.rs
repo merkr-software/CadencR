@@ -62,7 +62,7 @@ pub fn parse_color(value: &str) -> Result<LinearRgba, ColorParseError> {
         return parse_hex(hex);
     }
     if let Some((name, inner)) = split_function(&lowered) {
-        return match name {
+        let color = match name {
             "rgb" | "rgba" => parse_rgb(inner),
             "hsl" | "hsla" => parse_hsl(inner),
             "oklch" => parse_oklch(inner),
@@ -70,7 +70,14 @@ pub fn parse_color(value: &str) -> Result<LinearRgba, ColorParseError> {
             other => Err(err(format!(
                 "`{other}()` is not a supported color function (use hex, rgb, hsl, oklch or oklab)"
             ))),
-        };
+        }?;
+        if [color.r, color.g, color.b, color.a]
+            .iter()
+            .all(|channel| channel.is_finite())
+        {
+            return Ok(color);
+        }
+        return Err(err("color conversion produced non-finite components"));
     }
     Err(err(format!("`{value}` is not a color")))
 }
@@ -152,15 +159,23 @@ fn number(raw: &str, scale: f64) -> Result<f64, ColorParseError> {
     if raw == "none" {
         return Ok(0.0);
     }
-    if let Some(percent) = raw.strip_suffix('%') {
-        let value: f64 = percent
-            .trim()
-            .parse()
-            .map_err(|_| err(format!("`{raw}` is not a number")))?;
-        return Ok(value / 100.0 * scale);
+    let (numeric, factor) = match raw.strip_suffix('%') {
+        Some(percent) => (percent.trim(), scale / 100.0),
+        None => (raw, 1.0),
+    };
+    let value: f64 = numeric
+        .parse()
+        .map_err(|_| err(format!("`{raw}` is not a number")))?;
+    finite(value, raw)?;
+    finite(value * factor, raw)
+}
+
+fn finite(value: f64, raw: &str) -> Result<f64, ColorParseError> {
+    if value.is_finite() {
+        Ok(value)
+    } else {
+        Err(err(format!("`{raw}` must be finite")))
     }
-    raw.parse()
-        .map_err(|_| err(format!("`{raw}` is not a number")))
 }
 
 fn alpha_of(raw: Option<&str>) -> Result<f64, ColorParseError> {
@@ -181,7 +196,7 @@ fn angle(raw: &str) -> Result<f64, ColorParseError> {
         ("grad", 0.9),
     ] {
         if let Some(value) = raw.strip_suffix(suffix) {
-            return Ok(number(value, 1.0)? * per_unit);
+            return finite(number(value, 1.0)? * per_unit, raw);
         }
     }
     number(raw, 360.0)
@@ -323,6 +338,25 @@ mod tests {
         // never HSL channel triples, so `hsl(var(--background))` must fail loudly.
         let error = parse_color("hsl(var(--background))").expect_err("must reject");
         assert!(error.to_string().contains("3 components"), "{error}");
+    }
+
+    #[test]
+    fn rejects_non_finite_components_before_clamping_or_conversion() {
+        for value in ["nan", "NaN", "inf", "-inf", "+infinity", "1e999", "-1e999"] {
+            for color in [
+                format!("rgb({value} 0 0)"),
+                format!("rgb(0 {value}% 0)"),
+                format!("rgba(0, 0, 0, {value})"),
+                format!("hsl({value}deg 50% 50%)"),
+                format!("hsl(0 {value}% 50%)"),
+                format!("oklch(0.5 {value} 0)"),
+                format!("oklab(0.5 0 {value} / 50%)"),
+            ] {
+                assert!(parse_color(&color).is_err(), "accepted {color}");
+            }
+        }
+        assert!(parse_color("hsl(1e308turn 50% 50%)").is_err());
+        assert!(parse_color("oklab(1e308 1e308 1e308)").is_err());
     }
 
     #[test]

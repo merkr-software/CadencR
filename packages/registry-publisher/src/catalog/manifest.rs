@@ -26,6 +26,8 @@ pub(super) struct Baseline {
     pub(super) previous_index: String,
     pub(super) public_key: String,
     pub(super) key_id: String,
+    #[serde(default)]
+    pub(super) trust: Option<cadencr_registry_core::RegistryTrustFiles>,
 }
 
 #[derive(Deserialize)]

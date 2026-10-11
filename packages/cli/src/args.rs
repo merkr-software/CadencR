@@ -122,7 +122,7 @@ pub(crate) enum RegistryCommand {
     /// Sign a catalog only from verified publications and public artifact bytes.
     SignPublicationCatalog(SignCatalogArgs),
     /// Publish an explicitly confirmed signed catalog to its immutable GitHub release.
-    PublishCatalog(PublishCatalogArgs),
+    PublishCatalog(Box<PublishCatalogArgs>),
     /// Advance a confirmed stable discovery branch to an already published catalog.
     AdvanceCatalog(Box<AdvanceCatalogArgs>),
     /// Run an explicitly confirmed protected publication pipeline.
@@ -148,6 +148,28 @@ pub(crate) enum RegistryCommand {
         key_id: String,
         #[arg(long)]
         allow_expired: bool,
+    },
+    /// Sign offline-root-authorized registry key metadata.
+    SignTrustManifest {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        root_private_key: PathBuf,
+        #[arg(long)]
+        root_key_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify offline-root-authorized registry key metadata.
+    VerifyTrustManifest {
+        #[arg(long)]
+        manifest: PathBuf,
+        #[arg(long)]
+        root_public_key: PathBuf,
+        #[arg(long)]
+        root_key_id: String,
+        #[arg(long, default_value_t = 1)]
+        minimum_generation: u64,
     },
     /// Sign a domain-bound theme revocation policy.
     SignThemeBlocklist {
@@ -238,6 +260,9 @@ pub(crate) struct SignCatalogArgs {
 pub(crate) struct PublishCatalogArgs {
     #[arg(long)]
     pub(crate) catalog: PathBuf,
+    #[command(flatten)]
+    pub(crate) trust: TrustArgs,
+
     /// Exact previous catalog file, or the literal bootstrap for the first publication.
     #[arg(long)]
     pub(crate) previous_index: String,
@@ -307,4 +332,16 @@ pub(crate) struct PublishRegistryArgs {
     /// Exact SHA-256 of the reviewed protected publication request bytes.
     #[arg(long)]
     pub(crate) confirm_request_sha256: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct TrustArgs {
+    #[arg(long, requires_all = ["trust_root_public_key", "trust_root_key_id"])]
+    pub(crate) trust_manifest: Option<PathBuf>,
+    #[arg(long, requires_all = ["trust_manifest", "trust_root_key_id"])]
+    pub(crate) trust_root_public_key: Option<PathBuf>,
+    #[arg(long, requires_all = ["trust_manifest", "trust_root_public_key"])]
+    pub(crate) trust_root_key_id: Option<String>,
+    #[arg(long, requires = "trust_manifest")]
+    pub(crate) trust_minimum_generation: Option<u64>,
 }

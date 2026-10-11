@@ -30,7 +30,13 @@ pub(super) fn prepare(
         16 * 1024,
         "publication baseline public key",
     )?;
+    let trust = baseline
+        .trust
+        .as_ref()
+        .map(|files| files.relative_to(base).load())
+        .transpose()?;
     cadencr_registry_core::prepare_incremental_publication_index()
+        .maybe_trust(trust.as_ref())
         .previous_bytes(&previous)
         .public_key_bytes(&public_key)
         .key_id(&baseline.key_id)

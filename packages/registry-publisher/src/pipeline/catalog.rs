@@ -15,6 +15,7 @@ pub(super) fn snapshot(
     cadencr_registry_core::prepare_catalog_snapshot()
         .catalog_file(catalog)
         .previous(previous)
+        .maybe_trust(prepared.trust.as_ref().map(|inputs| &inputs.verified))
         .public_key_file(&prepared.directory.join("inputs/public-key.pem"))
         .key_id(&prepared.request.key_id)
         .repository(&prepared.request.repository)
