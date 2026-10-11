@@ -203,6 +203,7 @@ mod tests {
 
     #[tokio::test]
     async fn cumulative_reports_add_only_the_new_tokens() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) =
             pool_with_session(Some("codex"), Some("gpt-5.4"), Some("high")).await;
         let attribution = super::snapshot_attribution(&pool, session_id).await;
@@ -221,13 +222,13 @@ mod tests {
             RuntimeTokenUsage::cumulative(entry(None, 175, 35)),
         )
         .await;
-
         let rows = list_recent(&pool, 30).await.unwrap();
         assert_eq!((rows[0].input_tokens, rows[0].output_tokens), (175, 35));
     }
 
     #[tokio::test]
     async fn independent_cumulative_counters_do_not_reset_each_other() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) =
             pool_with_session(Some("codex_cli"), Some("gpt-5.6-sol"), Some("xhigh")).await;
         let attribution = super::snapshot_attribution(&pool, session_id).await;
@@ -258,6 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn either_correlated_response_identity_deduplicates_replay() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) =
             pool_with_session(Some("opencode"), Some("openai/gpt-5.4"), None).await;
         let attribution = super::snapshot_attribution(&pool, session_id).await;
@@ -272,13 +274,13 @@ mod tests {
         record_runtime_usage(&pool, session_id, attribution.clone(), first).await;
         record_runtime_usage(&pool, session_id, attribution.clone(), second).await;
         record_runtime_usage(&pool, session_id, attribution, replay).await;
-
         let rows = list_recent(&pool, 30).await.unwrap();
         assert_eq!((rows[0].input_tokens, rows[0].output_tokens), (135, 15));
     }
 
     #[tokio::test]
     async fn per_model_entries_keep_claude_models_separate() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) =
             pool_with_session(Some("claude_code"), Some("opus"), Some("high")).await;
         let usage = RuntimeTokenUsage::delta(
@@ -293,7 +295,6 @@ mod tests {
             usage,
         )
         .await;
-
         let rows = list_recent(&pool, 30).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].model_id, "haiku");
@@ -302,6 +303,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_cumulative_counter_reset_does_not_inflate_usage() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) = pool_with_session(Some("cursor"), Some("auto"), None).await;
         let attribution = super::snapshot_attribution(&pool, session_id).await;
         for total in [100, 0, 40] {
@@ -320,11 +322,11 @@ mod tests {
 
     #[tokio::test]
     async fn cumulative_checkpoints_are_scoped_to_the_provider() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) = pool_with_session(Some("codex"), Some("gpt-5.4"), None).await;
         let mut attribution = super::snapshot_attribution(&pool, session_id)
             .await
             .expect("session attribution");
-
         record_runtime_usage(
             &pool,
             session_id,
@@ -341,7 +343,6 @@ mod tests {
             RuntimeTokenUsage::cumulative(entry(None, 80, 0)),
         )
         .await;
-
         let rows = list_recent(&pool, 30).await.unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].provider_id, "codex");
@@ -352,6 +353,7 @@ mod tests {
 
     #[tokio::test]
     async fn deleting_a_conversation_preserves_aggregate_usage() {
+        let _guard = super::pending::TEST_TASKS_LOCK.lock().await;
         let (pool, session_id) =
             pool_with_session(Some("opencode"), Some("openai/gpt-5.4"), None).await;
         let opencode = super::snapshot_attribution(&pool, session_id)
