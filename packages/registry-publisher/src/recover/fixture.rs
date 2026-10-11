@@ -4,7 +4,7 @@ use std::process::Command;
 use sha2::{Digest as _, Sha256};
 
 use super::*;
-use crate::mirror::tests::{run as mirror, staged, FakeClient};
+use crate::mirror::fixture::{run as mirror, staged, FakeClient};
 use crate::{DownloadRequest, Downloaded};
 
 pub(crate) const REPOSITORY: &str = "cadencr/registry";

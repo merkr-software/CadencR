@@ -83,7 +83,7 @@ mod tests {
     use super::*;
     use crate::binding::build_publication_binding;
     use crate::github::GitHubClient;
-    use crate::mirror::tests::{run as mirror, staged, FakeClient};
+    use crate::mirror::fixture::{run as mirror, staged, FakeClient};
     use crate::publication_local::RefusingDownloader;
     use crate::{DownloadRequest, Downloaded, StageRequest};
 
