@@ -128,6 +128,31 @@ The review of `126f8a8fa` identified release-blocking structural gaps.
   packaged-runtime QA and official activation remain gates. A preseeded signed QA
   revision does not demonstrate network acquisition or a public release.
 
+### Pre-merge hardening — signed content and runtime responsiveness
+
+- Managed-theme revisions retain the original verified archive as private
+  `archive.tar.gz`. Reading, activation and author duplication authenticate its
+  digest against signed catalog metadata, then compare installed bytes to the
+  validated archive snapshot. Editable local receipt hashes are diagnostics, not
+  independent proof of signed content. Missing original archives fail closed and
+  remain removable; no unsigned migration invents authenticity for an old revision.
+- Catalog cache verification, downloaded admission and verified fallback run in
+  blocking workers with an explicitly captured storage root. Signature, freshness,
+  high-water and immutable-history checks are unchanged.
+- Durable journal preparation, admission and completion run off async workers with
+  per-project transaction locks. Admission orchestration is detached before the
+  blocking transaction so losing the request cannot strand an accepted operation.
+- Theme UI query/action facades depend on selected state and stable functions,
+  not whole React Query observer result objects. No optimistic state is introduced.
+- Verification: all 20 workspace test/lint/type/unused-code/format tasks pass,
+  including 5,230 frontend tests and 3,274 service unit tests (one ignored).
+  Root-script and registry-tooling suites pass separately (189 and 265 tests).
+- Isolated live dev QA confirms activation, creation of a flagged theme author
+  copy, rejection of a valid payload edited with recomputed unsigned receipt
+  hashes (preview/apply/duplicate), removal with built-in fallback, preservation
+  of the author copy and publication journal reads. This uses a private preseeded
+  archive and signed cache, not public HTTPS acquisition or a distributed build.
+
 ### Theme implementation and remaining delivery gates — not a provider adapter
 
 1. [x] Add a closed, discriminated `schema_version: 2` package union (`provider` or

@@ -74,6 +74,28 @@ describe("server-confirmed theme operations", () => {
       error: null,
     });
   });
+  it("preserves the facade and actions on unchanged rerenders and publishes state changes", async () => {
+    const { result, rerender, client } = setup();
+    await waitFor(() => {
+      expect(result.current.inventory.isSuccess).toBe(true);
+      expect(result.current.catalog.isSuccess).toBe(true);
+    });
+    const settled = result.current;
+    rerender();
+    expect(result.current).toBe(settled);
+    expect(result.current.mutation.mutate).toBe(settled.mutation.mutate);
+    expect(result.current.refresh.mutateAsync).toBe(settled.refresh.mutateAsync);
+    expect(result.current.recovery.mutate).toBe(settled.recovery.mutate);
+
+    act(() => client.setQueryData(["marketplace", "managed-themes"], []));
+    await waitFor(() => expect(result.current.inventory.data).toEqual([]));
+    expect(result.current).not.toBe(settled);
+    expect(result.current.catalog).toBe(settled.catalog);
+    expect(result.current.mutation).toBe(settled.mutation);
+    const updated = result.current;
+    rerender();
+    expect(result.current).toBe(updated);
+  });
   it("passes the exact signed envelope and never changes inventory optimistically", async () => {
     let complete: ((response: typeof entry) => void) | undefined;
     vi.mocked(installManagedTheme).mockImplementation(
