@@ -45,7 +45,11 @@ pub(super) fn prepare(
     }
     validate_target(&package, &body.target)?;
     let staging = validate_staging(&body.staging_directory, &project_root)?;
-    let output_parent = output_root.join(project_id.to_string());
+    let output_parent =
+        super::super::publication_storage::child_path(&output_root, &project_id.to_string())
+            .map_err(|error| {
+                AppError::Internal(format!("invalid publication bundle parent: {error}"))
+            })?;
     reject_output_overlap(&output_parent, &staging, &project_root)?;
     Ok(PreparedInputs {
         project_id,

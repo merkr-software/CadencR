@@ -23,9 +23,19 @@ pub(super) fn write(
 ) -> Result<WrittenContribution, AppError> {
     validate_filename(&documents.filename)?;
     ensure_root(root)?;
-    ensure_capacity(root)?;
-    let project = root.join(project_id.to_string());
+    let root = std::fs::canonicalize(root)
+        .map_err(|error| internal(format!("resolve contribution storage: {error}")))?;
+    ensure_capacity(&root)?;
+    let project = publication_storage::child_path(&root, &project_id.to_string())
+        .map_err(|error| internal(format!("invalid project contribution path: {error}")))?;
     ensure_directory(&project)?;
+    let project = std::fs::canonicalize(project)
+        .map_err(|error| internal(format!("resolve project contribution storage: {error}")))?;
+    if project.parent() != Some(root.as_path()) {
+        return Err(storage(
+            "project contribution directory escapes its storage root",
+        ));
+    }
     let output = publication_storage::create_unique_directory(&project)
         .map_err(|error| internal(format!("create contribution output: {error}")))?;
     let result = write_output(&output, &documents).and_then(|paths| {
@@ -264,6 +274,36 @@ mod tests {
             std::fs::read(&first.pull_request_path).unwrap(),
             b"pull request"
         );
+    }
+
+    #[test]
+    fn supports_a_custom_root_and_rejects_absolute_and_windows_filenames() {
+        let parent = tempfile::tempdir().unwrap();
+        let root = parent.path().join("custom-contributions");
+        for filename in ["/outside.json", r"C:\outside.json", r"..\outside.json"] {
+            let mut input = documents(b"new");
+            input.filename = filename.into();
+            assert!(write(&root, 7, input).is_err());
+            assert!(!root.exists());
+        }
+        let written = write(&root, 7, documents(b"package")).unwrap();
+        assert!(Path::new(&written.output_directory).starts_with(root.canonicalize().unwrap()));
+        assert_eq!(std::fs::read(written.package_path).unwrap(), b"package");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_a_symlinked_root_without_touching_the_target() {
+        use std::os::unix::fs::symlink;
+        let parent = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let sentinel = outside.path().join("sentinel.json");
+        std::fs::write(&sentinel, b"keep").unwrap();
+        let root = parent.path().join("contributions");
+        symlink(outside.path(), &root).unwrap();
+        assert!(write(&root, 7, documents(b"new")).is_err());
+        assert_eq!(std::fs::read(sentinel).unwrap(), b"keep");
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
     }
 
     #[test]

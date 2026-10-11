@@ -1,4 +1,4 @@
-use std::path::Path as FsPath;
+use std::path::{Component, Path as FsPath, PathBuf};
 
 use super::archive::{self, ArchiveBuildRequest};
 use super::input::{reject_output_overlap, PreparedInputs};
@@ -11,13 +11,7 @@ pub(super) fn build_package(
     mut input: PreparedInputs,
 ) -> Result<PreparedPublicationPackage, AppError> {
     super::quota::ensure_capacity(&input.output_root)?;
-    std::fs::create_dir_all(&input.output_parent).map_err(|error| {
-        AppError::Internal(format!("cannot create publication bundle parent: {error}"))
-    })?;
-    let canonical_parent = std::fs::canonicalize(&input.output_parent).map_err(|error| {
-        AppError::Internal(format!("cannot resolve publication bundle parent: {error}"))
-    })?;
-    reject_output_overlap(&canonical_parent, &input.staging, &input.project_root)?;
+    let canonical_parent = prepare_output_parent(&input)?;
     let output_dir =
         publication_storage::create_unique_directory(&canonical_parent).map_err(|error| {
             AppError::Internal(format!(
@@ -66,6 +60,92 @@ pub(super) fn build_package(
     }
 }
 
+fn prepare_output_parent(input: &PreparedInputs) -> Result<PathBuf, AppError> {
+    let prospective = prospective_path(&input.output_parent)?;
+    reject_output_overlap(&prospective, &input.staging, &input.project_root)?;
+    require_real_directory_if_present(&input.output_root)?;
+    require_real_directory_if_present(&input.output_parent)?;
+    std::fs::create_dir_all(&input.output_root)
+        .map_err(|error| output_error("create publication bundle root", error))?;
+    require_real_directory_if_present(&input.output_root)?;
+    match std::fs::create_dir(&input.output_parent) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(output_error("create publication bundle parent", error)),
+    }
+    require_real_directory_if_present(&input.output_parent)?;
+    let root = std::fs::canonicalize(&input.output_root)
+        .map_err(|error| output_error("resolve publication bundle root", error))?;
+    let parent = std::fs::canonicalize(&input.output_parent)
+        .map_err(|error| output_error("resolve publication bundle parent", error))?;
+    if parent.parent() != Some(root.as_path()) {
+        return Err(AppError::BadRequest(
+            "publication bundle parent escapes storage root".into(),
+        ));
+    }
+    reject_output_overlap(&parent, &input.staging, &input.project_root)?;
+    Ok(parent)
+}
+
+fn prospective_path(path: &FsPath) -> Result<PathBuf, AppError> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| output_error("resolve current directory", error))?
+            .join(path)
+    };
+    for ancestor in absolute.ancestors() {
+        match std::fs::symlink_metadata(ancestor) {
+            Ok(_) => {
+                let mut resolved = std::fs::canonicalize(ancestor)
+                    .map_err(|error| output_error("resolve publication output ancestor", error))?;
+                for component in absolute
+                    .strip_prefix(ancestor)
+                    .expect("path ancestor")
+                    .components()
+                {
+                    match component {
+                        Component::Normal(name) => resolved.push(name),
+                        Component::ParentDir => {
+                            return Err(AppError::BadRequest(
+                                "publication output cannot traverse a missing directory".into(),
+                            ))
+                        }
+                        Component::CurDir => {}
+                        _ => {
+                            return Err(AppError::BadRequest(
+                                "invalid publication output path".into(),
+                            ))
+                        }
+                    }
+                }
+                return Ok(resolved);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(output_error("inspect publication output ancestor", error)),
+        }
+    }
+    Err(AppError::BadRequest(
+        "publication output has no existing ancestor".into(),
+    ))
+}
+
+fn require_real_directory_if_present(path: &FsPath) -> Result<(), AppError> {
+    match std::fs::symlink_metadata(path) {
+        Ok(info) if info.file_type().is_symlink() || !info.is_dir() => Err(AppError::BadRequest(
+            "publication output must be a real directory, not a symlink".into(),
+        )),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(output_error("inspect publication output directory", error)),
+    }
+}
+
+fn output_error(operation: &str, error: std::io::Error) -> AppError {
+    AppError::Internal(format!("cannot {operation}: {error}"))
+}
+
 fn escape_json_pointer(value: &str) -> String {
     value.replace('~', "~0").replace('/', "~1")
 }
@@ -104,5 +184,147 @@ fn cleanup_failed_output<T>(
             directory.display(),
             failures.join("; ")
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::input;
+    use super::super::PreparePublicationPackageRequest;
+    use super::*;
+    use serde_json::json;
+
+    fn prepared(root: &FsPath, output: PathBuf) -> PreparedInputs {
+        let project = root.join("project");
+        let staging = root.join("staging");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(staging.join("bin")).unwrap();
+        let executable = staging.join("bin/provider");
+        std::fs::write(&executable, b"provider\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        std::fs::write(staging.join("icon.svg"), b"<svg/>\n").unwrap();
+        let metadata = json!({
+            "agent": {"id":"provider", "name":"Provider", "version":"1.0.0",
+                "description":"Test provider", "distribution":{"binary":{"linux-x86_64":{
+                    "archive":"https://example.invalid/provider.tar.gz",
+                    "cmd":"bin/provider", "sha256":"0".repeat(64)
+                }}}},
+            "host":{"publisher":"publisher", "compatibility":{"min_app_version":"0.12.0"},
+                "assets":{"icon":"icon.svg"}}
+        });
+        input::prepare(
+            1,
+            project.canonicalize().unwrap(),
+            "provider".into(),
+            output,
+            PreparePublicationPackageRequest {
+                metadata_json: metadata.to_string(),
+                staging_directory: staging.display().to_string(),
+                target: "linux-x86_64".into(),
+            },
+        )
+        .unwrap()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn ancestor_redirection_rejects_overlap_before_creating_directories() {
+        use std::os::unix::fs::symlink;
+        for destination in ["project", "staging"] {
+            let root = tempfile::tempdir().unwrap();
+            let alias = root.path().join("alias");
+            let input = prepared(root.path(), alias.join("new-storage"));
+            symlink(root.path().join(destination), &alias).unwrap();
+            assert!(build_package(input).is_err());
+            assert!(!root.path().join(destination).join("new-storage").exists());
+            assert_eq!(
+                std::fs::read(root.path().join("staging/bin/provider")).unwrap(),
+                b"provider\n"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_project_output_does_not_change_external_directory() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("output");
+        let input = prepared(root.path(), output.clone());
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("sentinel"), b"keep").unwrap();
+        std::fs::create_dir(&output).unwrap();
+        symlink(outside.path(), output.join("1")).unwrap();
+        assert!(build_package(input).is_err());
+        assert_eq!(
+            std::fs::read(outside.path().join("sentinel")).unwrap(),
+            b"keep"
+        );
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+        assert!(std::fs::symlink_metadata(output.join("1"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn missing_parent_traversal_does_not_create_a_directory_in_the_project() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let alias = root.path().join("alias");
+        let input = prepared(root.path(), alias.join("new/../../outside"));
+        symlink(root.path().join("project"), &alias).unwrap();
+        assert!(build_package(input).is_err());
+        assert!(!root.path().join("project/new").exists());
+        assert!(!root.path().join("outside").exists());
+        assert_eq!(
+            std::fs::read_dir(root.path().join("project"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn legitimate_ancestor_alias_builds_outside_the_project_and_staging() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let storage = tempfile::tempdir().unwrap();
+        let alias = root.path().join("alias");
+        let input = prepared(root.path(), alias.join("bundles"));
+        symlink(storage.path(), &alias).unwrap();
+        let response = build_package(input).unwrap();
+        let archive = PathBuf::from(response.archive_path);
+        assert!(archive.starts_with(storage.path().canonicalize().unwrap().join("bundles/1")));
+        assert!(archive.is_file());
+        assert!(FsPath::new(&response.metadata_path).is_file());
+        assert_eq!(
+            std::fs::read_dir(root.path().join("project"))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn normal_output_builds_a_bundle_beneath_the_project_storage_directory() {
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("output");
+        let response = build_package(prepared(root.path(), output.clone())).unwrap();
+        let archive = PathBuf::from(response.archive_path);
+        let bundle = archive.parent().unwrap();
+        assert_eq!(
+            bundle.parent(),
+            Some(output.join("1").canonicalize().unwrap().as_path())
+        );
+        assert!(uuid::Uuid::parse_str(bundle.file_name().unwrap().to_str().unwrap()).is_ok());
+        assert!(archive.is_file());
+        assert!(FsPath::new(&response.metadata_path).is_file());
     }
 }
