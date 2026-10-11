@@ -1,0 +1,26 @@
+[package]
+name = "cadencr-registry-core"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+
+[dependencies]
+bon.workspace = true
+base64 = "0.23"
+chrono = "0.4"
+cadencr-plugin-core = { path = "../plugin-core" }
+flate2 = "1"
+ed25519-dalek = { version = "3.0.0", features = ["pkcs8"] }
+libc = "0.2"
+pem-rfc7468 = { version = "0.7", features = ["alloc"] }
+ryu-js = "1.0.3"
+semver = "1"
+serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
+tempfile = "3"
+sha2 = "0.11"
+unicode-normalization = "0.1"
+url = "2"
+zeroize = "1.8"
+
+[lints]
+workspace = true

@@ -10,7 +10,58 @@ permissions:
   contents: write
 
 jobs:
+  cli-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install Rust stable toolchain
+        if: startsWith(github.ref, 'refs/tags/')
+        run: rustup toolchain install stable --profile minimal
+
+      - name: Test CLI and supporting libraries
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          node scripts/cargo-env.mjs cargo test --locked \
+            -p cadencr-cli \
+            -p cadencr-plugin-core \
+            -p cadencr-registry-core \
+            -p cadencr-registry-publisher
+
+      - name: Build CLI
+        if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/cargo-env.mjs cargo build --locked --release -p cadencr-cli
+
+      - name: Smoke test and package CLI release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          scripts/package-cli-release.sh \
+            "$GITHUB_REF_NAME" \
+            x86_64-unknown-linux-gnu \
+            target/release/cadencr \
+            "$RUNNER_TEMP/cli-release"
+
+      # actions/upload-artifact@v4.6.2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: cadencr-cli-linux-release
+          path: ${{ runner.temp }}/cli-release/
+          if-no-files-found: error
+          retention-days: 1
+
   release:
+    needs: cli-linux
     runs-on: macos-14
     timeout-minutes: 60
     env:
@@ -68,6 +119,23 @@ jobs:
 
       - name: Build renderer + main bundles
         run: pnpm --filter @cadencr/desktop exec electron-vite build
+
+      # actions/download-artifact@v4.3.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: cadencr-cli-linux-release
+          path: ${{ runner.temp }}/cli-release
+
+      - name: Verify downloaded CLI release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          cli_dist="$RUNNER_TEMP/cli-release"
+          cli_asset="cadencr-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+          cli_manifest="cadencr-${GITHUB_REF_NAME}-SHA256SUMS"
+          test -f "$cli_dist/$cli_asset"
+          test -f "$cli_dist/$cli_manifest"
+          (cd "$cli_dist" && shasum -a 256 --check "$cli_manifest")
 
       - name: Prepare GitHub release
         if: startsWith(github.ref, 'refs/tags/')
@@ -177,7 +245,9 @@ jobs:
             "$dist_dir/Cadencr-${version}-arm64.dmg.blockmap" \
             "$dist_dir/Cadencr-${version}-arm64-mac.zip" \
             "$dist_dir/Cadencr-${version}-arm64-mac.zip.blockmap" \
-            "$dist_dir/latest-mac.yml"
+            "$dist_dir/latest-mac.yml" \
+            "$RUNNER_TEMP/cli-release/cadencr-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu" \
+            "$RUNNER_TEMP/cli-release/cadencr-${GITHUB_REF_NAME}-SHA256SUMS"
 
       - name: Verify uploaded GitHub release assets
         if: startsWith(github.ref, 'refs/tags/')
@@ -193,6 +263,8 @@ jobs:
             "Cadencr-${version}-arm64-mac.zip"
             "Cadencr-${version}-arm64-mac.zip.blockmap"
             "latest-mac.yml"
+            "cadencr-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu"
+            "cadencr-${GITHUB_REF_NAME}-SHA256SUMS"
           )
 
           is_draft="$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"

@@ -122,6 +122,35 @@ mod tests {
     }
 
     #[test]
+    fn normalizes_family_alias_ids_with_versioned_display_labels() {
+        let catalog = vec![
+            ModelCatalogEntry::alias("opus", "Opus (latest)"),
+            ModelCatalogEntry::alias("sonnet", "Sonnet 4.8"),
+            ModelCatalogEntry::alias("haiku", "Haiku 4.5"),
+            ModelCatalogEntry::alias("opus[1m]", "Opus 4.8 (1M context)"),
+        ];
+        for (requested, expected) in [
+            ("Opus", "opus"),
+            ("SONNET", "sonnet"),
+            ("HaIkU", "haiku"),
+            ("OPUS[1M]", "opus[1m]"),
+        ] {
+            assert_eq!(resolve_model_alias(requested, &catalog), expected);
+        }
+    }
+
+    #[test]
+    fn does_not_case_fold_concrete_or_custom_model_ids() {
+        let catalog = vec![
+            ModelCatalogEntry::alias("us.anthropic.claude-opus-4-8", "Opus"),
+            ModelCatalogEntry::alias("my-gateway/custom-model", "Custom"),
+        ];
+        for requested in ["US.ANTHROPIC.CLAUDE-OPUS-4-8", "MY-GATEWAY/CUSTOM-MODEL"] {
+            assert_eq!(resolve_model_alias(requested, &catalog), requested);
+        }
+    }
+
+    #[test]
     fn keeps_haiku_when_catalog_exposes_it_as_an_id() {
         // Bedrock still ships `haiku` as a real catalog id → no rewrite.
         assert_eq!(resolve_model_alias("haiku", &bedrock_catalog()), "haiku");

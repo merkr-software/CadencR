@@ -7,7 +7,7 @@ use super::{
     AcpAgentEntry, AcpBinaryTarget, AcpDistribution, HostInstallationSpec, ProviderDescriptor,
     ACP_BINARY_TARGETS, SUPPORTED_SCHEMA_VERSION,
 };
-use crate::domain::agents::providers::installed::rejection::{DescriptorError, RejectionCode};
+use crate::{DescriptorError, RejectionCode};
 
 /// Field names the ACP handshake owns.
 ///
@@ -250,7 +250,7 @@ fn validate_local_asset_path(label: &str, value: &str) -> Result<(), DescriptorE
             "{label} {value:?} must be a relative path contained by installation.assets.directory"
         )));
     }
-    if crate::shared::image_file::image_or_svg_mime_for_path(path).is_none() {
+    if image_or_svg_mime_for_path(path).is_none() {
         return Err(schema_violation(format!(
             "{label} {value:?} must use an image format Cadencr can paint"
         )));
@@ -259,7 +259,7 @@ fn validate_local_asset_path(label: &str, value: &str) -> Result<(), DescriptorE
 }
 
 fn validate_uri(label: &str, value: &str) -> Result<(), DescriptorError> {
-    reqwest::Url::parse(value)
+    url::Url::parse(value)
         .map(|_| ())
         .map_err(|error| schema_violation(format!("{label} must be a valid URI: {error}")))
 }
@@ -298,4 +298,19 @@ fn is_semver_prefixed(version: &str) -> bool {
         && !patch.is_empty()
         && major.chars().all(|c| c.is_ascii_digit())
         && minor.chars().all(|c| c.is_ascii_digit())
+}
+
+fn image_or_svg_mime_for_path(path: &std::path::Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    match extension.as_str() {
+        "png" => Some("image/png"),
+        "jpg" | "jpeg" => Some("image/jpeg"),
+        "gif" => Some("image/gif"),
+        "webp" => Some("image/webp"),
+        "bmp" => Some("image/bmp"),
+        "ico" => Some("image/x-icon"),
+        "avif" => Some("image/avif"),
+        "svg" => Some("image/svg+xml"),
+        _ => None,
+    }
 }

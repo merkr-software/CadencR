@@ -6,16 +6,27 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  # Reserve one repository-wide publication lane for this preparation job and
+  # the future privileged publisher. Never cancel an in-flight publication.
+  group: marketplace-publication
+  cancel-in-progress: false
+
 jobs:
   canonical-payload:
+    # workflow_dispatch can be launched against any ref. Only the repository's
+    # actual default-branch ref may enter the protected preparation environment.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     # Configure this environment with required reviewers in the registry repo.
+    # That external protection is not provisioned by this template.
     environment: protected-marketplace-publisher
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.repository.default_branch }}
+          # Pin the reviewed dispatch commit; do not follow a moving branch.
+          ref: ${{ github.sha }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -33,7 +44,9 @@ jobs:
           path: ${{ runner.temp }}/managed-index.json
           if-no-files-found: error
           retention-days: 1
-      # This bootstrap intentionally stops before signing, mirroring, or release
-      # writes. A production publisher must revalidate reviewed digests, mirror
-      # exact bytes, sign only this canonical payload, and publish atomically.
-      # It must never execute contributor archives or receive PR-controlled code.
+      # This is unsigned preparation, not a fully wired protected publisher. It
+      # intentionally stops before signing, mirroring, discovery, or release
+      # writes. A future privileged publisher must use this same concurrency
+      # group, revalidate reviewed digests, mirror exact bytes, sign only the
+      # canonical payload, and publish atomically. It must never execute
+      # contributor archives or receive PR-controlled code.

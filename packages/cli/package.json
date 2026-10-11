@@ -1,0 +1,11 @@
+{
+  "name": "@cadencr/cli",
+  "version": "0.12.1",
+  "private": true,
+  "scripts": {
+    "test": "node ../../scripts/cargo-env.mjs cargo test --locked -p cadencr-cli -p cadencr-plugin-core -p cadencr-registry-core -p cadencr-registry-publisher",
+    "lint": "node ../../scripts/cargo-env.mjs cargo check --locked -p cadencr-cli -p cadencr-plugin-core -p cadencr-registry-core -p cadencr-registry-publisher",
+    "format": "node ../../scripts/cargo-env.mjs cargo fmt --package cadencr-cli --package cadencr-plugin-core --package cadencr-registry-core --package cadencr-registry-publisher",
+    "format:check": "node ../../scripts/cargo-env.mjs cargo fmt --package cadencr-cli --package cadencr-plugin-core --package cadencr-registry-core --package cadencr-registry-publisher -- --check"
+  }
+}

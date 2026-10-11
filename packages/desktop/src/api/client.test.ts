@@ -8,11 +8,46 @@ import {
   __resetRuntimeConfigForTests,
   getAuthTokenSync,
   preloadRuntimeConfig,
+  publicationOperationTimeout,
+  managedProviderOperationTimeout,
   resolveApiBaseUrlSync,
   shouldAttachAbortSignal,
   strictModeStableReadRequestKey,
   workspaceSettingFromBulk,
 } from "./client";
+
+describe("publication release timeout policy", () => {
+  it.each([
+    "/api/projects/7/publication-release",
+    "/api/projects/42/publication-release/preview",
+    "/api/projects/9/publication-contribution",
+    "/api/projects/7/publication-registry",
+    "/api/projects/42/publication-registry/preview",
+  ])("allows the exact POST endpoint to finish its bounded backend work: %s", (url) => {
+    expect(publicationOperationTimeout({ method: "POST", url })).toBe(190000);
+  });
+
+  it.each([
+    { method: "GET", url: "/api/projects/7/publication-release" },
+    { method: "POST", url: "/api/projects/not-a-number/publication-release" },
+    { method: "POST", url: "/api/projects/7/publication-release/preview/extra" },
+    { method: "POST", url: "/api/projects/7/publication-contribution/extra" },
+    { method: "POST", url: "/api/projects/7/publication-registry/preview/extra" },
+    { method: "POST", url: "/api/projects/7/publication-package" },
+  ])("leaves unrelated requests on the Axios default: $method $url", (config) => {
+    expect(publicationOperationTimeout(config)).toBeUndefined();
+  });
+
+  it("preserves an explicit caller timeout", () => {
+    expect(
+      publicationOperationTimeout({
+        method: "POST",
+        timeout: 5000,
+        url: "/api/projects/7/publication-release/preview",
+      }),
+    ).toBe(5000);
+  });
+});
 
 function bridgeWithRuntime(
   runtimeConfig: CadencrDesktopBridge["runtimeConfig"],
@@ -161,5 +196,32 @@ describe("workspace setting bulk adapter", () => {
       value: null,
     });
     expect(workspaceSettingFromBulk({ key: "known", value: "yes" }, "known")).toBeUndefined();
+  });
+});
+
+describe("managed provider timeout policy", () => {
+  it.each([
+    "/api/agents/managed-providers",
+    "/api/agents/managed-providers/example/update",
+    "/api/agents/managed-providers/example/rollback",
+  ])("allows bounded download and conformance: %s", (url) => {
+    expect(managedProviderOperationTimeout({ method: "POST", url })).toBe(180000);
+  });
+  it.each([
+    { method: "GET", url: "/api/agents/managed-providers" },
+    { method: "POST", url: "/api/agents/managed-providers/catalog/refresh" },
+    { method: "PUT", url: "/api/agents/managed-providers/example/enabled" },
+    { method: "POST", url: "/api/agents/managed-providers/example/update/extra" },
+  ])("does not change unrelated requests", (config) => {
+    expect(managedProviderOperationTimeout(config)).toBeUndefined();
+  });
+  it("preserves explicit timeout", () => {
+    expect(
+      managedProviderOperationTimeout({
+        method: "POST",
+        url: "/api/agents/managed-providers",
+        timeout: 5000,
+      }),
+    ).toBe(5000);
   });
 });

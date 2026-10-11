@@ -153,7 +153,7 @@ test("enforces the exact bounded publication window", async () => {
 
 test("template contribution is a valid package", async () => {
   const example = JSON.parse(
-    await readFile(path.join(root, "packages/example-provider-0.1.0.json"), "utf8"),
+    await readFile(path.join(root, "tests/fixtures/example-provider.json.fixture"), "utf8"),
   );
   assert.deepEqual(validatePackage(example), []);
 });

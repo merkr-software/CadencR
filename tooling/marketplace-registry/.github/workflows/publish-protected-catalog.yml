@@ -1,0 +1,201 @@
+name: Publish protected marketplace catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm-request-sha256:
+        description: SHA-256 of the reviewed publication-request.json at the dispatched commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publication
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - name: Confirm reviewed publication request
+        env:
+          CONFIRM_REQUEST_SHA256: ${{ inputs.confirm-request-sha256 }}
+        run: |
+          node <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { lstatSync, readFileSync } = require("node:fs");
+          const file = "publication-request.json";
+          const expected = process.env.CONFIRM_REQUEST_SHA256;
+          if (!/^[a-f0-9]{64}$/.test(expected ?? "")) {
+            throw new Error("confirm-request-sha256 must be 64 lowercase hexadecimal characters");
+          }
+          const metadata = lstatSync(file);
+          if (metadata.isSymbolicLink() || !metadata.isFile()) {
+            throw new Error("publication-request.json must be a regular non-symlink file");
+          }
+          if (metadata.size > 1024 * 1024) {
+            throw new Error("publication-request.json exceeds 1 MiB");
+          }
+          // The fixed request lives in this isolated, exact-commit checkout;
+          // no contributor process runs concurrently between this cap and read.
+          const bytes = readFileSync(file);
+          const actual = createHash("sha256").update(bytes).digest("hex");
+          if (actual !== expected) throw new Error("reviewed publication request digest mismatch");
+          JSON.parse(bytes.toString("utf8"));
+          NODE
+
+      - name: Select verified publisher runtime
+        id: publisher_runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+
+  publish:
+    needs: preflight
+    if: needs.preflight.result == 'success' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # Repository administrators must configure this environment with required
+    # external reviewers. The workflow cannot provision that protection itself.
+    environment: protected-marketplace-publisher
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+      - name: Reconfirm reviewed publication request
+        env:
+          CONFIRM_REQUEST_SHA256: ${{ inputs.confirm-request-sha256 }}
+        run: |
+          node <<'NODE'
+          const { createHash } = require("node:crypto");
+          const { lstatSync, readFileSync } = require("node:fs");
+          const file = "publication-request.json";
+          const expected = process.env.CONFIRM_REQUEST_SHA256;
+          if (!/^[a-f0-9]{64}$/.test(expected ?? "")) {
+            throw new Error("confirm-request-sha256 must be 64 lowercase hexadecimal characters");
+          }
+          const metadata = lstatSync(file);
+          if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1024 * 1024) {
+            throw new Error("publication-request.json must be a bounded regular non-symlink file");
+          }
+          const actual = createHash("sha256").update(readFileSync(file)).digest("hex");
+          if (actual !== expected) throw new Error("reviewed publication request digest mismatch");
+          NODE
+      - name: Select verified publisher runtime
+        id: publisher_runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/marketplace-released-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      - name: Create bounded publication state directory
+        env:
+          PUBLICATION_STATE: ${{ runner.temp }}/marketplace-publication-state
+        run: >-
+          node -e 'require("node:fs").mkdirSync(process.env.PUBLICATION_STATE,
+          { recursive: false, mode: 0o700 })'
+      - name: Materialize protected signing key
+        id: materialize_key
+        env:
+          CADENCR_REGISTRY_PRIVATE_KEY_PEM: ${{ secrets.CADENCR_REGISTRY_PRIVATE_KEY_PEM }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: |
+          node <<'NODE'
+          const { appendFileSync, chmodSync, mkdtempSync, writeFileSync } = require("node:fs");
+          const { join } = require("node:path");
+          const key = process.env.CADENCR_REGISTRY_PRIVATE_KEY_PEM;
+          if (!key) throw new Error("CADENCR_REGISTRY_PRIVATE_KEY_PEM is required");
+          if (Buffer.byteLength(key, "utf8") > 16 * 1024) {
+            throw new Error("CADENCR_REGISTRY_PRIVATE_KEY_PEM exceeds 16 KiB");
+          }
+          const directory = mkdtempSync(join(process.env.PRIVATE_KEY_ROOT, "marketplace-publisher-secret-"));
+          chmodSync(directory, 0o700);
+          const file = join(directory, "private.pem");
+          appendFileSync(process.env.GITHUB_OUTPUT, `private_key_file=${file}\n`);
+          writeFileSync(file, key, { flag: "wx", mode: 0o600 });
+          NODE
+      - name: Publish reviewed registry request
+        env:
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ secrets.CADENCR_REGISTRY_GITHUB_TOKEN }}
+          CONFIRM_REQUEST_SHA256: ${{ inputs.confirm-request-sha256 }}
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          PUBLISHER_MODE: ${{ steps.publisher_runtime.outputs.mode }}
+          VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
+        run: |
+          node <<'NODE'
+          const { spawnSync } = require("node:child_process");
+          const { join } = require("node:path");
+          const mode = process.env.PUBLISHER_MODE;
+          if (mode !== "legacy" && mode !== "released") throw new Error("missing verified runtime");
+          const args = [
+            "--request", "publication-request.json",
+            "--directory", join(process.env.RUNNER_TEMP, "marketplace-publication-state"),
+            "--repository", process.env.GITHUB_REPOSITORY,
+            "--registry-commit", process.env.GITHUB_SHA,
+            "--private-key", process.env.PRIVATE_KEY_FILE,
+            "--confirm-request-sha256", process.env.CONFIRM_REQUEST_SHA256,
+          ];
+          const command = mode === "legacy" ? process.execPath : process.env.VERIFIED_CLI;
+          const prefix = mode === "legacy" ? ["scripts/publish-registry.mjs"] : ["registry", "publish-registry"];
+          if (!command) throw new Error("missing verified CLI");
+          const result = spawnSync(command, [...prefix, ...args], { stdio: "inherit" });
+          if (result.error) throw result.error;
+          if (result.status !== 0) throw new Error("registry publication failed");
+          NODE
+      - name: Remove materialized signing key
+        if: ${{ always() && steps.materialize_key.outputs.private_key_file != '' }}
+        env:
+          PRIVATE_KEY_FILE: ${{ steps.materialize_key.outputs.private_key_file }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: |
+          node <<'NODE'
+          const { lstatSync, unlinkSync } = require("node:fs");
+          const { dirname, relative, resolve, sep } = require("node:path");
+          const root = resolve(process.env.PRIVATE_KEY_ROOT);
+          const file = resolve(process.env.PRIVATE_KEY_FILE);
+          const owned = relative(root, file).split(sep);
+          if (owned.length !== 2 || !/^marketplace-publisher-secret-[^/]+$/.test(owned[0]) || owned[1] !== "private.pem") {
+            throw new Error("refusing to clean a private-key path outside the owned directory");
+          }
+          try {
+            const directoryMetadata = lstatSync(dirname(file));
+            if (directoryMetadata.isSymbolicLink() || !directoryMetadata.isDirectory()) {
+              throw new Error("refusing to clean through an unexpected private-key directory");
+            }
+            const metadata = lstatSync(file);
+            if (metadata.isSymbolicLink() || !metadata.isFile()) {
+              throw new Error("refusing to clean an unexpected private-key path");
+            }
+            unlinkSync(file);
+          } catch (error) {
+            if (error?.code !== "ENOENT") throw error;
+          }
+          NODE
+      - name: Preserve publication recovery state
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: marketplace-publication-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/marketplace-publication-state/
+          if-no-files-found: warn
+          retention-days: 7
+          include-hidden-files: true
+      # Fresh runners reconstruct published provider state only after tag,
+      # binding, public provenance and archive verification. No Actions artifact
+      # is restored or executed. Reruns retain the original reviewed commit,
+      # request and publication window; expiry still fails closed. Unpublished
+      # drafts require source archives when no local staging state survives.
+      # Recovery artifacts remain optional operator diagnostics, not authority.

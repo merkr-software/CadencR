@@ -2,6 +2,7 @@ import { useCallback, useMemo } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  type Project,
   useGetProjectSettings,
   useSetProjectSetting,
   getGetProjectSettingsQueryKey,
@@ -18,6 +19,8 @@ import { ProjectJsonSettings } from "@/components/settings/SettingsJsonControls"
 import { ProjectEditorToolingSettings } from "@/components/settings/ProjectEditorToolingSettings";
 import { WorktreeSetupFields } from "@/components/settings/WorktreeSetupFields";
 import { settingsArrayToMap } from "@/api/settings";
+import { ProviderPublicationPreparation } from "./ProviderPublicationPreparation";
+import { ProviderPublicationPackagePreparation } from "./ProviderPublicationPackagePreparation";
 
 const PROJECT_SETTING_KEYS = {
   branchPrefix: "branch_prefix",
@@ -31,11 +34,13 @@ type ProjectSettingKey = (typeof PROJECT_SETTING_KEYS)[keyof typeof PROJECT_SETT
 export function ProjectSettingsDialog({
   projectId,
   projectName,
+  authoringTarget,
   open,
   onOpenChange,
 }: {
   projectId: number;
   projectName: string;
+  authoringTarget?: Project["authoring_target"];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }): React.JSX.Element {
@@ -75,6 +80,12 @@ export function ProjectSettingsDialog({
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
+          {authoringTarget === "provider" ? (
+            <>
+              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
+          ) : null}
           <IdentitySection
             projectId={projectId}
             color={settings[PROJECT_SETTING_KEYS.color]}

@@ -1,26 +1,1243 @@
 # Marketplace V1 — GitHub-only distribution
 
-## Scheduling update — 2026-09-12
+## Post-rebase integration validation — 2026-10-10
 
-**Deferred beyond the current v0.12.0 scope.** The release goal is local themes
-and providers, without marketplace UI. Follow [Local Plugins v0.12.0](./LOCAL_PLUGINS_V0_12.md)
-first. Both plugin types must have an identifiable project in the developer's
-Cadencr instance; a durable theme/provider marker enables the later GitHub
-publication plus initial/new-version registry workflow.
+- Rebased the current branch onto local `main` at `103bc6913`: no conflicts,
+  all 37 feature patches unchanged, and signed history verified. Local work and
+  QA can continue without merging; no merge, push or release was performed.
+- Independent GPT-6.1-Sol reuse/quality/efficiency reviews found no integration
+  regression. The local ACP full-turn integration test now also covers a
+  frontend-seeded Claude `auto` mode: initialization omits the host-owned mode,
+  and the turn completes without sending an unsupported ACP mode.
+- Full checks pass: all 25 format/lint/type/test/unused-code tasks, including
+  5,191 frontend tests, plus all 111 root script tests.
+- Four focused isolated dev QA cases pass: existing-folder provider import
+  preserves the source Git commit and clean working tree; the local ACP fixture
+  completes turns with both discovered models after restart and model switching;
+  a new theme is applied with its own project; the verified demo catalog supports
+  search, details, exact-version selection and refresh without a configured source.
+  API reads confirm both new `authoring_target` / `plugin_id` identities. No
+  browser-console errors were recorded. Only task-owned QA processes were stopped;
+  user databases were untouched and the isolated QA database was preserved.
+- This validates local source behavior, not successful managed installation,
+  packaged-app lifecycle or real GitHub deployment. Official trust and `PENDING`
+  release pins remain unchanged; the activation gates below still apply.
+- Linux is required for the Rust CLI used by GitHub CI runners, not a new desktop
+  delivery target. Supported desktop lifecycle QA remains a separate gate.
 
-The GitHub-only architecture below remains accepted. R1–R9 are the future public
-distribution checklist, not prerequisites for shipping the local release.
+## Cross-implementation state handoff — 2026-10-10
 
-### Implementation progress (working tree, not release approval)
+- Execution uses GPT-6.1-Sol delegated implementation, followed by independent
+  reuse/quality/efficiency review and normal signed local delivery.
+- Close the optional-commit schema mismatch by accepting omission/exact lowercase
+  commit strings and rejecting explicit `null`, wrong types and unknown fields.
+  Compare negative cases through the actual JS pipeline entry point and actual
+  Rust CLI subprocess, before credentials or state creation.
+- Exercise JS-to-Rust and Rust-to-JS against one persistent loopback GitHub fixture
+  and the same state directory. Production HTTP injection remains unavailable;
+  Rust fixture transport is compiled only in unit tests, and download bytes still
+  pass through the shared production digest/size streaming verifier.
+- Acceptance includes byte-preserving canonical receipts/catalog replay without
+  duplicate mutations, interrupted public verification/discovery, managed recovery
+  with retired author URLs and fail-closed conflicting local state.
+- Verification: 14 Rust pipeline tests (including three cross-implementation
+  regressions), two actual CLI integration tests and all 260 registry tests pass.
+  Eight directional replay/interruption/fresh-state cases preserve canonical bytes;
+  completed/discovery resumes make no extra mutations, and provider resume permits
+  exactly five ordered new catalog/discovery writes. Existing release records and
+  remote discovery SHA/byte digest remain unchanged where replay requires it.
+- Reviews closed their findings after strengthening discovery-resume assertions.
+  A separate negative test records JS rejection of noncanonical manifests without
+  altering local state or remote history; semantic Rust replay remains unchanged.
+- These are local source-implementation checks, not tests of a released Linux asset,
+  real GitHub availability, a packaged app or production keys. `PENDING` pins and
+  transitional JavaScript remain unchanged until release/deployment gates pass.
 
-- Session-scoped resume eligibility and regression coverage have been added.
-- Official signed catalog acquisition/cache and API routes have been added;
-  index publication timestamps now support freshness/replay checks. No UI exists.
-- Local registry validation/index tooling and workflow templates have been added,
-  with tests against the service fixture. Templates do not mirror, sign or publish.
-- Production release configuration, GitHub resources and packaged public lifecycle
-  QA remain undone. The plugin-project marker now exists for new rows only;
-  existing projects are not backfilled or reclassified.
+## Released CLI CI preparation — 2026-10-10
+
+- Shared trusted shell bootstrap parses the release pin as data, constructs the
+  official HTTPS asset URL, bounds downloads/redirects and verifies digest and
+  version before command execution. It refuses existing output paths.
+- Contribution checks and the protected publisher consume the same reviewed pin.
+  Both values remain `PENDING`: the JavaScript implementation remains active.
+  Malformed/partial pins, download failure or verification failure never authorize
+  legacy fallback. Only the explicit wholly pending configuration does.
+- Publisher runtime selection runs independently on both runners, before signing
+  key materialization; a provisioned CLI must expose `registry publish-registry`.
+  No executable is restored from a recovery artifact. The workflow relies on exit
+  status and persisted receipts, not implementation-specific success text.
+- Preparation is not deployment: no release/tag/push, actual Linux artifact,
+  official trust activation or real GitHub publication is claimed.
+
+- Independent reuse/quality/efficiency reviews closed their findings: runtime
+  selection is shared, failure diagnostics remain visible, version probing has a
+  30-second timeout/2-second kill grace and 1 KiB output limit, and new fixtures
+  clean up their temporary files. All 260 registry tests pass with loopback
+  permissions; shell syntax, YAML parsing and formatting pass. An actual committed
+  `PENDING`-pin smoke selects legacy without creating a download directory.
+
+### Activation acceptance gates
+
+1. Explicitly select the release version and coordinated source. The current
+   bootstrap expects the existing app release namespace `vX.Y.Z`; an independent
+   namespace requires an approved coordinated change.
+2. Verify the actual released Linux asset, its checksum/version and orchestration
+   command before atomically provisioning both pin values in a reviewed change.
+3. Exercise JS-to-Rust and Rust-to-JS canonical state handoff, interrupted remote
+   boundaries, no-duplicate-write replay and retired-author-URL recovery. Local
+   implementation tests alone do not establish parity of a released artifact.
+4. Optional publication commits now share the strict omitted/exact-string
+   contract; explicit `null` is rejected. Rust still permits semantic manifest
+   replay while JS requires canonical bytes. Use canonical manifests for
+   interoperable handoff; preserve Rust's stricter historical-publication and
+   pinned-signing checks.
+5. Retain transitional JS until replacement delivery and applicable parity pass;
+   then remove superseded runtime tooling in a separate reviewed increment.
+
+## Parallel execution update — 2026-10-10
+
+Three implementation tracks run with GPT-6.1-Sol workers, followed by independent
+reuse, quality and efficiency reviews under the same model.
+
+- **Protected Rust orchestration:** `cadencr registry publish-registry` composes
+  checked request binding, bounded staging/restoration, tag reconciliation,
+  mirroring/promotion, pinned-key signing, catalog publication and discovery.
+  Standalone commands keep their previous authority boundaries. The transitional
+  JavaScript workflow remains active until released-CLI parity and deployment.
+- **CLI delivery preparation:** a manual read-only Linux workflow validates an
+  explicit source branch tip and matching version, runs locked tests/build, and
+  uploads executable/checksum/source evidence. It does not publish or activate
+  registry pins. Release version and shared-versus-independent topology remain
+  explicit decisions; bootstrap currently expects `vX.Y.Z` releases.
+- **Marketplace interface:** providers-only browsing/search, exact-version
+  install/update, installed enable/disable/remove, history and diagnostics.
+  Requests preserve the original signed envelope and wait for backend confirmation.
+  Loading, errors, unknown transport outcomes and restart requirements are visible.
+  Theme distribution and history rollback UI are not included.
+- **Verification:** isolated renderer/backend QA uses a newly created database and
+  ephemeral test trust, never the developer's production database, keys or tokens.
+  Local/fake-transport evidence is not live GitHub or packaged-app certification.
+- **Review corrections:** canonical manifest replay reuses existing receipt
+  reconciliation; pending operations/errors survive Details navigation; package
+  grouping is linear and history work is gated. Live QA caught zero-height
+  Virtuoso lists; bounded parents and layout regressions cover all three lists.
+- **Live QA evidence:** real isolated backend/renderer verifies unavailable and
+  verified-cache states, search/details/exact-version selection, surfaced artifact
+  download failure/quarantine and empty history, plus tampered-signature rejection.
+  Successful provider installation/execution against a real published registry,
+  packaged-app restart and cross-platform certification remain separate gates.
+
+- **Hook-blocker correction:** recognized Claude family aliases no longer depend
+  on unversioned display labels. Exact custom/concrete IDs retain case sensitivity;
+  versioned-label unit regressions and all nine model-validation integration tests
+  pass. This provider-local fix is delivered separately from marketplace changes.
+
+- **Local delivery checks:** full normal pre-commit checks pass after the alias
+  correction, including 4,989 frontend tests. Delivery remains local and signed;
+  no push, release, registry pin or official trust activation is inferred.
+
+### Remaining dependency gates
+
+Local delivery uses scoped signed commits with normal hooks, without push,
+tag or release. The remaining deployment gates are:
+
+1. Choose the release version/topology and coordinate the reviewed source commit;
+   produce and actually publish the supported CLI artifact and checksum.
+2. Pin the released CLI in registry CI, switch the protected pipeline only after
+   parity checks, then remove the superseded JavaScript runtime tooling.
+3. Configure official catalog/discovery URLs, trust roots, protected signing and
+   renewal/revocation operations with documented ownership.
+4. Exercise real GitHub contribution, publication/replay and fresh-runner recovery;
+   complete supported-platform and packaged-app installation/update/removal QA.
+5. Open the public beta only after deployment, trust and operational gates pass.
+
+## Execution update — 2026-09-20
+
+Marketplace implementation is now authorized, following the local-plugin work.
+This does not change the published v0.12.0 scope or authorize a remote repository,
+release, push, registry publication, or production-data changes.
+
+The first implemented distribution contract remains **ACP providers**. Theme
+projects already carry authoring identity, but theme distribution requires its own
+contract; including themes in the first public marketplace is awaiting confirmation.
+
+### Registry destination and contribution policy — accepted 2026-09-20
+
+- Official contribution destination: `merkr-software/cadencr-registry`.
+- Authors contribute through a personal fork, dedicated branch and pull request;
+  the app must never push directly to the upstream default branch.
+- Every remote submission requires an explicit in-app confirmation of the reviewed
+  destination, connected account and exact contribution. Preview is read-only.
+- Registry CI validation and maintainer approval remain required before publication.
+  Opening a PR is not registry acceptance, merge, signing or publication.
+- This decision authorizes implementation, not creation of the real repository or
+  live test PRs. Deployment, repository protections and live GitHub QA remain gates.
+- The registry PR preparation/submission increment is implemented locally. Its
+  verification and delivery boundaries are recorded below.
+
+### Current foundation
+
+- Local authoring/import and new-project `authoring_target` / `plugin_id` markers
+  are committed. Existing projects are not backfilled or reclassified.
+- Session-scoped resume eligibility is implemented and tested.
+- Signed catalog acquisition/cache and managed installation APIs exist; their
+  existence does not imply a configured production registry or a marketplace UI.
+- Registry validation/index preparation exists. The original workflow templates
+  do not mirror archives, sign payloads, or publish releases.
+- Local changes were rebased onto `v0.12.0`; integration checks passed. Packaged
+  provider lifecycle and supported-platform coverage still need completion.
+
+### Execution sequence and gates
+
+| Step | Deliverable                                                          | State                                                                                                                                     |
+| ---- | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| A    | Strict source/version submission contract and governance             | Local contract implemented and reviewed; official repository, platform and isolation policies remain open                                 |
+| B    | Reproducible author packaging, guide and conformance workflow        | Local packer and guide implemented/reviewed; reusable conformance workflow and platform certification pending                             |
+| C    | Registry bootstrap and unprivileged contribution CI                  | Local immutable contribution gate and isolated CI template implemented; deployment and live GitHub checks pending                         |
+| D    | Protected mirroring, signing and idempotent publication              | Operator pipeline, published-state recovery and protected workflow template implemented locally; deployment pending                       |
+| E    | Publish first/new version from a marked Cadencr project              | E1-E3 and E4 local contribution export implemented/reviewed; registry PR automation implemented locally; live deployment/QA remains gated |
+| F    | Production URLs, trust roots, policy renewal and catalog integration | Backend foundation exists; production configuration absent                                                                                |
+| G    | In-app browsing, installation and installed-version management       | Implemented/reviewed locally; isolated dev QA passed; packaged/public QA pending                                                          |
+| H    | Revocation operations and incident recovery                          | Backend foundation exists; operational policy absent                                                                                      |
+| I    | External-author and packaged-app lifecycle on supported targets      | Pending                                                                                                                                   |
+
+Each implementation step uses delegated workers and parent review, followed by
+reuse/quality/efficiency review and relevant checks before proceeding. The current execution contract auto-approves scoped signed local commits after
+review and checks; it does not authorize pushes, tags or releases. Public opening
+requires all runtime, trust, operational and packaged-app gates; local tooling
+alone cannot close them.
+
+### Local tooling verification — 2026-09-19
+
+- Source-pinned submission validator and bounded CLI: 14 tests pass.
+- Deterministic streaming author packer: 27 tests pass, including source-mutation,
+  symlink, portability, resource-limit, backpressure and cleanup-error cases.
+- Combined registry suite: 55 tests pass. Existing managed wire-format fixtures
+  remain unchanged. These are local CLI tests, not GitHub or packaged-app QA.
+- Separate reuse/quality/efficiency reviews completed for both local increments;
+  findings were corrected and retested. No remote deployment or Git delivery.
+- The packer requires trusted, quiescent staging; it is not an OS sandbox.
+
+### Contribution validation increment — 2026-09-19
+
+- Added a local base/candidate snapshot validator: immutable published versions,
+  matching source-pinned submissions for new versions, publisher/repository
+  continuity, and normalized provider-ID collision rejection.
+- Reads are bounded to 1 MiB per JSON file, 10,000 entries per metadata directory,
+  and 32 MiB per root across packages/submissions, including malformed JSON.
+  Snapshot inputs must remain stable; symlinks and special files are rejected.
+- The PR template separates trusted-base inert metadata validation from untrusted
+  candidate tooling tests. Neither job has publication authority or signing secrets.
+- Empty-catalog bootstrap is supported; demonstration data is a test fixture,
+  not a required published package. Remove the demonstration catalog entry before
+  establishing the official registry baseline.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed;
+  shared identifier normalization and temporary-fixture cleanup were corrected.
+  The full local registry suite passes 69 tests, including actual CLI invocations
+  and the empty-catalog workflow shell guard; the root integration checks pass.
+- Deployment, a real GitHub PR run, repository protections, and protected
+  publication-time revalidation remain unverified or unimplemented. Local checks
+  do not prove source ownership or establish an official publisher identity.
+
+### Publication primitives increment — 2026-09-19
+
+- Deterministic local mirror planning preserves the original source submission,
+  approved digests and archive formats while deriving immutable destination names.
+- The local Ed25519 signer uses the existing canonical index/envelope contract,
+  validates the publication window, self-verifies, and refuses output overwrites.
+- Both commands operate on bounded regular files without network calls or provider
+  execution. The integration test connects a plan to a signed fixture index with
+  ephemeral keys; it does not establish remote asset availability or source trust.
+- Three independent reuse/quality/efficiency reviews completed. They prompted
+  temporary-fixture cleanup and a cross-language signing correction: the signer
+  refuses noncanonical dates and empty optional fields that Rust would omit.
+- Verification: 81 local registry tests and two root integration checks pass;
+  a Rust integration test invokes the actual Node CLI and verifies its signature
+  through `ManagedTrustStore`, including tamper rejection. No app runtime behavior
+  changed; no production data or keys were used.
+- This is a **partial implementation of D**, not an operational publisher. The
+  remaining work includes source/digest verification, mirrored remote assets,
+  conflict-safe retries, serialized publication and discovery updates, provenance
+  retention, and protected production key/environment provisioning. Neither CLI is
+  connected to the bootstrap workflow yet; it still stops before signing/releases.
+
+### Verified archive staging increment — 2026-09-19
+
+- Added `stage:publication`: revalidate the source submission, derive the mirror
+  plan, stream public source archives over an explicit HTTPS redirect allowlist,
+  and verify submitted SHA-256 digests before local finalization.
+- Limits: 256 MiB per archive, six sequential targets, three redirects and a
+  two-minute download deadline. No tokens/cookies, extraction or provider execution.
+- Local retries rehash existing archives and reuse matching bytes without network
+  requests. Conflicts fail without overwrites; completed archives survive later
+  failures. A canonical receipt is created only after every target verifies.
+- Exclusive staging lock and no-overwrite file publication protect concurrent
+  attempts. Receipt reads are bounded to 4 MiB; staging paths/ancestors must remain
+  trusted and stable. Crash recovery is manual; stale locks are never auto-deleted.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Shared
+  publication CLI parsing/loading replaced duplication; cleanup preserves primary
+  errors and receipt serialization supports reordered equivalent input.
+- Verification: 100 registry tests and two root integration checks pass, with
+  lint/format checks. The actual staging CLI was exercised against a local HTTP
+  fixture server via test-only transport routing: redirect/stream/hash, no-network
+  replay, and corrupt-final refusal pass. This is not live GitHub/CDN/TLS QA.
+- This increment verifies **local received bytes**, not uploaded GitHub assets.
+  Source ownership/build provenance, GitHub upload/reconciliation, remote digest
+  verification, protected signing orchestration, serialized catalog publication
+  and discovery updates remain unfinished. No official registry was provisioned.
+
+### GitHub draft mirroring increment — 2026-09-19
+
+- Added an explicit operator command that consumes fully staged source archives,
+  records the canonical plan as a provenance asset, and fills a GitHub draft
+  release without replacement/deletion or publication.
+- A destination confirmation, exact registry commit and dedicated token are
+  required. API/upload destinations are fixed; credentials are not forwarded to
+  asset CDN redirects. Asset verification re-downloads actual remote bytes.
+- Existing assets are verified, not trusted from metadata digests alone. Ambiguous
+  write responses are reconciled before retry; conflicts and incomplete assets
+  require investigation rather than destructive recovery.
+- Draft verification is not public availability. Protected draft promotion, public
+  destination checks, signing orchestration, catalog/blocklist release/discovery,
+  cross-runner serialization and actual GitHub deployment/QA remain pending.
+- Verification: 125 registry tests and 2 root integration checks pass, including
+  the real CLI against a local mock GitHub API/CDN (creation, replay without new
+  writes, and corrupted remote bytes). No actual GitHub writes were performed.
+  Three GPT-5.6-Sol reviews completed; shared owned-lock cleanup and exact commit
+  validation were consolidated. Formatting and diff checks pass; lint reports
+  only four existing control-regex warnings in unchanged packaging/submission code.
+
+### Explicit promotion increment — 2026-09-19
+
+- Added a separate operator-only promotion command requiring exact repository and
+  release-tag confirmation, the existing mirror receipt and freshly verified
+  staged/remote bytes. It never creates releases/tags or replaces/deletes assets.
+- Promotion checks the actual tag commit (including bounded annotated tags), not
+  only `target_commitish`, before and after the publication mutation. Missing or
+  conflicting tags require operator investigation before publication.
+- After publication, public archive and provenance URLs are downloaded without
+  credentials before an immutable publication receipt is written. Failed public
+  verification leaves the release published but produces no new success receipt;
+  replay reconciles and verifies without republishing.
+- This is a local operator primitive, not deployed protected publishing. Repository
+  protections, release immutability, distributed concurrency, signing/catalog
+  orchestration and live GitHub QA remain pending. No real GitHub mutation or
+  production-data access is part of this increment's tests.
+- Verification: 143 registry tests and two root integration checks pass, including
+  the actual mirror/promotion CLIs against a local mock API/CDN, mismatched tags,
+  public unavailability followed by recovery without republishing, canonical
+  receipt replay, mutation during verification, and owned temporary-file cleanup.
+  Three GPT-5.6-Sol reviews completed; binding, asset verification and receipt
+  publication helpers were shared between mirroring and promotion. Parent review,
+  scoped lint, formatting and diff checks pass on the final code.
+
+### Verified catalogue signing increment — 2026-09-19
+
+- A strict operator manifest selects previously promoted provider versions. The
+  catalogue gate validates reviewed submissions and both receipts against freshly
+  hashed staged artifacts, then derives the mirrored package metadata.
+- All packages, identity consistency, timestamps and resource limits are checked
+  before public transfers. Every included archive and provenance asset is downloaded
+  without credentials and digest-checked before the private signing key is read.
+- The existing canonical Ed25519 signer is shared rather than reimplemented; the
+  resulting envelope retains the current Node/Rust wire contract. Existing output
+  paths are refused, not overwritten. No contributor code is executed.
+- This increment writes a local signed catalogue only. It does not deploy a signing
+  environment, publish a catalogue release or advance discovery. Continuity against
+  the previous official index, monotonic publication, distributed concurrency and
+  public verification of uploaded signed snapshots remain publication-time gates.
+- Manifest/staging files are trusted operator inputs, not PR artifacts or proof of
+  publisher ownership. No real registry token, signing key or production data is
+  used in tests; GitHub/CDN/TLS deployment QA remains pending.
+- Three GPT-5.6-Sol reviews completed. Corrections include key-ID validation before
+  downloads/key access, a fresh signing-time clock, incremental aggregate-budget
+  rejection, and shared exclusive file publication through owned temporary files.
+- Verification: 156 registry tests, two root integration checks and the Rust
+  integration test validating actual Node signatures all pass. The actual CLI was
+  exercised against a local mock GitHub/CDN with an ephemeral Ed25519 key, including
+  unavailable/corrupt public data, deterministic signing and overwrite refusal.
+  Scoped lint, formatting and diff checks pass after parent review/corrections.
+
+### Versioned catalogue publication increment — 2026-09-19
+
+- An explicit snapshot publisher verifies the candidate and supplied previous
+  catalogue with an operator-pinned Ed25519 public key. It requires monotonic
+  publication time and unchanged retention of previous versions; baseline key
+  rotation, delisting and revocation are not silently inferred.
+- Published envelope bytes are limited to 1 MiB, matching the existing app's
+  acquisition limit. The manifest must reconstruct the exact signed payload and
+  public provider archives/provenance are freshly verified before remote writes.
+- A deterministic catalogue release binds the envelope digest, registry commit
+  and prior digest. The tag must already resolve to the reviewed commit. Publication
+  reconciles retries without asset replacement/deletion, and verifies the public
+  signed snapshot before writing a local success receipt.
+- Initial `bootstrap` and previous baseline selection are explicit operator inputs,
+  not proof of remote discovery state. The current app consumes a signed envelope
+  directly; no incompatible discovery-pointer format is introduced.
+- No `latest` or discovery URL is changed. Protected workflows, authoritative
+  discovery continuity/concurrency, official repository/URLs, blocklist operations
+  and live GitHub QA remain outstanding. Tests use only mocks and ephemeral keys.
+- Three GPT-5.6-Sol reviews completed. Parent corrections cover first-publication
+  receipt absence, owned upload temporaries, symlink rejection before locking,
+  release identity across PATCH responses and freshness before the final receipt.
+  Historical expiration allowance now uses an explicit shared validation policy;
+  a redundant paginated asset-list request was removed.
+- Verification: 177 registry tests, two root integration checks and the Rust
+  Node-signature interoperability test pass. The actual staging/mirroring/promotion,
+  signing and snapshot publishing CLIs run against a local mock GitHub/CDN;
+  lost responses, tag conflicts, public unavailability/recovery, signature tampering,
+  history mutation and no-overwrite replay are covered. Scoped lint, formatting
+  and diff checks pass. No real GitHub write or production-data access occurred.
+
+### Stable catalogue discovery increment — 2026-09-19
+
+- Added an explicit discovery advancer for a fixed `managed-index.json` on an
+  existing, operator-selected GitHub branch. The stable raw URL serves the signed
+  envelope directly, compatible with the existing app acquisition contract.
+- Requires the exact D6 publication receipt, verified release/tag/public snapshot,
+  and revalidated source manifest. The current remote catalogue must match the
+  approved signed baseline, or already contain the candidate for safe replay.
+- Conditional Contents API writes bind the previous Git blob SHA. Missing files
+  require explicit bootstrap; conflicts never trigger blind retries with a new SHA.
+  Lost write responses reconcile against exact candidate bytes.
+- Git tree mode and immutable commit-pinned reads reject symlinks and inconsistent
+  metadata. Unauthenticated raw verification and a final freshness/head check
+  precede the immutable success receipt. A failed check may leave the remote file
+  advanced without a receipt; recovery verifies again without destructive rollback.
+- Hardened the existing **unsigned preparation** workflow: default-branch gate,
+  exact dispatch SHA checkout, read-only credentials and a shared non-cancelling
+  publication lane. The complete privileged hosted-runner pipeline is **not wired**;
+  required environment reviewers and branch protections are not provisioned.
+- Verification uses actual CLIs against local HTTP GitHub/CDN fixtures and ephemeral
+  keys, not live GitHub deployment or packaged-app QA. No production data, private
+  production key, real publication, push or official registry provisioning occurred.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Their
+  findings prompted commit/tree proof for symlink rejection, post-verification
+  freshness enforcement and removal of duplicate replay requests. Parent review
+  also added malformed-receipt preflight and signed-baseline regression coverage.
+- Verification: **197 registry tests**, two root integration checks and the Rust
+  Node-signature interoperability test pass. Scoped lint has no errors (four
+  pre-existing control-regex warnings); formatting and diff checks pass.
+- Next: compose the protected publishing pipeline, then the marked-project author
+  release flow. Production trust/URLs, blocklist operations, marketplace UI and
+  supported-platform lifecycle certification remain separate pending gates.
+
+### Protected pipeline assembly increment — 2026-09-19
+
+- Added a repository/commit/request-digest-bound operator pipeline composing all
+  existing stages: source staging, immutable tag creation, mirroring, promotion,
+  verified signing, versioned snapshot publication, then stable discovery.
+- Inputs are reviewed inert JSON/public-key/baseline files. Bounded preflight checks
+  all submissions, ownership/normalized identities, dates, signing-key match and
+  signed baseline continuity before remote writes. No archive is executed/extracted.
+- Tags are created only when the exact reference is absent; existing tags must
+  resolve to the approved commit. No tag replacement, deletion or force update.
+- Pipeline state and copies of public inputs are immutable for one request/commit;
+  same-request retry revalidates receipts and bytes. Partial failures preserve remote
+  progress instead of rolling it back. Signed output remains gated on verified
+  public archives and provenance, not merely planned destinations.
+- Added a manual protected publisher workflow template with secret-free digest
+  preflight, default-branch/exact-commit checks, shared concurrency, dedicated
+  step-scoped credentials, private-key storage outside state, owned cleanup and
+  run-specific recovery artifacts. The prior unsigned preparation template remains
+  a separate non-publishing tool.
+- **Not deployed or unattended:** official repository/trust configuration, protected
+  environment reviewers and branch/tag/release policies remain external gates.
+  Automatic state hydration across runners or subsequent catalogue requests is
+  not implemented. Missing receipts for an already-published provider fail closed;
+  recovery currently requires an operator to inspect and reuse the original state
+  at the same reviewed checkout/commit. Do not mistake artifact retention for an
+  automatic safe resume mechanism.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Shared
+  identity/ownership validation replaced duplication. Corrections enforce a shared
+  1 GiB staging allowance, reject signing keys inside uploaded state, and preserve
+  owned cleanup through symlink attacks. Independent hash/public-byte checks remain
+  at security boundaries; the staging cap is not a total network-traffic cap.
+- Verification: **228 registry tests**, two root integration checks and the Rust
+  Node-signature interoperability test pass. The actual CLI runs against local
+  mock GitHub/source/CDN endpoints, covering public-provider failure before signing,
+  lost discovery response, safe replay and a later tag conflict without advertising
+  a partial catalogue. Workflow inline key scripts are executed locally in tests.
+  Scoped lint has no errors (four unchanged control-regex warnings); formatting and
+  diff checks pass. This is not live GitHub/Actions or packaged-app QA.
+- Next: implement verified published-state hydration and hosted-runner recovery,
+  then exercise the actual GitHub deployment under explicit authorization. Continue
+  with marked-project author releases, production policy, marketplace UI and the
+  external-author/packaged-app lifecycle gates after their prerequisites.
+
+### Verified published-state recovery increment — 2026-09-19
+
+- Fresh runners stage known-published versions from their reviewed official
+  mirror URLs, using the same approved hashes and shared 1 GiB staging budget.
+  Missing/corrupt public mirrors never trigger fallback to author URLs.
+- Local mirror receipts may be reconstructed only after exact release/tag/commit/
+  binding checks, complete asset-set validation, authenticated remote-byte checks,
+  public archive/provenance verification and final release/tag revalidation.
+  Recovered receipts use `published_recovered`, not a fictitious draft observation.
+  Existing conflicting local receipts are never overwritten.
+- The regular promotion, signing, snapshot and discovery gates remain in place.
+  A fresh state directory can replay the same request without duplicate writes.
+  Subsequent requests retain the signed baseline, all previous packages and each
+  historical provider's original registry commit while adding new reviewed versions.
+- Versions in the verified signed baseline require a still-published exact release.
+  A read-only release/tag prepass runs before source downloads; missing/draft
+  historical versions fail without author fetches or remote writes. Observed
+  published state is latched for the invocation, and recovered/publication receipts
+  also prohibit later re-promotion. Explicit bootstrap cannot infer deleted history
+  when neither a baseline nor any local/remote publication marker exists.
+- Recovery relists the complete asset set and re-verifies authenticated bytes after
+  public checks, then checks release/tag again before receipt creation. Sequential
+  API verification is not an atomic remote transaction; later privileged changes
+  remain governed by repository protections and consumer digest/signature checks.
+- No Actions artifact is imported or executed. The manual protected workflow now
+  relies on verified remote reconstruction rather than a retained local receipt.
+  Exact commit/request/window approval still applies; expired requests fail closed.
+  Unpublished drafts still require author archives if their local staging is lost.
+- This is locally verified orchestration, not a deployed GitHub service. Official
+  repository/trust configuration, required environment reviewers and protection
+  rules, real Actions QA and supported-platform packaged-app gates remain open.
+- Three independent GPT-5.6-Sol reuse/quality/efficiency reviews completed. Existing
+  binding, asset, locking and promotion verifiers were reused. Review corrections
+  cover historical-release regression and delete/reupload races; multi-platform
+  packages sharing one reviewed archive remain supported. The authoritative
+  release prepass is retained as a safety gate rather than removed for fewer reads.
+- Verification: **250 registry tests**, two root integration checks and the Rust
+  Node-signature interoperability test pass. Actual CLI tests use local mock
+  GitHub/CDN endpoints: clean-state retry without author archives or new writes,
+  subsequent version retention, and missing/draft historical releases with zero
+  author downloads and zero remote writes. Scoped lint has no errors (four unchanged
+  control-regex warnings); formatting and diff checks pass. No real GitHub, Actions,
+  production keys/data or packaged app was used.
+- Next: provision and exercise the official GitHub registry under explicit approval,
+  or continue the marked-project author publication flow without deployment. Theme
+  distribution, production trust/blocklist operations and marketplace UI remain
+  distinct scope and release gates.
+
+### Project publication preparation increment (E1) — 2026-09-19
+
+- First increment: readonly local preparation inspection from the settings of
+  explicitly marked provider projects. Existing unmarked projects are not
+  reclassified; theme distribution remains outside this provider contract.
+- Inspect the current local authoring identity, host descriptor, stable build
+  output and Git state without executing the connector or contacting GitHub.
+  Optional authoring documentation and metadata are advisory: a host-local
+  descriptor is not the managed package or registry submission.
+- The UI distinguishes blockers, advisory checks and local preparation success.
+  Success is not release approval or proof of ACP conformance, archive contents,
+  source ownership, release availability or registry acceptance.
+- Next E increments must define explicit author-controlled package metadata and
+  staging inputs, prepare exact-version artifacts, then offer separately confirmed
+  author-repository publication and registry contribution. The app must not use
+  the protected official registry signing credentials or bypass maintainer review.
+- Verification: 6 targeted Rust tests and 30 frontend tests pass, including
+  authoring visibility, warning-only aggregation, error details, and readonly
+  inspection. Desktop typecheck/Knip, workspace lint, formatting and diff checks
+  pass. Three delegated review perspectives and parent correction review closed
+  the identified findings. E1 is committed locally as `8e28eb005`; no push.
+- Live dev QA: authenticated API checks cover blocked-to-corrected preparation,
+  unsupported/unknown projects and unauthorized access. Repository/descriptor
+  hashes remain unchanged and connector/fsmonitor sentinels remain untouched by
+  readiness requests. Real browser interactions and screenshots verify provider
+  visibility, absence on ordinary projects, loading/error, manual refresh and
+  blocked-to-warning-only correction. This is dev QA, not packaged-app or GitHub
+  publication QA. The existing CSP meta warning and expected network errors
+  during the deliberate service restart were observed; a non-Git test fixture's
+  unrelated icon scan failed until the fixture was initialized as a Git repo.
+- No GitHub write, registry deployment, production configuration or
+  production-data change is authorized.
+- QA launcher correction: debug service dotenv loading overrides inherited
+  environment variables. The initial launch opened the existing worktree dev
+  database and ran its normal startup backup/migrations; it was stopped without
+  rollback. Subsequent QA uses a fresh database/settings directory and explicit
+  service CLI arguments, which take precedence over dotenv. Production was not
+  the target. Do not rely on environment-only isolation for this debug service.
+
+### Local provider bundle preparation increment (E2) — 2026-09-20
+
+- Marked provider projects can prepare a local archive and managed `package.json`
+  from explicitly supplied metadata, one binary target and an author-reviewed
+  staging directory. Existing projects are not reclassified. Themes still need
+  a separate distribution contract.
+- The POST endpoint is authenticated and loopback-only, absent from the shared
+  remote router. It verifies the durable project/plugin identity and reuses the
+  managed package validator. Target choices come from the backend contract through
+  the existing readiness response, not a second frontend list.
+- Staging must be absolute, outside the project tree and not the home directory
+  itself. Symlinks, special files, invalid/nonportable names, case collisions and
+  common secret-prone filenames are rejected. Declared executable/assets must be
+  present; non-Windows entrypoints must be executable. This is trusted, quiescent
+  staging, not an OS sandbox or secret-content scan.
+- The app runs a Rust streaming deterministic tar/gzip writer, with no runtime
+  Node requirement or connector/build/Git/network execution. Installer limits are
+  reused: 4,096 entries, 512 MiB expanded, 256 MiB per file and compressed output.
+  Source snapshots are checked before/after writing. Reproducibility is within
+  the same runtime; equality with the Node CLI's compressed bytes is not promised.
+- Outputs use exclusive creation in a new app-owned UUID directory and update only
+  the selected target SHA-256 in the preserved metadata. Inputs and source Git
+  state remain unchanged. Output paths, digest, size and target are shown in the
+  UI; errors and pending state are explicit. No upload, release, registry PR,
+  signing, conformance approval or publisher verification occurs.
+- Preparations are serialized off the async executor. A global 16-bundle cap
+  refuses further writes with the storage path and manual cleanup instructions;
+  previous successes are never automatically deleted. The scan is also bounded
+  to 256 project directories. Disconnecting does not cancel accepted work: it may
+  finish and retain an output within that same quota.
+- Three GPT-5.6-Sol reuse/quality/efficiency reviews completed, followed by parent
+  corrections: bounded directory enumeration, root-symlink and UTF-8 handling,
+  storage quota, moderate compression, nonblocking validation and shared target
+  choices. The home restriction was clarified rather than banning all staging
+  directories located beneath a user's home.
+- Live dev QA uses fresh `/tmp` data with explicit service CLI isolation, a
+  dedicated frontend and temporary browser profile. Consent gating, real bundle
+  creation, stale-result clearing, JSON errors, quota errors and ordinary-project
+  absence pass. Authenticated API checks verify identity/path/secret rejection,
+  repeatability, digest/metadata preservation and refusal at 16 retained bundles.
+  No provider executable is launched. Browser-only desktop-bridge/CSP warnings
+  and a development WebSocket reconnect warning were observed; no new UI exception.
+- Verification: 11 packaging Rust unit tests (including the managed installer
+  extraction path), 6 readiness regression tests, and one authenticated-route
+  integration test with the real Node registry validator pass. The full desktop
+  suite passes 4,932 tests. Workspace lint, desktop typecheck/Knip, formatting and
+  diff checks pass; Turbo emitted sandbox cache-I/O warnings, not lint failures.
+  QA-owned processes are stopped and the temporary database/artifacts preserved.
+  These are local/dev proofs, not packaged-app or live GitHub/Actions acceptance.
+  Local commit approved; no push or remote publication is authorized.
+- Next E4: create the registry contribution from the published author release.
+  Multi-target metadata assembly remains separate from E2/E3.
+  Official registry deployment/credentials, real GitHub/Actions QA, themes,
+  marketplace browsing and supported-platform packaged QA remain open gates.
+
+### Confirmed author GitHub release increment (E3) — 2026-09-20
+
+- A marked provider project can review and publish its one-target E2 bundle to an
+  existing public GitHub repository. The repository must be the project's clean
+  local `origin`; the release tag must already exist remotely and resolve to the
+  same commit as local `HEAD`. E3 does not create a repository or tag, push source,
+  assemble multiple targets, sign a catalogue, or submit a registry contribution.
+- Review is an explicit, non-mutating request. It reloads the server-owned bundle,
+  validates its managed metadata and archive digest, inspects the connected GitHub
+  actor, repository identity and tag commit, and returns the exact release plan.
+  The preview fingerprint binds the actor, immutable GitHub repository ID, source
+  commit, package metadata and archive digests, target/version, release notes and
+  publication policy. Publishing requires a separate confirmation of that exact
+  fingerprint; any changed input or remote identity requires a fresh preview.
+- Publication creates or reconciles a draft release and uploads exactly two assets:
+  the provider archive and `package.json`. It never replaces or deletes an existing
+  asset or overwrites a conflicting release. Existing release fields, asset names,
+  sizes and GitHub-reported `sha256` digests must match before a retry can continue;
+  absent GitHub digests fail closed. This digest check relies on GitHub's reported
+  asset digest and is **not** an independent public re-download of uploaded bytes.
+- Ambiguous create, upload and publish responses are reconciled against the exact
+  confirmed state. Exact completed publications are safe no-write retries; foreign,
+  duplicate, incomplete published releases or changed state are refused rather than repaired
+  destructively. The actor, repository ID and tag commit are revalidated during
+  publication, including immediately before promotion from draft.
+- GitHub API and upload hosts are fixed HTTPS origins, credentials are never sent
+  across redirects, and redirects are disabled. Request bodies, release notes,
+  repository/tag/asset segments, local bundle files, GitHub response bodies,
+  pagination, annotated-tag depth, operation concurrency and network timeouts are
+  bounded. Local files are opened without following symlinks and checked for
+  replacement while read.
+- Verification: 29 publication unit tests, three bounded Git-runner tests, the
+  authenticated/local-only route integration test, and 4,946 desktop tests passed.
+  Isolated `pnpm dev` QA exercised a real prepared bundle, missing authentication,
+  dirty-source refusal/recovery, invalid inputs, explicit confirmation refusal,
+  visible loading, and disabled controls. The positive GitHub mutation/retry path
+  is covered by localhost HTTP fixtures, not a real GitHub release. No live GitHub
+  repository was mutated, and no source push, tag creation or registry PR occurred.
+  The frontend uses a narrowly scoped 190-second timeout, verified in the live
+  request, above the backend's 180-second bound. Lint, type checking, unused-code
+  checks, Rust check and formatting passed. Changes await local commit approval.
+- Rechecks are not an atomic transaction with external GitHub editors. Protect
+  release tags and assets against concurrent changes; no historical deletion
+  ledger, source-to-binary provenance or connector conformance is established here.
+- E4 local contribution export is described below. Official registry
+  deployment/signing, live GitHub/Actions acceptance, multi-target publication,
+  themes, marketplace browsing and packaged-platform certification remain separate
+  gates.
+
+### Local registry contribution export increment (E4) — 2026-09-20
+
+- From an explicit E3 preview, the author can separately confirm local contribution
+  file creation and read-only GitHub verification. The authenticated POST reloads
+  the app-owned bundle, project/source state and GitHub identity, then recomputes
+  the E3 plan fingerprint. Changed inputs, actor, immutable repository identity,
+  source commit or tag require a fresh release preview.
+- Before writing locally, E4 performs GET-only verification that the exact release
+  is already published rather than a draft and that its two assets still match the
+  expected names, sizes and native GitHub-reported `sha256` digests. It does not
+  publish or mutate the release and does not independently download asset bytes.
+- The generated submission uses the existing exact `provider-submission-v1`
+  envelope: schema version, preserved managed package object, source repository,
+  commit and tag, plus release notes as the changelog. Unknown package metadata is
+  preserved. The same marketplace submission delta rules validate required
+  license/assets, repository/source consistency, supported binary-only distribution,
+  safe identifiers/tags and reserved built-in provider IDs. No local-only draft
+  schema is introduced, and the desktop runtime does not require production Node.
+- Each attempt requires a fresh explicit confirmation and creates a fresh UUID
+  directory beneath the settings sibling
+  `provider-publication-contributions/<project-id>/`. It contains
+  `packages/<provider-id>-<version>.json`, the paired
+  `submissions/<provider-id>-<version>.json`, and `PULL_REQUEST.md`. The Markdown
+  records generated facts while leaving ownership, credential review, conformance,
+  licensing/provenance and official CI assertions unchecked for humans.
+- Writes use a fresh app-owned UUID directory and exclusive file creation; existing
+  files are never overwritten. Ordinary write failures attempt bounded cleanup, but
+  process interruption can leave a partial UUID directory that counts toward the
+  quota and requires manual inspection/removal. At most 16 exports are retained
+  globally and nothing is automatically deleted. Every successful action gets a
+  new UUID and is not an idempotent replay to a prior output directory. Archive any
+  contribution that must be retained before manually removing it from app storage.
+- This is a local export, not registry submission. No official registry destination
+  is configured, so E4 does not fork a repository, create a branch, push, open a
+  pull request, sign content or claim registry acceptance. Without the authoritative
+  registry baseline it also cannot prove whether this is the first version or
+  validate continuity against already-published provider versions; official registry
+  CI and maintainer review remain required.
+- Verification: 4,954 desktop tests, 40 targeted Rust publication tests, the
+  authenticated/local-only route integration test and the Node registry suite pass.
+  Generated contributions pass the existing Node validators; desktop types, lint,
+  unused-code checks and service compilation pass. Independent reuse, quality and
+  efficiency reviews were completed and their scoped corrections integrated.
+- Isolated dev QA exercised real API authentication, confirmation, project/UUID,
+  notes-size, unknown-field and missing-GitHub-auth rejection with no export created.
+  Browser QA used a simulated E3 preview only; E4 requests reached the real isolated
+  service. Loading/fieldset locking, consumed confirmation, visible auth failure,
+  fresh retry consent, 190-second timeout and stale-preview clearing were checked.
+  Positive GitHub/export behavior remains fixture-tested, not live GitHub QA or an
+  export produced through the app. No production data or GitHub state was changed;
+  QA processes were stopped and the isolated database retained. Git delivery is
+  separate from this verification.
+- The registry destination and fork/branch/PR policy are now accepted above.
+  Remote PR automation is the next implementation increment; official deployment
+  and live acceptance remain separate gates.
+
+### Registry pull-request automation increment — 2026-09-20
+
+- Fixed destination `merkr-software/cadencr-registry`; local authenticated preview
+  and submit endpoints reload the immutable bundle and verify its published author
+  release. They do not trust edited local contribution exports.
+- The read-only preview binds exact paired documents and PR body, connected account
+  and numeric identity, registry numeric identity and pinned default-branch commit.
+  Every submit recomputes the plan and requires fresh explicit confirmation.
+- The app creates or verifies the personal fork, writes both metadata blobs in one
+  tree/commit, verifies the candidate before creating a deterministic new branch,
+  and opens a PR. Existing exact branches/open PRs may be reused; foreign state,
+  closed PRs and upstream base drift fail closed. No force update, overwrite,
+  branch deletion, upstream push, merge, signing or registry publication occurs.
+- Base and candidate Git tree modes are checked independently of GitHub Contents
+  responses. Maintainer branch mutation is not granted by the created PR. Changes
+  require another reviewed plan, not silent branch rewriting.
+- All HTTP destinations are fixed, redirects disabled, responses bounded to 2 MiB,
+  polling and operation time bounded. A single transport retains its connection
+  pool, archive buffers are released before remote verification, and exact PR body
+  bytes are shared rather than copied. Rate-limit errors are distinguished from
+  ordinary permission rejection when GitHub exposes rate-limit headers.
+- Interrupted/failed requests can leave a fork, unreachable Git objects, a branch
+  or a PR. There is no automatic destructive cleanup. Inspect remote state before
+  retrying with fresh consent; exact readback is required for reuse. GitHub changes
+  by other actors are not transactional with these checks. A changed upstream base
+  requires another preview and can produce a new branch; old branches/PRs are not
+  automatically deleted, rebased or closed.
+- Trusted registry CI remains authoritative for cross-version identity/ownership
+  continuity, full catalog policy and maintainer review. Opening a PR is not proof
+  of acceptance, source-to-binary provenance or provider conformance.
+- Three GPT-5.6-Sol finish-job reviews and the parent correction/re-review loop
+  completed. The desktop suite passes 4,961 tests; 55 targeted Rust publication
+  tests pass, including scripted no-write rejection and lost-response cases.
+  Isolated live dev QA exercised actual authenticated API rejection paths and the
+  real registry preview/submit missing-auth errors. UI preview prerequisites were
+  explicitly simulated to check consent consumption, sibling locking, loading,
+  error recovery, the 190-second timeout and stale-plan clearing. Positive GitHub
+  mutations remain fixture-tested only; no real fork, branch or PR was created.
+  QA-owned processes were stopped, the new QA database retained, and production
+  data untouched. The authenticated/local-only route integration test, service
+  compilation, desktop types/lint/unused-code checks, formatting and Node registry
+  integration tests also pass. Changes remain uncommitted pending approval.
+- Official repository provisioning, branch protections, CI deployment and a real
+  GitHub end-to-end run remain separate gates, not performed by this increment.
+
+### Official registry provisioning — 2026-09-20
+
+- User authorized provisioning `merkr-software/cadencr-registry`, CI/protections
+  and real GitHub QA. The public repository now exists (GitHub numeric ID
+  `1378674060`), initially empty. Private vulnerability reporting is enabled;
+  Actions is explicitly disabled until the reviewed bootstrap is delivered.
+- Standalone bootstrap is prepared from Cadencr `ca2cb8705`, with LICENSE,
+  provenance, no live demonstration packages, tracked empty packages/submissions,
+  CODEOWNERS, pinned validation actions and inactive publication workflow examples.
+  Three GPT-5.6-Sol reviews completed; documentation/install issues were corrected.
+- Standalone testing exposed an undeclared `yaml` test dependency. The source
+  template now declares exact `yaml@2.9.0` with a lockfile. Only the isolated
+  candidate-tooling CI job runs `npm ci --ignore-scripts --no-audit --no-fund`;
+  trusted inert metadata validation still installs no candidate dependencies.
+- The staged standalone bootstrap passes all 250 tests and empty registry
+  validation. Source-template tests are checked separately. These are local
+  checks, not proof of deployed Actions or branch protections.
+- Bootstrap commit/push, main-branch protections and two temporary fork QA PRs
+  (closed without merge) have been proposed for explicit delivery approval.
+  Until delivered, no default-branch content, CI run, fork PR, release, signing key
+  or production catalog has been provisioned by this increment.
+
+### Next step — shared Rust `cadencr` CLI (approved, implementation started)
+
+- Decision: maintain the CLI and its shared Rust libraries exclusively in this
+  monorepo. The public registry owns metadata, contribution documentation and
+  thin workflows, not a second implementation of the tooling.
+- This replaces the JavaScript-to-TypeScript/Rust decision step, before resuming
+  GitHub operational QA and before enabling signing/publication workflows.
+- First increment: extract reusable plugin validation used by the backend and
+  CLI; implement headless `cadencr plugin validate <folder>`, registry contribution
+  validation and deterministic unsigned index construction. Commands must work
+  without Electron, a running service, a database or executing plugin code.
+- Subsequent migration increments cover archive packaging, signing, GitHub
+  publication/recovery and their tests. Preserve existing wire formats,
+  deterministic bytes, cryptographic contracts, bounded input handling and
+  immutable base/candidate contribution checks. Do not claim parity until the
+  applicable existing fixtures and negative/security cases pass against Rust.
+- Build versioned CLI binaries in the monorepo release pipeline, including Linux
+  for registry CI. Registry workflows consume an explicitly pinned release and
+  verify its expected digest from trusted configuration, never a PR-controlled
+  download URL/version or an unpinned `latest`. Registry upgrades are reviewed
+  independently of desktop releases; PR checks require no publication secrets.
+- Switch registry workflows only after a usable CLI release and parity checks;
+  then remove superseded JavaScript implementations/tests and dependency setup.
+  Until then, existing tooling remains the active implementation and parity
+  oracle. JSON metadata/schemas and YAML workflows remain declarative formats.
+- Deferred: `cadencr open`, `plugin add`, `plugin delete`, headless app
+  `update`/`upgrade`, and unrelated desktop/backend CLI features. No unused stubs.
+- Execution: parallel-advisor with GPT-5.6-Sol workers, parent integration review,
+  independent finish-job review at completed steps, and applicable live checks.
+  Implementation permission does not authorize commits, push, PRs or releases.
+  Existing dirty changes and the deployed public registry are preserved.
+
+### CLI increment — local implementation, not a registry cutover
+
+- Added `packages/cli` (`cadencr`) plus `plugin-core` and `registry-core` Rust
+  libraries, wired into the Cargo/pnpm/Turbo workspace. The backend re-exports
+  its existing descriptor contracts from plugin-core; the former implementation
+  was removed rather than retained as dead code.
+- Implemented provider-only `plugin validate <folder> --descriptor <file>`.
+  Existing workspaces keep their host descriptor outside the project; the
+  explicit input avoids inventing a manifest convention or consulting a user DB.
+  Validation never starts the provider or proves publication/runtime conformance.
+- Implemented inert base/candidate registry validation and unsigned index
+  construction. CLI diagnostics expose stable codes, including JSON usage errors;
+  index output is published without overwriting existing files and without
+  leaving a partially written destination on failure.
+- Added a transitional integration harness running the existing eight JavaScript
+  contribution safety scenarios against the actual Rust CLI. A separate local
+  438-case package mutation comparison found four initial semver/compatibility
+  gaps; after correction, an expanded 694-case corpus reports no validation differences.
+- Verification so far: 21 plugin-core tests, 142 targeted installed-provider
+  backend tests, 19 registry-core tests, 8 CLI subprocess tests, two injected
+  output write/flush failure unit tests and one contribution-oracle integration test.
+  These are local checks, not deployed GitHub Actions or a Linux release test.
+
+### CLI follow-up — canonical output and release/CI wiring
+
+#### Autonomous completion contract — 2026-09-20
+
+- User approved continuing all six remaining stages without per-stage prompts:
+  CLI delivery, registry activation, compatible signatures, remaining Rust
+  tooling migration, removal of replaced registry JavaScript, and end-to-end QA.
+- Each implementation stage uses GPT-5.6-Sol workers through parallel-advisor,
+  parent integration checks, independent finish-job reviews, and automatically
+  approved signed local commits with normal hooks before the next stage.
+- New signatures must share one canonical format; previously valid signatures
+  remain explicitly supported. This compatibility direction is now approved.
+- Delivery must not incidentally publish an unrelated desktop release or expose
+  private monorepo history. Validate release topology and existing version/tag
+  state first. Public registry changes remain metadata/docs/thin workflows only;
+  private keys and production data never become fixtures or repository content.
+- Preserve the active JS implementation until replacement parity and actual
+  pinned-binary delivery are established. Report external gates separately;
+  local tests do not establish deployed CI or live installation acceptance.
+- Release audit: the existing `v*` pipeline publishes the entire desktop app,
+  not only the CLI. The current feature tip is not an authorized coordinated
+  release tip, and `v0.11.5` is already consumed without a CLI asset. Do not
+  reuse that tag or invent a new desktop version to unblock registry tooling.
+  Continue independent migration work while actual binary publication and pin
+  activation remain external delivery gates.
+- First parallel migration wave implements compatible signature verification,
+  archive packaging and publication planning. Independent source reviews found
+  archive output/source races, duplicated service packing logic, an unchecked
+  stdout write, recursion depth and eager legacy serialization. Source corrections
+  are applied, including one shared CLI/service archive engine and private
+  no-clobber publication. Commit acceptance follows the integrated checks below.
+- Packaging assumes a trusted destination directory: private temporary output
+  and no-clobber publication protect existing files, but malicious concurrent
+  replacement of destination ancestors is not a directory-handle-bound sandbox.
+  Such ancestry replacement remains a documented defense-in-depth limitation.
+- Lockfile incident resolved after the user's explicit rollback authorization:
+  the previous third-party versions are restored and only seven workspace
+  dependency edges were added. The unintended `cargo generate-lockfile` refresh
+  is excluded. Validation resumes with `--locked`; pre-repair targeted successes
+  are not substituted for tests of the final integrated source.
+- Post-repair checks: CLI/core suites pass (including 32 registry-core tests),
+  86 managed-provider backend tests pass, 16 publication-package unit tests pass,
+  and the real-route publication-package integration test passes. Archive parity
+  compares deterministic decompressed TAR bytes; cross-implementation gzip bytes
+  are deliberately not claimed identical.
+- Live debug-service API QA accepts both Node-canonical and legacy signatures
+  through signature validation to the expected missing-fixture download failure;
+  both tampered variants fail with `REGISTRY_SIGNATURE_INVALID`. This proves the
+  trust gate, not an end-to-end package installation. The initial `pnpm dev`
+  launch overrode shell isolation variables from the worktree `.env` and opened
+  the development database; it was stopped before API tests. The actual requests
+  used explicit CLI DB/settings/port arguments and a new temporary QA database.
+  Production data was not accessed, QA processes were stopped, and no database
+  was deleted or restored. Release trust settings remain unchanged in source.
+
+- CLI numeric canonicalization now matches the JavaScript oracle: input numbers
+  use binary64 semantics and correctly-rounded parsing (`serde_json/float_roundtrip`),
+  output uses `ryu-js` while retaining the existing UTF-8 object-key ordering.
+  Deterministic differential tests cover 263 numeric inputs, including giant
+  integers, negative zero, subnormals, overflow/underflow and exponent thresholds. Non-portable lone
+  surrogate strings remain rejected instead of silently transformed.
+- The release workflow now tests and builds the Linux CLI in a separate read-only
+  job, without installing desktop/pnpm dependencies. The initial GNU Linux
+  artifact targets Ubuntu 24.04 registry CI only; both consumer jobs pin that
+  same runner image. Older Linux compatibility is not asserted. It packages a version-checked
+  raw binary and SHA-256 manifest, transfers them with SHA-pinned Actions, verifies
+  them before release preparation, and uploads them into the same draft release
+  before its existing publication gate. CLI versions participate in release.sh's
+  version checks; no tag or release was created by this implementation.
+- Both registry required-check names are preserved. They run a thin trusted-base
+  shell bootstrap with a non-executable version/digest pin file. A fully PENDING
+  pin retains the current JS checks; a reviewed real pin switches both jobs to
+  the downloaded CLI, never to candidate scripts. Downloads use the verified
+  `merkr-software/CadencR` release location, HTTPS redirect allowlisting, bounded
+  transfers, digest verification before execution and an exact version check.
+  Empty registries remain valid and do not attempt to create an empty catalog.
+- Pin activation needs an actual published Linux binary and its digest, followed
+  by a reviewed registry change. No invented release version or checksum has
+  been committed into the configuration; both pins remain PENDING.
+- Signature compatibility is now implemented and committed: shared canonical
+  bytes are preferred, with explicit legacy verification and exact verified-byte
+  receipt hashes retained. The service trust-gate QA above covers both formats.
+- Local verification includes the CLI/core suites, the existing contribution
+  oracle, the 263-case numeric oracle, release packaging/version/overwrite tests,
+  and offline trusted-download/cutover tests. A native binary packaging smoke
+  passed. These are not claims of a live Linux runner or deployed GitHub QA.
+- Final registry suite: 252 tests passed after installing its locked test-only
+  dependency and allowing loopback HTTP fixtures outside the sandbox. Installed
+  provider regression tests: 142 passed. Rust formatting, release packaging
+  failure/retry tests and release workflow checks passed.
+- Final independent reuse/quality/efficiency review consolidated argument
+  validation, removed a full metadata clone during credential inspection, and
+  added released-download redirect and wrong-version regression coverage.
+- The separate public-registry checkout has the matching local workflow,
+  bootstrap, pin file and tests prepared; its focused checks pass and the changed
+  content was scanned for sensitive information. No commit, push, PR or release
+  was performed, and no production database was touched.
+- Remaining delivery gates: publish and pin the CLI from an authorized release,
+  run real GitHub CI, then remove superseded JS from the public registry.
+  Packaging and signature compatibility are locally committed. The next Rust
+  migration covers signing and verified staging, followed by mirroring,
+  promotion, catalog publication/discovery and recovery. Active JS must remain
+  until parity and replacement delivery, then the public lifecycle QA can close.
+
+### Rust signing and verified staging increment — 2026-09-20
+
+- Added `registry sign-index`, `verify-index`, `assemble-signed-index` and
+  `stage-publication`. Offline validation/signing remains in registry-core;
+  bounded network acquisition is isolated in registry-publisher and is not a
+  service/database dependency. CLI dispatch is split into focused modules.
+- Ed25519 signing preserves Node-compatible canonical bytes and envelope shape.
+  Keys are bounded no-follow local PEM inputs; private PEM/DER buffers are
+  zeroized. Whole-second UTC timestamps and omitted empty optional fields are
+  enforced for signing/verification. Assembly validates structure only; it is
+  not authentication. Rust deliberately rejects impossible calendar dates that
+  the old JavaScript assembly parser can normalize.
+- Review found and corrected reserved binary argument drift: Rust now matches
+  the runtime host and actual JavaScript oracle, including `run`, `acp-v1` and
+  `--`. Differential CLI tests cover reserved tokens, flag prefixes and safe
+  near-prefix controls.
+- Staging retains the deterministic plan/receipt contract, at most six targets,
+  256 MiB streamed archive limit, SHA-256 verification and immutable publication.
+  Downloads use allowlisted HTTPS redirects without contributor credentials;
+  locks/partials use ownership checks, and retries revalidate existing artifacts.
+  Conflicting bytes, symlinks, FIFOs and foreign file replacements are refused
+  or preserved rather than overwritten. Staging directories must be trusted;
+  this is not protection against arbitrary concurrent ancestor replacement.
+- Local verification: 32 registry-core tests, 21 plugin-core tests, 12 publisher
+  tests and 28 CLI tests pass, including actual Node signature/staging oracles
+  and real CLI replay/tamper checks against inert local artifacts. All-target
+  Clippy passes for CLI/core/publisher. Release job tests now include publisher,
+  and workspace test/check commands use `--locked`. No external dependency
+  version, source or checksum changed.
+- Independent finish-job review corrected stale offline-only help, deduplicated
+  private output creation, reused one lazily built HTTP client per staging run,
+  removed repeated payload/signature decoding and redundant third archive hashes,
+  and aligned CLI verification with the service's strict Ed25519 primitive. A
+  weak identity-key forgery is rejected in a real CLI regression test.
+- Limits of this increment: no real GitHub/TLS publication proof, deterministic
+  timeout/redirect cancellation or cleanup-I/O-failure fixture. Files are synced,
+  but directory entries have no power-loss durability guarantee. If identity
+  inspection fails immediately after creation, uncertain lock/partial ownership
+  is deliberately retained for manual inspection rather than blindly unlinked. Mirroring,
+  promotion, catalog signing/publication/discovery and recovery still use the
+  retained JavaScript implementation. No registry pin was activated, no remote
+  publication happened, and no database was used by these CLI checks.
+
+### Draft mirroring Rust migration — local implementation and fixture QA
+
+- Next bounded increment adds `registry mirror-publication` and a shared GitHub
+  release client, without adding promotion/discovery/recovery stubs. Workers
+  separately own transport and local binding/orchestration; parent owns CLI
+  integration, shared receipt publication and final review.
+- The CLI requires exact destination confirmation and a 40-lowercase-hex registry
+  commit before reading `CADENCR_REGISTRY_GITHUB_TOKEN`. It never accepts a token
+  argument or contributor-selected API endpoint. A successful mirror creates a
+  verified **draft**, not a public release.
+- Local staged bytes, plan provenance and prior receipt must validate before any
+  remote request. Mutations reconcile lost responses and verify exact existing
+  bytes; conflicting releases/assets are not overwritten. A final immutable
+  mirror receipt is written only after complete remote verification.
+- Keep staging receipt replay byte-exact; mirror receipts intentionally accept
+  canonical-equivalent JSON, as the JavaScript oracle does. Both reuse the same
+  private no-clobber publication/cleanup implementation.
+- Independent finish-job reviews consolidated commit/repository/auth policy and
+  temporary-file allocation, reused the unauthenticated client per operation,
+  removed immediate duplicate local hashes, and avoided downloading unchanged
+  remote replay assets twice. Final asset/release snapshots still validate.
+- Tag safety is deliberately stricter than the old JS mirror: an existing tag
+  must resolve to the requested registry commit before mutations and receipt
+  creation, including bounded annotated-tag peeling. Drafts may have no tag yet;
+  promotion must later require the exact tag to exist. A matching release
+  `target_commitish` field alone is not accepted as proof of an existing ref.
+- Fixture QA covers the real GitHubClient plus mirror orchestration over local
+  HTTP: persisted-but-lost create response, authenticated reconciliation, both
+  uploads, exact archive/provenance download verification and replay without
+  further POSTs. Separate tests cover binding bytes against Node, conflicts,
+  missing staging, tag mismatch, safe IDs, bounded transport and receipt replay.
+  CLI/core/publisher all-target Clippy passes. Normal commit hooks remain the
+  final gate; no actual GitHub draft/publication or registry cutover occurred.
+- Remaining QA boundaries include a real TLS/CDN redirect chain, deterministic
+  timeout and cleanup-I/O-failure injection. Promotion, catalog workflows and
+  recovery remain subsequent migration phases; active JS is retained.
+
+### Draft promotion Rust migration — local implementation and fixture QA
+
+- Add `registry promote-publication` with explicit repository and planned-tag
+  confirmations before credential access. Local staging and both receipt types
+  must validate before the first GitHub request.
+- Reuse the release client, exact commit/tag binding, bounded byte verification
+  and immutable receipt publishing; do not add unused recovery scaffolding.
+- Require complete verified draft assets and an existing exact tag before the
+  single publication PATCH. Reconcile a lost response by exact published state.
+  Independently check public bytes and final release/tag state before recording
+  publication success; historical publication proof prohibits draft mutation.
+- Three independent finish-job reviews led to shared local lock/staging guards,
+  typed canonical receipt publication, lazy upload transport construction, and
+  replay verification without duplicate authenticated asset downloads. CLI
+  preflight plus publisher boundary checks remain intentional TOCTOU protection.
+- Unlike the retained JS path, prerelease state is explicitly rejected before
+  mutation and in final verification. Annotated tag peeling now matches the
+  JS five-hop limit. Receipt read/build inputs use named bon builders.
+- Parent fixture QA runs the concrete GitHub client through authenticated asset
+  reads, exact-tag lookup, a persisted-but-lost publication PATCH, reconciliation
+  and replay: exactly one PATCH and no repeated private asset downloads. Public
+  verification uses injected inert bytes in this fixture; it does not prove a
+  real HTTPS/CDN chain or public GitHub availability. Separate CLI tests cover
+  complete local staging with missing/invalid mirror receipts before networking.
+- Current targeted verification passes: 34 publisher tests, 34 CLI tests,
+  32 registry-core tests and 21 plugin-core tests; all-target Clippy is clean.
+  No database or app profile is needed by these standalone tooling checks.
+- Normal hooks exposed a keep-alive race in the multi-response HTTP test server:
+  it closed each connection without advertising that policy. Fixtures now send
+  `Connection: close`; 30 consecutive tag-chain runs passed before retrying hooks.
+- This is a local code migration only: real release delivery, registry pinning,
+  catalog workflows, recovery and GitHub end-to-end QA remain distinct gates.
+  Existing JavaScript stays active until parity and real binary delivery.
+
+### Published-catalog signing Rust migration — local implementation and fixture QA
+
+- Add only `registry sign-publication-catalog` with the existing six explicit
+  manifest/date/key/output arguments. No unused standalone prepare command.
+- Split work between shared in-memory signing/identity validation and publisher
+  manifest/receipt/public-download orchestration; parent owns CLI/output policy.
+- Reuse the staging engine with a single bounded submission read, exact typed
+  receipts, owned temporary verification directories and canonical signing.
+  Check all local entries and aggregate budgets before the first public request.
+- Match repository ownership across versions, normalized ID collision policy,
+  sorting and canonical signing dates; verify Node payload/envelope parity.
+- Three finish-job reviews removed whole-package clones and repeated canonical
+  payload validation/serialization. An opaque prepared payload retains bound
+  canonical bytes; signing rechecks only its freshness window after downloads.
+  The shared signer emits the same envelope bytes without cloning the JSON tree
+  and refuses envelopes larger than the verifier's 32 MiB input boundary.
+- Keep the signing key read after public verification, matching the JS contract
+  and minimizing private-key lifetime. Recheck output-parent policy after that
+  potentially long work; final publication remains authoritative no-clobber.
+  Structural-only detached assembly keeps its original validation policy.
+- Node-backed fixture tests compare both prepared payloads and signed envelope
+  bytes; timestamps in test fixtures no longer rely on Unix-only libc helpers.
+- Final targeted checks pass: 43 registry-core, 41 publisher, 37 CLI and
+  21 plugin-core tests (142 total), plus formatting and all-target Clippy.
+  Negative fixtures prove complete local receipt preflight before downloads,
+  exact public URL sets, bad digest/size rejection and aggregate budget limits.
+- Concurrent tests exposed an inherited nonblocking accepted socket on macOS
+  in the promotion HTTP fixture. The reader now explicitly selects blocking
+  mode with a bounded timeout; a delayed-request regression proves the fix.
+- Normal hooks exposed a separate macOS process-group cleanup race: an all-zombie
+  group returns `EPERM` until reaped. An isolated OS-level reproduction confirmed
+  this. Post-exit cleanup now sends `SIGKILL` only once, then reconciles that error
+  using at most 100 ms of non-destructive signal-0 probes; only observed `ESRCH`
+  accepts success. Persistent permission errors remain failures. All three
+  already-reaped cleanup paths share the asynchronous implementation; Linux and
+  Windows retain their existing behavior. Three supplemental reviews explicitly
+  rejected repeated destructive signals because of numeric process-group reuse.
+- This phase produces a local signed envelope only. Versioned catalog release,
+  discovery updates and recovery/pipeline remain subsequent migrations. Keep
+  active JavaScript until parity and an authorized real CLI release/cutover.
+
+### Versioned catalog publication Rust migration — 2026-09-27
+
+- Resume from signed local commits `5ae025301` (macOS process cleanup) and
+  `b5820b7b5` (publication-backed catalog signing); no release or push implied.
+- Add explicit `registry publish-catalog` with all ten existing publication
+  flags. Core owns one immutable, cryptographically verified candidate/baseline
+  snapshot; publisher owns manifest/receipt gates and the GitHub state machine;
+  CLI owns confirmation and credential ordering. No new dependencies are needed.
+- Bind the previous catalog by its exact input-byte digest. Require increasing
+  timestamps, preserve previous package versions and ownership, and keep strict
+  whole-second signing timestamps. Candidate/baseline and canonical catalog
+  bytes are each bounded to 1 MiB; public keys remain bounded to 16 KiB.
+- Keep the same prepared snapshot from confirmation through publication, rather
+  than rereading an operator-confirmed file. Recheck freshness around slow work
+  and mutations. The locked manifest read must bind its repository and payload
+  together; forged receipts fail before public downloads or GitHub calls.
+- Require the immutable catalog tag to already resolve to the exact registry
+  commit. Tag creation belongs to the later protected pipeline migration.
+  This standalone command does not create/move tags or update stable discovery.
+- Reconcile lost draft/create/upload/publish responses by reading exact state;
+  do not blindly retry writes. Verify authenticated artifact bytes before the
+  single promotion, bind asset identity across rechecks, and verify independent
+  public bytes plus final release/tag state before issuing an immutable receipt.
+- Validation: 159 targeted Rust tests pass (core 48, publisher 49, CLI 41,
+  plugin core 21), with all-target Clippy denying warnings, Rust formatting and
+  diff checks green. Separate reuse, quality and efficiency finish-job reviews
+  cleared the final implementation, including resumed-draft authentication,
+  lost-response recovery, receipt replay and mutation-boundary expiry tests.
+- Active JavaScript and registry CI remain unchanged until parity and an
+  authorized real CLI release allow a pinned-binary cutover. Tests use isolated
+  fixtures; real GitHub lifecycle QA remains a delivery gate.
+- Next migration: stable catalog discovery advancement, followed by protected
+  pipeline/tag creation and recovery. Do not delete the active JS tooling yet.
+
+### Stable catalog discovery Rust migration — 2026-09-27
+
+- Previous phase delivered as signed local commit `9cc75b871`, with normal
+  workspace hooks passing. No remote publication was performed.
+- Parallel-advisor split: core branch/URL and baseline policy; publisher receipt,
+  verification and compare-and-swap lifecycle; strict GitHub transport and public
+  download policy. Parent integrates the explicit `registry advance-catalog` CLI.
+- Require an existing branch, bootstrap only an absent file, and accept exact
+  candidate replay. Compare the current raw bytes against the exact previous
+  input digest. Finish-job found the earlier JS canonicalized-head comparison
+  violated this binding; correct both Rust and JS with whitespace regressions.
+- Bind publication/discovery receipts before credentials and network access.
+  Validate ref/commit/tree/content plus Git blob identity; reject truncated trees,
+  symlinks, malformed base64, conflicting state and oversized files.
+- Verify published catalog, manifest, exact tag and stable head before one CAS
+  write. Reconcile lost responses only when the candidate wins. Independently
+  verify raw public bytes without credentials or redirects, then final head and
+  freshness before publishing the receipt. No branch creation or forced update.
+- Reuse already locked base64/SHA-1 crates for GitHub transport only; SHA-256 and
+  Ed25519 remain the publication integrity and authenticity mechanisms.
+- Validation: 182 targeted Rust tests pass (core 52, publisher 62, CLI 47,
+  plugin core 21), together with all 252 registry JavaScript tests. Clippy with
+  warnings denied, formatting and diff checks pass. Separate reuse, quality and
+  efficiency reviews cleared the corrected implementation. HTTP proof uses
+  isolated loopback fixtures, not a real GitHub publication.
+- Removed redundant head assessment and a third production preflight, and reused
+  borrowed asset metadata instead of cloning a full catalog just for validation.
+  Keep post-PUT and post-public-download authenticated reads as distinct gates.
+- Active JS remains the registry CI gate, with the exact-baseline correctness
+  fix applied in both implementations.
+  No workflow cutover before parity and actual authorized CLI delivery. Protected
+  pipeline, tag creation, recovery and real GitHub lifecycle QA remain subsequent
+  work.
+
+### Published-provider recovery Rust migration — 2026-09-27
+
+- Resume from signed local discovery commit `31b3de409`; no push or remote
+  publication. Parallel-advisor chooses strict published-only recovery, rather
+  than porting optional draft/probe behavior with no current Rust consumer.
+- Split implementation between local orchestration/receipt binding and remote
+  verification/HTTP proof; parent owns explicit `registry recover-publication`,
+  subprocess tests and documentation. Preserve existing standalone tag behavior:
+  mirror/promotion/catalog commands do not gain automatic tag creation.
+- Require complete local staging and exact repository/release-tag confirmation.
+  Never download author sources or create/upload/promote any remote object.
+  Reuse bounded staging, immutable bindings, authenticated/public verification,
+  tag checks, owned locks and atomic canonical receipts.
+- Validate all existing local receipts before API reads, including a publication
+  receipt without a mirror receipt; bind the observed remote release ID to any
+  historical proof. Existing valid mirror receipts stay byte-for-byte unchanged,
+  even when their original status was draft_verified, after full published checks.
+- Only a missing mirror receipt is reconstructed as published_recovered. Recovery
+  does not manufacture a publication receipt; subsequent promotion verification
+  supplies it without publishing again when the remote is already published.
+- Scope boundary: this is the recovery primitive for already staged bytes, not
+  end-to-end empty-runner recovery. Managed-release acquisition with aggregate
+  budgets belongs to pipeline staging, followed by protected orchestration and
+  explicit tag creation. Keep the active JS workflow until CLI delivery/parity.
+- Validation: 201 targeted Rust tests pass (publisher 76, CLI 52, core 52,
+  plugin core 21), together with all 252 registry JS tests. All-target Clippy
+  with warnings denied, formatting and diff checks pass. Three separate Sol
+  finish-job reviews cleared reuse, quality and efficiency; supplemental receipt
+  tests cover malformed/null/oversized/symlink inputs and exact JS output bytes.
+- HTTP proof uses a real client against a bounded loopback server: authenticated
+  GETs only, deliberately lost response, failure then safe retry. No real GitHub
+  publication or app/production database access. Real GitHub lifecycle QA and
+  release/pin activation remain external delivery gates.
+
+### Fresh-runner managed restoration Rust migration — 2026-09-27
+
+- Resume from signed local recovery commit `5f931c9b8`. Parallel-advisor splits
+  managed staging/budgets, immutable receipt prebinding and read-only orchestration;
+  parent owns CLI integration, subprocess proof and documentation.
+- Add explicit `registry restore-publication` with repository, exact commit and
+  `--confirm-restore` release-tag confirmation. Require an existing nonsymlink
+  empty or partial directory. No GitHub writes, tag creation or author fallback.
+- Validate existing staging/mirror/publication receipts before acquisition.
+  Bind the already published release, exact tag/commit/body and managed asset set
+  before downloading; retain its release ID through final recovery verification.
+- Download only missing managed destination assets without rewriting the immutable
+  source plan. Verify retained targets before downloads, enforce a cumulative
+  `1 GiB` archive staging budget including retained bytes and `256 MiB` per target.
+  Independent later byte-verification traffic is outside this staging budget.
+- Reuse strict recovery verification and canonical mirror proof. Preserve existing
+  valid receipt bytes; never manufacture a publication receipt. Promotion verification
+  remains the separate way to reconstruct that receipt for an already published release.
+- Validation: 224 targeted Rust tests pass (publisher 95, CLI 56, core 52,
+  plugin core 21), plus all 252 registry JS tests. All-target Clippy with warnings
+  denied, formatting and diff checks pass. Three independent Sol finish-job
+  reviews cleared the final implementation after shared staging/metadata/receipt
+  cleanup and a final local-artifact rehash before mirror proof.
+- QA includes true-empty and partial directories, destination-only failures,
+  strict receipt matrices, retained-plus-download budgets, release-ID drift and
+  same-length local corruption during public verification. A real GitHub client
+  uses a bounded loopback server enforcing 13 authenticated GETs; actual CLI
+  subprocesses cover confirmations and local rejection paths. This is isolated
+  HTTP/CLI proof, not a real GitHub publication or a production-app test.
+- Next: protected pipeline orchestration and explicit tag creation, then real GitHub
+  lifecycle QA. Active JS tooling remains until parity and an explicitly selected
+  CLI release with pinned artifacts; no release version or tag is inferred here.
+
+### Decisions that must not be invented by implementation
+
+- Catalog/blocklist discovery URLs and trust roots (contribution repository is decided above).
+- First supported public platform matrix and executable isolation policy.
+- Inclusion of themes in the first public marketplace.
+- Monitored security contact, incident owner and protected signing environment.
+
+Source ownership remains a human/GitHub review decision, not something a JSON
+schema can prove. Package identity and publication state remain separate from a
+local project's `authoring_target` and `plugin_id`.
 
 ## Decision and scope
 

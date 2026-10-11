@@ -12,6 +12,7 @@ import {
   Network,
   Palette,
   Plug,
+  Store,
 } from "lucide-react";
 
 /**
@@ -86,6 +87,7 @@ export const NAV_GROUPS: SettingsNavGroup[] = [
         label: "CLI Providers",
         icon: <Plug className="size-4" />,
       },
+      { id: "marketplace", label: "Marketplace", icon: <Store className="size-4" /> },
     ],
   },
   {

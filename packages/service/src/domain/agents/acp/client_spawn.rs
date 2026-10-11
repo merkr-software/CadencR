@@ -334,7 +334,7 @@ fn spawn_reaper(
         let pid = child.id();
         let status = tokio::select! {
             status = child.wait() => {
-                if let Err(error) = process_tree.cleanup_after_exit(pid) {
+                if let Err(error) = process_tree.cleanup_after_exit(pid).await {
                     tracing::warn!(%error, "failed to clean up ACP descendant processes");
                 }
                 status

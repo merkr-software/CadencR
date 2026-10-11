@@ -372,7 +372,7 @@ pub fn builtin_provider_identifiers() -> &'static [String] {
 /// Provider references are compared the same way throughout resolution and
 /// descriptor reservation: punctuation, spacing, and ASCII case do not create
 /// distinct public names.
-pub(super) fn provider_identifier_key(value: &str) -> String {
+pub(crate) fn provider_identifier_key(value: &str) -> String {
     value
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric())

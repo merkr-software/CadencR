@@ -1084,16 +1084,14 @@ export interface CreateProjectRequest {
 }
 
 /**
- * Existing connector repository to import instead of scaffolding a new one.
- */
-export type CreateProviderWorkspaceRequestDirectory = string | null;
-
-/**
  * The stable identity and human label for a new provider connector project.
  */
 export interface CreateProviderWorkspaceRequest {
-  /** Existing connector repository to import instead of scaffolding a new one. */
-  directory?: CreateProviderWorkspaceRequestDirectory;
+  /**
+   * Existing connector repository to import instead of scaffolding a new one.
+   * @nullable
+   */
+  directory?: string | null;
   /** Human-readable name used in the project and scaffold. */
   display_name: string;
   /** ACP Registry-compatible provider id, e.g. `pi-connector`. */
@@ -3163,6 +3161,51 @@ export interface PrStatusSnapshot {
   unresolved_threads?: number | null;
 }
 
+export interface PreparePublicationContributionRequest {
+  bundle_id: string;
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  release_notes: string;
+}
+
+export interface PreparePublicationPackageRequest {
+  metadata_json: string;
+  staging_directory: string;
+  target: string;
+}
+
+export interface PreparedPublicationContribution {
+  output_directory: string;
+  package_path: string;
+  plugin_id: string;
+  project_id: number;
+  pull_request_path: string;
+  release_url: string;
+  submission_path: string;
+  version: string;
+}
+
+export interface PreparedPublicationPackage {
+  archive_path: string;
+  metadata_path: string;
+  plugin_id: string;
+  project_id: number;
+  sha256: string;
+  /** @minimum 0 */
+  size: number;
+  target: string;
+}
+
+export interface PreviewPublicationRegistryRequest {
+  bundle_id: string;
+  release_notes: string;
+}
+
+export interface PreviewPublicationReleaseRequest {
+  bundle_id: string;
+  release_notes: string;
+}
+
 export interface RuntimeEffectiveConfig {
   fast_mode: boolean;
   /** @nullable */
@@ -3400,6 +3443,103 @@ export interface ProviderSettings {
 export interface ProviderWorkspace {
   feature_id: number;
   project_id: number;
+}
+
+export type PublicationCheckStatus =
+  (typeof PublicationCheckStatus)[keyof typeof PublicationCheckStatus];
+
+export const PublicationCheckStatus = {
+  pass: "pass",
+  warning: "warning",
+  fail: "fail",
+} as const;
+
+export type PublicationPreparationStatus =
+  (typeof PublicationPreparationStatus)[keyof typeof PublicationPreparationStatus];
+
+export const PublicationPreparationStatus = {
+  prepared: "prepared",
+  blocked: "blocked",
+} as const;
+
+export interface PublicationReadinessCheck {
+  detail: string;
+  id: string;
+  label: string;
+  status: PublicationCheckStatus;
+}
+
+/**
+ * Result of read-only, local preparation checks for an authored provider.
+ */
+export interface PublicationReadinessResponse {
+  checks: PublicationReadinessCheck[];
+  local_preparation: PublicationPreparationStatus;
+  plugin_id: string;
+  project_id: number;
+  summary: string;
+  supported_package_targets: string[];
+}
+
+export interface PublicationRegistryPreview {
+  account: string;
+  base_branch: string;
+  base_commit: string;
+  branch: string;
+  bundle_id: string;
+  package_path: string;
+  plan_sha256: string;
+  plugin_id: string;
+  project_id: number;
+  registry_repository: string;
+  release_notes: string;
+  submission_path: string;
+  version: string;
+}
+
+export interface PublicationRegistryResult {
+  branch: string;
+  /** @minimum 0 */
+  pull_request_number: number;
+  pull_request_url: string;
+  reused: boolean;
+}
+
+export interface PublicationReleasePreview {
+  account: string;
+  archive_name: string;
+  archive_sha256: string;
+  /** @minimum 0 */
+  archive_size: number;
+  bundle_id: string;
+  metadata_sha256: string;
+  plan_sha256: string;
+  plugin_id: string;
+  prerelease: boolean;
+  project_id: number;
+  release_notes: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
+  target: string;
+  version: string;
+}
+
+export interface PublishPublicationReleaseRequest {
+  bundle_id: string;
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  release_notes: string;
+}
+
+export interface PublishedProviderRelease {
+  already_published: boolean;
+  archive_sha256: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
 }
 
 /**
@@ -4192,6 +4332,13 @@ export interface StashPushBody {
   include_untracked?: boolean;
   /** @nullable */
   message?: string | null;
+}
+
+export interface SubmitPublicationRegistryRequest {
+  bundle_id: string;
+  confirmed: boolean;
+  expected_plan_sha256: string;
+  release_notes: string;
 }
 
 export interface SuccessResponse {
@@ -20483,6 +20630,596 @@ export const useSetProjectProviderSetting = <TError = ErrorType<unknown>, TConte
   TContext
 > => {
   return useMutation(getSetProjectProviderSettingMutationOptions(options), queryClient);
+};
+
+export const preparePublicationContribution = (
+  id: number,
+  preparePublicationContributionRequest: PreparePublicationContributionRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PreparedPublicationContribution>({
+    url: `/api/projects/${id}/publication-contribution`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: preparePublicationContributionRequest,
+    signal,
+  });
+};
+
+export const getPreparePublicationContributionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof preparePublicationContribution>>,
+    TError,
+    PreparePublicationContributionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof preparePublicationContribution>>,
+  TError,
+  PreparePublicationContributionMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["preparePublicationContribution"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof preparePublicationContribution>>,
+    PreparePublicationContributionMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return preparePublicationContribution(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreparePublicationContributionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof preparePublicationContribution>>
+>;
+export type PreparePublicationContributionMutationBody = PreparePublicationContributionRequest;
+export type PreparePublicationContributionMutationError = ErrorType<void>;
+export type PreparePublicationContributionMutationVariables = {
+  id: number;
+  data: PreparePublicationContributionRequest;
+};
+
+export const usePreparePublicationContribution = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof preparePublicationContribution>>,
+      TError,
+      PreparePublicationContributionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof preparePublicationContribution>>,
+  TError,
+  PreparePublicationContributionMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreparePublicationContributionMutationOptions(options), queryClient);
+};
+
+export const preparePublicationPackage = (
+  id: number,
+  preparePublicationPackageRequest: PreparePublicationPackageRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PreparedPublicationPackage>({
+    url: `/api/projects/${id}/publication-package`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: preparePublicationPackageRequest,
+    signal,
+  });
+};
+
+export const getPreparePublicationPackageMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof preparePublicationPackage>>,
+    TError,
+    PreparePublicationPackageMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof preparePublicationPackage>>,
+  TError,
+  PreparePublicationPackageMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["preparePublicationPackage"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof preparePublicationPackage>>,
+    PreparePublicationPackageMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return preparePublicationPackage(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreparePublicationPackageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof preparePublicationPackage>>
+>;
+export type PreparePublicationPackageMutationBody = PreparePublicationPackageRequest;
+export type PreparePublicationPackageMutationError = ErrorType<void>;
+export type PreparePublicationPackageMutationVariables = {
+  id: number;
+  data: PreparePublicationPackageRequest;
+};
+
+export const usePreparePublicationPackage = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof preparePublicationPackage>>,
+      TError,
+      PreparePublicationPackageMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof preparePublicationPackage>>,
+  TError,
+  PreparePublicationPackageMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreparePublicationPackageMutationOptions(options), queryClient);
+};
+
+export const getProjectPublicationReadiness = (id: number, signal?: AbortSignal) => {
+  return customInstance<PublicationReadinessResponse>({
+    url: `/api/projects/${id}/publication-readiness`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetProjectPublicationReadinessQueryKey = (id: number) => {
+  return [`/api/projects/${id}/publication-readiness`] as const;
+};
+
+export const getGetProjectPublicationReadinessQueryOptions = <
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetProjectPublicationReadinessQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getProjectPublicationReadiness>>> = ({
+    signal,
+  }) => getProjectPublicationReadiness(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<
+    Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetProjectPublicationReadinessQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+>;
+export type GetProjectPublicationReadinessQueryError = ErrorType<void>;
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+          TError,
+          Awaited<ReturnType<typeof getProjectPublicationReadiness>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetProjectPublicationReadiness<
+  TData = Awaited<ReturnType<typeof getProjectPublicationReadiness>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getProjectPublicationReadiness>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetProjectPublicationReadinessQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const submitPublicationRegistry = (
+  id: number,
+  submitPublicationRegistryRequest: SubmitPublicationRegistryRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationRegistryResult>({
+    url: `/api/projects/${id}/publication-registry`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: submitPublicationRegistryRequest,
+    signal,
+  });
+};
+
+export const getSubmitPublicationRegistryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof submitPublicationRegistry>>,
+    TError,
+    SubmitPublicationRegistryMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>,
+  TError,
+  SubmitPublicationRegistryMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["submitPublicationRegistry"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof submitPublicationRegistry>>,
+    SubmitPublicationRegistryMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return submitPublicationRegistry(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SubmitPublicationRegistryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>
+>;
+export type SubmitPublicationRegistryMutationBody = SubmitPublicationRegistryRequest;
+export type SubmitPublicationRegistryMutationError = ErrorType<void>;
+export type SubmitPublicationRegistryMutationVariables = {
+  id: number;
+  data: SubmitPublicationRegistryRequest;
+};
+
+export const useSubmitPublicationRegistry = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof submitPublicationRegistry>>,
+      TError,
+      SubmitPublicationRegistryMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof submitPublicationRegistry>>,
+  TError,
+  SubmitPublicationRegistryMutationVariables,
+  TContext
+> => {
+  return useMutation(getSubmitPublicationRegistryMutationOptions(options), queryClient);
+};
+
+export const previewPublicationRegistry = (
+  id: number,
+  previewPublicationRegistryRequest: PreviewPublicationRegistryRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationRegistryPreview>({
+    url: `/api/projects/${id}/publication-registry/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: previewPublicationRegistryRequest,
+    signal,
+  });
+};
+
+export const getPreviewPublicationRegistryMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPublicationRegistry>>,
+    TError,
+    PreviewPublicationRegistryMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>,
+  TError,
+  PreviewPublicationRegistryMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["previewPublicationRegistry"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPublicationRegistry>>,
+    PreviewPublicationRegistryMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return previewPublicationRegistry(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPublicationRegistryMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>
+>;
+export type PreviewPublicationRegistryMutationBody = PreviewPublicationRegistryRequest;
+export type PreviewPublicationRegistryMutationError = ErrorType<void>;
+export type PreviewPublicationRegistryMutationVariables = {
+  id: number;
+  data: PreviewPublicationRegistryRequest;
+};
+
+export const usePreviewPublicationRegistry = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewPublicationRegistry>>,
+      TError,
+      PreviewPublicationRegistryMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewPublicationRegistry>>,
+  TError,
+  PreviewPublicationRegistryMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewPublicationRegistryMutationOptions(options), queryClient);
+};
+
+export const publishPublicationRelease = (
+  id: number,
+  publishPublicationReleaseRequest: PublishPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublishedProviderRelease>({
+    url: `/api/projects/${id}/publication-release`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: publishPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPublishPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    TError,
+    PublishPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["publishPublicationRelease"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof publishPublicationRelease>>,
+    PublishPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return publishPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PublishPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof publishPublicationRelease>>
+>;
+export type PublishPublicationReleaseMutationBody = PublishPublicationReleaseRequest;
+export type PublishPublicationReleaseMutationError = ErrorType<void>;
+export type PublishPublicationReleaseMutationVariables = {
+  id: number;
+  data: PublishPublicationReleaseRequest;
+};
+
+export const usePublishPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof publishPublicationRelease>>,
+      TError,
+      PublishPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof publishPublicationRelease>>,
+  TError,
+  PublishPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPublishPublicationReleaseMutationOptions(options), queryClient);
+};
+
+export const previewPublicationRelease = (
+  id: number,
+  previewPublicationReleaseRequest: PreviewPublicationReleaseRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationReleasePreview>({
+    url: `/api/projects/${id}/publication-release/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: previewPublicationReleaseRequest,
+    signal,
+  });
+};
+
+export const getPreviewPublicationReleaseMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    TError,
+    PreviewPublicationReleaseMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["previewPublicationRelease"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewPublicationRelease>>,
+    PreviewPublicationReleaseMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return previewPublicationRelease(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewPublicationReleaseMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewPublicationRelease>>
+>;
+export type PreviewPublicationReleaseMutationBody = PreviewPublicationReleaseRequest;
+export type PreviewPublicationReleaseMutationError = ErrorType<void>;
+export type PreviewPublicationReleaseMutationVariables = {
+  id: number;
+  data: PreviewPublicationReleaseRequest;
+};
+
+export const usePreviewPublicationRelease = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewPublicationRelease>>,
+      TError,
+      PreviewPublicationReleaseMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewPublicationRelease>>,
+  TError,
+  PreviewPublicationReleaseMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewPublicationReleaseMutationOptions(options), queryClient);
 };
 
 export const getProjectSettings = (id: number, signal?: AbortSignal) => {

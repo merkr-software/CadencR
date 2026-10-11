@@ -114,7 +114,7 @@ jobs:
       - name: Format, lint, type-check and knip
         run: >-
           pnpm turbo run format:check lint ts-check knip
-          --filter='!@cadencr/service' --log-order=stream
+          --filter='!@cadencr/service' --filter='!@cadencr/cli' --log-order=stream
 
       # Turbo never prunes its local cache: drop week-old entries before saving
       # so the restored archive doesn't grow with every push.
