@@ -44,6 +44,7 @@ async fn staged(
     }
     storage::secure(&storage::root())?;
     let stage = storage::staging()?;
+    storage::write_archive(stage.path(), &bytes)?;
     archive::extract(&bytes, &stage.path().join("payload"))?;
     let validated =
         cadencr_plugin_core::theme::validate_theme_folder(&stage.path().join("payload"))
@@ -182,8 +183,16 @@ pub async fn duplicate(
     id: &str,
     label: &str,
 ) -> Result<CreateThemeResponse, AppError> {
+    duplicate_trusted(pool, id, label, &pinned_index_trust_store()).await
+}
+async fn duplicate_trusted(
+    pool: &sqlx::SqlitePool,
+    id: &str,
+    label: &str,
+    trust: &crate::domain::agents::providers::installed::managed::trust::ManagedTrustStore,
+) -> Result<CreateThemeResponse, AppError> {
     let _guard = lock().lock().await;
-    let source = preview(id)?;
+    let source = preview_trusted(id, trust)?;
     let document = source
         .theme
         .ok_or_else(|| archive::invalid("theme is unavailable"))?
@@ -194,13 +203,14 @@ pub async fn duplicate(
         &storage::revision(id, &pointer.version, &pointer.sha256)?.join("payload"),
     )
     .map_err(|issues| archive::invalid(format!("{issues:?}")))?;
-    let receipt: Receipt = storage::receipt(
-        &storage::revision(id, &pointer.version, &pointer.sha256)?.join("receipt.json"),
+    let archive_bytes = storage::regular(
+        &storage::revision(id, &pointer.version, &pointer.sha256)?.join("archive.tar.gz"),
+        archive::MAX_ARCHIVE_BYTES,
     )?;
-    if folder
-        .files
-        .iter()
-        .any(|(name, bytes)| receipt.files.get(name) != Some(&storage::digest(bytes)))
+    if storage::digest(&archive_bytes) != pointer.sha256
+        || cadencr_registry_core::read_theme_archive_bytes(&archive_bytes)
+            .map_err(archive::invalid)?
+            != folder.files
     {
         return Err(archive::invalid(
             "theme changed while preparing author copy",
@@ -258,13 +268,6 @@ pub(super) mod tests {
         let (mut index, trust) = catalog::tests::signed();
         index.signed.packages[0]["package"]["theme"]["id"] = serde_json::json!(id);
         index.signed.packages[0]["package"]["theme"]["version"] = serde_json::json!(version);
-        let key = ed25519_dalek::SigningKey::from_bytes(&[19; 32]);
-        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
-            key.sign(&cadencr_registry_core::canonical_json_bytes(
-                &serde_json::to_value(&index.signed).unwrap(),
-            ))
-            .to_bytes(),
-        );
         storage::secure(&storage::root()).unwrap();
         let stage = storage::staging().unwrap();
         storage::secure(&stage.path().join("payload")).unwrap();
@@ -282,11 +285,32 @@ pub(super) mod tests {
             std::str::from_utf8(&bytes).unwrap(),
         )
         .unwrap();
+        let archive_path = stage.path().join("archive.tar.gz");
+        let packed = cadencr_registry_core::pack_theme(
+            cadencr_registry_core::PackThemeRequest::builder()
+                .directory(&stage.path().join("payload"))
+                .output(&archive_path)
+                .build(),
+        )
+        .unwrap();
+        let archive_bytes = std::fs::read(&archive_path).unwrap();
+        // Recreate with the same private-file policy as production staging.
+        std::fs::remove_file(&archive_path).unwrap();
+        storage::write_archive(stage.path(), &archive_bytes).unwrap();
+        index.signed.packages[0]["package"]["theme"]["distribution"]["sha256"] =
+            packed.sha256.clone().into();
+        let key = ed25519_dalek::SigningKey::from_bytes(&[19; 32]);
+        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            key.sign(&cadencr_registry_core::canonical_json_bytes(
+                &serde_json::to_value(&index.signed).unwrap(),
+            ))
+            .to_bytes(),
+        );
         let receipt = Receipt {
             index,
             id: id.into(),
             version: version.into(),
-            sha256: "a".repeat(64),
+            sha256: packed.sha256,
             files: std::collections::BTreeMap::from([(
                 "theme.json".into(),
                 storage::digest(&bytes),
@@ -298,6 +322,7 @@ pub(super) mod tests {
     #[tokio::test]
     async fn immutable_install_apply_update_remove_requires_builtin_fallback() {
         let trust = commit_fixture("midnight", "1.0.0");
+        let old_digest = storage::pointer("midnight").unwrap().sha256;
         let installed = preview_trusted("midnight", &trust).unwrap();
         assert_eq!(installed.theme.unwrap().id, "managed:midnight");
         assert!(!installed.active);
@@ -314,12 +339,12 @@ pub(super) mod tests {
             preview_trusted("midnight", &trust).unwrap().version,
             "1.1.0"
         );
-        assert!(storage::revision("midnight", "1.0.0", &"a".repeat(64))
+        assert!(storage::revision("midnight", "1.0.0", &old_digest)
             .unwrap()
             .exists());
         let old = Pointer {
             version: "1.0.0".into(),
-            sha256: "a".repeat(64),
+            sha256: old_digest.clone(),
         };
         super::super::read::preview_revision_trusted(
             "midnight",
@@ -336,7 +361,7 @@ pub(super) mod tests {
             "1.0.0"
         );
         std::fs::write(
-            storage::revision("midnight", "1.0.0", &"a".repeat(64))
+            storage::revision("midnight", "1.0.0", &old_digest)
                 .unwrap()
                 .join("payload/theme.json"),
             b"broken",
@@ -361,13 +386,59 @@ pub(super) mod tests {
     #[test]
     fn modified_revision_data_cannot_be_previewed_or_applied() {
         let trust = commit_fixture("midnight", "1.0.0");
-        let file = storage::revision("midnight", "1.0.0", &"a".repeat(64))
-            .unwrap()
-            .join("payload/theme.json");
+        let file = storage::revision(
+            "midnight",
+            "1.0.0",
+            &storage::pointer("midnight").unwrap().sha256,
+        )
+        .unwrap()
+        .join("payload/theme.json");
         let bytes = std::fs::read_to_string(&file)
             .unwrap()
             .replace("Midnight", "Tampered");
         crate::shared::atomic_file::write_atomic_private(&file, &bytes).unwrap();
         assert!(preview_trusted("midnight", &trust).is_err());
+    }
+    #[tokio::test]
+    async fn forged_payload_and_receipt_cannot_replace_authenticated_archive() {
+        let trust = commit_fixture("forged-theme", "1.0.0");
+        let pointer = storage::pointer("forged-theme").unwrap();
+        let revision =
+            storage::revision("forged-theme", &pointer.version, &pointer.sha256).unwrap();
+        let path = revision.join("payload/theme.json");
+        let forged = std::fs::read_to_string(&path)
+            .unwrap()
+            .replace("Midnight", "Forged");
+        crate::shared::atomic_file::write_atomic_private(&path, &forged).unwrap();
+        let mut receipt = storage::receipt(&revision.join("receipt.json")).unwrap();
+        receipt
+            .files
+            .insert("theme.json".into(), storage::digest(forged.as_bytes()));
+        crate::shared::atomic_file::write_atomic_private(
+            &revision.join("receipt.json"),
+            &serde_json::to_string(&receipt).unwrap(),
+        )
+        .unwrap();
+        assert!(preview_trusted("forged-theme", &trust).is_err());
+        assert!(apply_trusted("forged-theme", &trust).await.is_err());
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        assert!(duplicate_trusted(&pool, "forged-theme", "Copy", &trust)
+            .await
+            .is_err());
+    }
+    #[tokio::test]
+    async fn missing_or_tampered_original_archive_fails_closed() {
+        let trust = commit_fixture("archive-theme", "1.0.0");
+        let pointer = storage::pointer("archive-theme").unwrap();
+        let path = storage::revision("archive-theme", &pointer.version, &pointer.sha256)
+            .unwrap()
+            .join("archive.tar.gz");
+        crate::shared::atomic_file::write_atomic_private(&path, "tampered").unwrap();
+        assert!(preview_trusted("archive-theme", &trust).is_err());
+        std::fs::remove_file(&path).unwrap();
+        assert!(preview_trusted("archive-theme", &trust).is_err());
+        assert!(remove_inner("archive-theme", false).await.unwrap().success);
     }
 }

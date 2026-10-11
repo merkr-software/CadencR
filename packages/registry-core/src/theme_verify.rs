@@ -11,8 +11,18 @@ pub fn verify_theme_archive(path: &Path) -> Result<(), RegistryError> {
 pub fn read_theme_archive(path: &Path) -> Result<BTreeMap<String, Vec<u8>>, RegistryError> {
     let compressed = crate::safe_io::read_bounded_regular(path, LIMIT)
         .map_err(|e| RegistryError::single(format!("cannot read theme archive: {e}")))?;
+    read_theme_archive_bytes(&compressed)
+}
+
+/// Inspect one captured archive snapshot; callers can bind these exact bytes to a signed digest.
+pub fn read_theme_archive_bytes(
+    compressed: &[u8],
+) -> Result<BTreeMap<String, Vec<u8>>, RegistryError> {
+    if compressed.len() as u64 > LIMIT {
+        return Err(invalid());
+    }
     let mut decoded = Vec::new();
-    let mut decoder = flate2::bufread::GzDecoder::new(compressed.as_slice());
+    let mut decoder = flate2::bufread::GzDecoder::new(compressed);
     (&mut decoder)
         .take(LIMIT + 1)
         .read_to_end(&mut decoded)

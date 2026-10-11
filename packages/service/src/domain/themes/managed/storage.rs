@@ -155,6 +155,26 @@ pub fn regular(path: &Path, limit: usize) -> Result<Vec<u8>, AppError> {
     }
     Ok(bytes)
 }
+/// Persist the original authenticated archive, not just mutable derived payload hashes.
+pub fn write_archive(staging: &Path, bytes: &[u8]) -> Result<(), AppError> {
+    use std::io::Write as _;
+    if bytes.len() > super::archive::MAX_ARCHIVE_BYTES {
+        return Err(invalid("theme archive exceeds byte budget"));
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
+    }
+    let mut file = options
+        .open(staging.join("archive.tar.gz"))
+        .map_err(invalid)?;
+    file.write_all(bytes).map_err(invalid)?;
+    file.sync_all().map_err(invalid)
+}
+
 pub fn pointer(id: &str) -> Result<Pointer, AppError> {
     secure(&owner(id)?)?;
     bounded_json(&owner(id)?.join("active.json"))

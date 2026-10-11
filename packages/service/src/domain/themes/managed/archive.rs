@@ -9,10 +9,7 @@ pub fn extract(bytes: &[u8], destination: &Path) -> Result<(), AppError> {
     if bytes.len() > MAX_ARCHIVE_BYTES {
         return Err(invalid("theme archive exceeds byte budget"));
     }
-    let mut staged = tempfile::NamedTempFile::new().map_err(invalid)?;
-    std::io::Write::write_all(&mut staged, bytes).map_err(invalid)?;
-    staged.as_file().sync_all().map_err(invalid)?;
-    let files = cadencr_registry_core::read_theme_archive(staged.path()).map_err(invalid)?;
+    let files = cadencr_registry_core::read_theme_archive_bytes(bytes).map_err(invalid)?;
     crate::remote::secure_fs::create_dir_owner_only(destination).map_err(invalid)?;
     for (name, bytes) in files {
         let mut options = std::fs::OpenOptions::new();

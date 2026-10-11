@@ -34,7 +34,7 @@ pub use theme_blocklist::{
 };
 mod theme_archive;
 mod theme_verify;
-pub use theme_verify::{read_theme_archive, verify_theme_archive};
+pub use theme_verify::{read_theme_archive, read_theme_archive_bytes, verify_theme_archive};
 mod tree;
 pub use theme_archive::{pack_theme, PackThemeRequest, PackedTheme};
 

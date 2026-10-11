@@ -1,5 +1,5 @@
 use super::archive::invalid;
-use super::models::{ManagedThemeCatalogResponse, SignedMixedCatalog};
+use super::models::SignedMixedCatalog;
 use super::storage;
 use crate::domain::agents::providers::installed::managed::trust::{
     pinned_index_trust_store, ManagedTrustStore,
@@ -8,6 +8,9 @@ use crate::error::AppError;
 use chrono::Utc;
 use serde_json::Value;
 use std::collections::BTreeMap;
+
+mod acquisition;
+pub use acquisition::acquire;
 
 pub fn verify(
     index: &SignedMixedCatalog,
@@ -118,49 +121,6 @@ fn ingest_trusted(index: &SignedMixedCatalog, trust: &ManagedTrustStore) -> Resu
         &serde_json::to_string(index).map_err(invalid)?,
     )
 }
-pub async fn acquire(refresh: bool) -> ManagedThemeCatalogResponse {
-    let policy_error = super::policy::refresh(refresh)
-        .await
-        .err()
-        .map(|error| error.to_string());
-    let (result, refresh_error) = match acquire_inner(refresh).await {
-        Ok(index) => (Ok(index), None),
-        Err(error) => {
-            match storage::bounded_json::<SignedMixedCatalog>(&cache()).and_then(|index| {
-                verify(&index, &pinned_index_trust_store(), false)?;
-                Ok(index)
-            }) {
-                Ok(index) => (Ok(index), Some(error.to_string())),
-                Err(cache_error) => (
-                    Err(invalid(format!(
-                        "{error}; verified cache unavailable: {cache_error}"
-                    ))),
-                    None,
-                ),
-            }
-        }
-    };
-    match result {
-        Ok(index) => {
-            let recommended_versions = recommended_versions(&index);
-            ManagedThemeCatalogResponse {
-                index: Some(index),
-                recommended_versions,
-                verified: true,
-                error: match (refresh_error, policy_error) {
-                    (Some(catalog), Some(policy)) => Some(format!("{catalog}; {policy}")),
-                    (catalog, policy) => catalog.or(policy),
-                },
-            }
-        }
-        Err(error) => ManagedThemeCatalogResponse {
-            index: None,
-            recommended_versions: Default::default(),
-            verified: false,
-            error: Some(error.to_string()),
-        },
-    }
-}
 fn recommended_versions(index: &SignedMixedCatalog) -> BTreeMap<String, String> {
     let mut recommended: BTreeMap<&str, (&str, semver::Version)> = BTreeMap::new();
     for entry in &index.signed.packages {
@@ -187,29 +147,6 @@ fn recommended_versions(index: &SignedMixedCatalog) -> BTreeMap<String, String> 
         .into_iter()
         .map(|(id, (version, _))| (id.into(), version.into()))
         .collect()
-}
-async fn acquire_inner(refresh: bool) -> Result<SignedMixedCatalog, AppError> {
-    let trust = pinned_index_trust_store();
-    storage::secure(&storage::root())?;
-    let cached = storage::bounded_json::<SignedMixedCatalog>(&cache()).and_then(|index| {
-        verify(&index, &trust, false)?;
-        Ok(index)
-    });
-    let cached = match cached {
-        Ok(index) if !refresh => return Ok(index),
-        cached => cached,
-    };
-    let Some(url) = source() else {
-        return match cached {
-            Ok(index) => Ok(index),
-            Err(error) if cache().exists() => Err(error),
-            Err(_) => Err(invalid("theme catalog source is not configured")),
-        };
-    };
-    let bytes = download(url, cadencr_registry_core::MAX_CATALOG_BYTES).await?;
-    let index = serde_json::from_slice(&bytes).map_err(invalid)?;
-    ingest(&index)?;
-    Ok(index)
 }
 pub use super::download::{download, download_archive};
 

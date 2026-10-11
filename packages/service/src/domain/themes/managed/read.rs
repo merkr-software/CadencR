@@ -55,6 +55,13 @@ fn preview_revision_snapshot(
             "theme receipt digest is absent from signed catalog",
         ));
     }
+    let archive_bytes =
+        storage::regular(&revision.join("archive.tar.gz"), archive::MAX_ARCHIVE_BYTES)?;
+    if storage::digest(&archive_bytes) != receipt.sha256 {
+        return Err(archive::invalid("original theme archive digest mismatch"));
+    }
+    let authenticated_files = cadencr_registry_core::read_theme_archive_bytes(&archive_bytes)
+        .map_err(archive::invalid)?;
     policy.enforce(id, &pointer.version, &pointer.sha256)?;
     storage::secure(&revision.join("payload"))?;
     let actual_files = std::fs::read_dir(revision.join("payload"))
@@ -75,6 +82,11 @@ fn preview_revision_snapshot(
     }
     let validated = cadencr_plugin_core::theme::validate_theme_folder(&revision.join("payload"))
         .map_err(|issues| archive::invalid(format!("{issues:?}")))?;
+    if validated.files != authenticated_files {
+        return Err(archive::invalid(
+            "theme payload differs from authenticated archive",
+        ));
+    }
     if validated.files.len() != receipt.files.len()
         || validated
             .files
@@ -88,7 +100,10 @@ fn preview_revision_snapshot(
             &revision.join("payload").join(name),
             archive::MAX_ARCHIVE_BYTES,
         )?;
-        if validated.files.get(name) != Some(&bytes) || storage::digest(&bytes) != *hash {
+        if authenticated_files.get(name) != Some(&bytes)
+            || validated.files.get(name) != Some(&bytes)
+            || storage::digest(&bytes) != *hash
+        {
             return Err(archive::invalid("immutable theme file hash mismatch"));
         }
     }
