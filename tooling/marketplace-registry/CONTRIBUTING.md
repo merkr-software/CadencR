@@ -12,11 +12,60 @@
 4. Record the SHA-256 of each exact archive and pin the source commit and release
    tag in the pull-request description.
 5. Add `packages/<provider-id>-<exact-version>.json`, using
-   `packages/example-provider-0.1.0.json` as a shape example only.
+   `packages/example-provider-0.1.0.json` as a shape example only, and a matching
+   `submissions/<provider-id>-<exact-version>.json` source-pinned envelope.
 6. Run `npm test` and `npm run validate` here. To exercise index creation, pass
    explicit `--generated-at` and `--expires-at` timestamps as shown in `README.md`.
 
 ## Identity and ownership
+
+The contribution gate compares the proposed tree with the accepted base tree.
+It refuses removed or changed accepted versions, missing/orphaned submissions,
+package/submission mismatches and silent publisher/source-repository changes.
+Whitespace and JSON key ordering are not version changes; metadata values are.
+Unchanged legacy entries are retained without inventing source provenance.
+
+Run the trusted checkout's contribution command against both snapshots:
+
+```bash
+npm run validate:contribution -- \
+  --base /path/to/base-registry \
+  --candidate /path/to/candidate-registry
+```
+
+This does not authorize the GitHub account opening the PR. Maintainers still
+verify control of the source repository. The normal contribution gate has no
+ownership-transfer bypass; deliberate transfers require a separate reviewed
+administrative procedure, not a package-version PR.
+
+### Source-pinned submission preflight
+
+Before review, prepare a `provider-submission-v1` JSON document containing:
+
+- `schema_version: 1`;
+- `package`: the existing managed provider package (its installation contract is unchanged);
+- `source.repository`: the canonical `https://github.com/owner/repository` URL;
+- `source.commit`: the full, lowercase 40-character source commit;
+- `source.tag`: the exact release tag;
+- `changelog`: a non-empty description of the version's changes.
+
+Run `npm run validate:submission -- /path/to/submission.json`. This command is
+local and inert: it does not fetch archives, execute code, contact GitHub, create
+releases or submit a PR. Archive URLs must identify GitHub Release assets in the
+declared source repository and tag. Public V1 submissions use built binary
+archives, not package-manager installation at runtime.
+
+The JSON Schema describes structure, not the complete acceptance policy. Always
+run the semantic CLI as well: reserved identities, cross-field repository/tag
+binding and Git ref rules cannot be inferred from a schema-only pass.
+
+This preflight proves declared metadata consistency only. Reviewers must independently
+verify that the tag resolves to the declared commit, inspect the source/build
+provenance and check the submitter's authority. A checksum alone does not prove
+which source produced an archive. Keep the source submission as review evidence;
+the signed installation index continues to contain managed package entries only.
+
+### Ownership review
 
 - Provider IDs match `^[a-z][a-z0-9-]*$` and are permanently reserved by the
   first accepted contribution.

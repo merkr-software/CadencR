@@ -86,9 +86,9 @@ pub(super) fn persist_verified_blocklist(
     let _guard = CACHE_WRITE_LOCK
         .lock()
         .map_err(|_| unavailable("blocklist cache lock is poisoned"))?;
-    if let Some(previous) = trusted_previous(path, trust) {
+    if let Some(previous) = trusted_previous(path, trust)? {
         // Expiry must not erase the last signed publication high-water mark.
-        let generated_at = previous.blocklist.generated_at;
+        let generated_at = previous.signed.generated_at;
         if verified.blocklist.generated_at < generated_at {
             return Err(invalid("refusing an older signed blocklist publication"));
         }
@@ -98,7 +98,7 @@ pub(super) fn persist_verified_blocklist(
                 .signing_bytes()
                 .map_err(|error| invalid(error.to_string()))?
                 != previous
-                    .blocklist
+                    .signed
                     .signing_bytes()
                     .map_err(|error| invalid(error.to_string()))?
         {
@@ -113,25 +113,38 @@ pub(super) fn persist_verified_blocklist(
     Ok(verified)
 }
 
-fn trusted_previous(path: &Path, trust: &ManagedTrustStore) -> Option<VerifiedManagedBlocklist> {
+fn trusted_previous(
+    path: &Path,
+    trust: &ManagedTrustStore,
+) -> Result<Option<SignedManagedProviderBlocklist>, ManagedBlocklistError> {
     let previous = read_envelope(path).and_then(|cached| {
         cached
             .map(|envelope| {
-                let published = envelope.signed.generated_at;
-                trust.verify_blocklist(envelope, published)
+                if trust.generation().is_some() {
+                    trust
+                        .authenticate_provider_policy_baseline(
+                            &serde_json::to_value(&envelope).map_err(|e| invalid(e.to_string()))?,
+                            envelope.signed.generated_at,
+                        )
+                        .map_err(|e| invalid(e.to_string()))?;
+                } else {
+                    trust.verify_blocklist(envelope.clone(), envelope.signed.generated_at)?;
+                }
+                Ok(envelope)
             })
             .transpose()
     });
     match previous {
-        Ok(previous) => previous,
+        Ok(previous) => Ok(previous),
+        Err(error) if trust.generation().is_some() => Err(error),
         Err(error) => {
-            // A freshly verified publication repairs corrupt/untrusted cached data.
-            // Untrusted timestamps cannot establish a publication high-water mark.
+            // Legacy pinned-key repair remains compatible; profiled migrations
+            // must authenticate an explicit historical key or root checkpoint.
             tracing::warn!(
                 code = error.code.as_str(),
                 "replacing invalid managed blocklist cache with verified policy"
             );
-            None
+            Ok(None)
         }
     }
 }
@@ -150,6 +163,115 @@ mod tests {
             SigningKey::from_bytes(&[37; 32]).verifying_key().to_bytes(),
         )
         .unwrap()])
+    }
+
+    fn policy_signed(
+        now: DateTime<Utc>,
+        seed: u8,
+        id: &str,
+        blocked: bool,
+    ) -> SignedManagedProviderBlocklist {
+        let mut value = signed(now, blocked);
+        value.signature.key_id = id.into();
+        value.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[seed; 32])
+                .sign(&value.signed.signing_bytes().unwrap())
+                .to_bytes(),
+        );
+        value
+    }
+
+    fn prior_trust() -> ManagedTrustStore {
+        ManagedTrustStore::new([TrustedIndexKey::new(
+            "catalog-test",
+            SigningKey::from_bytes(&[41; 32]).verifying_key().to_bytes(),
+        )
+        .unwrap()])
+    }
+
+    #[test]
+    fn provider_policy_rotation_keeps_retired_publication_highwater_and_rejects_current_a() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("policy.json");
+        let now = Utc::now();
+        let prior_time = now - chrono::Duration::minutes(2);
+        let prior = policy_signed(prior_time, 41, "catalog-test", true);
+        persist_verified_blocklist(&path, &prior_trust(), prior.clone(), now).unwrap();
+        let migrated = ManagedTrustStore::test_registry_rotation(
+            now - chrono::Duration::minutes(1),
+            false,
+            vec![],
+        );
+        assert!(load_cached_blocklist(&path, &migrated, now).is_err());
+        assert!(migrated.verify_blocklist(prior, now).is_err());
+        let before = std::fs::read(&path).unwrap();
+        for generated in [prior_time - chrono::Duration::seconds(1), prior_time] {
+            assert!(persist_verified_blocklist(
+                &path,
+                &migrated,
+                policy_signed(generated, 42, "current-b", false),
+                now
+            )
+            .is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        persist_verified_blocklist(
+            &path,
+            &migrated,
+            policy_signed(now, 42, "current-b", false),
+            now,
+        )
+        .unwrap();
+        assert_eq!(
+            load_cached_blocklist(&path, &migrated, now)
+                .unwrap()
+                .unwrap()
+                .signer_key_id,
+            "current-b"
+        );
+    }
+
+    #[test]
+    fn compromised_provider_policy_requires_exact_namespace_specific_root_checkpoint() {
+        let now = Utc::now();
+        let prior = policy_signed(now - chrono::Duration::minutes(2), 41, "catalog-test", true);
+        let digest = cadencr_registry_core::VerifiedRegistryTrust::catalog_digest(
+            &serde_json::to_value(&prior).unwrap(),
+        );
+        for namespace in ["missing", "catalog", "provider"] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("policy.json");
+            persist_verified_blocklist(&path, &prior_trust(), prior.clone(), now).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let migrated = ManagedTrustStore::test_registry_policy_rotation(
+                now,
+                true,
+                if namespace == "catalog" {
+                    vec![digest.clone()]
+                } else {
+                    vec![]
+                },
+                if namespace == "provider" {
+                    vec![digest.clone()]
+                } else {
+                    vec![]
+                },
+            );
+            assert_eq!(
+                persist_verified_blocklist(
+                    &path,
+                    &migrated,
+                    policy_signed(now, 42, "current-b", false),
+                    now
+                )
+                .is_ok(),
+                namespace == "provider"
+            );
+            if namespace != "provider" {
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+            }
+            assert!(migrated.verify_blocklist(prior.clone(), now).is_err());
+        }
     }
 
     fn signed(now: DateTime<Utc>, blocked: bool) -> SignedManagedProviderBlocklist {

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+  type Project,
   useCreateProject,
   useDeleteProject,
   getListProjectsQueryKey,
@@ -53,7 +54,11 @@ interface ProjectTreeProps {
 }
 
 type ProjectSummary = ReturnType<typeof useOrderedProjects>["projects"][number];
-type ProjectDialogTarget = { id: number; name: string };
+type ProjectDialogTarget = {
+  id: number;
+  name: string;
+  authoringTarget?: Project["authoring_target"];
+};
 
 function useProjectTreeMutations(
   projects: ProjectSummary[],
@@ -266,7 +271,11 @@ function ProjectRowActions({
   project: ProjectSummary;
   controller: ProjectTreeController;
 }) {
-  const target = { id: project.id, name: project.name };
+  const target = {
+    id: project.id,
+    name: project.name,
+    authoringTarget: project.authoring_target,
+  };
   return (
     <div className="ml-auto flex shrink-0 items-center gap-0.5">
       <span
@@ -330,7 +339,11 @@ function ProjectRowContextMenu({
   project: ProjectSummary;
   controller: ProjectTreeController;
 }) {
-  const target = { id: project.id, name: project.name };
+  const target = {
+    id: project.id,
+    name: project.name,
+    authoringTarget: project.authoring_target,
+  };
   return (
     <ContextMenuContent>
       <ContextMenuActionItem icon={PlusIcon} onSelect={() => controller.startSession(project.id)}>

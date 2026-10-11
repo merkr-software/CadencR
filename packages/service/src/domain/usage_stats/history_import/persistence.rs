@@ -105,6 +105,9 @@ mod tests {
 
     #[tokio::test]
     async fn provider_message_identity_closes_history_live_overlap() {
+        let _guard = crate::domain::usage_stats::pending::TEST_TASKS_LOCK
+            .lock()
+            .await;
         let pool = pool().await;
         let attribution = UsageAttribution {
             provider_id: "opencode".into(),
@@ -155,6 +158,9 @@ mod tests {
 
     #[tokio::test]
     async fn imported_provider_message_identity_suppresses_later_live_replay() {
+        let _guard = crate::domain::usage_stats::pending::TEST_TASKS_LOCK
+            .lock()
+            .await;
         let pool = pool().await;
         let day = repository::end_day(&pool).await.unwrap();
         let batch = ImportBatch {

@@ -51,6 +51,40 @@ pub struct Project {
     pub plugin_id: Option<String>,
 }
 
+/// Result of read-only, local preparation checks for an authored provider.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PublicationReadinessResponse {
+    pub project_id: i64,
+    pub plugin_id: String,
+    pub local_preparation: PublicationPreparationStatus,
+    pub summary: String,
+    pub checks: Vec<PublicationReadinessCheck>,
+    pub supported_package_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationPreparationStatus {
+    Prepared,
+    Blocked,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PublicationReadinessCheck {
+    pub id: String,
+    pub label: String,
+    pub status: PublicationCheckStatus,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicationCheckStatus {
+    Pass,
+    Warning,
+    Fail,
+}
+
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateProjectRequest {
     pub name: String,

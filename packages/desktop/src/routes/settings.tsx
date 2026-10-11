@@ -11,6 +11,7 @@ import { StorageSection } from "@/components/settings/StorageSection";
 import { McpSection } from "@/components/settings/McpSection";
 import { InterfaceSection } from "@/components/settings/InterfaceSection";
 import { GitSection } from "@/components/settings/GitSection";
+import { MarketplaceSection } from "@/components/MarketplaceSection";
 import { ProvidersSection } from "@/components/settings/ProvidersSection";
 import { AboutSection } from "@/components/settings/AboutSection";
 import { StatsSection } from "@/components/settings/StatsSection";
@@ -114,6 +115,7 @@ function SettingsPage() {
           <RuntimeSettingsSection />
           <GitSection />
           <ProvidersSection />
+          <MarketplaceSection />
           <StatsSection />
           <AboutSection />
 

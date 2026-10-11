@@ -1,0 +1,196 @@
+use std::io::{self, Write as _};
+use std::path::Path;
+
+use serde_json::json;
+
+use crate::args::{Cli, Command, PluginArgs, PluginCommand, RegistryCommand};
+use crate::{operation_error, output, signing, Diagnostic};
+
+pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
+    match &cli.command {
+        Command::Plugin(PluginArgs {
+            command:
+                PluginCommand::Validate {
+                    folder,
+                    descriptor,
+                    kind,
+                },
+        }) => crate::theme::validate_plugin_kind(folder, descriptor.as_deref(), kind),
+        Command::Registry(registry) => run_registry(&registry.command),
+    }
+}
+
+fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic> {
+    match command {
+        RegistryCommand::Validate { base, candidate } => validate_registry(base, candidate),
+        RegistryCommand::BuildIndex {
+            schema_version,
+            packages,
+            generated_at,
+            expires_at,
+            output: destination,
+        } => build_index(
+            packages,
+            *schema_version,
+            generated_at,
+            expires_at,
+            destination.as_deref(),
+        ),
+        RegistryCommand::PackProvider {
+            package,
+            target,
+            directory,
+            output: destination,
+        } => pack_provider(package, target, directory, destination),
+        RegistryCommand::PackTheme { directory, output } => crate::theme::pack(directory, output),
+        RegistryCommand::PlanPublication {
+            submission,
+            repository,
+            output: destination,
+        } => plan_publication(submission, repository, destination),
+        RegistryCommand::StagePublication {
+            submission,
+            repository,
+            directory,
+        } => stage_publication(submission, repository, directory),
+        RegistryCommand::MirrorPublication(args) => crate::publication::mirror(args),
+        RegistryCommand::PromotePublication(args) => crate::publication::promote(args),
+        RegistryCommand::RecoverPublication(args) => crate::publication::recover(args),
+        RegistryCommand::RestorePublication(args) => crate::publication::restore(args),
+        RegistryCommand::SignPublicationCatalog(args) => signing::catalog(args),
+        RegistryCommand::PublishCatalog(args) => crate::publication::publish_catalog(args),
+        RegistryCommand::PublishRegistry(args) => crate::pipeline::publish(args),
+        RegistryCommand::AdvanceCatalog(args) => crate::publication::advance_catalog(args),
+        RegistryCommand::SignIndex {
+            payload,
+            private_key,
+            key_id,
+            output,
+        } => signing::sign(payload, private_key, key_id, output),
+        RegistryCommand::VerifyIndex {
+            index,
+            public_key,
+            key_id,
+            allow_expired,
+        } => signing::verify(index, public_key, key_id, *allow_expired),
+        RegistryCommand::SignTrustManifest {
+            payload,
+            root_private_key,
+            root_key_id,
+            output,
+        } => crate::trust::sign(payload, root_private_key, root_key_id, output),
+        RegistryCommand::VerifyTrustManifest {
+            manifest,
+            root_public_key,
+            root_key_id,
+            minimum_generation,
+        } => crate::trust::verify(manifest, root_public_key, root_key_id, *minimum_generation),
+        RegistryCommand::SignThemeBlocklist {
+            payload,
+            private_key,
+            key_id,
+            output,
+        } => signing::sign_theme_blocklist(payload, private_key, key_id, output),
+        RegistryCommand::VerifyThemeBlocklist {
+            index,
+            public_key,
+            key_id,
+            allow_expired,
+        } => signing::verify_theme_blocklist(index, public_key, key_id, *allow_expired),
+        RegistryCommand::AssembleSignedIndex {
+            payload,
+            signature,
+            output,
+        } => signing::assemble(payload, signature, output),
+    }
+}
+
+fn validate_registry(base: &Path, candidate: &Path) -> Result<Option<String>, Diagnostic> {
+    cadencr_registry_core::validate_contribution(base, candidate)
+        .map(|()| {
+            Some(format!(
+                "valid registry contribution: {}",
+                candidate.display()
+            ))
+        })
+        .map_err(|error| operation_error("REGISTRY_VALIDATION_FAILED", error))
+}
+
+fn build_index(
+    packages: &Path,
+    schema_version: u64,
+    generated_at: &str,
+    expires_at: &str,
+    destination: Option<&Path>,
+) -> Result<Option<String>, Diagnostic> {
+    let bytes = cadencr_registry_core::build_index()
+        .packages_dir(packages)
+        .schema_version(schema_version)
+        .generated_at(generated_at)
+        .expires_at(expires_at)
+        .call()
+        .map_err(|error| operation_error("REGISTRY_INDEX_FAILED", error))?;
+    output::write_bytes(&bytes, destination)?;
+    Ok(destination.map(|path| format!("wrote registry index: {}", path.display())))
+}
+
+fn pack_provider(
+    package: &Path,
+    target: &str,
+    directory: &Path,
+    destination: &Path,
+) -> Result<Option<String>, Diagnostic> {
+    let packed = cadencr_registry_core::pack_provider(
+        cadencr_registry_core::PackProviderRequest::builder()
+            .package(package)
+            .target(target)
+            .directory(directory)
+            .output(destination)
+            .build(),
+    )
+    .map_err(|error| operation_error("REGISTRY_PACKAGING_FAILED", error))?;
+    let mut receipt = serde_json::to_vec(&json!({
+        "target": packed.target, "archive": packed.archive,
+        "sha256": packed.sha256, "size": packed.size,
+    }))
+    .map_err(|error| operation_error("REGISTRY_PACKAGING_FAILED", error))?;
+    receipt.push(b'\n');
+    output::write_stdout(&receipt, &mut io::stdout().lock())?;
+    Ok(None)
+}
+
+fn plan_publication(
+    submission: &Path,
+    repository: &str,
+    destination: &Path,
+) -> Result<Option<String>, Diagnostic> {
+    let plan = cadencr_registry_core::create_publication_plan_from_file(submission, repository)
+        .map_err(|error| operation_error("PUBLICATION_PLAN_FAILED", error))?;
+    let mut bytes = serde_json::to_vec_pretty(&plan)
+        .map_err(|error| operation_error("PUBLICATION_PLAN_FAILED", error))?;
+    bytes.push(b'\n');
+    output::publish(destination, |temporary| {
+        temporary.write_all(&bytes)?;
+        temporary.flush()
+    })?;
+    Ok(Some(format!("publication plan: {}", destination.display())))
+}
+
+fn stage_publication(
+    submission: &Path,
+    repository: &str,
+    directory: &Path,
+) -> Result<Option<String>, Diagnostic> {
+    let receipt = cadencr_registry_publisher::stage_publication(
+        cadencr_registry_publisher::StageRequest::builder()
+            .submission(submission)
+            .repository(repository)
+            .directory(directory)
+            .build(),
+    )
+    .map_err(|error| operation_error("REGISTRY_PUBLICATION_STAGING_FAILED", error))?;
+    Ok(Some(format!(
+        "staged {} verified publication artifacts",
+        receipt.artifacts.len()
+    )))
+}

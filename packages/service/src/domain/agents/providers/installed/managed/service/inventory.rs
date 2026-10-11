@@ -265,6 +265,14 @@ fn trust_inventory() -> ManagedTrustInventory {
             error_code: None,
             error: None,
         },
+        PinnedIndexTrustStatus::Generation { trust } => ManagedTrustInventory {
+            status: ManagedTrustConfigurationStatus::Configured,
+            key_id: trust
+                .generation()
+                .map(|generation| format!("generation {generation}")),
+            error_code: None,
+            error: None,
+        },
         PinnedIndexTrustStatus::Invalid { code, message } => ManagedTrustInventory {
             status: ManagedTrustConfigurationStatus::Invalid,
             key_id: None,

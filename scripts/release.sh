@@ -29,9 +29,11 @@ packages/claude-agent-sdk-rs/package.json
 packages/opencode-sdk-rs/package.json
 packages/service/package.json
 packages/desktop/package.json
+packages/cli/package.json
 packages/landing/package.json
 packages/claude-agent-sdk-rs/Cargo.toml
 packages/cli-discovery/Cargo.toml
+packages/cli/Cargo.toml
 packages/codex-app-server-sdk-rs/Cargo.toml
 packages/opencode-sdk-rs/Cargo.toml
 packages/service/Cargo.toml

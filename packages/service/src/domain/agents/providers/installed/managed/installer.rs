@@ -499,6 +499,42 @@ mod tests {
     }
 
     #[test]
+    fn mixed_provider_receipt_keeps_original_signed_proof_through_revision_commit() {
+        use super::super::SignedProviderCatalog;
+        use crate::domain::themes::managed::models::SignedMixedCatalog;
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let (staging, mut receipt) = uncommitted_receipt();
+        let legacy = receipt.signed_index.legacy_mut().clone();
+        let value = serde_json::json!({
+            "schema_version":2,
+            "generated_at":legacy.signed.generated_at.to_rfc3339_opts(chrono::SecondsFormat::Secs,true),
+            "expires_at":legacy.signed.expires_at.to_rfc3339_opts(chrono::SecondsFormat::Secs,true),
+            "packages":legacy.signed.packages.iter().map(|package|serde_json::json!({"kind":"provider","package":package})).collect::<Vec<_>>()
+        });
+        let bytes = cadencr_registry_core::canonical_json_bytes(&value);
+        let mut signature = legacy.signature;
+        signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        let mixed: SignedMixedCatalog =
+            serde_json::from_value(serde_json::json!({"signed":value,"signature":signature}))
+                .unwrap();
+        receipt.signed_index = SignedProviderCatalog::Mixed(mixed);
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
+        verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
+        let proof = serde_json::to_value(&receipt.signed_index).unwrap();
+        let revision =
+            commit_staged_revision(&storage, &staging.path().join("revision"), &receipt).unwrap();
+        verify_existing_revision(revision.parent().unwrap(), &receipt).unwrap();
+        assert_eq!(serde_json::to_value(&receipt.signed_index).unwrap(), proof);
+        let mut tampered = receipt.clone();
+        if let SignedProviderCatalog::Mixed(index) = &mut tampered.signed_index {
+            index.signed.packages[0]["package"]["agent"]["name"] = serde_json::json!("Tampered");
+        }
+        assert!(verify_receipt_trust(&tampered, &test_trust_store()).is_err());
+    }
+
+    #[test]
     fn concurrent_identical_revision_commits_converge() {
         let root = tempfile::tempdir().unwrap();
         let storage = ManagedStorage::new(root.path().join("managed"));
@@ -544,12 +580,23 @@ mod tests {
         let storage = ManagedStorage::new(root.path().join("managed"));
         let (_staging, receipt) = staged_receipt(&storage);
         let mut refreshed = receipt.clone();
-        let mut unrelated = refreshed.signed_index.signed.packages[0].clone();
+        let mut unrelated = refreshed.signed_index.legacy_mut().signed.packages[0].clone();
         unrelated.agent.id = "z-other-agent".into();
-        refreshed.signed_index.signed.packages.push(unrelated);
-        let bytes = refreshed.signed_index.signed.signing_bytes().unwrap();
-        refreshed.signed_index.signature.value = base64::engine::general_purpose::STANDARD
-            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        refreshed
+            .signed_index
+            .legacy_mut()
+            .signed
+            .packages
+            .push(unrelated);
+        let bytes = refreshed
+            .signed_index
+            .legacy_mut()
+            .signed
+            .signing_bytes()
+            .unwrap();
+        refreshed.signed_index.legacy_mut().signature.value =
+            base64::engine::general_purpose::STANDARD
+                .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
         refreshed.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
         verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
         verify_receipt_trust(&refreshed, &test_trust_store()).unwrap();
@@ -572,6 +619,51 @@ mod tests {
     }
 
     #[test]
+    fn retained_legacy_receipt_uses_the_bytes_that_were_actually_verified() {
+        let (_staging, mut receipt) = uncommitted_receipt();
+        receipt.signed_index.legacy_mut().signed.packages[0]
+            .agent
+            .extra
+            .insert(
+                "x-large-integer".into(),
+                serde_json::json!(9_007_199_254_740_993_u64),
+            );
+        receipt.agent = receipt.signed_index.legacy_mut().signed.packages[0]
+            .agent
+            .clone();
+        let legacy = receipt
+            .signed_index
+            .legacy_mut()
+            .signed
+            .legacy_signing_bytes()
+            .unwrap();
+        assert_ne!(
+            legacy,
+            receipt
+                .signed_index
+                .legacy_mut()
+                .signed
+                .signing_bytes()
+                .unwrap()
+        );
+        receipt.signed_index.legacy_mut().signature.value =
+            base64::engine::general_purpose::STANDARD
+                .encode(SigningKey::from_bytes(&[23; 32]).sign(&legacy).to_bytes());
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&legacy);
+
+        verify_receipt_trust(&receipt, &test_trust_store()).unwrap();
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(
+            &receipt
+                .signed_index
+                .legacy_mut()
+                .signed
+                .signing_bytes()
+                .unwrap(),
+        );
+        assert!(verify_receipt_trust(&receipt, &test_trust_store()).is_err());
+    }
+
+    #[test]
     fn existing_revision_rejects_changed_launch_metadata() {
         let root = tempfile::tempdir().unwrap();
         let storage = ManagedStorage::new(root.path().join("managed"));
@@ -583,7 +675,7 @@ mod tests {
         changed.args.push("--different-behavior".into());
         assert!(verify_existing_revision(&revision, &changed).is_err());
         let mut changed = receipt;
-        changed.signed_index.signed.packages[0]
+        changed.signed_index.legacy_mut().signed.packages[0]
             .host
             .compatibility
             .max_app_version = Some("0.99.0".into());

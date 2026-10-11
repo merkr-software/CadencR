@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:cadencr:provider-submission:v1",
+  "title": "Cadencr provider marketplace submission v1",
+  "$comment": "Structural checks only. Acceptance requires scripts/validate-submission.mjs for repository equality, release-asset binding, normalized built-in identity reservation, and the complete managed-package policy. Validation does not verify repository ownership or SPDX correctness.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "package", "source", "changelog"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "package": {
+      "allOf": [
+        { "$ref": "managed-provider-package-v1.schema.json" },
+        {
+          "properties": {
+            "agent": {
+              "required": ["repository", "license"],
+              "properties": {
+                "license": { "type": "string", "minLength": 1, "pattern": "\\S" },
+                "distribution": {
+                  "not": {
+                    "anyOf": [{ "required": ["npx"] }, { "required": ["uvx"] }]
+                  }
+                }
+              }
+            },
+            "host": {
+              "properties": {
+                "assets": {
+                  "required": ["readme", "license"],
+                  "properties": {
+                    "readme": { "type": "string", "minLength": 1, "pattern": "\\S" },
+                    "license": { "type": "string", "minLength": 1, "pattern": "\\S" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit", "tag"],
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/(?!.*\\.git$)[A-Za-z0-9._-]+$"
+        },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "tag": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255,
+          "pattern": "^(?!@?$)(?!-)(?!.*(?:\\.\\.|@\\{|//|(?:^|/)\\.|\\.lock(?:/|$)))(?!.*[\\u0000-\\u0020\\u007f~^:?*\\[\\\\])(?!.*/$)(?!.*\\.$).+$"
+        }
+      }
+    },
+    "changelog": { "type": "string", "minLength": 1, "maxLength": 16384, "pattern": "\\S" }
+  }
+}

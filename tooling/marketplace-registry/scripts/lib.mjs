@@ -87,7 +87,7 @@ export function validatePackage(value, label = "package") {
   return errors;
 }
 
-export function validateIndex(index, { now = new Date() } = {}) {
+export function validateIndex(index, { now = new Date(), allowExpired = false } = {}) {
   const errors = [];
   if (!isObject(index)) return ["index must be an object"];
   rejectUnknown(
@@ -97,7 +97,7 @@ export function validateIndex(index, { now = new Date() } = {}) {
     errors,
   );
   if (index.schema_version !== 1) errors.push("index.schema_version must equal 1");
-  validatePublicationWindow(index, now, errors);
+  validatePublicationWindow(index, now, errors, { allowExpired });
   if (!Array.isArray(index.packages) || index.packages.length === 0) {
     errors.push("index.packages must be a non-empty array");
     return errors;
@@ -151,7 +151,7 @@ export function comparePackages(left, right) {
   return compareSemver(left.agent.version, right.agent.version);
 }
 
-function validatePublicationWindow(index, now, errors) {
+function validatePublicationWindow(index, now, errors, { allowExpired }) {
   const generated = parseTimestamp(index.generated_at);
   const expires = parseTimestamp(index.expires_at);
   if (generated === null) errors.push("index.generated_at must be an RFC 3339 timestamp");
@@ -161,7 +161,7 @@ function validatePublicationWindow(index, now, errors) {
   if (generated > now.getTime() + MAX_FUTURE_SKEW_MS)
     errors.push("index.generated_at is too far in the future");
   if (expires - generated > MAX_INDEX_AGE_MS) errors.push("index validity window exceeds 14 days");
-  if (now.getTime() >= expires) errors.push("index has expired");
+  if (!allowExpired && now.getTime() >= expires) errors.push("index has expired");
 }
 
 function validateAgent(agent, label, errors) {
@@ -328,7 +328,7 @@ function credentialName(value) {
     )
   );
 }
-function validIdentifier(value) {
+export function validIdentifier(value) {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(value);
 }
 function validUrl(value) {

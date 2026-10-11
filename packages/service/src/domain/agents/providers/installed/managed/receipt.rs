@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
 use super::conformance::ManagedProbeOutcome;
-use super::{ManagedPackageAssets, SignedManagedProviderIndex};
+use super::{ManagedPackageAssets, SignedProviderCatalog};
 use crate::domain::agents::providers::installed::descriptor::{
     AcpAgentEntry, HostInstallationSpec, LocalAssetsSpec, LocalExecutableSpec, ProviderDescriptor,
     SUPPORTED_SCHEMA_VERSION,
@@ -49,7 +49,8 @@ pub struct ManagedPackageReceipt {
     pub conformance: ManagedConformanceReceipt,
     /// Exact signed metadata retained so rollback re-establishes trust against
     /// the host's current pinned keyring rather than trusting an old decision.
-    pub signed_index: SignedManagedProviderIndex,
+    #[builder(into)]
+    pub signed_index: SignedProviderCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

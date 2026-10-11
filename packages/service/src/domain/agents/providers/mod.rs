@@ -21,6 +21,7 @@ pub use model_validation::{
     provider_aliases, provider_model_catalog_entry, resolve_model_or_error_for_profile,
     valid_provider_ids, validate_thinking_level_or_error,
 };
+pub(crate) use registry::{builtin_provider_identifiers, provider_identifier_key};
 pub use registry::{provider_registry, ProviderAdapterHandle};
 
 /// Resolve a provider id to its registered adapter.

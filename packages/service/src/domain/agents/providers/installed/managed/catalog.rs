@@ -10,11 +10,12 @@ use futures::StreamExt as _;
 use serde::Serialize;
 
 use super::trust::{ManagedTrustStore, VerifiedManagedProviderIndex};
-use super::SignedManagedProviderIndex;
+use super::SignedProviderCatalog;
 
 mod cache;
+mod recommendation;
 
-const MAX_CATALOG_BYTES: usize = 1024 * 1024;
+const MAX_CATALOG_BYTES: usize = cadencr_registry_core::MAX_CATALOG_BYTES;
 const CATALOG_REFRESH_TIMEOUT: Duration = Duration::from_secs(15);
 const CATALOG_REFRESH_CADENCE: chrono::Duration = chrono::Duration::hours(1);
 
@@ -46,7 +47,10 @@ pub struct ManagedCatalogResponse {
     pub signer_key_id: Option<String>,
     pub generated_at: Option<String>,
     pub expires_at: Option<String>,
-    pub index: Option<SignedManagedProviderIndex>,
+    pub index: Option<SignedProviderCatalog>,
+    /// Host-compatible recommendation per provider, outside the signed payload.
+    #[serde(default)]
+    pub recommended_versions: std::collections::BTreeMap<String, String>,
     pub error_code: Option<String>,
     pub error: Option<String>,
 }
@@ -82,6 +86,7 @@ impl ManagedCatalogResponse {
             generated_at: None,
             expires_at: None,
             index: None,
+            recommended_versions: Default::default(),
             error_code,
             error: message,
         }
@@ -102,12 +107,33 @@ impl ManagedCatalogResponse {
             generated_at: Some(index.generated_at.to_rfc3339()),
             expires_at: Some(index.expires_at.to_rfc3339()),
             index: Some(catalog.envelope().clone()),
+            recommended_versions: recommendation::recommended_versions(
+                &index.packages,
+                env!("CARGO_PKG_VERSION"),
+                crate::domain::agents::providers::installed::descriptor::current_binary_target(),
+            ),
             error_code: fallback_error
                 .as_ref()
                 .map(|error| error.code.as_str().into()),
             error: fallback_error.map(|error| error.message),
         }
     }
+}
+
+pub(crate) fn admit_request(
+    path: &Path,
+    trust: &ManagedTrustStore,
+    index: SignedProviderCatalog,
+) -> Result<(), crate::error::AppError> {
+    cache::persist(path, trust, index, Utc::now())
+        .map(|_| ())
+        .map_err(|error| {
+            crate::error::AppError::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                error.code.as_str(),
+                error.message,
+            )
+        })
 }
 
 pub async fn acquire(
@@ -207,7 +233,7 @@ async fn refresh_inner(
         }
         bytes.extend_from_slice(&chunk);
     }
-    let envelope = serde_json::from_slice(&bytes)
+    let envelope: SignedProviderCatalog = serde_json::from_slice(&bytes)
         .map_err(|error| invalid(format!("downloaded catalog is invalid: {error}")))?;
     // Freshness is a property at acceptance time, not request-start time. A
     // catalog can expire while a slow response is still arriving.
@@ -265,7 +291,7 @@ fn download(message: impl Into<String>) -> ManagedCatalogError {
 fn too_large() -> ManagedCatalogError {
     ManagedCatalogError::new(
         ManagedCatalogErrorCode::TooLarge,
-        "managed provider catalog exceeds 1 MiB",
+        "managed provider catalog exceeds 32 MiB",
     )
 }
 

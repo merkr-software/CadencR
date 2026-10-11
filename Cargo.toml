@@ -1,5 +1,9 @@
 [workspace]
 members = [
+    "packages/cli",
+    "packages/plugin-core",
+    "packages/registry-core",
+    "packages/registry-publisher",
     "packages/service",
     "packages/claude-agent-sdk-rs",
     "packages/cli-discovery",

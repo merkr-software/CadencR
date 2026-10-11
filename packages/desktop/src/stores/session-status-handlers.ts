@@ -322,7 +322,7 @@ export function handleAppEnvelope(
     // re-read-and-revalidate of every theme file per keystroke.
     // The same file holds the label the theme's project is named after, so the
     // sidebar's list is refetched with it.
-    scheduleThemeInvalidation(queryClient);
+    scheduleThemeInvalidation(queryClient, typeof payload.id === "string" ? payload.id : undefined);
     return true;
   }
   if (domain === "app" && action === "alacritty_config_event") {

@@ -1,0 +1,85 @@
+#!/usr/bin/env node
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { lstat } from "node:fs/promises";
+import { parseNamedArguments } from "./publication/cli.mjs";
+import { createGitHubClient } from "./publication/github.mjs";
+import { readPublicationManifest } from "./publication/catalog.mjs";
+import { publishCatalogSnapshot } from "./publication/publish-catalog.mjs";
+import { validPublicationRepository } from "./publication/plan.mjs";
+import { isExactCommit } from "./publication/commit.mjs";
+import { prepareCatalogSnapshot } from "./publication/snapshot.mjs";
+
+const FLAGS = [
+  "--catalog",
+  "--previous-index",
+  "--public-key",
+  "--key-id",
+  "--manifest",
+  "--repository",
+  "--registry-commit",
+  "--directory",
+  "--confirm-repository",
+  "--confirm-publish",
+];
+const USAGE = `Usage: node scripts/publish-catalog.mjs ${FLAGS.join(" VALUE ")}`;
+
+export async function runCatalogPublisher(values, dependencies = {}) {
+  validateArguments(values);
+  const options = {
+    catalogFile: values.catalog,
+    previousIndex: values["previous-index"],
+    publicKeyFile: values["public-key"],
+    keyId: values["key-id"],
+    manifest: values.manifest,
+    repository: values.repository,
+    registryCommit: values["registry-commit"],
+    directory: values.directory,
+    download: dependencies.download,
+    now: dependencies.now,
+  };
+  const snapshot = await prepareCatalogSnapshot(options);
+  const manifest = await readPublicationManifest(path.resolve(values.manifest));
+  if (manifest.repository !== values.repository) {
+    throw new Error("publication manifest repository does not match --repository");
+  }
+  const metadata = await lstat(values.directory);
+  if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
+    throw new Error("catalog publication path must be a non-symlink directory");
+  }
+  if (values["confirm-publish"] !== snapshot.tag) {
+    throw new Error("publish confirmation must exactly match the computed catalog tag");
+  }
+  const token = dependencies.token ?? process.env.CADENCR_REGISTRY_GITHUB_TOKEN;
+  if (!token) throw new Error("CADENCR_REGISTRY_GITHUB_TOKEN is required");
+  const client =
+    dependencies.client ??
+    createGitHubClient({ repository: values.repository, token, fetchImpl: dependencies.fetchImpl });
+  return publishCatalogSnapshot({ ...options, client });
+}
+
+function validateArguments(values) {
+  if (!validPublicationRepository(values.repository)) throw new Error("invalid repository");
+  if (values["confirm-repository"] !== values.repository) {
+    throw new Error("repository confirmation must exactly match --repository");
+  }
+  if (!isExactCommit(values["registry-commit"])) {
+    throw new Error("registry commit must be 40 lowercase hex characters");
+  }
+}
+
+async function main() {
+  const values = parseNamedArguments(process.argv.slice(2), FLAGS);
+  const receipt = await runCatalogPublisher(values);
+  console.log(`published catalog ${receipt.release_tag} at ${receipt.catalog_url}`);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  main().catch((error) => {
+    console.error(
+      `publish-catalog: ${error instanceof Error ? error.message : "unexpected failure"}`,
+    );
+    console.error(USAGE);
+    process.exitCode = 1;
+  });
+}

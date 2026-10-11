@@ -14,6 +14,7 @@ use super::workspace::{self, ThemeWorkspace};
 
 pub fn themes_router() -> Router<AppState> {
     Router::new()
+        .merge(super::managed::routes::router())
         .route(
             "/api/themes",
             get(list_themes_handler).post(create_theme_handler),

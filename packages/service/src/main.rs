@@ -48,6 +48,9 @@ async fn main() -> anyhow::Result<()> {
                 &db_path,
             );
             domain::settings_store::init(settings_dir);
+            domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
+            )
+            .await?;
 
             domain::mcp::stdio::run_mcp_stdio(&db_path, agent_type, *feature_id, *session_id)
                 .await?;
@@ -158,6 +161,9 @@ async fn main() -> anyhow::Result<()> {
             // CWD-relative `./cadencr-settings/settings.json`.
             let settings_dir = std::fs::canonicalize(&settings_dir).unwrap_or(settings_dir);
             domain::settings_store::init(settings_dir.clone());
+            domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
+            )
+            .await?;
             // Bind the provider registry to that settings dir immediately: it
             // scans `<settings-dir>/providers` exactly once, and a lazy first
             // lookup before this point would cache an empty scan of the

@@ -31,9 +31,10 @@ pub(super) fn verify_existing_revision(
 fn immutable_metadata(receipt: &ManagedPackageReceipt) -> Result<serde_json::Value, AppError> {
     // An index is a changing catalog, not the identity of one immutable revision.
     // Preserve the original receipt while allowing unrelated registry updates.
-    let package = receipt
-        .signed_index
-        .signed
+    let view = receipt.signed_index.provider_view().map_err(|message| {
+        AppError::coded(StatusCode::CONFLICT, "MANAGED_RECEIPT_INVALID", message)
+    })?;
+    let package = view
         .packages
         .iter()
         .find(|package| {
@@ -111,21 +112,16 @@ pub(super) fn verify_receipt_trust(
     receipt: &ManagedPackageReceipt,
     trust_store: &ManagedTrustStore,
 ) -> Result<(), AppError> {
-    let signing_bytes = receipt
-        .signed_index
-        .signed
-        .signing_bytes()
-        .map_err(|error| AppError::Internal(format!("canonicalize retained index: {error}")))?;
-    if signed_payload_sha256(&signing_bytes) != receipt.trust.signed_payload_sha256 {
+    let verified = trust_store
+        .verify_index_historical(receipt.signed_index.clone())
+        .map_err(|error| {
+            AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
+        })?;
+    if signed_payload_sha256(verified.signing_bytes()) != receipt.trust.signed_payload_sha256 {
         return Err(invalid_receipt(
             "retained signed provider index differs from the receipt",
         ));
     }
-    let verified = trust_store
-        .verify_index(receipt.signed_index.clone())
-        .map_err(|error| {
-            AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
-        })?;
     if verified.signer_key_id() != receipt.trust.index_key_id {
         return Err(invalid_receipt(
             "retained provider index signer differs from the receipt",

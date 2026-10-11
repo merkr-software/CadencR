@@ -16,6 +16,8 @@ use super::descriptor::AcpAgentEntry;
 pub mod archive;
 pub mod blocklist;
 pub mod catalog;
+mod catalog_contract;
+pub use catalog_contract::SignedProviderCatalog;
 pub mod conformance;
 pub mod download;
 mod error;
@@ -65,6 +67,13 @@ pub struct ManagedProviderPackage {
     pub agent: AcpAgentEntry,
     /// Cadencr-only host and package policy.
     pub host: ManagedProviderHost,
+}
+
+impl ManagedProviderPackage {
+    /// Validate this package entry without constructing a synthetic index.
+    pub fn validate_contract(&self) -> Result<(), ManagedContractError> {
+        validation::validate_package(self).map(|_| ())
+    }
 }
 
 /// Strict host metadata that must never be moved into the portable ACP entry.
@@ -158,19 +167,24 @@ impl ManagedProviderIndex {
     /// Object keys are sorted recursively and package order is validated, so
     /// equivalent parsed inputs always produce identical signing bytes.
     pub fn signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
-        serde_json::to_vec(&canonical_json(serde_json::to_value(self)?))
+        let value = serde_json::to_value(self)?;
+        Ok(cadencr_registry_core::canonical_json_bytes(&value))
+    }
+
+    fn legacy_signing_bytes(&self) -> Result<Vec<u8>, serde_json::Error> {
+        serde_json::to_vec(&legacy_canonical_json(serde_json::to_value(self)?))
     }
 }
 
-fn canonical_json(value: serde_json::Value) -> serde_json::Value {
+fn legacy_canonical_json(value: serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Array(values) => {
-            serde_json::Value::Array(values.into_iter().map(canonical_json).collect())
+            serde_json::Value::Array(values.into_iter().map(legacy_canonical_json).collect())
         }
         serde_json::Value::Object(values) => {
             let sorted: BTreeMap<_, _> = values
                 .into_iter()
-                .map(|(key, value)| (key, canonical_json(value)))
+                .map(|(key, value)| (key, legacy_canonical_json(value)))
                 .collect();
             serde_json::Value::Object(sorted.into_iter().collect())
         }

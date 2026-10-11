@@ -5,6 +5,7 @@ import {
   getUserTheme,
   listUserThemes,
   setUserThemes,
+  setManagedThemes,
   subscribeUserThemes,
 } from "./user-registry";
 import { getTheme, isThemeId, parseThemeId, DEFAULT_THEME_ID } from "./registry";
@@ -22,6 +23,7 @@ const DOC = {
 describe("user theme registry", () => {
   beforeEach(() => {
     setUserThemes([]);
+    setManagedThemes([]);
   });
 
   it("makes a registered user id resolvable and applicable", () => {
@@ -66,5 +68,28 @@ describe("user theme registry", () => {
     setUserThemes([toThemeDefinition("mine", DOC)]);
     const cached: unknown = JSON.parse(window.localStorage.getItem("cadencr.theme.user") ?? "[]");
     expect(Array.isArray(cached) && cached).toHaveLength(1);
+  });
+
+  it("keeps managed revisions separate from authored themes across independent refreshes", () => {
+    const managed = { ...toThemeDefinition("mine", DOC), id: "managed:mine" as const };
+    setManagedThemes([managed]);
+    setUserThemes([toThemeDefinition("mine", DOC)]);
+    expect(parseThemeId("managed:mine")).toBe("managed:mine");
+    expect(getTheme("managed:mine")).toBe(managed);
+    expect(listUserThemes().map((theme) => theme.id)).toEqual(["user:mine", "managed:mine"]);
+    setUserThemes([]);
+    expect(getTheme("managed:mine")).toBe(managed);
+    setManagedThemes([]);
+    expect(parseThemeId("managed:mine")).toBe(DEFAULT_THEME_ID);
+  });
+
+  it("does not notify or reapply when the managed inventory is unchanged", () => {
+    const managed = { ...toThemeDefinition("mine", DOC), id: "managed:mine" as const };
+    const listener = vi.fn();
+    const unsubscribe = subscribeUserThemes(listener);
+    setManagedThemes([managed]);
+    setManagedThemes([managed]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });

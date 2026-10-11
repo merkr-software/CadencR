@@ -16,6 +16,9 @@ use crate::shared::git_cli::run_git;
 
 use super::{broadcast_after_write, SETTING_TARGET_BRANCH};
 
+mod reference;
+use reference::branch_exists;
+
 /// Fallback chain for the compare target when the user hasn't picked one:
 ///
 ///   1. explicit feature setting (whatever the picker stored verbatim — we
@@ -116,7 +119,7 @@ pub async fn update_target_branch(
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
     let repo = Path::new(&git_path);
 
-    if !branch_exists(repo, target).await {
+    if !branch_exists(repo, target).await? {
         return Err(AppError::BadRequest(format!(
             "branch '{target}' does not resolve locally or on origin"
         )));
@@ -135,20 +138,6 @@ pub async fn update_target_branch(
         error: None,
         blocked_reason: None,
     })
-}
-
-/// Verify a ref resolves either locally or via `origin/<ref>`.
-async fn branch_exists(repo: &Path, name: &str) -> bool {
-    if run_git(&["rev-parse", "--verify", name], repo)
-        .await
-        .is_ok()
-    {
-        return true;
-    }
-    let remote = format!("origin/{name}");
-    run_git(&["rev-parse", "--verify", &remote], repo)
-        .await
-        .is_ok()
 }
 
 #[cfg(test)]
@@ -184,7 +173,7 @@ mod tests {
         pool
     }
 
-    fn run_git_for_test(dir: &std::path::Path, args: &[&str]) {
+    pub(super) fn run_git_for_test(dir: &std::path::Path, args: &[&str]) {
         let out = std::process::Command::new("git")
             .args(args)
             .current_dir(dir)

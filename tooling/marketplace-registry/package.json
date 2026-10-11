@@ -6,6 +6,21 @@
     "assemble:index": "node scripts/assemble-signed-index.mjs",
     "build:index": "node scripts/build-index.mjs",
     "test": "node --test tests/*.test.mjs",
-    "validate": "node scripts/validate.mjs"
+    "validate": "node scripts/validate.mjs",
+    "validate:submission": "node scripts/validate-submission.mjs",
+    "pack:provider": "node scripts/pack-provider.mjs",
+    "validate:contribution": "node scripts/validate-contribution.mjs",
+    "plan:publication": "node scripts/plan-publication.mjs",
+    "sign:index": "node scripts/sign-index.mjs",
+    "stage:publication": "node scripts/stage-publication.mjs",
+    "mirror:publication": "node scripts/mirror-publication.mjs",
+    "promote:publication": "node scripts/promote-publication.mjs",
+    "sign:publication-catalog": "node scripts/sign-publication-catalog.mjs",
+    "publish:catalog": "node scripts/publish-catalog.mjs",
+    "advance:catalog": "node scripts/advance-catalog.mjs",
+    "publish:registry": "node scripts/publish-registry.mjs"
+  },
+  "devDependencies": {
+    "yaml": "2.9.0"
   }
 }

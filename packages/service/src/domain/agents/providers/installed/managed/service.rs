@@ -7,7 +7,7 @@ use super::history::ManagedProviderState;
 use super::installer::ManagedStorage;
 use super::receipt::{ManagedPackageReceipt, ManagedRevision};
 use super::trust::{pinned_index_trust_store, ManagedTrustStore};
-use super::SignedManagedProviderIndex;
+use super::SignedProviderCatalog;
 use crate::error::AppError;
 
 mod install;
@@ -52,9 +52,9 @@ impl ManagedProviderService {
         &self,
         provider_id: &str,
         version: &str,
-        index: SignedManagedProviderIndex,
+        index: impl Into<SignedProviderCatalog>,
     ) -> Result<ManagedMutation, AppError> {
-        ensure_current_catalog(&index)?;
+        let index = index.into();
         install::ingest(
             self,
             provider_id,
@@ -69,9 +69,9 @@ impl ManagedProviderService {
         &self,
         provider_id: &str,
         version: &str,
-        index: SignedManagedProviderIndex,
+        index: impl Into<SignedProviderCatalog>,
     ) -> Result<ManagedMutation, AppError> {
-        ensure_current_catalog(&index)?;
+        let index = index.into();
         install::ingest(
             self,
             provider_id,
@@ -219,16 +219,14 @@ impl ManagedProviderService {
     }
 }
 
-fn ensure_current_catalog(index: &SignedManagedProviderIndex) -> Result<(), AppError> {
-    super::validation::validate_publication_window(&index.signed, chrono::Utc::now()).map_err(
-        |error| {
-            AppError::coded(
-                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-                "MANAGED_CATALOG_STALE",
-                error.message,
-            )
-        },
-    )
+fn ensure_current_catalog(index: &super::ManagedProviderIndex) -> Result<(), AppError> {
+    super::validation::validate_publication_window(index, chrono::Utc::now()).map_err(|error| {
+        AppError::coded(
+            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            "MANAGED_CATALOG_STALE",
+            error.message,
+        )
+    })
 }
 
 /// Refresh the release-owned blocklist without delaying service startup.

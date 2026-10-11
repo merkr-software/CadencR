@@ -13,8 +13,11 @@ use ed25519_dalek::{Signature, VerifyingKey};
 
 use super::{
     ManagedIndexSignature, ManagedProviderIndex, ResolvedManagedProviderPackage,
-    SignedManagedProviderIndex,
+    SignedProviderCatalog,
 };
+
+#[cfg(test)]
+use super::SignedManagedProviderIndex;
 
 /// Host-owned Ed25519 key authorized to sign the provider index and blocklist.
 #[derive(Debug, Clone)]
@@ -66,7 +69,10 @@ impl TrustedIndexKey {
 #[derive(Debug, Clone, Default)]
 pub struct ManagedTrustStore {
     keys: BTreeMap<String, VerifyingKey>,
+    profile: Option<std::sync::Arc<cadencr_registry_core::VerifiedRegistryTrust>>,
 }
+
+mod mixed;
 
 impl ManagedTrustStore {
     pub fn new(keys: impl IntoIterator<Item = TrustedIndexKey>) -> Self {
@@ -75,13 +81,21 @@ impl ManagedTrustStore {
                 .into_iter()
                 .map(|key| (key.key_id, key.verifying_key))
                 .collect(),
+            profile: None,
         }
     }
 
     pub fn verify_index(
         &self,
-        envelope: SignedManagedProviderIndex,
+        envelope: impl Into<SignedProviderCatalog>,
     ) -> Result<VerifiedManagedProviderIndex, ManagedTrustError> {
+        let envelope = envelope.into();
+        if let SignedProviderCatalog::Mixed(index) = envelope {
+            return self.verify_mixed(index);
+        }
+        let SignedProviderCatalog::Legacy(envelope) = envelope else {
+            unreachable!("mixed returned above")
+        };
         envelope.validate_contract().map_err(|error| {
             ManagedTrustError::new(
                 ManagedTrustErrorCode::InvalidSignedPayload,
@@ -94,14 +108,50 @@ impl ManagedTrustStore {
                 format!("managed provider index could not be canonicalized: {error}"),
             )
         })?;
-        let signer_key_id = self.verify_bytes(&signing_bytes, &envelope.signature)?;
+        let (signer_key_id, signing_bytes) = self.verify_compatible_bytes(
+            &signing_bytes,
+            &envelope.signature,
+            || envelope.signed.legacy_signing_bytes(),
+            "managed provider index could not be canonicalized",
+        )?;
         Ok(VerifiedManagedProviderIndex {
-            envelope,
+            provider_view: envelope.signed.clone(),
+            envelope: envelope.into(),
             signer_key_id,
+            signing_bytes,
         })
     }
 
-    pub(super) fn verify_bytes(
+    pub(super) fn verify_compatible_bytes<F>(
+        &self,
+        canonical: &[u8],
+        signature: &ManagedIndexSignature,
+        legacy: F,
+        legacy_error_context: &'static str,
+    ) -> Result<(String, Vec<u8>), ManagedTrustError>
+    where
+        F: FnOnce() -> Result<Vec<u8>, serde_json::Error>,
+    {
+        match self.verify_bytes(canonical, signature) {
+            Ok(key_id) => Ok((key_id, canonical.to_vec())),
+            Err(error) if error.code == ManagedTrustErrorCode::InvalidSignature => {
+                let legacy = legacy().map_err(|error| {
+                    ManagedTrustError::new(
+                        ManagedTrustErrorCode::InvalidSignedPayload,
+                        format!("{legacy_error_context}: {error}"),
+                    )
+                })?;
+                if legacy == canonical {
+                    return Err(error);
+                }
+                self.verify_bytes(&legacy, signature)
+                    .map(|key_id| (key_id, legacy))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub(crate) fn verify_bytes(
         &self,
         bytes: &[u8],
         signature: &ManagedIndexSignature,
@@ -111,6 +161,11 @@ impl ManagedTrustStore {
                 ManagedTrustErrorCode::TrustNotConfigured,
                 "managed provider trust is not configured in this build",
             ));
+        }
+        if let Some(profile) = &self.profile {
+            profile.active_key(&signature.key_id).map_err(|error| {
+                ManagedTrustError::new(ManagedTrustErrorCode::UnknownSigningKey, error.to_string())
+            })?;
         }
         let signer_key_id = signature.key_id.clone();
         let key = self.keys.get(&signer_key_id).ok_or_else(|| {
@@ -136,72 +191,39 @@ impl ManagedTrustStore {
     }
 }
 
-/// The production keyring seam. A marketplace release compiles its reviewed
-/// key id/public key into the binary. Keeping an unconfigured or malformed
-/// build empty is safer than shipping a fixture key or trusting renderer input.
-pub fn pinned_index_trust_store() -> ManagedTrustStore {
-    match pinned_index_trust_status() {
-        PinnedIndexTrustStatus::Configured { key } => ManagedTrustStore::new([key]),
-        PinnedIndexTrustStatus::Unconfigured | PinnedIndexTrustStatus::Invalid { .. } => {
-            ManagedTrustStore::default()
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum PinnedIndexTrustStatus {
-    Unconfigured,
-    Configured { key: TrustedIndexKey },
-    Invalid { code: &'static str, message: String },
-}
-
-pub fn pinned_index_trust_status() -> PinnedIndexTrustStatus {
-    pinned_index_trust_status_from(
-        option_env!("CADENCR_MANAGED_PROVIDER_KEY_ID"),
-        option_env!("CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64"),
-    )
-}
-
-fn pinned_index_trust_status_from(
-    key_id: Option<&str>,
-    public_key: Option<&str>,
-) -> PinnedIndexTrustStatus {
-    match (key_id, public_key) {
-        (None, None) => PinnedIndexTrustStatus::Unconfigured,
-        (Some(key_id), Some(public_key)) => {
-            match TrustedIndexKey::from_base64(key_id, public_key) {
-                Ok(key) => PinnedIndexTrustStatus::Configured { key },
-                Err(error) => PinnedIndexTrustStatus::Invalid {
-                    code: "PINNED_TRUST_CONFIGURATION_INVALID",
-                    message: error.message,
-                },
-            }
-        }
-        _ => PinnedIndexTrustStatus::Invalid {
-            code: "PINNED_TRUST_CONFIGURATION_INVALID",
-            message: "managed-provider key id and public key must be compiled in together".into(),
-        },
-    }
-}
+mod generation;
+mod pinned;
+#[cfg(test)]
+use pinned::pinned_index_trust_status_from;
+pub use pinned::{
+    initialize_pinned_registry_trust, pinned_index_trust_status, pinned_index_trust_store,
+    PinnedIndexTrustStatus,
+};
 
 /// An index whose signature was verified by a host-owned trust store.
 #[derive(Debug, Clone)]
 pub struct VerifiedManagedProviderIndex {
-    envelope: SignedManagedProviderIndex,
+    envelope: SignedProviderCatalog,
+    provider_view: ManagedProviderIndex,
     signer_key_id: String,
+    signing_bytes: Vec<u8>,
 }
 
 impl VerifiedManagedProviderIndex {
-    pub fn envelope(&self) -> &SignedManagedProviderIndex {
+    pub fn envelope(&self) -> &SignedProviderCatalog {
         &self.envelope
     }
 
     pub fn index(&self) -> &ManagedProviderIndex {
-        &self.envelope.signed
+        &self.provider_view
     }
 
     pub fn signer_key_id(&self) -> &str {
         &self.signer_key_id
+    }
+
+    pub fn signing_bytes(&self) -> &[u8] {
+        &self.signing_bytes
     }
 
     pub fn resolve_current_platform(
@@ -210,8 +232,12 @@ impl VerifiedManagedProviderIndex {
         provider_version: &str,
         app_version: &str,
     ) -> Result<ResolvedManagedProviderPackage, super::ManagedContractError> {
-        self.envelope
-            .resolve_current_platform(provider_id, provider_version, app_version)
+        super::validation::resolve_verified_provider_view(
+            &self.provider_view,
+            provider_id,
+            provider_version,
+            app_version,
+        )
     }
 }
 
@@ -284,6 +310,10 @@ fn invalid_signature(message: impl Into<String>) -> ManagedTrustError {
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+
     use ed25519_dalek::{Signer as _, SigningKey};
 
     use super::*;
@@ -312,6 +342,141 @@ mod tests {
         let verified = store.verify_index(index).expect("valid signature");
         assert_eq!(verified.signer_key_id(), "registry-test");
         assert_eq!(verified.index().packages[0].agent.id, "acme-agent");
+    }
+
+    #[test]
+    fn legacy_encoding_is_lazy_for_canonical_and_unknown_key_signatures() {
+        let (store, index) = signed_fixture();
+        let canonical = index.signed.signing_bytes().unwrap();
+        let invoked = Cell::new(false);
+        store
+            .verify_compatible_bytes(
+                &canonical,
+                &index.signature,
+                || {
+                    invoked.set(true);
+                    index.signed.legacy_signing_bytes()
+                },
+                "legacy test",
+            )
+            .unwrap();
+        assert!(!invoked.get());
+
+        let mut unknown = index.signature.clone();
+        unknown.key_id = "unknown-key".into();
+        let error = store
+            .verify_compatible_bytes(
+                &canonical,
+                &unknown,
+                || {
+                    invoked.set(true);
+                    index.signed.legacy_signing_bytes()
+                },
+                "legacy test",
+            )
+            .unwrap_err();
+        assert_eq!(error.code, ManagedTrustErrorCode::UnknownSigningKey);
+        assert!(!invoked.get());
+    }
+
+    #[test]
+    fn accepts_legacy_bytes_without_changing_the_verified_payload_hash() {
+        let signing_key = SigningKey::from_bytes(&[7; 32]);
+        let trusted = TrustedIndexKey::new("registry-test", signing_key.verifying_key().to_bytes())
+            .expect("test key");
+        let mut index: SignedManagedProviderIndex =
+            serde_json::from_str(VALID_INDEX).expect("managed index fixture");
+        index.signed.packages[0].agent.extra.insert(
+            "x-large-integer".into(),
+            serde_json::json!(9_007_199_254_740_993_u64),
+        );
+        index.signature.key_id = "registry-test".into();
+        let legacy = index
+            .signed
+            .legacy_signing_bytes()
+            .expect("legacy signing bytes");
+        assert_ne!(legacy, index.signed.signing_bytes().unwrap());
+        index.signature.value =
+            base64::engine::general_purpose::STANDARD.encode(signing_key.sign(&legacy).to_bytes());
+
+        let store = ManagedTrustStore::new([trusted]);
+        let canonical = index.signed.signing_bytes().unwrap();
+        let invoked = Cell::new(false);
+        let (_, verified_bytes) = store
+            .verify_compatible_bytes(
+                &canonical,
+                &index.signature,
+                || {
+                    invoked.set(true);
+                    index.signed.legacy_signing_bytes()
+                },
+                "legacy test",
+            )
+            .expect("legacy signature remains valid");
+        assert!(invoked.get());
+        assert_eq!(verified_bytes, legacy);
+        assert_eq!(
+            store.verify_index(index.clone()).unwrap().signing_bytes(),
+            legacy
+        );
+        index.signed.packages[0].agent.name = "Tampered legacy payload".into();
+        assert_eq!(
+            store.verify_index(index).unwrap_err().code,
+            ManagedTrustErrorCode::InvalidSignature
+        );
+    }
+
+    #[test]
+    fn verifies_node_signed_javascript_canonical_bytes() {
+        let signing_key = SigningKey::from_bytes(&[7; 32]);
+        let trusted = TrustedIndexKey::new("registry-test", signing_key.verifying_key().to_bytes())
+            .expect("test key");
+        let mut index: SignedManagedProviderIndex =
+            serde_json::from_str(VALID_INDEX).expect("managed index fixture");
+        index.signed.packages[0].agent.extra.insert(
+            "x-large-integer".into(),
+            serde_json::json!(9_007_199_254_740_993_u64),
+        );
+        index.signature.key_id = "registry-test".into();
+        let input = serde_json::to_vec(&index.signed).unwrap();
+        let script = r#"
+const { createPrivateKey, sign } = require('node:crypto');
+let input = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  const canonical = value => {
+    if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+    if (value !== null && typeof value === 'object') {
+      return `{${Object.keys(value).sort((a, b) => Buffer.compare(Buffer.from(a), Buffer.from(b)))
+        .map(key => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+    }
+    return JSON.stringify(value);
+  };
+  const seed = Buffer.alloc(32, 7);
+  const der = Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seed]);
+  const key = createPrivateKey({ key: der, format: 'der', type: 'pkcs8' });
+  process.stdout.write(sign(null, Buffer.from(canonical(JSON.parse(input))), key).toString('base64'));
+});
+"#;
+        let mut child = Command::new("node")
+            .args(["-e", script])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("start Node canonical signing oracle");
+        child.stdin.take().unwrap().write_all(&input).unwrap();
+        let output = child.wait_with_output().unwrap();
+        assert!(output.status.success());
+        index.signature.value = String::from_utf8(output.stdout).unwrap();
+
+        let verified = ManagedTrustStore::new([trusted])
+            .verify_index(index)
+            .expect("service accepts Node's canonical signature");
+        assert_eq!(
+            verified.signing_bytes(),
+            verified.index().signing_bytes().unwrap()
+        );
     }
 
     #[test]
