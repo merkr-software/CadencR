@@ -10,6 +10,7 @@ mod output;
 mod pipeline;
 mod publication;
 mod signing;
+mod theme;
 
 use args::Cli;
 

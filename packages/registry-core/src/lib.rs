@@ -1,3 +1,7 @@
+/// Maximum serialized signed catalog, including signature envelope and trailing newline.
+/// Request/submission limits are separate; cache wrappers may add bounded metadata.
+pub const MAX_CATALOG_BYTES: usize = 32 * 1024 * 1024;
+
 mod archive;
 mod catalog;
 mod diagnostics;
@@ -12,7 +16,9 @@ mod safe_io;
 mod signing;
 mod snapshot;
 mod submission;
+mod theme_archive;
 mod tree;
+pub use theme_archive::{pack_theme, PackThemeRequest, PackedTheme};
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -20,7 +26,10 @@ use std::path::Path;
 pub use archive::{
     pack_archive, pack_provider, PackProviderRequest, PackSpec, PackedArchive, PackedProvider,
 };
-pub use catalog::{prepare_publication_index, PreparedSigningPayload};
+pub use catalog::{
+    prepare_incremental_publication_index, prepare_publication_index, verify_publication_baseline,
+    PreparedSigningPayload,
+};
 pub use discovery::{
     assess_discovery_head, discovery_url, validate_discovery_branch, DISCOVERY_FILENAME,
     MAX_DISCOVERY_BYTES,

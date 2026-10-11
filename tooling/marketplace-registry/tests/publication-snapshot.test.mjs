@@ -205,7 +205,7 @@ test("allows an expired baseline but rejects an expired candidate", async (t) =>
   );
 });
 
-test("rejects normalized id collisions and enforces the 1 MiB input boundary", async (t) => {
+test("rejects normalized id collisions and enforces the 32 MiB envelope input boundary", async (t) => {
   const state = await setup(t);
   const second = structuredClone(state.packageValue);
   state.packageValue.agent.id = "a-b";
@@ -223,11 +223,11 @@ test("rejects normalized id collisions and enforces the 1 MiB input boundary", a
   const bytes = await readFile(valid.file);
   await writeFile(
     valid.file,
-    Buffer.concat([bytes, Buffer.alloc(1024 * 1024 - bytes.length, 0x20)]),
+    Buffer.concat([bytes, Buffer.alloc(32 * 1024 * 1024 - bytes.length, 0x20)]),
   );
   await prepareCatalogSnapshot(state.options(valid.file));
   await writeFile(valid.file, Buffer.concat([await readFile(valid.file), Buffer.from(" ")]));
-  await assert.rejects(prepareCatalogSnapshot(state.options(valid.file)), /exceeds 1 MiB/);
+  await assert.rejects(prepareCatalogSnapshot(state.options(valid.file)), /exceeds 32 MiB/);
 });
 
 test("historical baseline expiry exemption preserves other publication-window checks", async (t) => {

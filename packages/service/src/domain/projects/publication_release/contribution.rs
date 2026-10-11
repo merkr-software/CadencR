@@ -20,6 +20,8 @@ use crate::error::AppError;
 #[serde(deny_unknown_fields)]
 pub struct PreparePublicationContributionRequest {
     pub bundle_id: String,
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
     pub release_notes: String,
     pub expected_plan_sha256: String,
     pub confirmed: bool,
@@ -79,6 +81,7 @@ async fn prepare(
         &state,
         project_id,
         body.bundle_id,
+        body.bundle_ids,
         body.release_notes,
         permit,
     )
@@ -98,7 +101,6 @@ async fn prepare(
     let documents = submission::build(&prepared.local, &prepared.inspection.account)?;
     let expectation =
         super::remote::GitHubReleaseExpectation::from_request(&prepared.request(&actual));
-    prepared.local.archive = axum::body::Bytes::new();
     prepared.local.metadata = axum::body::Bytes::new();
     let published =
         super::github::verify_published_publication_release(&prepared.token, expectation).await?;

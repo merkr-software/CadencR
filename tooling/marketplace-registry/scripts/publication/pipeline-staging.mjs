@@ -4,10 +4,19 @@ import { buildPublicationBinding } from "./binding.mjs";
 import { validateResourceBudget } from "./catalog.mjs";
 import { downloadVerifiedArchive, MAX_ARCHIVE_BYTES } from "./download.mjs";
 import { stagePublication } from "./stage.mjs";
+import { readBoundedRegularFile } from "./io.mjs";
 
 const LIMIT = 1024 * 1024 * 1024;
 
-export async function stagePipelinePublications(options, entries) {
+export async function inspectPipelinePublications(options, entries) {
+  const inspected = [];
+  for (const entry of entries)
+    inspected.push(await releaseDownloadForEntry(options.client, entry, options.repository));
+  return inspected;
+}
+
+export async function stagePipelinePublications(options, entries, inspected) {
+  if (entries.length !== 1) throw new Error("pipeline stages exactly one publication at a time");
   let remaining = LIMIT - (await retainedBytes(entries));
   const download = options.download ?? downloadVerifiedArchive;
   const boundedDownload = async (input) => {
@@ -19,11 +28,9 @@ export async function stagePipelinePublications(options, entries) {
     remaining -= result.size;
     return result;
   };
-  const releaseDownloads = [];
-  for (const entry of entries) {
-    const published = await releaseDownloadForEntry(options.client, entry);
-    if (published) entry.requirePublished = true;
-    releaseDownloads.push(published);
+  const releaseDownloads = inspected ?? (await inspectPipelinePublications(options, entries));
+  for (const [index, entry] of entries.entries()) {
+    if (releaseDownloads[index]) entry.requirePublished = true;
   }
   const staged = [];
   const artifacts = [];
@@ -33,22 +40,32 @@ export async function stagePipelinePublications(options, entries) {
         boundedDownload(rewriteDownload(input, entry.plan.targets, releaseDownloads[index])),
     });
     staged.push(receipt);
-    artifacts.push(
-      ...buildPublicationBinding(receipt, options.repository, entry.registryCommit, entry.directory)
-        .expected,
-    );
+    artifacts.push(...receipt.artifacts);
     validateResourceBudget(artifacts);
   }
   return staged;
 }
 
-async function releaseDownloadForEntry(client, entry) {
+async function releaseDownloadForEntry(client, entry, repository) {
   if (typeof client?.findRelease !== "function" || typeof client?.getTagCommit !== "function")
     throw new Error("pipeline staging client is missing release discovery methods");
   const { tag } = entry.plan.release;
+  let historical = entry.requirePublished;
+  for (const name of ["publication-receipt.json", "mirror-receipt.json"]) {
+    const file = path.join(entry.directory, name);
+    try {
+      await lstat(file);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw error;
+    }
+    const bytes = await readBoundedRegularFile(file, 4 * 1024 * 1024, "publication proof");
+    const receipt = JSON.parse(bytes.toString("utf8"));
+    historical ||= name === "publication-receipt.json" || receipt.status === "published_recovered";
+  }
   const release = await client.findRelease(tag);
   if (!release || release.draft === true) {
-    if (entry.requirePublished) {
+    if (historical) {
       throw new Error("verified baseline publication is missing or draft");
     }
     return null;
@@ -59,6 +76,13 @@ async function releaseDownloadForEntry(client, entry) {
   if (release.target_commitish !== entry.registryCommit)
     throw new Error("published release target commit does not match");
   if (release.draft !== false) throw new Error("published release draft state is invalid");
+  const binding = buildPublicationBinding(
+    { plan: entry.plan, artifacts: [] },
+    repository,
+    entry.registryCommit,
+    entry.directory,
+  );
+  if (release.body !== binding.body) throw new Error("published release marker does not match");
   if ((await client.getTagCommit(tag)) !== entry.registryCommit)
     throw new Error("published release tag does not resolve to registry commit");
   return true;

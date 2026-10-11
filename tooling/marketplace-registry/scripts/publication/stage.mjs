@@ -130,7 +130,7 @@ async function hashIfExists(file) {
   }
 }
 
-async function hashRegularFile(file, maxBytes, label) {
+export async function hashRegularFile(file, maxBytes, label) {
   let handle;
   let primaryError;
   try {

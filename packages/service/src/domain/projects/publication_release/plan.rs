@@ -18,6 +18,7 @@ pub(super) struct Plan {
     pub archive_size: u64,
     pub metadata_sha256: String,
     pub release_notes: String,
+    pub archives: Vec<super::PublicationReleaseArchive>,
 }
 
 #[derive(Serialize)]
@@ -62,8 +63,28 @@ mod tests {
             archive_sha256: archive.into(),
             archive_size: 42,
             metadata_sha256: "metadata".into(),
+            archives: Vec::new(),
             release_notes: notes.into(),
         }
+    }
+
+    #[test]
+    fn fingerprint_binds_every_platform_archive() {
+        let mut candidate = plan("notes", "archive", "a");
+        candidate
+            .archives
+            .push(super::super::PublicationReleaseArchive {
+                bundle_id: "bundle".into(),
+                target: "darwin-aarch64".into(),
+                archive_name: "darwin.tgz".into(),
+                archive_sha256: "c".repeat(64),
+                archive_size: 3,
+            });
+        let original = plan_sha(&candidate, "alice", 7).unwrap();
+        candidate.archives[0].archive_sha256 = "d".repeat(64);
+        assert_ne!(original, plan_sha(&candidate, "alice", 7).unwrap());
+        candidate.archives.clear();
+        assert_ne!(original, plan_sha(&candidate, "alice", 7).unwrap());
     }
 
     #[test]

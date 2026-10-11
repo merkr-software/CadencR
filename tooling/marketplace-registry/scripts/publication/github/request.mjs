@@ -1,3 +1,4 @@
+import { MAX_CATALOG_BLOB_JSON_BYTES } from "../catalog-limits.mjs";
 import { MAX_JSON_BYTES, REQUEST_TIMEOUT_MS } from "./validation.mjs";
 
 const API_VERSION = "2026-03-10";
@@ -15,7 +16,7 @@ function httpError(status) {
   return error;
 }
 
-export async function readJson(response) {
+export async function readJson(response, maxBytes = MAX_JSON_BYTES) {
   if (!response.body) throw internalError("GitHub API returned malformed JSON");
   const chunks = [];
   let size = 0;
@@ -23,7 +24,7 @@ export async function readJson(response) {
     for await (const value of response.body) {
       const chunk = Buffer.from(value);
       size += chunk.length;
-      if (size > MAX_JSON_BYTES) throw internalError("GitHub API response exceeds 2 MiB");
+      if (size > maxBytes) throw internalError("GitHub API response exceeds its byte limit");
       chunks.push(chunk);
     }
   } catch (error) {
@@ -38,7 +39,7 @@ export async function readJson(response) {
 }
 
 export function createRequester({ token, fetchImpl }) {
-  return async function request(path, { method = "GET", body, accept } = {}) {
+  return async function request(path, { method = "GET", body, accept, catalogBlob = false } = {}) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     let response;
@@ -71,7 +72,10 @@ export function createRequester({ token, fetchImpl }) {
         await response.body?.cancel();
         throw httpError(response.status);
       }
-      const result = await readJson(response);
+      const result = await readJson(
+        response,
+        catalogBlob ? MAX_CATALOG_BLOB_JSON_BYTES : MAX_JSON_BYTES,
+      );
       if (controller.signal.aborted) throw internalError("GitHub API request timed out");
       return result;
     } catch (error) {

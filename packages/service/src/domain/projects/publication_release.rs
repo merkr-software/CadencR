@@ -1,6 +1,7 @@
 pub mod contribution;
 mod github;
 mod local;
+mod operation;
 mod plan;
 pub mod registry;
 mod remote;
@@ -31,20 +32,37 @@ static RELEASE_OPERATION: Semaphore = Semaphore::const_new(1);
 #[serde(deny_unknown_fields)]
 pub struct PreviewPublicationReleaseRequest {
     pub bundle_id: String,
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
     pub release_notes: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PublishPublicationReleaseRequest {
+    #[serde(default)]
+    pub operation_id: Option<String>,
     pub bundle_id: String,
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
     pub release_notes: String,
     pub expected_plan_sha256: String,
     pub confirmed: bool,
 }
 
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+pub struct PublicationReleaseArchive {
+    pub bundle_id: String,
+    pub target: String,
+    pub archive_name: String,
+    pub archive_sha256: String,
+    pub archive_size: u64,
+}
+
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PublicationReleasePreview {
+    pub operation_id: String,
+    pub archives: Vec<PublicationReleaseArchive>,
     pub project_id: i64,
     pub plugin_id: String,
     pub version: String,
@@ -64,7 +82,8 @@ pub struct PublicationReleasePreview {
     pub release_url: String,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublishedProviderRelease {
     pub release_url: String,
     pub repository: String,
@@ -92,8 +111,9 @@ impl PreparedContext {
             .release_notes(&self.local.plan.release_notes)
             .prerelease(self.local.plan.prerelease)
             .archive_name(&self.local.plan.archive_name)
-            .archive(&self.local.archive)
+            .archive_file(&self.local.archive_file)
             .archive_sha256(&self.local.plan.archive_sha256)
+            .additional_archives(&self.local.additional_archives)
             .metadata_name("package.json")
             .metadata(&self.local.metadata)
             .metadata_sha256(&self.local.plan.metadata_sha256)
@@ -123,6 +143,7 @@ pub async fn preview_publication_release_handler(
         &state,
         project_id,
         body.bundle_id,
+        body.bundle_ids,
         body.release_notes,
         permit,
     ))
@@ -131,7 +152,24 @@ pub async fn preview_publication_release_handler(
     let inspection = prepared.inspection;
     let plan_sha256 = plan_sha(&local.plan, &inspection.account, inspection.repository_id)?;
     let release_url = release_url(&local.plan.repository, &local.plan.tag);
+    let operation_id = super::publication_operations::operation_id()
+        .project_id(project_id)
+        .kind(super::publication_operations::PublicationOperationKind::Release)
+        .bundle_id(&local.plan.bundle_id)
+        .bundle_ids(
+            &local
+                .plan
+                .archives
+                .iter()
+                .map(|archive| archive.bundle_id.clone())
+                .collect::<Vec<_>>(),
+        )
+        .release_notes(&local.plan.release_notes)
+        .plan_sha256(&plan_sha256)
+        .call()?;
     Ok(Json(PublicationReleasePreview {
+        operation_id,
+        archives: local.plan.archives,
         project_id: local.plan.project_id,
         plugin_id: local.plan.plugin_id,
         version: local.plan.version,
@@ -172,8 +210,7 @@ pub async fn publish_publication_release_handler(
         ));
     }
     validate_notes(&body.release_notes)?;
-    let permit = permit()?;
-    operation_timeout(publish_prepared(&state, project_id, body, permit)).await
+    operation::publish(state, project_id, body).await
 }
 
 async fn publish_prepared(
@@ -186,6 +223,7 @@ async fn publish_prepared(
         state,
         project_id,
         body.bundle_id,
+        body.bundle_ids,
         body.release_notes,
         permit,
     )
@@ -219,6 +257,7 @@ async fn prepare_context(
     state: &AppState,
     project_id: i64,
     bundle_id: String,
+    bundle_ids: Vec<String>,
     release_notes: String,
     permit: tokio::sync::SemaphorePermit<'static>,
 ) -> Result<PreparedContext, AppError> {
@@ -228,11 +267,12 @@ async fn prepare_context(
         crate::domain::settings_store::dir::sibling_dir("provider-publication-bundles");
     let (local, _permit) = tokio::task::spawn_blocking(move || {
         (
-            local::load(
+            local::load_candidate(
                 project_id,
                 plugin_id,
                 output_root,
                 &bundle_id,
+                &bundle_ids,
                 release_notes,
             ),
             permit,
@@ -342,6 +382,7 @@ pub fn router() -> Router<AppState> {
             "/api/projects/{id}/publication-release",
             post(publish_publication_release_handler),
         )
+        .merge(super::publication_operations::router())
         .merge(contribution::router())
         .merge(registry::router())
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BYTES))

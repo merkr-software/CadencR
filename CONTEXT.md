@@ -35,3 +35,28 @@ submits that initial or subsequent version to the Cadencr registry.
 
 The catalog of approved plugin identities and versions available for distribution.
 It is not the list of local plugin projects or the list of installed plugins.
+
+### Package version
+
+One immutable, distributable version of a plugin. Its contents, identity and
+publisher are distinct from an author's project and from a local installation.
+
+### Release candidate
+
+The complete set of artifacts proposed for one package version before publication.
+A provider candidate includes every platform declared for that version.
+
+### Publication delta
+
+The new package versions, or exact replays, submitted in one publication batch.
+It does not include the complete previously published history.
+
+### Catalog renewal
+
+Renewing the validity of a catalog while retaining its existing package versions.
+It does not republish historical package artifacts.
+
+### Publication operation
+
+A tracked execution of a confirmed publication action. Its identity lets the
+author retrieve the outcome after a connection or application interruption.

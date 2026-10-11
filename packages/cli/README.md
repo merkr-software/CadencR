@@ -1,6 +1,6 @@
 # Cadencr CLI
 
-`cadencr` provides headless provider validation, packaging, registry index
+`cadencr` provides headless plugin validation, declarative-theme/provider packaging, registry index
 signing and verified publication staging. Commands never contact the service or
 database, install a plugin, or execute a provider binary.
 `stage-publication` downloads inert GitHub Release assets. `mirror-publication`
@@ -21,11 +21,14 @@ release into an existing empty or partial directory, never from author sources.
 
 ```text
 cadencr plugin validate <folder> --descriptor <descriptor.json>
+cadencr plugin validate <folder> --kind theme
 cadencr registry validate --base <directory> --candidate <directory>
 cadencr registry build-index --packages <directory> \
   --generated-at <timestamp> --expires-at <timestamp> [--output <new-file>]
 cadencr registry pack-provider --package <metadata.json> --target <target> \
   --directory <staging-directory> --output <new-archive.tar.gz>
+cadencr registry pack-theme --directory <theme-staging-directory> \
+  --output <new-theme.tar.gz>
 cadencr registry plan-publication --submission <submission.json> \
   --repository <owner/repository> --output <new-plan.json>
 cadencr registry sign-index --payload <index.json> --private-key <private.pem> \
@@ -71,10 +74,29 @@ cadencr registry publish-registry --request <reviewed-request.json> \
   --confirm-request-sha256 <sha256-of-exact-request-bytes>
 ```
 
-Plugin validation currently covers local **provider** structure only. The
-descriptor is an explicit temporary host input: the CLI does not discover it
-from the user profile or database. A successful result does not establish
-publication completeness or validate theme assets.
+Provider validation uses an explicit temporary host descriptor: the CLI does
+not discover it from the user profile or database. `--kind theme` instead uses
+the same declarative document validator as the service; no descriptor or provider
+execution is involved. Local validation does not establish publisher trust,
+publication completeness, or an installed managed version.
+
+### Declarative theme boundary
+
+| Command                                                           | Input and guarantees                                                                                                                                                                                  |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `plugin validate <folder> --kind theme`                           | Validates `theme.json` and its declared texture image; unrelated authoring files are not distribution content                                                                                         |
+| `registry pack-theme --directory <staging> --output <new.tar.gz>` | Staging must contain exactly the validated document and declared raster image, with no executable bits, symlinks, scripts or extra files; deterministic shared archive writer and no-overwrite output |
+
+Distributed documents use a closed property/token vocabulary, with a 256 KiB
+JSON limit. Raster assets are PNG/JPEG/WebP only, at most 512 KiB each, 4096
+pixels per side and 16 million pixels; animations, SVG and external URLs are
+rejected. Header/structure validation bounds resources; complete image decoding
+and PNG CRC verification remain the renderer's responsibility. Existing local
+editor parsing and local asset formats remain backward-compatible.
+
+These commands are a shared validation/packaging foundation. They do **not**
+yet publish themes, add themes to the signed catalog, or install/activate a
+managed theme. Do not submit a theme as an ACP executable package.
 
 `build-index` writes canonical index bytes to stdout unless `--output` is
 provided. Output bytes are first completed in a temporary file beside the

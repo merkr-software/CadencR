@@ -75,7 +75,7 @@ test("findRelease enforces pagination and response limits without leaking detail
     token: TOKEN,
     fetchImpl: async () => new Response(`"${"x".repeat(2 * 1024 * 1024)}"`),
   });
-  await assert.rejects(oversized.findRelease("x"), /exceeds 2 MiB/);
+  await assert.rejects(oversized.findRelease("x"), /exceeds its byte limit/);
   const malformed = createGitHubClient({
     repository: REPOSITORY,
     token: TOKEN,

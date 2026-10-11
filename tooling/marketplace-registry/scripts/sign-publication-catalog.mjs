@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { lstat } from "node:fs/promises";
+import { createPrivateKey, createPublicKey } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseNamedArguments } from "./publication/cli.mjs";
@@ -9,6 +10,7 @@ import {
   writeCatalogExclusively,
 } from "./publication/catalog.mjs";
 import { signIndexPayload, validateSigningKeyId } from "./publication/signing.mjs";
+import { readBoundedRegularFile } from "./publication/io.mjs";
 
 const FLAGS = [
   "--manifest",
@@ -25,6 +27,23 @@ export async function signPublicationCatalog(options) {
   validateSigningKeyId(options.keyId);
   const manifestFile = path.resolve(options.manifest);
   const manifest = await readPublicationManifest(manifestFile);
+  if (manifest.baseline) {
+    if (manifest.baseline.key_id !== options.keyId)
+      throw new Error("baseline signing key id does not match");
+    const publicBytes = await readBoundedRegularFile(
+      path.resolve(path.dirname(manifestFile), manifest.baseline.public_key),
+      16 * 1024,
+      "public key",
+    );
+    const privateBytes = await readBoundedRegularFile(options.privateKey, 16 * 1024, "private key");
+    const derived = createPublicKey(createPrivateKey(privateBytes)).export({
+      type: "spki",
+      format: "der",
+    });
+    const pinned = createPublicKey(publicBytes).export({ type: "spki", format: "der" });
+    if (!derived.equals(pinned))
+      throw new Error("private key does not match pinned baseline public key");
+  }
   const now = options.now ?? new Date();
   const payload = await preparePublishedCatalog(manifest, {
     baseDirectory: path.dirname(manifestFile),

@@ -9,11 +9,18 @@ use crate::error::AppError;
 
 use super::{Plan, MAX_ARCHIVE_BYTES, MAX_METADATA_BYTES};
 
+mod candidate;
+mod validation;
+use validation::{parse_repository, single_target, validate_archive_url};
 pub(super) mod git;
+pub(super) use candidate::load_candidate;
 
 pub(super) struct LocalRelease {
     pub plan: Plan,
-    pub archive: axum::body::Bytes,
+    pub archive_file: super::remote::ArchiveFile,
+    pub declared_metadata: serde_json::Value,
+    pub declared_targets: Vec<String>,
+    pub additional_archives: Vec<super::remote::GitHubArchive>,
     pub metadata: axum::body::Bytes,
 }
 
@@ -30,7 +37,7 @@ pub(super) fn load(
     let bundle = resolve_bundle(&output_root, project_id, bundle_id)?;
     let archive_path = bundle.join("provider.tar.gz");
     let metadata_path = bundle.join("package.json");
-    let archive = read_regular(&archive_path, MAX_ARCHIVE_BYTES, "archive")?;
+    let archive_file = super::remote::ArchiveFile::open(&archive_path, MAX_ARCHIVE_BYTES)?;
     let metadata = read_regular(&metadata_path, MAX_METADATA_BYTES, "metadata")?;
     let package: ManagedProviderPackage = serde_json::from_slice(&metadata)
         .map_err(|error| invalid(format!("invalid package metadata: {error}")))?;
@@ -42,10 +49,17 @@ pub(super) fn load(
             "package agent id does not match the project plugin id",
         ));
     }
-    let (target, artifact) = single_target(&package)?;
+    let binary = package
+        .agent
+        .distribution
+        .as_ref()
+        .and_then(|d| d.binary.as_ref())
+        .ok_or_else(|| invalid("package binary distribution is missing"))?;
+    let declared_targets = binary.keys().cloned().collect::<Vec<_>>();
+    let (target, artifact) = selected_target(&bundle, &package)?;
     let repository = parse_repository(package.agent.repository.as_deref())?;
     let (tag, archive_name) = validate_archive_url(&artifact.archive, &repository)?;
-    let archive_sha256 = digest(&archive);
+    let archive_sha256 = archive_file.sha256.clone();
     if artifact.sha256.as_deref() != Some(archive_sha256.as_str()) {
         return Err(invalid(
             "archive content does not match package metadata sha256",
@@ -53,7 +67,23 @@ pub(super) fn load(
     }
     let version = semver::Version::parse(&package.agent.version)
         .map_err(|error| invalid(format!("package version is not semantic: {error}")))?;
+    let mut selected_metadata: serde_json::Value = serde_json::from_slice(&metadata)
+        .map_err(|error| invalid(format!("invalid metadata: {error}")))?;
+    let declared_metadata = normalized_declaration(&selected_metadata)?;
+    if binary.len() > 1 {
+        selected_metadata["agent"]["distribution"]["binary"]
+            .as_object_mut()
+            .ok_or_else(|| invalid("binary target map missing"))?
+            .retain(|key, _| key == &target);
+    }
+    let metadata = if binary.len() > 1 {
+        serde_json::to_vec_pretty(&selected_metadata).map_err(|error| invalid(error.to_string()))?
+    } else {
+        metadata
+    };
     Ok(LocalRelease {
+        declared_metadata,
+        declared_targets,
         plan: Plan {
             project_id,
             plugin_id,
@@ -66,13 +96,59 @@ pub(super) fn load(
             target,
             archive_name,
             archive_sha256,
-            archive_size: archive.len() as u64,
+            archive_size: archive_file.size,
             metadata_sha256: digest(&metadata),
+            archives: Vec::new(),
             release_notes,
         },
-        archive: archive.into(),
+        additional_archives: Vec::new(),
+        archive_file,
         metadata: metadata.into(),
     })
+}
+
+fn normalized_declaration(metadata: &serde_json::Value) -> Result<serde_json::Value, AppError> {
+    let mut declaration = metadata.clone();
+    let binary = declaration["agent"]["distribution"]["binary"]
+        .as_object_mut()
+        .ok_or_else(|| invalid("binary target map missing"))?;
+    for artifact in binary.values_mut() {
+        artifact
+            .as_object_mut()
+            .ok_or_else(|| invalid("binary artifact missing"))?
+            .remove("sha256");
+    }
+    Ok(declaration)
+}
+
+fn selected_target<'a>(
+    bundle: &Path,
+    package: &'a ManagedProviderPackage,
+) -> Result<
+    (
+        String,
+        &'a crate::domain::agents::providers::installed::descriptor::AcpBinaryTarget,
+    ),
+    AppError,
+> {
+    let binary = package
+        .agent
+        .distribution
+        .as_ref()
+        .and_then(|d| d.binary.as_ref())
+        .ok_or_else(|| invalid("package binary distribution is missing"))?;
+    let selected_path = bundle.join("target.json");
+    if selected_path.exists() {
+        let selected: String =
+            serde_json::from_slice(&read_regular(&selected_path, 256, "bundle target")?)
+                .map_err(|error| invalid(format!("invalid bundle target: {error}")))?;
+        let artifact = binary
+            .get(&selected)
+            .ok_or_else(|| invalid("bundle target is not declared"))?;
+        Ok((selected, artifact))
+    } else {
+        single_target(package)
+    }
 }
 
 fn resolve_bundle(output_root: &Path, project_id: i64, raw: &str) -> Result<PathBuf, AppError> {
@@ -163,114 +239,6 @@ fn read_regular(path: &Path, limit: u64, label: &str) -> Result<Vec<u8>, AppErro
     Ok(bytes)
 }
 
-fn single_target(
-    package: &ManagedProviderPackage,
-) -> Result<
-    (
-        String,
-        &crate::domain::agents::providers::installed::descriptor::AcpBinaryTarget,
-    ),
-    AppError,
-> {
-    let binary = package
-        .agent
-        .distribution
-        .as_ref()
-        .and_then(|distribution| distribution.binary.as_ref())
-        .ok_or_else(|| invalid("package must declare a binary distribution"))?;
-    if binary.len() != 1 {
-        return Err(invalid("package must declare exactly one binary target"));
-    }
-    binary
-        .iter()
-        .next()
-        .map(|(target, artifact)| (target.clone(), artifact))
-        .ok_or_else(|| invalid("package binary target is missing"))
-}
-
-fn parse_repository(raw: Option<&str>) -> Result<String, AppError> {
-    let raw = raw.ok_or_else(|| invalid("package repository is required"))?;
-    validate_text("repository", raw)?;
-    let url = reqwest::Url::parse(raw).map_err(|_| invalid("repository must be a URL"))?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("github.com")
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(invalid(
-            "repository must be an exact public github.com HTTPS URL",
-        ));
-    }
-    let path = url.path().trim_matches('/');
-    let parts: Vec<_> = path.split('/').collect();
-    if parts.len() != 2
-        || parts.iter().any(|value| invalid_segment(value))
-        || raw != format!("https://github.com/{}/{}", parts[0], parts[1])
-        || raw.contains('%')
-    {
-        return Err(invalid(
-            "repository must identify one GitHub owner/repository",
-        ));
-    }
-    Ok(format!("{}/{}", parts[0], parts[1]))
-}
-
-fn validate_archive_url(raw: &str, repository: &str) -> Result<(String, String), AppError> {
-    validate_text("archive URL", raw)?;
-    let url = reqwest::Url::parse(raw).map_err(|_| invalid("archive URL is invalid"))?;
-    if url.scheme() != "https"
-        || url.host_str() != Some("github.com")
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.port().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || raw.to_ascii_lowercase().contains("%2f")
-    {
-        return Err(invalid(
-            "archive URL must be an exact public github.com release URL",
-        ));
-    }
-    let prefix = format!("/{repository}/releases/download/");
-    let remainder = url
-        .path()
-        .strip_prefix(&prefix)
-        .ok_or_else(|| invalid("archive URL does not match package repository"))?;
-    let (tag, name) = remainder
-        .split_once('/')
-        .filter(|(tag, name)| !tag.is_empty() && !name.is_empty() && !name.contains('/'))
-        .ok_or_else(|| invalid("archive URL must contain exactly one tag and asset name"))?;
-    let lower = name.to_ascii_lowercase();
-    if name.len() > 128
-        || name.eq_ignore_ascii_case("package.json")
-        || (!lower.ends_with(".tar.gz") && !lower.ends_with(".tgz"))
-        || invalid_segment(name)
-        || invalid_segment(tag)
-    {
-        return Err(invalid("release asset name or tag is invalid"));
-    }
-    Ok((tag.to_string(), name.to_string()))
-}
-
-fn validate_text(label: &str, value: &str) -> Result<(), AppError> {
-    if value.chars().any(char::is_control) {
-        return Err(invalid(format!("{label} contains control characters")));
-    }
-    Ok(())
-}
-
-fn invalid_segment(value: &str) -> bool {
-    value.is_empty()
-        || value == "."
-        || value == ".."
-        || !value
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
-}
-
 pub(super) fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
@@ -315,7 +283,7 @@ mod tests {
         assert_eq!(loaded.plan.archive_name, "acme-linux.tgz");
         assert_eq!(loaded.plan.tag, "v1.2.3-beta.1");
         assert!(loaded.plan.prerelease);
-        assert_eq!(loaded.archive.as_ref(), archive.as_slice());
+        assert_eq!(loaded.archive_file.sha256, digest(archive));
     }
 
     #[test]

@@ -24,13 +24,19 @@ const REGISTRY: &str = "merkr-software/cadencr-registry";
 #[serde(deny_unknown_fields)]
 pub struct PreviewPublicationRegistryRequest {
     pub bundle_id: String,
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
     pub release_notes: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SubmitPublicationRegistryRequest {
+    #[serde(default)]
+    pub operation_id: Option<String>,
     pub bundle_id: String,
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
     pub release_notes: String,
     pub expected_plan_sha256: String,
     pub confirmed: bool,
@@ -38,6 +44,8 @@ pub struct SubmitPublicationRegistryRequest {
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PublicationRegistryPreview {
+    pub operation_id: String,
+    pub bundle_ids: Vec<String>,
     pub project_id: i64,
     pub plugin_id: String,
     pub version: String,
@@ -53,7 +61,8 @@ pub struct PublicationRegistryPreview {
     pub plan_sha256: String,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublicationRegistryResult {
     pub pull_request_url: String,
     pub pull_request_number: u64,
@@ -85,6 +94,7 @@ pub async fn preview_publication_registry_handler(
         &state,
         project_id,
         body.bundle_id,
+        body.bundle_ids,
         body.release_notes,
         permit()?,
     ))
@@ -108,7 +118,49 @@ pub async fn submit_publication_registry_handler(
         ));
     }
     validate_notes(&body.release_notes)?;
-    operation_timeout(submit(&state, project_id, body, permit()?)).await
+    let operation_id = super::super::publication_operations::operation_id()
+        .project_id(project_id)
+        .kind(super::super::publication_operations::PublicationOperationKind::Registry)
+        .bundle_id(&body.bundle_id)
+        .bundle_ids(&body.bundle_ids)
+        .release_notes(&body.release_notes)
+        .plan_sha256(&body.expected_plan_sha256)
+        .call()?;
+    if body
+        .operation_id
+        .as_ref()
+        .is_some_and(|expected| expected != &operation_id)
+    {
+        return Err(coded(
+            "PUBLICATION_OPERATION_BINDING_CHANGED",
+            "confirmed operation contents changed; preview again",
+        ));
+    }
+    let plan_sha256 = body.expected_plan_sha256.clone();
+    let result = super::super::publication_operations::execute()
+        .project_id(project_id)
+        .kind(super::super::publication_operations::PublicationOperationKind::Registry)
+        .operation_id(operation_id)
+        .plan_sha256(plan_sha256)
+        .job(Box::pin(async move {
+            operation_timeout(Box::pin(submit(&state, project_id, body, permit()?)))
+                .await
+                .map(|Json(value)| {
+                    super::super::publication_operations::PublicationOperationResult::Registry(
+                        value,
+                    )
+                })
+        }))
+        .call()
+        .await?;
+    match result {
+        super::super::publication_operations::PublicationOperationResult::Registry(value) => {
+            Ok(Json(value))
+        }
+        _ => Err(AppError::Internal(
+            "publication operation kind mismatch".into(),
+        )),
+    }
 }
 
 async fn submit(
@@ -121,6 +173,7 @@ async fn submit(
         state,
         project_id,
         body.bundle_id,
+        body.bundle_ids,
         body.release_notes,
         permit,
     )
@@ -152,10 +205,19 @@ async fn prepare(
     state: &AppState,
     project_id: i64,
     bundle_id: String,
+    bundle_ids: Vec<String>,
     release_notes: String,
     permit: tokio::sync::SemaphorePermit<'static>,
 ) -> Result<PreparedRegistry, AppError> {
-    let mut prepared = prepare_context(state, project_id, bundle_id, release_notes, permit).await?;
+    let mut prepared = prepare_context(
+        state,
+        project_id,
+        bundle_id,
+        bundle_ids,
+        release_notes,
+        permit,
+    )
+    .await?;
     let documents =
         super::contribution::submission::build(&prepared.local, &prepared.inspection.account)?;
     let release_plan = super::plan_sha(
@@ -165,7 +227,6 @@ async fn prepare(
     )?;
     let expectation =
         super::remote::GitHubReleaseExpectation::from_request(&prepared.request(&release_plan));
-    prepared.local.archive = axum::body::Bytes::new();
     prepared.local.metadata = axum::body::Bytes::new();
     super::github::verify_published_publication_release(&prepared.token, expectation).await?;
     let transport = transport::Transport::production()?;
@@ -176,12 +237,20 @@ async fn prepare(
             "GitHub account changed during registry preview",
         ));
     }
-    let preview = plan::build(
+    let mut preview = plan::build(
         &prepared.local.plan,
         &documents,
         &documents.markdown,
         &remote,
     )?;
+    preview.operation_id = super::super::publication_operations::operation_id()
+        .project_id(project_id)
+        .kind(super::super::publication_operations::PublicationOperationKind::Registry)
+        .bundle_id(&preview.bundle_id)
+        .bundle_ids(&preview.bundle_ids)
+        .release_notes(&preview.release_notes)
+        .plan_sha256(&preview.plan_sha256)
+        .call()?;
     Ok(PreparedRegistry {
         preview,
         token: prepared.token,

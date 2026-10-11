@@ -101,6 +101,29 @@ impl RawTree {
     }
 }
 
+#[derive(Deserialize)]
+pub(super) struct RawBlob {
+    encoding: String,
+    sha: String,
+    size: usize,
+    content: String,
+}
+
+impl RawBlob {
+    pub(super) fn validate(self, expected: &RawTreeEntry) -> Result<DiscoveryHead, PublisherError> {
+        RawContent {
+            kind: "file".into(),
+            path: DISCOVERY_FILENAME.into(),
+            name: DISCOVERY_FILENAME.into(),
+            encoding: self.encoding,
+            sha: self.sha,
+            size: self.size,
+            content: self.content,
+        }
+        .validate(expected)
+    }
+}
+
 #[derive(Clone, Deserialize)]
 pub(super) struct RawContent {
     #[serde(rename = "type")]

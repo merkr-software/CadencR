@@ -1,10 +1,24 @@
+mod archive_file;
 use crate::error::AppError;
+pub(crate) use archive_file::ArchiveFile;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct GitHubReleaseInspection {
     pub account: String,
     pub repository_id: u64,
     pub tag_commit: String,
+}
+
+pub(crate) struct GitHubArchive {
+    pub name: String,
+    pub sha256: String,
+    pub file: ArchiveFile,
+}
+
+pub(crate) struct GitHubArchiveExpectation {
+    pub name: String,
+    pub sha256: String,
+    pub size: u64,
 }
 
 #[derive(bon::Builder)]
@@ -14,8 +28,11 @@ pub(crate) struct GitHubPublishRequest<'a> {
     pub source_commit: &'a str,
     pub release_notes: &'a str,
     pub prerelease: bool,
+    #[builder(default = &[])]
+    pub additional_archives: &'a [GitHubArchive],
     pub archive_name: &'a str,
-    pub archive: &'a axum::body::Bytes,
+    pub archive: Option<&'a axum::body::Bytes>,
+    pub archive_file: Option<&'a ArchiveFile>,
     pub archive_sha256: &'a str,
     pub metadata_name: &'a str,
     pub metadata: &'a axum::body::Bytes,
@@ -31,6 +48,7 @@ pub(crate) struct GitHubReleaseExpectation {
     pub source_commit: String,
     pub release_notes: String,
     pub prerelease: bool,
+    pub additional_archives: Vec<GitHubArchiveExpectation>,
     pub archive_name: String,
     pub archive_size: u64,
     pub archive_sha256: String,
@@ -50,8 +68,20 @@ impl GitHubReleaseExpectation {
             source_commit: request.source_commit.into(),
             release_notes: request.release_notes.into(),
             prerelease: request.prerelease,
+            additional_archives: request
+                .additional_archives
+                .iter()
+                .map(|archive| GitHubArchiveExpectation {
+                    name: archive.name.clone(),
+                    sha256: archive.sha256.clone(),
+                    size: archive.file.size,
+                })
+                .collect(),
             archive_name: request.archive_name.into(),
-            archive_size: request.archive.len() as u64,
+            archive_size: request.archive_file.map_or(
+                request.archive.map_or(0, |bytes| bytes.len() as u64),
+                |file| file.size,
+            ),
             archive_sha256: request.archive_sha256.into(),
             metadata_name: request.metadata_name.into(),
             metadata_size: request.metadata.len() as u64,

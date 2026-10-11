@@ -1,3 +1,5 @@
+mod baseline;
+mod entry;
 #[cfg(test)]
 pub(crate) mod fixture;
 mod manifest;
@@ -6,17 +8,12 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::binding::{
-    build_publication_binding, read_mirror_receipt, read_publication_receipt, ExpectedArtifact,
-};
-use crate::fs::read_bounded;
-use crate::publication_local::RefusingDownloader;
+use crate::binding::ExpectedArtifact;
 use crate::{Downloader, PublisherError};
-use manifest::{absolute_lexical, read_manifest, resolve_input, validate_manifest, Publication};
+use manifest::{absolute_lexical, read_manifest, validate_manifest};
 
-const MAX_SUBMISSION_BYTES: u64 = 1024 * 1024;
-const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
-const MAX_REMOTE_BYTES: u64 = 1024 * 1024 * 1024;
+pub(super) const MAX_SUBMISSION_BYTES: u64 = 1024 * 1024;
+pub(super) const MAX_INPUT_BYTES: u64 = 32 * 1024 * 1024;
 
 pub(crate) fn validate_manifest_repository(
     path: &Path,
@@ -58,24 +55,15 @@ pub(crate) fn prepare(
         .parent()
         .ok_or_else(|| PublisherError::new("publication manifest has no parent directory"))?;
     let mut input_bytes = 0_u64;
-    let mut remote_bytes = 0_u64;
     let mut entries = Vec::with_capacity(manifest.publications.len());
     for (position, publication) in manifest.publications.iter().enumerate() {
-        let entry = prepare_entry(
+        let entry = entry::prepare(
             publication,
             position,
             &manifest.repository,
             base,
             &mut input_bytes,
         )?;
-        for artifact in &entry.expected {
-            remote_bytes = checked_budget(
-                remote_bytes,
-                artifact.size,
-                MAX_REMOTE_BYTES,
-                "catalog public assets exceed the aggregate size limit",
-            )?;
-        }
         entries.push(entry);
     }
     let mut packages = Vec::with_capacity(entries.len());
@@ -84,79 +72,11 @@ pub(crate) fn prepare(
         packages.push(entry.package);
         verifications.push((entry.directory, entry.expected));
     }
-    let payload = cadencr_registry_core::prepare_publication_index()
-        .packages(packages)
-        .generated_at(generated_at)
-        .expires_at(expires_at)
-        .call()?;
+    let payload = baseline::prepare(&manifest, base, packages, generated_at, expires_at)?;
     for (directory, expected) in verifications {
         crate::promote::public::verify(&expected, &directory, downloader)?;
     }
     Ok(payload)
-}
-
-fn prepare_entry(
-    publication: &Publication,
-    position: usize,
-    repository: &str,
-    base: &Path,
-    input_bytes: &mut u64,
-) -> Result<PreparedEntry, PublisherError> {
-    let submission_file = resolve_input(base, &publication.submission);
-    let directory = resolve_input(base, &publication.directory);
-    let bytes = read_bounded(
-        &submission_file,
-        MAX_SUBMISSION_BYTES,
-        &format!("submission {}", position + 1),
-    )?;
-    *input_bytes = checked_budget(
-        *input_bytes,
-        bytes.len() as u64,
-        MAX_INPUT_BYTES,
-        "catalog inputs exceed 32 MiB",
-    )?;
-    let submission = cadencr_registry_core::parse_json_bytes(&bytes).map_err(|_| {
-        PublisherError::new(format!("submission {} must be valid JSON", position + 1))
-    })?;
-    let staged = crate::stage::stage_loaded(
-        &submission,
-        repository,
-        &directory,
-        &RefusingDownloader::for_operation("catalog signing"),
-    )?;
-    let binding = build_publication_binding(
-        &staged,
-        repository,
-        &publication.registry_commit,
-        &directory,
-    )?;
-    let mirror = read_mirror_receipt(
-        &directory,
-        &binding,
-        repository,
-        &publication.registry_commit,
-    )?
-    .ok_or_else(|| PublisherError::new("mirror receipt is required for catalog signing"))?;
-    read_publication_receipt()
-        .directory(&directory)
-        .binding(&binding)
-        .repository(repository)
-        .registry_commit(&publication.registry_commit)
-        .release_id(mirror.release_id)
-        .call()?
-        .ok_or_else(|| {
-            PublisherError::new("publication receipt is required for catalog signing")
-        })?;
-    let package = staged
-        .plan
-        .get("mirrored_package")
-        .cloned()
-        .ok_or_else(|| PublisherError::new("publication plan mirrored package is missing"))?;
-    Ok(PreparedEntry {
-        directory,
-        expected: binding.expected,
-        package,
-    })
 }
 
 fn checked_budget(
@@ -204,6 +124,68 @@ mod tests {
             .expires_at(&window[1])
             .downloader(&value.downloader)
             .call()
+    }
+
+    #[test]
+    fn published_delta_needs_no_local_archives_and_history_needs_no_downloads() {
+        let value = fixture(1, Mode::Good);
+        value.add_baseline(120);
+        value.remove_archives();
+        let payload = prepare_fixture(&value).unwrap();
+        let candidate: Value = serde_json::from_slice(payload.canonical_payload()).unwrap();
+        assert_eq!(candidate["packages"].as_array().unwrap().len(), 121);
+        assert_eq!(value.downloader.calls.get(), 2);
+        assert!(value
+            .downloader
+            .requests
+            .borrow()
+            .iter()
+            .all(|url| !url.contains("historical")));
+    }
+
+    #[test]
+    fn renewal_with_empty_delta_authenticates_history_without_downloads() {
+        let value = fixture(0, Mode::Good);
+        value.add_baseline(120);
+        let payload = prepare_fixture(&value).unwrap();
+        let candidate: Value = serde_json::from_slice(payload.canonical_payload()).unwrap();
+        let prior: Value = serde_json::from_slice(
+            &std::fs::read(value.directory().join("previous-index.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(candidate["packages"], prior["signed"]["packages"]);
+        assert_eq!(value.downloader.calls.get(), 0);
+    }
+
+    #[test]
+    fn baseline_authentication_and_receipt_tampering_fail_before_download() {
+        for mutation in 0..9 {
+            let value = fixture(1, Mode::Good);
+            value.add_baseline(2);
+            let path = match mutation {
+                0..=2 => value.directory().join("previous-index.json"),
+                3 => value.receipt_files[0].clone(),
+                _ => value.receipt_files[0]
+                    .parent()
+                    .unwrap()
+                    .join(crate::binding::MIRROR_RECEIPT),
+            };
+            let mut data: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+            match mutation {
+                0 => data["signature"]["value"] = "A".repeat(88).into(),
+                1 => data["signature"]["key_id"] = "other-key".into(),
+                2 => data["signed"]["packages"][0]["agent"]["description"] = "mutated".into(),
+                3 => data["release_id"] = 99.into(),
+                4 => data["artifacts"][0]["sha256"] = "0".repeat(64).into(),
+                5 => data["artifacts"][0]["size"] = (crate::stage::MAX_ARCHIVE_BYTES + 1).into(),
+                6 => data["artifacts"][1]["size"] = 0.into(),
+                7 => data["artifacts"][0]["name"] = "publication-plan.json".into(),
+                _ => data["artifacts"][1]["sha256"] = data["plan_sha256"].clone(),
+            }
+            std::fs::write(path, serde_json::to_vec(&data).unwrap()).unwrap();
+            assert!(prepare_fixture(&value).is_err(), "mutation {mutation}");
+            assert_eq!(value.downloader.calls.get(), 0, "mutation {mutation}");
+        }
     }
 
     #[test]

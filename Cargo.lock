@@ -792,6 +792,8 @@ name = "cadencr-plugin-core"
 version = "0.1.0"
 dependencies = [
  "bon",
+ "libc",
+ "regex-lite",
  "serde",
  "serde_json",
  "tempfile",

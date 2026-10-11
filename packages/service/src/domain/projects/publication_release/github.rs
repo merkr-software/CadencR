@@ -145,6 +145,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn publishes_a_revalidated_file_backed_archive() {
+        let fixture = Fixture::start(FixtureOptions::default()).await;
+        let archive = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(archive.path(), b"archive").unwrap();
+        let file = super::super::remote::ArchiveFile::open(archive.path(), 1024).unwrap();
+        let empty = axum::body::Bytes::new();
+        let metadata = axum::body::Bytes::from_static(b"metadata");
+        let mut request = request(&empty, &metadata);
+        request.archive = None;
+        request.archive_file = Some(&file);
+        let published = state::publish(&fixture.transport, "secret", &request)
+            .await
+            .unwrap();
+        assert!(!published.already_published);
+        assert_eq!(fixture.asset_count(), 2);
+    }
+
+    #[tokio::test]
     async fn publishes_and_exact_retry_performs_no_writes() {
         let fixture = Fixture::start(FixtureOptions::default()).await;
         let archive = axum::body::Bytes::from_static(b"archive");

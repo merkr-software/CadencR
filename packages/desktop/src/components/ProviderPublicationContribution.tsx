@@ -1,3 +1,4 @@
+import { publicationBundles } from "./PublicationRequest";
 import { useState } from "react";
 import { CheckCircle2, Copy, FolderOpen, Loader2 } from "lucide-react";
 import {
@@ -41,7 +42,7 @@ export function ProviderPublicationContribution({
     mutation.mutate({
       id: projectId,
       data: {
-        bundle_id: preview.bundle_id,
+        ...publicationBundles(preview),
         release_notes: preview.release_notes,
         expected_plan_sha256: preview.plan_sha256,
         confirmed: true,

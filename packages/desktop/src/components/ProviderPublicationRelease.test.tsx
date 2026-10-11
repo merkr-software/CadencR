@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   registrySubmitReset: vi.fn(),
 }));
 
+vi.mock("./PublicationOperationsStatus", () => ({ PublicationOperationsStatus: () => null }));
 vi.mock("@/api/generated", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/generated")>()),
   usePreviewPublicationRelease: mocks.previewHook,
@@ -33,6 +34,7 @@ vi.mock("@/api/generated", async (importOriginal) => ({
 vi.mock("@/lib/open-external", () => ({ openExternalUrl: mocks.openExternal }));
 
 const preview = {
+  archives: [],
   project_id: 7,
   plugin_id: "example.agent",
   version: "1.2.3",
@@ -47,6 +49,7 @@ const preview = {
   metadata_sha256: "metadata-hash",
   release_notes: "Exact release notes",
   account: "octocat",
+  operation_id: "a".repeat(64),
   plan_sha256: "plan-hash",
   release_url: "https://github.com/acme/example-agent/releases/tag/v1.2.3",
   prerelease: false,
@@ -136,6 +139,10 @@ describe("ProviderPublicationRelease", () => {
     expect(mocks.publishMutate).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Review GitHub publication" })).toBeDisabled();
 
+    await user.type(
+      screen.getByLabelText(/Other platform bundle UUIDs/),
+      "123e4567-e89b-42d3-a456-426614174001",
+    );
     await user.type(screen.getByLabelText("Release notes"), "Ship this version");
     await user.click(screen.getByRole("button", { name: "Review GitHub publication" }));
     mocks.previewHook.mockReturnValue({
@@ -156,6 +163,7 @@ describe("ProviderPublicationRelease", () => {
     expect(mocks.previewMutate).toHaveBeenCalledWith({
       id: 7,
       data: {
+        bundle_ids: ["123e4567-e89b-42d3-a456-426614174001"],
         bundle_id: "123e4567-e89b-42d3-a456-426614174000",
         release_notes: "Ship this version",
       },
@@ -204,10 +212,12 @@ describe("ProviderPublicationRelease", () => {
     expect(mocks.publishMutate).toHaveBeenCalledWith({
       id: 7,
       data: {
+        bundle_ids: [],
         bundle_id: preview.bundle_id,
         release_notes: preview.release_notes,
         expected_plan_sha256: "plan-hash",
         confirmed: true,
+        operation_id: "a".repeat(64),
       },
     });
   });

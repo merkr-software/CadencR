@@ -1,3 +1,4 @@
+import { MAX_CATALOG_BYTES } from "./catalog-limits.mjs";
 import { createPrivateKey, createPublicKey, sign, verify } from "node:crypto";
 import { canonicalJson, validateIndex, validateSignedIndex, validIdentifier } from "../lib.mjs";
 import { readBoundedRegularFile } from "./io.mjs";
@@ -6,6 +7,8 @@ const KEY_LIMIT = 16 * 1024;
 const CANONICAL_UTC_SECOND = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 
 export function validateSigningPayload(signed, { now = new Date() } = {}) {
+  if (Buffer.byteLength(canonicalJson(signed)) > MAX_CATALOG_BYTES)
+    throw new Error("catalog payload exceeds 32 MiB");
   validateCanonicalTimestamps(signed);
   validateCanonicalOptionalFields(signed);
   const errors = validateIndex(signed, { now });
@@ -36,6 +39,8 @@ export async function signIndexPayload(signed, { privateKeyFile, keyId, now = ne
       value: signatureBytes.toString("base64"),
     },
   };
+  if (Buffer.byteLength(canonicalJson(envelope)) + 1 > MAX_CATALOG_BYTES)
+    throw new Error("signed catalog envelope exceeds 32 MiB");
   validateEnvelope(envelope, { now });
   return envelope;
 }

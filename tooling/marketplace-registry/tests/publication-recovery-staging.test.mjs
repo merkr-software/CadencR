@@ -4,12 +4,22 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildPublicationBinding } from "../scripts/publication/binding.mjs";
 import { createPublicationPlan } from "../scripts/publication/plan.mjs";
 import { stagePipelinePublications } from "../scripts/publication/pipeline-staging.mjs";
 
 const repository = "acme/registry";
 const registryCommit = "b".repeat(40);
 const bytes = Buffer.from("published inert archive");
+
+function releaseBody(entry) {
+  return buildPublicationBinding(
+    { plan: entry.plan, artifacts: [] },
+    repository,
+    registryCommit,
+    entry.directory,
+  ).body;
+}
 
 async function fixture(t) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "published-stage-"));
@@ -41,6 +51,7 @@ test("published releases stage missing bytes only from the reviewed mirror desti
         draft: false,
         tag_name: tag,
         target_commitish: registryCommit,
+        body: releaseBody(entry),
       };
     },
     async getTagCommit() {
@@ -72,7 +83,13 @@ test("published staging accepts platform targets that share the same source arch
   const urls = [];
   const client = {
     async findRelease(tag) {
-      return { id: 17, draft: false, tag_name: tag, target_commitish: registryCommit };
+      return {
+        id: 17,
+        draft: false,
+        tag_name: tag,
+        target_commitish: registryCommit,
+        body: releaseBody(entry),
+      };
     },
     async getTagCommit() {
       return registryCommit;
@@ -99,7 +116,13 @@ test("published mirror failures never fall back to the author URL", async (t) =>
   const urls = [];
   const client = {
     async findRelease(tag) {
-      return { id: 17, draft: false, tag_name: tag, target_commitish: registryCommit };
+      return {
+        id: 17,
+        draft: false,
+        tag_name: tag,
+        target_commitish: registryCommit,
+        body: releaseBody(entry),
+      };
     },
     async getTagCommit() {
       return registryCommit;
@@ -131,7 +154,13 @@ test("published staging validates release and resolved tag before downloading", 
         repository,
         client: {
           async findRelease(tag) {
-            return { id: 17, draft: false, tag_name: tag, target_commitish: registryCommit };
+            return {
+              id: 17,
+              draft: false,
+              tag_name: tag,
+              target_commitish: registryCommit,
+              body: releaseBody(entry),
+            };
           },
           async getTagCommit() {
             return "c".repeat(40);
@@ -189,7 +218,13 @@ test("latched published staging revalidates release state even when fully retain
     client: {
       async findRelease(tag) {
         lookups += 1;
-        return { id: 17, draft: false, tag_name: tag, target_commitish: registryCommit };
+        return {
+          id: 17,
+          draft: false,
+          tag_name: tag,
+          target_commitish: registryCommit,
+          body: releaseBody(entry),
+        };
       },
       async getTagCommit() {
         lookups += 1;
@@ -207,4 +242,36 @@ test("latched published staging revalidates release state even when fully retain
   await stagePipelinePublications(options, [entry]);
   assert.equal(lookups, 4);
   assert.equal(downloads, 1);
+});
+
+test("a forged public release marker is rejected before archive acquisition", async (t) => {
+  const entry = await fixture(t);
+  let downloads = 0;
+  await assert.rejects(
+    stagePipelinePublications(
+      {
+        repository,
+        client: {
+          async findRelease(tag) {
+            return {
+              id: 17,
+              draft: false,
+              tag_name: tag,
+              target_commitish: registryCommit,
+              body: "forged",
+            };
+          },
+          async getTagCommit() {
+            return registryCommit;
+          },
+        },
+        download: async () => {
+          downloads += 1;
+        },
+      },
+      [entry],
+    ),
+    /marker does not match/,
+  );
+  assert.equal(downloads, 0);
 });

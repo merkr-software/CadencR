@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +15,101 @@ import {
 } from "../scripts/publication/catalog.mjs";
 import { stagePublication } from "../scripts/publication/stage.mjs";
 import { signPublicationCatalog } from "../scripts/sign-publication-catalog.mjs";
+import { signIndexPayload } from "../scripts/publication/signing.mjs";
+import { incrementalPayload, verifyBaseline } from "../scripts/publication/incremental.mjs";
+
+test("signed 120-version history renews without archives or downloads", async (t) => {
+  const state = await fixture(t);
+  const initial = await prepare(state);
+  const keys = generateKeyPairSync("ed25519");
+  const privateKeyFile = path.join(state.root, "private.pem");
+  await writeFile(privateKeyFile, keys.privateKey.export({ type: "pkcs8", format: "pem" }));
+  await writeFile(
+    path.join(state.root, "public.pem"),
+    keys.publicKey.export({ type: "spki", format: "pem" }),
+  );
+  const packages = Array.from({ length: 120 }, (_, patch) => {
+    const entry = structuredClone(initial.packages[0]);
+    entry.agent.version = `1.0.${patch}`;
+    entry.agent.description = "x".repeat(10_000);
+    return entry;
+  });
+  const envelope = await signIndexPayload(
+    { ...initial, packages },
+    { privateKeyFile, keyId: "test-key", now },
+  );
+  assert.ok(Buffer.byteLength(JSON.stringify(envelope)) > 1024 * 1024);
+  await writeFile(path.join(state.root, "previous.json"), JSON.stringify(envelope));
+  state.manifest.baseline = {
+    previous_index: "previous.json",
+    public_key: "public.pem",
+    key_id: "test-key",
+  };
+  state.manifest.publications = [];
+  let calls = 0;
+  const renewed = await prepare(state, {
+    generatedAt: "2026-09-19T10:00:01Z",
+    download: async () => {
+      calls += 1;
+      throw new Error("unexpected download");
+    },
+  });
+  assert.equal(renewed.packages.length, 120);
+  assert.deepEqual(renewed.packages, packages);
+  assert.equal(calls, 0);
+  const manifestFile = path.join(state.root, "renewal-manifest.json");
+  await writeFile(manifestFile, JSON.stringify(state.manifest));
+  const otherPrivate = path.join(state.root, "other-private.pem");
+  await writeFile(
+    otherPrivate,
+    generateKeyPairSync("ed25519").privateKey.export({ type: "pkcs8", format: "pem" }),
+  );
+  await assert.rejects(
+    signPublicationCatalog({
+      manifest: manifestFile,
+      generatedAt: "2026-09-19T10:00:01Z",
+      expiresAt,
+      privateKey: otherPrivate,
+      keyId: "test-key",
+      output: path.join(state.root, "not-signed.json"),
+      now,
+    }),
+    /pinned baseline public key/,
+  );
+  const baseline = verifyBaseline(
+    Buffer.from(JSON.stringify(envelope)),
+    await readFile(path.join(state.root, "public.pem")),
+    "test-key",
+    now,
+  );
+  const next = structuredClone(initial.packages[0]);
+  next.agent.version = "2.0.0";
+  const grown = incrementalPayload({
+    packages: [next],
+    baseline,
+    generatedAt: "2026-09-19T10:00:01Z",
+    expiresAt,
+    now,
+  });
+  assert.equal(grown.packages.length, 121);
+  assert.deepEqual(grown.packages.slice(0, 120), packages);
+  const mutated = structuredClone(packages[0]);
+  mutated.agent.name = "mutated";
+  assert.throws(
+    () =>
+      incrementalPayload({
+        packages: [mutated],
+        baseline,
+        generatedAt: "2026-09-19T10:00:01Z",
+        expiresAt,
+        now,
+      }),
+    /mutates immutable/,
+  );
+  envelope.signed.packages[0].agent.name = "tampered";
+  await writeFile(path.join(state.root, "previous.json"), JSON.stringify(envelope));
+  await assert.rejects(prepare(state), /signature/);
+});
 
 const repository = "cadencr/registry";
 const commit = "b".repeat(40);
@@ -142,7 +237,7 @@ test("rejects missing and forged publication receipts before network access", as
   }
 });
 
-test("rejects changed staged bytes and unavailable public bytes", async (t) => {
+test("ignores transient staged bytes but rejects unavailable public bytes", async (t) => {
   const changed = await fixture(t);
   const stagedName = await readFile(
     path.join(changed.root, "stage-0", "staging-receipt.json"),
@@ -150,7 +245,9 @@ test("rejects changed staged bytes and unavailable public bytes", async (t) => {
   );
   const asset = JSON.parse(stagedName).artifacts[0].asset;
   await writeFile(path.join(changed.root, "stage-0", asset), "forged");
-  await assert.rejects(prepare(changed), /existing asset conflicts/);
+  await prepare(changed);
+  await rm(path.join(changed.root, "stage-0", asset));
+  await prepare(changed);
 
   const unavailable = await fixture(t);
   await assert.rejects(

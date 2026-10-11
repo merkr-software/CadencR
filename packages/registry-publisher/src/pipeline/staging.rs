@@ -2,10 +2,9 @@ use super::{PipelineClient, PreparedPipeline};
 use crate::{DownloadRequest, Downloaded, Downloader, PublisherError};
 use std::cell::Cell;
 
-pub(super) fn stage_all(
+pub(super) fn inspect_all(
     prepared: &PreparedPipeline,
     client: &impl PipelineClient,
-    downloader: &impl Downloader,
 ) -> Result<Vec<bool>, PublisherError> {
     let mut published = Vec::new();
     // Determine every baseline's public state before any source acquisition.
@@ -54,67 +53,76 @@ pub(super) fn stage_all(
         }
         published.push(public);
     }
-    let retained = retained_bytes(prepared)?;
-    let remaining = Cell::new(crate::stage::MAX_MANAGED_BYTES - retained);
-    for (entry, public) in prepared.entries.iter().zip(&published) {
-        let bounded = Budget {
-            inner: downloader,
-            remaining: &remaining,
-            directory: &entry.directory,
-        };
-        if *public {
-            let submission = entry.submission_file();
-            let request = crate::RestoreRequest::builder()
-                .submission(&submission)
-                .repository(&prepared.request.repository)
-                .registry_commit(&entry.registry_commit)
-                .expected_release_tag(entry.tag())
-                .directory(&entry.directory)
-                .token("")
-                .build();
-            let local = crate::restore::preflight(&request)?;
-            crate::restore::restore(request, local, client, &bounded)?;
-        } else {
-            crate::stage::stage_loaded(
-                &entry.submission,
-                &prepared.request.repository,
-                &entry.directory,
-                &bounded,
-            )?;
-        }
-        // Restoration also independently reads public proof. The retention
-        // limit is specifically archive staging, not cumulative verification I/O.
-        let actual = retained_bytes(prepared)?;
-        remaining.set(crate::stage::MAX_MANAGED_BYTES - actual);
-    }
     Ok(published)
 }
 
-pub(super) fn retained_bytes(prepared: &PreparedPipeline) -> Result<u64, PublisherError> {
-    let mut total = 0_u64;
+pub(super) fn stage_entry(
+    prepared: &PreparedPipeline,
+    entry: &super::Entry,
+    public: bool,
+    client: &impl PipelineClient,
+    downloader: &impl Downloader,
+) -> Result<(), PublisherError> {
+    let remaining = Cell::new(crate::stage::MAX_MANAGED_BYTES - retained_entry_bytes(entry)?);
+    let bounded = Budget {
+        inner: downloader,
+        remaining: &remaining,
+        directory: &entry.directory,
+    };
+    if public {
+        let submission = entry.submission_file();
+        let request = crate::RestoreRequest::builder()
+            .submission(&submission)
+            .repository(&prepared.request.repository)
+            .registry_commit(&entry.registry_commit)
+            .expected_release_tag(entry.tag())
+            .directory(&entry.directory)
+            .token("")
+            .build();
+        let local = crate::restore::preflight(&request)?;
+        crate::restore::restore(request, local, client, &bounded)?;
+    } else {
+        crate::stage::stage_loaded(
+            &entry.submission,
+            &prepared.request.repository,
+            &entry.directory,
+            &bounded,
+        )?;
+    }
+    retained_entry_bytes(entry)?;
+    Ok(())
+}
+
+pub(super) fn validate_retained(prepared: &PreparedPipeline) -> Result<(), PublisherError> {
     for entry in &prepared.entries {
-        for target in entry.plan["targets"].as_array().expect("validated targets") {
-            let name = target["asset"].as_str().expect("validated asset");
-            let path = entry.directory.join(name);
-            if !super::state::exists(&path)? {
-                continue;
-            }
-            let metadata = std::fs::symlink_metadata(&path)
-                .map_err(|e| PublisherError::io("inspect retained archive", e))?;
-            if metadata.file_type().is_symlink()
-                || !metadata.is_file()
-                || metadata.len() > crate::stage::MAX_ARCHIVE_BYTES
-            {
-                return Err(PublisherError::new(
-                    "pipeline retained archive must be a bounded regular file",
-                ));
-            }
-            total = total
-                .checked_add(metadata.len())
-                .ok_or_else(|| PublisherError::new("pipeline staging budget overflow"))?;
-            if total > crate::stage::MAX_MANAGED_BYTES {
-                return Err(PublisherError::new("pipeline archives exceed 1 GiB"));
-            }
+        retained_entry_bytes(entry)?;
+    }
+    Ok(())
+}
+
+fn retained_entry_bytes(entry: &super::Entry) -> Result<u64, PublisherError> {
+    let mut total = 0_u64;
+    for target in entry.plan["targets"].as_array().expect("validated targets") {
+        let name = target["asset"].as_str().expect("validated asset");
+        let path = entry.directory.join(name);
+        if !super::state::exists(&path)? {
+            continue;
+        }
+        let metadata = std::fs::symlink_metadata(&path)
+            .map_err(|e| PublisherError::io("inspect retained archive", e))?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > crate::stage::MAX_ARCHIVE_BYTES
+        {
+            return Err(PublisherError::new(
+                "pipeline retained archive must be a bounded regular file",
+            ));
+        }
+        total = total
+            .checked_add(metadata.len())
+            .ok_or_else(|| PublisherError::new("pipeline staging budget overflow"))?;
+        if total > crate::stage::MAX_MANAGED_BYTES {
+            return Err(PublisherError::new("pipeline archives exceed 1 GiB"));
         }
     }
     Ok(total)
@@ -154,6 +162,54 @@ impl<D: Downloader> Downloader for Budget<'_, D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_capacity_is_per_publication_not_cumulative_history() {
+        let root = tempfile::tempdir().unwrap();
+        let make_entry = |name: &str| {
+            let directory = root.path().join(name);
+            std::fs::create_dir(&directory).unwrap();
+            let targets: Vec<_> = (0..4)
+                .map(|index| {
+                    let asset = format!("archive-{index}.tar.gz");
+                    std::fs::File::create(directory.join(&asset))
+                        .unwrap()
+                        .set_len(crate::stage::MAX_ARCHIVE_BYTES)
+                        .unwrap();
+                    serde_json::json!({"asset":asset})
+                })
+                .collect();
+            super::super::Entry {
+                submission: serde_json::Value::Null,
+                bytes: Vec::new(),
+                plan: serde_json::json!({"targets":targets}),
+                registry_commit: "a".repeat(40),
+                directory,
+                require_published: false,
+            }
+        };
+        let first = make_entry("first");
+        let second = make_entry("second");
+        assert_eq!(
+            retained_entry_bytes(&first).unwrap(),
+            crate::stage::MAX_MANAGED_BYTES
+        );
+        assert_eq!(
+            retained_entry_bytes(&second).unwrap(),
+            crate::stage::MAX_MANAGED_BYTES
+        );
+        // Two sparse metadata fixtures model 2 GiB without allocating archives.
+        // This exercises capacity only; publication still verifies real digests.
+        let extra = first.directory.join("extra.tar.gz");
+        std::fs::File::create(extra).unwrap().set_len(1).unwrap();
+        let mut oversized = first;
+        oversized.plan["targets"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({"asset":"extra.tar.gz"}));
+        assert!(retained_entry_bytes(&oversized).is_err());
+    }
+
     struct Download {
         limit: Cell<u64>,
         size: u64,

@@ -16,7 +16,7 @@ use continuity::validate_continuity;
 use io::{parse_document, read_file};
 use output::digest;
 
-const CATALOG_LIMIT: u64 = 1024 * 1024;
+const CATALOG_LIMIT: u64 = crate::MAX_CATALOG_BYTES as u64;
 const KEY_LIMIT: u64 = 16 * 1024;
 
 #[derive(Clone, Copy, Debug)]
@@ -107,7 +107,7 @@ fn assemble_snapshot(
     let mut canonical_envelope = canonical_json_bytes(&envelope);
     canonical_envelope.push(b'\n');
     if canonical_envelope.len() as u64 > CATALOG_LIMIT {
-        return Err(RegistryError::single("catalog snapshot exceeds 1 MiB"));
+        return Err(RegistryError::single("catalog snapshot exceeds 32 MiB"));
     }
     let sha256 = digest(&canonical_envelope);
     let tag = format!("catalog-{sha256}");
@@ -331,7 +331,9 @@ mod tests {
         let error = prepare_result(root.path(), PreviousCatalog::File(&previous))
             .err()
             .unwrap();
-        assert!(error.to_string().contains("1048576-byte file limit"));
+        assert!(error
+            .to_string()
+            .contains(&format!("{CATALOG_LIMIT}-byte file limit")));
         std::fs::write(
             root.path().join("candidate.json"),
             vec![b' '; CATALOG_LIMIT as usize + 1],
@@ -340,7 +342,9 @@ mod tests {
         let error = prepare_result(root.path(), PreviousCatalog::Bootstrap)
             .err()
             .unwrap();
-        assert!(error.to_string().contains("1048576-byte file limit"));
+        assert!(error
+            .to_string()
+            .contains(&format!("{CATALOG_LIMIT}-byte file limit")));
     }
 
     #[test]

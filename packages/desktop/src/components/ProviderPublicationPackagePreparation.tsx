@@ -182,8 +182,8 @@ function PublicationPackageFields(props: FieldsProps): React.JSX.Element {
         />
         <span className="block text-xs font-normal text-muted-foreground">
           Use the existing managed package JSON, not a host descriptor. Cadencr does not guess
-          publisher, version, or URLs. Declare exactly one target, whose URL ends in .tar.gz or
-          .tgz.
+          publisher, version, or URLs. Declare every release target; the selected target URL must
+          end in .tar.gz or .tgz.
         </span>
       </label>
       <label className="block space-y-1.5 text-sm font-medium">

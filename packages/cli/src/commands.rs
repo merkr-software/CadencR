@@ -9,8 +9,13 @@ use crate::{operation_error, output, signing, Diagnostic};
 pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
     match &cli.command {
         Command::Plugin(PluginArgs {
-            command: PluginCommand::Validate { folder, descriptor },
-        }) => validate_plugin(folder, descriptor),
+            command:
+                PluginCommand::Validate {
+                    folder,
+                    descriptor,
+                    kind,
+                },
+        }) => crate::theme::validate_plugin_kind(folder, descriptor.as_deref(), kind),
         Command::Registry(registry) => run_registry(&registry.command),
     }
 }
@@ -30,6 +35,7 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             directory,
             output: destination,
         } => pack_provider(package, target, directory, destination),
+        RegistryCommand::PackTheme { directory, output } => crate::theme::pack(directory, output),
         RegistryCommand::PlanPublication {
             submission,
             repository,
@@ -66,16 +72,6 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             output,
         } => signing::assemble(payload, signature, output),
     }
-}
-
-fn validate_plugin(folder: &Path, descriptor: &Path) -> Result<Option<String>, Diagnostic> {
-    cadencr_plugin_core::validate_plugin_folder(folder, descriptor)
-        .map(|_| Some(format!("valid local provider structure: {} (publication completeness and theme assets not checked)", folder.display())))
-        .map_err(|error| Diagnostic {
-            code: error.code(),
-            message: error.to_string(),
-            exit_code: 1,
-        })
 }
 
 fn validate_registry(base: &Path, candidate: &Path) -> Result<Option<String>, Diagnostic> {

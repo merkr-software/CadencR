@@ -14,6 +14,16 @@ pub(super) struct Manifest {
     pub(super) schema_version: u64,
     pub(super) repository: String,
     pub(super) publications: Vec<Publication>,
+    #[serde(default)]
+    pub(super) baseline: Option<Baseline>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct Baseline {
+    pub(super) previous_index: String,
+    pub(super) public_key: String,
+    pub(super) key_id: String,
 }
 
 #[derive(Deserialize)]
@@ -39,10 +49,25 @@ pub(super) fn validate_manifest(manifest: &Manifest) -> Result<(), PublisherErro
     if !cadencr_registry_core::valid_publication_repository(&manifest.repository) {
         return Err(PublisherError::new("manifest.repository is invalid"));
     }
-    if !(1..=MAX_PUBLICATIONS).contains(&manifest.publications.len()) {
+    if manifest.publications.len() > MAX_PUBLICATIONS
+        || manifest.publications.is_empty() && manifest.baseline.is_none()
+    {
         return Err(PublisherError::new(
-            "manifest.publications must contain between 1 and 100 entries",
+            "manifest.publications must contain 1–100 entries, or 0–100 with a baseline",
         ));
+    }
+    if let Some(baseline) = &manifest.baseline {
+        for (field, value) in [
+            ("previous_index", &baseline.previous_index),
+            ("public_key", &baseline.public_key),
+        ] {
+            if value.is_empty() || value.contains('\0') {
+                return Err(PublisherError::new(format!(
+                    "manifest.baseline.{field} must be a non-empty path"
+                )));
+            }
+        }
+        cadencr_registry_core::validate_signing_key_id(&baseline.key_id)?;
     }
     for (position, publication) in manifest.publications.iter().enumerate() {
         for (field, value) in [
@@ -126,6 +151,21 @@ mod tests {
     }
 
     #[test]
+    fn baseline_is_strict_and_empty_delta_requires_it() {
+        let base = serde_json::json!({"schema_version":1,"repository":"cadencr/registry","publications":[],"baseline":{"previous_index":"inputs/previous.json","public_key":"inputs/public.pem","key_id":"release-key"}});
+        let manifest: Manifest = serde_json::from_value(base.clone()).unwrap();
+        validate_manifest(&manifest).unwrap();
+        for field in ["previous_index", "public_key", "key_id"] {
+            let mut invalid = base.clone();
+            invalid["baseline"][field] = "".into();
+            assert!(validate_manifest(&serde_json::from_value(invalid).unwrap()).is_err());
+        }
+        let mut unknown = base;
+        unknown["baseline"]["unknown"] = true.into();
+        assert!(serde_json::from_value::<Manifest>(unknown).is_err());
+    }
+
+    #[test]
     fn manifest_semantic_matrix_is_closed() {
         let entry = |submission: &str, directory: &str, commit: &str| Publication {
             submission: submission.into(),
@@ -134,26 +174,31 @@ mod tests {
         };
         for value in [
             Manifest {
+                baseline: None,
                 schema_version: 1,
                 repository: "invalid".into(),
                 publications: vec![entry("x", "y", &"b".repeat(40))],
             },
             Manifest {
+                baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: vec![],
             },
             Manifest {
+                baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: (0..101).map(|_| entry("x", "y", &"b".repeat(40))).collect(),
             },
             Manifest {
+                baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: vec![entry("x\0bad", "y", &"b".repeat(40))],
             },
             Manifest {
+                baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: vec![entry("x", "y", "B")],

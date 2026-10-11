@@ -18,6 +18,7 @@ vi.mock("@/lib/clipboard", () => ({ copyToClipboard: mocks.copy }));
 vi.mock("@/lib/desktop-bridge", () => ({ desktopBridge: { revealInFinder: mocks.reveal } }));
 
 const preview = {
+  archives: [],
   project_id: 7,
   plugin_id: "example.agent",
   version: "1.2.3",
@@ -32,6 +33,7 @@ const preview = {
   metadata_sha256: "metadata-hash",
   release_notes: "Exact notes",
   account: "octocat",
+  operation_id: "a".repeat(64),
   plan_sha256: "plan-hash",
   release_url: "https://github.com/acme/example/releases/tag/v1.2.3",
   prerelease: false,
@@ -72,6 +74,7 @@ describe("ProviderPublicationContribution", () => {
     expect(mocks.mutate).toHaveBeenCalledWith({
       id: 7,
       data: {
+        bundle_ids: [],
         bundle_id: preview.bundle_id,
         release_notes: preview.release_notes,
         expected_plan_sha256: preview.plan_sha256,

@@ -20,6 +20,7 @@ vi.mock("@/api/generated", async (importOriginal) => ({
 vi.mock("@/lib/open-external", () => ({ openExternalUrl: mocks.openExternal }));
 
 const releasePreview = {
+  archives: [],
   project_id: 7,
   plugin_id: "example.agent",
   version: "1.2.3",
@@ -34,12 +35,14 @@ const releasePreview = {
   metadata_sha256: "metadata-hash",
   release_notes: "Exact release notes",
   account: "octocat",
+  operation_id: "a".repeat(64),
   plan_sha256: "release-plan",
   release_url: "https://github.com/acme/example-agent/releases/tag/v1.2.3",
   prerelease: false,
 };
 
 const registryPlan = {
+  bundle_ids: [],
   project_id: 7,
   plugin_id: "example.agent",
   version: "1.2.3",
@@ -52,6 +55,7 @@ const registryPlan = {
   branch: "submit/example-agent-1.2.3",
   package_path: "packages/example.agent/1.2.3.json",
   submission_path: "submissions/example.agent-1.2.3.json",
+  operation_id: "a".repeat(64),
   plan_sha256: "registry-plan",
 };
 
@@ -100,7 +104,11 @@ describe("ProviderPublicationRegistry", () => {
     await user.click(screen.getByRole("button", { name: "Review registry submission" }));
     expect(mocks.previewMutate).toHaveBeenCalledWith({
       id: 7,
-      data: { bundle_id: releasePreview.bundle_id, release_notes: releasePreview.release_notes },
+      data: {
+        bundle_id: releasePreview.bundle_id,
+        bundle_ids: [],
+        release_notes: releasePreview.release_notes,
+      },
     });
     expect(onPendingChange).toHaveBeenCalledWith(true);
 
@@ -115,10 +123,12 @@ describe("ProviderPublicationRegistry", () => {
     expect(mocks.submitMutate).toHaveBeenCalledWith({
       id: 7,
       data: {
+        bundle_ids: [],
         bundle_id: registryPlan.bundle_id,
         release_notes: registryPlan.release_notes,
         expected_plan_sha256: registryPlan.plan_sha256,
         confirmed: true,
+        operation_id: "a".repeat(64),
       },
     });
     expect(screen.getByRole("checkbox", { name: /confirm this exact fork/i })).not.toBeChecked();

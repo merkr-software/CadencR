@@ -12,7 +12,7 @@ use cadencr_registry_core::{validate_discovery_branch, DISCOVERY_FILENAME, MAX_D
 
 mod model;
 
-use model::{valid_sha, RawCommit, RawContent, RawRef, RawTree};
+use model::{valid_sha, RawBlob, RawCommit, RawContent, RawRef, RawTree};
 
 const UPDATE_MESSAGE: &str = "Update managed provider discovery index";
 
@@ -53,6 +53,15 @@ impl DiscoveryClient for GitHubClient {
         let Some(entry) = tree.validate(&tree_sha)? else {
             return Ok(None);
         };
+        // Contents responses omit base64 data above 1 MiB; pin the Git blob
+        // discovered in the reviewed commit tree instead, retaining SHA checks.
+        if entry.size > 1024 * 1024 {
+            let blob: RawBlob = self.request.get_catalog_blob(&format!(
+                "/repos/{}/git/blobs/{}",
+                self.repository, entry.sha
+            ))?;
+            return blob.validate(&entry).map(Some);
+        }
         let content: RawContent = self.request.get(&format!(
             "/repos/{}/contents/{DISCOVERY_FILENAME}?ref={commit_sha}",
             self.repository
@@ -202,6 +211,36 @@ mod tests {
             );
             assert!(request.contains("authorization: Bearer secret-token"));
         }
+    }
+
+    #[test]
+    fn large_discovery_uses_pinned_blob_and_catalog_sized_json_budget() {
+        let commit = "a".repeat(40);
+        let tree = "b".repeat(40);
+        let bytes = vec![b'x'; 2 * 1024 * 1024];
+        let sha = blob(&bytes);
+        let (api, observed) = serve_sequence(vec![
+            format!(
+                r#"{{"ref":"refs/heads/catalog","object":{{"type":"commit","sha":"{commit}"}}}}"#
+            ),
+            format!(r#"{{"sha":"{commit}","tree":{{"sha":"{tree}"}}}}"#),
+            format!(
+                r#"{{"sha":"{tree}","truncated":false,"tree":[{{"path":"managed-index.json","mode":"100644","type":"blob","sha":"{sha}","size":{}}}]}}"#,
+                bytes.len()
+            ),
+            format!(
+                r#"{{"encoding":"base64","sha":"{sha}","size":{},"content":"{}"}}"#,
+                bytes.len(),
+                STANDARD.encode(&bytes)
+            ),
+        ]);
+        assert_eq!(
+            client(api).get_discovery("catalog").unwrap().unwrap().bytes,
+            bytes
+        );
+        assert!(observed.join().unwrap()[3].starts_with(&format!(
+            "GET /repos/acme/releases/git/blobs/{sha} HTTP/1.1"
+        )));
     }
 
     #[test]

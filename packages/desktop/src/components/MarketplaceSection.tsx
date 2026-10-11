@@ -90,6 +90,7 @@ export function MarketplaceSection(): React.JSX.Element {
           <MarketplaceDetails
             key={selectedId}
             packages={selected}
+            recommendedVersion={catalog?.recommended_versions?.[selected[0].agent.id]}
             installed={inventory?.providers.find((entry) => entry.id === selectedId)}
             index={catalog?.index}
             canInstall={

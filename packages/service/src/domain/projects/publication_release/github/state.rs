@@ -6,19 +6,28 @@ use crate::domain::projects::publication_release::remote::{
     GitHubPublishRequest, GitHubPublishedRelease, GitHubReleaseExpectation,
 };
 use crate::error::AppError;
-use std::collections::HashMap;
-
-struct ExpectedAsset<'a> {
-    name: &'a str,
-    digest: &'a str,
-    size: u64,
-}
+mod assets;
+pub(super) use assets::is_sha;
+use assets::{expected_assets, validate_assets, ExpectedAsset};
 
 pub(super) async fn publish(
     transport: &Transport,
     token: &str,
     request: &GitHubPublishRequest<'_>,
 ) -> Result<GitHubPublishedRelease, AppError> {
+    if request.archive.is_some() == request.archive_file.is_some()
+        || request
+            .archive_file
+            .is_some_and(|file| file.sha256 != request.archive_sha256)
+        || request
+            .additional_archives
+            .iter()
+            .any(|archive| archive.file.sha256 != archive.sha256)
+    {
+        return Err(AppError::BadRequest(
+            "release requires exactly one content-bound archive source".into(),
+        ));
+    }
     let expectation = GitHubReleaseExpectation::from_request(request);
     validate_request(&expectation)?;
     revalidate_identity(transport, token, &expectation).await?;
@@ -81,6 +90,18 @@ pub(super) fn validate_request(request: &GitHubReleaseExpectation) -> Result<(),
         return Err(AppError::BadRequest(
             "release commit, binding, and asset digests must be lowercase SHA values".into(),
         ));
+    }
+    let mut names = std::collections::HashSet::from([
+        request.archive_name.as_str(),
+        request.metadata_name.as_str(),
+    ]);
+    for archive in &request.additional_archives {
+        validate_segment(&archive.name, "archive asset name")?;
+        if !names.insert(&archive.name) || archive.sha256.len() != 64 || !is_sha(&archive.sha256) {
+            return Err(AppError::BadRequest(
+                "release archives require unique names and valid digests".into(),
+            ));
+        }
     }
     if request.expected_account.trim().is_empty() {
         return Err(AppError::BadRequest(
@@ -160,17 +181,28 @@ async fn upload_missing(
     expectation: &GitHubReleaseExpectation,
     release: &Release,
     body: &str,
-    expected: &[ExpectedAsset<'_>; 2],
+    expected: &[ExpectedAsset<'_>],
 ) -> Result<(), AppError> {
-    for (asset, bytes) in expected.iter().zip([request.archive, request.metadata]) {
+    for (index, asset) in expected.iter().enumerate() {
         revalidate_identity(transport, token, expectation).await?;
         let mut assets =
             current_draft_assets(transport, token, expectation, body, release.id, expected).await?;
         if assets.iter().any(|found| found.name == asset.name) {
             continue;
         }
+        // Revalidate one open source at a time, only if upload is needed.
+        let bytes = if index == 0 {
+            match request.archive_file {
+                Some(file) => file.bytes().await?,
+                None => request.archive.cloned().unwrap_or_default(),
+            }
+        } else if index == 1 {
+            request.metadata.clone()
+        } else {
+            request.additional_archives[index - 2].file.bytes().await?
+        };
         let result = transport
-            .upload(token, request.repository, release.id, asset.name, bytes)
+            .upload(token, request.repository, release.id, asset.name, &bytes)
             .await;
         if result.is_err() {
             assets = list_assets(transport, token, request.repository, release.id).await?;
@@ -190,7 +222,7 @@ async fn current_draft_assets(
     request: &GitHubReleaseExpectation,
     body: &str,
     release_id: u64,
-    expected: &[ExpectedAsset<'_>; 2],
+    expected: &[ExpectedAsset<'_>],
 ) -> Result<Vec<Asset>, AppError> {
     let release = get_release(transport, token, &request.repository, release_id).await?;
     validate_release(&release, request, body)?;
@@ -208,7 +240,7 @@ async fn exact_draft(
     request: &GitHubReleaseExpectation,
     body: &str,
     release_id: u64,
-    expected: &[ExpectedAsset<'_>; 2],
+    expected: &[ExpectedAsset<'_>],
 ) -> Result<Release, AppError> {
     let release = get_release(transport, token, &request.repository, release_id).await?;
     validate_release(&release, request, body)?;
@@ -301,64 +333,6 @@ pub(super) fn validate_release(
         ));
     }
     Ok(())
-}
-
-fn validate_assets(
-    assets: &[Asset],
-    expected: &[ExpectedAsset<'_>; 2],
-    allow_missing: bool,
-) -> Result<(), AppError> {
-    let expected = expected
-        .iter()
-        .map(|asset| (asset.name, asset))
-        .collect::<HashMap<_, _>>();
-    let mut seen = HashMap::new();
-    for asset in assets {
-        let Some(wanted) = expected.get(asset.name.as_str()) else {
-            return Err(conflict("GitHub release contains an unexpected asset"));
-        };
-        if seen.insert(asset.name.as_str(), asset.id).is_some() {
-            return Err(conflict("GitHub release contains duplicate asset names"));
-        }
-        if asset.state != "uploaded"
-            || asset.size != wanted.size
-            || asset.digest.as_deref() != Some(&format!("sha256:{}", wanted.digest))
-        {
-            return Err(conflict(
-                "GitHub release asset state, size, or digest does not match",
-            ));
-        }
-    }
-    if !allow_missing && seen.len() != expected.len() {
-        return Err(conflict("GitHub release is missing a required asset"));
-    }
-    Ok(())
-}
-
-fn expected_assets(request: &GitHubReleaseExpectation) -> [ExpectedAsset<'_>; 2] {
-    [
-        ExpectedAsset {
-            name: &request.archive_name,
-            digest: &request.archive_sha256,
-            size: request.archive_size,
-        },
-        ExpectedAsset {
-            name: &request.metadata_name,
-            digest: &request.metadata_sha256,
-            size: request.metadata_size,
-        },
-    ]
-}
-
-pub(super) fn is_sha(value: &str) -> bool {
-    (value.len() == 40
-        && value
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()))
-        || value.len() == 64
-            && value
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
 }
 
 pub(super) fn conflict(message: &str) -> AppError {

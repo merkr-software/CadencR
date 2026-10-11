@@ -33,7 +33,7 @@ function blob(bytes, patch = {}) {
     encoding: "base64",
     size: bytes.length,
     sha,
-    content: bytes.toString("base64").replace(/.{4}/g, "$&\n"),
+    content: bytes.toString("base64").replace(/.{76}/g, "$&\n"),
     ...patch,
   };
 }
@@ -107,6 +107,43 @@ test("getDiscovery verifies the branch, metadata, canonical base64, and Git blob
       fetchImpl: async () => json(badResponses[count++]),
     });
     await assert.rejects(bad.getDiscovery(branch), /malformed|hash/);
+  }
+});
+
+test("32 MiB discovery uses a pinned Git blob without regexp stack overflow", async () => {
+  const bytes = Buffer.alloc(32 * 1024 * 1024, "x");
+  const responses = discoveryResponses(bytes);
+  const content = responses[3];
+  responses[3] = {
+    encoding: content.encoding,
+    sha: content.sha,
+    size: content.size,
+    content: content.content,
+  };
+  const calls = [];
+  const client = createGitHubClient({
+    repository,
+    token,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return json(responses[calls.length - 1]);
+    },
+  });
+  assert.deepEqual((await client.getDiscovery(branch)).bytes, bytes);
+  assert.ok(calls[3].url.endsWith(`/git/blobs/${content.sha}`));
+  assert.equal(calls[3].options.headers.authorization, `Bearer ${token}`);
+});
+
+test("base64 rejects malformed padding and exotic whitespace without permissive decoding", async () => {
+  for (const content of ["eA=", "eA===", "e=A=", "eA==AAAA", "eB==", "eA==\r", "eA==\t", "eA== "]) {
+    const responses = discoveryResponses(Buffer.from("x"), { content });
+    let index = 0;
+    const client = createGitHubClient({
+      repository,
+      token,
+      fetchImpl: async () => json(responses[index++]),
+    });
+    await assert.rejects(client.getDiscovery(branch), /malformed/);
   }
 });
 
@@ -229,7 +266,7 @@ test("raw discovery download sends no auth, rejects redirects, and enforces hash
   assert.match(redirectError.message, /request failed/);
   assert.doesNotMatch(redirectError.message, /evil|token/);
   await assert.rejects(
-    downloadVerifiedDiscovery({ url, sha256, outputPath: "x", maxBytes: 1024 * 1024 + 1 }),
+    downloadVerifiedDiscovery({ url, sha256, outputPath: "x", maxBytes: 32 * 1024 * 1024 + 1 }),
     /size limit/,
   );
   await assert.rejects(

@@ -1,7 +1,7 @@
 import { validPublicationRepository } from "./plan.mjs";
 
 export const DISCOVERY_FILENAME = "managed-index.json";
-export const MAX_DISCOVERY_BYTES = 1024 * 1024;
+export { MAX_CATALOG_BYTES as MAX_DISCOVERY_BYTES } from "./catalog-limits.mjs";
 
 export function validateDiscoveryBranch(branch) {
   if (typeof branch !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(branch)) {

@@ -1,3 +1,4 @@
+import { publicationBundles, useRefreshPublicationJournal } from "./PublicationRequest";
 import { useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
 import {
@@ -17,11 +18,13 @@ export function ProviderPublicationRegistry({
   preview,
   disabled,
   onPendingChange,
+  onOperationChange,
 }: {
   projectId: number;
   preview: PublicationReleasePreview;
   disabled: boolean;
   onPendingChange: (pending: boolean) => void;
+  onOperationChange?: (operationId: string) => void;
 }): React.JSX.Element {
   const [plan, setPlan] = useState<PublicationRegistryPreview | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -32,10 +35,15 @@ export function ProviderPublicationRegistry({
       onSettled: () => onPendingChange(false),
     },
   });
+  const refreshJournal = useRefreshPublicationJournal(projectId);
   const submitMutation = useSubmitPublicationRegistry({
     mutation: {
       onSuccess: (value) => setResult(value),
-      onSettled: () => onPendingChange(false),
+      onMutate: refreshJournal,
+      onSettled: () => {
+        onPendingChange(false);
+        refreshJournal();
+      },
     },
   });
   const pending = previewMutation.isPending || submitMutation.isPending;
@@ -53,7 +61,7 @@ export function ProviderPublicationRegistry({
     onPendingChange(true);
     previewMutation.mutate({
       id: projectId,
-      data: { bundle_id: preview.bundle_id, release_notes: preview.release_notes },
+      data: registryPreviewRequest(preview),
     });
   };
   const submit = (): void => {
@@ -62,14 +70,10 @@ export function ProviderPublicationRegistry({
     setResult(null);
     submitMutation.reset();
     onPendingChange(true);
+    onOperationChange?.(plan.operation_id);
     submitMutation.mutate({
       id: projectId,
-      data: {
-        bundle_id: plan.bundle_id,
-        release_notes: plan.release_notes,
-        expected_plan_sha256: plan.plan_sha256,
-        confirmed: true,
-      },
+      data: registrySubmissionRequest(plan),
     });
   };
 
@@ -225,4 +229,22 @@ function RegistrySubmissionResult({
       </Button>
     </div>
   );
+}
+
+function registryPreviewRequest(preview: PublicationReleasePreview) {
+  return {
+    ...publicationBundles(preview),
+    release_notes: preview.release_notes,
+  };
+}
+
+function registrySubmissionRequest(plan: PublicationRegistryPreview) {
+  return {
+    bundle_id: plan.bundle_id,
+    bundle_ids: plan.bundle_ids,
+    release_notes: plan.release_notes,
+    expected_plan_sha256: plan.plan_sha256,
+    confirmed: true,
+    operation_id: plan.operation_id,
+  };
 }

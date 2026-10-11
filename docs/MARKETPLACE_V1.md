@@ -1,5 +1,109 @@
 # Marketplace V1 — GitHub-only distribution
 
+## Public-v1 corrective scope — 2026-10-11
+
+This section supersedes earlier providers-only public-marketplace scope and
+old implementation-complete claims. Public v1 means shareable **declarative
+themes and ACP providers**, not just a provider-distribution foundation.
+The review of `126f8a8fa` identified release-blocking structural gaps.
+
+### Ordered acceptance gates
+
+| Track                   | Required delivery                                                                                                                                                                             | Verification gate                                                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Incremental registry    | Authenticate the previous signed catalog, merge only the publication delta, retain immutable history and ownership; at most 100 new/replayed entries per batch, never 100 historical versions | More than 100 signed historical versions plus a delta; mutation, wrong-key, missing-history and tampered-signature rejection |
+| Catalog renewal         | Empty delta with an authenticated baseline; refresh signed validity without restoring or downloading historical archives                                                                      | Zero historical downloads and no provider release mutations                                                                  |
+| Bounded resources       | Sequential publication, per-publication archive budget, verified transient archive cleanup, preserved receipts and recovery metadata                                                          | Multiple publications exceeding the former aggregate budget, interruption/replay and inode replacement safety                |
+| Recommended version     | Backend-selected host-compatible/app-compatible highest stable version; explicit prerelease fallback; preserve installed version until an explicit change                                     | No default downgrade, late inventory arrival, unavailable platform and incompatible versions                                 |
+| Multiplatform authoring | One release candidate binds all declared targets; one metadata manifest and confirmation; no partial immutable version                                                                        | Missing/duplicate/divergent bundles rejected, all hashes bound, strict complete GitHub assets and replay                     |
+| Theme contracts         | Explicit declarative theme variant; shared Rust document validator, closed content whitelist and bounded raster assets                                                                        | No ACP launch surface, arbitrary CSS, script, executable, external image URL or SVG payload                                  |
+| Theme lifecycle         | Authored theme readiness/packaging/publication, signed catalog, preview, install, activation/update/removal in an isolated namespace                                                          | End-to-end author-to-fresh-install test, invalid document/assets and digest/signature rejection                              |
+| Durable operations      | Content-bound operation IDs, secure persisted status/result, authenticated queries, detached execution and safe reconciliation after disconnect/restart                                       | Client disconnect, concurrent retry, restart with unknown outcome, corrupted journal and no secrets persisted                |
+| Rust delivery           | Publish executable/checksum from an identified commit, test that distributed binary, then pin and switch both registry workflows/docs                                                         | Publication, interrupted resume and renewal with the released binary, not a source-only substitute                           |
+| Runtime cleanup         | Remove replaced JavaScript business implementations only after the verified Rust cutover                                                                                                      | CI uses the pinned CLI; compatibility fixtures remain test data                                                              |
+| Public activation       | Official build URLs/trust keys; explicit protected renewal/revocation owners and alerts; supported desktop clean-install QA                                                                   | No `PENDING` pins or synthetic keys treated as production trust                                                              |
+
+### Execution and authority
+
+- Use GPT-6.1-Sol parallel implementation with disjoint ownership; finish each
+  delivery wave with independent reuse/quality/efficiency reviews, normal checks,
+  isolated live QA and scoped signed commits under the standing approval.
+- Desktop and CLI use the same Rust libraries. Desktop does not launch the CLI
+  to share validation, packaging or publication rules.
+- Provider release candidates contain every declared platform before publication;
+  later versions can add targets, but an already published version is immutable.
+- Theme packages are data, not executable provider distributions. Existing local
+  authoring remains distinct from a signed managed installation.
+- Signed history authenticates catalog composition. Renewal does not grant new
+  package trust or weaken expiry checks used by installation.
+- Transitional JavaScript remains active while the CLI release pins are wholly
+  `PENDING`; it must receive equivalent growth fixes until verified cutover.
+- A real GitHub CLI release/tag, production trust activation and public registry
+  publication still require the selected release version and explicit authority.
+  No production database is used or replaced for verification.
+
+### Current evidence
+
+- Shared incremental core regressions pass with 120 signed historical versions,
+  one new version, exact replay and empty renewal; ownership, duplicate delta,
+  immutable metadata and signature mismatches fail closed.
+- Rust publisher catalog tests pass without local staged archives and with no
+  historical downloads; sequential cleanup preserves receipts and guards inodes.
+- Multiplatform service/unit/routes and publication UI targeted tests pass.
+- Backend recommendation and UI regressions cover explicit version choice and
+  installed-version preservation. Generated API/full checks/live QA are delivery
+  gates, not inferred from these focused tests.
+- Theme validation and deterministic, closed-content packaging now live in the
+  shared Rust libraries and are exposed by the CLI. They are not a signed theme
+  catalog or a managed-theme lifecycle.
+- Durable-operation routes and UI are integrated; interrupted-worker, detached
+  execution, corruption, authenticated queries and terminal polling regressions
+  are covered. Live isolated QA verifies a two-platform confirmation rejected
+  before GitHub mutation, a durable `unknown` result visible in the app, the same
+  record after a real service restart, and reconciliation of the same ID on retry.
+  QA caught and corrected a large-future stack overflow; integration and a 2 MiB
+  Tokio-stack regression cover it.
+- All 20 monorepo format/lint/type/test/unused-code tasks pass, including 5,206
+  frontend tests. All 174 root script tests and 265 transitional registry tests
+  pass. Live API/UI QA verifies `2.0.0` as the compatible stable recommendation,
+  incomplete/duplicate multi-platform rejection and a 3 MiB untrusted install
+  request reaching signature rejection rather than the old body-size limit.
+  A real local CLI theme package contains only regular `theme.json` at `0644`.
+  No successful live GitHub publication, Windows runtime or released-binary
+  certification is inferred. The dev renderer reports the pre-existing CSP
+  `frame-ancestors` meta warning, not a new feature exception.
+- End-to-end declarative theme distribution, distributed CLI verification and
+  official activation remain unfinished until demonstrated.
+
+### Remaining theme implementation — not a provider adapter
+
+1. Add a closed, discriminated `schema_version: 2` package union (`provider` or
+   `theme`) in shared Rust. A theme has one platform-independent archive and a
+   declared document version; it has no command, environment, ACP handshake or
+   executable. Identity, publisher, repository and immutable history are common.
+2. Verify legacy schema-1 bytes without modification before converting provider
+   entries in memory. Require an explicit authenticated migration for a schema-2
+   baseline. Keep a separate provider-only schema-1 feed for older clients; never
+   fall back after an invalid signature. Ownership fixes package kind for its
+   lifetime.
+3. Extend contribution/publication artifact plans and signed catalog generation
+   to the theme variant, reusing GitHub reconciliation and renewal. An independent
+   data artifact must not masquerade as an ACP binary target.
+4. Add a managed-theme namespace distinct from editable, Git-backed authoring
+   directories. Install only whitelisted, validated data into immutable revisions
+   with a verified receipt and atomic active pointer. Revalidate documents,
+   assets, paths, types, digests and permissions after extraction.
+5. Add typed author-project resolution and specialized theme readiness/package
+   preparation. Build a closed staging from validated author files, never include
+   `.git` or scaffolding. Reuse release confirmation and operation IDs.
+6. Add catalog preview/install/activation/update/removal UI and duplication into
+   a new author project. Editing a signed installed revision is not allowed.
+   Removal of an active theme must select a confirmed built-in fallback.
+7. Exercise author → publication fixture → signed mixed catalog → fresh isolated
+   install → preview/activation → update/removal, including malformed archives,
+   interruption and platform permission normalization. Local fixtures do not
+   certify an official public release or Windows runtime behavior.
+
 ## Post-rebase integration validation — 2026-10-10
 
 - Rebased the current branch onto local `main` at `103bc6913`: no conflicts,

@@ -6,14 +6,14 @@ use unicode_normalization::UnicodeNormalization as _;
 
 use crate::RegistryError;
 
-pub(super) const MAX_ARCHIVE_ENTRIES: usize = 4_096;
-pub(super) const MAX_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
-pub(super) const MAX_SINGLE_FILE_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_ARCHIVE_ENTRIES: usize = 4_096;
+pub(crate) const MAX_UNCOMPRESSED_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_SINGLE_FILE_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_DIRECTORY_DEPTH: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Identity {
-    pub(super) len: u64,
+pub(crate) struct Identity {
+    pub(crate) len: u64,
     modified: Option<std::time::SystemTime>,
     created: Option<std::time::SystemTime>,
     #[cfg(unix)]
@@ -29,7 +29,7 @@ pub(super) struct Identity {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct Entry {
+pub(crate) struct Entry {
     pub relative: PathBuf,
     pub canonical: PathBuf,
     pub directory: bool,
@@ -38,13 +38,13 @@ pub(super) struct Entry {
 }
 
 #[derive(Clone, Debug)]
-pub(super) struct Snapshot {
+pub(crate) struct Snapshot {
     pub root: PathBuf,
     pub root_identity: Identity,
     pub entries: Vec<Entry>,
 }
 
-pub(super) fn collect(staging: &Path) -> Result<Snapshot, RegistryError> {
+pub(crate) fn collect(staging: &Path) -> Result<Snapshot, RegistryError> {
     let input = std::fs::symlink_metadata(staging)
         .map_err(|error| bad(format!("cannot inspect staging directory: {error}")))?;
     if !input.is_dir() || input.file_type().is_symlink() {
@@ -179,7 +179,7 @@ fn utf8_name<'a>(name: &'a std::ffi::OsStr, parent: &Path) -> Result<&'a str, Re
     })
 }
 
-pub(super) fn validate_declared_files<'a>(
+pub(crate) fn validate_declared_files<'a>(
     snapshot: &Snapshot,
     target: &str,
     command: &'a str,
@@ -265,13 +265,13 @@ fn single_device_digit(value: &str) -> bool {
         .is_some_and(|byte| value.len() == 1 && (b'1'..=b'9').contains(byte))
 }
 
-pub(super) fn current_identity(path: &Path) -> Result<Identity, RegistryError> {
+pub(crate) fn current_identity(path: &Path) -> Result<Identity, RegistryError> {
     std::fs::symlink_metadata(path)
         .map(|value| identity(&value))
         .map_err(io_error)
 }
 
-pub(super) fn metadata_identity(metadata: &Metadata) -> Identity {
+pub(crate) fn metadata_identity(metadata: &Metadata) -> Identity {
     identity(metadata)
 }
 

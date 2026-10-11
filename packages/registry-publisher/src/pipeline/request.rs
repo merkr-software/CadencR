@@ -71,7 +71,7 @@ pub(super) fn prepare(input: PipelineRequest<'_>) -> Result<PreparedPipeline, Pu
         Some(trusted_file(
             base,
             &request.previous_index,
-            INPUT_LIMIT,
+            cadencr_registry_core::MAX_CATALOG_BYTES as u64,
             "previous index",
         )?)
     };
@@ -141,7 +141,24 @@ pub(super) fn revalidate(prepared: &PreparedPipeline) -> Result<(), PublisherErr
 }
 
 pub(super) fn validate_catalog(prepared: &PreparedPipeline) -> Result<Vec<String>, PublisherError> {
-    let payload = cadencr_registry_core::prepare_publication_index()
+    let payload = candidate_payload(prepared)?;
+    cadencr_registry_core::preflight_publication_pipeline()
+        .payload(&payload)
+        .maybe_previous_bytes(prepared.previous.as_deref())
+        .public_key_bytes(&prepared.public_key)
+        .private_key_file(&prepared.private_key)
+        .key_id(&prepared.request.key_id)
+        .call()
+        .map_err(Into::into)
+}
+
+pub(super) fn candidate_payload(
+    prepared: &PreparedPipeline,
+) -> Result<cadencr_registry_core::PreparedSigningPayload, PublisherError> {
+    cadencr_registry_core::prepare_incremental_publication_index()
+        .maybe_previous_bytes(prepared.previous.as_deref())
+        .public_key_bytes(&prepared.public_key)
+        .key_id(&prepared.request.key_id)
         .packages(
             prepared
                 .entries
@@ -151,13 +168,6 @@ pub(super) fn validate_catalog(prepared: &PreparedPipeline) -> Result<Vec<String
         )
         .generated_at(&prepared.request.generated_at)
         .expires_at(&prepared.request.expires_at)
-        .call()?;
-    cadencr_registry_core::preflight_publication_pipeline()
-        .payload(&payload)
-        .maybe_previous_bytes(prepared.previous.as_deref())
-        .public_key_bytes(&prepared.public_key)
-        .private_key_file(&prepared.private_key)
-        .key_id(&prepared.request.key_id)
         .call()
         .map_err(Into::into)
 }
@@ -170,9 +180,11 @@ fn validate_request(request: &Request, repository: &str) -> Result<(), Publisher
     }
     cadencr_registry_core::validate_signing_key_id(&request.key_id)?;
     cadencr_registry_core::validate_discovery_branch(&request.discovery_branch)?;
-    if request.publications.is_empty() || request.publications.len() > 100 {
+    if request.publications.len() > 100
+        || (request.publications.is_empty() && request.previous_index == "bootstrap")
+    {
         return Err(PublisherError::new(
-            "request publications must contain between 1 and 100 entries",
+            "request publications delta must contain at most 100 entries; bootstrap requires an entry",
         ));
     }
     relative(&request.public_key)?;
@@ -266,6 +278,20 @@ mod tests {
             "discovery_branch":"main","generated_at":"2026-10-10T00:00:00Z",
             "expires_at":"2026-10-11T00:00:00Z","previous_index":"bootstrap",
             "public_key":"public.pem","publications":[publication]})
+    }
+
+    #[test]
+    fn empty_delta_requires_a_signed_baseline_and_delta_count_stays_bounded() {
+        let mut value = request(json!({"submission":"submission.json"}));
+        value["publications"] = json!([]);
+        let bootstrap: Request = serde_json::from_value(value.clone()).unwrap();
+        assert!(validate_request(&bootstrap, "cadencr/registry").is_err());
+        value["previous_index"] = "previous.json".into();
+        let renewal: Request = serde_json::from_value(value.clone()).unwrap();
+        validate_request(&renewal, "cadencr/registry").unwrap();
+        value["publications"] = json!(vec![json!({"submission":"submission.json"}); 101]);
+        let oversized: Request = serde_json::from_value(value).unwrap();
+        assert!(validate_request(&oversized, "cadencr/registry").is_err());
     }
 
     #[test]

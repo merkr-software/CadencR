@@ -245,12 +245,18 @@ npm run promote:publication -- \
 
 `sign:publication-catalog` prepares a **local signed index**, not a GitHub release
 or discovery update. It consumes an operator-authored manifest of already promoted
-provider versions. Paths are resolved relative to the manifest file.
+provider versions in the publication delta. Paths are resolved relative to the
+manifest file. An optional authenticated `baseline` retains signed history:
 
 ```json
 {
   "schema_version": 1,
   "repository": "YOUR-ORG/YOUR-REGISTRY",
+  "baseline": {
+    "previous_index": "trust/previous-index.json",
+    "public_key": "trust/public.pem",
+    "key_id": "YOUR-PINNED-KEY-ID"
+  },
   "publications": [
     {
       "submission": "reviewed/provider-1.0.0.json",
@@ -272,23 +278,30 @@ npm run sign:publication-catalog -- \
 ```
 
 - Requires both mirror and publication receipts for every entry; checks their
-  identity against the reviewed submission, staged bytes and canonical plan.
+  identity against the reviewed submission, archive sizes/digests and canonical
+  plan. Verified local archive bytes may already have been evicted; retained
+  strict receipts and fresh public verification are sufficient.
 - Uses mirrored package URLs, deterministic ordering and the existing signed-index
-  wire format. All included versions must have matching publication evidence.
-- Re-downloads public archives and provenance without a GitHub token before reading
-  the signing key. Missing, changed or unavailable bytes fail closed.
-- Limits: 1 MiB manifest, 100 versions, 1 MiB per submission, 32 MiB of
-  submission input and payload, 1 GiB of aggregate public assets. Receipt files
+  wire format. Delta entries require matching publication evidence; historical
+  versions are retained byte-for-byte from the verified signed baseline.
+- Re-downloads only delta archives and provenance without a GitHub token before
+  reading the signing key. An empty renewal downloads no historical assets. Missing, changed or unavailable bytes fail closed.
+- Limits: 1 MiB manifest, 100 **delta** versions per batch, 1 MiB per submission,
+  32 MiB of submission input and of the complete signed catalog envelope,
+  1 GiB of public assets **per
+  publication** (256 MiB per archive). Receipt files
   retain their individual 4 MiB limit. Transfers remain sequential and bounded
   per asset. No archives are extracted and no provider code is executed.
 - Uses an Ed25519 PKCS8 key, canonical whole-second UTC dates and the existing
   maximum 14-day publication window. Output is private and no-overwrite.
 - Run only trusted tooling with protected, stable manifest/staging paths. Local
   receipts are not cryptographic authorization or proof of source ownership.
-- This is not catalog-history reconciliation: operators must include the approved
-  complete version set. Continuity against the previously published catalogue,
-  monotonic publication time, serialized snapshot upload, public verification of
-  the signed snapshot and discovery advancement remain publication-time gates.
+- With `baseline`, signature/key identity and immutable history are validated
+  before delta downloads, including ownership and monotonic publication time.
+  `publications: []` renews that history without rebuilding distribution. A
+  bootstrap without a baseline must include at least one publication. Serialized
+  snapshot upload, public verification and discovery advancement remain separate
+  publication-time gates.
 
 ## Publish a versioned catalogue snapshot
 
@@ -319,9 +332,11 @@ npm run publish:catalog -- \
 - An expired previous catalogue is accepted for history validation; the candidate
   must still be fresh. Every previous version must remain byte-equivalent in
   canonical package metadata, and `generated_at` must strictly increase.
-- Envelope input and published bytes are limited to **1 MiB**, matching the app's
-  acquisition limit. The lower-level local signer has a larger preparation limit;
-  its output is not automatically publishable.
+- The complete signed envelope, including its final newline, is limited to
+  **32 MiB** consistently across signing, publication, renewal, discovery and
+  desktop acquisition. Manifest/submission inputs retain their separate 1 MiB
+  budgets. Large discovery files are fetched through their pinned Git blob SHA,
+  not the Contents API's small-file inline representation.
 - The release tag is `catalog-` plus SHA-256 of the canonical signed envelope with
   its final newline (the D5 CLI emits those bytes). The tag must already point to
   the exact registry commit; this command does not create or move Git references.
@@ -428,7 +443,7 @@ verified signing, snapshot publication and stable discovery commands. It is an
 It creates only missing publication tags at exact commits; existing tags must
 already resolve to the approved commit and are never moved or deleted.
 
-A reviewed request describes the complete catalogue, not just the new package:
+A reviewed request describes a **publication delta**, not the complete history:
 
 ```json
 {
@@ -470,9 +485,15 @@ state or source submissions. The pipeline does not execute or extract archives.
 State paths must be canonical and non-symlink, including their ancestors (resolve
 system aliases such as macOS `/tmp` before choosing a state path). The private-key
 path is rejected if its canonical target is inside that state directory. Source
-staging shares a 1 GiB budget across retained files and new downloads; each transfer
-receives the remaining limit. Public-asset verification is repeated at security
-boundaries, so the total network traffic of a complete run can exceed 1 GiB.
+staging uses a 1 GiB budget **per publication**, with at most 256 MiB per archive.
+Publications are staged and promoted sequentially; verified transient archives are
+evicted with ownership/inode guards, while recovery receipts are retained.
+The next catalog is authenticated history plus the delta, so old archives are not
+restored to renew it. Public verification still repeats at security boundaries;
+total network traffic and the registry history may exceed 1 GiB. With a signed
+`previous_index`, `publications: []` performs catalog-only renewal. Bootstrap may
+not be empty. Protective JSON/catalog limits remain; a sharded history/index is
+a separate evolution rather than a removal of untrusted-input size bounds.
 
 The state directory is immutably bound to one request and reviewed commit. Preserve
 it after failures. Retrying that exact request revalidates existing receipts and

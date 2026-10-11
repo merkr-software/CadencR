@@ -1,4 +1,5 @@
 //! Protected, replayable publication orchestration. No contributor code executes.
+mod archives;
 mod catalog;
 mod request;
 mod staging;
@@ -12,7 +13,6 @@ use crate::github::discovery::DiscoveryClient;
 use crate::github::{GitHubClient, ReleaseClient};
 use crate::{CatalogPublicationReceipt, DiscoveryReceipt, Downloader, PublisherError};
 
-/// Explicit protected-job inputs. The exact request digest is the confirmation.
 #[derive(bon::Builder)]
 pub struct PipelineRequest<'a> {
     pub request: &'a Path,
@@ -23,7 +23,6 @@ pub struct PipelineRequest<'a> {
     pub confirm_request_sha256: &'a str,
 }
 
-/// Owned checked inputs. Fields cannot be changed between confirmation and execution.
 pub struct PreparedPipeline {
     request: request::Request,
     binding: Value,
@@ -132,12 +131,15 @@ fn run_locked(
     discovery: &impl Downloader,
 ) -> Result<PipelineReceipt, PublisherError> {
     state::materialize(prepared)?;
-    let published = staging::stage_all(prepared, client, downloader)?;
+    let published = staging::inspect_all(prepared, client)?;
     let manifest = state::manifest(prepared);
     let manifest_file = prepared.directory.join("publication-manifest.json");
     state::write_json_once(&manifest_file, &manifest)?;
     for (entry, published) in prepared.entries.iter().zip(published) {
+        staging::stage_entry(prepared, entry, published, client, downloader)?;
+        let archives = archives::OwnedArchives::capture(entry)?;
         publish_entry(entry, prepared, published, client, downloader)?;
+        archives.release()?;
     }
     let snapshot = catalog::prepare_candidate(prepared, &manifest_file, downloader)?;
     client.ensure_tag(snapshot.tag(), &prepared.registry_commit)?;
@@ -183,8 +185,6 @@ fn publish_entry(
             client,
         )?;
     }
-    // Managed restoration recovers local mirror proof for public releases. The
-    // ordinary promoter independently validates release/tag/assets before replay.
     crate::promote::promote(
         entry.stage_request(repository, &submission),
         crate::promote::PromotionExpectation::builder()
@@ -201,6 +201,8 @@ fn publish_entry(
 mod fixture;
 #[cfg(test)]
 mod handoff;
+#[cfg(test)]
+mod incremental;
 #[cfg(test)]
 mod tests {
     use super::fixture::*;
@@ -228,12 +230,10 @@ mod tests {
         );
         let prepared = fixture.prepare().unwrap();
         for target in prepared.entries[0].plan["targets"].as_array().unwrap() {
-            std::fs::remove_file(
-                prepared.entries[0]
-                    .directory
-                    .join(target["asset"].as_str().unwrap()),
-            )
-            .unwrap();
+            assert!(!prepared.entries[0]
+                .directory
+                .join(target["asset"].as_str().unwrap())
+                .exists());
         }
         fixture.client.requests.borrow_mut().clear();
         fixture.run().unwrap();

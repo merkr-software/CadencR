@@ -13,9 +13,20 @@ use crate::RegistryError;
 const BLOCK: usize = 512;
 const MAX_COMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
 
-pub(super) fn archive(snapshot: &Snapshot, output: &Path) -> Result<BuiltArchive, RegistryError> {
+pub(crate) fn archive(snapshot: &Snapshot, output: &Path) -> Result<BuiltArchive, RegistryError> {
     reject_output_location(snapshot, output)?;
     archive_with(snapshot, output, write_owned)
+}
+
+/// Declarative files carry no executable mode, regardless of host platform.
+pub(crate) fn declarative_archive(
+    snapshot: &Snapshot,
+    output: &Path,
+) -> Result<BuiltArchive, RegistryError> {
+    reject_output_location(snapshot, output)?;
+    archive_with(snapshot, output, |snapshot, file| {
+        write_owned_with_mode(snapshot, file, true)
+    })
 }
 
 fn archive_with(
@@ -41,13 +52,21 @@ fn reject_output_location(snapshot: &Snapshot, output: &Path) -> Result<(), Regi
 }
 
 fn write_owned(snapshot: &Snapshot, file: File) -> Result<BuiltArchive, RegistryError> {
+    write_owned_with_mode(snapshot, file, false)
+}
+
+fn write_owned_with_mode(
+    snapshot: &Snapshot,
+    file: File,
+    declarative: bool,
+) -> Result<BuiltArchive, RegistryError> {
     let digest = DigestWriter::new(file);
     let mut gzip = GzBuilder::new()
         .mtime(0)
         .operating_system(19)
         .write(digest, Compression::best());
     for entry in &snapshot.entries {
-        append(snapshot, entry, &mut gzip)?;
+        append(snapshot, entry, &mut gzip, declarative)?;
     }
     gzip.write_all(&[0; BLOCK * 2]).map_err(io_error)?;
     let digest = gzip.finish().map_err(io_error)?;
@@ -60,10 +79,11 @@ fn append(
     snapshot: &Snapshot,
     entry: &Entry,
     output: &mut impl Write,
+    declarative: bool,
 ) -> Result<(), RegistryError> {
     verify_entry(snapshot, entry)?;
     output
-        .write_all(&tar_header(entry, entry.identity.len)?)
+        .write_all(&tar_header(entry, entry.identity.len, declarative)?)
         .map_err(io_error)?;
     if !entry.directory {
         write_file(snapshot, entry, output)?;
@@ -94,7 +114,7 @@ fn write_file(
     Ok(())
 }
 
-fn tar_header(entry: &Entry, size: u64) -> Result<[u8; BLOCK], RegistryError> {
+fn tar_header(entry: &Entry, size: u64, declarative: bool) -> Result<[u8; BLOCK], RegistryError> {
     let mut header = [0_u8; BLOCK];
     let mut archive_path = entry.relative.to_string_lossy().replace('\\', "/");
     if entry.directory {
@@ -106,7 +126,7 @@ fn tar_header(entry: &Entry, size: u64) -> Result<[u8; BLOCK], RegistryError> {
         &mut header,
         100,
         8,
-        if entry.directory || entry.executable {
+        if entry.directory || entry.executable && !declarative {
             0o755
         } else {
             0o644

@@ -110,6 +110,8 @@ mod tests {
         package["agent"]["distribution"]["binary"]["linux-x86_64"]["archive"] =
             json!("https://github.com/acme/provider/releases/download/v1.2.3/provider.tgz");
         let metadata = serde_json::to_vec_pretty(&package).unwrap();
+        let archive = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(archive.path(), b"x").unwrap();
         let local = LocalRelease {
             plan: Plan {
                 project_id: 1,
@@ -129,9 +131,17 @@ mod tests {
                     .into(),
                 archive_size: 1,
                 metadata_sha256: "b".repeat(64),
+                archives: Vec::new(),
                 release_notes: "Changes".into(),
             },
-            archive: axum::body::Bytes::from_static(b"x"),
+            declared_metadata: package.clone(),
+            declared_targets: vec!["linux-x86_64".into()],
+            additional_archives: Vec::new(),
+            archive_file: crate::domain::projects::publication_release::remote::ArchiveFile::open(
+                archive.path(),
+                1,
+            )
+            .unwrap(),
             metadata: metadata.into(),
         };
         let documents = build(&local, "author").unwrap();

@@ -76,6 +76,22 @@ impl Requester {
         self.send::<(), T>(Method::GET, path, None, StatusCode::OK)
     }
 
+    pub(super) fn get_catalog_blob<T: DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<T, PublisherError> {
+        let response = self
+            .client
+            .get(format!("{}{path}", self.base))
+            .headers(self.headers.clone())
+            .send()
+            .map_err(network)?;
+        // Base64, newline wrapping and a bounded JSON metadata allowance.
+        let limit =
+            (cadencr_registry_core::MAX_CATALOG_BYTES as u64).div_ceil(3) * 4 + 2 * 1024 * 1024;
+        decode_bounded(response, StatusCode::OK, limit)
+    }
+
     pub(super) fn get_optional<T: DeserializeOwned>(
         &self,
         path: &str,
@@ -163,25 +179,30 @@ fn decode<T: DeserializeOwned>(
     response: Response,
     expected: StatusCode,
 ) -> Result<T, PublisherError> {
+    decode_bounded(response, expected, MAX_JSON_BYTES)
+}
+
+fn decode_bounded<T: DeserializeOwned>(
+    response: Response,
+    expected: StatusCode,
+    limit: u64,
+) -> Result<T, PublisherError> {
     if response.status() != expected {
         return Err(error(format!(
             "GitHub API request failed with status {}",
             response.status().as_u16()
         )));
     }
-    if response
-        .content_length()
-        .is_some_and(|size| size > MAX_JSON_BYTES)
-    {
-        return Err(error("GitHub API response exceeds 2 MiB"));
+    if response.content_length().is_some_and(|size| size > limit) {
+        return Err(error("GitHub API response exceeds its byte limit"));
     }
     let mut bytes = Vec::new();
     response
-        .take(MAX_JSON_BYTES + 1)
+        .take(limit + 1)
         .read_to_end(&mut bytes)
         .map_err(|_| error("GitHub API response could not be read"))?;
-    if bytes.len() as u64 > MAX_JSON_BYTES {
-        return Err(error("GitHub API response exceeds 2 MiB"));
+    if bytes.len() as u64 > limit {
+        return Err(error("GitHub API response exceeds its byte limit"));
     }
     serde_json::from_slice(&bytes).map_err(|_| error("GitHub API returned malformed JSON"))
 }
@@ -258,7 +279,7 @@ mod tests {
             .unwrap()
             .get::<serde_json::Value>("/large")
             .unwrap_err();
-        assert!(error.to_string().contains("2 MiB"));
+        assert!(error.to_string().contains("byte limit"));
     }
     use crate::github::fixture::{client, serve_json};
     use crate::github::ReleaseClient;

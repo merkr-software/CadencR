@@ -37,8 +37,11 @@ pub(crate) enum PluginCommand {
         /// Provider workspace containing the existing bin/provider entrypoint.
         folder: PathBuf,
         /// Temporary explicit host descriptor input; never discovered from user state.
-        #[arg(long)]
-        descriptor: PathBuf,
+        #[arg(long, required_if_eq("kind", "provider"))]
+        descriptor: Option<PathBuf>,
+        /// Content kind; themes are pure declarative data and need no provider descriptor.
+        #[arg(long, default_value = "provider", value_parser = ["provider", "theme"])]
+        kind: String,
     },
 }
 
@@ -75,6 +78,13 @@ pub(crate) enum RegistryCommand {
         package: PathBuf,
         #[arg(long)]
         target: String,
+        #[arg(long)]
+        directory: PathBuf,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Build a deterministic, platform-independent declarative theme archive.
+    PackTheme {
         #[arg(long)]
         directory: PathBuf,
         #[arg(long)]
@@ -154,7 +164,7 @@ impl Cli {
             Command::Registry(RegistryArgs {
                 command: RegistryCommand::BuildIndex { output: None, .. }
             }) | Command::Registry(RegistryArgs {
-                command: RegistryCommand::PackProvider { .. }
+                command: RegistryCommand::PackProvider { .. } | RegistryCommand::PackTheme { .. }
             })
         )
     }

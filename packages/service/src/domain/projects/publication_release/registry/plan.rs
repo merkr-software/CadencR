@@ -86,6 +86,13 @@ pub(super) fn build(
     let bytes = serde_json::to_vec(&bound)
         .map_err(|error| AppError::Internal(format!("encode registry plan: {error}")))?;
     Ok(PublicationRegistryPreview {
+        operation_id: String::new(),
+        bundle_ids: release
+            .archives
+            .iter()
+            .map(|archive| archive.bundle_id.clone())
+            .filter(|id| id != &release.bundle_id)
+            .collect(),
         project_id: release.project_id,
         plugin_id: release.plugin_id.clone(),
         version: release.version.clone(),
@@ -121,6 +128,7 @@ mod tests {
             archive_sha256: "b".repeat(64),
             archive_size: 1,
             metadata_sha256: "c".repeat(64),
+            archives: Vec::new(),
             release_notes: "notes".into(),
         }
     }

@@ -14,6 +14,8 @@ pub(super) const FORK_ID: u64 = 22;
 
 pub(super) fn preview() -> PublicationRegistryPreview {
     PublicationRegistryPreview {
+        operation_id: String::new(),
+        bundle_ids: Vec::new(),
         project_id: 7,
         plugin_id: "acme-agent".into(),
         version: "1.0.0".into(),

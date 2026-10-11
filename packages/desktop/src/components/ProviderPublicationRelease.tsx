@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
-import {
-  type PublicationReleasePreview,
-  usePreviewPublicationRelease,
-  usePublishPublicationRelease,
-} from "@/api/generated";
+import { type PublicationReleasePreview } from "@/api/generated";
+import { useReleaseCandidate } from "./ProviderPublicationReleaseCandidate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -12,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { openExternalUrl } from "@/lib/open-external";
 import { ProviderPublicationContribution } from "./ProviderPublicationContribution";
 import { ProviderPublicationRegistry } from "./ProviderPublicationRegistry";
+import { PublicationOperationsStatus } from "./PublicationOperationsStatus";
 import { PublicationError } from "./PublicationError";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -29,57 +27,42 @@ export function ProviderPublicationRelease({
   projectId: number;
   initialBundleId?: string;
 }): React.JSX.Element {
-  const [bundleId, setBundleId] = useState(initialBundleId);
-  const [releaseNotes, setReleaseNotes] = useState("");
-  const [preview, setPreview] = useState<PublicationReleasePreview | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [contributionPending, setContributionPending] = useState(false);
-  const [registryPending, setRegistryPending] = useState(false);
-  const previewMutation = usePreviewPublicationRelease({
-    mutation: { onSuccess: setPreview },
-  });
-  const publishMutation = usePublishPublicationRelease({
-    mutation: { onSuccess: (result) => setPublishedUrl(result.release_url) },
-  });
-  const releasePending = previewMutation.isPending || publishMutation.isPending;
-  const pending = releasePending || contributionPending || registryPending;
-  const validInput = UUID_PATTERN.test(bundleId.trim()) && releaseNotes.trim() !== "";
+  const [registryOperationId, setRegistryOperationId] = useState<string>();
+  const {
+    bundleId,
+    setBundleId,
+    additionalBundles,
+    setAdditionalBundles,
+    releaseNotes,
+    setReleaseNotes,
+    preview,
+    confirmed,
+    setConfirmed,
+    publishedUrl,
+    contributionPending,
+    setContributionPending,
+    registryPending,
+    setRegistryPending,
+    previewMutation,
+    publishMutation,
+    pending,
+    validInput,
+    invalidatePreview,
+    review,
+    publish,
+  } = useReleaseCandidate(projectId, initialBundleId);
 
-  const invalidatePreview = (): void => {
-    setPreview(null);
-    setConfirmed(false);
-    setPublishedUrl(null);
-    previewMutation.reset();
-    publishMutation.reset();
-  };
-
-  const review = (): void => {
-    if (!validInput || pending) return;
-    invalidatePreview();
-    previewMutation.mutate({
-      id: projectId,
-      data: { bundle_id: bundleId.trim(), release_notes: releaseNotes },
-    });
-  };
-
-  const publish = (): void => {
-    if (!preview || !confirmed || pending) return;
-    publishMutation.mutate({
-      id: projectId,
-      data: {
-        bundle_id: preview.bundle_id,
-        release_notes: preview.release_notes,
-        expected_plan_sha256: preview.plan_sha256,
-        confirmed: true,
-      },
-    });
-  };
-
+  const releaseAttempted = publishMutation.isPending || publishMutation.isError || !!publishedUrl;
+  const operationId = registryOperationId ?? (releaseAttempted ? preview?.operation_id : undefined);
   return (
     <div className="space-y-4 rounded-lg border p-4">
       <ReleaseInputs
         bundleId={bundleId}
+        additionalBundles={additionalBundles}
+        onAdditionalBundlesChange={(value) => {
+          setAdditionalBundles(value);
+          invalidatePreview();
+        }}
         releaseNotes={releaseNotes}
         disabled={pending}
         onBundleIdChange={(value) => {
@@ -97,10 +80,14 @@ export function ProviderPublicationRelease({
           error={previewMutation.error}
         />
       ) : null}
-      <Button type="button" variant="outline" disabled={!validInput || pending} onClick={review}>
-        {previewMutation.isPending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-        {previewMutation.isPending ? "Reviewing GitHub publication…" : "Review GitHub publication"}
-      </Button>
+      <ReviewReleaseButton
+        disabled={!validInput || pending}
+        reviewing={previewMutation.isPending}
+        onReview={() => {
+          setRegistryOperationId(undefined);
+          review();
+        }}
+      />
       {preview ? (
         <PublicationPlanActions
           projectId={projectId}
@@ -110,19 +97,45 @@ export function ProviderPublicationRelease({
           remotePending={previewMutation.isPending || publishMutation.isPending}
           publishing={publishMutation.isPending}
           onConfirmedChange={setConfirmed}
-          onPublish={publish}
+          onPublish={() => {
+            setRegistryOperationId(undefined);
+            publish();
+          }}
           onContributionPendingChange={setContributionPending}
           contributionPending={contributionPending}
           registryPending={registryPending}
           onRegistryPendingChange={setRegistryPending}
+          onRegistryOperationChange={setRegistryOperationId}
         />
       ) : null}
+      <PublicationOperationsStatus
+        projectId={projectId}
+        publicationPending={publishMutation.isPending || registryPending}
+        operationId={operationId}
+      />
       <ReleasePublicationStatus
         error={publishMutation.isError ? publishMutation.error : null}
         pending={publishMutation.isPending}
         publishedUrl={publishedUrl}
       />
     </div>
+  );
+}
+
+function ReviewReleaseButton({
+  disabled,
+  reviewing,
+  onReview,
+}: {
+  disabled: boolean;
+  reviewing: boolean;
+  onReview: () => void;
+}): React.JSX.Element {
+  return (
+    <Button type="button" variant="outline" disabled={disabled} onClick={onReview}>
+      {reviewing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+      {reviewing ? "Reviewing GitHub publication…" : "Review GitHub publication"}
+    </Button>
   );
 }
 
@@ -163,6 +176,7 @@ function PublicationPlanActions({
   contributionPending,
   registryPending,
   onRegistryPendingChange,
+  onRegistryOperationChange,
 }: {
   projectId: number;
   preview: PublicationReleasePreview;
@@ -176,6 +190,7 @@ function PublicationPlanActions({
   contributionPending: boolean;
   registryPending: boolean;
   onRegistryPendingChange: (value: boolean) => void;
+  onRegistryOperationChange: (value: string) => void;
 }): React.JSX.Element {
   return (
     <>
@@ -200,18 +215,23 @@ function PublicationPlanActions({
         preview={preview}
         disabled={remotePending || contributionPending}
         onPendingChange={onRegistryPendingChange}
+        onOperationChange={onRegistryOperationChange}
       />
     </>
   );
 }
 
 function ReleaseInputs({
+  additionalBundles,
+  onAdditionalBundlesChange,
   bundleId,
   releaseNotes,
   disabled,
   onBundleIdChange,
   onReleaseNotesChange,
 }: {
+  additionalBundles: string;
+  onAdditionalBundlesChange: (value: string) => void;
   bundleId: string;
   releaseNotes: string;
   disabled: boolean;
@@ -239,6 +259,18 @@ function ReleaseInputs({
           <span className="block text-xs font-normal text-muted-foreground">
             Filled from the prepared archive when available. For a restart or retry, paste the UUID
             from its parent folder; arbitrary archive paths are not accepted.
+          </span>
+        </label>
+        <label className="block space-y-1.5 text-sm font-medium">
+          Other platform bundle UUIDs
+          <Textarea
+            value={additionalBundles}
+            onChange={(event) => onAdditionalBundlesChange(event.target.value)}
+            placeholder="One UUID per platform, separated by spaces or commas"
+          />
+          <span className="block text-xs font-normal text-muted-foreground">
+            Prepare each declared platform first. All bundles form one immutable version with one
+            manifest.
           </span>
         </label>
         <label className="block space-y-1.5 text-sm font-medium">
@@ -293,6 +325,12 @@ function PublicationPreview({
         <dt className="text-muted-foreground">Release notes</dt>
         <dd className="whitespace-pre-wrap break-words">{preview.release_notes}</dd>
       </dl>
+      {preview.archives?.map((archive) => (
+        <div key={archive.target} className="rounded border p-2 text-xs font-mono break-all">
+          {archive.target} · {archive.archive_name} · {archive.archive_size.toLocaleString()} bytes
+          <div>SHA-256: {archive.archive_sha256}</div>
+        </div>
+      ))}
       <label className="flex items-start gap-2 text-sm">
         <Checkbox
           checked={confirmed}
@@ -301,7 +339,8 @@ function PublicationPreview({
           aria-label="I confirm this exact GitHub publication"
         />
         <span>
-          I confirm this exact destination, actor, tag, source, archive, version, and notes.
+          I confirm this exact destination, actor, tag, source, all platform archives, manifest,
+          version, and notes.
         </span>
       </label>
       <Button type="button" disabled={!confirmed || pending} onClick={onPublish}>

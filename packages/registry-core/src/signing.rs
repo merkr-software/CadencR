@@ -19,7 +19,7 @@ pub(crate) use envelope::{read_signing_key, sign_canonical_payload};
 pub use payload::validate_signing_key_id;
 pub(crate) use payload::{validate_signing_payload, validate_signing_payload_at};
 
-const DOCUMENT_LIMIT: u64 = 32 * 1024 * 1024;
+const DOCUMENT_LIMIT: u64 = crate::MAX_CATALOG_BYTES as u64;
 const KEY_LIMIT: u64 = 16 * 1024;
 
 pub fn sign_index(
@@ -128,7 +128,11 @@ pub fn assemble_signed_index(
     let signature = read_json(signature_file, KEY_LIMIT, "signature")?;
     validate_signature(signature.as_object())?;
     let envelope = json!({"signed": signed, "signature": signature});
-    Ok(canonical_document(&envelope))
+    let bytes = canonical_document(&envelope);
+    if bytes.len() > crate::MAX_CATALOG_BYTES {
+        return Err(RegistryError::single("signed index exceeds 32 MiB"));
+    }
+    Ok(bytes)
 }
 
 struct ValidatedEnvelope<'a> {

@@ -66,8 +66,23 @@ function validateTree(value, treeSha) {
 
 function decodeContent(value) {
   const compact = value.replace(/\n/g, "");
-  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(compact)) {
+  if (compact.length % 4 !== 0 || compact.length > Math.ceil(MAX_DISCOVERY_BYTES / 3) * 4)
     throw malformed();
+  const padding = compact.endsWith("==") ? 2 : compact.endsWith("=") ? 1 : 0;
+  // A repeated-group regexp consumes V8's stack on valid large blobs. Scan
+  // once instead; the round trip below also rejects noncanonical padding bits.
+  for (let index = 0; index < compact.length - padding; index += 1) {
+    const code = compact.charCodeAt(index);
+    if (
+      !(
+        (code >= 65 && code <= 90) ||
+        (code >= 97 && code <= 122) ||
+        (code >= 48 && code <= 57) ||
+        code === 43 ||
+        code === 47
+      )
+    )
+      throw malformed();
   }
   const bytes = Buffer.from(compact, "base64");
   if (bytes.toString("base64") !== compact) throw malformed();
@@ -112,6 +127,16 @@ export function createDiscoveryMethods({ repository, request }) {
       validateTree(value, treeSha),
     );
     if (entry === null) return null;
+    // Contents omits inline base64 above 1 MiB; the commit tree pins the blob.
+    if (entry.size > 1024 * 1024) {
+      const blob = requireObject(
+        await request(`/repos/${repository}/git/blobs/${entry.sha}`, { catalogBlob: true }),
+      );
+      return validateContent(
+        { ...blob, type: "file", path: DISCOVERY_FILENAME, name: DISCOVERY_FILENAME },
+        entry,
+      );
+    }
     return validateContent(
       await request(
         `/repos/${repository}/contents/${DISCOVERY_FILENAME}?ref=${encodeURIComponent(commitSha)}`,

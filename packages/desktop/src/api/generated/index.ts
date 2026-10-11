@@ -2674,6 +2674,11 @@ export const ManagedCatalogCacheStatus = {
 
 export type ManagedCatalogResponseIndex = null | SignedManagedProviderIndex;
 
+/**
+ * Host-compatible recommendation per provider, outside the signed payload.
+ */
+export type ManagedCatalogResponseRecommendedVersions = { [key: string]: string };
+
 export interface ManagedCatalogResponse {
   cache_status: ManagedCatalogCacheStatus;
   /** @nullable */
@@ -2685,6 +2690,8 @@ export interface ManagedCatalogResponse {
   /** @nullable */
   generated_at?: string | null;
   index?: ManagedCatalogResponseIndex;
+  /** Host-compatible recommendation per provider, outside the signed payload. */
+  recommended_versions?: ManagedCatalogResponseRecommendedVersions;
   refreshed: boolean;
   /** @nullable */
   signer_key_id?: string | null;
@@ -3200,6 +3207,7 @@ export interface PrStatusSnapshot {
 
 export interface PreparePublicationContributionRequest {
   bundle_id: string;
+  bundle_ids?: string[];
   confirmed: boolean;
   expected_plan_sha256: string;
   release_notes: string;
@@ -3235,11 +3243,13 @@ export interface PreparedPublicationPackage {
 
 export interface PreviewPublicationRegistryRequest {
   bundle_id: string;
+  bundle_ids?: string[];
   release_notes: string;
 }
 
 export interface PreviewPublicationReleaseRequest {
   bundle_id: string;
+  bundle_ids?: string[];
   release_notes: string;
 }
 
@@ -3491,6 +3501,95 @@ export const PublicationCheckStatus = {
   fail: "fail",
 } as const;
 
+export type PublicationOperationResultOneOfKind =
+  (typeof PublicationOperationResultOneOfKind)[keyof typeof PublicationOperationResultOneOfKind];
+
+export const PublicationOperationResultOneOfKind = {
+  release: "release",
+} as const;
+
+export interface PublishedProviderRelease {
+  already_published: boolean;
+  archive_sha256: string;
+  release_url: string;
+  repository: string;
+  source_commit: string;
+  tag: string;
+}
+
+export type PublicationOperationResultOneOfThreeKind =
+  (typeof PublicationOperationResultOneOfThreeKind)[keyof typeof PublicationOperationResultOneOfThreeKind];
+
+export const PublicationOperationResultOneOfThreeKind = {
+  registry: "registry",
+} as const;
+
+export interface PublicationRegistryResult {
+  branch: string;
+  /** @minimum 0 */
+  pull_request_number: number;
+  pull_request_url: string;
+  reused: boolean;
+}
+
+export type PublicationOperationResultOneOf = {
+  kind: PublicationOperationResultOneOfKind;
+  value: PublishedProviderRelease;
+};
+
+export type PublicationOperationResultOneOfThree = {
+  kind: PublicationOperationResultOneOfThreeKind;
+  value: PublicationRegistryResult;
+};
+
+export type PublicationOperationResult =
+  | PublicationOperationResultOneOf
+  | PublicationOperationResultOneOfThree;
+
+export type PublicationOperationResultProperty = null | PublicationOperationResult;
+
+export type PublicationOperationKind =
+  (typeof PublicationOperationKind)[keyof typeof PublicationOperationKind];
+
+export const PublicationOperationKind = {
+  release: "release",
+  registry: "registry",
+} as const;
+
+export type PublicationOperationStatus =
+  (typeof PublicationOperationStatus)[keyof typeof PublicationOperationStatus];
+
+export const PublicationOperationStatus = {
+  pending: "pending",
+  running: "running",
+  succeeded: "succeeded",
+  failed: "failed",
+  unknown: "unknown",
+} as const;
+
+export interface PublicationOperation {
+  /** @minimum 0 */
+  attempt: number;
+  created_at: string;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  kind: PublicationOperationKind;
+  operation_id: string;
+  plan_sha256: string;
+  project_id: number;
+  result?: PublicationOperationResultProperty;
+  status: PublicationOperationStatus;
+  updated_at: string;
+}
+
+export interface PublicationOperationsPage {
+  /** @nullable */
+  next_cursor?: string | null;
+  operations: PublicationOperation[];
+}
+
 export type PublicationPreparationStatus =
   (typeof PublicationPreparationStatus)[keyof typeof PublicationPreparationStatus];
 
@@ -3524,6 +3623,8 @@ export interface PublicationRegistryPreview {
   base_commit: string;
   branch: string;
   bundle_id: string;
+  bundle_ids: string[];
+  operation_id: string;
   package_path: string;
   plan_sha256: string;
   plugin_id: string;
@@ -3534,12 +3635,13 @@ export interface PublicationRegistryPreview {
   version: string;
 }
 
-export interface PublicationRegistryResult {
-  branch: string;
+export interface PublicationReleaseArchive {
+  archive_name: string;
+  archive_sha256: string;
   /** @minimum 0 */
-  pull_request_number: number;
-  pull_request_url: string;
-  reused: boolean;
+  archive_size: number;
+  bundle_id: string;
+  target: string;
 }
 
 export interface PublicationReleasePreview {
@@ -3548,8 +3650,10 @@ export interface PublicationReleasePreview {
   archive_sha256: string;
   /** @minimum 0 */
   archive_size: number;
+  archives: PublicationReleaseArchive[];
   bundle_id: string;
   metadata_sha256: string;
+  operation_id: string;
   plan_sha256: string;
   plugin_id: string;
   prerelease: boolean;
@@ -3565,18 +3669,12 @@ export interface PublicationReleasePreview {
 
 export interface PublishPublicationReleaseRequest {
   bundle_id: string;
+  bundle_ids?: string[];
   confirmed: boolean;
   expected_plan_sha256: string;
+  /** @nullable */
+  operation_id?: string | null;
   release_notes: string;
-}
-
-export interface PublishedProviderRelease {
-  already_published: boolean;
-  archive_sha256: string;
-  release_url: string;
-  repository: string;
-  source_commit: string;
-  tag: string;
 }
 
 /**
@@ -4389,8 +4487,11 @@ export interface StashPushBody {
 
 export interface SubmitPublicationRegistryRequest {
   bundle_id: string;
+  bundle_ids?: string[];
   confirmed: boolean;
   expected_plan_sha256: string;
+  /** @nullable */
+  operation_id?: string | null;
   release_notes: string;
 }
 
@@ -5188,6 +5289,18 @@ export type LspRootParams = {
    * @nullable
    */
   lsp_id?: string | null;
+};
+
+export type ListPublicationOperationsParams = {
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  limit?: number | null;
+  /**
+   * @nullable
+   */
+  cursor?: string | null;
 };
 
 export type GetPromptCommandsParams = {
@@ -20889,6 +21002,264 @@ export const usePreparePublicationContribution = <TError = ErrorType<void>, TCon
 > => {
   return useMutation(getPreparePublicationContributionMutationOptions(options), queryClient);
 };
+
+export const listPublicationOperations = (
+  id: number,
+  params?: ListPublicationOperationsParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<PublicationOperationsPage>({
+    url: `/api/projects/${id}/publication-operations`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListPublicationOperationsQueryKey = (
+  id: number,
+  params?: ListPublicationOperationsParams,
+) => {
+  return [`/api/projects/${id}/publication-operations`, ...(params ? [params] : [])] as const;
+};
+
+export const getListPublicationOperationsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  params?: ListPublicationOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListPublicationOperationsQueryKey(id, params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listPublicationOperations>>> = ({
+    signal,
+  }) => listPublicationOperations(id, params, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListPublicationOperationsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listPublicationOperations>>
+>;
+export type ListPublicationOperationsQueryError = ErrorType<void>;
+
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  params: undefined | ListPublicationOperationsParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPublicationOperations>>,
+          TError,
+          Awaited<ReturnType<typeof listPublicationOperations>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  params?: ListPublicationOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listPublicationOperations>>,
+          TError,
+          Awaited<ReturnType<typeof listPublicationOperations>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  params?: ListPublicationOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListPublicationOperations<
+  TData = Awaited<ReturnType<typeof listPublicationOperations>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  params?: ListPublicationOperationsParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listPublicationOperations>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListPublicationOperationsQueryOptions(id, params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getPublicationOperation = (id: number, operationId: string, signal?: AbortSignal) => {
+  return customInstance<PublicationOperation>({
+    url: `/api/projects/${id}/publication-operations/${operationId}`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetPublicationOperationQueryKey = (id: number, operationId: string) => {
+  return [`/api/projects/${id}/publication-operations/${operationId}`] as const;
+};
+
+export const getGetPublicationOperationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPublicationOperationQueryKey(id, operationId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicationOperation>>> = ({
+    signal,
+  }) => getPublicationOperation(id, operationId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined && operationId !== null && operationId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type GetPublicationOperationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getPublicationOperation>>
+>;
+export type GetPublicationOperationQueryError = ErrorType<void>;
+
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPublicationOperation>>,
+          TError,
+          Awaited<ReturnType<typeof getPublicationOperation>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPublicationOperation>>,
+          TError,
+          Awaited<ReturnType<typeof getPublicationOperation>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPublicationOperation<
+  TData = Awaited<ReturnType<typeof getPublicationOperation>>,
+  TError = ErrorType<void>,
+>(
+  id: number,
+  operationId: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getPublicationOperation>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPublicationOperationQueryOptions(id, operationId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const preparePublicationPackage = (
   id: number,

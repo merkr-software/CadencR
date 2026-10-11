@@ -98,9 +98,11 @@ const processControl = { status: "applied" as const };
 function DetailsHarness({
   installed,
   canInstall = true,
+  recommendedVersion = "1.0.0",
 }: {
   installed?: ManagedProviderInventoryEntry;
   canInstall?: boolean;
+  recommendedVersion?: string;
 }) {
   const { mutation } = useMarketplace();
   return (
@@ -109,6 +111,7 @@ function DetailsHarness({
       installed={installed}
       index={index}
       canInstall={canInstall}
+      recommendedVersion={recommendedVersion || undefined}
       mutation={mutation}
       onClose={() => undefined}
     />
@@ -126,6 +129,7 @@ beforeEach(() => {
     cache_status: "verified",
     refreshed: true,
     used_cached_verified_catalog: false,
+    recommended_versions: { example: "1.0.0", zed: "1.0.0" },
     index,
   });
   vi.mocked(inventory).mockResolvedValue({
@@ -147,6 +151,43 @@ beforeEach(() => {
 });
 
 describe("MarketplaceDetails interactions", () => {
+  it("defaults fresh installation to the backend recommendation, not catalog order", () => {
+    render(<DetailsHarness recommendedVersion="2.0.0" />);
+    expect(screen.getByRole("button", { name: "Install 2.0.0" })).toBeEnabled();
+  });
+  it("requires an explicit choice when no compatible version is recommended", () => {
+    render(<DetailsHarness recommendedVersion="" />);
+    expect(screen.getByRole("button", { name: "Choose a version" })).toBeDisabled();
+    expect(screen.getByText(/No compatible version is recommended/)).toBeInTheDocument();
+  });
+  it("never defaults an installed newer revision to a catalog downgrade", async () => {
+    const { user } = render(
+      <DetailsHarness installed={{ ...entry, version: "3.0.0" }} recommendedVersion="2.0.0" />,
+    );
+    expect(screen.getByRole("button", { name: "Installed version" })).toBeDisabled();
+    expect(update).not.toHaveBeenCalled();
+    screen.getByRole("combobox", { name: "Exact version" }).focus();
+    await user.keyboard("{ArrowDown}");
+    await user.click(screen.getByRole("option", { name: "1.0.0" }));
+    await user.click(screen.getByRole("button", { name: "Change to 1.0.0" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("example", { version: "1.0.0", index }),
+    );
+  });
+  it("recomputes the safe default when installed inventory finishes loading", () => {
+    const { rerender } = render(<DetailsHarness recommendedVersion="2.0.0" />);
+    expect(screen.getByRole("button", { name: "Install 2.0.0" })).toBeEnabled();
+    rerender(
+      <DetailsHarness installed={{ ...entry, version: "3.0.0" }} recommendedVersion="2.0.0" />,
+    );
+    expect(screen.getByRole("button", { name: "Installed version" })).toBeDisabled();
+  });
+  it("preserves an installed catalog revision even when recommendation differs", () => {
+    render(
+      <DetailsHarness installed={{ ...entry, version: "2.0.0" }} recommendedVersion="1.0.0" />,
+    );
+    expect(screen.getByRole("button", { name: "Installed version" })).toBeDisabled();
+  });
   it("selects an exact version and sends the untouched signed envelope", async () => {
     const { user } = render(<DetailsHarness />);
     expect(screen.getByText("Example publisher")).toBeInTheDocument();
@@ -178,7 +219,7 @@ describe("MarketplaceDetails interactions", () => {
   it("blocks unavailable installs and surfaces stable service errors", async () => {
     const { rerender, user } = render(<DetailsHarness canInstall={false} />);
     expect(screen.getByRole("button", { name: "Install 1.0.0" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("current verified catalog");
+    expect(screen.getByText(/A current verified catalog/)).toBeInTheDocument();
     rerender(<DetailsHarness />);
     vi.mocked(install).mockRejectedValue({
       response: { data: { error: "Provider blocked by policy", code: "MANAGED_BLOCKED" } },
@@ -258,6 +299,7 @@ describe("marketplace navigation during lifecycle work", () => {
       cache_status: "verified",
       refreshed: true,
       used_cached_verified_catalog: false,
+      recommended_versions: { example: "1.0.0", zed: "1.0.0" },
       index: { ...index, signed: { ...index.signed, packages: [...packages, other] } },
     });
     vi.mocked(inventory).mockResolvedValue({ ...(await inventory()), providers: [] });

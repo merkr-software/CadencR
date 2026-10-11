@@ -68,17 +68,7 @@ pub(super) fn preflight(prepared: &PreparedPipeline) -> Result<(), PublisherErro
     let catalog_file = prepared.directory.join("managed-index.json");
     if exists(&catalog_file)? {
         let snapshot = super::catalog::snapshot(prepared, &catalog_file)?;
-        let expected = cadencr_registry_core::prepare_publication_index()
-            .packages(
-                prepared
-                    .entries
-                    .iter()
-                    .map(|e| e.plan["mirrored_package"].clone())
-                    .collect(),
-            )
-            .generated_at(&prepared.request.generated_at)
-            .expires_at(&prepared.request.expires_at)
-            .call()?;
+        let expected = super::request::candidate_payload(prepared)?;
         if snapshot.canonical_payload() != expected.canonical_payload() {
             return Err(PublisherError::new(
                 "existing signed catalog conflicts with reviewed request",
@@ -106,7 +96,7 @@ pub(super) fn preflight(prepared: &PreparedPipeline) -> Result<(), PublisherErro
             "catalog receipts require existing signed catalog",
         ));
     }
-    super::staging::retained_bytes(prepared)?;
+    super::staging::validate_retained(prepared)?;
     Ok(())
 }
 
@@ -131,11 +121,19 @@ pub(super) fn materialize(prepared: &PreparedPipeline) -> Result<(), PublisherEr
 }
 
 pub(super) fn manifest(prepared: &PreparedPipeline) -> Value {
-    json!({"schema_version":1,"repository":prepared.request.repository,
+    let mut manifest = json!({"schema_version":1,"repository":prepared.request.repository,
         "publications":prepared.entries.iter().enumerate().map(|(index, entry)| {
             let directory = format!("publications/{:03}",index+1);
             json!({"submission":format!("{directory}/submission.json"),"directory":directory,"registry_commit":entry.registry_commit})
-        }).collect::<Vec<_>>()})
+        }).collect::<Vec<_>>()});
+    if prepared.previous.is_some() {
+        manifest["baseline"] = json!({
+            "previous_index":"inputs/previous-index.json",
+            "public_key":"inputs/public-key.pem",
+            "key_id":prepared.request.key_id
+        });
+    }
+    manifest
 }
 
 pub(super) fn write_json_once(path: &Path, value: &Value) -> Result<(), PublisherError> {

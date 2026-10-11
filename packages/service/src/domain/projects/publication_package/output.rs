@@ -43,6 +43,10 @@ pub(super) fn build_package(
         final_package.validate_contract().map_err(|error| {
             AppError::Internal(format!("final publication metadata is invalid: {error}"))
         })?;
+        write_metadata_exclusive(
+            &output_dir.join("target.json"),
+            &serde_json::json!(input.target),
+        )?;
         write_metadata_exclusive(&metadata_path, &input.metadata)?;
         Ok(PreparedPublicationPackage {
             project_id: input.project_id,
@@ -164,7 +168,8 @@ fn cleanup_failed_output<T>(
     original: AppError,
 ) -> Result<T, AppError> {
     let mut failures = Vec::new();
-    for path in [archive, metadata] {
+    let target = directory.join("target.json");
+    for path in [archive, metadata, target.as_path()] {
         match std::fs::remove_file(path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}

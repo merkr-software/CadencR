@@ -1,5 +1,5 @@
 use axum::extract::rejection::JsonRejection;
-use axum::extract::Path;
+use axum::extract::{DefaultBodyLimit, Path};
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
@@ -196,7 +196,12 @@ pub fn inventory_router() -> Router<AppState> {
 
 pub fn lifecycle_router() -> Router<AppState> {
     Router::new()
-        .route("/api/agents/managed-providers", post(install_handler))
+        .route(
+            "/api/agents/managed-providers",
+            post(install_handler).layer(DefaultBodyLimit::max(
+                cadencr_registry_core::MAX_CATALOG_BYTES + 4096,
+            )),
+        )
         .route(
             "/api/agents/managed-providers/blocklist/refresh",
             post(refresh_blocklist_handler),
@@ -207,7 +212,9 @@ pub fn lifecycle_router() -> Router<AppState> {
         )
         .route(
             "/api/agents/managed-providers/{provider_id}/update",
-            post(update_handler),
+            post(update_handler).layer(DefaultBodyLimit::max(
+                cadencr_registry_core::MAX_CATALOG_BYTES + 4096,
+            )),
         )
         .route(
             "/api/agents/managed-providers/{provider_id}/rollback",

@@ -6,7 +6,7 @@ import { readBoundedRegularFile } from "./io.mjs";
 import { validPublicationRepository } from "./plan.mjs";
 import { validateSigningKeyId, verifyIndexEnvelope } from "./signing.mjs";
 
-const CATALOG_LIMIT = 1024 * 1024;
+import { MAX_CATALOG_BYTES as CATALOG_LIMIT } from "./catalog-limits.mjs";
 const KEY_LIMIT = 16 * 1024;
 
 export async function prepareCatalogSnapshot({
@@ -49,7 +49,7 @@ export async function prepareCatalogSnapshot({
 
   validateCatalogIdentities(envelope.signed.packages);
   const bytes = canonicalEnvelopeBytes(envelope);
-  if (bytes.length > CATALOG_LIMIT) throw new Error("catalog snapshot exceeds 1 MiB");
+  if (bytes.length > CATALOG_LIMIT) throw new Error("catalog snapshot exceeds 32 MiB");
   const sha256 = digest(bytes);
   const tag = `catalog-${sha256}`;
   const body = [

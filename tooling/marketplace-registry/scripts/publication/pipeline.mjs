@@ -23,8 +23,11 @@ import { promotePublication } from "./promote.mjs";
 import { recoverPublishedMirror } from "./recover-publication.mjs";
 import { publishCatalogSnapshot } from "./publish-catalog.mjs";
 import { prepareCatalogSnapshot } from "./snapshot.mjs";
-import { stagePipelinePublications } from "./pipeline-staging.mjs";
+import { inspectPipelinePublications, stagePipelinePublications } from "./pipeline-staging.mjs";
+import { captureArchives, releaseArchives } from "./pipeline-archives.mjs";
 import { validateSigningKeyId } from "./signing.mjs";
+
+import { MAX_CATALOG_BYTES } from "./catalog-limits.mjs";
 
 const REQUEST_LIMIT = 1024 * 1024;
 const SUBMISSIONS_LIMIT = 32 * 1024 * 1024;
@@ -48,21 +51,18 @@ export async function runPublicationPipeline(options) {
 async function runLocked(options, prepared) {
   await bindRequest(options.directory, prepared.binding);
   await materializeInputs(options.directory, prepared);
-  const staged = await stagePipelinePublications(options, prepared.entries);
+  const inspected = await inspectPipelinePublications(options, prepared.entries);
   const manifestFile = path.join(options.directory, MANIFEST);
   const manifest = buildManifest(options, prepared);
   await writeCanonicalOnce(manifestFile, manifest, "publication manifest");
   const catalogFile = path.join(options.directory, CATALOG);
-  await preflightCatalog(options, prepared, staged);
+  preflightCatalog(options, prepared, prepared.entries);
 
   for (const [index, entry] of prepared.entries.entries()) {
+    const staged = await stagePipelinePublications(options, [entry], [inspected[index]]);
+    const archives = await captureArchives(entry);
     const commit = entry.registryCommit;
-    const binding = buildPublicationBinding(
-      staged[index],
-      options.repository,
-      commit,
-      entry.directory,
-    );
+    const binding = buildPublicationBinding(staged[0], options.repository, commit, entry.directory);
     const recovered = await recoverPublishedMirror({
       submission: entry.submission,
       repository: options.repository,
@@ -94,6 +94,7 @@ async function runLocked(options, prepared) {
       download: options.download,
       requirePublished: isPublished,
     });
+    await releaseArchives(archives);
   }
 
   await prepareCandidate(options, prepared.request, manifest, manifestFile, catalogFile);
@@ -132,7 +133,7 @@ async function prepareRequest(options) {
   const previous =
     request.previous_index === "bootstrap"
       ? null
-      : await trustedFile(base, request.previous_index, REQUEST_LIMIT, "previous index");
+      : await trustedFile(base, request.previous_index, MAX_CATALOG_BYTES, "previous index");
   const entries = [];
   let total = 0;
   for (const [index, publication] of request.publications.entries()) {
@@ -212,10 +213,12 @@ function validateRequest(request, options) {
   validateRelative(request.public_key, "request.public_key");
   if (
     !Array.isArray(request.publications) ||
-    request.publications.length < 1 ||
+    (request.publications.length === 0 && request.previous_index === "bootstrap") ||
     request.publications.length > 100
   )
-    throw new Error("request.publications must contain between 1 and 100 entries");
+    throw new Error(
+      "request.publications delta must contain at most 100 entries; bootstrap requires an entry",
+    );
   request.publications.forEach((entry, index) => {
     if (!isObject(entry)) throw new Error(`request.publications[${index}] must be an object`);
     rejectKeys(entry, new Set(["submission", "registry_commit"]), `request.publications[${index}]`);
@@ -266,7 +269,7 @@ async function validateKeyPair(privateKeyFile, publicBytes) {
 }
 
 function buildManifest(options, prepared) {
-  return {
+  const manifest = {
     schema_version: 1,
     repository: options.repository,
     publications: prepared.entries.map((entry, index) => ({
@@ -275,6 +278,13 @@ function buildManifest(options, prepared) {
       registry_commit: entry.registryCommit,
     })),
   };
+  if (prepared.previous)
+    manifest.baseline = {
+      previous_index: "inputs/previous-index.json",
+      public_key: "inputs/public-key.pem",
+      key_id: prepared.request.key_id,
+    };
+  return manifest;
 }
 
 async function prepareCandidate(options, request, manifest, manifestFile, catalogFile) {

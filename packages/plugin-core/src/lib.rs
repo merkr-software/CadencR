@@ -1,8 +1,10 @@
 //! Shared, side-effect-free contracts for inspecting Cadencr provider plugins.
 //!
 //! Validation reads bounded local files but never executes provider code. This
-//! first increment supports provider workspaces only; it does not validate
-//! themes and does not constitute publication approval.
+//! contracts support provider and declarative theme content. Validation does
+//! not constitute publication approval.
+
+pub mod theme;
 
 mod descriptor;
 mod error;

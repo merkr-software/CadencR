@@ -41,7 +41,10 @@ impl ManagedAppCompatibility {
         Ok(())
     }
 
-    pub(super) fn supports(&self, app_version: &str) -> Result<bool, ManagedContractError> {
+    pub(in crate::domain::agents::providers::installed::managed) fn supports(
+        &self,
+        app_version: &str,
+    ) -> Result<bool, ManagedContractError> {
         let app = parse_app_version("current app version", app_version)?;
         let minimum = parse_app_version("min_app_version", &self.min_app_version)?;
         let maximum = self

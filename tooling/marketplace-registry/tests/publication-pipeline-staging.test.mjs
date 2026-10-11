@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { MAX_ARCHIVE_BYTES } from "../scripts/publication/download.mjs";
 import { createPublicationPlan } from "../scripts/publication/plan.mjs";
 import { stagePipelinePublications } from "../scripts/publication/pipeline-staging.mjs";
+import { captureArchives, releaseArchives } from "../scripts/publication/pipeline-archives.mjs";
 
 const repository = "acme/registry";
 const bytes = Buffer.from("inert fixture");
@@ -50,44 +51,28 @@ async function entriesFixture(t) {
   return entries;
 }
 
-test("source transfers receive a shared decrementing cap, not a fresh 1 GiB per publication", async (t) => {
+test("sequential publication staging does not impose a cumulative historical cap", async (t) => {
   const entries = await entriesFixture(t);
   const limits = [];
-  await assert.rejects(
-    stagePipelinePublications(
+  for (const entry of entries) {
+    await stagePipelinePublications(
       {
         repository,
         client,
         download: async ({ maxBytes, outputPath }) => {
           limits.push(maxBytes);
-          // Simulate full-size transfer accounting without allocating GiB fixtures.
           await writeFile(outputPath, bytes, { flag: "wx" });
           return { size: MAX_ARCHIVE_BYTES };
         },
       },
-      entries,
-    ),
-    /remaining staging budget/,
-  );
-  assert.deepEqual(limits, [
-    MAX_ARCHIVE_BYTES,
-    MAX_ARCHIVE_BYTES,
-    MAX_ARCHIVE_BYTES,
-    MAX_ARCHIVE_BYTES,
-    0,
-  ]);
+      [entry],
+    );
+  }
+  assert.deepEqual(limits, Array(5).fill(MAX_ARCHIVE_BYTES));
 });
 
-test("oversized retained archives exhaust the aggregate budget before any new download", async (t) => {
+test("staging refuses simultaneous multiple publications before any download", async (t) => {
   const entries = await entriesFixture(t);
-  for (const entry of entries) {
-    const handle = await open(path.join(entry.directory, entry.plan.targets[0].asset), "wx");
-    try {
-      await handle.truncate(MAX_ARCHIVE_BYTES);
-    } finally {
-      await handle.close();
-    }
-  }
   let downloads = 0;
   await assert.rejects(
     stagePipelinePublications(
@@ -100,7 +85,30 @@ test("oversized retained archives exhaust the aggregate budget before any new do
       },
       entries,
     ),
-    /aggregate size limit/,
+    /exactly one publication/,
   );
   assert.equal(downloads, 0);
+});
+
+test("verified transient cleanup preserves an inode replacement and receipts", async (t) => {
+  const [entry] = await entriesFixture(t);
+  await stagePipelinePublications(
+    {
+      repository,
+      client,
+      download: async ({ outputPath }) => {
+        await writeFile(outputPath, bytes, { flag: "wx" });
+        return { size: bytes.length };
+      },
+    },
+    [entry],
+  );
+  const receipt = await readFile(path.join(entry.directory, "staging-receipt.json"));
+  const owned = await captureArchives(entry);
+  const file = owned[0].file;
+  await rename(file, `${file}.old-inode`);
+  await writeFile(file, "replacement", { flag: "wx" });
+  await releaseArchives(owned);
+  assert.equal(await readFile(file, "utf8"), "replacement");
+  assert.deepEqual(await readFile(path.join(entry.directory, "staging-receipt.json")), receipt);
 });

@@ -199,6 +199,55 @@ mod tests {
     }
 
     #[test]
+    fn signed_growing_history_above_one_mib_reloads_and_recommends() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.json");
+        let now = Utc::now();
+        let mut index = signed(now);
+        let mut package = index.signed.packages[0].clone();
+        package.agent.description = "x".repeat(10_000);
+        index.signed.packages = (0..120)
+            .map(|patch| {
+                let mut value = package.clone();
+                value.agent.version = format!("1.0.{patch}");
+                value
+            })
+            .collect();
+        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[41; 32])
+                .sign(&index.signed.signing_bytes().unwrap())
+                .to_bytes(),
+        );
+        assert!(serde_json::to_vec(&index).unwrap().len() > 1024 * 1024);
+        persist(&path, &trust(), index, now).unwrap();
+        let loaded = load(&path, &trust(), now).unwrap().unwrap();
+        let response =
+            super::super::ManagedCatalogResponse::verified(&loaded.verified, false, None);
+        assert_eq!(response.index.unwrap().signed.packages.len(), 120);
+        let platform = package
+            .agent
+            .distribution
+            .as_ref()
+            .unwrap()
+            .binary
+            .as_ref()
+            .unwrap()
+            .keys()
+            .next()
+            .unwrap();
+        assert_eq!(
+            super::super::recommendation::recommended_versions(
+                &loaded.verified.index().packages,
+                &package.host.compatibility.min_app_version,
+                Some(platform)
+            )
+            .get(&package.agent.id)
+            .map(String::as_str),
+            Some("1.0.119")
+        );
+    }
+
+    #[test]
     fn cache_rejects_expired_replayed_and_conflicting_catalogs() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("catalog.json");

@@ -7,6 +7,9 @@ use crate::index::compare_packages;
 use crate::package::{identity, normalized_provider_id};
 use crate::signing::validate_signing_payload;
 
+mod incremental;
+pub use incremental::{prepare_incremental_publication_index, verify_publication_baseline};
+
 /// A publication index whose immutable schema and canonical bytes have already
 /// been validated. Only the time-dependent freshness window is rechecked when
 /// it is signed.

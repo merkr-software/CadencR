@@ -247,3 +247,24 @@ Recovery relists and re-verifies the authenticated asset set after public downlo
 before the final release/tag checks. These sequential checks are not a GitHub-wide
 transaction: a later privileged mutation remains possible, so repository protections
 and consumers' signature/digest verification remain mandatory.
+
+## Renewal, revocation and activation ownership
+
+| Responsibility           | Required owner and boundary                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Catalog renewal          | Registry maintainers operating the protected publisher lane, with monitored expiry alerts and a reviewed signed baseline; renew before the 14-day hard freshness limit                     |
+| Revocation               | Security/registry maintainers using the protected blocklist signing/publication process; preserve immutable version evidence and explicitly communicate affected identities/digests        |
+| Trust roots and URLs     | Application release maintainers; embed only reviewed official public keys and HTTPS discovery/catalog sources in release builds, never keys supplied by contributors or an HTTP request    |
+| CLI cutover              | Monorepo release maintainers plus registry maintainers; publish executable/checksum from the reviewed commit, test that distributed binary, then update the version/checksum pins together |
+| Fresh-install acceptance | Application maintainers; verify supported desktop installations without developer caches or local-source substitutions                                                                     |
+
+These are required operational roles, not a claim that production owners, alerts,
+secrets or keys have already been provisioned. `PENDING` release pins are a
+preparation state, not production activation. A failed renewal never weakens app
+expiry checks or permits unsigned history. Revocation blocks use/installation; it
+does not authorize deleting historical catalog metadata or remote releases.
+
+Catalog-only renewal authenticates the baseline and retains immutable history
+without revalidating every historical archive's present availability. New/replayed
+delta publications still require strict receipts and fresh public byte checks.
+This separation changes the renewal workload, not archive digest or signature trust.

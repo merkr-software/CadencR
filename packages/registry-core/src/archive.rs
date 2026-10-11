@@ -10,8 +10,8 @@ use crate::safe_io::read_bounded_regular;
 use crate::RegistryError;
 
 mod output;
-mod scan;
-mod write;
+pub(crate) mod scan;
+pub(crate) mod write;
 
 #[derive(bon::Builder)]
 pub struct PackProviderRequest<'a> {
@@ -137,7 +137,7 @@ fn declared_files(metadata: &Value, target: &str) -> Result<DeclaredFiles, Regis
     })
 }
 
-fn validate_output_name(output: &Path) -> Result<(), RegistryError> {
+pub(crate) fn validate_output_name(output: &Path) -> Result<(), RegistryError> {
     if !output
         .file_name()
         .and_then(|name| name.to_str())
@@ -160,9 +160,9 @@ fn bad(message: impl Into<String>) -> RegistryError {
     RegistryError::single(message)
 }
 
-struct BuiltArchive {
-    sha256: String,
-    size: u64,
+pub(crate) struct BuiltArchive {
+    pub(crate) sha256: String,
+    pub(crate) size: u64,
 }
 
 #[cfg(all(test, unix))]

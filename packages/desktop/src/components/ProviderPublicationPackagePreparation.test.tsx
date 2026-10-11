@@ -83,7 +83,7 @@ describe("ProviderPublicationPackagePreparation", () => {
       isLoading: true,
     });
     const { rerender } = render(<ProviderPublicationPackagePreparation projectId={7} enabled />);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading supported targets");
+    expect(screen.getByText("Loading supported targets…")).toHaveAttribute("role", "status");
     expect(screen.getAllByRole("group")).toHaveLength(1);
 
     generatedMocks.readiness.mockReturnValue({

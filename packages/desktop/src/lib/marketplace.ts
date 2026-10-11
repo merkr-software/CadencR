@@ -69,6 +69,7 @@ export const catalogSchema = z
     expires_at: nullableText,
     error: nullableText,
     error_code: nullableText,
+    recommended_versions: z.record(z.string(), z.string()).optional(),
     index: z
       .object({
         signature: z
@@ -169,6 +170,14 @@ export function groupPackages(packages: ManagedProviderPackage[]): ManagedProvid
 }
 export function installedRevision(entry?: ManagedProviderInventoryEntry): boolean {
   return !!entry?.version && !!entry.digest;
+}
+
+/** Installed revisions remain selected: any version change is an explicit choice. */
+export function defaultMarketplaceVersion(
+  recommendation?: string,
+  installed?: ManagedProviderInventoryEntry,
+): string {
+  return installedRevision(installed) ? installed!.version! : (recommendation ?? "");
 }
 
 /** Display only the service's stable error shape; never arbitrary provider output. */

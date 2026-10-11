@@ -296,7 +296,22 @@ fn snapshot(directory: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
 }
 fn assert_preserved(before: &BTreeMap<PathBuf, Vec<u8>>, state: &Path) {
     let after = snapshot(state);
+    let transient: std::collections::BTreeSet<PathBuf> = before
+        .iter()
+        .filter(|(path, _)| path.ends_with("staging-receipt.json"))
+        .flat_map(|(path, bytes)| {
+            let receipt: crate::StageReceipt = serde_json::from_slice(bytes).unwrap();
+            receipt
+                .artifacts
+                .into_iter()
+                .map(|artifact| path.parent().unwrap().join(artifact.asset))
+                .collect::<Vec<_>>()
+        })
+        .collect();
     for (path, bytes) in before {
+        if transient.contains(path) {
+            continue;
+        }
         assert_eq!(after.get(path), Some(bytes), "preserve {}", path.display());
     }
 }

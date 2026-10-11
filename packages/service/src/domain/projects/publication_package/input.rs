@@ -78,12 +78,6 @@ fn validate_target(package: &ManagedProviderPackage, target: &str) -> Result<(),
         .ok_or_else(|| {
             AppError::BadRequest("metadata must declare a binary distribution".into())
         })?;
-    if binary.len() != 1 {
-        return Err(AppError::BadRequest(
-            "E2 prepares one platform per bundle; metadata must declare exactly one binary target"
-                .into(),
-        ));
-    }
     let selected = binary.get(target).ok_or_else(|| {
         AppError::BadRequest(format!(
             "metadata does not declare requested target {target:?}"
@@ -210,7 +204,7 @@ mod tests {
             "linux-x86_64"
         )
         .is_err());
-        assert!(call(metadata("acme", serde_json::json!({"linux-x86_64":target("https://x/a.tgz"),"darwin-aarch64":target("https://x/b.tgz")})), "acme", "linux-x86_64").is_err());
+        assert!(call(metadata("acme", serde_json::json!({"linux-x86_64":target("https://x/a.tgz"),"darwin-aarch64":target("https://x/b.tgz")})), "acme", "linux-x86_64").is_ok());
         assert!(call(
             metadata(
                 "acme",

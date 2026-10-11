@@ -1,5 +1,6 @@
 pub mod icon;
 pub mod models;
+pub mod publication_operations;
 pub mod publication_package;
 pub mod publication_readiness;
 pub mod publication_release;

@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { installedRevision, marketplaceError } from "@/lib/marketplace";
+import { defaultMarketplaceVersion, installedRevision, marketplaceError } from "@/lib/marketplace";
 import type { useMarketplace } from "@/hooks/useMarketplace";
 
 type Mutation = ReturnType<typeof useMarketplace>["mutation"];
@@ -28,6 +28,7 @@ export function MarketplaceDetails({
   installed,
   index,
   canInstall,
+  recommendedVersion,
   mutation,
   onClose,
 }: {
@@ -35,13 +36,17 @@ export function MarketplaceDetails({
   installed?: ManagedProviderInventoryEntry;
   index?: SignedManagedProviderIndex | null;
   canInstall: boolean;
+  recommendedVersion?: string;
   mutation: Mutation;
   onClose: () => void;
 }): React.JSX.Element {
-  const [version, setVersion] = useState(packages[0].agent.version);
-  const entry = packages.find((item) => item.agent.version === version) ?? packages[0];
+  const [chosenVersion, setVersion] = useState<string | null>(null);
+  const version = chosenVersion ?? defaultMarketplaceVersion(recommendedVersion, installed);
+  const selected = packages.find((item) => item.agent.version === version);
+  const entry =
+    selected ?? packages.find((item) => item.agent.version === recommendedVersion) ?? packages[0];
   const present = installedRevision(installed);
-  const sameVersion = present && installed?.version === entry.agent.version;
+  const sameVersion = present && installed?.version === version;
   return (
     <Dialog
       open
@@ -58,23 +63,19 @@ export function MarketplaceDetails({
         {entry.agent.authors?.length ? (
           <p className="text-sm text-muted-foreground">Authors: {entry.agent.authors.join(", ")}</p>
         ) : null}
-        <div className="space-y-2">
-          <label className="text-sm" htmlFor="marketplace-version">
-            Exact version
-          </label>
-          <Select value={version} onValueChange={setVersion}>
-            <SelectTrigger id="marketplace-version">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {packages.map((item) => (
-                <SelectItem key={item.agent.version} value={item.agent.version}>
-                  {item.agent.version}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        <MarketplaceVersionSelect
+          packages={packages}
+          version={version}
+          onChange={setVersion}
+          recommendedVersion={recommendedVersion}
+          installedAbsent={!!sameVersion && !selected}
+        />
+        <p role="status" className="text-xs text-muted-foreground">
+          {recommendedVersion
+            ? `Recommended for this host: ${recommendedVersion}.`
+            : "No compatible version is recommended for this host. Choose a version explicitly."}
+          {present ? " Installed versions are preserved until you explicitly choose a change." : ""}
+        </p>
         <p className="text-xs text-muted-foreground">
           Installing downloads and runs this publisher’s executable. Cadencr verifies its signed
           catalog, package integrity, compatibility and ACP handshake. These checks and process
@@ -93,13 +94,13 @@ export function MarketplaceDetails({
           </p>
         )}
         <Button
-          disabled={!canInstall || !index || mutation.isPending || sameVersion}
+          disabled={!canInstall || !index || mutation.isPending || sameVersion || !selected}
           onClick={() => {
-            if (index)
+            if (index && selected)
               mutation.mutate({
                 kind: present ? "update" : "install",
-                id: entry.agent.id,
-                version: entry.agent.version,
+                id: selected.agent.id,
+                version: selected.agent.version,
                 index,
               });
           }}
@@ -108,10 +109,50 @@ export function MarketplaceDetails({
             ? "Applying…"
             : sameVersion
               ? "Installed version"
-              : `${present ? "Change to" : "Install"} ${entry.agent.version}`}
+              : !selected
+                ? "Choose a version"
+                : `${present ? "Change to" : "Install"} ${entry.agent.version}`}
         </Button>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function MarketplaceVersionSelect({
+  packages,
+  version,
+  onChange,
+  recommendedVersion,
+  installedAbsent,
+}: {
+  packages: ManagedProviderPackage[];
+  version: string;
+  onChange: (version: string) => void;
+  recommendedVersion?: string;
+  installedAbsent: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="space-y-2">
+      <label className="text-sm" htmlFor="marketplace-version">
+        Exact version
+      </label>
+      <Select value={version} onValueChange={onChange}>
+        <SelectTrigger id="marketplace-version">
+          <SelectValue placeholder="Choose an exact version" />
+        </SelectTrigger>
+        <SelectContent>
+          {installedAbsent && (
+            <SelectItem value={version}>{version} (installed; not in catalog)</SelectItem>
+          )}
+          {packages.map((item) => (
+            <SelectItem key={item.agent.version} value={item.agent.version}>
+              {item.agent.version}
+              {item.agent.version === recommendedVersion ? " (recommended)" : ""}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 

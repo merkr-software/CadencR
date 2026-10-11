@@ -149,3 +149,54 @@ pub(crate) fn build(count: usize, mode: Mode) -> Fixture {
         },
     }
 }
+
+impl Fixture {
+    /// Synthetic signed history; historical URLs are intentionally absent from
+    /// the downloader, so any accidental historical fetch fails the test.
+    pub(crate) fn add_baseline(&self, count: usize) {
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&self.manifest).unwrap()).unwrap();
+        let mut template: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tooling/marketplace-registry/tests/fixtures/example-provider.json.fixture"
+        ))
+        .unwrap();
+        template["agent"]["id"] = "historical".into();
+        template["agent"]["description"] = "x".repeat(10_000).into();
+        let packages = (1..=count)
+            .map(|version| {
+                let mut package = template.clone();
+                package["agent"]["version"] = format!("1.0.{version}").into();
+                package
+            })
+            .collect();
+        let output = std::process::Command::new("node").args(["-e", "const now=Date.now();console.log(JSON.stringify([new Date(now-120000).toISOString().replace(/\\.\\d{3}Z$/,'Z'),new Date(now+86400000).toISOString().replace(/\\.\\d{3}Z$/,'Z')]))"]).output().unwrap();
+        assert!(output.status.success());
+        let window: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        let payload = cadencr_registry_core::prepare_publication_index()
+            .packages(packages)
+            .generated_at(&window[0])
+            .expires_at(&window[1])
+            .call()
+            .unwrap();
+        let private = self.directory().join("fixture-private.pem");
+        std::fs::write(&private, "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIAcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH\n-----END PRIVATE KEY-----\n").unwrap();
+        let signed =
+            cadencr_registry_core::sign_prepared_index(payload, &private, "test-key").unwrap();
+        std::fs::write(self.directory().join("previous-index.json"), signed).unwrap();
+        std::fs::write(self.directory().join("public-key.pem"), "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=\n-----END PUBLIC KEY-----\n").unwrap();
+        manifest["baseline"] = serde_json::json!({"previous_index":"previous-index.json","public_key":"public-key.pem","key_id":"test-key"});
+        std::fs::write(&self.manifest, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    }
+
+    pub(crate) fn remove_archives(&self) {
+        for receipt in &self.receipt_files {
+            let value: crate::binding::PublicationReceipt =
+                serde_json::from_slice(&std::fs::read(receipt).unwrap()).unwrap();
+            for artifact in value.artifacts {
+                if artifact.name != "publication-plan.json" {
+                    std::fs::remove_file(receipt.parent().unwrap().join(artifact.name)).unwrap();
+                }
+            }
+        }
+    }
+}

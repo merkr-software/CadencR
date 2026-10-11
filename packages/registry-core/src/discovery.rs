@@ -3,7 +3,7 @@ use sha2::{Digest as _, Sha256};
 use crate::{valid_publication_repository, CatalogSnapshot, RegistryError};
 
 pub const DISCOVERY_FILENAME: &str = "managed-index.json";
-pub const MAX_DISCOVERY_BYTES: usize = 1024 * 1024;
+pub const MAX_DISCOVERY_BYTES: usize = crate::MAX_CATALOG_BYTES;
 
 pub fn validate_discovery_branch(branch: &str) -> Result<(), RegistryError> {
     let mut bytes = branch.bytes();
@@ -47,7 +47,7 @@ pub fn assess_discovery_head(
         };
     };
     if bytes.len() > MAX_DISCOVERY_BYTES {
-        return Err(RegistryError::single("discovery exceeds 1 MiB"));
+        return Err(RegistryError::single("discovery exceeds 32 MiB"));
     }
     if bytes == snapshot.canonical_envelope() {
         return Ok(true);
@@ -176,7 +176,7 @@ mod tests {
             assess_discovery_head(&snapshot, Some(&vec![b' '; MAX_DISCOVERY_BYTES + 1]))
                 .unwrap_err()
                 .to_string()
-                .contains("1 MiB")
+                .contains("32 MiB")
         );
     }
 
