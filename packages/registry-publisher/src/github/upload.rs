@@ -140,9 +140,7 @@ fn open_nofollow(path: &Path) -> Result<File, PublisherError> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Read, Write};
-    use std::net::TcpListener;
-
+    use super::super::fixture::serve_json;
     use super::*;
 
     #[test]
@@ -150,23 +148,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("asset");
         std::fs::write(&path, b"abc").unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = listener.local_addr().unwrap();
-        let server = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut bytes = [0_u8; 8192];
-            let count = stream.read(&mut bytes).unwrap();
-            let request = String::from_utf8_lossy(&bytes[..count]).into_owned();
-            let body = r#"{"id":1,"name":"asset name","state":"uploaded","browser_download_url":"https://github.com/acme/releases/releases/download/v1/a","size":3}"#;
-            write!(
-                stream,
-                "HTTP/1.1 201 Created\r\nContent-Length: {}\r\n\r\n{body}",
-                body.len()
-            )
-            .unwrap();
-            request
-        });
-        let uploader = Uploader::fixture("secret", format!("http://{address}")).unwrap();
+        let body = r#"{"id":1,"name":"asset name","state":"uploaded","browser_download_url":"https://github.com/acme/releases/releases/download/v1/a","size":3}"#;
+        let (base, server) = serve_json("201 Created", body);
+        let uploader = Uploader::fixture("secret", base).unwrap();
         assert!(uploader.client.get().is_none());
         uploader
             .upload("acme/releases", 1, "asset name", &path, 3)
