@@ -224,9 +224,16 @@ pub(super) async fn run(
     crate::domain::projects::publication_release::registry::PublicationRegistryResult,
     crate::error::AppError,
 > {
+    run_mode(script, false).await
+}
+
+pub(super) async fn run_mode(
+    script: Vec<Expected>,
+    recovered: bool,
+) -> Result<super::super::PublicationRegistryResult, AppError> {
     let (fixture, transport) = Script::serve(script).await;
     let preview = preview();
-    let result = submit_with_transport(
+    let result = submit_reviewed(
         &transport,
         Submission {
             token: "token",
@@ -237,6 +244,7 @@ pub(super) async fn run(
             submission: b"submission",
             pull_request_body: b"PR body",
         },
+        recovered,
     )
     .await;
     fixture.assert_done();

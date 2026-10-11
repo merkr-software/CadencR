@@ -6,6 +6,16 @@ pub(super) async fn find_pull(
     fork_id: u64,
     sha: &str,
 ) -> Result<Option<Pull>, AppError> {
+    candidate(transport, input)
+        .await?
+        .map(|pull| verify_pull(pull, input, fork_id, sha))
+        .transpose()
+}
+
+pub(super) async fn candidate(
+    transport: &Transport,
+    input: &Submission<'_>,
+) -> Result<Option<Pull>, AppError> {
     let head = format!("{}:{}", input.preview.account, input.preview.branch);
     let path = format!(
         "/repos/{REGISTRY}/pulls?state=all&head={}&base={}&per_page=2",
@@ -19,11 +29,7 @@ pub(super) async fn find_pull(
             "multiple pull requests use the deterministic branch",
         ));
     }
-    pulls
-        .into_iter()
-        .next()
-        .map(|pull| verify_pull(pull, input, fork_id, sha))
-        .transpose()
+    Ok(pulls.into_iter().next())
 }
 
 fn verify_pull(
@@ -38,6 +44,7 @@ fn verify_pull(
             "pull request document is not UTF-8",
         )
     })?;
+    validate_sha(&pull.base.sha)?;
     let title = format!("Add {} {}", input.preview.plugin_id, input.preview.version);
     if pull.state != "open"
         || pull.draft
@@ -50,7 +57,6 @@ fn verify_pull(
         || pull.head.sha != sha
         || pull.base.repo.id != input.repository_id
         || pull.base.reference != input.preview.base_branch
-        || pull.base.sha != input.preview.base_commit
     {
         return Err(conflict(
             "PUBLICATION_REGISTRY_PR_CONFLICT",

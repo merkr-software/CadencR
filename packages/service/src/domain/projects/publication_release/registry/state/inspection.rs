@@ -67,6 +67,16 @@ pub(super) async fn revalidate_identity(
     transport: &Transport,
     input: &Submission<'_>,
 ) -> Result<(), AppError> {
+    revalidate_for_recovery(transport, input, false)
+        .await
+        .map(|_| ())
+}
+
+pub(super) async fn revalidate_for_recovery(
+    transport: &Transport,
+    input: &Submission<'_>,
+    allow_base_drift: bool,
+) -> Result<bool, AppError> {
     let actor: User = transport.get(input.token, "/user").await?;
     validate_login(&actor.login)?;
     let repo: Repository = transport
@@ -87,14 +97,14 @@ pub(super) async fn revalidate_identity(
         || actor.login != input.preview.account
         || repo.id != input.repository_id
         || repo.default_branch != input.preview.base_branch
-        || reference.object.sha != input.preview.base_commit
+        || (!allow_base_drift && reference.object.sha != input.preview.base_commit)
     {
         return Err(conflict(
             "PUBLICATION_REGISTRY_PLAN_CHANGED",
             "registry actor, repository, or base changed; preview it again",
         ));
     }
-    Ok(())
+    Ok(reference.object.sha == input.preview.base_commit)
 }
 
 fn validate_registry(repository: &Repository) -> Result<(), AppError> {

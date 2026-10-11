@@ -1,6 +1,6 @@
 //! Durable, content-bound publication operations. Disconnects do not cancel work.
 mod identity;
-mod journal;
+pub(crate) mod journal;
 pub(crate) mod routes;
 mod runner;
 

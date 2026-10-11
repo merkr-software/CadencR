@@ -36,13 +36,31 @@ pub(super) use inspection::inspect;
 use inspection::revalidate_identity;
 use pull::{find_pull, result, validate_pull};
 
-pub(super) async fn submit_with_transport(
+pub(super) async fn submit_reviewed(
     transport: &Transport,
     input: Submission<'_>,
+    recovered: bool,
 ) -> Result<PublicationRegistryResult, AppError> {
-    revalidate_identity(transport, &input).await?;
+    let base_matches = inspection::revalidate_for_recovery(transport, &input, recovered).await?;
+    if recovered {
+        if let Some(pull) = pull::candidate(transport, &input).await? {
+            let fork = fork::existing_fork(transport, &input).await?;
+            let sha = pull.head.sha.clone();
+            validate_sha(&sha)?;
+            let recovered = validate_pull(pull, &input, fork.id, &sha, true)?;
+            super::branch::validate_branch(transport, &input, &fork, &sha).await?;
+            return Ok(recovered);
+        }
+        if !base_matches {
+            return Err(conflict(
+                "PUBLICATION_REGISTRY_PLAN_CHANGED",
+                "registry base changed and the original pull request is absent; no writes are permitted",
+            ));
+        }
+    }
     let fork = ensure_fork(transport, &input).await?;
-    let branch_commit = super::branch::ensure_branch(transport, &input, &fork).await?;
+    let branch_commit =
+        super::branch::ensure_branch_mode(transport, &input, &fork, base_matches).await?;
     if let Some(pull) = find_pull(transport, &input, fork.id, &branch_commit).await? {
         return result(pull, &input.preview.branch, true);
     }
@@ -85,6 +103,7 @@ mod tests {
     use super::super::fixture::Expected;
     use super::fixture::*;
     use super::segment;
+    use crate::error::AppError;
     use serde_json::json;
 
     #[tokio::test]
@@ -223,5 +242,91 @@ mod tests {
         calls.push(find_pulls(json!([pull()])));
         let result = run(calls).await.unwrap();
         assert!(result.reused);
+    }
+    fn advanced_identity() -> Vec<Expected> {
+        let mut calls = identity();
+        calls[2] = Expected::get(
+            "/repos/merkr-software/cadencr-registry/git/ref/heads/main",
+            git_ref(
+                "refs/heads/main",
+                "7777777777777777777777777777777777777777",
+            ),
+        );
+        calls
+    }
+
+    #[tokio::test]
+    async fn original_pull_is_reconciled_read_only_after_registry_main_advances() {
+        let mut calls = advanced_identity();
+        let mut original_pull = pull();
+        original_pull["base"]["sha"] = json!("7777777777777777777777777777777777777777");
+        calls.push(find_pulls(json!([original_pull])));
+        calls.push(Expected::get("/repos/alice/cadencr-registry", fork()));
+        calls.extend(branch_validation());
+        let result = run_mode(calls, true).await.unwrap();
+        assert!(result.reused);
+        assert_eq!(result.pull_request_number, 42);
+        assert_eq!(result.branch, preview().branch);
+    }
+
+    #[tokio::test]
+    async fn advanced_base_and_absent_original_pull_refuse_all_writes() {
+        let mut calls = advanced_identity();
+        calls.push(find_pulls(json!([])));
+        assert!(matches!(
+            run_mode(calls, true).await,
+            Err(AppError::Coded {
+                code: "PUBLICATION_REGISTRY_PLAN_CHANGED",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn unchanged_base_reuses_original_pull_without_recreating_deleted_branch() {
+        let mut calls = identity();
+        calls.push(find_pulls(json!([pull()])));
+        calls.push(Expected::get("/repos/alice/cadencr-registry", fork()));
+        calls.extend(branch_validation());
+        assert!(run_mode(calls, true).await.unwrap().reused);
+    }
+
+    #[tokio::test]
+    async fn unchanged_base_closed_or_merged_pull_cannot_recreate_deleted_branch() {
+        for merged in [false, true] {
+            let mut original = pull();
+            original["state"] = json!("closed");
+            if merged {
+                original["merged_at"] = json!("2026-10-11T00:00:00Z");
+            }
+            let mut calls = identity();
+            calls.push(find_pulls(json!([original])));
+            calls.push(Expected::get("/repos/alice/cadencr-registry", fork()));
+            assert!(matches!(
+                run_mode(calls, true).await,
+                Err(AppError::Coded {
+                    code: "PUBLICATION_REGISTRY_PR_CONFLICT",
+                    ..
+                })
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn unchanged_base_allows_creation_only_after_original_pull_absence_is_proven() {
+        let mut calls = identity();
+        calls.push(find_pulls(json!([])));
+        calls.push(Expected::get("/repos/alice/cadencr-registry", fork()));
+        calls.extend(create_branch(false));
+        calls.push(find_pulls(json!([])));
+        calls.extend(identity());
+        calls.push(Expected::post(
+            "/repos/merkr-software/cadencr-registry/pulls",
+            json!({"title":"Add acme-agent 1.0.0","head":"alice:cadencr/acme-agent-1-0-0-plan-base",
+                "base":"main","body":"PR body","maintainer_can_modify":false}),
+            pull(),
+        ));
+        calls.push(find_pulls(json!([pull()])));
+        assert!(!run_mode(calls, true).await.unwrap().reused);
     }
 }

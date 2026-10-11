@@ -6,7 +6,8 @@ use std::io::Read as _;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-pub(super) const MAX_RECORD_BYTES: u64 = 64 * 1024;
+pub(super) const MAX_RECORD_BYTES: u64 = 8 * 1024 * 1024;
+pub(crate) mod confirmed;
 pub(super) fn lock(root: &Path) -> Result<Arc<Mutex<()>>, AppError> {
     static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
     let mut locks = LOCKS
@@ -42,6 +43,8 @@ struct Stored {
     schema_version: u8,
     boot_id: String,
     operation: PublicationOperation,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    confirmed_registry: Option<confirmed::RegistryPlan>,
 }
 
 pub(super) fn ensure_root(root: &Path) -> Result<(), AppError> {
@@ -53,7 +56,7 @@ pub(super) fn ensure_root(root: &Path) -> Result<(), AppError> {
     crate::remote::secure_fs::create_dir_owner_only(root).map_err(|_| storage())
 }
 
-pub(super) fn read(root: &Path, id: &str) -> Result<Option<PublicationOperation>, AppError> {
+fn load(root: &Path, id: &str) -> Result<Option<Stored>, AppError> {
     if !valid_id(id) {
         return Err(AppError::BadRequest(
             "invalid publication operation ID".into(),
@@ -103,6 +106,16 @@ pub(super) fn read(root: &Path, id: &str) -> Result<Option<PublicationOperation>
         return Err(storage());
     }
     validate_record(&stored.operation)?;
+    if let Some(plan) = &stored.confirmed_registry {
+        confirmed::validate(plan, &stored.operation)?;
+    }
+    Ok(Some(stored))
+}
+
+pub(super) fn read(root: &Path, id: &str) -> Result<Option<PublicationOperation>, AppError> {
+    let Some(stored) = load(root, id)? else {
+        return Ok(None);
+    };
     let mut operation = stored.operation;
     if matches!(
         operation.status,
@@ -161,10 +174,16 @@ fn validate_record(operation: &PublicationOperation) -> Result<(), AppError> {
 pub(super) fn write(root: &Path, operation: &PublicationOperation) -> Result<(), AppError> {
     ensure_root(root)?;
     validate_record(operation)?;
+    let confirmed_registry =
+        load(root, &operation.operation_id)?.and_then(|stored| stored.confirmed_registry);
+    if let Some(plan) = &confirmed_registry {
+        confirmed::validate(plan, operation)?;
+    }
     let bytes = serde_json::to_vec(&Stored {
         schema_version: 1,
         boot_id: boot_id().into(),
         operation: operation.clone(),
+        confirmed_registry,
     })
     .map_err(|_| storage())?;
     if bytes.len() as u64 > MAX_RECORD_BYTES {

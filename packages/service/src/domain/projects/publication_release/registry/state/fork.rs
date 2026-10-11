@@ -40,6 +40,26 @@ pub(super) async fn ensure_fork(
     ))
 }
 
+pub(super) async fn existing_fork(
+    transport: &Transport,
+    input: &Submission<'_>,
+) -> Result<Repository, AppError> {
+    let path = format!(
+        "/repos/{}/cadencr-registry",
+        segment(&input.preview.account)
+    );
+    let repo = transport
+        .get_optional(input.token, &path)
+        .await?
+        .ok_or_else(|| {
+            conflict(
+                "PUBLICATION_REGISTRY_PLAN_CHANGED",
+                "registry base changed; no reviewed fork exists",
+            )
+        })?;
+    validate_fork(repo, input)
+}
+
 fn validate_fork(repo: Repository, input: &Submission<'_>) -> Result<Repository, AppError> {
     let expected_name = format!("{}/cadencr-registry", input.preview.account);
     if !repo.fork

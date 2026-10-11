@@ -4,6 +4,7 @@ mod fixture;
 mod identity;
 mod models;
 mod plan;
+mod recovery;
 mod state;
 mod transport;
 
@@ -42,7 +43,8 @@ pub struct SubmitPublicationRegistryRequest {
     pub confirmed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PublicationRegistryPreview {
     pub operation_id: String,
     pub bundle_ids: Vec<String>,
@@ -77,6 +79,7 @@ struct PreparedRegistry {
     repository_id: u64,
     documents: super::contribution::submission::Documents,
     transport: transport::Transport,
+    recovered: bool,
     _permit: tokio::sync::SemaphorePermit<'static>,
 }
 
@@ -97,6 +100,7 @@ pub async fn preview_publication_registry_handler(
         body.bundle_ids,
         body.release_notes,
         permit()?,
+        None,
     ))
     .await?;
     Ok(Json(prepared.preview))
@@ -137,6 +141,8 @@ pub async fn submit_publication_registry_handler(
         ));
     }
     let plan_sha256 = body.expected_plan_sha256.clone();
+    let mut body = body;
+    body.operation_id = Some(operation_id.clone());
     let result = super::super::publication_operations::execute()
         .project_id(project_id)
         .kind(super::super::publication_operations::PublicationOperationKind::Registry)
@@ -176,6 +182,7 @@ async fn submit(
         body.bundle_ids,
         body.release_notes,
         permit,
+        body.operation_id.clone(),
     )
     .await?;
     if body.expected_plan_sha256 != prepared.preview.plan_sha256 {
@@ -185,7 +192,8 @@ async fn submit(
             "registry plan changed; preview it again",
         ));
     }
-    let result = state::submit_with_transport(
+    recovery::persist(&prepared).await?;
+    let result = state::submit_reviewed(
         &prepared.transport,
         state::Submission {
             token: &prepared.token,
@@ -196,6 +204,7 @@ async fn submit(
             submission: &prepared.documents.submission,
             pull_request_body: &prepared.documents.markdown,
         },
+        prepared.recovered,
     )
     .await?;
     Ok(Json(result))
@@ -208,6 +217,7 @@ async fn prepare(
     bundle_ids: Vec<String>,
     release_notes: String,
     permit: tokio::sync::SemaphorePermit<'static>,
+    current_operation: Option<String>,
 ) -> Result<PreparedRegistry, AppError> {
     let mut prepared = prepare_context(
         state,
@@ -230,6 +240,25 @@ async fn prepare(
     prepared.local.metadata = axum::body::Bytes::new();
     super::github::verify_published_publication_release(&prepared.token, expectation).await?;
     let transport = transport::Transport::production()?;
+    if let Some(recovered) = recovery::recover(
+        &prepared.local.plan,
+        &documents,
+        &prepared.inspection.account,
+        current_operation,
+    )
+    .await?
+    {
+        return Ok(PreparedRegistry {
+            preview: recovered.preview,
+            token: prepared.token,
+            actor_id: recovered.actor_id,
+            repository_id: recovered.repository_id,
+            documents,
+            transport,
+            recovered: true,
+            _permit: prepared._permit,
+        });
+    }
     let remote = state::inspect(&transport, &prepared.token, &documents).await?;
     if remote.account != prepared.inspection.account {
         return Err(conflict(
@@ -258,6 +287,7 @@ async fn prepare(
         repository_id: remote.repository_id,
         documents,
         transport,
+        recovered: false,
         _permit: prepared._permit,
     })
 }

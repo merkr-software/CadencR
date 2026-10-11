@@ -7,10 +7,11 @@ use super::state::Submission;
 use super::transport::Transport;
 use crate::error::AppError;
 
-pub(super) async fn ensure_branch(
+pub(super) async fn ensure_branch_mode(
     transport: &Transport,
     input: &Submission<'_>,
     fork: &Repository,
+    allow_create: bool,
 ) -> Result<String, AppError> {
     let ref_path = format!(
         "/repos/{}/git/ref/heads/{}",
@@ -24,6 +25,12 @@ pub(super) async fn ensure_branch(
         validate_ref(&reference, input)?;
         validate_branch(transport, input, fork, &reference.object.sha).await?;
         return Ok(reference.object.sha);
+    }
+    if !allow_create {
+        return Err(conflict(
+            "PUBLICATION_REGISTRY_PLAN_CHANGED",
+            "registry base changed and the reviewed branch is absent; no writes are permitted",
+        ));
     }
     create_new_branch(transport, input, fork, &ref_path).await
 }
@@ -152,7 +159,7 @@ async fn create_blob(
         .sha)
 }
 
-async fn validate_branch(
+pub(super) async fn validate_branch(
     transport: &Transport,
     input: &Submission<'_>,
     fork: &Repository,
