@@ -1,10 +1,13 @@
 use std::path::Path;
 use std::time::Duration;
 
-use tokio::io::AsyncReadExt as _;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::process::Command;
 
 use crate::error::AppError;
+
+mod reference;
+pub use reference::git_ref_resolves_readonly;
 
 const MAX_OUTPUT_BYTES: u64 = 64 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(3);
@@ -18,6 +21,24 @@ async fn run_with_timeout(
     cwd: &Path,
     timeout: Duration,
 ) -> Result<String, AppError> {
+    let bytes = run_with_input()
+        .args(args)
+        .cwd(cwd)
+        .timeout(timeout)
+        .call()
+        .await?;
+    String::from_utf8(bytes)
+        .map(|value| value.trim().to_string())
+        .map_err(|_| failure("Git returned non-UTF-8 output"))
+}
+
+#[bon::builder]
+async fn run_with_input(
+    args: &[&str],
+    cwd: &Path,
+    #[builder(default = TIMEOUT)] timeout: Duration,
+    stdin: Option<&[u8]>,
+) -> Result<Vec<u8>, AppError> {
     let mut command = Command::new("git");
     command
         .args([
@@ -48,6 +69,13 @@ async fn run_with_timeout(
         .kill_on_drop(true)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
+    if stdin.is_some() {
+        // The protocol denylist also protects Git versions predating NO_LAZY_FETCH.
+        command
+            .stdin(std::process::Stdio::piped())
+            .env("GIT_NO_LAZY_FETCH", "1")
+            .env("GIT_ALLOW_PROTOCOL", "");
+    }
     let mut child = command
         .spawn()
         .map_err(|error| failure(format!("cannot start Git: {error}")))?;
@@ -59,14 +87,22 @@ async fn run_with_timeout(
         .stderr
         .take()
         .ok_or_else(|| failure("cannot capture Git stderr"))?;
+    let stdin_pipe = child.stdin.take();
     let collect = async move {
         let mut stdout = stdout;
         let mut stderr = stderr;
-        let (stdout_result, stderr_result, status_result) = tokio::join!(
+        let (stdin_result, stdout_result, stderr_result, status_result) = tokio::join!(
+            async {
+                if let (Some(mut pipe), Some(bytes)) = (stdin_pipe, stdin) {
+                    pipe.write_all(bytes).await?;
+                }
+                Ok::<(), std::io::Error>(())
+            },
             collect_bounded(&mut stdout),
             collect_bounded(&mut stderr),
             child.wait(),
         );
+        stdin_result.map_err(|error| failure(format!("cannot write Git stdin: {error}")))?;
         let (stdout_bytes, stdout_too_large) =
             stdout_result.map_err(|error| failure(format!("cannot read Git stdout: {error}")))?;
         let (_, stderr_too_large) =
@@ -79,9 +115,7 @@ async fn run_with_timeout(
         if !status.success() {
             return Err(failure("Git repository inspection failed"));
         }
-        String::from_utf8(stdout_bytes)
-            .map(|value| value.trim().to_string())
-            .map_err(|_| failure("Git returned non-UTF-8 output"))
+        Ok(stdout_bytes)
     };
     tokio::time::timeout(timeout, collect)
         .await
@@ -115,7 +149,7 @@ mod tests {
 
     use super::*;
 
-    fn git(root: &Path, args: &[&str]) {
+    pub(super) fn git(root: &Path, args: &[&str]) {
         assert!(StdCommand::new("git")
             .args(args)
             .current_dir(root)
@@ -124,7 +158,7 @@ mod tests {
             .success());
     }
 
-    fn repository() -> tempfile::TempDir {
+    pub(super) fn repository() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         git(dir.path(), &["init", "-q"]);
         std::fs::write(dir.path().join("tracked"), "content").unwrap();
@@ -186,6 +220,37 @@ mod tests {
                 .await
                 .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn bounded_collector_drains_overflow_without_retaining_it() {
+        let bytes = vec![b'x'; MAX_OUTPUT_BYTES as usize + 19];
+        let mut stream = bytes.as_slice();
+        let (kept, too_large) = collect_bounded(&mut stream).await.unwrap();
+        assert_eq!(kept.len(), MAX_OUTPUT_BYTES as usize);
+        assert!(too_large);
+        assert!(stream.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn stdin_runner_timeout_covers_pipes_inherited_by_a_descendant() {
+        let repo = repository();
+        git(
+            repo.path(),
+            &["config", "alias.hold-pipe", "!sh -c 'sleep 1 &'"],
+        );
+        let started = std::time::Instant::now();
+        let error = run_with_input()
+            .args(&["hold-pipe"])
+            .cwd(repo.path())
+            .stdin(b"HEAD\n".as_slice())
+            .timeout(Duration::from_millis(100))
+            .call()
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 
     #[cfg(unix)]
