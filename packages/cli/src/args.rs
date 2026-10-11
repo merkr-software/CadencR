@@ -62,6 +62,9 @@ pub(crate) enum RegistryCommand {
     },
     /// Build a deterministic, unsigned index from local packages.
     BuildIndex {
+        /// Schema 1 preserves legacy providers; schema 2 accepts discriminated mixed content.
+        #[arg(long, default_value_t = 1)]
+        schema_version: u64,
         #[arg(long)]
         packages: PathBuf,
         #[arg(long)]
@@ -146,6 +149,28 @@ pub(crate) enum RegistryCommand {
         #[arg(long)]
         allow_expired: bool,
     },
+    /// Sign a domain-bound theme revocation policy.
+    SignThemeBlocklist {
+        #[arg(long)]
+        payload: PathBuf,
+        #[arg(long)]
+        private_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        output: PathBuf,
+    },
+    /// Verify a domain-bound signed theme revocation policy.
+    VerifyThemeBlocklist {
+        #[arg(long)]
+        index: PathBuf,
+        #[arg(long)]
+        public_key: PathBuf,
+        #[arg(long)]
+        key_id: String,
+        #[arg(long)]
+        allow_expired: bool,
+    },
     /// Join a validated canonical payload and detached signature document.
     AssembleSignedIndex {
         #[arg(long)]
@@ -216,6 +241,9 @@ pub(crate) struct PublishCatalogArgs {
     /// Exact previous catalog file, or the literal bootstrap for the first publication.
     #[arg(long)]
     pub(crate) previous_index: String,
+    /// Explicitly permit an authenticated schema 1 to 2 transition (never downgrade).
+    #[arg(long)]
+    pub(crate) allow_schema_upgrade: bool,
     #[arg(long)]
     pub(crate) public_key: PathBuf,
     #[arg(long)]

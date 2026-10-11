@@ -1,9 +1,11 @@
 use chrono::Utc;
 use sha2::{Digest as _, Sha256};
 
-use super::CatalogSnapshot;
+use super::{required_timestamp, signed, CatalogSnapshot, CATALOG_LIMIT};
 use crate::error::RegistryError;
 use crate::index::validate_fresh_window;
+use crate::json::canonical_json_bytes;
+use serde_json::Value;
 
 pub(super) fn digest(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
@@ -12,7 +14,56 @@ pub(super) fn digest(bytes: &[u8]) -> String {
         .collect()
 }
 
+pub(super) fn assemble_snapshot(
+    envelope: Value,
+    canonical_payload: Vec<u8>,
+    previous_sha256: Option<String>,
+    repository: &str,
+    registry_commit: &str,
+) -> Result<CatalogSnapshot, RegistryError> {
+    let signed = signed(&envelope);
+    let generated_at = required_timestamp(signed, "generated_at")?.to_owned();
+    let expires_at = required_timestamp(signed, "expires_at")?.to_owned();
+    let mut canonical_envelope = canonical_json_bytes(&envelope);
+    canonical_envelope.push(b'\n');
+    if canonical_envelope.len() as u64 > CATALOG_LIMIT {
+        return Err(RegistryError::single("catalog snapshot exceeds 32 MiB"));
+    }
+    let sha256 = digest(&canonical_envelope);
+    let tag = if signed["schema_version"] == 2 {
+        format!("marketplace-v2-{sha256}")
+    } else {
+        format!("catalog-{sha256}")
+    };
+    let prior = previous_sha256.as_deref().unwrap_or("bootstrap");
+    let body = format!("cadencr-registry-catalog-v1\ncatalog-sha256:{sha256}\nregistry-commit:{registry_commit}\nprevious-sha256:{prior}");
+    let expected_url =
+        format!("https://github.com/{repository}/releases/download/{tag}/managed-index.json");
+    Ok(CatalogSnapshot {
+        schema_version: signed["schema_version"].as_u64().expect("verified schema"),
+        canonical_payload,
+        canonical_envelope,
+        sha256,
+        tag,
+        body,
+        expected_url,
+        discovery_bootstrap: previous_sha256.is_none(),
+        previous_sha256,
+        generated_at,
+        expires_at,
+        repository: repository.into(),
+        registry_commit: registry_commit.into(),
+    })
+}
+
 impl CatalogSnapshot {
+    /// A new isolated schema-2 namespace may bootstrap after authenticated schema-1 continuity.
+    pub fn discovery_bootstrap(&self) -> bool {
+        self.discovery_bootstrap
+    }
+    pub fn schema_version(&self) -> u64 {
+        self.schema_version
+    }
     pub fn canonical_payload(&self) -> &[u8] {
         &self.canonical_payload
     }
@@ -66,6 +117,8 @@ mod tests {
 
     fn snapshot() -> CatalogSnapshot {
         CatalogSnapshot {
+            schema_version: 1,
+            discovery_bootstrap: true,
             canonical_payload: vec![],
             canonical_envelope: vec![],
             sha256: String::new(),

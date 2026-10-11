@@ -2,6 +2,7 @@ mod archive;
 mod input;
 mod output;
 mod quota;
+mod theme;
 
 use axum::extract::rejection::JsonRejection;
 use axum::extract::{DefaultBodyLimit, Json, Path, State};
@@ -23,7 +24,9 @@ static PACKAGE_BUILD: Semaphore = Semaphore::const_new(1);
 #[serde(deny_unknown_fields)]
 pub struct PreparePublicationPackageRequest {
     pub metadata_json: String,
+    #[serde(default)]
     pub staging_directory: String,
+    #[serde(default)]
     pub target: String,
 }
 
@@ -31,6 +34,7 @@ pub struct PreparePublicationPackageRequest {
 pub struct PreparedPublicationPackage {
     pub project_id: i64,
     pub plugin_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub target: String,
     pub archive_path: String,
     pub metadata_path: String,
@@ -56,8 +60,8 @@ pub async fn prepare_publication_package_handler(
     payload: Result<Json<PreparePublicationPackageRequest>, JsonRejection>,
 ) -> Result<Json<PreparedPublicationPackage>, AppError> {
     let Json(body) = payload.map_err(json_rejection)?;
-    let (project_root, plugin_id) =
-        super::publication_readiness::provider_project(&state.read_pool, project_id).await?;
+    let (project_root, plugin_id, kind) =
+        super::publication_readiness::author_project(&state.read_pool, project_id).await?;
     let output_root =
         crate::domain::settings_store::dir::sibling_dir("provider-publication-bundles");
     let permit = PACKAGE_BUILD.try_acquire().map_err(|_| {
@@ -72,6 +76,9 @@ pub async fn prepare_publication_package_handler(
     // bundle quota prevents abandoned successful outputs from growing without bound.
     let response = tokio::task::spawn_blocking(move || {
         let _permit = permit;
+        if kind == super::models::ProjectAuthoringTarget::Theme {
+            return theme::build(project_id, project_root, plugin_id, output_root, body);
+        }
         let prepared = input::prepare(project_id, project_root, plugin_id, output_root, body)?;
         output::build_package(prepared)
     })

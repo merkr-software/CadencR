@@ -110,6 +110,12 @@ mod tests {
         };
         let a = pack(&first).unwrap();
         let b = pack(&second).unwrap();
+        crate::verify_theme_archive(&first).unwrap();
+        let junk = root.path().join("junk.tar.gz");
+        let mut bytes = std::fs::read(&first).unwrap();
+        bytes.push(0);
+        std::fs::write(&junk, bytes).unwrap();
+        assert!(crate::verify_theme_archive(&junk).is_err());
         assert_eq!(a.sha256, b.sha256);
         let mut tar = Vec::new();
         std::io::Read::read_to_end(

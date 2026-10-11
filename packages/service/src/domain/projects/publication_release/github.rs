@@ -145,6 +145,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn theme_release_reconciles_lost_responses_and_exact_retry_without_acp_platform() {
+        let fixture = Fixture::start(FixtureOptions {
+            lose_create: true,
+            lose_first_upload: true,
+            lose_publish: true,
+            ..FixtureOptions::default()
+        })
+        .await;
+        let archive = tempfile::NamedTempFile::new().unwrap();
+        std::fs::write(archive.path(), b"archive").unwrap();
+        let file = super::super::remote::ArchiveFile::open(archive.path(), 1024).unwrap();
+        let empty = axum::body::Bytes::new();
+        let metadata = axum::body::Bytes::from_static(
+            br#"{"kind":"theme","package":{"theme":{"id":"acme"}}}"#,
+        );
+        let sha = super::super::local::digest(&metadata);
+        let mut candidate = request(&empty, &metadata);
+        candidate.archive = None;
+        candidate.archive_file = Some(&file);
+        candidate.archive_name = "theme.tar.gz";
+        candidate.metadata_sha256 = &sha;
+        let first = state::publish(&fixture.transport, "secret", &candidate)
+            .await
+            .unwrap();
+        assert!(!first.already_published);
+        assert_eq!(fixture.asset_count(), 2);
+        let writes = fixture.writes();
+        let second = state::publish(&fixture.transport, "secret", &candidate)
+            .await
+            .unwrap();
+        assert!(second.already_published);
+        assert_eq!(fixture.writes(), writes);
+    }
+
+    #[tokio::test]
     async fn publishes_a_revalidated_file_backed_archive() {
         let fixture = Fixture::start(FixtureOptions::default()).await;
         let archive = tempfile::NamedTempFile::new().unwrap();

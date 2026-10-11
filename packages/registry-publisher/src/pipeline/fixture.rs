@@ -20,7 +20,8 @@ pub(super) struct Client {
     pub(super) tags: RefCell<HashMap<String, String>>,
     pub(super) releases: RefCell<HashMap<String, Release>>,
     assets: RefCell<HashMap<u64, Vec<Asset>>>,
-    bytes: RefCell<HashMap<String, Vec<u8>>>,
+    pub(super) bytes: RefCell<HashMap<String, Vec<u8>>>,
+    pub(super) branch: RefCell<String>,
     head: RefCell<Option<DiscoveryHead>>,
     pub(super) writes: Cell<u64>,
     pub(super) requests: RefCell<Vec<String>>,
@@ -40,7 +41,15 @@ impl Client {
         }
     }
     fn raw_url(&self) -> String {
-        cadencr_registry_core::discovery_url(REPOSITORY, "main").unwrap()
+        cadencr_registry_core::discovery_url(
+            REPOSITORY,
+            if self.branch.borrow().is_empty() {
+                "main"
+            } else {
+                "marketplace-v2"
+            },
+        )
+        .unwrap()
     }
 }
 impl PipelineClient for Client {
@@ -129,7 +138,14 @@ impl ReleaseClient for Client {
 }
 impl DiscoveryClient for Client {
     fn get_discovery(&self, branch: &str) -> Result<Option<DiscoveryHead>, PublisherError> {
-        assert_eq!(branch, "main");
+        assert_eq!(
+            branch,
+            if self.branch.borrow().is_empty() {
+                "main"
+            } else {
+                "marketplace-v2"
+            }
+        );
         Ok(self.head.borrow().clone())
     }
     fn set_discovery(&self, request: SetDiscoveryRequest<'_>) -> Result<(), PublisherError> {
@@ -237,5 +253,105 @@ impl Fixture {
     }
     pub(super) fn write_request(&self, value: Value) {
         std::fs::write(&self.request, serde_json::to_vec(&value).unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fixture() -> Fixture {
+        let fixture = Fixture::new();
+        let base = fixture.request.parent().unwrap();
+        let folder = base.join("theme");
+        std::fs::create_dir(&folder).unwrap();
+        let mut vars = serde_json::Map::new();
+        for token in cadencr_plugin_core::theme::tokens::REQUIRED_TOKENS {
+            vars.insert((*token).into(), json!("#000000"));
+        }
+        for pair in cadencr_plugin_core::theme::tokens::CONTRAST_PAIRS {
+            vars.insert(pair.foreground.into(), json!("#ffffff"));
+        }
+        let schema: Value =
+            serde_json::from_str(&cadencr_plugin_core::theme::schema::render()).unwrap();
+        let xterm = schema["properties"]["xterm"]["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|k| (k.clone(), json!("#ffffff")))
+            .collect::<serde_json::Map<_, _>>();
+        std::fs::write(
+            folder.join("theme.json"),
+            serde_json::to_vec(
+                &json!({"label":"Midnight","appearance":"dark","cssVars":vars,"xterm":xterm}),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let archive = base.join("theme.tar.gz");
+        let packed = cadencr_registry_core::pack_theme(
+            cadencr_registry_core::PackThemeRequest::builder()
+                .directory(&folder)
+                .output(&archive)
+                .build(),
+        )
+        .unwrap();
+        let source = "https://github.com/acme/themes/releases/download/v1/theme.tar.gz";
+        let submission = json!({"schema_version":2,"package":{"kind":"theme","package":{"theme":{"id":"midnight","name":"Midnight","description":"Dark theme","version":"1.0.0","license":"MIT","repository":"https://github.com/acme/themes","document_version":1,"distribution":{"archive":source,"sha256":packed.sha256}},"host":{"publisher":"acme","compatibility":{"min_app_version":"1.0.0"}}}},"source":{"repository":"https://github.com/acme/themes","commit":"a".repeat(40),"tag":"v1"},"changelog":"Theme release"});
+        std::fs::write(
+            base.join("submission.json"),
+            serde_json::to_vec(&submission).unwrap(),
+        )
+        .unwrap();
+        fixture
+            .client
+            .bytes
+            .borrow_mut()
+            .insert(source.into(), std::fs::read(archive).unwrap());
+        fixture.client.branch.replace("marketplace-v2".into());
+        let mut request = fixture.request_value();
+        request["schema_version"] = json!(2);
+        request["discovery_branch"] = json!("marketplace-v2");
+        fixture.write_request(request);
+        fixture
+    }
+
+    #[test]
+    fn theme_publication_replays_and_renews_without_source_archives() {
+        let mut fixture = fixture();
+        fixture.client.lose_responses.set(true);
+        fixture.run().unwrap();
+        let catalog = std::fs::read(fixture.state.join("managed-index.json")).unwrap();
+        let document: Value = serde_json::from_slice(&catalog).unwrap();
+        assert_eq!(document["signed"]["schema_version"], 2);
+        assert_eq!(document["signed"]["packages"][0]["kind"], "theme");
+        let writes = fixture.client.writes.get();
+        fixture.run().unwrap();
+        assert_eq!(fixture.client.writes.get(), writes);
+        fixture.client.lose_responses.set(false);
+        let base = fixture.request.parent().unwrap();
+        std::fs::write(base.join("previous.json"), &catalog).unwrap();
+        let mut request = fixture.request_value();
+        request["previous_index"] = json!("previous.json");
+        request["publications"] = json!([]);
+        let timestamp =
+            chrono::DateTime::parse_from_rfc3339(request["generated_at"].as_str().unwrap())
+                .unwrap()
+                + chrono::Duration::seconds(1);
+        request["generated_at"] =
+            json!(timestamp.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+        fixture.write_request(request);
+        fixture.state = base.join("renewal-state");
+        fixture.client.dead_sources.set(true);
+        fixture.run().unwrap();
+        let renewed: Value = serde_json::from_slice(
+            &std::fs::read(fixture.state.join("managed-index.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            renewed["signed"]["packages"],
+            document["signed"]["packages"]
+        );
     }
 }

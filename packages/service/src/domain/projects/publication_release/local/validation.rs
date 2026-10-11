@@ -27,7 +27,7 @@ pub(super) fn single_target(
         .ok_or_else(|| invalid("package binary target is missing"))
 }
 
-pub(super) fn parse_repository(raw: Option<&str>) -> Result<String, AppError> {
+pub(crate) fn parse_repository(raw: Option<&str>) -> Result<String, AppError> {
     let raw = raw.ok_or_else(|| invalid("package repository is required"))?;
     validate_text("repository", raw)?;
     let url = reqwest::Url::parse(raw).map_err(|_| invalid("repository must be a URL"))?;
@@ -57,7 +57,7 @@ pub(super) fn parse_repository(raw: Option<&str>) -> Result<String, AppError> {
     Ok(format!("{}/{}", parts[0], parts[1]))
 }
 
-pub(super) fn validate_archive_url(
+pub(crate) fn validate_archive_url(
     raw: &str,
     repository: &str,
 ) -> Result<(String, String), AppError> {

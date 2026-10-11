@@ -16,6 +16,8 @@ use super::descriptor::AcpAgentEntry;
 pub mod archive;
 pub mod blocklist;
 pub mod catalog;
+mod catalog_contract;
+pub use catalog_contract::SignedProviderCatalog;
 pub mod conformance;
 pub mod download;
 mod error;

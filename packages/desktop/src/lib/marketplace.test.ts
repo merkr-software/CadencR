@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { ManagedCatalogResponse, ManagedProviderPackage } from "@/api/generated";
-import { catalogSchema, groupPackages, usableCatalog, marketplaceError } from "./marketplace";
+import {
+  catalogSchema,
+  groupPackages,
+  usableCatalog,
+  marketplaceError,
+  providerCatalogPackages,
+} from "./marketplace";
 
 const provider: ManagedProviderPackage = {
   agent: {
@@ -57,7 +63,9 @@ describe("marketplace catalog boundary", () => {
   });
   it("validates without dropping signed ACP extension fields", () => {
     const original = JSON.stringify(catalog);
-    expect(catalogSchema.parse(catalog).index?.signed.packages[0].agent.vendor_extension).toEqual({
+    expect(
+      providerCatalogPackages(catalogSchema.parse(catalog).index)[0].agent.vendor_extension,
+    ).toEqual({
       preserved: true,
     });
     expect(JSON.stringify(catalog)).toBe(original);
@@ -66,6 +74,85 @@ describe("marketplace catalog boundary", () => {
   it("groups exact versions without inventing a latest version", () => {
     const other = { ...provider, agent: { ...provider.agent, version: "2.0.0" } };
     expect(groupPackages([provider, other])).toEqual([[provider, other]]);
+  });
+});
+
+const mixedCatalog: ManagedCatalogResponse = {
+  ...catalog,
+  index: {
+    signature: catalog.index!.signature,
+    signed: {
+      ...catalog.index!.signed,
+      schema_version: 2,
+      packages: [
+        { kind: "provider", package: provider },
+        {
+          kind: "theme",
+          package: {
+            theme: {
+              id: "midnight",
+              name: "Midnight",
+              description: "Theme",
+              version: "1.0.0",
+              repository: "https://github.com/acme/themes",
+              license: "MIT",
+              document_version: 1,
+              distribution: {
+                archive: "https://github.com/acme/themes/releases/download/v1/theme.tgz",
+                sha256: "a".repeat(64),
+              },
+            },
+            host: { publisher: "acme", compatibility: { min_app_version: "0.1.0" } },
+          },
+        },
+      ],
+    },
+  },
+};
+describe("mixed catalog provider presentation", () => {
+  it("validates both kinds but groups only provider bodies without changing the signed envelope", () => {
+    const serialized = JSON.stringify(mixedCatalog);
+    expect(catalogSchema.safeParse(mixedCatalog).success).toBe(true);
+    expect(usableCatalog(mixedCatalog)).toBe(true);
+    expect(groupPackages(providerCatalogPackages(mixedCatalog.index))).toEqual([[provider]]);
+    expect(JSON.stringify(mixedCatalog)).toBe(serialized);
+  });
+  it("rejects unknown envelopes, kinds, nested distribution fields, and malformed theme bodies", () => {
+    const bad = structuredClone(mixedCatalog);
+    for (const index of [
+      { ...mixedCatalog.index, future: true },
+      { ...mixedCatalog.index, signed: { ...mixedCatalog.index!.signed, schema_version: 3 } },
+      {
+        ...mixedCatalog.index,
+        signed: {
+          ...mixedCatalog.index!.signed,
+          packages: [{ kind: "future", package: provider }],
+        },
+      },
+      {
+        ...mixedCatalog.index,
+        signed: { ...mixedCatalog.index!.signed, packages: [{ kind: "theme", package: provider }] },
+      },
+      {
+        ...mixedCatalog.index,
+        signed: {
+          ...mixedCatalog.index!.signed,
+          packages: [
+            {
+              kind: "provider",
+              package: {
+                ...provider,
+                agent: {
+                  ...provider.agent,
+                  distribution: { npx: { package: "p", cmd: "unexpected" } },
+                },
+              },
+            },
+          ],
+        },
+      },
+    ])
+      expect(catalogSchema.safeParse({ ...bad, index }).success).toBe(false);
   });
 });
 

@@ -9,6 +9,7 @@ use serde::Deserialize;
 use std::collections::BTreeSet;
 
 #[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 #[serde(deny_unknown_fields)]
 pub struct PublicationOperationsQuery {
     pub limit: Option<usize>,
@@ -123,4 +124,27 @@ pub fn router() -> Router<AppState> {
             "/api/projects/{id}/publication-operations/{operation_id}",
             get(get_publication_operation_handler),
         )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn pagination_is_documented_as_query_not_path_parameters() {
+        use utoipa::OpenApi as _;
+        #[derive(utoipa::OpenApi)]
+        #[openapi(paths(super::list_publication_operations_handler))]
+        struct Api;
+        let document = serde_json::to_value(Api::openapi()).unwrap();
+        let parameters = document["paths"]["/api/projects/{id}/publication-operations"]["get"]
+            ["parameters"]
+            .as_array()
+            .unwrap();
+        for name in ["limit", "cursor"] {
+            let parameter = parameters
+                .iter()
+                .find(|value| value["name"] == name)
+                .unwrap();
+            assert_eq!(parameter["in"], "query");
+        }
+    }
 }

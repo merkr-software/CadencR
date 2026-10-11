@@ -10,7 +10,7 @@ use super::service::{
     ManagedMutation, ManagedProviderInventoryEntry, ManagedProviderService,
     ManagedProvidersInventory,
 };
-use super::SignedManagedProviderIndex;
+use super::SignedProviderCatalog;
 use crate::app_state::AppState;
 use crate::error::AppError;
 
@@ -18,13 +18,13 @@ use crate::error::AppError;
 pub struct InstallManagedProviderRequest {
     pub provider_id: String,
     pub version: String,
-    pub index: SignedManagedProviderIndex,
+    pub index: SignedProviderCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct UpdateManagedProviderRequest {
     pub version: String,
-    pub index: SignedManagedProviderIndex,
+    pub index: SignedProviderCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]

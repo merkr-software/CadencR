@@ -21,6 +21,7 @@ import { WorktreeSetupFields } from "@/components/settings/WorktreeSetupFields";
 import { settingsArrayToMap } from "@/api/settings";
 import { ProviderPublicationPreparation } from "./ProviderPublicationPreparation";
 import { ProviderPublicationPackagePreparation } from "./ProviderPublicationPackagePreparation";
+import { ThemePublicationPackagePreparation } from "./ThemePublicationPackagePreparation";
 
 const PROJECT_SETTING_KEYS = {
   branchPrefix: "branch_prefix",
@@ -84,6 +85,15 @@ export function ProjectSettingsDialog({
             <>
               <ProviderPublicationPreparation projectId={projectId} enabled={open} />
               <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
+          ) : authoringTarget === "theme" ? (
+            <>
+              <ProviderPublicationPreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind="theme"
+              />
+              <ThemePublicationPackagePreparation projectId={projectId} enabled={open} />
             </>
           ) : null}
           <IdentitySection

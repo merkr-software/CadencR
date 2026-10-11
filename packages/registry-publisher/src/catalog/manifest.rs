@@ -16,6 +16,8 @@ pub(super) struct Manifest {
     pub(super) publications: Vec<Publication>,
     #[serde(default)]
     pub(super) baseline: Option<Baseline>,
+    #[serde(default)]
+    pub(super) allow_schema_upgrade: bool,
 }
 
 #[derive(Deserialize)]
@@ -43,8 +45,13 @@ pub(super) fn read_manifest(path: &Path) -> Result<Manifest, PublisherError> {
 }
 
 pub(super) fn validate_manifest(manifest: &Manifest) -> Result<(), PublisherError> {
-    if manifest.schema_version != 1 {
-        return Err(PublisherError::new("manifest.schema_version must equal 1"));
+    if !matches!(manifest.schema_version, 1 | 2) {
+        return Err(PublisherError::new(
+            "manifest.schema_version must equal 1 or 2",
+        ));
+    }
+    if manifest.schema_version == 1 && manifest.allow_schema_upgrade {
+        return Err(PublisherError::new("schema1 cannot request schema upgrade"));
     }
     if !cadencr_registry_core::valid_publication_repository(&manifest.repository) {
         return Err(PublisherError::new("manifest.repository is invalid"));
@@ -174,30 +181,35 @@ mod tests {
         };
         for value in [
             Manifest {
+                allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
                 repository: "invalid".into(),
                 publications: vec![entry("x", "y", &"b".repeat(40))],
             },
             Manifest {
+                allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: vec![],
             },
             Manifest {
+                allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: (0..101).map(|_| entry("x", "y", &"b".repeat(40))).collect(),
             },
             Manifest {
+                allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),
                 publications: vec![entry("x\0bad", "y", &"b".repeat(40))],
             },
             Manifest {
+                allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
                 repository: "cadencr/registry".into(),

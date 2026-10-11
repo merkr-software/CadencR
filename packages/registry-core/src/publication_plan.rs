@@ -37,6 +37,10 @@ pub fn create_publication_plan(
         ));
     }
 
+    if submission.get("schema_version") == Some(&Value::from(2)) {
+        return crate::marketplace_plan::create(submission, repository);
+    }
+
     // Submission validation guarantees these fields. Keep extraction fallible
     // so this public boundary cannot panic if that contract changes later.
     let agent = required_object(submission.pointer("/package/agent"), "package.agent")?;

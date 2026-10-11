@@ -3,7 +3,7 @@ use serde_json::{Map, Value};
 
 use crate::diagnostics::Diagnostics;
 
-mod host;
+pub(crate) mod host;
 mod util;
 use host::validate_host;
 pub(crate) use util::{
@@ -16,6 +16,10 @@ use util::{
 };
 
 pub(crate) fn validate_package(value: &Value, label: &str, errors: &mut Diagnostics) {
+    if value.get("kind").is_some() {
+        crate::marketplace::validate(value, label, errors);
+        return;
+    }
     let Some(package) = object(value, label, errors) else {
         return;
     };

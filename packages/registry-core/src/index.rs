@@ -13,6 +13,7 @@ use crate::tree::load_packages;
 #[bon::builder]
 pub fn build_index(
     packages_dir: &Path,
+    #[builder(default = 1)] schema_version: u64,
     generated_at: &str,
     expires_at: &str,
 ) -> Result<Vec<u8>, RegistryError> {
@@ -35,8 +36,21 @@ pub fn build_index(
     if !errors.is_empty() {
         return Err(RegistryError::from_messages(errors.into_messages()));
     }
+    // Only unsigned directory assembly adapts immutable legacy documents in memory.
+    // Signed payload validation and authenticated upgrade policy never call this path.
+    if schema_version == 2 {
+        for package in &mut packages {
+            if package.get("kind").is_none() {
+                validate_package(package, "legacy provider package", &mut errors);
+                if !errors.is_empty() {
+                    return Err(RegistryError::from_messages(errors.into_messages()));
+                }
+                *package = json!({"kind": "provider", "package": package});
+            }
+        }
+    }
     packages.sort_by(compare_packages);
-    let index = json!({"schema_version": 1, "generated_at": generated_at, "expires_at": expires_at, "packages": packages});
+    let index = json!({"schema_version": schema_version, "generated_at": generated_at, "expires_at": expires_at, "packages": packages});
     validate_index(&index, Utc::now(), false)?;
     Ok(canonical_json(&index).into_bytes())
 }
@@ -56,8 +70,9 @@ pub(crate) fn validate_index(
         "index",
         &mut errors,
     );
-    if object.get("schema_version") != Some(&Value::from(1)) {
-        errors.push("index.schema_version must equal 1".into());
+    let schema = object.get("schema_version").and_then(Value::as_u64);
+    if !matches!(schema, Some(1 | 2)) {
+        errors.push("index.schema_version must equal 1 or 2".into());
     }
     validate_window(object, now, allow_expired, &mut errors);
     let Some(packages) = object.get("packages").and_then(Value::as_array) else {
@@ -71,10 +86,24 @@ pub(crate) fn validate_index(
         if errors.is_full() {
             break;
         }
-        validate_package(package, &format!("index.packages[{position}]"), &mut errors);
+        if schema == Some(2) {
+            crate::marketplace::validate(
+                package,
+                &format!("index.packages[{position}]"),
+                &mut errors,
+            );
+        } else {
+            if package.get("kind").is_some() {
+                errors.push("schema1 packages must be legacy provider packages".into());
+            }
+            validate_package(package, &format!("index.packages[{position}]"), &mut errors);
+        }
     }
     if !errors.is_empty() {
         return Err(RegistryError::from_messages(errors.into_messages()));
+    }
+    if schema == Some(2) {
+        crate::catalog::validate_catalog_identities_with_label(packages, "repository")?;
     }
     let identities = packages.iter().filter_map(identity).collect::<Vec<_>>();
     if identities
@@ -261,6 +290,53 @@ mod tests {
             .call()
             .unwrap_err();
         assert!(error.to_string().contains("duplicate id@version"));
+    }
+
+    #[test]
+    fn mixed_directory_wraps_valid_legacy_providers_losslessly_without_mutation() {
+        let root = tempfile::tempdir().unwrap();
+        let mut provider = package("alpha", "1.0.0");
+        provider["agent"]["x-custom-extension"] = json!({"nested":[1,"kept"]});
+        let theme = json!({"kind":"theme","package":{"theme":{"id":"midnight","name":"Midnight","description":"Dark theme","version":"1.0.0","repository":"https://github.com/acme/themes","license":"MIT","document_version":1,"distribution":{"archive":"https://github.com/acme/themes/releases/download/v1/theme.tar.gz","sha256":"a".repeat(64)}},"host":{"publisher":"acme","compatibility":{"min_app_version":"1.0.0"}}}});
+        write_package(root.path(), "legacy.json", &provider);
+        write_package(root.path(), "theme.json", &theme);
+        let original = std::fs::read(root.path().join("legacy.json")).unwrap();
+        let generated =
+            (Utc::now() - Duration::minutes(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let expires =
+            (Utc::now() + Duration::days(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let bytes = build_index()
+            .packages_dir(root.path())
+            .schema_version(2)
+            .generated_at(&generated)
+            .expires_at(&expires)
+            .call()
+            .unwrap();
+        let index: Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            index["packages"][0],
+            json!({"kind":"provider","package":provider})
+        );
+        assert_eq!(index["packages"][1], theme);
+        assert_eq!(
+            std::fs::read(root.path().join("legacy.json")).unwrap(),
+            original
+        );
+        assert!(build_index()
+            .packages_dir(root.path())
+            .generated_at(&generated)
+            .expires_at(&expires)
+            .call()
+            .is_err());
+        provider["host"]["publisher"] = Value::Null;
+        write_package(root.path(), "legacy.json", &provider);
+        assert!(build_index()
+            .packages_dir(root.path())
+            .schema_version(2)
+            .generated_at(&generated)
+            .expires_at(&expires)
+            .call()
+            .is_err());
     }
 
     #[test]

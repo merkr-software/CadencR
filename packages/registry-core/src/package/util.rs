@@ -108,6 +108,9 @@ pub(crate) fn normalized_provider_id(value: &str) -> String {
         .collect()
 }
 pub(crate) fn identity(value: &Value) -> Option<(&str, &str)> {
+    if value.get("kind").is_some() {
+        return crate::marketplace::marketplace_package_identity(value);
+    }
     Some((
         value.pointer("/agent/id")?.as_str()?,
         value.pointer("/agent/version")?.as_str()?,

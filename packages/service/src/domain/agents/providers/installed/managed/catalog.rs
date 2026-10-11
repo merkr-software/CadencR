@@ -10,7 +10,7 @@ use futures::StreamExt as _;
 use serde::Serialize;
 
 use super::trust::{ManagedTrustStore, VerifiedManagedProviderIndex};
-use super::SignedManagedProviderIndex;
+use super::SignedProviderCatalog;
 
 mod cache;
 mod recommendation;
@@ -47,7 +47,7 @@ pub struct ManagedCatalogResponse {
     pub signer_key_id: Option<String>,
     pub generated_at: Option<String>,
     pub expires_at: Option<String>,
-    pub index: Option<SignedManagedProviderIndex>,
+    pub index: Option<SignedProviderCatalog>,
     /// Host-compatible recommendation per provider, outside the signed payload.
     #[serde(default)]
     pub recommended_versions: std::collections::BTreeMap<String, String>,
@@ -118,6 +118,22 @@ impl ManagedCatalogResponse {
             error: fallback_error.map(|error| error.message),
         }
     }
+}
+
+pub(crate) fn admit_request(
+    path: &Path,
+    trust: &ManagedTrustStore,
+    index: SignedProviderCatalog,
+) -> Result<(), crate::error::AppError> {
+    cache::persist(path, trust, index, Utc::now())
+        .map(|_| ())
+        .map_err(|error| {
+            crate::error::AppError::coded(
+                axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+                error.code.as_str(),
+                error.message,
+            )
+        })
 }
 
 pub async fn acquire(
@@ -217,7 +233,7 @@ async fn refresh_inner(
         }
         bytes.extend_from_slice(&chunk);
     }
-    let envelope = serde_json::from_slice(&bytes)
+    let envelope: SignedProviderCatalog = serde_json::from_slice(&bytes)
         .map_err(|error| invalid(format!("downloaded catalog is invalid: {error}")))?;
     // Freshness is a property at acceptance time, not request-start time. A
     // catalog can expire while a slow response is still arriving.

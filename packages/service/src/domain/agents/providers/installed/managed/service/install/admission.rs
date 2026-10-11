@@ -18,14 +18,14 @@ use crate::domain::agents::providers::installed::managed::receipt::{
     ManagedTrustReceipt, MANAGED_RECEIPT_SCHEMA_VERSION,
 };
 use crate::domain::agents::providers::installed::managed::{
-    ResolvedManagedProviderPackage, SignedManagedProviderIndex,
+    ResolvedManagedProviderPackage, SignedProviderCatalog,
 };
 use crate::error::AppError;
 
 pub(super) struct AdmissionRequest<'a> {
     pub(super) package: &'a ResolvedManagedProviderPackage,
     pub(super) agent: AcpAgentEntry,
-    pub(super) signed_index: SignedManagedProviderIndex,
+    pub(super) signed_index: SignedProviderCatalog,
     pub(super) signer_key_id: &'a str,
     pub(super) signed_payload_sha256: &'a str,
 }
@@ -231,7 +231,7 @@ async fn run_conformance(
 struct ReceiptInput<'a> {
     package: &'a ResolvedManagedProviderPackage,
     agent: AcpAgentEntry,
-    signed_index: SignedManagedProviderIndex,
+    signed_index: SignedProviderCatalog,
     signer_key_id: &'a str,
     signed_payload_sha256: &'a str,
     archive_size: u64,

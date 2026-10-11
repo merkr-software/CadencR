@@ -19,13 +19,18 @@ pub async fn inspect(
     pool: &SqlitePool,
     project_id: i64,
 ) -> Result<PublicationReadinessResponse, AppError> {
-    let (root, plugin_id) = provider_project(pool, project_id).await?;
+    let (root, plugin_id, target) = author_project(pool, project_id).await?;
+    let theme = target == ProjectAuthoringTarget::Theme;
     // Resolve before spawn_blocking: test settings directories are thread-local.
     let descriptor_dir = descriptors_dir();
     let files_root = root.clone();
     let files_plugin_id = plugin_id.clone();
     let mut checks = tokio::task::spawn_blocking(move || {
-        files::checks(&files_root, &files_plugin_id, &descriptor_dir)
+        if theme {
+            theme_checks(&files_root)
+        } else {
+            files::checks(&files_root, &files_plugin_id, &descriptor_dir)
+        }
     })
     .await
     .map_err(|error| AppError::Internal(format!("publication inspection task failed: {error}")))?;
@@ -36,8 +41,12 @@ pub async fn inspect(
     } else {
         PublicationPreparationStatus::Prepared
     };
-    let summary = if blocked {
-        "Local provider preparation has blocking issues. Passing these checks still requires packaging, connector conformance, source-release, maintainer, and registry verification."
+    let summary = if theme && blocked {
+        "Local theme preparation has blocking issues. Strict declarative document and raster validation, source-release, maintainer, and registry verification are required."
+    } else if theme {
+        "No blocking local issues found. This is not publication approval: closed declarative packaging, source-release, maintainer, and registry verification remain."
+    } else if blocked {
+        "Local package preparation has blocking issues. Passing these checks still requires packaging, connector conformance, source-release, maintainer, and registry verification."
     } else {
         "No blocking local issues found. This is not release or publication approval: packaging, connector conformance, source-release, maintainer, and registry verification remain."
     };
@@ -47,17 +56,21 @@ pub async fn inspect(
         local_preparation,
         summary: summary.into(),
         checks,
-        supported_package_targets: ACP_BINARY_TARGETS
-            .iter()
-            .map(|target| (*target).to_owned())
-            .collect(),
+        supported_package_targets: if theme {
+            Vec::new()
+        } else {
+            ACP_BINARY_TARGETS
+                .iter()
+                .map(|target| (*target).to_owned())
+                .collect()
+        },
     })
 }
 
-pub(super) async fn provider_project(
+pub(super) async fn author_project(
     pool: &SqlitePool,
     id: i64,
-) -> Result<(PathBuf, String), AppError> {
+) -> Result<(PathBuf, String, ProjectAuthoringTarget), AppError> {
     let row: Option<(String, Option<String>, Option<String>)> =
         sqlx::query_as("SELECT path, authoring_target, plugin_id FROM projects WHERE id = ?")
             .bind(id)
@@ -65,13 +78,16 @@ pub(super) async fn provider_project(
             .await?;
     let (path, target, plugin_id) =
         row.ok_or_else(|| AppError::NotFound(format!("project {id} not found")))?;
-    if target.as_deref() != Some(ProjectAuthoringTarget::Provider.as_str()) {
-        return Err(AppError::coded(
-            StatusCode::BAD_REQUEST,
-            UNSUPPORTED,
-            "publication readiness is supported only for authored provider projects",
-        ));
-    }
+    let target = target
+        .as_deref()
+        .and_then(|value| ProjectAuthoringTarget::try_from(value).ok())
+        .ok_or_else(|| {
+            AppError::coded(
+                StatusCode::BAD_REQUEST,
+                UNSUPPORTED,
+                "publication readiness is supported for authored provider or theme projects",
+            )
+        })?;
     let plugin_id = plugin_id.filter(|value| !value.is_empty()).ok_or_else(|| {
         AppError::coded(
             StatusCode::BAD_REQUEST,
@@ -82,7 +98,42 @@ pub(super) async fn provider_project(
     let root = tokio::fs::canonicalize(path).await.map_err(|error| {
         AppError::BadRequest(format!("cannot resolve project {id} root: {error}"))
     })?;
-    Ok((root, plugin_id))
+    Ok((root, plugin_id, target))
+}
+
+#[cfg(test)]
+pub(super) async fn provider_project(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<(PathBuf, String), AppError> {
+    let (root, id, target) = author_project(pool, id).await?;
+    if target != ProjectAuthoringTarget::Provider {
+        return Err(AppError::coded(
+            StatusCode::BAD_REQUEST,
+            UNSUPPORTED,
+            "not a provider project",
+        ));
+    }
+    Ok((root, id))
+}
+
+fn theme_checks(root: &std::path::Path) -> Vec<Check> {
+    match cadencr_plugin_core::theme::validate_theme_folder(root) {
+        Ok(_) => vec![pass(
+            "theme-document",
+            "Declarative theme",
+            "Strict document, contrast, and declared raster assets are valid.",
+        )],
+        Err(issues) => vec![fail(
+            "theme-document",
+            "Declarative theme",
+            &issues
+                .iter()
+                .map(cadencr_plugin_core::theme::ThemeIssue::describe)
+                .collect::<Vec<_>>()
+                .join("; "),
+        )],
+    }
 }
 
 fn pass(id: &str, label: &str, detail: &str) -> Check {
@@ -108,7 +159,7 @@ mod tests {
     use super::{inspect, provider_project};
     use crate::domain::agents::providers::installed::descriptors_dir;
     use crate::domain::projects::models::{
-        PublicationCheckStatus as Status, PublicationPreparationStatus,
+        ProjectAuthoringTarget, PublicationCheckStatus as Status, PublicationPreparationStatus,
     };
     use crate::error::AppError;
     use sqlx::SqlitePool;
@@ -119,6 +170,51 @@ mod tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::query("CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL, authoring_target TEXT, plugin_id TEXT)").execute(&pool).await.unwrap();
         pool
+    }
+
+    #[tokio::test]
+    async fn theme_projects_use_strict_declarative_checks_without_platforms() {
+        use cadencr_plugin_core::theme::{schema, tokens};
+        let pool = pool().await;
+        let root = tempfile::tempdir().unwrap();
+        sqlx::query("INSERT INTO projects VALUES (8, ?, 'theme', 'acme-theme')")
+            .bind(root.path().to_str().unwrap())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let response = inspect(&pool, 8).await.unwrap();
+        assert!(response.supported_package_targets.is_empty());
+        assert_eq!(
+            response.local_preparation,
+            PublicationPreparationStatus::Blocked
+        );
+        let mut vars = serde_json::Map::new();
+        for token in tokens::REQUIRED_TOKENS {
+            vars.insert((*token).into(), serde_json::json!("#000000"));
+        }
+        for pair in tokens::CONTRAST_PAIRS {
+            vars.insert(pair.foreground.into(), serde_json::json!("#ffffff"));
+        }
+        let schema: serde_json::Value = serde_json::from_str(&schema::render()).unwrap();
+        let xterm = schema["properties"]["xterm"]["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|key| (key.clone(), serde_json::json!("#ffffff")))
+            .collect::<serde_json::Map<_, _>>();
+        std::fs::write(
+            root.path().join("theme.json"),
+            serde_json::json!({"label":"Theme","appearance":"dark","cssVars":vars,"xterm":xterm})
+                .to_string(),
+        )
+        .unwrap();
+        let checks = super::theme_checks(root.path());
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].status, Status::Pass);
+        assert_eq!(
+            super::author_project(&pool, 8).await.unwrap().2,
+            ProjectAuthoringTarget::Theme
+        );
     }
 
     #[tokio::test]

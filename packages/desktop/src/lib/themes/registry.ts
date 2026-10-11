@@ -16,6 +16,7 @@ import { getUserTheme, listUserThemes } from "./user-registry";
 import {
   THEME_IDS,
   isUserThemeId,
+  isManagedThemeId,
   type BuiltInThemeId,
   type ThemeDefinition,
   type ThemeId,
@@ -72,7 +73,10 @@ export function isBuiltInThemeId(value: unknown): value is BuiltInThemeId {
  */
 export function isThemeId(value: unknown): value is ThemeId {
   if (typeof value !== "string") return false;
-  return isBuiltInThemeId(value) || (isUserThemeId(value) && getUserTheme(value) !== undefined);
+  return (
+    isBuiltInThemeId(value) ||
+    ((isUserThemeId(value) || isManagedThemeId(value)) && getUserTheme(value) !== undefined)
+  );
 }
 
 export function parseThemeId(value: unknown): ThemeId {
@@ -80,7 +84,8 @@ export function parseThemeId(value: unknown): ThemeId {
 }
 
 export function getTheme(id: ThemeId): ThemeDefinition {
-  if (isUserThemeId(id)) return getUserTheme(id) ?? THEMES[DEFAULT_THEME_ID];
+  if (isUserThemeId(id) || isManagedThemeId(id))
+    return getUserTheme(id) ?? THEMES[DEFAULT_THEME_ID];
   return THEMES[id];
 }
 

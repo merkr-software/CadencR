@@ -166,14 +166,22 @@ pub(super) fn resolve_current_platform(
     app_version: &str,
 ) -> Result<ResolvedManagedProviderPackage, ManagedContractError> {
     validate_signed_index(envelope)?;
+    resolve_verified_provider_view(&envelope.signed, provider_id, provider_version, app_version)
+}
+
+pub(super) fn resolve_verified_provider_view(
+    index: &ManagedProviderIndex,
+    provider_id: &str,
+    provider_version: &str,
+    app_version: &str,
+) -> Result<ResolvedManagedProviderPackage, ManagedContractError> {
     Version::parse(provider_version).map_err(|error| {
         ManagedContractError::new(
             ManagedContractErrorCode::InvalidPackageVersion,
             format!("requested provider version must be exact semantic version: {error}"),
         )
     })?;
-    let package = envelope
-        .signed
+    let package = index
         .packages
         .iter()
         .find(|package| {

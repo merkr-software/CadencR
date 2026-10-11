@@ -82,4 +82,11 @@ describe("handleAppEnvelope · editor/file_tree.changed", () => {
     fireFileTreeChanged(); // fresh leading — fires now
     expect(spy).toHaveBeenCalledTimes(2);
   });
+
+  it("refreshes managed inventory without rereading authored themes or project settings", () => {
+    const spy = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+    handleAppEnvelope("app", "theme_event", { id: "managed:midnight" });
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith({ queryKey: ["marketplace", "managed-themes"] });
+  });
 });

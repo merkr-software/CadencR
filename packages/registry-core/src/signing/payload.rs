@@ -23,7 +23,7 @@ pub(crate) fn validate_signing_payload(
     validate_signing_payload_at(value, allow_expired, Utc::now())
 }
 
-pub(crate) fn validate_signing_payload_at(
+pub fn validate_signing_payload_at(
     value: &Value,
     allow_expired: bool,
     now: chrono::DateTime<Utc>,
@@ -65,7 +65,7 @@ fn validate_optional_fields(signed: &Value) -> Result<(), RegistryError> {
         return Ok(());
     };
     for (index, package) in packages.iter().enumerate() {
-        let agent = package.get("agent");
+        let agent = crate::marketplace::body(package).get("agent");
         reject_empty(
             agent,
             "authors",

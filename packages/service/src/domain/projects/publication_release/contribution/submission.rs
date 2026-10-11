@@ -40,7 +40,11 @@ pub(crate) fn build(local: &LocalRelease, account: &str) -> Result<Documents, Ap
         &local.plan.release_notes,
     )?;
     let publisher = package
-        .pointer("/host/publisher")
+        .pointer(if package.get("kind").is_some() {
+            "/package/host/publisher"
+        } else {
+            "/host/publisher"
+        })
         .and_then(Value::as_str)
         .ok_or_else(|| invalid("package.host.publisher is required"))?;
     let filename = format!("{}-{}.json", local.plan.plugin_id, local.plan.version);
@@ -49,7 +53,7 @@ pub(crate) fn build(local: &LocalRelease, account: &str) -> Result<Documents, Ap
     }
     let package_bytes = local.metadata.to_vec();
     let submission = serde_json::to_vec_pretty(&Submission {
-        schema_version: 1,
+        schema_version: if package.get("kind").is_some() { 2 } else { 1 },
         package: &package,
         source: Source {
             repository: format!("https://github.com/{}", local.plan.repository),

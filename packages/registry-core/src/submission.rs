@@ -1,3 +1,5 @@
+mod schema_two;
+use schema_two::validate_schema_two;
 use serde_json::Value;
 
 use crate::diagnostics::Diagnostics;
@@ -19,6 +21,10 @@ pub(crate) fn validate_submission(value: &Value, errors: &mut Diagnostics) {
         "submission",
         errors,
     );
+    if value.get("schema_version") == Some(&Value::from(2)) {
+        validate_schema_two(value, errors);
+        return;
+    }
     if value.get("schema_version") != Some(&Value::from(1)) {
         errors.push("submission.schema_version must equal 1".into());
     }
@@ -151,7 +157,7 @@ fn validate_source(source: Option<&Value>, package: &Value, errors: &mut Diagnos
     }
 }
 
-fn canonical_github_repository(value: &str) -> bool {
+pub(crate) fn canonical_github_repository(value: &str) -> bool {
     let Some(rest) = value.strip_prefix("https://github.com/") else {
         return false;
     };

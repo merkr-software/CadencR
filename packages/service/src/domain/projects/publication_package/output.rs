@@ -91,7 +91,7 @@ fn prepare_output_parent(input: &PreparedInputs) -> Result<PathBuf, AppError> {
     Ok(parent)
 }
 
-fn prospective_path(path: &FsPath) -> Result<PathBuf, AppError> {
+pub(super) fn prospective_path(path: &FsPath) -> Result<PathBuf, AppError> {
     let absolute = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -135,7 +135,7 @@ fn prospective_path(path: &FsPath) -> Result<PathBuf, AppError> {
     ))
 }
 
-fn require_real_directory_if_present(path: &FsPath) -> Result<(), AppError> {
+pub(super) fn require_real_directory_if_present(path: &FsPath) -> Result<(), AppError> {
     match std::fs::symlink_metadata(path) {
         Ok(info) if info.file_type().is_symlink() || !info.is_dir() => Err(AppError::BadRequest(
             "publication output must be a real directory, not a symlink".into(),

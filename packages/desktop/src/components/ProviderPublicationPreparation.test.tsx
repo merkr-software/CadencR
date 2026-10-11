@@ -98,7 +98,7 @@ describe("ProviderPublicationPreparation", () => {
     render(<ProviderPublicationPreparation projectId={7} enabled />);
 
     expect(screen.getByText("All local preparation checks pass")).toBeInTheDocument();
-    expect(screen.getByText(/does not mean the provider is published/i)).toBeInTheDocument();
+    expect(screen.getByText(/does not mean the plugin is published/i)).toBeInTheDocument();
   });
 
   it("does not present warning-only preparation as all checks passing", () => {

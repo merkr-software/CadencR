@@ -88,6 +88,7 @@ fn prepare_catalog(
     };
     let snapshot = cadencr_registry_core::prepare_catalog_snapshot()
         .catalog_file(&args.catalog)
+        .allow_schema_upgrade(args.allow_schema_upgrade)
         .previous(previous)
         .public_key_file(&args.public_key)
         .key_id(&args.key_id)

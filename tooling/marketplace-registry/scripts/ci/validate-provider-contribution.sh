@@ -51,7 +51,7 @@ else
   fi
   generated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   expires_at=$(date -u -d '+7 days' +%Y-%m-%dT%H:%M:%SZ)
-  "$binary" registry build-index --packages "$candidate/packages" \
+  "$binary" registry build-index --schema-version 2 --packages "$candidate/packages" \
     --generated-at "$generated_at" --expires-at "$expires_at" \
     --output "${RUNNER_TEMP:-/tmp}/managed-index.json"
 fi

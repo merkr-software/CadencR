@@ -15,7 +15,7 @@ use crate::domain::agents::providers::installed::managed::receipt::{
     ManagedPackageReceipt, ManagedRevision,
 };
 use crate::domain::agents::providers::installed::managed::ResolvedManagedProviderPackage;
-use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
+use crate::domain::agents::providers::installed::managed::SignedProviderCatalog;
 use crate::error::AppError;
 use admission::AdmissionRequest;
 use errors::{
@@ -43,7 +43,7 @@ pub(super) async fn ingest(
     service: &ManagedProviderService,
     provider_id: &str,
     version: &str,
-    index: SignedManagedProviderIndex,
+    index: SignedProviderCatalog,
     kind: IngestKind,
 ) -> Result<ManagedMutation, AppError> {
     validate_request_identity(provider_id, version)?;
@@ -95,7 +95,7 @@ fn resolve_admission(
     service: &ManagedProviderService,
     provider_id: &str,
     version: &str,
-    index: &SignedManagedProviderIndex,
+    index: &SignedProviderCatalog,
 ) -> Result<ResolvedAdmission, AppError> {
     let verified = service
         .trust_store
@@ -111,6 +111,7 @@ fn resolve_admission(
                 error.message,
             )
         })?;
+    super::ensure_current_catalog(verified.index())?;
     let package = verified
         .resolve_current_platform(provider_id, version, env!("CARGO_PKG_VERSION"))
         .map_err(|error| {
@@ -124,6 +125,11 @@ fn resolve_admission(
                 error.message,
             )
         })?;
+    super::super::catalog::admit_request(
+        &service.storage.catalog_cache_path(),
+        &service.trust_store,
+        index.clone(),
+    )?;
     let agent = verified
         .index()
         .packages

@@ -13,11 +13,14 @@ use crate::package::valid_identifier;
 use crate::safe_io::read_bounded_regular;
 use crate::PreparedSigningPayload;
 
+mod blocklist;
+pub use blocklist::{sign_theme_blocklist, verify_signed_theme_blocklist};
 mod envelope;
 mod payload;
 pub(crate) use envelope::{read_signing_key, sign_canonical_payload};
 pub use payload::validate_signing_key_id;
-pub(crate) use payload::{validate_signing_payload, validate_signing_payload_at};
+pub(crate) use payload::validate_signing_payload;
+pub use payload::validate_signing_payload_at;
 
 const DOCUMENT_LIMIT: u64 = crate::MAX_CATALOG_BYTES as u64;
 const KEY_LIMIT: u64 = 16 * 1024;

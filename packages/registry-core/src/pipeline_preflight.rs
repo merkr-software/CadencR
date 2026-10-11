@@ -42,13 +42,8 @@ pub fn preflight_publication_pipeline(
 }
 
 fn identity(package: &Value) -> String {
-    format!(
-        "{}@{}",
-        package["agent"]["id"].as_str().expect("verified id"),
-        package["agent"]["version"]
-            .as_str()
-            .expect("verified version")
-    )
+    let (id, version) = crate::package::identity(package).expect("verified identity");
+    format!("{id}@{version}")
 }
 
 /// Sign verified publication bytes only with the exact pinned public-key identity.

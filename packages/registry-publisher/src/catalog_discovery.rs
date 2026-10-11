@@ -42,6 +42,9 @@ pub(crate) fn preflight(
     branch: &str,
 ) -> Result<(), PublisherError> {
     cadencr_registry_core::validate_discovery_branch(branch)?;
+    if (snapshot.schema_version() == 2) != (branch == "marketplace-v2") {
+        return Err(PublisherError::new("schema2 discovery requires isolated marketplace-v2 branch; legacy schema1 cannot use it"));
+    }
     crate::publication_local::validate_existing_directory(directory, "catalog publication")?;
     reject_symbolic_lock(directory)?;
     crate::catalog::validate_manifest_repository(manifest, snapshot.repository())?;

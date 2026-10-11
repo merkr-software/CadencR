@@ -69,12 +69,18 @@ pub(crate) fn prepare(
     let mut packages = Vec::with_capacity(entries.len());
     let mut verifications = Vec::with_capacity(entries.len());
     for entry in entries {
+        let theme =
+            cadencr_registry_core::marketplace_package_kind(&entry.package) == Some("theme");
         packages.push(entry.package);
-        verifications.push((entry.directory, entry.expected));
+        verifications.push((entry.directory, entry.expected, theme));
     }
     let payload = baseline::prepare(&manifest, base, packages, generated_at, expires_at)?;
-    for (directory, expected) in verifications {
-        crate::promote::public::verify(&expected, &directory, downloader)?;
+    for (directory, expected, theme) in verifications {
+        if theme {
+            crate::promote::public::verify_theme_package(&expected, &directory, downloader)?;
+        } else {
+            crate::promote::public::verify(&expected, &directory, downloader)?;
+        }
     }
     Ok(payload)
 }

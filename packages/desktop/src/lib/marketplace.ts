@@ -4,60 +4,28 @@ import type {
   ManagedProviderInventoryEntry,
   ManagedProviderPackage,
 } from "@/api/generated";
+import { providerPackageSchema } from "./marketplace-provider-package";
+import { signedMixedCatalogSchema } from "./theme-marketplace";
 
 const nullableText = z.string().nullable().optional();
-const binary = z
-  .object({
-    archive: z.string(),
-    cmd: z.string(),
-    args: z.array(z.string()).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    sha256: z.string().optional(),
-  })
-  .passthrough();
-const packageDistribution = z
-  .object({
-    package: z.string(),
-    args: z.array(z.string()).optional(),
-    env: z.record(z.string(), z.string()).optional(),
-  })
-  .passthrough();
-const agent = z
-  .object({
-    id: z.string().min(1),
-    name: z.string(),
-    version: z.string().min(1),
-    description: z.string(),
-    authors: z.array(z.string()).optional(),
-    license: z.string().optional(),
-    repository: z.string().optional(),
-    website: z.string().optional(),
-    distribution: z
-      .object({
-        binary: z.record(z.string(), binary).optional(),
-        npx: packageDistribution.optional(),
-        uvx: packageDistribution.optional(),
-      })
-      .passthrough()
-      .optional(),
-  })
-  .passthrough();
-const managedPackage = z
-  .object({
-    agent,
-    host: z
-      .object({
-        publisher: z.string(),
-        compatibility: z
-          .object({ min_app_version: z.string(), max_app_version: nullableText })
-          .passthrough(),
-        assets: z
-          .object({ readme: nullableText, license: nullableText, icon: z.string() })
-          .passthrough(),
-      })
-      .passthrough(),
-  })
-  .passthrough();
+const signedProviderCatalogSchema = z.union([
+  z
+    .object({
+      signature: z
+        .object({ algorithm: z.literal("ed25519"), key_id: z.string(), value: z.string() })
+        .strict(),
+      signed: z
+        .object({
+          schema_version: z.literal(1),
+          generated_at: z.string(),
+          expires_at: z.string(),
+          packages: z.array(providerPackageSchema),
+        })
+        .strict(),
+    })
+    .strict(),
+  signedMixedCatalogSchema,
+]);
 export const catalogSchema = z
   .object({
     source_configured: z.boolean(),
@@ -70,25 +38,9 @@ export const catalogSchema = z
     error: nullableText,
     error_code: nullableText,
     recommended_versions: z.record(z.string(), z.string()).optional(),
-    index: z
-      .object({
-        signature: z
-          .object({ algorithm: z.literal("ed25519"), key_id: z.string(), value: z.string() })
-          .passthrough(),
-        signed: z
-          .object({
-            schema_version: z.number(),
-            generated_at: z.string(),
-            expires_at: z.string(),
-            packages: z.array(managedPackage),
-          })
-          .passthrough(),
-      })
-      .passthrough()
-      .nullable()
-      .optional(),
+    index: signedProviderCatalogSchema.nullable().optional(),
   })
-  .passthrough();
+  .strict();
 export const entrySchema = z.object({
   id: z.string(),
   version: nullableText,
@@ -194,4 +146,14 @@ export function marketplaceError(error: unknown): string | null {
   if (response.success)
     return `${response.data.response.data.code}: ${response.data.response.data.error}`;
   return error instanceof Error ? error.message : "Marketplace request failed.";
+}
+
+/** Only presentation is filtered; callers keep the complete signed envelope for mutations. */
+export function providerCatalogPackages(
+  index?: NonNullable<ManagedCatalogResponse["index"]> | null,
+): ManagedProviderPackage[] {
+  if (!index) return [];
+  const signed = signedProviderCatalogSchema.parse(index).signed;
+  if (signed.schema_version === 1) return signed.packages;
+  return signed.packages.flatMap((entry) => (entry.kind === "provider" ? [entry.package] : []));
 }

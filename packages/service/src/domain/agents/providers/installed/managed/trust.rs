@@ -13,8 +13,11 @@ use ed25519_dalek::{Signature, VerifyingKey};
 
 use super::{
     ManagedIndexSignature, ManagedProviderIndex, ResolvedManagedProviderPackage,
-    SignedManagedProviderIndex,
+    SignedProviderCatalog,
 };
+
+#[cfg(test)]
+use super::SignedManagedProviderIndex;
 
 /// Host-owned Ed25519 key authorized to sign the provider index and blocklist.
 #[derive(Debug, Clone)]
@@ -68,6 +71,8 @@ pub struct ManagedTrustStore {
     keys: BTreeMap<String, VerifyingKey>,
 }
 
+mod mixed;
+
 impl ManagedTrustStore {
     pub fn new(keys: impl IntoIterator<Item = TrustedIndexKey>) -> Self {
         Self {
@@ -80,8 +85,15 @@ impl ManagedTrustStore {
 
     pub fn verify_index(
         &self,
-        envelope: SignedManagedProviderIndex,
+        envelope: impl Into<SignedProviderCatalog>,
     ) -> Result<VerifiedManagedProviderIndex, ManagedTrustError> {
+        let envelope = envelope.into();
+        if let SignedProviderCatalog::Mixed(index) = envelope {
+            return self.verify_mixed(index);
+        }
+        let SignedProviderCatalog::Legacy(envelope) = envelope else {
+            unreachable!("mixed returned above")
+        };
         envelope.validate_contract().map_err(|error| {
             ManagedTrustError::new(
                 ManagedTrustErrorCode::InvalidSignedPayload,
@@ -101,7 +113,8 @@ impl ManagedTrustStore {
             "managed provider index could not be canonicalized",
         )?;
         Ok(VerifiedManagedProviderIndex {
-            envelope,
+            provider_view: envelope.signed.clone(),
+            envelope: envelope.into(),
             signer_key_id,
             signing_bytes,
         })
@@ -136,7 +149,7 @@ impl ManagedTrustStore {
         }
     }
 
-    pub(super) fn verify_bytes(
+    pub(crate) fn verify_bytes(
         &self,
         bytes: &[u8],
         signature: &ManagedIndexSignature,
@@ -222,18 +235,19 @@ fn pinned_index_trust_status_from(
 /// An index whose signature was verified by a host-owned trust store.
 #[derive(Debug, Clone)]
 pub struct VerifiedManagedProviderIndex {
-    envelope: SignedManagedProviderIndex,
+    envelope: SignedProviderCatalog,
+    provider_view: ManagedProviderIndex,
     signer_key_id: String,
     signing_bytes: Vec<u8>,
 }
 
 impl VerifiedManagedProviderIndex {
-    pub fn envelope(&self) -> &SignedManagedProviderIndex {
+    pub fn envelope(&self) -> &SignedProviderCatalog {
         &self.envelope
     }
 
     pub fn index(&self) -> &ManagedProviderIndex {
-        &self.envelope.signed
+        &self.provider_view
     }
 
     pub fn signer_key_id(&self) -> &str {
@@ -250,8 +264,12 @@ impl VerifiedManagedProviderIndex {
         provider_version: &str,
         app_version: &str,
     ) -> Result<ResolvedManagedProviderPackage, super::ManagedContractError> {
-        self.envelope
-            .resolve_current_platform(provider_id, provider_version, app_version)
+        super::validation::resolve_verified_provider_view(
+            &self.provider_view,
+            provider_id,
+            provider_version,
+            app_version,
+        )
     }
 }
 

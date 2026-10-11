@@ -825,6 +825,7 @@ dependencies = [
  "pem-rfc7468",
  "ryu-js",
  "semver",
+ "serde",
  "serde_json",
  "sha2 0.11.0",
  "tempfile",
@@ -839,7 +840,9 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "bon",
+ "cadencr-plugin-core",
  "cadencr-registry-core",
+ "chrono",
  "libc",
  "reqwest",
  "serde",

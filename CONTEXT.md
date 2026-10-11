@@ -23,8 +23,15 @@ not the upstream agent itself and is distinct from an installation of that plugi
 
 ### Theme
 
-A plugin defining Cadencr's visual appearance through supported theme values.
+A declarative plugin defining Cadencr's visual appearance through supported
+theme values and inert visual assets. It does not execute an agent or script.
 Its authoring project is distinct from the theme selected in the application.
+
+### Managed theme
+
+A verified installation of a published theme version. Its signed contents are
+immutable; creating an editable derivative means creating a new plugin project.
+Installation and activation are separate choices.
 
 ### Publication
 

@@ -11,6 +11,7 @@ import {
   type ManagedProviderInventoryEntry,
   type ManagedProviderPackage,
   type SignedManagedProviderIndex,
+  type SignedMixedCatalog,
 } from "@/api/generated";
 import { useMarketplace } from "@/hooks/useMarketplace";
 import { MarketplaceDetails } from "./MarketplaceDetails";
@@ -148,6 +149,61 @@ beforeEach(() => {
   vi.mocked(install).mockResolvedValue(entry);
   vi.mocked(update).mockResolvedValue(entry);
   vi.mocked(enabled).mockResolvedValue(entry);
+});
+
+describe("mixed catalog provider actions", () => {
+  it("hides theme packages from provider browsing and submits the unchanged mixed envelope", async () => {
+    const mixed: SignedMixedCatalog = {
+      signature: index.signature,
+      signed: {
+        ...index.signed,
+        schema_version: 2,
+        packages: [
+          ...packages.map((provider) => ({ kind: "provider", package: provider })),
+          {
+            kind: "theme",
+            package: {
+              theme: {
+                id: "midnight",
+                name: "Hidden theme",
+                description: "Declarative",
+                version: "1.0.0",
+                repository: "https://github.com/acme/themes",
+                license: "MIT",
+                document_version: 1,
+                distribution: {
+                  archive: "https://github.com/acme/themes/releases/download/v1/theme.tgz",
+                  sha256: "a".repeat(64),
+                },
+              },
+              host: { publisher: "acme", compatibility: { min_app_version: "0.1.0" } },
+            },
+          },
+        ],
+      },
+    };
+    vi.mocked(catalog).mockResolvedValue({
+      source_configured: true,
+      cache_status: "verified",
+      refreshed: false,
+      used_cached_verified_catalog: true,
+      recommended_versions: { example: "2.0.0" },
+      index: mixed,
+    });
+    const { user } = render(<MarketplaceSection />);
+    await screen.findByText("Example provider");
+    expect(screen.queryByText("Hidden theme")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Details" }));
+    screen.getByRole("combobox", { name: "Exact version" }).focus();
+    await user.keyboard("{ArrowDown}");
+    await user.click(screen.getByRole("option", { name: "2.0.0 (recommended)" }));
+    await user.click(screen.getByRole("button", { name: "Change to 2.0.0" }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith("example", { version: "2.0.0", index: mixed }),
+    );
+    expect(vi.mocked(update).mock.calls[0][1].index).toBe(mixed);
+    expect(mixed.signed.packages).toHaveLength(3);
+  });
 });
 
 describe("MarketplaceDetails interactions", () => {

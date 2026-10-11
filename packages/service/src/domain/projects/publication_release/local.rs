@@ -10,7 +10,9 @@ use crate::error::AppError;
 use super::{Plan, MAX_ARCHIVE_BYTES, MAX_METADATA_BYTES};
 
 mod candidate;
-mod validation;
+mod theme;
+pub(super) use theme::validate_project_kind;
+pub(crate) mod validation;
 use validation::{parse_repository, single_target, validate_archive_url};
 pub(super) mod git;
 pub(super) use candidate::load_candidate;
@@ -35,6 +37,9 @@ pub(super) fn load(
         return Err(invalid("release notes contain a NUL character"));
     }
     let bundle = resolve_bundle(&output_root, project_id, bundle_id)?;
+    if bundle.join("theme.tar.gz").exists() {
+        return theme::load(project_id, plugin_id, bundle, bundle_id, release_notes);
+    }
     let archive_path = bundle.join("provider.tar.gz");
     let metadata_path = bundle.join("package.json");
     let archive_file = super::remote::ArchiveFile::open(&archive_path, MAX_ARCHIVE_BYTES)?;

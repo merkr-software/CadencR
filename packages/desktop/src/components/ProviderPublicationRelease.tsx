@@ -1,15 +1,14 @@
 import { useState } from "react";
-import { CheckCircle2, ExternalLink, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { type PublicationReleasePreview } from "@/api/generated";
 import { useReleaseCandidate } from "./ProviderPublicationReleaseCandidate";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { openExternalUrl } from "@/lib/open-external";
 import { ProviderPublicationContribution } from "./ProviderPublicationContribution";
 import { ProviderPublicationRegistry } from "./ProviderPublicationRegistry";
-import { PublicationOperationsStatus } from "./PublicationOperationsStatus";
+import { ReleaseOutcome } from "./PublicationReleaseOutcome";
 import { PublicationError } from "./PublicationError";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -23,9 +22,11 @@ export function bundleIdFromArchivePath(archivePath: string): string {
 export function ProviderPublicationRelease({
   projectId,
   initialBundleId = "",
+  pluginKind = "provider",
 }: {
   projectId: number;
   initialBundleId?: string;
+  pluginKind?: "provider" | "theme";
 }): React.JSX.Element {
   const [registryOperationId, setRegistryOperationId] = useState<string>();
   const {
@@ -57,6 +58,7 @@ export function ProviderPublicationRelease({
   return (
     <div className="space-y-4 rounded-lg border p-4">
       <ReleaseInputs
+        pluginKind={pluginKind}
         bundleId={bundleId}
         additionalBundles={additionalBundles}
         onAdditionalBundlesChange={(value) => {
@@ -108,14 +110,11 @@ export function ProviderPublicationRelease({
           onRegistryOperationChange={setRegistryOperationId}
         />
       ) : null}
-      <PublicationOperationsStatus
+      <ReleaseOutcome
         projectId={projectId}
-        publicationPending={publishMutation.isPending || registryPending}
+        registryPending={registryPending}
         operationId={operationId}
-      />
-      <ReleasePublicationStatus
-        error={publishMutation.isError ? publishMutation.error : null}
-        pending={publishMutation.isPending}
+        mutation={publishMutation}
         publishedUrl={publishedUrl}
       />
     </div>
@@ -136,30 +135,6 @@ function ReviewReleaseButton({
       {reviewing ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
       {reviewing ? "Reviewing GitHub publication…" : "Review GitHub publication"}
     </Button>
-  );
-}
-
-function ReleasePublicationStatus({
-  error,
-  pending,
-  publishedUrl,
-}: {
-  error: unknown;
-  pending: boolean;
-  publishedUrl: string | null;
-}): React.JSX.Element {
-  return (
-    <>
-      {error ? (
-        <PublicationError prefix="Could not publish the GitHub release" error={error} />
-      ) : null}
-      {pending ? (
-        <div role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Publishing GitHub release…
-        </div>
-      ) : null}
-      {publishedUrl ? <PublishedRelease releaseUrl={publishedUrl} /> : null}
-    </>
   );
 }
 
@@ -222,6 +197,7 @@ function PublicationPlanActions({
 }
 
 function ReleaseInputs({
+  pluginKind,
   additionalBundles,
   onAdditionalBundlesChange,
   bundleId,
@@ -230,6 +206,7 @@ function ReleaseInputs({
   onBundleIdChange,
   onReleaseNotesChange,
 }: {
+  pluginKind: "provider" | "theme";
   additionalBundles: string;
   onAdditionalBundlesChange: (value: string) => void;
   bundleId: string;
@@ -261,18 +238,20 @@ function ReleaseInputs({
             from its parent folder; arbitrary archive paths are not accepted.
           </span>
         </label>
-        <label className="block space-y-1.5 text-sm font-medium">
-          Other platform bundle UUIDs
-          <Textarea
-            value={additionalBundles}
-            onChange={(event) => onAdditionalBundlesChange(event.target.value)}
-            placeholder="One UUID per platform, separated by spaces or commas"
-          />
-          <span className="block text-xs font-normal text-muted-foreground">
-            Prepare each declared platform first. All bundles form one immutable version with one
-            manifest.
-          </span>
-        </label>
+        {pluginKind === "provider" && (
+          <label className="block space-y-1.5 text-sm font-medium">
+            Other platform bundle UUIDs
+            <Textarea
+              value={additionalBundles}
+              onChange={(event) => onAdditionalBundlesChange(event.target.value)}
+              placeholder="One UUID per platform, separated by spaces or commas"
+            />
+            <span className="block text-xs font-normal text-muted-foreground">
+              Prepare each declared platform first. All bundles form one immutable version with one
+              manifest.
+            </span>
+          </label>
+        )}
         <label className="block space-y-1.5 text-sm font-medium">
           Release notes
           <Textarea
@@ -311,7 +290,7 @@ function PublicationPreview({
     ["Archive file", preview.archive_name],
     ["Archive size", `${preview.archive_size.toLocaleString()} bytes`],
     ["Metadata SHA-256", preview.metadata_sha256],
-    ["Target", preview.target],
+    ["Content", preview.target || "Platform-independent declarative theme"],
     ["Version", preview.version],
     ["Release channel", preview.prerelease ? "Prerelease" : "Stable"],
   ];
@@ -326,8 +305,9 @@ function PublicationPreview({
         <dd className="whitespace-pre-wrap break-words">{preview.release_notes}</dd>
       </dl>
       {preview.archives?.map((archive) => (
-        <div key={archive.target} className="rounded border p-2 text-xs font-mono break-all">
-          {archive.target} · {archive.archive_name} · {archive.archive_size.toLocaleString()} bytes
+        <div key={archive.bundle_id} className="rounded border p-2 text-xs font-mono break-all">
+          {archive.target || "Theme data"} · {archive.archive_name} ·{" "}
+          {archive.archive_size.toLocaleString()} bytes
           <div>SHA-256: {archive.archive_sha256}</div>
         </div>
       ))}
@@ -339,7 +319,7 @@ function PublicationPreview({
           aria-label="I confirm this exact GitHub publication"
         />
         <span>
-          I confirm this exact destination, actor, tag, source, all platform archives, manifest,
+          I confirm this exact destination, actor, tag, source, all package archives, manifest,
           version, and notes.
         </span>
       </label>
@@ -357,26 +337,5 @@ function ReleaseDetail({ label, value }: { label: string; value: string }): Reac
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="break-all font-mono">{value}</dd>
     </>
-  );
-}
-
-function PublishedRelease({ releaseUrl }: { releaseUrl: string }): React.JSX.Element {
-  return (
-    <div
-      role="status"
-      className="space-y-2 rounded-lg border border-[var(--acc-green)]/30 bg-[var(--acc-green)]/5 p-3 text-sm"
-    >
-      <p className="flex items-center gap-2 font-medium text-[var(--acc-green)]">
-        <CheckCircle2 className="size-4" aria-hidden /> GitHub release published
-      </p>
-      <Button
-        type="button"
-        variant="link"
-        className="h-auto justify-start whitespace-normal break-all p-0"
-        onClick={() => void openExternalUrl(releaseUrl, "Could not open the GitHub release.")}
-      >
-        {releaseUrl} <ExternalLink className="size-3" aria-hidden />
-      </Button>
-    </div>
   );
 }

@@ -5,16 +5,15 @@ use serde_json::Value;
 
 use crate::catalog::validate_catalog_identities_with_label;
 use crate::error::RegistryError;
-use crate::json::canonical_json_bytes;
-use crate::signing::{parse_public_key, validate_signing_key_id, verify_envelope_at};
-use crate::valid_publication_repository;
+
+use crate::signing::{parse_public_key, verify_envelope_at};
 
 pub(crate) mod continuity;
 mod io;
 mod output;
 use continuity::validate_continuity;
-use io::{parse_document, read_file};
-use output::digest;
+use io::{parse_document, read_file, validate_inputs};
+use output::{assemble_snapshot, digest};
 
 const CATALOG_LIMIT: u64 = crate::MAX_CATALOG_BYTES as u64;
 const KEY_LIMIT: u64 = 16 * 1024;
@@ -27,6 +26,8 @@ pub enum PreviousCatalog<'a> {
 
 /// A verified, continuity-checked catalog snapshot ready for publication.
 pub struct CatalogSnapshot {
+    schema_version: u64,
+    discovery_bootstrap: bool,
     canonical_payload: Vec<u8>,
     canonical_envelope: Vec<u8>,
     sha256: String,
@@ -48,6 +49,7 @@ pub fn prepare_catalog_snapshot(
     key_id: &str,
     repository: &str,
     registry_commit: &str,
+    #[builder(default)] allow_schema_upgrade: bool,
 ) -> Result<CatalogSnapshot, RegistryError> {
     validate_inputs(repository, registry_commit, key_id)?;
     let now = Utc::now();
@@ -58,76 +60,36 @@ pub fn prepare_catalog_snapshot(
     let canonical_payload = verify_envelope_at(&candidate, &key, key_id, false, now)?;
     let candidate_signed = signed(&candidate);
 
+    let mut namespace_upgrade = false;
     let previous_sha256 = match previous {
         PreviousCatalog::Bootstrap => None,
         PreviousCatalog::File(path) => {
             let bytes = read_file(path, CATALOG_LIMIT, "previous index")?;
             let baseline = parse_document(&bytes, "previous index")?;
             verify_envelope_at(&baseline, &key, key_id, true, now)?;
+            if signed(&baseline)["schema_version"] != candidate_signed["schema_version"]
+                && !allow_schema_upgrade
+            {
+                return Err(RegistryError::single(
+                    "catalog schema transition requires explicit upgrade",
+                ));
+            }
             validate_continuity(signed(&baseline), candidate_signed)?;
+            namespace_upgrade =
+                signed(&baseline)["schema_version"] == 1 && candidate_signed["schema_version"] == 2;
             Some(digest(&bytes))
         }
     };
     validate_catalog_identities_with_label(packages(candidate_signed), "source")?;
-    assemble_snapshot(
+    let mut snapshot = assemble_snapshot(
         candidate,
         canonical_payload,
         previous_sha256,
         repository,
         registry_commit,
-    )
-}
-
-fn validate_inputs(repository: &str, commit: &str, key_id: &str) -> Result<(), RegistryError> {
-    if !valid_publication_repository(repository) {
-        return Err(RegistryError::single("repository is invalid"));
-    }
-    if commit.len() != 40
-        || !commit
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
-    {
-        return Err(RegistryError::single(
-            "registryCommit must be 40 lowercase hex characters",
-        ));
-    }
-    validate_signing_key_id(key_id)
-}
-
-fn assemble_snapshot(
-    envelope: Value,
-    canonical_payload: Vec<u8>,
-    previous_sha256: Option<String>,
-    repository: &str,
-    registry_commit: &str,
-) -> Result<CatalogSnapshot, RegistryError> {
-    let signed = signed(&envelope);
-    let generated_at = required_timestamp(signed, "generated_at")?.to_owned();
-    let expires_at = required_timestamp(signed, "expires_at")?.to_owned();
-    let mut canonical_envelope = canonical_json_bytes(&envelope);
-    canonical_envelope.push(b'\n');
-    if canonical_envelope.len() as u64 > CATALOG_LIMIT {
-        return Err(RegistryError::single("catalog snapshot exceeds 32 MiB"));
-    }
-    let sha256 = digest(&canonical_envelope);
-    let tag = format!("catalog-{sha256}");
-    let prior = previous_sha256.as_deref().unwrap_or("bootstrap");
-    let body = format!("cadencr-registry-catalog-v1\ncatalog-sha256:{sha256}\nregistry-commit:{registry_commit}\nprevious-sha256:{prior}");
-    let expected_url =
-        format!("https://github.com/{repository}/releases/download/{tag}/managed-index.json");
-    Ok(CatalogSnapshot {
-        canonical_payload,
-        canonical_envelope,
-        sha256,
-        tag,
-        body,
-        expected_url,
-        previous_sha256,
-        generated_at,
-        expires_at,
-        repository: repository.into(),
-        registry_commit: registry_commit.into(),
-    })
+    )?;
+    snapshot.discovery_bootstrap |= namespace_upgrade;
+    Ok(snapshot)
 }
 
 fn signed(envelope: &Value) -> &Value {
@@ -145,6 +107,7 @@ fn required_timestamp<'a>(value: &'a Value, field: &str) -> Result<&'a str, Regi
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::json::canonical_json_bytes;
     use base64::Engine as _;
     use chrono::{Duration, SecondsFormat};
     use ed25519_dalek::pkcs8::DecodePrivateKey as _;
@@ -398,6 +361,55 @@ mod tests {
                 .unwrap()
                 .to_string()
                 .contains("whole-second")
+        );
+    }
+    #[test]
+    fn explicit_upgrade_bootstraps_only_new_namespace_and_keeps_baseline_provenance() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("public.pem"), PUBLIC_KEY).unwrap();
+        let generated =
+            (Utc::now() - Duration::minutes(2)).to_rfc3339_opts(SecondsFormat::Secs, true);
+        let previous = envelope(
+            root.path(),
+            "previous.json",
+            &generated,
+            vec![package("1.0.0")],
+        );
+        let generated =
+            (Utc::now() - Duration::minutes(1)).to_rfc3339_opts(SecondsFormat::Secs, true);
+        let expires = (Utc::now() + Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true);
+        let payload = crate::prepare_incremental_publication_index()
+            .previous_bytes(&previous)
+            .public_key_bytes(PUBLIC_KEY.as_bytes())
+            .key_id("release-2026")
+            .schema_version(2)
+            .allow_schema_upgrade(true)
+            .packages(Vec::new())
+            .generated_at(&generated)
+            .expires_at(&expires)
+            .call()
+            .unwrap();
+        let signed =
+            crate::sign_prepared_index(payload, &root.path().join("private.pem"), "release-2026")
+                .unwrap();
+        std::fs::write(root.path().join("candidate.json"), signed).unwrap();
+        let snapshot = prepare_catalog_snapshot()
+            .catalog_file(&root.path().join("candidate.json"))
+            .previous(PreviousCatalog::File(&root.path().join("previous.json")))
+            .public_key_file(&root.path().join("public.pem"))
+            .key_id("release-2026")
+            .repository("cadencr/registry")
+            .registry_commit(&"a".repeat(40))
+            .allow_schema_upgrade(true)
+            .call()
+            .unwrap();
+        assert!(snapshot.previous_sha256().is_some());
+        assert!(snapshot.discovery_bootstrap());
+        assert!(!crate::assess_discovery_head(&snapshot, None).unwrap());
+        assert!(snapshot.tag().starts_with("marketplace-v2-"));
+        assert_eq!(
+            std::fs::read(root.path().join("previous.json")).unwrap(),
+            previous
         );
     }
 }

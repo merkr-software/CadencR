@@ -2,7 +2,23 @@ use super::util::{reject_unknown, valid_identifier, valid_relative_path, valid_s
 use crate::diagnostics::Diagnostics;
 use serde_json::{Map, Value};
 
-pub(super) fn validate_host(host: &Map<String, Value>, label: &str, errors: &mut Diagnostics) {
+pub(crate) fn validate_host(host: &Map<String, Value>, label: &str, errors: &mut Diagnostics) {
+    validate_host_metadata(host, label, errors);
+    validate_assets(host, label, errors);
+}
+
+pub(crate) fn validate_optional_assets_host(
+    host: &Map<String, Value>,
+    label: &str,
+    errors: &mut Diagnostics,
+) {
+    validate_host_metadata(host, label, errors);
+    if host.contains_key("assets") {
+        validate_assets(host, label, errors);
+    }
+}
+
+fn validate_host_metadata(host: &Map<String, Value>, label: &str, errors: &mut Diagnostics) {
     reject_unknown(
         host,
         &["publisher", "compatibility", "assets"],
@@ -59,6 +75,9 @@ pub(super) fn validate_host(host: &Map<String, Value>, label: &str, errors: &mut
             errors.push(format!("{label}.compatibility maximum precedes minimum"));
         }
     }
+}
+
+fn validate_assets(host: &Map<String, Value>, label: &str, errors: &mut Diagnostics) {
     let Some(assets) = host.get("assets").and_then(Value::as_object) else {
         errors.push(format!("{label}.assets must be an object"));
         return;

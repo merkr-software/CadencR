@@ -14,9 +14,9 @@ pub use incremental::{prepare_incremental_publication_index, verify_publication_
 /// been validated. Only the time-dependent freshness window is rechecked when
 /// it is signed.
 pub struct PreparedSigningPayload {
-    canonical: Vec<u8>,
-    generated_at: String,
-    expires_at: String,
+    pub(crate) canonical: Vec<u8>,
+    pub(crate) generated_at: String,
+    pub(crate) expires_at: String,
 }
 
 impl std::fmt::Debug for PreparedSigningPayload {
@@ -47,12 +47,13 @@ impl PreparedSigningPayload {
 #[bon::builder]
 pub fn prepare_publication_index(
     mut packages: Vec<Value>,
+    #[builder(default = 1)] schema_version: u64,
     generated_at: &str,
     expires_at: &str,
 ) -> Result<PreparedSigningPayload, RegistryError> {
     packages.sort_by(compare_packages);
     let payload = json!({
-        "schema_version": 1,
+        "schema_version": schema_version,
         "generated_at": generated_at,
         "expires_at": expires_at,
         "packages": packages,
@@ -94,15 +95,19 @@ pub(crate) fn validate_catalog_identities_with_label(
         } else {
             normalized.insert(normalized_id, id.to_owned());
         }
-        let publisher = package
+        let content = crate::marketplace::body(package);
+        let publisher = content
             .pointer("/host/publisher")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let repository = package
-            .pointer("/agent/repository")
+        let repository = crate::marketplace::descriptor(package)
+            .get("repository")
             .and_then(Value::as_str)
             .unwrap_or("");
-        let owner = format!("{publisher}\0{repository}");
+        let owner = format!(
+            "{}\0{publisher}\0{repository}",
+            crate::marketplace::kind(package)
+        );
         if let Some(prior) = owners.get(id) {
             if prior != &owner {
                 return Err(RegistryError::single(format!(

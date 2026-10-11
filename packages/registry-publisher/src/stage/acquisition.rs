@@ -53,6 +53,15 @@ fn stage_locked(
             stage_managed_targets(directory, &targets, downloader, max_total_bytes)?
         }
     };
+    if plan
+        .pointer("/mirrored_package/kind")
+        .and_then(Value::as_str)
+        == Some("theme")
+    {
+        for artifact in &artifacts {
+            cadencr_registry_core::verify_theme_archive(&directory.join(&artifact.asset))?;
+        }
+    }
     let receipt = StageReceipt {
         schema_version: 1,
         plan,

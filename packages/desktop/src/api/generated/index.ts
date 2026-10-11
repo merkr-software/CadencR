@@ -1590,6 +1590,10 @@ export interface DraftResponse {
   draftPrompt?: string | null;
 }
 
+export interface DuplicateManagedThemeRequest {
+  label: string;
+}
+
 export interface EditorRootResponse {
   /**
    * Absolute filesystem path of the editor root (project or feature
@@ -2458,9 +2462,30 @@ export interface SignedManagedProviderIndex {
   signed: ManagedProviderIndex;
 }
 
+export interface MixedCatalogPayload {
+  expires_at: string;
+  generated_at: string;
+  packages: unknown[];
+  /** @minimum 0 */
+  schema_version: number;
+}
+
+export interface SignedMixedCatalog {
+  signature: ManagedIndexSignature;
+  signed: MixedCatalogPayload;
+}
+
+export type SignedProviderCatalog = SignedManagedProviderIndex | SignedMixedCatalog;
+
 export interface InstallManagedProviderRequest {
-  index: SignedManagedProviderIndex;
+  index: SignedProviderCatalog;
   provider_id: string;
+  version: string;
+}
+
+export interface InstallManagedThemeRequest {
+  index: SignedMixedCatalog;
+  theme_id: string;
   version: string;
 }
 
@@ -2672,7 +2697,7 @@ export const ManagedCatalogCacheStatus = {
   expired: "expired",
 } as const;
 
-export type ManagedCatalogResponseIndex = null | SignedManagedProviderIndex;
+export type ManagedCatalogResponseIndex = null | SignedProviderCatalog;
 
 /**
  * Host-compatible recommendation per provider, outside the signed payload.
@@ -2849,6 +2874,33 @@ export interface ManagedProvidersInventory {
   providers: ManagedProviderInventoryEntry[];
   root: string;
   trust: ManagedTrustInventory;
+}
+
+export type ManagedThemeCatalogResponseIndex = null | SignedMixedCatalog;
+
+export type ManagedThemeCatalogResponseRecommendedVersions = { [key: string]: string };
+
+export interface ManagedThemeCatalogResponse {
+  /** @nullable */
+  error?: string | null;
+  index?: ManagedThemeCatalogResponseIndex;
+  recommended_versions: ManagedThemeCatalogResponseRecommendedVersions;
+  verified: boolean;
+}
+
+export type ManagedThemeInventoryEntryTheme = null | UserTheme;
+
+export interface ManagedThemeInventoryEntry {
+  active: boolean;
+  /** @nullable */
+  error?: string | null;
+  /** @nullable */
+  error_code?: string | null;
+  id: string;
+  name: string;
+  sha256: string;
+  theme?: ManagedThemeInventoryEntryTheme;
+  version: string;
 }
 
 export interface MarkViewedRequest {
@@ -3215,8 +3267,8 @@ export interface PreparePublicationContributionRequest {
 
 export interface PreparePublicationPackageRequest {
   metadata_json: string;
-  staging_directory: string;
-  target: string;
+  staging_directory?: string;
+  target?: string;
 }
 
 export interface PreparedPublicationContribution {
@@ -3238,7 +3290,7 @@ export interface PreparedPublicationPackage {
   sha256: string;
   /** @minimum 0 */
   size: number;
-  target: string;
+  target?: string;
 }
 
 export interface PreviewPublicationRegistryRequest {
@@ -3641,7 +3693,7 @@ export interface PublicationReleaseArchive {
   /** @minimum 0 */
   archive_size: number;
   bundle_id: string;
-  target: string;
+  target?: string;
 }
 
 export interface PublicationReleasePreview {
@@ -3663,7 +3715,7 @@ export interface PublicationReleasePreview {
   repository: string;
   source_commit: string;
   tag: string;
-  target: string;
+  target?: string;
   version: string;
 }
 
@@ -3901,6 +3953,16 @@ export interface RemoteStatus {
    * @nullable
    */
   tunnel_host?: string | null;
+}
+
+export interface RemoveManagedThemeRequest {
+  confirm_builtin_fallback?: boolean;
+}
+
+export interface RemoveManagedThemeResponse {
+  /** @nullable */
+  fallback?: string | null;
+  success: boolean;
 }
 
 export interface RemoveOrphanWorktreeBody {
@@ -4656,7 +4718,7 @@ export interface UpdateLabelRequest {
 }
 
 export interface UpdateManagedProviderRequest {
-  index: SignedManagedProviderIndex;
+  index: SignedProviderCatalog;
   version: string;
 }
 
@@ -5294,13 +5356,9 @@ export type LspRootParams = {
 export type ListPublicationOperationsParams = {
   /**
    * @minimum 0
-   * @nullable
    */
-  limit?: number | null;
-  /**
-   * @nullable
-   */
-  cursor?: string | null;
+  limit?: number;
+  cursor?: string;
 };
 
 export type GetPromptCommandsParams = {
@@ -24583,6 +24641,842 @@ export const useCreateTheme = <TError = ErrorType<unknown>, TContext = unknown>(
   TContext
 > => {
   return useMutation(getCreateThemeMutationOptions(options), queryClient);
+};
+
+export const getManagedThemes = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry[]>({
+    url: `/api/themes/managed`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedThemesQueryKey = () => {
+  return [`/api/themes/managed`] as const;
+};
+
+export const getGetManagedThemesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedThemesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedThemes>>> = ({ signal }) =>
+    getManagedThemes(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedThemes>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedThemesQueryResult = NonNullable<Awaited<ReturnType<typeof getManagedThemes>>>;
+export type GetManagedThemesQueryError = ErrorType<unknown>;
+
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemes>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemes>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemes>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedThemes<
+  TData = Awaited<ReturnType<typeof getManagedThemes>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getManagedThemes>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedThemesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installManagedTheme = (
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getInstallManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installManagedTheme>>,
+    TError,
+    InstallManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installManagedTheme>>,
+  TError,
+  InstallManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["installManagedTheme"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installManagedTheme>>,
+    InstallManagedThemeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installManagedTheme(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installManagedTheme>>
+>;
+export type InstallManagedThemeMutationBody = InstallManagedThemeRequest;
+export type InstallManagedThemeMutationError = ErrorType<unknown>;
+export type InstallManagedThemeMutationVariables = { data: InstallManagedThemeRequest };
+
+export const useInstallManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installManagedTheme>>,
+      TError,
+      InstallManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installManagedTheme>>,
+  TError,
+  InstallManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallManagedThemeMutationOptions(options), queryClient);
+};
+
+export const getManagedThemeCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/themes/managed/catalog`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getGetManagedThemeCatalogQueryKey = () => {
+  return [`/api/themes/managed/catalog`] as const;
+};
+
+export const getGetManagedThemeCatalogQueryOptions = <
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<
+    UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+  >;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetManagedThemeCatalogQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getManagedThemeCatalog>>> = ({ signal }) =>
+    getManagedThemeCatalog(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetManagedThemeCatalogQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getManagedThemeCatalog>>
+>;
+export type GetManagedThemeCatalogQueryError = ErrorType<unknown>;
+
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+          TError,
+          Awaited<ReturnType<typeof getManagedThemeCatalog>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetManagedThemeCatalog<
+  TData = Awaited<ReturnType<typeof getManagedThemeCatalog>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getManagedThemeCatalog>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetManagedThemeCatalogQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const refreshManagedThemeCatalog = (signal?: AbortSignal) => {
+  return customInstance<ManagedThemeCatalogResponse>({
+    url: `/api/themes/managed/catalog/refresh`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getRefreshManagedThemeCatalogMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = ["refreshManagedThemeCatalog"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+    void
+  > = () => {
+    return refreshManagedThemeCatalog();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RefreshManagedThemeCatalogMutationResult = NonNullable<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>
+>;
+
+export type RefreshManagedThemeCatalogMutationError = ErrorType<unknown>;
+
+export const useRefreshManagedThemeCatalog = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof refreshManagedThemeCatalog>>,
+  TError,
+  void,
+  TContext
+> => {
+  return useMutation(getRefreshManagedThemeCatalogMutationOptions(options), queryClient);
+};
+
+export const previewManagedThemePackage = (
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<UserTheme>({
+    url: `/api/themes/managed/preview`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getPreviewManagedThemePackageMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof previewManagedThemePackage>>,
+    TError,
+    PreviewManagedThemePackageMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>,
+  TError,
+  PreviewManagedThemePackageMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["previewManagedThemePackage"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof previewManagedThemePackage>>,
+    PreviewManagedThemePackageMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return previewManagedThemePackage(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PreviewManagedThemePackageMutationResult = NonNullable<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>
+>;
+export type PreviewManagedThemePackageMutationBody = InstallManagedThemeRequest;
+export type PreviewManagedThemePackageMutationError = ErrorType<unknown>;
+export type PreviewManagedThemePackageMutationVariables = { data: InstallManagedThemeRequest };
+
+export const usePreviewManagedThemePackage = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof previewManagedThemePackage>>,
+      TError,
+      PreviewManagedThemePackageMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof previewManagedThemePackage>>,
+  TError,
+  PreviewManagedThemePackageMutationVariables,
+  TContext
+> => {
+  return useMutation(getPreviewManagedThemePackageMutationOptions(options), queryClient);
+};
+
+export const removeManagedTheme = (
+  id: string,
+  removeManagedThemeRequest: RemoveManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<RemoveManagedThemeResponse>({
+    url: `/api/themes/managed/${id}`,
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    data: removeManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getRemoveManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeManagedTheme>>,
+    TError,
+    RemoveManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeManagedTheme>>,
+  TError,
+  RemoveManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["removeManagedTheme"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeManagedTheme>>,
+    RemoveManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return removeManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeManagedTheme>>
+>;
+export type RemoveManagedThemeMutationBody = RemoveManagedThemeRequest;
+export type RemoveManagedThemeMutationError = ErrorType<unknown>;
+export type RemoveManagedThemeMutationVariables = { id: string; data: RemoveManagedThemeRequest };
+
+export const useRemoveManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeManagedTheme>>,
+      TError,
+      RemoveManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeManagedTheme>>,
+  TError,
+  RemoveManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveManagedThemeMutationOptions(options), queryClient);
+};
+
+export const applyManagedTheme = (id: string, signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/apply`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getApplyManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof applyManagedTheme>>,
+    TError,
+    ApplyManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof applyManagedTheme>>,
+  TError,
+  ApplyManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["applyManagedTheme"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof applyManagedTheme>>,
+    ApplyManagedThemeMutationVariables
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return applyManagedTheme(id);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ApplyManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof applyManagedTheme>>
+>;
+
+export type ApplyManagedThemeMutationError = ErrorType<unknown>;
+export type ApplyManagedThemeMutationVariables = { id: string };
+
+export const useApplyManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof applyManagedTheme>>,
+      TError,
+      ApplyManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof applyManagedTheme>>,
+  TError,
+  ApplyManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getApplyManagedThemeMutationOptions(options), queryClient);
+};
+
+export const duplicateManagedTheme = (
+  id: string,
+  duplicateManagedThemeRequest: DuplicateManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<CreateThemeResponse>({
+    url: `/api/themes/managed/${id}/duplicate`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: duplicateManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getDuplicateManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof duplicateManagedTheme>>,
+    TError,
+    DuplicateManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>,
+  TError,
+  DuplicateManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["duplicateManagedTheme"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof duplicateManagedTheme>>,
+    DuplicateManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return duplicateManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DuplicateManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>
+>;
+export type DuplicateManagedThemeMutationBody = DuplicateManagedThemeRequest;
+export type DuplicateManagedThemeMutationError = ErrorType<unknown>;
+export type DuplicateManagedThemeMutationVariables = {
+  id: string;
+  data: DuplicateManagedThemeRequest;
+};
+
+export const useDuplicateManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof duplicateManagedTheme>>,
+      TError,
+      DuplicateManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof duplicateManagedTheme>>,
+  TError,
+  DuplicateManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDuplicateManagedThemeMutationOptions(options), queryClient);
+};
+
+export const previewManagedTheme = (id: string, signal?: AbortSignal) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/preview`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getPreviewManagedThemeQueryKey = (id: string) => {
+  return [`/api/themes/managed/${id}/preview`] as const;
+};
+
+export const getPreviewManagedThemeQueryOptions = <
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getPreviewManagedThemeQueryKey(id);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof previewManagedTheme>>> = ({ signal }) =>
+    previewManagedTheme(id, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: id !== null && id !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type PreviewManagedThemeQueryResult = NonNullable<
+  Awaited<ReturnType<typeof previewManagedTheme>>
+>;
+export type PreviewManagedThemeQueryError = ErrorType<unknown>;
+
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewManagedTheme>>,
+          TError,
+          Awaited<ReturnType<typeof previewManagedTheme>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof previewManagedTheme>>,
+          TError,
+          Awaited<ReturnType<typeof previewManagedTheme>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function usePreviewManagedTheme<
+  TData = Awaited<ReturnType<typeof previewManagedTheme>>,
+  TError = ErrorType<unknown>,
+>(
+  id: string,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof previewManagedTheme>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getPreviewManagedThemeQueryOptions(id, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const updateManagedTheme = (
+  id: string,
+  installManagedThemeRequest: InstallManagedThemeRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<ManagedThemeInventoryEntry>({
+    url: `/api/themes/managed/${id}/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installManagedThemeRequest,
+    signal,
+  });
+};
+
+export const getUpdateManagedThemeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateManagedTheme>>,
+    TError,
+    UpdateManagedThemeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateManagedTheme>>,
+  TError,
+  UpdateManagedThemeMutationVariables,
+  TContext
+> => {
+  const mutationKey = ["updateManagedTheme"];
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateManagedTheme>>,
+    UpdateManagedThemeMutationVariables
+  > = (props) => {
+    const { id, data } = props ?? {};
+
+    return updateManagedTheme(id, data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateManagedThemeMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateManagedTheme>>
+>;
+export type UpdateManagedThemeMutationBody = InstallManagedThemeRequest;
+export type UpdateManagedThemeMutationError = ErrorType<unknown>;
+export type UpdateManagedThemeMutationVariables = { id: string; data: InstallManagedThemeRequest };
+
+export const useUpdateManagedTheme = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateManagedTheme>>,
+      TError,
+      UpdateManagedThemeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateManagedTheme>>,
+  TError,
+  UpdateManagedThemeMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateManagedThemeMutationOptions(options), queryClient);
 };
 
 export const writeTheme = (

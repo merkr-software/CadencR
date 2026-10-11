@@ -24,11 +24,18 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
     match command {
         RegistryCommand::Validate { base, candidate } => validate_registry(base, candidate),
         RegistryCommand::BuildIndex {
+            schema_version,
             packages,
             generated_at,
             expires_at,
             output: destination,
-        } => build_index(packages, generated_at, expires_at, destination.as_deref()),
+        } => build_index(
+            packages,
+            *schema_version,
+            generated_at,
+            expires_at,
+            destination.as_deref(),
+        ),
         RegistryCommand::PackProvider {
             package,
             target,
@@ -66,6 +73,18 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             key_id,
             allow_expired,
         } => signing::verify(index, public_key, key_id, *allow_expired),
+        RegistryCommand::SignThemeBlocklist {
+            payload,
+            private_key,
+            key_id,
+            output,
+        } => signing::sign_theme_blocklist(payload, private_key, key_id, output),
+        RegistryCommand::VerifyThemeBlocklist {
+            index,
+            public_key,
+            key_id,
+            allow_expired,
+        } => signing::verify_theme_blocklist(index, public_key, key_id, *allow_expired),
         RegistryCommand::AssembleSignedIndex {
             payload,
             signature,
@@ -87,12 +106,14 @@ fn validate_registry(base: &Path, candidate: &Path) -> Result<Option<String>, Di
 
 fn build_index(
     packages: &Path,
+    schema_version: u64,
     generated_at: &str,
     expires_at: &str,
     destination: Option<&Path>,
 ) -> Result<Option<String>, Diagnostic> {
     let bytes = cadencr_registry_core::build_index()
         .packages_dir(packages)
+        .schema_version(schema_version)
         .generated_at(generated_at)
         .expires_at(expires_at)
         .call()

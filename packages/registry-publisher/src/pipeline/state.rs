@@ -121,11 +121,14 @@ pub(super) fn materialize(prepared: &PreparedPipeline) -> Result<(), PublisherEr
 }
 
 pub(super) fn manifest(prepared: &PreparedPipeline) -> Value {
-    let mut manifest = json!({"schema_version":1,"repository":prepared.request.repository,
+    let mut manifest = json!({"schema_version":prepared.request.schema_version,"repository":prepared.request.repository,
         "publications":prepared.entries.iter().enumerate().map(|(index, entry)| {
             let directory = format!("publications/{:03}",index+1);
             json!({"submission":format!("{directory}/submission.json"),"directory":directory,"registry_commit":entry.registry_commit})
         }).collect::<Vec<_>>()});
+    if prepared.request.allow_schema_upgrade {
+        manifest["allow_schema_upgrade"] = json!(true);
+    }
     if prepared.previous.is_some() {
         manifest["baseline"] = json!({
             "previous_index":"inputs/previous-index.json",

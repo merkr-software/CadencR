@@ -8,6 +8,17 @@ mod diagnostics;
 mod discovery;
 mod error;
 mod index;
+mod marketplace;
+mod marketplace_plan;
+mod marketplace_types;
+pub use marketplace::{
+    marketplace_package_identity, marketplace_package_kind, valid_theme_id,
+    validate_marketplace_package,
+};
+pub use marketplace_types::{
+    parse_marketplace_package, MarketplaceAssets, MarketplaceCompatibility, MarketplaceHost,
+    MarketplacePackage, ProviderPackage, ThemeDescriptor, ThemeDistribution, ThemePackage,
+};
 mod json;
 mod package;
 mod pipeline_preflight;
@@ -16,7 +27,14 @@ mod safe_io;
 mod signing;
 mod snapshot;
 mod submission;
+mod theme_blocklist;
+pub use theme_blocklist::{
+    prepare_theme_blocklist, PreparedThemeBlocklist, ThemeBlocklist, ThemeBlocklistEntry,
+    MAX_SIGNED_THEME_BLOCKLIST_BYTES, MAX_THEME_BLOCKLIST_BYTES,
+};
 mod theme_archive;
+mod theme_verify;
+pub use theme_verify::{read_theme_archive, verify_theme_archive};
 mod tree;
 pub use theme_archive::{pack_theme, PackThemeRequest, PackedTheme};
 
@@ -43,14 +61,35 @@ pub use publication_plan::{
 };
 pub use signing::{
     assemble_signed_index, sign_index, sign_index_payload, sign_prepared_index,
-    validate_signing_key_id, verify_signed_index,
+    validate_signing_key_id, validate_signing_payload_at, verify_signed_index,
 };
 pub use snapshot::{prepare_catalog_snapshot, CatalogSnapshot, PreviousCatalog};
 
 use diagnostics::Diagnostics;
 use package::{identity, normalized_provider_id, validate_package};
-use submission::validate_submission;
+use submission::validate_submission as validate_submission_diagnostics;
+
+pub fn validate_submission(value: &serde_json::Value) -> Result<(), RegistryError> {
+    let mut errors = Diagnostics::default();
+    validate_submission_diagnostics(value, &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(RegistryError::from_messages(errors.into_messages()))
+    }
+}
 use tree::{load_tree, Tree};
+
+/// Check authenticated catalog history without changing either signed payload.
+/// The caller establishes signature trust separately; this boundary validates shapes first.
+pub fn validate_catalog_continuity(
+    previous: &serde_json::Value,
+    candidate: &serde_json::Value,
+) -> Result<(), RegistryError> {
+    index::validate_index(previous, chrono::Utc::now(), true)?;
+    index::validate_index(candidate, chrono::Utc::now(), true)?;
+    snapshot::continuity::validate_continuity(previous, candidate)
+}
 
 pub fn validate_contribution(base: &Path, candidate: &Path) -> Result<(), RegistryError> {
     let mut errors = Diagnostics::default();
@@ -108,7 +147,7 @@ fn validate_candidate(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
             break;
         }
         let mut submission_errors = Diagnostics::default();
-        validate_submission(submission, &mut submission_errors);
+        validate_submission_diagnostics(submission, &mut submission_errors);
         errors.extend(
             submission_errors
                 .into_messages()
@@ -141,15 +180,16 @@ fn validate_candidate(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
 }
 
 fn validate_owners(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
-    let mut owners = HashMap::<String, (Option<&str>, Option<&str>)>::new();
+    let mut owners = HashMap::<String, (&str, Option<&str>, Option<&str>)>::new();
     for package in base.packages.values() {
         if let Some((id, _)) = identity(package) {
             owners.entry(id.into()).or_insert((
-                package
+                marketplace::kind(package),
+                marketplace::body(package)
                     .pointer("/host/publisher")
                     .and_then(serde_json::Value::as_str),
-                package
-                    .pointer("/agent/repository")
+                marketplace::descriptor(package)
+                    .get("repository")
                     .and_then(serde_json::Value::as_str),
             ));
         }
@@ -181,7 +221,8 @@ fn validate_owners(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
             continue;
         }
         let proposed = (
-            package
+            marketplace::kind(package),
+            marketplace::body(package)
                 .pointer("/host/publisher")
                 .and_then(serde_json::Value::as_str),
             submission
@@ -190,15 +231,18 @@ fn validate_owners(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
         );
         if let Some(owner) = owners.get(id) {
             if proposed.0 != owner.0 {
-                errors.push(format!(
-                    "packages/{name}: host.publisher must remain {:?}",
-                    owner.0
-                ));
+                errors.push(format!("packages/{name}: package kind is immutable"));
             }
             if proposed.1 != owner.1 {
                 errors.push(format!(
-                    "submissions/{name}: source.repository must remain {:?}",
+                    "packages/{name}: host.publisher must remain {:?}",
                     owner.1
+                ));
+            }
+            if proposed.2 != owner.2 {
+                errors.push(format!(
+                    "submissions/{name}: source.repository must remain {:?}",
+                    owner.2
                 ));
             }
         } else {
@@ -226,6 +270,8 @@ fn validate_collisions(candidate: &Tree, errors: &mut Diagnostics) {
         }
     }
 }
+
+pub use signing::{sign_theme_blocklist, verify_signed_theme_blocklist};
 
 #[cfg(test)]
 mod tests {

@@ -24,7 +24,8 @@ cadencr plugin validate <folder> --descriptor <descriptor.json>
 cadencr plugin validate <folder> --kind theme
 cadencr registry validate --base <directory> --candidate <directory>
 cadencr registry build-index --packages <directory> \
-  --generated-at <timestamp> --expires-at <timestamp> [--output <new-file>]
+  --generated-at <timestamp> --expires-at <timestamp> \
+  [--schema-version <1|2>] [--output <new-file>]
 cadencr registry pack-provider --package <metadata.json> --target <target> \
   --directory <staging-directory> --output <new-archive.tar.gz>
 cadencr registry pack-theme --directory <theme-staging-directory> \
@@ -35,6 +36,10 @@ cadencr registry sign-index --payload <index.json> --private-key <private.pem> \
   --key-id <key-id> --output <new-envelope.json>
 cadencr registry verify-index --index <envelope.json> --public-key <public.pem> \
   --key-id <key-id> [--allow-expired]
+cadencr registry sign-theme-blocklist --payload <theme-policy.json> \
+  --private-key <private.pem> --key-id <key-id> --output <new-envelope.json>
+cadencr registry verify-theme-blocklist --index <theme-envelope.json> \
+  --public-key <public.pem> --key-id <key-id> [--allow-expired]
 cadencr registry assemble-signed-index --payload <index.json> \
   --signature <signature.json> --output <new-envelope.json>
 cadencr registry stage-publication --submission <submission.json> \
@@ -94,9 +99,18 @@ rejected. Header/structure validation bounds resources; complete image decoding
 and PNG CRC verification remain the renderer's responsibility. Existing local
 editor parsing and local asset formats remain backward-compatible.
 
-These commands are a shared validation/packaging foundation. They do **not**
-yet publish themes, add themes to the signed catalog, or install/activate a
-managed theme. Do not submit a theme as an ACP executable package.
+Themes use the same publication, reconciliation and signed-catalog commands as
+providers, with an explicit `kind: "theme"` schema-2 package. Their archive is
+platform-independent data, never an ACP executable target. Desktop installation,
+preview, activation, update, confirmed removal and duplication into an editable
+author project reuse the shared validation libraries; the CLI does not change
+installed desktop state.
+
+`build-index --schema-version 2` validates and wraps legacy provider source
+metadata in memory while retaining immutable files and ACP extensions. This is
+unsigned assembly, not conversion of signed proof. Schema 1 still rejects mixed
+packages. Protected publication separately requires authenticated baseline
+continuity and explicit schema-upgrade confirmation.
 
 `build-index` writes canonical index bytes to stdout unless `--output` is
 provided. Output bytes are first completed in a temporary file beside the
@@ -190,25 +204,31 @@ preserves the original plan and valid receipts, reuses full recovery verificatio
 and creates only missing staging/mirror proof, never a publication receipt.
 The initial release identity remains bound through final verification.
 
-`sign-publication-catalog` reads a manifest containing `schema_version: 1`,
+`sign-publication-catalog` reads a manifest containing `schema_version: 1` or `2`,
 `repository`, and `publications` entries with `submission`, `directory`, and
 `registry_commit`. Relative paths resolve from the manifest parent. Every entry
 must have matching staging, mirror and publication receipts. All local inputs,
 package identities/ownership, dates and resource budgets validate before public
 downloads; the signing key is read only afterward. No GitHub token is needed.
 The output must be absent under a non-symlink directory; signing never overwrites
-an existing catalog. The manifest limit is 1 MiB and 100 entries; aggregate
-submission input and catalog payload limits are 32 MiB, and public downloads are
-bounded to 1 GiB in total. The result is signed locally, not published remotely.
+an existing catalog. The manifest limit is 1 MiB and 100 **delta entries**; aggregate submission input
+and catalog payload limits are 32 MiB. A `baseline` supplies `previous_index`,
+`public_key` and `key_id`; its verified immutable history is merged with the
+delta, not re-downloaded. An empty delta renews validity with no historical asset
+requests. Public verification is bounded per publication, not by total registry
+history. The result is signed locally, not published remotely.
 
 `publish-catalog` verifies the candidate and optional previous signed catalog with
 one explicit public key. The previous digest binds its exact input bytes;
 existing package versions cannot disappear or change, and the catalog timestamp
-must advance. Both input catalogs and the canonical output are limited to 1 MiB.
-The manifest must produce exactly the signed payload from verified publications.
+must advance. Input catalogs and the canonical output are limited to 32 MiB.
+The authenticated baseline plus verified publication delta must produce exactly
+the signed payload. Schema-1 to schema-2 transitions require
+`--allow-schema-upgrade`; downgrade is forbidden.
 
 The publication directory must already exist and must not be a symlink. Exact
-repository and computed `catalog-<sha256>` confirmation precede credential access.
+repository and computed catalog-tag confirmation precede credential access:
+`catalog-<sha256>` for schema 1, `marketplace-v2-<sha256>` for schema 2.
 The protected `CADENCR_REGISTRY_GITHUB_TOKEN` environment variable authorizes the
 GitHub release operation; no token is accepted as a command-line argument.
 The computed Git tag must already resolve to `--registry-commit`. Publication
@@ -220,8 +240,9 @@ The existing trusted-directory ancestry limitation applies here too.
 `advance-catalog` requires `catalog-publication-receipt.json` from the matching
 published snapshot. Repository, catalog tag, and raw URL confirmation plus local
 receipt validation precede token access. The discovery branch must already exist;
-`bootstrap` means only that its `managed-index.json` is absent. No branch is
-created automatically. Branch names are 1–64 ASCII letters/digits/underscores/
+`bootstrap` means only that its `managed-index.json` is absent. An explicit
+authenticated schema upgrade may initialize the new schema-2 file on an existing
+branch. No branch is created automatically. Branch names are 1–64 ASCII letters/digits/underscores/
 hyphens and must start with a letter or digit.
 
 The current discovery file must match the baseline, or exactly equal the candidate
@@ -229,9 +250,17 @@ for replay. Before a single compare-and-swap Contents API write, the command
 rechecks the head, manifest, published catalog, tag and freshness. A lost write
 response is reconciled, never blindly retried. The raw public URL is downloaded
 without authentication or redirects; exact bytes and a stable final head are
-required before `discovery-receipt.json` is written. Files are bounded to 1 MiB.
+required before `discovery-receipt.json` is written. Catalog files are bounded to 32 MiB.
 Keep the exact published baseline file: its raw-byte digest must match the
 current discovery bytes, including insignificant JSON whitespace.
+
+Schema 2 requires the isolated `marketplace-v2` discovery branch and
+`marketplace-v2-<sha256>` catalog tag. Schema 1 cannot publish to that branch.
+The legacy provider-only feed is independent, not an automatically projected or
+re-signed subset of mixed bytes. Older clients receive later provider updates
+only while maintainers explicitly continue publishing the legacy feed.
+Current desktop clients can read schema 1 or 2; provider-only display views never
+replace the original signed mixed payload in cache, receipts or install requests.
 
 ## Diagnostics and exit codes
 
@@ -270,7 +299,7 @@ CLI platform distribution remains outside this initial registry-only release.
 ## Protected registry pipeline
 
 `publish-registry` is an explicit protected-operator command. Its request contains
-`schema_version: 1`, `repository`, `key_id`, `discovery_branch`, `generated_at`,
+`schema_version: 1` or `2`, `repository`, `key_id`, `discovery_branch`, `generated_at`,
 `expires_at`, `previous_index` (`bootstrap` or a relative file), `public_key`
 (relative PEM file), and `publications` containing relative `submission` paths
 and optional exact `registry_commit` values (omit the field instead of using
@@ -281,9 +310,14 @@ Local request, continuity, key-pair and existing-state checks precede reading
 
 Unlike standalone publication commands, this pipeline explicitly creates missing
 package/catalog tags at the confirmed commits. Existing tags must match exactly;
-ambiguous writes are reconciled by reads, never blindly retried. Retained and
-new archives share the bounded staging budget. Already-published entries restore
-only verified managed destination bytes, never retired author URLs. Catalog
+ambiguous writes are reconciled by reads, never blindly retried. `publications`
+is a bounded delta, not the complete catalog history; an authenticated baseline
+retains history. Entries run sequentially with a per-publication staging budget;
+verified transient archives are removed while receipts and operation state remain.
+Explicit delta replays restore only verified managed destination bytes, never
+retired author URLs. An empty delta renews the catalog without package downloads
+or package-release mutations. An explicit schema upgrade also requires
+`allow_schema_upgrade: true` and the separate `marketplace-v2` discovery branch. Catalog
 signing follows verified publication/public-byte evidence; discovery follows
 verified catalog publication. State and matching receipts support replay without
 overwriting conflicts. Use protected credentials and a trusted, stable directory;

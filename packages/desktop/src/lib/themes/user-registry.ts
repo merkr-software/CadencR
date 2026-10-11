@@ -1,4 +1,4 @@
-import type { ThemeDefinition, UserThemeId } from "./types";
+import { isManagedThemeId, type ThemeDefinition, type ThemeId } from "./types";
 
 /**
  * Runtime registry of user-authored themes.
@@ -22,7 +22,7 @@ let version = 0;
 // "no user themes at all". Starting this at `null` made every cold start bump
 // the version and re-render every `useTheme()` consumer in the app.
 let lastSerialized = readCache() ?? "[]";
-let userThemes: ReadonlyMap<UserThemeId, ThemeDefinition> = hydrateFromCache();
+let userThemes: ReadonlyMap<ThemeId, ThemeDefinition> = hydrateFromCache();
 const listeners = new Set<() => void>();
 
 /**
@@ -55,13 +55,13 @@ function readCache(): string | null {
   }
 }
 
-function hydrateFromCache(): ReadonlyMap<UserThemeId, ThemeDefinition> {
+function hydrateFromCache(): ReadonlyMap<ThemeId, ThemeDefinition> {
   const raw = readCache();
   return raw ? toMap(JSON.parse(raw) as ThemeDefinition[]) : new Map();
 }
 
-function toMap(themes: ThemeDefinition[]): ReadonlyMap<UserThemeId, ThemeDefinition> {
-  return new Map(themes.map((theme) => [theme.id as UserThemeId, theme]));
+function toMap(themes: ThemeDefinition[]): ReadonlyMap<ThemeId, ThemeDefinition> {
+  return new Map(themes.map((theme) => [theme.id, theme]));
 }
 
 /**
@@ -72,6 +72,15 @@ function toMap(themes: ThemeDefinition[]): ReadonlyMap<UserThemeId, ThemeDefinit
  * rewrite the injected stylesheet) on every refetch.
  */
 export function setUserThemes(themes: ThemeDefinition[]): void {
+  replaceThemes([...themes, ...listUserThemes().filter((theme) => isManagedThemeId(theme.id))]);
+}
+
+/** Managed revisions are refreshed separately and never become editable author themes. */
+export function setManagedThemes(themes: ThemeDefinition[]): void {
+  replaceThemes([...listUserThemes().filter((theme) => !isManagedThemeId(theme.id)), ...themes]);
+}
+
+function replaceThemes(themes: ThemeDefinition[]): void {
   const serialized = JSON.stringify(themes);
   if (serialized === lastSerialized) return;
   lastSerialized = serialized;
@@ -89,7 +98,7 @@ export function setUserThemes(themes: ThemeDefinition[]): void {
 }
 
 export function getUserTheme(id: string): ThemeDefinition | undefined {
-  return userThemes.get(id as UserThemeId);
+  return userThemes.get(id as ThemeId);
 }
 
 export function listUserThemes(): ThemeDefinition[] {

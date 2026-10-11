@@ -71,3 +71,8 @@ case "$workflow_text" in
   *"latest-mac.yml"*"Cadencr-\${version}-arm64.dmg"*"Cadencr-\${version}.dmg"*) ;;
   *) fail "workflow must require updater metadata and both Homebrew DMGs" ;;
 esac
+
+case "$workflow_text" in
+  *'CADENCR_MANAGED_THEME_INDEX_URL: ${{ vars.CADENCR_MANAGED_THEME_INDEX_URL }}'*'Validate marketplace build configuration'*'node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build'*) ;;
+  *) fail "desktop sidecar must validate and forward optional mixed theme feed configuration" ;;
+esac

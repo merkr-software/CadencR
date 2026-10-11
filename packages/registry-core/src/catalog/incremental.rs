@@ -29,6 +29,8 @@ pub fn prepare_incremental_publication_index(
     public_key_bytes: &[u8],
     key_id: &str,
     packages: Vec<Value>,
+    #[builder(default = 1)] schema_version: u64,
+    #[builder(default)] allow_schema_upgrade: bool,
     generated_at: &str,
     expires_at: &str,
 ) -> Result<PreparedSigningPayload, RegistryError> {
@@ -37,15 +39,32 @@ pub fn prepare_incremental_publication_index(
         parse_public_key(public_key_bytes)?;
         return super::prepare_publication_index()
             .packages(packages)
+            .schema_version(schema_version)
             .generated_at(generated_at)
             .expires_at(expires_at)
             .call();
     };
     let baseline = verified_baseline(bytes, public_key_bytes, key_id)?;
+    let previous_schema = baseline["signed"]["schema_version"]
+        .as_u64()
+        .expect("verified schema");
+    if schema_version < previous_schema
+        || (schema_version != previous_schema && !allow_schema_upgrade)
+    {
+        return Err(RegistryError::single(
+            "catalog schema transition requires explicit upgrade and never permits downgrade",
+        ));
+    }
     let mut merged = baseline["signed"]["packages"]
         .as_array()
         .expect("verified packages")
         .clone();
+    if previous_schema == 1 && schema_version == 2 {
+        merged = merged
+            .into_iter()
+            .map(|package| serde_json::json!({"kind":"provider","package":package}))
+            .collect();
+    }
     let positions = merged
         .iter()
         .enumerate()
@@ -72,6 +91,7 @@ pub fn prepare_incremental_publication_index(
     }
     let prepared = super::prepare_publication_index()
         .packages(merged)
+        .schema_version(schema_version)
         .generated_at(generated_at)
         .expires_at(expires_at)
         .call()?;
@@ -213,5 +233,40 @@ mod tests {
             .key_id("different-key")
             .call()
             .is_err());
+    }
+    #[test]
+    fn explicit_authenticated_schema_upgrade_preserves_legacy_body_and_kind() {
+        let mut legacy = package("1.0.0");
+        legacy["agent"]["protocol_extension"] = json!({"version": 1});
+        let (bytes, key) = baseline(vec![legacy.clone()]);
+        let (generated, expires) = window(1);
+        let run = |allow| {
+            prepare_incremental_publication_index()
+                .previous_bytes(&bytes)
+                .public_key_bytes(&key)
+                .key_id("test-key")
+                .schema_version(2)
+                .allow_schema_upgrade(allow)
+                .packages(Vec::new())
+                .generated_at(&generated)
+                .expires_at(&expires)
+                .call()
+        };
+        assert!(run(false).is_err());
+        let candidate: Value =
+            serde_json::from_slice(run(true).unwrap().canonical_payload()).unwrap();
+        assert_eq!(candidate["schema_version"], 2);
+        assert_eq!(candidate["packages"][0]["kind"], "provider");
+        assert_eq!(candidate["packages"][0]["package"], legacy);
+        let mut swapped = candidate.clone();
+        swapped["packages"][0]["kind"] = json!("theme");
+        let baseline: Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            crate::snapshot::continuity::validate_continuity(&baseline["signed"], &swapped)
+                .is_err()
+        );
+        let mut downgrade = baseline["signed"].clone();
+        downgrade["generated_at"] = json!("2099-01-01T00:00:00Z");
+        assert!(crate::snapshot::continuity::validate_continuity(&candidate, &downgrade).is_err());
     }
 }

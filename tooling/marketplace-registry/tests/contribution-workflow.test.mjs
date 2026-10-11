@@ -181,7 +181,7 @@ child.on("exit", (code) => { clearTimeout(timer); process.exit(code ?? 124); });
   assert.equal(tooling.status, 0, tooling.stderr);
   assert.equal(
     await readFile(marker, "utf8"),
-    `registry\nbuild-index\n--packages\n${populatedCandidate}/packages\n--generated-at\n2026-01-01T00:00:00Z\n--expires-at\n2026-01-08T00:00:00Z\n--output\n${directory}/managed-index.json\n`,
+    `registry\nbuild-index\n--schema-version\n2\n--packages\n${populatedCandidate}/packages\n--generated-at\n2026-01-01T00:00:00Z\n--expires-at\n2026-01-08T00:00:00Z\n--output\n${directory}/managed-index.json\n`,
   );
   await assert.rejects(readFile(path.join(directory, "npm-ran")), /ENOENT/);
   await rm(marker);
@@ -288,5 +288,5 @@ test("bootstrap bounds the fixed official download and contains both tooling pat
   assert.match(helper, /https:\/\/github\.com\/merkr-software\/CadencR\/releases\/download\/v/);
   assert.match(helper, /--max-filesize 134217728/);
   assert.match(script, /npm ci --ignore-scripts --no-audit --no-fund/);
-  assert.match(script, /registry build-index --packages/);
+  assert.match(script, /registry build-index --schema-version 2 --packages/);
 });

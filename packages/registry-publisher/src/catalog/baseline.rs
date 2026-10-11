@@ -14,6 +14,7 @@ pub(super) fn prepare(
     let Some(baseline) = &manifest.baseline else {
         return cadencr_registry_core::prepare_publication_index()
             .packages(packages)
+            .schema_version(manifest.schema_version)
             .generated_at(generated_at)
             .expires_at(expires_at)
             .call()
@@ -33,6 +34,8 @@ pub(super) fn prepare(
         .previous_bytes(&previous)
         .public_key_bytes(&public_key)
         .key_id(&baseline.key_id)
+        .schema_version(manifest.schema_version)
+        .allow_schema_upgrade(manifest.allow_schema_upgrade)
         .packages(packages)
         .generated_at(generated_at)
         .expires_at(expires_at)

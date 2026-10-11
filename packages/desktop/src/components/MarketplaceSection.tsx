@@ -7,10 +7,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { useMarketplace } from "@/hooks/useMarketplace";
-import { groupPackages, usableCatalog, marketplaceError } from "@/lib/marketplace";
+import {
+  groupPackages,
+  usableCatalog,
+  marketplaceError,
+  providerCatalogPackages,
+} from "@/lib/marketplace";
 import { MarketplaceDetails } from "./MarketplaceDetails";
 import { MarketplacePolicy } from "./MarketplacePolicy";
 import { InstalledProvider } from "./InstalledProvider";
+import { ThemeMarketplace } from "./ThemeMarketplace";
 
 export function MarketplaceSection(): React.JSX.Element {
   const { catalogQuery, inventoryQuery, refresh, mutation, notice } = useMarketplace();
@@ -18,7 +24,7 @@ export function MarketplaceSection(): React.JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const catalog = catalogQuery.data;
   const inventory = inventoryQuery.data;
-  const groups = useMemo(() => groupPackages(catalog?.index?.signed.packages ?? []), [catalog]);
+  const groups = useMemo(() => groupPackages(providerCatalogPackages(catalog?.index)), [catalog]);
   const filtered = useMemo(
     () =>
       groups.filter((entries) =>
@@ -34,7 +40,7 @@ export function MarketplaceSection(): React.JSX.Element {
     <SettingsSection
       id="marketplace"
       title="Marketplace"
-      subtitle="Signed ACP providers · Browse · Installed"
+      subtitle="Signed providers and declarative themes"
     >
       <SettingsCard padded>
         <MarketplaceToolbar refresh={refresh} catalogQuery={catalogQuery} />
@@ -51,6 +57,7 @@ export function MarketplaceSection(): React.JSX.Element {
             <TabsTrigger value="installed">
               Installed ({inventory?.providers.length ?? 0})
             </TabsTrigger>
+            <TabsTrigger value="themes">Themes</TabsTrigger>
           </TabsList>
           <MarketplaceBrowse
             search={search}
@@ -84,6 +91,9 @@ export function MarketplaceSection(): React.JSX.Element {
                   : "No managed providers installed."}
               </p>
             )}
+          </TabsContent>
+          <TabsContent value="themes">
+            <ThemeMarketplace />
           </TabsContent>
         </Tabs>
         {selected && (

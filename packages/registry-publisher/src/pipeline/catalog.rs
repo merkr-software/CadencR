@@ -19,6 +19,7 @@ pub(super) fn snapshot(
         .key_id(&prepared.request.key_id)
         .repository(&prepared.request.repository)
         .registry_commit(&prepared.registry_commit)
+        .allow_schema_upgrade(prepared.request.allow_schema_upgrade)
         .call()
         .map_err(Into::into)
 }

@@ -12,9 +12,11 @@ import { apiErrorMessage } from "@/lib/api-errors";
 export function ProviderPublicationPreparation({
   projectId,
   enabled,
+  pluginKind = "provider",
 }: {
   projectId: number;
   enabled: boolean;
+  pluginKind?: "provider" | "theme";
 }): React.JSX.Element {
   const readiness = useGetProjectPublicationReadiness(projectId, {
     query: { enabled },
@@ -23,9 +25,13 @@ export function ProviderPublicationPreparation({
   return (
     <SettingsSection
       size="sm"
-      title="Provider publication preparation"
+      title={
+        pluginKind === "theme"
+          ? "Theme publication preparation"
+          : "Provider publication preparation"
+      }
       subtitle="Local checks only"
-      description="Review local provider prerequisites. This does not publish to GitHub, create a release, or submit to a registry."
+      description={`Review local ${pluginKind} prerequisites. This does not publish to GitHub, create a release, or submit to a registry.`}
     >
       <SettingsCard padded>
         <div className="space-y-4" aria-live="polite">
@@ -140,7 +146,7 @@ function ReadinessResult({
       </ul>
 
       <p className="text-[11px] text-muted-foreground">
-        Passing these checks does not mean the provider is published or fully release-ready.
+        Passing these checks does not mean the plugin is published or fully release-ready.
       </p>
     </div>
   );

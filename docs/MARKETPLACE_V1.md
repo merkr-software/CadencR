@@ -23,6 +23,19 @@ The review of `126f8a8fa` identified release-blocking structural gaps.
 | Runtime cleanup         | Remove replaced JavaScript business implementations only after the verified Rust cutover                                                                                                      | CI uses the pinned CLI; compatibility fixtures remain test data                                                              |
 | Public activation       | Official build URLs/trust keys; explicit protected renewal/revocation owners and alerts; supported desktop clean-install QA                                                                   | No `PENDING` pins or synthetic keys treated as production trust                                                              |
 
+### Shared feed and revocation integration
+
+- Current clients consume the original signed schema-2 envelope for provider
+  installation as well as themes. Provider-only display/resolution views are
+  never signed, cached or retained as substitute proof.
+- Theme revocations are a separate domain-bound signed data policy, not a
+  provider adapter or reuse of the legacy `provider_id` blocklist grammar.
+- Desktop release compilation validates public trust/feed settings, removes
+  empty pins and requires catalog/revocation activation pairs. It does not
+  provision keys, deploy feeds or assign an incident owner.
+- Operational prerequisites and variable syntax are documented in
+  [`MARKETPLACE_RELEASE_CONFIG.md`](./MARKETPLACE_RELEASE_CONFIG.md).
+
 ### Execution and authority
 
 - Use GPT-6.1-Sol parallel implementation with disjoint ownership; finish each
@@ -53,9 +66,11 @@ The review of `126f8a8fa` identified release-blocking structural gaps.
 - Backend recommendation and UI regressions cover explicit version choice and
   installed-version preservation. Generated API/full checks/live QA are delivery
   gates, not inferred from these focused tests.
-- Theme validation and deterministic, closed-content packaging now live in the
-  shared Rust libraries and are exposed by the CLI. They are not a signed theme
-  catalog or a managed-theme lifecycle.
+- Theme validation, deterministic closed-content packaging and the discriminated
+  schema-2 catalog now live in shared Rust libraries. Author projects prepare
+  platform-independent theme releases through the same confirmation, GitHub
+  reconciliation and durable-operation flow as provider candidates. The publisher
+  verifies theme archive contents independently of their signed digest.
 - Durable-operation routes and UI are integrated; interrupted-worker, detached
   execution, corruption, authenticated queries and terminal polling regressions
   are covered. Live isolated QA verifies a two-platform confirmation rejected
@@ -72,37 +87,75 @@ The review of `126f8a8fa` identified release-blocking structural gaps.
   No successful live GitHub publication, Windows runtime or released-binary
   certification is inferred. The dev renderer reports the pre-existing CSP
   `frame-ancestors` meta warning, not a new feature exception.
-- End-to-end declarative theme distribution, distributed CLI verification and
-  official activation remain unfinished until demonstrated.
+- The theme lifecycle now has isolated immutable revisions with signed receipts,
+  exact-byte revalidation, preview, separate activation, updates, confirmed
+  built-in fallback removal and duplication into a flagged editable author
+  project. Corrupted pointers/receipts remain visible as removable diagnostics
+  without hiding valid installations. Asset downloads use repository-bound
+  GitHub release URLs and restricted public GitHub asset redirects.
+- Frontend regressions cover stale preview cancellation, response-boundary
+  validation, no optimistic inventory changes, uncertain-outcome reconciliation
+  and manual recovery. The schema-2 feed uses `marketplace-v2`; the legacy feed is
+  independent, not a regenerated signature or automatic projection. Maintainers
+  must explicitly keep publishing schema 1 to support updates for older clients.
+- The corrective theme wave passes all 20 monorepo tasks, including 5,229 frontend
+  tests, 3,266 service unit tests (one existing ignored test), 65 registry-core
+  tests and 124 registry-publisher tests, plus integration suites. All 189 root
+  script tests and 265 transitional registry tests pass. Three independent
+  GPT-6.1-Sol reviews closed receipt/envelope budget inconsistencies, a 14-day
+  revocation TTL mismatch, stringly typed author kinds, quadratic recommendation
+  selection and blocking inventory/network-lock work. Secure file rereads remain.
+- Isolated live `pnpm dev` verifies author-theme readiness without platform
+  targets, closed deterministic packaging, an original signed mixed catalog with
+  both providers and themes, stable-compatible recommendations, activation with
+  confirmed settings/CSS, and duplication into a new flagged author project
+  without changing signed source payloads. Missing revocation policy blocks
+  activation; a separately CLI-signed policy unlocks valid cached revisions.
+  Fresh network installation and real GitHub publication are not inferred from
+  this private preseeded inventory.
+- Live QA caught strict continuity being applied to an unchanged signed theme
+  catalog. Admission now authenticates both payloads, accepts exact fresh replay
+  without replacing the cache, and still rejects expiry, rollback, invalid
+  signatures and same-time conflicts. Regressions include unchanged Unix inode.
+- A separately CLI-signed theme revocation policy makes the isolated UI display
+  removable diagnostics and blocks preview, activation, update, duplication and
+  reinstall with `MANAGED_THEME_REVOKED`. Confirmed removal restores the built-in
+  theme and retains the flagged author copy. A real service restart preserves
+  removal, fallback settings, the author project and the original mixed catalog.
+  Browser-only QA reports existing CSP/runtime-shell warnings; it does not
+  certify Electron packaged operation or a successful fresh HTTPS download.
+- Successful fresh HTTPS installation, distributed CLI verification, supported
+  packaged-runtime QA and official activation remain gates. A preseeded signed QA
+  revision does not demonstrate network acquisition or a public release.
 
-### Remaining theme implementation — not a provider adapter
+### Theme implementation and remaining delivery gates — not a provider adapter
 
-1. Add a closed, discriminated `schema_version: 2` package union (`provider` or
-   `theme`) in shared Rust. A theme has one platform-independent archive and a
-   declared document version; it has no command, environment, ACP handshake or
-   executable. Identity, publisher, repository and immutable history are common.
-2. Verify legacy schema-1 bytes without modification before converting provider
-   entries in memory. Require an explicit authenticated migration for a schema-2
-   baseline. Keep a separate provider-only schema-1 feed for older clients; never
-   fall back after an invalid signature. Ownership fixes package kind for its
-   lifetime.
-3. Extend contribution/publication artifact plans and signed catalog generation
-   to the theme variant, reusing GitHub reconciliation and renewal. An independent
-   data artifact must not masquerade as an ACP binary target.
-4. Add a managed-theme namespace distinct from editable, Git-backed authoring
-   directories. Install only whitelisted, validated data into immutable revisions
-   with a verified receipt and atomic active pointer. Revalidate documents,
-   assets, paths, types, digests and permissions after extraction.
-5. Add typed author-project resolution and specialized theme readiness/package
-   preparation. Build a closed staging from validated author files, never include
-   `.git` or scaffolding. Reuse release confirmation and operation IDs.
-6. Add catalog preview/install/activation/update/removal UI and duplication into
-   a new author project. Editing a signed installed revision is not allowed.
-   Removal of an active theme must select a confirmed built-in fallback.
-7. Exercise author → publication fixture → signed mixed catalog → fresh isolated
-   install → preview/activation → update/removal, including malformed archives,
-   interruption and platform permission normalization. Local fixtures do not
-   certify an official public release or Windows runtime behavior.
+1. [x] Add a closed, discriminated `schema_version: 2` package union (`provider` or
+       `theme`) in shared Rust. A theme has one platform-independent archive and a
+       declared document version; it has no command, environment, ACP handshake or
+       executable. Identity, publisher, repository and immutable history are common.
+2. [x] Verify legacy schema-1 bytes without modification before converting provider
+       entries in memory. Require an explicit authenticated migration for a schema-2
+       baseline. Use a separate provider-only schema-1 feed for older clients; never
+       fall back after an invalid signature. Ownership fixes package kind for its
+       lifetime. Continuing legacy updates requires explicit independent publishing.
+3. [x] Extend contribution/publication artifact plans and signed catalog generation
+       to the theme variant, reusing GitHub reconciliation and renewal. An independent
+       data artifact must not masquerade as an ACP binary target.
+4. [x] Add a managed-theme namespace distinct from editable, Git-backed authoring
+       directories. Install only whitelisted, validated data into immutable revisions
+       with a verified receipt and atomic active pointer. Revalidate documents,
+       assets, paths, types, digests and permissions after extraction.
+5. [x] Add typed author-project resolution and specialized theme readiness/package
+       preparation. Build a closed staging from validated author files, never include
+       `.git` or scaffolding. Reuse release confirmation and operation IDs.
+6. [x] Add catalog preview/install/activation/update/removal UI and duplication into
+       a new author project. Editing a signed installed revision is not allowed.
+       Removal of an active theme must select a confirmed built-in fallback.
+7. [ ] Exercise author → publication fixture → signed mixed catalog → fresh isolated
+       install → preview/activation → update/removal, including malformed archives,
+       interruption and platform permission normalization. Local fixtures do not
+       certify an official public release or Windows runtime behavior.
 
 ## Post-rebase integration validation — 2026-10-10
 

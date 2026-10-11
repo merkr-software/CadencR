@@ -2,7 +2,7 @@ import { useState } from "react";
 import type {
   ManagedProviderInventoryEntry,
   ManagedProviderPackage,
-  SignedManagedProviderIndex,
+  SignedProviderCatalog,
 } from "@/api/generated";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,7 +34,7 @@ export function MarketplaceDetails({
 }: {
   packages: ManagedProviderPackage[];
   installed?: ManagedProviderInventoryEntry;
-  index?: SignedManagedProviderIndex | null;
+  index?: SignedProviderCatalog | null;
   canInstall: boolean;
   recommendedVersion?: string;
   mutation: Mutation;

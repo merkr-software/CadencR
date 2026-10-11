@@ -1,6 +1,6 @@
 pub mod contribution;
 mod github;
-mod local;
+pub(crate) mod local;
 mod operation;
 mod plan;
 pub mod registry;
@@ -53,6 +53,7 @@ pub struct PublishPublicationReleaseRequest {
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct PublicationReleaseArchive {
     pub bundle_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub target: String,
     pub archive_name: String,
     pub archive_sha256: String,
@@ -71,6 +72,7 @@ pub struct PublicationReleasePreview {
     pub repository: String,
     pub tag: String,
     pub source_commit: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
     pub target: String,
     pub archive_name: String,
     pub archive_sha256: String,
@@ -261,8 +263,8 @@ async fn prepare_context(
     release_notes: String,
     permit: tokio::sync::SemaphorePermit<'static>,
 ) -> Result<PreparedContext, AppError> {
-    let (root, plugin_id) =
-        super::publication_readiness::provider_project(&state.read_pool, project_id).await?;
+    let (root, plugin_id, kind) =
+        super::publication_readiness::author_project(&state.read_pool, project_id).await?;
     let output_root =
         crate::domain::settings_store::dir::sibling_dir("provider-publication-bundles");
     let (local, _permit) = tokio::task::spawn_blocking(move || {
@@ -283,6 +285,7 @@ async fn prepare_context(
         AppError::Internal(format!("publication release inspection failed: {error}"))
     })?;
     let local = local?;
+    local::validate_project_kind(&local.metadata, kind)?;
     let source_commit = local::git::inspect_git(&root, &local.plan.repository).await?;
     let mut local = local;
     local.plan.source_commit = source_commit;

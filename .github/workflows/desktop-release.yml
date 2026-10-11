@@ -65,6 +65,14 @@ jobs:
     runs-on: macos-14
     timeout-minutes: 60
     env:
+      # Public host-owned trust only; empty repository variables keep acquisition
+      # disabled. The build wrapper removes empty values before Rust option_env!.
+      CADENCR_MANAGED_PROVIDER_KEY_ID: ${{ vars.CADENCR_MANAGED_PROVIDER_KEY_ID }}
+      CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64: ${{ vars.CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64 }}
+      CADENCR_MANAGED_PROVIDER_INDEX_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_INDEX_URL }}
+      CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL }}
+      CADENCR_MANAGED_THEME_INDEX_URL: ${{ vars.CADENCR_MANAGED_THEME_INDEX_URL }}
+      CADENCR_MANAGED_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_THEME_BLOCKLIST_URL }}
       # afterSign hook gates on this; opt in for tagged releases only.
       CADENCR_NOTARIZE_APP: "true"
       # Apple ID credentials consumed by build/notarize-app.cjs and
@@ -108,8 +116,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate marketplace build configuration
+        run: node scripts/validate-marketplace-build-env.mjs
+
       - name: Build Rust service sidecar
-        run: pnpm --filter @cadencr/service build
+        run: node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build
 
       - name: Verify service sidecar runtime dependencies
         run: pnpm --filter @cadencr/service check:macos-runtime-deps

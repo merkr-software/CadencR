@@ -9,7 +9,9 @@ use super::{invalid, ManagedCatalogError, ManagedCatalogErrorCode, MAX_CATALOG_B
 use crate::domain::agents::providers::installed::managed::trust::{
     ManagedTrustStore, VerifiedManagedProviderIndex,
 };
+#[cfg(test)]
 use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
+use crate::domain::agents::providers::installed::managed::SignedProviderCatalog;
 
 static CACHE_WRITE_LOCK: Mutex<()> = Mutex::new(());
 // The on-disk wrapper adds `cached_at` and the `index` field around an envelope
@@ -20,7 +22,7 @@ const MAX_CACHED_CATALOG_BYTES: usize = MAX_CATALOG_BYTES + 128;
 #[serde(deny_unknown_fields)]
 struct CachedCatalog {
     cached_at: DateTime<Utc>,
-    index: SignedManagedProviderIndex,
+    index: SignedProviderCatalog,
 }
 
 #[derive(Debug)]
@@ -43,33 +45,49 @@ pub(super) fn load(
 pub(super) fn persist(
     path: &Path,
     trust: &ManagedTrustStore,
-    index: SignedManagedProviderIndex,
+    index: impl Into<SignedProviderCatalog>,
     now: DateTime<Utc>,
 ) -> Result<VerifiedManagedProviderIndex, ManagedCatalogError> {
-    validate_freshness(&index, now)?;
+    let index = index.into();
+    let encoded_size = serde_json::to_vec(&CachedCatalog {
+        cached_at: now,
+        index: index.clone(),
+    })
+    .map_err(|error| invalid(error.to_string()))?
+    .len();
+    if encoded_size > MAX_CACHED_CATALOG_BYTES {
+        return Err(ManagedCatalogError::new(
+            ManagedCatalogErrorCode::TooLarge,
+            "serialized managed provider catalog exceeds the cache limit",
+        ));
+    }
     let verified = trust
         .verify_index(index.clone())
         .map_err(|error| invalid(error.message))?;
+    validate_freshness(&verified, now)?;
     let _guard = CACHE_WRITE_LOCK
         .lock()
         .map_err(|_| unavailable("catalog cache lock is poisoned"))?;
     if let Some(previous) = trusted_previous(path, trust) {
+        let current_bytes = verified.signing_bytes();
+        let previous_bytes = previous.signing_bytes();
         let current = verified.index();
         let previous = previous.index();
         if current.generated_at < previous.generated_at {
             return Err(invalid("refusing an older signed catalog publication"));
         }
-        if current.generated_at == previous.generated_at
-            && current
-                .signing_bytes()
-                .map_err(|error| invalid(error.to_string()))?
-                != previous
-                    .signing_bytes()
-                    .map_err(|error| invalid(error.to_string()))?
-        {
+        if current.generated_at == previous.generated_at && current_bytes != previous_bytes {
             return Err(invalid(
                 "conflicting signed catalogs have the same publication time",
             ));
+        }
+        if current.generated_at > previous.generated_at {
+            let prior = cadencr_registry_core::parse_json_bytes(previous_bytes)
+                .map_err(|error| invalid(error.to_string()))?;
+            let next = cadencr_registry_core::parse_json_bytes(current_bytes)
+                .map_err(|error| invalid(error.to_string()))?;
+            cadencr_registry_core::validate_catalog_continuity(&prior, &next)
+                .map_err(|error| invalid(error.to_string()))?;
         }
     }
     let json = serde_json::to_string(&CachedCatalog {
@@ -93,10 +111,10 @@ fn verify(
     trust: &ManagedTrustStore,
     now: DateTime<Utc>,
 ) -> Result<LoadedCatalog, ManagedCatalogError> {
-    validate_freshness(&cached.index, now)?;
     let verified = trust
         .verify_index(cached.index)
         .map_err(|error| invalid(error.message))?;
+    validate_freshness(&verified, now)?;
     Ok(LoadedCatalog {
         cached_at: cached.cached_at,
         verified,
@@ -107,16 +125,16 @@ pub(super) fn revalidate(
     catalog: LoadedCatalog,
     now: DateTime<Utc>,
 ) -> Result<LoadedCatalog, ManagedCatalogError> {
-    validate_freshness(catalog.verified.envelope(), now)?;
+    validate_freshness(&catalog.verified, now)?;
     Ok(catalog)
 }
 
 fn validate_freshness(
-    index: &SignedManagedProviderIndex,
+    index: &VerifiedManagedProviderIndex,
     now: DateTime<Utc>,
 ) -> Result<(), ManagedCatalogError> {
-    super::super::validation::validate_publication_window(&index.signed, now).map_err(|error| {
-        let code = if now >= index.signed.expires_at {
+    super::super::validation::validate_publication_window(index.index(), now).map_err(|error| {
+        let code = if now >= index.index().expires_at {
             ManagedCatalogErrorCode::Expired
         } else {
             ManagedCatalogErrorCode::Invalid
@@ -223,7 +241,16 @@ mod tests {
         let loaded = load(&path, &trust(), now).unwrap().unwrap();
         let response =
             super::super::ManagedCatalogResponse::verified(&loaded.verified, false, None);
-        assert_eq!(response.index.unwrap().signed.packages.len(), 120);
+        assert_eq!(
+            response
+                .index
+                .unwrap()
+                .provider_view()
+                .unwrap()
+                .packages
+                .len(),
+            120
+        );
         let platform = package
             .agent
             .distribution
@@ -347,5 +374,73 @@ mod tests {
                 .code,
             ManagedCatalogErrorCode::Expired
         );
+    }
+    fn mixed(now: DateTime<Utc>) -> crate::domain::themes::managed::models::SignedMixedCatalog {
+        let mut value = serde_json::to_value(signed(now)).unwrap();
+        value["signed"]["schema_version"] = serde_json::json!(2);
+        value["signed"]["generated_at"] =
+            serde_json::json!(now.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+        value["signed"]["expires_at"] = serde_json::json!(
+            (now + Duration::hours(2)).to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+        );
+        let packages = value["signed"]["packages"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|package| serde_json::json!({"kind":"provider","package":package}))
+            .collect::<Vec<_>>();
+        value["signed"]["packages"] = serde_json::json!(packages);
+        let mut index: crate::domain::themes::managed::models::SignedMixedCatalog =
+            serde_json::from_value(value).unwrap();
+        resign_mixed(&mut index);
+        index
+    }
+    fn resign_mixed(index: &mut crate::domain::themes::managed::models::SignedMixedCatalog) {
+        let bytes = cadencr_registry_core::canonical_json_bytes(
+            &serde_json::to_value(&index.signed).unwrap(),
+        );
+        index.signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[41; 32]).sign(&bytes).to_bytes());
+    }
+    #[test]
+    fn mixed_cache_and_api_preserve_full_signed_payload_and_provider_extensions() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("catalog.json");
+        let now = Utc::now();
+        let index = mixed(now);
+        let original = serde_json::to_value(&index).unwrap();
+        persist(&path, &trust(), index.clone(), now).unwrap();
+        persist(&path, &trust(), index, now).unwrap();
+        let loaded = load(&path, &trust(), now).unwrap().unwrap();
+        assert_eq!(
+            serde_json::to_value(loaded.verified.envelope()).unwrap(),
+            original
+        );
+        assert!(loaded.verified.index().packages[0]
+            .agent
+            .extra
+            .contains_key("x-registry-note"));
+        let response =
+            super::super::ManagedCatalogResponse::verified(&loaded.verified, false, None);
+        assert_eq!(
+            serde_json::to_value(response.index.unwrap()).unwrap(),
+            original
+        );
+        assert_eq!(
+            response
+                .recommended_versions
+                .get("acme-agent")
+                .map(String::as_str),
+            Some("1.2.3")
+        );
+        let before = std::fs::read(&path).unwrap();
+        assert!(persist(&path, &trust(), signed(now + Duration::seconds(2)), now).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        assert!(persist(&path, &trust(), mixed(now - Duration::seconds(1)), now).is_err());
+        let mut owner = mixed(now + Duration::seconds(1));
+        owner.signed.packages[0]["package"]["host"]["publisher"] = serde_json::json!("other");
+        resign_mixed(&mut owner);
+        assert!(persist(&path, &trust(), owner, now).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
     }
 }

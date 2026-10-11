@@ -38,7 +38,7 @@ pub fn assess_discovery_head(
     head: Option<&[u8]>,
 ) -> Result<bool, RegistryError> {
     let Some(bytes) = head else {
-        return if snapshot.previous_sha256().is_none() {
+        return if snapshot.discovery_bootstrap() {
             Ok(false)
         } else {
             Err(RegistryError::single(

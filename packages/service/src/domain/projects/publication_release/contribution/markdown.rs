@@ -7,6 +7,9 @@ pub(super) fn render(
     publisher: &str,
 ) -> Vec<u8> {
     let plan = &local.plan;
+    if plan.target.is_empty() {
+        return format!("# Theme version contribution\n\n## Identity\n\n- Theme: `{}`\n- Version: `{}`\n- Publisher: `{}`\n- GitHub account: `{}`\n- Source: `https://github.com/{}` at `{}`\n- Tag: `{}`\n\n## Files\n\n- `packages/{filename}`\n- `submissions/{filename}`\n\n## Declarative archive\n\n- Asset: `{}`\n- SHA-256: `{}`\n- One platform-independent theme document and declared raster assets; no ACP command, executable, or lifecycle hook.\n\n## Changes\n\n{}\n", literal(&plan.plugin_id), literal(&plan.version), literal(publisher), literal(account), plan.repository, plan.source_commit, literal(&plan.tag), literal(&plan.archive_name), plan.archive_sha256, literal(&plan.release_notes)).into_bytes();
+    }
     let repository = format!("https://github.com/{}", plan.repository);
     let archive = format!(
         "{repository}/releases/download/{}/{}",

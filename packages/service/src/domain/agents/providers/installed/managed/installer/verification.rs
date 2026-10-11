@@ -31,9 +31,10 @@ pub(super) fn verify_existing_revision(
 fn immutable_metadata(receipt: &ManagedPackageReceipt) -> Result<serde_json::Value, AppError> {
     // An index is a changing catalog, not the identity of one immutable revision.
     // Preserve the original receipt while allowing unrelated registry updates.
-    let package = receipt
-        .signed_index
-        .signed
+    let view = receipt.signed_index.provider_view().map_err(|message| {
+        AppError::coded(StatusCode::CONFLICT, "MANAGED_RECEIPT_INVALID", message)
+    })?;
+    let package = view
         .packages
         .iter()
         .find(|package| {

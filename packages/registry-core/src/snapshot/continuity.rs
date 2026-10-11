@@ -14,6 +14,19 @@ pub(crate) fn validate_continuity(
             "catalog generated_at must strictly increase",
         ));
     }
+    let prior_schema = previous
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let next_schema = candidate
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    if next_schema < prior_schema {
+        return Err(RegistryError::single(
+            "catalog schema downgrade is forbidden",
+        ));
+    }
     let next = packages(candidate)
         .iter()
         .filter_map(|value| identity(value).map(|id| (id, value)))
@@ -26,7 +39,13 @@ pub(crate) fn validate_continuity(
                 "catalog removes previous package {label}"
             )));
         };
-        if *current != prior {
+        let unchanged = if prior_schema == 1 && next_schema == 2 {
+            crate::marketplace::kind(current) == "provider"
+                && crate::marketplace::body(current) == prior
+        } else {
+            *current == prior
+        };
+        if !unchanged {
             return Err(RegistryError::single(format!(
                 "catalog mutates previous package {label}"
             )));
@@ -53,10 +72,15 @@ fn timestamp(value: &Value) -> &str {
 fn packages(value: &Value) -> &[Value] {
     value["packages"].as_array().expect("verified packages")
 }
-fn owner(value: &Value) -> (Option<&str>, Option<&str>) {
+fn owner(value: &Value) -> (&str, Option<&str>, Option<&str>) {
     (
-        value.pointer("/host/publisher").and_then(Value::as_str),
-        value.pointer("/agent/repository").and_then(Value::as_str),
+        crate::marketplace::kind(value),
+        crate::marketplace::body(value)
+            .pointer("/host/publisher")
+            .and_then(Value::as_str),
+        crate::marketplace::descriptor(value)
+            .get("repository")
+            .and_then(Value::as_str),
     )
 }
 

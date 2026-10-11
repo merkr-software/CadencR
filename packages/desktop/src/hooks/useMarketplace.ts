@@ -8,12 +8,12 @@ import {
   update,
   enabled,
   remove,
-  type SignedManagedProviderIndex,
+  type SignedProviderCatalog,
 } from "@/api/generated";
 import { catalogSchema, entrySchema, inventorySchema } from "@/lib/marketplace";
 
 type MarketplaceAction =
-  | { kind: "install" | "update"; id: string; version: string; index: SignedManagedProviderIndex }
+  | { kind: "install" | "update"; id: string; version: string; index: SignedProviderCatalog }
   | { kind: "enabled"; id: string; enabled: boolean }
   | { kind: "remove"; id: string };
 const catalogKey = ["marketplace", "catalog"];
