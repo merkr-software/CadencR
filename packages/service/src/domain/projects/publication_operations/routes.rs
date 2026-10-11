@@ -21,9 +21,10 @@ pub struct PublicationOperationsQuery {
 pub async fn get_publication_operation_handler(
     Path((project_id, id)): Path<(i64, String)>,
 ) -> Result<Json<PublicationOperation>, AppError> {
-    let root = journal::root(project_id)?;
+    let root = journal::root(project_id).await?;
     tokio::task::spawn_blocking(move || {
-        let _lock = journal::lock().lock().map_err(|_| journal::storage())?;
+        let lock = journal::lock(&root)?;
+        let _lock = lock.lock().map_err(|_| journal::storage())?;
         let operation = journal::read(&root, &id)?;
         if operation
             .as_ref()
@@ -58,9 +59,10 @@ pub async fn list_publication_operations_handler(
             "invalid publication operation pagination".into(),
         ));
     }
-    let root = journal::root(project_id)?;
+    let root = journal::root(project_id).await?;
     tokio::task::spawn_blocking(move || {
-        let _lock = journal::lock().lock().map_err(|_| journal::storage())?;
+        let lock = journal::lock(&root)?;
+        let _lock = lock.lock().map_err(|_| journal::storage())?;
         match std::fs::symlink_metadata(&root) {
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Ok(Json(PublicationOperationsPage {

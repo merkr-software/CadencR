@@ -1,23 +1,39 @@
 use super::{identity::valid_id, PublicationOperation, PublicationOperationStatus};
 use crate::error::AppError;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::io::Read as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 pub(super) const MAX_RECORD_BYTES: u64 = 64 * 1024;
-pub(super) fn lock() -> &'static Mutex<()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    &LOCK
+pub(super) fn lock(root: &Path) -> Result<Arc<Mutex<()>>, AppError> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| storage())?;
+    // Completed project transactions leave no retained lock or growing key set.
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(root).and_then(Weak::upgrade) {
+        return Ok(lock);
+    }
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(root.to_owned(), Arc::downgrade(&lock));
+    Ok(lock)
 }
 pub(super) fn boot_id() -> &'static str {
     static ID: OnceLock<String> = OnceLock::new();
     ID.get_or_init(|| uuid::Uuid::new_v4().to_string())
 }
-pub(super) fn root(project_id: i64) -> Result<PathBuf, AppError> {
+pub(super) async fn root(project_id: i64) -> Result<PathBuf, AppError> {
     let parent = crate::domain::settings_store::dir::sibling_dir("publication-operations");
-    ensure_root(&parent)?;
-    Ok(parent.join(project_id.to_string()))
+    tokio::task::spawn_blocking(move || {
+        ensure_root(&parent)?;
+        Ok(parent.join(project_id.to_string()))
+    })
+    .await
+    .map_err(|_| storage())?
 }
 
 #[derive(Deserialize, Serialize)]
@@ -173,6 +189,22 @@ pub(super) fn storage() -> AppError {
 mod tests {
     use super::super::PublicationOperationKind;
     use super::*;
+    #[test]
+    fn project_locks_share_only_while_owned_and_do_not_retain_completed_roots() {
+        let root = tempfile::tempdir().unwrap();
+        let other = tempfile::tempdir().unwrap();
+        let first = lock(root.path()).unwrap();
+        let repeated = lock(root.path()).unwrap();
+        let independent = lock(other.path()).unwrap();
+        assert!(Arc::ptr_eq(&first, &repeated));
+        assert!(!Arc::ptr_eq(&first, &independent));
+        let weak = Arc::downgrade(&first);
+        drop(first);
+        drop(repeated);
+        assert!(weak.upgrade().is_none());
+        assert!(!Arc::ptr_eq(&lock(root.path()).unwrap(), &independent));
+    }
+
     fn operation() -> PublicationOperation {
         PublicationOperation {
             operation_id: "a".repeat(64),

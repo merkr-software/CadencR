@@ -42,7 +42,7 @@ where
     // Heap-own the worker before constructing the durable orchestration future.
     let job = Box::pin(job);
     async move {
-        let root = journal::root(project_id)?;
+        let root = journal::root(project_id).await?;
         execute_at(root, project_id, kind, operation_id, plan_sha256, job).await
     }
 }
@@ -60,47 +60,60 @@ where
 {
     let job = Box::pin(job);
     async move {
-        let (mut operation, guard) = begin(&root, project_id, kind, &id, plan_sha256)?;
-        if let Some(result) = operation.result.take() {
-            return Ok(result);
-        }
-        let guard = guard.ok_or_else(journal::storage)?;
         let (sender, receiver) = tokio::sync::oneshot::channel();
+        // Own admission as well as the worker before awaiting anything: a lost
+        // request must not strand an accepted journal without starting its job.
         tokio::spawn(async move {
-            let _guard = guard;
-            let outcome = match tokio::spawn(job).await {
-                Ok(outcome) => outcome,
-                Err(_) => Err(AppError::coded(
-                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                    "PUBLICATION_OPERATION_INTERRUPTED",
-                    "Publication worker stopped; the outcome is unknown.",
-                )),
-            };
-            operation.updated_at = chrono::Utc::now().to_rfc3339();
-            match &outcome {
-                Ok(result) => {
-                    operation.status = PublicationOperationStatus::Succeeded;
-                    operation.result = Some(result.clone());
+            let log_id = id.clone();
+            let response = async move {
+                let admission_root = root.clone();
+                let admission_id = id.clone();
+                let (mut operation, guard) = tokio::task::spawn_blocking(move || {
+                    begin(&admission_root, project_id, kind, &admission_id, plan_sha256)
+                })
+                .await
+                .map_err(|_| journal::storage())??;
+                if let Some(result) = operation.result.take() {
+                    return Ok(result);
                 }
-                Err(error) => {
-                    let (mut status, code) = classify(error);
-                    if operation.attempt > 1 {
-                        status = PublicationOperationStatus::Unknown;
+                let _guard = guard.ok_or_else(journal::storage)?;
+                let outcome = match tokio::spawn(job).await {
+                    Ok(outcome) => outcome,
+                    Err(_) => Err(AppError::coded(
+                        axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                        "PUBLICATION_OPERATION_INTERRUPTED",
+                        "Publication worker stopped; the outcome is unknown.",
+                    )),
+                };
+                operation.updated_at = chrono::Utc::now().to_rfc3339();
+                match &outcome {
+                    Ok(result) => {
+                        operation.status = PublicationOperationStatus::Succeeded;
+                        operation.result = Some(result.clone());
                     }
-                    operation.status = status;
-                    operation.error_code = Some(code);
-                    operation.error = Some(if status == PublicationOperationStatus::Failed { "The operation was rejected before publication." } else { "The remote outcome is unknown. Reconcile this same confirmed operation before retrying." }.into());
+                    Err(error) => {
+                        let (mut status, code) = classify(error);
+                        if operation.attempt > 1 {
+                            status = PublicationOperationStatus::Unknown;
+                        }
+                        operation.status = status;
+                        operation.error_code = Some(code);
+                        operation.error = Some(if status == PublicationOperationStatus::Failed { "The operation was rejected before publication." } else { "The remote outcome is unknown. Reconcile this same confirmed operation before retrying." }.into());
+                    }
                 }
-            }
-            let persisted = journal::lock()
-                .lock()
+                let persisted = tokio::task::spawn_blocking(move || {
+                    let lock = journal::lock(&root)?;
+                    let _lock = lock.lock().map_err(|_| journal::storage())?;
+                    journal::write(&root, &operation)
+                })
+                .await
                 .map_err(|_| journal::storage())
-                .and_then(|_lock| journal::write(&root, &operation));
-            // Persistence failure is returned, not logged-and-swallowed. Once this
-            // worker exits, GET converts the still-running journal to unknown.
-            let response = persisted.and(outcome);
+                .and_then(std::convert::identity);
+                // GET reconciles a still-running journal if final persistence fails.
+                persisted.and(outcome)
+            }.await;
             if let Err(Err(error)) = sender.send(response) {
-                tracing::warn!(%error, operation_id = %id, "detached publication outcome is available through operation status");
+                tracing::warn!(%error, operation_id = %log_id, "detached publication outcome is available through operation status");
             }
         });
         receiver.await.map_err(|_| journal::storage())?
@@ -220,7 +233,8 @@ mod tests {
         finish.send(()).unwrap();
         loop {
             let status = {
-                let _lock = journal::lock().lock().unwrap();
+                let lock = journal::lock(&path).unwrap();
+                let _lock = lock.lock().unwrap();
                 journal::read(&path, &"a".repeat(64))
                     .unwrap()
                     .unwrap()
