@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn real_client_mirrors_recovers_lost_create_and_replays_without_posts() {
-        let (root, submission) = super::super::tests::staged();
+        let (root, submission) = super::super::fixture::staged();
         let (base, state, stop, server) = server();
         let client = GitHubClient::fixture(REPOSITORY, "secret-token", base.clone(), base).unwrap();
         let request = || {

@@ -125,7 +125,7 @@ mod tests {
     use crate::publication_local::RefusingDownloader;
 
     struct MutatingPublic<'a> {
-        client: &'a crate::mirror::tests::FakeClient,
+        client: &'a crate::mirror::fixture::FakeClient,
         artifact: &'a std::path::Path,
         mutated: Cell<bool>,
     }

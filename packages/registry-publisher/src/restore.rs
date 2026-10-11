@@ -112,7 +112,7 @@ mod tests {
     }
 
     struct ManagedDownload<'a> {
-        client: &'a crate::mirror::tests::FakeClient,
+        client: &'a crate::mirror::fixture::FakeClient,
         mode: DownloadMode,
         calls: Cell<u64>,
     }
@@ -152,7 +152,7 @@ mod tests {
 
     fn run(
         request: RestoreRequest<'_>,
-        client: &crate::mirror::tests::FakeClient,
+        client: &crate::mirror::fixture::FakeClient,
     ) -> Result<MirrorReceipt, PublisherError> {
         let prepared = preflight(&request)?;
         restore(request, prepared, client, &Public(client))

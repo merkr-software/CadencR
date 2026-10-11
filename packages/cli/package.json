@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/cli",
-  "version": "0.11.5",
+  "version": "0.12.1",
   "private": true,
   "scripts": {
     "test": "node ../../scripts/cargo-env.mjs cargo test --locked -p cadencr-cli -p cadencr-plugin-core -p cadencr-registry-core -p cadencr-registry-publisher",

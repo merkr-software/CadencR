@@ -104,7 +104,7 @@ pub(crate) fn verify_exact_tag(
 mod tests {
     use super::*;
     use crate::github::{Asset, GitHubClient};
-    use crate::mirror::tests::{run as mirror, staged, FakeClient};
+    use crate::mirror::fixture::{run as mirror, staged, FakeClient};
     use crate::{DownloadRequest, Downloaded, Downloader, StageRequest};
     use serde_json::json;
     use sha2::{Digest as _, Sha256};
