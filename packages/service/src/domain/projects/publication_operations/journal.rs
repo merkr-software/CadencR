@@ -45,6 +45,9 @@ struct Stored {
     operation: PublicationOperation,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     confirmed_registry: Option<confirmed::RegistryPlan>,
+    // Only admission can establish this proof; legacy records default to unknown.
+    #[serde(default)]
+    registry_pre_write: bool,
 }
 
 pub(super) fn ensure_root(root: &Path) -> Result<(), AppError> {
@@ -106,6 +109,13 @@ fn load(root: &Path, id: &str) -> Result<Option<Stored>, AppError> {
         return Err(storage());
     }
     validate_record(&stored.operation)?;
+    if stored.registry_pre_write
+        && (stored.confirmed_registry.is_some()
+            || stored.operation.kind != super::PublicationOperationKind::Registry
+            || stored.operation.status == PublicationOperationStatus::Succeeded)
+    {
+        return Err(storage());
+    }
     if let Some(plan) = &stored.confirmed_registry {
         confirmed::validate(plan, &stored.operation)?;
     }
@@ -172,10 +182,29 @@ fn validate_record(operation: &PublicationOperation) -> Result<(), AppError> {
 }
 
 pub(super) fn write(root: &Path, operation: &PublicationOperation) -> Result<(), AppError> {
+    write_record(root, operation, false)
+}
+
+pub(super) fn write_admitted(
+    root: &Path,
+    operation: &PublicationOperation,
+) -> Result<(), AppError> {
+    write_record(root, operation, true)
+}
+
+fn write_record(
+    root: &Path,
+    operation: &PublicationOperation,
+    admitted: bool,
+) -> Result<(), AppError> {
     ensure_root(root)?;
     validate_record(operation)?;
-    let confirmed_registry =
-        load(root, &operation.operation_id)?.and_then(|stored| stored.confirmed_registry);
+    let prior = load(root, &operation.operation_id)?;
+    let registry_pre_write = prior.as_ref().map_or(
+        admitted && operation.kind == super::PublicationOperationKind::Registry,
+        |stored| stored.registry_pre_write,
+    );
+    let confirmed_registry = prior.and_then(|stored| stored.confirmed_registry);
     if let Some(plan) = &confirmed_registry {
         confirmed::validate(plan, operation)?;
     }
@@ -184,6 +213,7 @@ pub(super) fn write(root: &Path, operation: &PublicationOperation) -> Result<(),
         boot_id: boot_id().into(),
         operation: operation.clone(),
         confirmed_registry,
+        registry_pre_write,
     })
     .map_err(|_| storage())?;
     if bytes.len() as u64 > MAX_RECORD_BYTES {

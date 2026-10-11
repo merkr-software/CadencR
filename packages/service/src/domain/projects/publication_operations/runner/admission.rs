@@ -61,7 +61,7 @@ pub(super) fn begin(
         .map_err(|_| journal::storage())?
         .insert(path.clone());
     let guard = Active(path);
-    journal::write(root, &operation)?;
+    journal::write_admitted(root, &operation)?;
     operation.status = PublicationOperationStatus::Running;
     journal::write(root, &operation)?;
     Ok((operation, Some(guard)))
@@ -95,6 +95,55 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use std::time::Duration;
+
+    #[test]
+    fn admission_proves_new_registry_pre_write_without_promoting_legacy_uncertainty() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "a".repeat(64);
+        let (mut operation, guard) = begin(
+            root.path(),
+            7,
+            PublicationOperationKind::Registry,
+            &id,
+            "c".repeat(64),
+        )
+        .unwrap();
+        let path = root.path().join(format!("{id}.json"));
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored["registry_pre_write"], true);
+        operation.status = PublicationOperationStatus::Failed;
+        operation.error_code = Some("PUBLICATION_RELEASE_BUSY".into());
+        journal::write(root.path(), &operation).unwrap();
+        drop(guard);
+        let (operation, guard) = begin(
+            root.path(),
+            7,
+            PublicationOperationKind::Registry,
+            &id,
+            "c".repeat(64),
+        )
+        .unwrap();
+        assert_eq!(operation.attempt, 2);
+        drop(guard);
+        // An interrupted legacy attempt cannot acquire proof merely by retrying.
+        let mut stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        stored.as_object_mut().unwrap().remove("registry_pre_write");
+        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        let (_, guard) = begin(
+            root.path(),
+            7,
+            PublicationOperationKind::Registry,
+            &id,
+            "c".repeat(64),
+        )
+        .unwrap();
+        let stored: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(stored["registry_pre_write"], false);
+        drop(guard);
+    }
 
     fn hold_lock(root: PathBuf) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
         let (ready, acquired) = std::sync::mpsc::channel();

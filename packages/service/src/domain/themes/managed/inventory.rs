@@ -122,6 +122,7 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn saved_dark_reference_is_removal_protected_even_in_manual_mode() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = super::super::service::tests::commit_fixture("midnight", "1.0.0");
         settings_store::global_set("theme_current", "cadencr-light")
             .await
@@ -174,10 +175,25 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, "midnight");
         assert!(entries[0].active);
-        assert!(entries[0].theme.is_some());
+        assert!(entries[0].theme.is_none());
+        assert_eq!(
+            entries[0].error_code.as_deref(),
+            Some("MANAGED_THEME_POLICY_UNAVAILABLE")
+        );
+        assert!(entries[0]
+            .error
+            .as_ref()
+            .is_some_and(|error| !error.is_empty()));
+        assert!(
+            super::super::service::remove("midnight", true)
+                .await
+                .unwrap()
+                .success
+        );
     }
     #[tokio::test]
     async fn corrupt_entry_retains_diagnostics_without_hiding_valid_theme() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = super::super::service::tests::commit_fixture("midnight", "1.0.0");
         super::super::service::tests::commit_fixture("other-theme", "1.0.0");
         let failed_refresh = inventory_after_refresh(

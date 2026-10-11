@@ -326,7 +326,23 @@ pub(super) mod tests {
         trust
     }
     #[tokio::test]
+    async fn missing_policy_prevents_preview_apply_and_duplicate_but_not_removal() {
+        let trust = commit_fixture("midnight", "1.0.0");
+        let before = settings_store::global_get("theme_current");
+        assert!(preview_trusted("midnight", &trust).is_err());
+        assert!(apply_trusted("midnight", &trust).await.is_err());
+        assert_eq!(settings_store::global_get("theme_current"), before);
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect_lazy("sqlite::memory:")
+            .unwrap();
+        assert!(duplicate_trusted(&pool, "midnight", "Copy", &trust)
+            .await
+            .is_err());
+        assert!(remove_inner("midnight", true).await.unwrap().success);
+    }
+    #[tokio::test]
     async fn immutable_install_apply_update_remove_requires_builtin_fallback() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = commit_fixture("midnight", "1.0.0");
         let old_digest = storage::pointer("midnight").unwrap().sha256;
         let installed = preview_trusted("midnight", &trust).unwrap();
@@ -391,6 +407,7 @@ pub(super) mod tests {
     }
     #[test]
     fn modified_revision_data_cannot_be_previewed_or_applied() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = commit_fixture("midnight", "1.0.0");
         let file = storage::revision(
             "midnight",
@@ -407,6 +424,7 @@ pub(super) mod tests {
     }
     #[tokio::test]
     async fn forged_payload_and_receipt_cannot_replace_authenticated_archive() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = commit_fixture("forged-theme", "1.0.0");
         let pointer = storage::pointer("forged-theme").unwrap();
         let revision =
@@ -436,6 +454,7 @@ pub(super) mod tests {
     }
     #[tokio::test]
     async fn missing_or_tampered_original_archive_fails_closed() {
+        let _policy = super::super::policy::tests::configured_policy();
         let trust = commit_fixture("archive-theme", "1.0.0");
         let pointer = storage::pointer("archive-theme").unwrap();
         let path = storage::revision("archive-theme", &pointer.version, &pointer.sha256)

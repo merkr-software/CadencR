@@ -83,16 +83,14 @@ fn recover_at(
         if stored.operation.kind != super::super::PublicationOperationKind::Registry {
             continue;
         }
-        // This named preflight failure plus absence of an intent proves the
-        // worker never reached registry writes. It does not require recovery.
-        if stored.confirmed_registry.is_none()
-            && stored.operation.status == PublicationOperationStatus::Failed
-            && stored.operation.error_code.as_deref() == Some("PUBLICATION_REGISTRY_PLAN_CHANGED")
-        {
+        // Admission records a durable pre-write proof. It survives busy errors,
+        // other preflight failures, restarts, and retries until reviewed intent
+        // is persisted before the first possible remote mutation.
+        if stored.confirmed_registry.is_none() && stored.registry_pre_write {
             continue;
         }
-        // Old records contain no reviewed branch or documents. Even a fresh
-        // preview must not erase that uncertainty and authorize a duplicate.
+        // Legacy missing intent remains ambiguous, except the current original
+        // live worker, whose first attempt is still preparing its reviewed plan.
         if stored.confirmed_registry.is_none()
             && current == Some(id)
             && stored.operation.attempt == 1
@@ -152,10 +150,11 @@ fn persist_at(root: &Path, plan: RegistryPlan) -> Result<(), AppError> {
         }
         return Ok(());
     }
-    if stored.operation.attempt != 1 {
+    if stored.operation.attempt != 1 && !stored.registry_pre_write {
         return Err(legacy());
     }
     stored.confirmed_registry = Some(plan);
+    stored.registry_pre_write = false;
     let bytes = serde_json::to_string(&stored).map_err(|_| storage())?;
     if bytes.len() as u64 > MAX_RECORD_BYTES {
         return Err(storage());
@@ -267,6 +266,88 @@ mod tests {
     }
 
     #[test]
+    fn pre_write_busy_and_other_failures_allow_same_operation_retry() {
+        for code in [
+            "PUBLICATION_RELEASE_BUSY",
+            "PUBLICATION_PREFLIGHT_UNAVAILABLE",
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let mut operation = operation();
+            write_admitted(root.path(), &operation).unwrap();
+            operation.status = PublicationOperationStatus::Failed;
+            operation.error_code = Some(code.into());
+            write(root.path(), &operation).unwrap();
+            assert!(
+                recover_at(root.path(), 7, None, &identity(), MAX_SCAN_BYTES)
+                    .unwrap()
+                    .is_empty()
+            );
+            // Admission increments the same ID, preserving proof rather than
+            // depending on a particular failure code or first-attempt status.
+            operation.attempt = 2;
+            operation.status = PublicationOperationStatus::Running;
+            operation.error_code = None;
+            write_admitted(root.path(), &operation).unwrap();
+            assert!(recover_at(
+                root.path(),
+                7,
+                Some(&operation.operation_id),
+                &identity(),
+                MAX_SCAN_BYTES
+            )
+            .unwrap()
+            .is_empty());
+            persist_at(root.path(), plan()).unwrap();
+            let stored = load(root.path(), &operation.operation_id).unwrap().unwrap();
+            assert!(!stored.registry_pre_write);
+            operation.status = PublicationOperationStatus::Unknown;
+            operation.error_code = Some("PUBLICATION_RELEASE_TIMEOUT".into());
+            write(root.path(), &operation).unwrap();
+            assert_eq!(
+                recover_at(root.path(), 7, None, &identity(), MAX_SCAN_BYTES)
+                    .unwrap()
+                    .len(),
+                1
+            );
+            let mut changed = plan();
+            changed.preview.branch = "cadencr/replacement".into();
+            assert!(persist_at(root.path(), changed).is_err());
+        }
+    }
+
+    #[test]
+    fn interrupted_pre_write_is_safe_but_missing_proof_and_inconsistent_proof_fail_closed() {
+        let root = tempfile::tempdir().unwrap();
+        let mut operation = operation();
+        write_admitted(root.path(), &operation).unwrap();
+        operation.status = PublicationOperationStatus::Unknown;
+        write(root.path(), &operation).unwrap();
+        assert!(
+            recover_at(root.path(), 7, None, &identity(), MAX_SCAN_BYTES)
+                .unwrap()
+                .is_empty()
+        );
+        let path = root.path().join(format!("{}.json", operation.operation_id));
+        let mut stored = load(root.path(), &operation.operation_id).unwrap().unwrap();
+        stored.registry_pre_write = false;
+        operation.status = PublicationOperationStatus::Failed;
+        operation.error_code = Some("PUBLICATION_RELEASE_BUSY".into());
+        stored.operation = operation;
+        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert!(matches!(
+            recover_at(root.path(), 7, None, &identity(), MAX_SCAN_BYTES),
+            Err(AppError::Coded {
+                code: "PUBLICATION_REGISTRY_RECOVERY_REQUIRED",
+                ..
+            })
+        ));
+        stored.confirmed_registry = Some(plan());
+        stored.registry_pre_write = true;
+        std::fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+        assert!(load(root.path(), &stored.operation.operation_id).is_err());
+    }
+
+    #[test]
     fn older_registry_records_without_reviewed_intent_explicitly_fail_closed() {
         let root = tempfile::tempdir().unwrap();
         let mut operation = operation();
@@ -304,6 +385,7 @@ mod tests {
             boot_id: boot_id().into(),
             operation,
             confirmed_registry: Some(plan),
+            registry_pre_write: false,
         };
         let path = root.join(format!("{}.json", stored.operation.operation_id));
         crate::shared::atomic_file::write_atomic_private(

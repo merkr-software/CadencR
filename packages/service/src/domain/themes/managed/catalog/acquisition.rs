@@ -166,7 +166,7 @@ mod tests {
             std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let context = Context {
-            root: root.path().to_path_buf(),
+            root: root.path().join("managed-themes"),
             trust,
         };
         worker(context.root.clone(), move || {

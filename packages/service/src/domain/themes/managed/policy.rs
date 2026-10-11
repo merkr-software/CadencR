@@ -29,7 +29,21 @@ fn unavailable(message: impl std::fmt::Display) -> AppError {
     )
 }
 fn source() -> Option<&'static str> {
+    #[cfg(test)]
+    if tests::configured_trust().is_some() {
+        return Some("https://registry.example/theme-blocklist.json");
+    }
     option_env!("CADENCR_MANAGED_THEME_BLOCKLIST_URL").filter(|url| !url.trim().is_empty())
+}
+fn trust_store() -> ManagedTrustStore {
+    #[cfg(test)]
+    if let Some(trust) = tests::configured_trust() {
+        return trust;
+    }
+    pinned_index_trust_store()
+}
+fn require_source(url: Option<&str>) -> Result<&str, AppError> {
+    url.ok_or_else(|| unavailable("managed theme revocation policy source is not configured"))
 }
 fn cache() -> std::path::PathBuf {
     storage::root().join("theme-blocklist.json")
@@ -167,12 +181,10 @@ fn refresh_state(root: std::path::PathBuf) -> Result<RefreshHandle, AppError> {
         .clone())
 }
 pub(super) async fn refresh(force: bool) -> Result<Option<String>, AppError> {
-    let Some(url) = source() else {
-        return Ok(None);
-    };
+    let url = require_source(source())?;
     refresh_with(
         force,
-        &pinned_index_trust_store(),
+        &trust_store(),
         refresh_state(cache())?,
         std::time::Instant::now(),
         Utc::now(),
@@ -287,47 +299,34 @@ async fn offload<T: Send + 'static>(
         .await
         .map_err(unavailable)?
 }
-pub(super) struct Snapshot(Option<Verified>);
+pub(super) struct Snapshot(Verified);
 pub(super) fn snapshot() -> Result<Snapshot, AppError> {
-    if source().is_none() {
-        return Ok(Snapshot(None));
+    snapshot_cached(source().is_some(), &trust_store())
+}
+fn snapshot_cached(configured: bool, trust: &ManagedTrustStore) -> Result<Snapshot, AppError> {
+    if !configured {
+        return Err(unavailable(
+            "managed theme revocation policy source is not configured",
+        ));
     }
-    Ok(Snapshot(Some(verify(
-        &cached()?,
-        &pinned_index_trust_store(),
-        true,
-        Utc::now(),
-    )?)))
+    Ok(Snapshot(verify(&cached()?, trust, true, Utc::now())?))
 }
 impl Snapshot {
     pub(super) fn enforce(&self, id: &str, version: &str, digest: &str) -> Result<(), AppError> {
-        match &self.0 {
-            Some(policy) => enforce_verified(policy, id, version, digest),
-            None => Ok(()),
-        }
+        enforce_verified(&self.0, id, version, digest)
     }
 }
 pub(super) fn enforce(id: &str, version: &str, digest: &str) -> Result<(), AppError> {
-    enforce_cached(
-        id,
-        version,
-        digest,
-        source().is_some(),
-        &pinned_index_trust_store(),
-    )
+    enforce_cached(id, version, digest, source().is_some(), &trust_store())
 }
 fn enforce_cached(
     id: &str,
     version: &str,
     digest: &str,
-    required: bool,
+    configured: bool,
     trust: &ManagedTrustStore,
 ) -> Result<(), AppError> {
-    if !required {
-        return Ok(());
-    }
-    let verified = verify(&cached()?, trust, true, Utc::now())?;
-    enforce_verified(&verified, id, version, digest)
+    snapshot_cached(configured, trust)?.enforce(id, version, digest)
 }
 fn enforce_verified(
     policy: &Verified,
@@ -351,11 +350,37 @@ fn enforce_verified(
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::domain::agents::providers::installed::managed::trust::TrustedIndexKey;
     use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};
+    type FixtureRoots = std::collections::HashMap<std::path::PathBuf, ManagedTrustStore>;
+    fn fixture_roots() -> &'static std::sync::Mutex<FixtureRoots> {
+        static ROOTS: std::sync::OnceLock<std::sync::Mutex<FixtureRoots>> =
+            std::sync::OnceLock::new();
+        ROOTS.get_or_init(Default::default)
+    }
+    pub(super) fn configured_trust() -> Option<ManagedTrustStore> {
+        fixture_roots()
+            .lock()
+            .unwrap()
+            .get(&storage::root())
+            .cloned()
+    }
+    pub(in crate::domain::themes::managed) struct ConfiguredPolicy(std::path::PathBuf);
+    impl Drop for ConfiguredPolicy {
+        fn drop(&mut self) {
+            fixture_roots().lock().unwrap().remove(&self.0);
+        }
+    }
+    pub(in crate::domain::themes::managed) fn configured_policy() -> ConfiguredPolicy {
+        let (envelope, trust) = signed(-1, serde_json::json!([]));
+        ingest(&envelope, &trust, Utc::now()).unwrap();
+        let root = storage::root();
+        fixture_roots().lock().unwrap().insert(root.clone(), trust);
+        ConfiguredPolicy(root)
+    }
     fn signed(offset_minutes: i64, entries: Value) -> (Envelope, ManagedTrustStore) {
         let now = Utc::now();
         let signed = serde_json::json!({"schema_version":1,"kind":"theme-blocklist","generated_at":(now+chrono::Duration::minutes(offset_minutes)).to_rfc3339_opts(chrono::SecondsFormat::Secs,true),"expires_at":(now+chrono::Duration::hours(1)).to_rfc3339_opts(chrono::SecondsFormat::Secs,true),"entries":entries});
@@ -374,6 +399,23 @@ mod tests {
                 TrustedIndexKey::new("test", key.verifying_key().to_bytes()).unwrap()
             ]),
         )
+    }
+    #[test]
+    fn unconfigured_policy_fails_closed_even_with_valid_cached_policy() {
+        let (envelope, trust) = signed(-1, serde_json::json!([]));
+        let digest = "a".repeat(64);
+        assert!(require_source(None).is_err());
+        assert!(require_source(Some("https://registry.example/themes/blocklist.json")).is_ok());
+        assert!(snapshot_cached(false, &trust).is_err());
+        assert!(snapshot_cached(true, &trust).is_err());
+        assert!(enforce_cached("midnight", "1.0.0", &digest, false, &trust).is_err());
+        ingest(&envelope, &trust, Utc::now()).unwrap();
+        assert!(snapshot_cached(false, &trust).is_err());
+        assert!(enforce_cached("midnight", "1.0.0", &digest, false, &trust).is_err());
+        let snapshot = snapshot_cached(true, &trust).unwrap();
+        snapshot.enforce("midnight", "1.0.0", &digest).unwrap();
+        enforce_cached("midnight", "1.0.0", &digest, true, &trust).unwrap();
+        assert!(snapshot_cached(true, &ManagedTrustStore::default()).is_err());
     }
     #[test]
     fn authenticated_replay_does_not_replace_cache_but_b_resigning_does() {
@@ -740,7 +782,7 @@ mod tests {
             serde_json::json!([{"theme_id":"midnight","reason":"unsafe theme"}]),
         );
         assert!(enforce_cached("midnight", "1.0.0", &"a".repeat(64), true, &trust).is_err());
-        assert!(enforce_cached("midnight", "1.0.0", &"a".repeat(64), false, &trust).is_ok());
+        assert!(enforce_cached("midnight", "1.0.0", &"a".repeat(64), false, &trust).is_err());
         ingest(&envelope, &trust, Utc::now()).unwrap();
         let (older, _) = signed(-2, serde_json::json!([]));
         assert!(ingest(&older, &trust, Utc::now()).is_err());
