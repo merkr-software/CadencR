@@ -69,6 +69,7 @@ impl TrustedIndexKey {
 #[derive(Debug, Clone, Default)]
 pub struct ManagedTrustStore {
     keys: BTreeMap<String, VerifyingKey>,
+    profile: Option<std::sync::Arc<cadencr_registry_core::VerifiedRegistryTrust>>,
 }
 
 mod mixed;
@@ -80,6 +81,7 @@ impl ManagedTrustStore {
                 .into_iter()
                 .map(|key| (key.key_id, key.verifying_key))
                 .collect(),
+            profile: None,
         }
     }
 
@@ -160,6 +162,11 @@ impl ManagedTrustStore {
                 "managed provider trust is not configured in this build",
             ));
         }
+        if let Some(profile) = &self.profile {
+            profile.active_key(&signature.key_id).map_err(|error| {
+                ManagedTrustError::new(ManagedTrustErrorCode::UnknownSigningKey, error.to_string())
+            })?;
+        }
         let signer_key_id = signature.key_id.clone();
         let key = self.keys.get(&signer_key_id).ok_or_else(|| {
             ManagedTrustError::new(
@@ -184,53 +191,14 @@ impl ManagedTrustStore {
     }
 }
 
-/// The production keyring seam. A marketplace release compiles its reviewed
-/// key id/public key into the binary. Keeping an unconfigured or malformed
-/// build empty is safer than shipping a fixture key or trusting renderer input.
-pub fn pinned_index_trust_store() -> ManagedTrustStore {
-    match pinned_index_trust_status() {
-        PinnedIndexTrustStatus::Configured { key } => ManagedTrustStore::new([key]),
-        PinnedIndexTrustStatus::Unconfigured | PinnedIndexTrustStatus::Invalid { .. } => {
-            ManagedTrustStore::default()
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum PinnedIndexTrustStatus {
-    Unconfigured,
-    Configured { key: TrustedIndexKey },
-    Invalid { code: &'static str, message: String },
-}
-
-pub fn pinned_index_trust_status() -> PinnedIndexTrustStatus {
-    pinned_index_trust_status_from(
-        option_env!("CADENCR_MANAGED_PROVIDER_KEY_ID"),
-        option_env!("CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64"),
-    )
-}
-
-fn pinned_index_trust_status_from(
-    key_id: Option<&str>,
-    public_key: Option<&str>,
-) -> PinnedIndexTrustStatus {
-    match (key_id, public_key) {
-        (None, None) => PinnedIndexTrustStatus::Unconfigured,
-        (Some(key_id), Some(public_key)) => {
-            match TrustedIndexKey::from_base64(key_id, public_key) {
-                Ok(key) => PinnedIndexTrustStatus::Configured { key },
-                Err(error) => PinnedIndexTrustStatus::Invalid {
-                    code: "PINNED_TRUST_CONFIGURATION_INVALID",
-                    message: error.message,
-                },
-            }
-        }
-        _ => PinnedIndexTrustStatus::Invalid {
-            code: "PINNED_TRUST_CONFIGURATION_INVALID",
-            message: "managed-provider key id and public key must be compiled in together".into(),
-        },
-    }
-}
+mod generation;
+mod pinned;
+#[cfg(test)]
+use pinned::pinned_index_trust_status_from;
+pub use pinned::{
+    initialize_pinned_registry_trust, pinned_index_trust_status, pinned_index_trust_store,
+    PinnedIndexTrustStatus,
+};
 
 /// An index whose signature was verified by a host-owned trust store.
 #[derive(Debug, Clone)]

@@ -2,54 +2,58 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { render } from "@/test-utils";
 import { ThemeMarketplace } from "./ThemeMarketplace";
-const mocks = vi.hoisted(() => ({ state: vi.fn(), mutate: vi.fn() }));
-vi.mock("@/hooks/useThemeMarketplace", () => ({ useThemeMarketplace: mocks.state }));
+
+const mocks = vi.hoisted(() => ({ themeId: "cadencr-dark", mutate: vi.fn(), damaged: false }));
+vi.mock("@/hooks/useTheme", () => ({
+  useTheme: () => ({ themeId: mocks.themeId, isLoading: false }),
+}));
 vi.mock("react-virtuoso", () => ({
   Virtuoso: ({
     data,
     itemContent,
   }: {
     data: unknown[];
-    itemContent: (index: number, item: unknown) => React.ReactNode;
-  }) => (
-    <div>
-      {data.map((item, index) => (
-        <div key={index}>{itemContent(index, item)}</div>
-      ))}
-    </div>
-  ),
+    itemContent: (index: number, entry: unknown) => React.ReactNode;
+  }) => data.map((entry, index) => itemContent(index, entry)),
 }));
-describe("damaged managed theme diagnostics", () => {
+vi.mock("@/lib/theme-marketplace", async (original) => ({
+  ...(await original<typeof import("@/lib/theme-marketplace")>()),
+  groupThemePackages: () => [],
+  usableThemeCatalog: () => false,
+  managedThemeDefinition: () => null,
+}));
+vi.mock("@/hooks/useThemeMarketplace", () => ({
+  useThemeMarketplace: () => ({
+    catalog: {},
+    inventory: {
+      data: [
+        mocks.damaged
+          ? {
+              id: "damaged",
+              name: "Damaged",
+              version: "1.0.0",
+              active: false,
+              theme: null,
+              error: "immutable payload changed",
+              error_code: "MANAGED_THEME_INVALID",
+            }
+          : { id: "midnight", name: "Midnight", version: "1.0.0", active: true, theme: {} },
+      ],
+    },
+    refresh: {},
+    mutation: { mutate: mocks.mutate },
+    recovery: {},
+  }),
+}));
+
+describe("marketplace displayed theme versus saved references", () => {
   beforeEach(() => {
+    mocks.themeId = "cadencr-dark";
     mocks.mutate.mockReset();
-    mocks.state.mockReturnValue({
-      inventory: {
-        data: [
-          {
-            id: "damaged",
-            name: "Damaged",
-            version: "1.0.0",
-            sha256: "",
-            active: false,
-            theme: null,
-            error: "immutable payload changed",
-            error_code: "MANAGED_THEME_INVALID",
-          },
-        ],
-        isLoading: false,
-        isError: false,
-      },
-      catalog: {
-        data: { verified: false, index: null, recommended_versions: {} },
-        isLoading: false,
-        isFetching: false,
-      },
-      refresh: { isPending: false },
-      mutation: { isPending: false, mutate: mocks.mutate },
-      recovery: { isPending: false },
-    });
+    mocks.damaged = false;
   });
   it("shows corruption and permits confirmed removal, but never applies or duplicates it", () => {
+    mocks.damaged = true;
     render(<ThemeMarketplace />);
     expect(screen.getByText(/immutable payload changed/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Activate theme" })).toBeDisabled();
@@ -60,5 +64,23 @@ describe("damaged managed theme diagnostics", () => {
       { kind: "remove", id: "damaged", confirmFallback: true },
       expect.any(Object),
     );
+  });
+  it("allows activating a theme referenced only by the dark system slot in manual mode", () => {
+    render(<ThemeMarketplace />);
+    expect(screen.getByText(/Saved selection/)).toBeInTheDocument();
+    const activate = screen.getByRole("button", { name: "Activate theme" });
+    expect(activate).toBeEnabled();
+    fireEvent.click(activate);
+    expect(mocks.mutate).toHaveBeenCalledWith({ kind: "apply", id: "midnight" });
+    fireEvent.click(screen.getByRole("button", { name: "Remove theme…" }));
+    expect(screen.getByText(/Any manual or system selection/)).toBeInTheDocument();
+  });
+  it("disables activation only when actually displayed, including follow-system resolution", () => {
+    mocks.themeId = "managed:midnight";
+    const view = render(<ThemeMarketplace />);
+    expect(screen.getByRole("button", { name: "Theme active" })).toBeDisabled();
+    mocks.themeId = "cadencr-light";
+    view.rerender(<ThemeMarketplace />);
+    expect(screen.getByRole("button", { name: "Activate theme" })).toBeEnabled();
   });
 });

@@ -27,11 +27,17 @@ async fn staged(
         .as_str()
         .ok_or_else(|| archive::invalid("theme archive digest missing"))?;
     storage::revision(&body.theme_id, &body.version, sha256)?;
-    super::policy::refresh(false).await?;
+    if let Some(warning) = super::policy::refresh(false).await? {
+        return Err(AppError::coded(
+            axum::http::StatusCode::CONFLICT,
+            "MANAGED_THEME_POLICY_OFFLINE",
+            warning,
+        ));
+    }
     super::policy::enforce(&body.theme_id, &body.version, sha256)?;
     let bytes = catalog::download_archive(
         archive_url,
-        package["theme"]["repository"].as_str(),
+        package["theme"]["distribution"].get("repository"),
         archive::MAX_ARCHIVE_BYTES,
     )
     .await?;

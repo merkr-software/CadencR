@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Virtuoso } from "react-virtuoso";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useTheme } from "@/hooks/useTheme";
 import { useThemeMarketplace } from "@/hooks/useThemeMarketplace";
 import {
   groupThemePackages,
@@ -14,6 +15,7 @@ import { ThemeMarketplaceDetails } from "./ThemeMarketplaceDetails";
 
 export function ThemeMarketplace(): React.JSX.Element {
   const state = useThemeMarketplace();
+  const { themeId, isLoading: themeLoading } = useTheme();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const groups = useMemo(() => groupThemePackages(state.catalog.data), [state.catalog.data]);
@@ -88,7 +90,14 @@ export function ThemeMarketplace(): React.JSX.Element {
         <div className="h-64">
           <Virtuoso
             data={state.inventory.data}
-            itemContent={(_, entry) => <InstalledTheme entry={entry} state={state} />}
+            itemContent={(_, entry) => (
+              <InstalledTheme
+                entry={entry}
+                state={state}
+                displayed={themeId === `managed:${entry.id}`}
+                themeLoading={themeLoading}
+              />
+            )}
           />
         </div>
       )}
@@ -107,22 +116,26 @@ export function ThemeMarketplace(): React.JSX.Element {
 function InstalledTheme({
   entry,
   state,
+  displayed,
+  themeLoading,
 }: {
   entry: NonNullable<ReturnType<typeof useThemeMarketplace>["inventory"]["data"]>[number];
   state: ReturnType<typeof useThemeMarketplace>;
+  displayed: boolean;
+  themeLoading: boolean;
 }): React.JSX.Element {
   const [confirmFallback, setConfirmFallback] = useState(false);
   const [label, setLabel] = useState("");
   return (
     <div className="space-y-2 border-b py-3">
-      <InstalledThemeSummary entry={entry} />
+      <InstalledThemeSummary entry={entry} displayed={displayed} />
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
-          disabled={state.mutation.isPending || entry.active || !entry.theme}
+          disabled={state.mutation.isPending || themeLoading || displayed || !entry.theme}
           onClick={() => state.mutation.mutate({ kind: "apply", id: entry.id })}
         >
-          {entry.active ? "Theme active" : "Activate theme"}
+          {displayed ? "Theme active" : "Activate theme"}
         </Button>
         <Button
           size="sm"
@@ -246,8 +259,10 @@ function ThemeRecovery({
 
 function InstalledThemeSummary({
   entry,
+  displayed,
 }: {
   entry: NonNullable<ReturnType<typeof useThemeMarketplace>["inventory"]["data"]>[number];
+  displayed: boolean;
 }): React.JSX.Element {
   const theme = useMemo(() => (entry.theme ? managedThemeDefinition(entry) : null), [entry]);
   return (
@@ -260,7 +275,7 @@ function InstalledThemeSummary({
         )}
         <div className="text-sm">
           {entry.name} · {entry.version}
-          {entry.active ? " · Active" : ""}
+          {displayed ? " · Active" : entry.active ? " · Saved selection" : ""}
         </div>
       </div>
       {entry.error && (

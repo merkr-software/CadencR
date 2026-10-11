@@ -67,3 +67,23 @@ It does not republish historical package artifacts.
 
 A tracked execution of a confirmed publication action. Its identity lets the
 author retrieve the outcome after a connection or application interruption.
+
+### Author provenance
+
+The origin of a plugin's authored source and release. It identifies the author,
+not necessarily the location from which an approved package is distributed.
+
+### Distribution origin
+
+The registry-approved origin serving a package's verified archive. Mirroring a
+package changes its distribution origin, not its author provenance.
+
+### Registry trust generation
+
+A reviewed set of authorities for authenticating registry metadata. A successor
+can retire an authority for historical evidence or revoke it after compromise.
+
+### Recovery checkpoint
+
+One exact historical metadata snapshot independently endorsed for continuity
+recovery. It does not restore a revoked publisher's ordinary authority.

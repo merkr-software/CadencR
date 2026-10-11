@@ -153,6 +153,80 @@ The review of `126f8a8fa` identified release-blocking structural gaps.
   of the author copy and publication journal reads. This uses a private preseeded
   archive and signed cache, not public HTTPS acquisition or a distributed build.
 
+### Second review corrective wave — 2026-10-11
+
+- [x] Separate author provenance (`theme.repository`) from signed distribution
+      origin (`theme.distribution.repository`). Mirrored archives bind to the
+      registry Release origin, not the author's source repository. Legacy signed
+      packages derive distribution origin from their authenticated archive URL;
+      arbitrary hosts, origin mismatches and malformed explicit origins fail closed.
+- [x] Dispatch a contribution envelope exactly once. Provider content validation
+      never redispatches nested package kinds, and every accepted contribution or
+      submission requires a resolved identity before ownership/provenance checks.
+- [x] Persist the original registry submission documents, branch, base commit,
+      actor and repository identities with the confirmed journal intent. Resume
+      reconciles the original PR read-only before any new write; registry-main
+      drift cannot manufacture a new branch or PR. Older incomplete journals
+      require explicit recovery instead of guessing their original intent.
+- [x] Separate signed policy expiry from online revocation polling: first use
+      after startup polls, subsequent polls are bounded to 15 minutes, concurrent
+      requests coalesce, failures retry after 60 seconds and preserve diagnostics.
+      A verified, unexpired cache permits existing revisions offline; new remote
+      preview/install/update requires a successful online check. Expiry fails closed.
+- [x] Theme inventory references retain removal-safety semantics. Marketplace
+      activation depends on the effective displayed theme instead: a theme saved
+      only for the dark system profile can be selected manually while another
+      theme is displayed. Saved selections are labeled separately from active ones.
+- [x] Reject non-finite theme color channels/angles and non-finite conversion
+      results, including `rgb(nan 0 0)` and overflowing finite Oklab inputs. Local
+      and distributed theme validation share this boundary.
+- [x] Add offline-root-authenticated trust generations to the shared Rust core,
+      publisher, CLI and desktop service. Historical retired keys, current metadata
+      authority, explicitly revoked keys and exact recovery checkpoints are
+      different privileges. Cache continuity survives ordinary A→B rotation;
+      compromised keys never authorize current metadata or installed receipts.
+- [x] Complete independent reuse/quality/efficiency reviews, full checks and
+      isolated live verification for this wave. Review fixes include read-only
+      PR reconciliation before fork/ref writes, bounded identity-filtered journal
+      scans and off-thread policy verification with exact-replay persistence guards.
+
+Verification on the final source passes all 20 monorepo test/lint/type/unused-code/
+format tasks without task-cache reuse: 5,234 frontend tests, 3,308 service unit
+tests (one existing ignored test), 79 registry-core tests, 79 plugin-core tests
+and 126 registry-publisher tests, plus CLI/integration suites. Root-script tests
+pass 190/190; transitional registry tests pass 265/265; release-script checks pass.
+An initial unbounded run timed out in a local HTTP fixture; the focused replay
+and complete concurrency-bounded rerun pass without weakening its assertions.
+
+The final finish-job pass removes duplicate catalog validation/canonicalization,
+skips envelope hashing when recovery-checkpoint lists are empty, and removes
+redundant key parsing, preview comparisons and a forwarding wrapper. Two new
+regressions preserve closed envelope/signature and payload validation across
+current, historical and baseline purposes, including malformed exact checkpoints.
+All three GPT-6.1-Sol reviewers rechecked these simplifications; the complete
+20-task pass was rerun without cache reuse on the final source. Broader historical
+provider-view verification remains intact rather than removing a trust boundary.
+
+Isolated live dev API/UI QA verifies manual activation of a theme saved only for
+the dark system profile, visible offline diagnostics with valid existing revisions,
+denial of new remote preview while policy polling is offline, and the original
+durable operation after a real restart. A separately CLI-signed root generation
+authenticates A→B migration of an equal-payload catalog, rejects A as current
+policy authority, retains historical A-signed theme receipts with the B-signed
+current policy and persists generation 2. QA processes are stopped; production
+data is untouched and all QA databases are preserved. Browser-only CSP/runtime-
+shell warnings and the initial invalid route are not packaged-runtime evidence.
+Fresh HTTPS acquisition, a real GitHub publication and distributed-binary
+certification are not inferred from these private signed fixtures.
+
+The generation protocol and operator transition are documented in
+[`MARKETPLACE_RELEASE_CONFIG.md`](./MARKETPLACE_RELEASE_CONFIG.md) and
+[ADR 0001](./adr/0001-registry-trust-generations.md). No official key, remote
+publication, release tag, registry workflow cutover or synthetic production pin
+is provisioned by these source changes. `PENDING` CLI pins remain a deployment
+blocker: release and verify the distributed Rust binary, switch both registry
+workflows and documented commands, then remove replaced JavaScript business code.
+
 ### Theme implementation and remaining delivery gates — not a provider adapter
 
 1. [x] Add a closed, discriminated `schema_version: 2` package union (`provider` or

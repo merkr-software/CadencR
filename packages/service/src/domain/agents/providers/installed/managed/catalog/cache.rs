@@ -68,22 +68,22 @@ pub(super) fn persist(
     let _guard = CACHE_WRITE_LOCK
         .lock()
         .map_err(|_| unavailable("catalog cache lock is poisoned"))?;
-    if let Some(previous) = trusted_previous(path, trust) {
+    if let Some(previous_bytes) = trusted_previous_bytes(path, trust)? {
         let current_bytes = verified.signing_bytes();
-        let previous_bytes = previous.signing_bytes();
+        let prior = cadencr_registry_core::parse_json_bytes(&previous_bytes)
+            .map_err(|error| invalid(error.to_string()))?;
+        let generated = DateTime::parse_from_rfc3339(prior["generated_at"].as_str().unwrap_or(""))
+            .map_err(|error| invalid(error.to_string()))?;
         let current = verified.index();
-        let previous = previous.index();
-        if current.generated_at < previous.generated_at {
+        if current.generated_at < generated {
             return Err(invalid("refusing an older signed catalog publication"));
         }
-        if current.generated_at == previous.generated_at && current_bytes != previous_bytes {
+        if current.generated_at == generated && current_bytes != previous_bytes {
             return Err(invalid(
                 "conflicting signed catalogs have the same publication time",
             ));
         }
-        if current.generated_at > previous.generated_at {
-            let prior = cadencr_registry_core::parse_json_bytes(previous_bytes)
-                .map_err(|error| invalid(error.to_string()))?;
+        if current.generated_at > generated {
             let next = cadencr_registry_core::parse_json_bytes(current_bytes)
                 .map_err(|error| invalid(error.to_string()))?;
             cadencr_registry_core::validate_catalog_continuity(&prior, &next)
@@ -143,12 +143,30 @@ fn validate_freshness(
     })
 }
 
-fn trusted_previous(
+fn trusted_previous_bytes(
     path: &Path,
     trust: &ManagedTrustStore,
-) -> Option<VerifiedManagedProviderIndex> {
-    let cached = read(path).ok().flatten()?;
-    trust.verify_index(cached.index).ok()
+) -> Result<Option<Vec<u8>>, ManagedCatalogError> {
+    if trust.generation().is_some() {
+        let Some(cached) = read(path)? else {
+            return Ok(None);
+        };
+        let value =
+            serde_json::to_value(cached.index).map_err(|error| invalid(error.to_string()))?;
+        return trust
+            .authenticate_catalog_baseline(&value)
+            .map(Some)
+            .map_err(|error| invalid(error.to_string()));
+    }
+    // Preserve legacy repair semantics for an untrusted cache, without granting
+    // the same bypass to a root-authorized generation transition.
+    let Some(cached) = read(path).ok().flatten() else {
+        return Ok(None);
+    };
+    Ok(trust
+        .verify_index(cached.index)
+        .ok()
+        .map(|index| index.signing_bytes().to_vec()))
 }
 
 fn read(path: &Path) -> Result<Option<CachedCatalog>, ManagedCatalogError> {
@@ -214,6 +232,74 @@ mod tests {
                 .to_bytes(),
         );
         index
+    }
+
+    fn signed_b(now: DateTime<Utc>) -> SignedManagedProviderIndex {
+        let mut value = signed(now);
+        value.signature.key_id = "current-b".into();
+        value.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[42; 32])
+                .sign(&value.signed.signing_bytes().unwrap())
+                .to_bytes(),
+        );
+        value
+    }
+
+    #[test]
+    fn rotation_migrates_retired_baseline_without_weakening_catalog_continuity() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("catalog.json");
+        let now = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
+        let prior = signed(now - Duration::minutes(2));
+        persist(&path, &trust(), prior, now).unwrap();
+        let migrated =
+            ManagedTrustStore::test_registry_rotation(now - Duration::minutes(1), false, vec![]);
+        assert!(load(&path, &migrated, now).is_err());
+        persist(&path, &migrated, signed_b(now), now).unwrap();
+        let loaded = load(&path, &migrated, now).unwrap().unwrap();
+        assert_eq!(loaded.verified.signer_key_id(), "current-b");
+        let before = std::fs::read(&path).unwrap();
+        let mut drift = signed_b(now + Duration::seconds(1));
+        drift.signed.packages[0].agent.description = "history rewritten".into();
+        drift.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[42; 32])
+                .sign(&drift.signed.signing_bytes().unwrap())
+                .to_bytes(),
+        );
+        assert!(persist(&path, &migrated, drift, now).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
+
+    #[test]
+    fn revoked_cache_requires_exact_checkpoint_before_successor_can_replace_it() {
+        let now = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
+        let prior = signed(now - Duration::minutes(2));
+        let digest = cadencr_registry_core::VerifiedRegistryTrust::catalog_digest(
+            &serde_json::to_value(&prior).unwrap(),
+        );
+        for checkpoint in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("catalog.json");
+            persist(&path, &trust(), prior.clone(), now).unwrap();
+            let before = std::fs::read(&path).unwrap();
+            let migrated = ManagedTrustStore::test_registry_rotation(
+                now,
+                true,
+                if checkpoint {
+                    vec![digest.clone()]
+                } else {
+                    vec![]
+                },
+            );
+            assert_eq!(
+                persist(&path, &migrated, signed_b(now), now).is_ok(),
+                checkpoint
+            );
+            if !checkpoint {
+                assert_eq!(std::fs::read(&path).unwrap(), before);
+            }
+            assert!(migrated.verify_index_historical(prior.clone()).is_err());
+        }
     }
 
     #[test]

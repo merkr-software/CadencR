@@ -35,7 +35,7 @@ fn inventory_snapshot(
     trust: &ManagedTrustStore,
     ids: Vec<String>,
     active: std::collections::HashSet<String>,
-    refreshed: Result<(), AppError>,
+    refreshed: Result<Option<String>, AppError>,
 ) -> Result<Vec<ManagedThemeInventoryEntry>, AppError> {
     let policy = super::policy::snapshot();
     let mut entries = Vec::with_capacity(ids.len());
@@ -51,9 +51,12 @@ fn inventory_snapshot(
                 ),
                 selected,
             ),
-            (Ok(()), Ok(policy)) => {
+            (Ok(warning), Ok(policy)) => {
                 match super::read::preview_snapshot(&id, trust, policy, selected) {
-                    Ok(entry) => entry,
+                    Ok(mut entry) => {
+                        entry.error = warning.clone();
+                        entry
+                    }
                     Err(error) => diagnostic(&id, error, selected),
                 }
             }
@@ -65,7 +68,7 @@ fn inventory_snapshot(
 #[cfg(test)]
 fn inventory_after_refresh(
     trust: &ManagedTrustStore,
-    refreshed: Result<(), AppError>,
+    refreshed: Result<Option<String>, AppError>,
 ) -> Result<Vec<ManagedThemeInventoryEntry>, AppError> {
     inventory_snapshot(trust, installed_ids()?, active_ids(), refreshed)
 }
@@ -73,7 +76,7 @@ fn inventory_after_refresh(
 fn inventory_trusted(
     trust: &ManagedTrustStore,
 ) -> Result<Vec<ManagedThemeInventoryEntry>, AppError> {
-    inventory_after_refresh(trust, Ok(()))
+    inventory_after_refresh(trust, Ok(None))
 }
 fn installed_ids() -> Result<Vec<String>, AppError> {
     let mut result = Vec::new();
@@ -118,6 +121,34 @@ fn diagnostic(id: &str, error: AppError, active: bool) -> ManagedThemeInventoryE
 mod tests {
     use super::*;
     #[tokio::test]
+    async fn saved_dark_reference_is_removal_protected_even_in_manual_mode() {
+        let trust = super::super::service::tests::commit_fixture("midnight", "1.0.0");
+        settings_store::global_set("theme_current", "cadencr-light")
+            .await
+            .unwrap();
+        settings_store::global_set("theme_follow_system", "false")
+            .await
+            .unwrap();
+        settings_store::global_set("theme_system_dark", "managed:midnight")
+            .await
+            .unwrap();
+        let entries = inventory_trusted(&trust).unwrap();
+        assert!(
+            entries[0].active,
+            "active is the saved-reference contract, not OS appearance"
+        );
+        assert!(super::super::service::remove("midnight", false)
+            .await
+            .is_err());
+        let degraded =
+            inventory_after_refresh(&trust, Ok(Some("offline policy fallback".into()))).unwrap();
+        assert!(degraded[0].theme.is_some());
+        assert_eq!(
+            degraded[0].error.as_deref(),
+            Some("offline policy fallback")
+        );
+    }
+    #[tokio::test]
     async fn empty_inventory_skips_unusable_policy_and_blocking_snapshot_preserves_context() {
         storage::secure(&storage::root()).unwrap();
         crate::shared::atomic_file::write_atomic_private(
@@ -134,7 +165,7 @@ mod tests {
         let active = active_ids();
         let entries = tokio::task::spawn_blocking(move || {
             storage::with_root(root, || {
-                inventory_snapshot(&trust, installed_ids().unwrap(), active, Ok(()))
+                inventory_snapshot(&trust, installed_ids().unwrap(), active, Ok(None))
             })
         })
         .await
@@ -163,7 +194,7 @@ mod tests {
                 .error
                 .as_ref()
                 .is_some_and(|error| error.contains("refresh failed"))));
-        assert!(inventory_after_refresh(&trust, Ok(()))
+        assert!(inventory_after_refresh(&trust, Ok(None))
             .unwrap()
             .iter()
             .all(|entry| entry.theme.is_some()));

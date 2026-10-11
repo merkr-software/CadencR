@@ -26,6 +26,11 @@ pub fn verify(
     let bytes =
         cadencr_registry_core::validate_signing_payload_at(&payload, allow_expired, Utc::now())
             .map_err(invalid)?;
+    if allow_expired {
+        return trust
+            .authenticate_catalog_history(&serde_json::to_value(index).map_err(invalid)?)
+            .map_err(|error| invalid(error.to_string()));
+    }
     trust
         .verify_bytes(&bytes, &index.signature)
         .map_err(|error| {
@@ -85,7 +90,9 @@ fn ingest_trusted(index: &SignedMixedCatalog, trust: &ManagedTrustStore) -> Resu
     verify(index, trust, false)?;
     match storage::bounded_json::<SignedMixedCatalog>(&cache()) {
         Ok(previous) => {
-            verify(&previous, trust, true)?;
+            trust
+                .authenticate_catalog_baseline(&serde_json::to_value(&previous).map_err(invalid)?)
+                .map_err(|error| invalid(error.to_string()))?;
             let earlier = chrono::DateTime::parse_from_rfc3339(&previous.signed.generated_at)
                 .map_err(invalid)?;
             let incoming = chrono::DateTime::parse_from_rfc3339(&index.signed.generated_at)
@@ -97,13 +104,21 @@ fn ingest_trusted(index: &SignedMixedCatalog, trust: &ManagedTrustStore) -> Resu
                     "theme catalog rollback or same-time equivocation rejected",
                 ));
             }
-            if incoming == earlier {
+            if incoming == earlier
+                && previous.signature.key_id == index.signature.key_id
+                && previous.signature.value == index.signature.value
+            {
                 // Both envelopes were authenticated above. Exact payload replay is
                 // an idempotent admission, not a newly published catalog revision.
                 return Ok(());
             }
-            cadencr_registry_core::validate_catalog_continuity(&prior_payload, &incoming_payload)
+            if incoming > earlier {
+                cadencr_registry_core::validate_catalog_continuity(
+                    &prior_payload,
+                    &incoming_payload,
+                )
                 .map_err(invalid)?;
+            }
         }
         Err(error) => match cache().symlink_metadata() {
             Err(missing) if missing.kind() == std::io::ErrorKind::NotFound => {}
@@ -169,6 +184,105 @@ pub(super) mod tests {
                 TrustedIndexKey::new("test", key.verifying_key().to_bytes()).unwrap()
             ]),
         )
+    }
+    pub(crate) fn rotation_trust(
+        cutoff: chrono::DateTime<Utc>,
+        revoked: bool,
+        catalog_checkpoints: Vec<String>,
+        policy_checkpoints: Vec<String>,
+    ) -> ManagedTrustStore {
+        let public = |seed| {
+            base64::engine::general_purpose::STANDARD.encode(
+                SigningKey::from_bytes(&[seed; 32])
+                    .verifying_key()
+                    .to_bytes(),
+            )
+        };
+        let mut keys =
+            vec![serde_json::json!({"key_id":"current-b", "public_key_base64":public(23)})];
+        if !revoked {
+            keys.push(serde_json::json!({"key_id":"test","public_key_base64":public(19),"retired_at":cutoff.to_rfc3339()}));
+        }
+        let mut payload = serde_json::json!({"schema_version":1,"kind":"registry-trust","generation":2,"keys":keys,"revoked_key_ids":if revoked {vec!["test"]} else {vec![]},"recovery_catalog_sha256":catalog_checkpoints});
+        if !policy_checkpoints.is_empty() {
+            payload["recovery_theme_policy_sha256"] = serde_json::json!(policy_checkpoints);
+        }
+        let root = SigningKey::from_bytes(&[99; 32]);
+        let bytes = [
+            b"cadencr.registry.trust.v1\0".as_slice(),
+            cadencr_registry_core::canonical_json_bytes(&payload).as_slice(),
+        ]
+        .concat();
+        let envelope = serde_json::json!({"signed":payload,"signature":{"algorithm":"ed25519","key_id":"offline-root","value":base64::engine::general_purpose::STANDARD.encode(root.sign(&bytes).to_bytes())}});
+        ManagedTrustStore::from_registry_trust(
+            cadencr_registry_core::verify_registry_trust_manifest()
+                .bytes(&serde_json::to_vec(&envelope).unwrap())
+                .root_public_key(root.verifying_key().as_bytes())
+                .root_key_id("offline-root")
+                .call()
+                .unwrap(),
+        )
+        .unwrap()
+    }
+    fn resign_b(mut index: SignedMixedCatalog) -> SignedMixedCatalog {
+        index.signature.key_id = "current-b".into();
+        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[23; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(
+                    &serde_json::to_value(&index.signed).unwrap(),
+                ))
+                .to_bytes(),
+        );
+        index
+    }
+    #[test]
+    fn retired_key_catalog_migrates_to_b_and_equal_payload_resigning_replaces_signature() {
+        let (old, original) = signed();
+        ingest_trusted(&old, &original).unwrap();
+        let trust = rotation_trust(Utc::now(), false, vec![], vec![]);
+        assert!(verify(&old, &trust, false).is_err());
+        assert!(verify(&old, &trust, true).is_ok());
+        let renewed = resign_b(old.clone());
+        ingest_trusted(&renewed, &trust).unwrap();
+        let cached: SignedMixedCatalog = storage::bounded_json(&cache()).unwrap();
+        assert_eq!(cached.signature.key_id, "current-b");
+        assert_eq!(cached.signature.value, renewed.signature.value);
+        assert_eq!(
+            serde_json::to_value(&cached.signed).unwrap(),
+            serde_json::to_value(&old.signed).unwrap()
+        );
+        verify(&cached, &trust, false).unwrap();
+        let mut newer = renewed.clone();
+        newer.signed.generated_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+        let newer = resign_b(newer);
+        ingest_trusted(&newer, &trust).unwrap();
+        assert!(
+            ingest_trusted(&renewed, &trust).is_err(),
+            "rotation cannot erase publication high-water"
+        );
+    }
+    #[test]
+    fn compromised_catalog_migration_requires_exact_root_checkpoint_never_current_authority() {
+        let (old, original) = signed();
+        ingest_trusted(&old, &original).unwrap();
+        let before = std::fs::read(cache()).unwrap();
+        let renewed = resign_b(old.clone());
+        let denied = rotation_trust(Utc::now(), true, vec![], vec![]);
+        assert!(ingest_trusted(&renewed, &denied).is_err());
+        assert_eq!(std::fs::read(cache()).unwrap(), before);
+        let digest = cadencr_registry_core::VerifiedRegistryTrust::catalog_digest(
+            &serde_json::to_value(&old).unwrap(),
+        );
+        let approved = rotation_trust(Utc::now(), true, vec![digest], vec![]);
+        assert!(verify(&old, &approved, false).is_err());
+        assert!(
+            verify(&old, &approved, true).is_err(),
+            "checkpoint is not receipt authority"
+        );
+        ingest_trusted(&renewed, &approved).unwrap();
+        let cached: SignedMixedCatalog = storage::bounded_json(&cache()).unwrap();
+        verify(&cached, &approved, false).unwrap();
+        assert_eq!(cached.signature.key_id, "current-b");
     }
     #[test]
     fn signed_mixed_catalog_rejects_tampering_unknown_keys_expiry_and_acp_payloads() {

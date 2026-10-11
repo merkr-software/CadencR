@@ -62,7 +62,7 @@ impl ManagedProviderBlocklist {
         serde_json::to_vec(&legacy_canonical_json(serde_json::to_value(self)?))
     }
 
-    fn validate(&self, now: DateTime<Utc>) -> Result<(), ManagedBlocklistError> {
+    pub(crate) fn validate(&self, now: DateTime<Utc>) -> Result<(), ManagedBlocklistError> {
         if self.schema_version != MANAGED_BLOCKLIST_SCHEMA_VERSION {
             return Err(invalid(format!(
                 "managed blocklist schema_version {} is unsupported",

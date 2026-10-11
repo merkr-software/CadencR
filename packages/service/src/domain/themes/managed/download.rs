@@ -13,10 +13,12 @@ enum DownloadKind {
 
 pub async fn download_archive(
     url: &str,
-    repository: Option<&str>,
+    distribution_repository: Option<&serde_json::Value>,
     limit: usize,
 ) -> Result<Vec<u8>, AppError> {
-    let repository = parse_repository(repository)?;
+    let origin = cadencr_registry_core::theme_distribution_repository(url, distribution_repository)
+        .map_err(invalid)?;
+    let repository = parse_repository(Some(&origin))?;
     validate_archive_url(url, &repository)?;
     download_inner(url, limit, DownloadKind::Artifact).await
 }
@@ -110,6 +112,30 @@ async fn download_inner(url: &str, limit: usize, kind: DownloadKind) -> Result<V
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn signed_distribution_origin_is_distinct_from_author_provenance() {
+        let url =
+            "https://github.com/cadencr/registry/releases/download/theme-midnight-v1/theme.tar.gz";
+        assert_eq!(
+            cadencr_registry_core::theme_distribution_repository(url, None).unwrap(),
+            "https://github.com/cadencr/registry"
+        );
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            url,
+            Some(&serde_json::json!("https://github.com/author/themes"))
+        )
+        .is_err());
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            url,
+            Some(&serde_json::json!(null))
+        )
+        .is_err());
+        assert!(cadencr_registry_core::theme_distribution_repository(
+            "https://example.com/a.tar.gz",
+            None
+        )
+        .is_err());
+    }
     #[tokio::test]
     async fn artifact_sources_reject_private_hosts_non_release_paths_and_queries() {
         for url in [
@@ -119,11 +145,13 @@ mod tests {
             "https://github.com/acme/themes/releases/download/v1/theme.tar.gz?secret=1",
             "https://github.com/other/themes/releases/download/v1/theme.tar.gz",
         ] {
-            assert!(
-                download_archive(url, Some("https://github.com/acme/themes"), 10)
-                    .await
-                    .is_err()
-            );
+            assert!(download_archive(
+                url,
+                Some(&serde_json::json!("https://github.com/acme/themes")),
+                10
+            )
+            .await
+            .is_err());
         }
     }
     #[test]

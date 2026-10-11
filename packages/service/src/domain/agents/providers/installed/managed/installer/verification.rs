@@ -113,7 +113,7 @@ pub(super) fn verify_receipt_trust(
     trust_store: &ManagedTrustStore,
 ) -> Result<(), AppError> {
     let verified = trust_store
-        .verify_index(receipt.signed_index.clone())
+        .verify_index_historical(receipt.signed_index.clone())
         .map_err(|error| {
             AppError::coded(StatusCode::CONFLICT, error.code.as_str(), error.message)
         })?;

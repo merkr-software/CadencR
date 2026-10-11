@@ -53,9 +53,18 @@ fn verify(
 ) -> Result<Verified, AppError> {
     let prepared = cadencr_registry_core::prepare_theme_blocklist(&envelope.signed, !current, now)
         .map_err(unavailable)?;
-    trust
-        .verify_bytes(prepared.signing.canonical_payload(), &envelope.signature)
-        .map_err(unavailable)?;
+    if current {
+        trust
+            .verify_bytes(prepared.signing.canonical_payload(), &envelope.signature)
+            .map_err(unavailable)?;
+    } else {
+        trust
+            .authenticate_theme_policy_baseline(
+                &serde_json::to_value(envelope).map_err(unavailable)?,
+                now,
+            )
+            .map_err(unavailable)?;
+    }
     let generated_at = DateTime::parse_from_rfc3339(&prepared.policy.generated_at)
         .map_err(unavailable)?
         .with_timezone(&Utc);
@@ -69,12 +78,20 @@ fn ingest(
     envelope: &Envelope,
     trust: &ManagedTrustStore,
     now: DateTime<Utc>,
-) -> Result<(), AppError> {
+) -> Result<Verified, AppError> {
     static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let _guard = LOCK.lock().map_err(unavailable)?;
     let incoming = verify(envelope, trust, true, now)?;
     match cached() {
         Ok(previous) => {
+            // The incoming envelope is already current/authenticated. Exact
+            // canonical replay also authenticates the identical cached envelope.
+            if envelope.signed == previous.signed
+                && envelope.signature.key_id == previous.signature.key_id
+                && envelope.signature.value == previous.signature.value
+            {
+                return Ok(incoming);
+            }
             let prior = verify(&previous, trust, false, now)?;
             if incoming.generated_at < prior.generated_at
                 || (incoming.generated_at == prior.generated_at
@@ -100,54 +117,175 @@ fn ingest(
         &cache(),
         &serde_json::to_string(envelope).map_err(unavailable)?,
     )
-    .map_err(unavailable)
+    .map_err(unavailable)?;
+    Ok(incoming)
 }
-pub(super) async fn refresh(force: bool) -> Result<(), AppError> {
-    let Some(url) = source() else {
-        return Ok(());
-    };
-    static REFRESH_LOCK: std::sync::OnceLock<
-        tokio::sync::Mutex<std::collections::HashMap<std::path::PathBuf, std::time::Instant>>,
-    > = std::sync::OnceLock::new();
-    let requested_at = std::time::Instant::now();
-    let mut completed = REFRESH_LOCK
-        .get_or_init(|| tokio::sync::Mutex::new(std::collections::HashMap::new()))
-        .lock()
-        .await;
-    let coalesced = completed
-        .get(&cache())
-        .is_some_and(|at| *at >= requested_at);
-    let trust = pinned_index_trust_store();
-    if (!force || coalesced)
-        && cached()
-            .and_then(|envelope| verify(&envelope, &trust, true, Utc::now()))
-            .is_ok()
-    {
-        return Ok(());
+// Cryptographic validity is independent of the online revocation poll interval.
+const POLL_CADENCE: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+const FORCE_CADENCE: std::time::Duration = std::time::Duration::from_secs(5);
+const RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
+#[derive(Default)]
+struct RefreshState {
+    completed: Option<std::time::Instant>,
+    failure: Option<String>,
+    verified_until: Option<(u64, DateTime<Utc>)>,
+}
+impl RefreshState {
+    fn remember(&mut self, verified: &Verified, generation: Option<u64>) -> Result<(), AppError> {
+        self.verified_until = generation
+            .map(|generation| expiry(verified).map(|expiry| (generation, expiry)))
+            .transpose()?;
+        Ok(())
     }
+    fn needs_poll(&self, force: bool, requested: std::time::Instant) -> bool {
+        match self.completed {
+            None => true,                         // Always check remotely after process startup.
+            Some(at) if at >= requested => false, // Coalesce even forced callers.
+            Some(at) => {
+                requested.duration_since(at)
+                    >= if self.failure.is_some() {
+                        RETRY_BACKOFF
+                    } else if force {
+                        FORCE_CADENCE
+                    } else {
+                        POLL_CADENCE
+                    }
+            }
+        }
+    }
+}
+type RefreshHandle = std::sync::Arc<tokio::sync::Mutex<RefreshState>>;
+type RefreshRoots = std::collections::HashMap<std::path::PathBuf, RefreshHandle>;
+fn refresh_state(root: std::path::PathBuf) -> Result<RefreshHandle, AppError> {
+    static ROOTS: std::sync::OnceLock<std::sync::Mutex<RefreshRoots>> = std::sync::OnceLock::new();
+    Ok(ROOTS
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(unavailable)?
+        .entry(root)
+        .or_default()
+        .clone())
+}
+pub(super) async fn refresh(force: bool) -> Result<Option<String>, AppError> {
+    let Some(url) = source() else {
+        return Ok(None);
+    };
+    refresh_with(
+        force,
+        &pinned_index_trust_store(),
+        refresh_state(cache())?,
+        std::time::Instant::now(),
+        Utc::now(),
+        || async {
+            download::download(url, MAX_POLICY_BYTES)
+                .await
+                .map_err(unavailable)
+        },
+    )
+    .await
+}
+async fn refresh_with<F, Fut>(
+    force: bool,
+    trust: &ManagedTrustStore,
+    state: RefreshHandle,
+    requested: std::time::Instant,
+    now: DateTime<Utc>,
+    fetch: F,
+) -> Result<Option<String>, AppError>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, AppError>>,
+{
+    // Resolve before the first await: blocking workers have separate thread-local roots.
+    let root = storage::root();
+    let mut state = state.lock().await;
+    let checked_at = elapsed_time(now, requested)?;
+    if !state.needs_poll(force, requested) {
+        let coalesced = state.completed.is_some_and(|at| at >= requested);
+        if coalesced
+            && state.verified_until.is_some_and(|(generation, expiry)| {
+                Some(generation) == trust.generation() && expiry > checked_at
+            })
+        {
+            return Ok(state.failure.clone());
+        }
+        let generation = trust.generation();
+        state.verified_until = None;
+        let trust = trust.clone();
+        let verified = offload(root, move || cached_current(&trust, now, requested)).await?;
+        state.remember(&verified, generation)?;
+        return Ok(state.failure.clone());
+    }
+    let generation = trust.generation();
     let result = async {
-        let bytes = download::download(url, MAX_POLICY_BYTES)
-            .await
-            .map_err(unavailable)?;
-        ingest(&parse(&bytes)?, &trust, Utc::now())
+        let bytes = fetch().await?;
+        let trust = trust.clone();
+        offload(root.clone(), move || {
+            let verified = ingest(&parse(&bytes)?, &trust, elapsed_time(now, requested)?)?;
+            ensure_current(&verified, elapsed_time(now, requested)?)?;
+            Ok(verified)
+        })
+        .await
     }
     .await;
+    state.completed = Some(std::time::Instant::now().max(requested));
+    state.failure = result.as_ref().err().map(ToString::to_string);
+    state.verified_until = None;
     match result {
-        Ok(()) => {
-            completed.insert(cache(), std::time::Instant::now());
-            Ok(())
+        Ok(verified) => {
+            state.remember(&verified, generation)?;
+            Ok(None)
         }
         Err(error) => {
-            cached()
-                .and_then(|envelope| verify(&envelope, &trust, true, Utc::now()))
+            let trust = trust.clone();
+            let verified = offload(root, move || cached_current(&trust, now, requested))
+                .await
                 .map_err(|cache_error| {
                     unavailable(format!(
                         "{error}; verified theme policy unavailable: {cache_error}"
                     ))
                 })?;
-            Err(error)
+            state.remember(&verified, generation)?;
+            let warning = format!("{error}; using current verified offline theme policy");
+            state.failure = Some(warning.clone());
+            Ok(Some(warning))
         }
     }
+}
+fn elapsed_time(
+    now: DateTime<Utc>,
+    requested: std::time::Instant,
+) -> Result<DateTime<Utc>, AppError> {
+    Ok(now + chrono::Duration::from_std(requested.elapsed()).map_err(unavailable)?)
+}
+fn expiry(verified: &Verified) -> Result<DateTime<Utc>, AppError> {
+    DateTime::parse_from_rfc3339(&verified.policy.expires_at)
+        .map(|at| at.with_timezone(&Utc))
+        .map_err(unavailable)
+}
+fn ensure_current(verified: &Verified, now: DateTime<Utc>) -> Result<(), AppError> {
+    if expiry(verified)? <= now {
+        return Err(unavailable("theme revocation policy expired"));
+    }
+    Ok(())
+}
+fn cached_current(
+    trust: &ManagedTrustStore,
+    now: DateTime<Utc>,
+    requested: std::time::Instant,
+) -> Result<Verified, AppError> {
+    let verified = verify(&cached()?, trust, true, elapsed_time(now, requested)?)?;
+    // Expiry remains fail-closed if IO or verification crossed its deadline.
+    ensure_current(&verified, elapsed_time(now, requested)?)?;
+    Ok(verified)
+}
+async fn offload<T: Send + 'static>(
+    root: std::path::PathBuf,
+    operation: impl FnOnce() -> Result<T, AppError> + Send + 'static,
+) -> Result<T, AppError> {
+    tokio::task::spawn_blocking(move || storage::with_root(root, operation))
+        .await
+        .map_err(unavailable)?
 }
 pub(super) struct Snapshot(Option<Verified>);
 pub(super) fn snapshot() -> Result<Snapshot, AppError> {
@@ -197,11 +335,7 @@ fn enforce_verified(
     version: &str,
     digest: &str,
 ) -> Result<(), AppError> {
-    let expires_at =
-        DateTime::parse_from_rfc3339(&policy.policy.expires_at).map_err(unavailable)?;
-    if expires_at <= Utc::now() {
-        return Err(unavailable("theme revocation policy expired"));
-    }
+    ensure_current(policy, Utc::now())?;
     if let Some(reason) = policy
         .policy
         .blocked_reason(id, version, digest)
@@ -240,6 +374,294 @@ mod tests {
                 TrustedIndexKey::new("test", key.verifying_key().to_bytes()).unwrap()
             ]),
         )
+    }
+    #[test]
+    fn authenticated_replay_does_not_replace_cache_but_b_resigning_does() {
+        let (old, original) = signed(-3, serde_json::json!([]));
+        let now = Utc::now();
+        ingest(&old, &original, now).unwrap();
+        let bytes = std::fs::read(cache()).unwrap();
+        let modified = std::fs::metadata(cache()).unwrap().modified().unwrap();
+        #[cfg(unix)]
+        let inode = {
+            use std::os::unix::fs::MetadataExt as _;
+            std::fs::metadata(cache()).unwrap().ino()
+        };
+        ingest(&old, &original, now).unwrap();
+        assert_eq!(std::fs::read(cache()).unwrap(), bytes);
+        assert_eq!(
+            std::fs::metadata(cache()).unwrap().modified().unwrap(),
+            modified
+        );
+        assert!(ingest(&old, &original, now + chrono::Duration::hours(2)).is_err());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            assert_eq!(std::fs::metadata(cache()).unwrap().ino(), inode);
+        }
+        let trust = super::super::catalog::tests::rotation_trust(
+            now - chrono::Duration::minutes(1),
+            false,
+            vec![],
+            vec![],
+        );
+        let renewed = resign_b(old);
+        ingest(&renewed, &trust, now).unwrap();
+        assert_eq!(cached().unwrap().signature.value, renewed.signature.value);
+        assert_ne!(std::fs::read(cache()).unwrap(), bytes);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt as _;
+            assert_ne!(std::fs::metadata(cache()).unwrap().ino(), inode);
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn blocking_cache_validation_preserves_root_and_async_responsiveness() {
+        let (envelope, trust) = signed(-1, serde_json::json!([]));
+        let now = Utc::now();
+        ingest(&envelope, &trust, now).unwrap();
+        let root = storage::root();
+        let captured = root.clone();
+        let blocking_trust = trust.clone();
+        let requested = std::time::Instant::now();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let worker = offload(root, move || {
+            started_tx
+                .send(())
+                .map_err(|_| unavailable("cache worker failed to announce startup"))?;
+            release_rx
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .map_err(unavailable)?;
+            assert_eq!(storage::root(), captured);
+            cached_current(&blocking_trust, now, requested)
+        });
+        let heartbeat = async {
+            started_rx.await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            release_tx.send(()).unwrap();
+        };
+        let (verified, ()) = tokio::join!(worker, heartbeat);
+        verified.unwrap();
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(RefreshState::default()));
+        assert!(
+            refresh_with(false, &trust, state.clone(), requested, now, || {
+                std::future::ready(Err(unavailable("offline")))
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .contains("current verified offline")
+        );
+        assert!(refresh_with(
+            false,
+            &trust,
+            state,
+            requested,
+            now + chrono::Duration::hours(2),
+            || std::future::ready(Err(unavailable("offline")))
+        )
+        .await
+        .is_err());
+    }
+    fn resign_b(mut envelope: Envelope) -> Envelope {
+        envelope.signature.key_id = "current-b".into();
+        envelope.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[23; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(
+                    &envelope.signed,
+                ))
+                .to_bytes(),
+        );
+        envelope
+    }
+    #[test]
+    fn retired_policy_highwater_migrates_without_granting_old_current_authority() {
+        let (old, original) = signed(-3, serde_json::json!([]));
+        let now = Utc::now();
+        ingest(&old, &original, now).unwrap();
+        let trust = super::super::catalog::tests::rotation_trust(
+            now - chrono::Duration::minutes(1),
+            false,
+            vec![],
+            vec![],
+        );
+        assert!(verify(&old, &trust, true, now).is_err());
+        verify(&old, &trust, false, now).unwrap();
+        let renewed = resign_b(old.clone());
+        ingest(&renewed, &trust, now).unwrap();
+        assert_eq!(cached().unwrap().signature.key_id, "current-b");
+        verify(&cached().unwrap(), &trust, true, now).unwrap();
+        let (newer, _) = signed(
+            -1,
+            serde_json::json!([{"theme_id":"midnight","reason":"revoked"}]),
+        );
+        let newer = resign_b(newer);
+        ingest(&newer, &trust, now).unwrap();
+        assert!(ingest(&renewed, &trust, now).is_err());
+        assert!(enforce_verified(
+            &verify(&cached().unwrap(), &trust, true, now).unwrap(),
+            "midnight",
+            "1.0.0",
+            &"a".repeat(64)
+        )
+        .is_err());
+        let (post_retirement, _) = signed(0, serde_json::json!([]));
+        assert!(verify(&post_retirement, &trust, false, Utc::now()).is_err());
+    }
+    #[test]
+    fn expired_retired_policy_remains_highwater_but_never_offline_fallback() {
+        let (mut old, original) = signed(-3, serde_json::json!([]));
+        let now = Utc::now();
+        old.signed["expires_at"] = (now - chrono::Duration::minutes(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            .into();
+        old.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[19; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(&old.signed))
+                .to_bytes(),
+        );
+        ingest(&old, &original, now - chrono::Duration::seconds(150)).unwrap();
+        let trust = super::super::catalog::tests::rotation_trust(
+            now - chrono::Duration::minutes(1),
+            false,
+            vec![],
+            vec![],
+        );
+        assert!(verify(&old, &trust, true, now).is_err());
+        verify(&old, &trust, false, now).unwrap();
+        let (newer, _) = signed(-1, serde_json::json!([]));
+        ingest(&resign_b(newer), &trust, now).unwrap();
+        let (older, _) = signed(-4, serde_json::json!([]));
+        assert!(ingest(&resign_b(older), &trust, now).is_err());
+    }
+    #[test]
+    fn compromised_policy_needs_scoped_exact_checkpoint_for_baseline_only() {
+        let (old, original) = signed(-3, serde_json::json!([]));
+        let now = Utc::now();
+        ingest(&old, &original, now).unwrap();
+        let before = std::fs::read(cache()).unwrap();
+        let digest = cadencr_registry_core::VerifiedRegistryTrust::catalog_digest(
+            &serde_json::to_value(&old).unwrap(),
+        );
+        let denied = super::super::catalog::tests::rotation_trust(now, true, vec![], vec![]);
+        let renewed = resign_b(old.clone());
+        assert!(ingest(&renewed, &denied, now).is_err());
+        let wrong_namespace =
+            super::super::catalog::tests::rotation_trust(now, true, vec![digest.clone()], vec![]);
+        assert!(ingest(&renewed, &wrong_namespace, now).is_err());
+        assert_eq!(std::fs::read(cache()).unwrap(), before);
+        let approved =
+            super::super::catalog::tests::rotation_trust(now, true, vec![], vec![digest]);
+        assert!(verify(&old, &approved, true, now).is_err());
+        verify(&old, &approved, false, now).unwrap();
+        let mut altered = old.clone();
+        altered.signed["generated_at"] = (now - chrono::Duration::minutes(2))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            .into();
+        assert!(verify(&altered, &approved, false, now).is_err());
+        ingest(&renewed, &approved, now).unwrap();
+        verify(&cached().unwrap(), &approved, true, now).unwrap();
+        assert_eq!(cached().unwrap().signature.key_id, "current-b");
+        let (rollback, _) = signed(-4, serde_json::json!([]));
+        assert!(ingest(&resign_b(rollback), &approved, now).is_err());
+    }
+    #[tokio::test]
+    async fn polls_new_revocations_coalesces_and_bounds_offline_retries() {
+        let (old, trust) = signed(-2, serde_json::json!([]));
+        let now = Utc::now();
+        ingest(&old, &trust, now).unwrap();
+        assert!(enforce_cached("midnight", "1.0.0", &"a".repeat(64), true, &trust).is_ok());
+        let (new, _) = signed(
+            -1,
+            serde_json::json!([{"theme_id":"midnight","reason":"revoked"}]),
+        );
+        let bytes = serde_json::to_vec(&new).unwrap();
+        let state = std::sync::Arc::new(tokio::sync::Mutex::new(RefreshState::default()));
+        let requested = std::time::Instant::now();
+        let calls = std::cell::Cell::new(0);
+        let fetch = || async {
+            calls.set(calls.get() + 1);
+            tokio::task::yield_now().await;
+            Ok(bytes.clone())
+        };
+        // A still-cryptographically-valid disk cache never suppresses startup polling.
+        let (first, second) = tokio::join!(
+            refresh_with(false, &trust, state.clone(), requested, now, fetch),
+            refresh_with(true, &trust, state.clone(), requested, now, fetch),
+        );
+        assert!(first.unwrap().is_none());
+        assert!(second.unwrap().is_none());
+        assert_eq!(calls.get(), 1);
+        assert!(enforce_cached("midnight", "1.0.0", &"a".repeat(64), true, &trust).is_err());
+        // A bounded cadence discovers subsequent policy while the old signature remains current.
+        let due = requested + POLL_CADENCE + std::time::Duration::from_secs(1);
+        let offline = || {
+            calls.set(calls.get() + 1);
+            std::future::ready(Err(unavailable("offline")))
+        };
+        assert!(
+            refresh_with(false, &trust, state.clone(), due, now, offline)
+                .await
+                .unwrap()
+                .unwrap()
+                .contains("offline")
+        );
+        assert_eq!(calls.get(), 2);
+        assert!(refresh_with(true, &trust, state.clone(), due, now, offline)
+            .await
+            .unwrap()
+            .unwrap()
+            .contains("current verified offline"));
+        assert_eq!(
+            calls.get(),
+            2,
+            "forced hot requests still respect retry backoff"
+        );
+        assert!(
+            refresh_with(
+                false,
+                &trust,
+                state,
+                due,
+                now + chrono::Duration::hours(2),
+                offline
+            )
+            .await
+            .is_err(),
+            "expired offline cache fails closed even during backoff"
+        );
+    }
+    #[test]
+    fn polling_locks_are_per_storage_root() {
+        let root = storage::root();
+        let same = refresh_state(root.clone()).unwrap();
+        assert!(std::sync::Arc::ptr_eq(
+            &same,
+            &refresh_state(root.clone()).unwrap()
+        ));
+        assert!(!std::sync::Arc::ptr_eq(
+            &same,
+            &refresh_state(root.join("another-root")).unwrap()
+        ));
+    }
+    #[test]
+    fn cadence_and_backoff_are_independent_from_signature_expiry() {
+        let at = std::time::Instant::now();
+        let state = RefreshState {
+            completed: Some(at),
+            failure: None,
+            ..Default::default()
+        };
+        assert!(!state.needs_poll(false, at + POLL_CADENCE - std::time::Duration::from_secs(1)));
+        assert!(state.needs_poll(false, at + POLL_CADENCE));
+        let failed = RefreshState {
+            completed: Some(at),
+            failure: Some("offline".into()),
+            ..Default::default()
+        };
+        assert!(!failed.needs_poll(true, at + RETRY_BACKOFF - std::time::Duration::from_secs(1)));
+        assert!(failed.needs_poll(false, at + RETRY_BACKOFF));
     }
     #[test]
     fn near_limit_payload_accepts_separate_signed_envelope_overhead() {

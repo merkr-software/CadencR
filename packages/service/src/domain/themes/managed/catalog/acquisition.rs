@@ -29,10 +29,10 @@ pub async fn acquire(refresh: bool) -> ManagedThemeCatalogResponse {
         root: storage::root(),
         trust: pinned_index_trust_store(),
     };
-    let policy_error = super::super::policy::refresh(refresh)
-        .await
-        .err()
-        .map(|error| error.to_string());
+    let policy_error = match super::super::policy::refresh(refresh).await {
+        Ok(warning) => warning,
+        Err(error) => Some(error.to_string()),
+    };
     let (result, refresh_error) = acquire_or_cached(
         context,
         refresh,

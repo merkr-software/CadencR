@@ -31,6 +31,8 @@ pub struct ManagedThemeInventoryEntry {
     pub name: String,
     pub version: String,
     pub sha256: String,
+    /// Referenced by any saved manual/light/dark selection, not necessarily displayed.
+    /// The frontend owns OS appearance and resolves the effective displayed theme.
     pub active: bool,
     pub theme: Option<UserTheme>,
     pub error: Option<String>,

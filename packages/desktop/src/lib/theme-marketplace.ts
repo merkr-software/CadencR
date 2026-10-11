@@ -169,7 +169,11 @@ const themePackageSchema = z
         license: z.string(),
         document_version: z.literal(1),
         distribution: z
-          .object({ archive: z.string().url(), sha256: z.string().regex(/^[a-f0-9]{64}$/) })
+          .object({
+            repository: z.string().optional(),
+            archive: z.string().url(),
+            sha256: z.string().regex(/^[a-f0-9]{64}$/),
+          })
           .strict(),
       })
       .strict(),

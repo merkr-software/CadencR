@@ -14,6 +14,8 @@ export function useManagedThemes() {
   return useQuery({
     queryKey: managedThemesKey,
     staleTime: 60_000,
+    refetchInterval: 15 * 60_000,
+    refetchIntervalInBackground: true,
     queryFn: async ({ signal }) => {
       const entries = await getManagedThemes(signal);
       return managedThemeEntrySchema.array().parse(entries);
