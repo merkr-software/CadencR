@@ -1,8 +1,92 @@
 # Marketplace V1 — GitHub-only distribution
 
-## Current milestone — hidden v0.13.0 preparation
+## Current milestone — publish plugins before public activation (2026-10-13)
 
-This section is authoritative over the historical public-v1 delivery plan below.
+This section supersedes the preparation-only stop below. v0.13.0 is released
+with the marketplace hidden. The next milestone is to publish reviewed original
+themes and the external Pi provider into the registry **before** exposing it in
+a future desktop release. Publication is not public UI or desktop trust activation.
+
+- [x] Start a clean delivery branch from current `origin/main` (`4a954e23e`).
+      The preceding feature branch is preserved without rewriting its history.
+- [x] Independently download the released `v0.13.0` Linux CLI and verify its
+      release checksum: `d3223e3b3ff74543595fd3354c3249f50fa01def65f376a624eb1fbc8072df2a`.
+      [Published assets](https://github.com/merkr-software/CadencR/releases/tag/v0.13.0)
+      replace preparation artifacts as the qualification input, not as proof of
+      successful publication/recovery.
+- [x] Exercise that executable on an isolated Linux runner: inert provider/theme
+      validation, deterministic packaging, signing/verification and fail-closed
+      malformed inputs. Keep test keys and any credentials out of evidence.
+- [ ] Qualify real GitHub publication, interruption/resume, fresh-runner recovery
+      and empty-delta renewal against an explicitly reviewed isolated target.
+      Offline tests and source-level transport fixtures do not satisfy this gate.
+- [ ] Pin the qualified executable atomically in contribution and protected
+      publication workflows; deploy the reviewed registry update and verify CI.
+      Only then remove replaced JavaScript business implementations.
+- [ ] Harden and package the Pi draft from `../cadencr-plugin-provider-pi`, retaining
+      its existing `0.4.0` candidate version unless a different initial release is
+      explicitly selected. Establish source provenance, runtime prerequisites and
+      supported targets; validate the extracted payload and generic ACP host path.
+- [ ] Prepare original Graphite and Ember dark themes plus Fjord light, review
+      their live previews, and publish source-pinned immutable author releases.
+      Names/version/repository are candidates until reviewed; no placeholder digest
+      or invented provenance may enter the registry.
+- [ ] Provision the reviewed signing/trust profile, protected publication
+      environment, renewal/revocation owners and monitoring before signed feeds
+      become operational. Never treat test keys or an unprotected workflow as
+      production authority.
+- [ ] Publish the reviewed theme/Pi contributions, independently verify public
+      metadata/archive bytes and exercise fresh install/update/removal in isolated
+      supported clients. Keep `marketplace-v2` distinct from legacy schema-1 feeds.
+- [ ] Stop with populated, verified feeds and the desktop marketplace still
+      hidden. Public UI exposure and official build roots/URLs require the later
+      activation release and a separate acceptance decision.
+
+### First-wave evidence — 2026-10-13
+
+- The published Linux ELF passed 20 offline checks in a fresh Ubuntu 24.04
+  container (amd64 emulation on macOS arm64), with network disabled and no host
+  credentials/profile/database mounts. Coverage includes provider/theme validation,
+  deterministic archives, mixed catalog and theme-policy signature roundtrips,
+  malformed/nested/nonfinite-input rejection, nonfinite theme colors, signed policy
+  tampering and exclusive-output rejection. Disposable test keys were removed; only
+  key-free evidence is eligible for upload. This is not a hosted CI run or real
+  GitHub publication/recovery/renewal qualification. Production pins stay `PENDING`.
+- An isolated Pi candidate retains `0.4.0` and passes 28 fake-Pi tests, lint and
+  formatting. Hardening bounds JSONL frames, surfaces shutdown failures, removes
+  an unsupported persistent permission choice, protects connector-owned flags,
+  guards billable QA, fixes canonical-path launcher detection and builds fresh
+  allowlisted payloads. Extracted launcher/model smoke passes. Reviewed corrections
+  were applied to the author draft only after original/candidate checksum guards;
+  a source-only baseline backup is retained. Real Pi compatibility and signed host
+  conformance are pending.
+- Three original theme drafts pass the released CLI validator, 40 measured
+  contrast checks per theme and deterministic closed-content packaging with that
+  released binary. Local theme tests pass (58 core and one CLI integration).
+  Sources are retained in the sibling `cadencr-plugin-themes` author folder, with
+  no public repository/commit/tag or final package metadata yet. Live visual review
+  and publication remain pending.
+- All 184 root script tests pass, including the new qualification safety tests.
+  This does not claim a new full desktop/service workspace verification.
+
+### Starting deployment state
+
+Read-only inspection on 2026-10-13 found the public registry at
+`24656f0f1ceb23576b0be9449c86c6d09e24f5b3`: empty `packages/` and `submissions/`,
+no releases, no protected environments, and only the initial JavaScript
+contribution workflow. The newer monorepo template is **not deployed there**.
+Publishing mixed themes/providers therefore requires a reviewed registry update;
+the app release alone did not perform that cutover.
+
+Use GPT-6.1-Sol parallel advisors/workers and finish each wave with independent
+reuse/quality/efficiency reviews, scoped checks and a commit plan. No production
+database is involved. Initial implementation reviews stop before committing or
+pushing until the scoped plan is approved.
+
+## Completed milestone — hidden v0.13.0 preparation
+
+This section records the completed preparation scope; the current milestone above
+now governs subsequent registry delivery.
 v0.13.0 ships the marketplace implementation **hidden everywhere in the UI**.
 There is no public marketplace launch until reviewed plugins populate the registry
 and a separately authorized activation clears every gate.

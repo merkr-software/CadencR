@@ -1,11 +1,13 @@
-# Contributing a Provider Version
+# Contributing a Provider or Theme Version
 
-## Current scope: contributor preparation, not public intake
+## Current scope: reviewed seed plugins before public activation
 
-v0.13.0 keeps marketplace UI hidden. Do not publish remote plugin releases or
-submit production registry updates as part of this milestone. Rust command
-examples below may be exercised locally from a reviewed build; there is no
-qualified distributed CLI pin yet. The `PENDING` pin preserves schema-1
+v0.13.0 keeps marketplace UI hidden. The next milestone prepares and publishes
+reviewed themes and Pi before a future activation release. Remote publication
+requires source ownership/provenance review and the protected Rust cutover; an
+offline validation result is not publication authority. The released v0.13.0 CLI
+is available, but full lifecycle qualification and production pins remain pending.
+The `PENDING` pin preserves schema-1
 JavaScript CI; it **does not support mixed schema-2 themes or trust generations**.
 
 ### Rust provider and theme paths
