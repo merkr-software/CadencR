@@ -114,17 +114,73 @@ test("real Turbo plans keep official providers out of executable application tas
   }
 });
 
+const sidecarSources = ["resources/bin/cadencr-service", "resources/bin/${arch}/cadencr-service"];
+
+// Both reviewed desktop layouts are app-only; no other source is admitted.
+export function assertAppOnlyResources(config) {
+  assert.deepEqual(config.files, ["out/**/*", "!out/renderer/**", "package.json"]);
+  const source = config.extraResources?.[0]?.from;
+  assert.ok(sidecarSources.includes(source), `unreviewed sidecar source: ${source}`);
+  assert.deepEqual(config.extraResources, [
+    { from: source, to: "cadencr-service" },
+    { from: "out/renderer", to: "renderer" },
+  ]);
+}
+
+const resourceFixture = (source) => ({
+  files: ["out/**/*", "!out/renderer/**", "package.json"],
+  extraResources: [
+    { from: source, to: "cadencr-service" },
+    { from: "out/renderer", to: "renderer" },
+  ],
+});
+
+test("app-only resource guard accepts only the reviewed sidecar layouts", () => {
+  for (const source of sidecarSources) assertAppOnlyResources(resourceFixture(source));
+});
+
+test("app-only resource guard rejects plugins, extra resources and changed bundle paths", () => {
+  for (const source of sidecarSources) {
+    const invalid = [
+      { ...resourceFixture(source), files: ["**/*"] },
+      { ...resourceFixture(source), files: [...resourceFixture(source).files, "plugins/**"] },
+      resourceFixture("plugins/providers/pi/bin/provider"),
+      resourceFixture("resources/bin/${arch}/plugins/provider"),
+      resourceFixture("resources/bin/arbitrary/cadencr-service"),
+      {
+        ...resourceFixture(source),
+        extraResources: resourceFixture(source).extraResources.slice(0, 1),
+      },
+    ];
+    for (const resource of [
+      { from: "plugins/providers/pi", to: "plugins/pi" },
+      { from: "resources/extra", to: "extra" },
+    ]) {
+      const fixture = resourceFixture(source);
+      fixture.extraResources.push(resource);
+      invalid.push(fixture);
+    }
+    for (const [index, field, value] of [
+      [0, "to", "plugins/service"],
+      [1, "from", "plugins/themes"],
+      [1, "to", "plugins/themes"],
+      [0, "filter", ["**/*"]],
+    ]) {
+      const fixture = resourceFixture(source);
+      fixture.extraResources[index][field] = value;
+      invalid.push(fixture);
+    }
+    for (const fixture of invalid) assert.throws(() => assertAppOnlyResources(fixture));
+  }
+});
+
 test("production and local Electron bundles retain explicit app-only resources", () => {
   for (const path of [
     "packages/desktop/electron-builder.yml",
     "packages/desktop/electron-builder.local.yml",
   ]) {
     const config = yaml(path);
-    assert.deepEqual(config.files, ["out/**/*", "!out/renderer/**", "package.json"]);
-    assert.deepEqual(config.extraResources, [
-      { from: "resources/bin/cadencr-service", to: "cadencr-service" },
-      { from: "out/renderer", to: "renderer" },
-    ]);
+    assertAppOnlyResources(config);
   }
 });
 
