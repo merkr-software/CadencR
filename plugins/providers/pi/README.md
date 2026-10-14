@@ -1,7 +1,7 @@
 # Cadencr provider: Pi
 
 This monorepo-owned connector runs [Pi](https://pi.dev/) directly in native
-[`--mode rpc`](https://pi.dev/docs/latest/rpc) and presents an ACP v1 agent to
+[`--mode rpc`](https://github.com/badlogic/pi-mono/blob/v0.85.1/packages/coding-agent/docs/rpc.md) and presents an ACP v1 agent to
 Cadencr. It does **not** use or require `pi-acp`.
 
 Source lives in `plugins/providers/pi/` in the Cadencr monorepo. It remains an
@@ -24,7 +24,8 @@ certify compatibility with real upstream Pi or the packaged Cadencr host.
 
 ## Prerequisites
 
-- Node.js `>=22.18.0 <23.0.0` (the supported runtime range).
+- Node.js `>=22.19.0 <23.0.0` (the supported runtime range).
+  The minimum matches the pinned Pi `0.85.1` [upstream runtime requirement](https://github.com/badlogic/pi-mono/blob/v0.85.1/packages/coding-agent/package.json).
 - `pi` available on `PATH`:
 
 ```bash

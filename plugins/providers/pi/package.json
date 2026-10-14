@@ -4,7 +4,6 @@
   "description": "External Cadencr provider connector for Pi's native RPC mode",
   "license": "Apache-2.0",
   "type": "module",
-  "packageManager": "pnpm@11.1.3",
   "scripts": {
     "build:plugin": "node scripts/build.mjs",
     "format:plugin": "oxfmt src/ scripts/ test/",
@@ -16,11 +15,12 @@
     "test:plugin": "node --test",
     "package:plugin": "node scripts/package.mjs"
   },
-  "engines": {
-    "node": ">=22.18.0 <23.0.0"
-  },
   "devDependencies": {
     "oxfmt": "^0.56.0",
     "oxlint": "^1.71.0"
-  }
+  },
+  "engines": {
+    "node": ">=22.19.0 <23.0.0"
+  },
+  "packageManager": "pnpm@11.1.3"
 }
