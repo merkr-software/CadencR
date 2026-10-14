@@ -1,0 +1,34 @@
+name: Prepare independent official plugin release
+
+on:
+  push:
+    tags:
+      - "plugins/provider-pi/v*"
+      - "plugins/theme-graphite/v*"
+      - "plugins/theme-ember/v*"
+      - "plugins/theme-fjord/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Prepare source-bound canonical artifacts (production pins required)
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: sh scripts/official-plugin-release.sh "$GITHUB_WORKSPACE" "$SOURCE_COMMIT" "$RELEASE_TAG" "$RUNNER_TEMP/official-plugin-release"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: official-plugin-${{ github.sha }}
+          path: ${{ runner.temp }}/official-plugin-release/
+          if-no-files-found: error
+          retention-days: 7

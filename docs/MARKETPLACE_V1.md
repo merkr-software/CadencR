@@ -17,9 +17,19 @@ a future desktop release. Publication is not public UI or desktop trust activati
 - [x] Exercise that executable on an isolated Linux runner: inert provider/theme
       validation, deterministic packaging, signing/verification and fail-closed
       malformed inputs. Keep test keys and any credentials out of evidence.
+- [x] Integrate official sources in `plugins/` without desktop bundling or built-in
+      registration, with independent task names, required CI and isolation tests.
+      Signed commit `f55db02a0` is delivered in
+      [draft PR #267](https://github.com/merkr-software/CadencR/pull/267).
+- [x] Implement read-only, source-bound theme release preparation and its rejection
+      tests. Namespaced tags and canonical Rust packaging do not grant publication
+      authority. Production pins remain `PENDING`; see
+      [`plugins/RELEASING.md`](../plugins/RELEASING.md).
 - [ ] Qualify real GitHub publication, interruption/resume, fresh-runner recovery
-      and empty-delta renewal against an explicitly reviewed isolated target.
-      Offline tests and source-level transport fixtures do not satisfy this gate.
+      and empty-delta renewal against an explicitly reviewed isolated **public**
+      QA target. Anonymous archive/discovery verification cannot positively
+      qualify a private repository. Use inert fixtures and QA-only signing keys;
+      offline tests and source-level transport fixtures do not satisfy this gate.
 - [ ] Pin the qualified executable atomically in contribution and protected
       publication workflows; deploy the reviewed registry update and verify CI.
       Only then remove replaced JavaScript business implementations.
@@ -31,6 +41,9 @@ a future desktop release. Publication is not public UI or desktop trust activati
       their live previews, and publish source-pinned immutable author releases.
       Names/version/repository are candidates until reviewed; no placeholder digest
       or invented provenance may enter the registry.
+- [ ] Implement protected author publication and final provider/theme registry
+      package metadata after readiness and trust decisions. The current independent
+      release workflow only prepares artifacts; it does not sign, release or submit.
 - [ ] Provision the reviewed signing/trust profile, protected publication
       environment, renewal/revocation owners and monitoring before signed feeds
       become operational. Never treat test keys or an unprotected workflow as
@@ -70,6 +83,11 @@ instead of recursively deleting potential databases. An isolated live service
 verified normal workspace import, restart-gated registration and generic model
 discovery using fake Pi; direct connector initialize/new/close also passed.
 This does not certify real Pi compatibility or host-spawned prompt/resume behavior.
+
+The next preparation wave pins Pi protocol references to upstream `0.85.1` and
+aligns the connector's Node minimum with that pinned upstream (`22.19.0`). It
+does not upgrade Pi, certify native behavior or clear the imported icon's rights.
+Real installation/model calls remain outside fake-only qualification.
 
 ### First-wave evidence — 2026-10-13
 

@@ -56,6 +56,10 @@ actual source commit/tag. No plugin tag, publication workflow or release is
 created by this import. Namespaced tags must be URL-encoded in release-asset
 metadata by the shared registry tooling.
 
+The next wave adds a read-only preparation workflow, not a publisher. See
+[`RELEASING.md`](RELEASING.md) for source/tag binding, sanitized artifact output,
+qualification-only testing and the remaining protected-publication gates.
+
 Publication remains gated on source/license review, supported-platform and
 generic-host conformance, real GitHub lifecycle qualification, reviewed registry
 cutover and protected signing authority. The registry remains a separate
