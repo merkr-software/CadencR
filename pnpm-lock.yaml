@@ -459,6 +459,15 @@ importers:
         specifier: workspace:*
         version: link:../claude-agent-sdk-rs
 
+  plugins/providers/pi:
+    devDependencies:
+      oxfmt:
+        specifier: ^0.56.0
+        version: 0.56.0
+      oxlint:
+        specifier: ^1.71.0
+        version: 1.71.0
+
 packages:
 
   '@adobe/css-tools@4.4.4':

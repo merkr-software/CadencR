@@ -23,7 +23,7 @@ a future desktop release. Publication is not public UI or desktop trust activati
 - [ ] Pin the qualified executable atomically in contribution and protected
       publication workflows; deploy the reviewed registry update and verify CI.
       Only then remove replaced JavaScript business implementations.
-- [ ] Harden and package the Pi draft from `../cadencr-plugin-provider-pi`, retaining
+- [ ] Harden and package the Pi draft from `plugins/providers/pi`, retaining
       its existing `0.4.0` candidate version unless a different initial release is
       explicitly selected. Establish source provenance, runtime prerequisites and
       supported targets; validate the extracted payload and generic ACP host path.
@@ -41,6 +41,35 @@ a future desktop release. Publication is not public UI or desktop trust activati
 - [ ] Stop with populated, verified feeds and the desktop marketplace still
       hidden. Public UI exposure and official build roots/URLs require the later
       activation release and a separate acceptance decision.
+
+### Official source location decision — 2026-10-14
+
+Official plugins now live under `plugins/providers/` and `plugins/themes/` in
+this monorepo. Separate Git repositories are not required to preserve the
+distribution boundary. Their dedicated task names, dependency-graph checks,
+app-only Electron resource allowlists and a separate required CI job keep them
+outside the application build/bundle. Workspace membership shares dependency
+management only; it does not register, install or activate a plugin.
+
+Each plugin retains its own version and future namespaced release tag. No
+plugin tag/release or registry publication is created by importing sources.
+The previous sibling repositories are retained as untouched local baselines,
+not the authoritative location for future official-plugin development.
+Read-only CI uses the pinned released CLI for compatibility validation, not
+as a replacement for pending real GitHub lifecycle qualification. See
+[`plugins/README.md`](../plugins/README.md) for commands and publication gates.
+
+The imported theme documents and their released-CLI archive hashes are unchanged.
+The Pi import also hardens pipe-failure and session-shutdown paths: stdin/output
+failures trigger orderly cleanup, and shutdown drains late session creation and
+in-flight explicit closes, preserving native cleanup failures. Fake-only tests
+cover these regressions. Native QA scripts share a bounded ACP client/child
+shutdown helper, default to rejecting tool permissions unless the live QA's
+narrow policy is explicitly selected, and retain Pi-populated scratch directories
+instead of recursively deleting potential databases. An isolated live service
+verified normal workspace import, restart-gated registration and generic model
+discovery using fake Pi; direct connector initialize/new/close also passed.
+This does not certify real Pi compatibility or host-spawned prompt/resume behavior.
 
 ### First-wave evidence — 2026-10-13
 

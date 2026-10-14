@@ -221,12 +221,61 @@ jobs:
         timeout-minutes: 5
         run: pnpm run test:release-scripts
 
+  plugins:
+    name: Official plugins (isolated checks and build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Enable pnpm from packageManager
+        run: corepack enable
+
+      # actions/setup-node@v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Provider format and lint
+        run: pnpm run check:plugin:pi
+
+      - name: Fake-only provider and supplemental theme tests
+        run: pnpm run test:plugins
+
+      - name: Build the separate Pi connector
+        run: |
+          pnpm run build:plugin:pi
+          expected=$(node -p "require('./plugins/providers/pi/package.json').version")
+          test "$(plugins/providers/pi/bin/provider version)" = "$expected"
+
+      - name: Fetch the pinned released CLI for read-only compatibility checks
+        run: |
+          sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            scripts/cli-qualification.env "$RUNNER_TEMP/official-plugin-cli"
+
+      - name: Canonical theme validation and deterministic packaging
+        run: |
+          cli="$RUNNER_TEMP/official-plugin-cli/cadencr"
+          work=$(mktemp -d "$RUNNER_TEMP/official-theme-packs.XXXXXX")
+          for theme in graphite ember fjord; do
+            "$cli" plugin validate "plugins/themes/$theme" --kind theme
+            "$cli" registry pack-theme --directory "plugins/themes/$theme" --output "$work/$theme-1.tar.gz"
+            "$cli" registry pack-theme --directory "plugins/themes/$theme" --output "$work/$theme-2.tar.gz"
+            cmp "$work/$theme-1.tar.gz" "$work/$theme-2.tar.gz"
+            test "$(tar -tzf "$work/$theme-1.tar.gz")" = "theme.json"
+          done
+
   # Branch protection requires a check with exactly this name. It aggregates the
   # parallel jobs so the requirement stays a single, stable context.
   precommit-checks:
     name: Pre-commit checks
     if: always()
-    needs: [rust, web, vitest, scripts]
+    needs: [rust, web, vitest, scripts, plugins]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

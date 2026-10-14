@@ -22,6 +22,11 @@ const labels = (result) => result.steps.map(({ label }) => label);
 
 const AGENTS = "node scripts/build-agents-md.mjs --check";
 const ROOT_TESTS = "pnpm run test:scripts";
+const PLUGINS = [
+  "pnpm run check:plugin:pi",
+  "pnpm run test:plugin:pi",
+  "pnpm run test:plugin:themes",
+];
 const RUST = [
   "pnpm --filter @cadencr/service run format:check",
   "pnpm --filter @cadencr/service run lint",
@@ -190,8 +195,42 @@ test("root tooling changes and CADENCR_PRECOMMIT_FULL run everything", () => {
     "pnpm run check:provider-boundaries",
     ROOT_TESTS,
     "pnpm run test:release-scripts",
+    ...PLUGINS,
     FULL,
   ]);
+});
+
+test("official plugin changes run dedicated checks without application tasks", () => {
+  for (const path of ["plugins/providers/pi/src/provider.mjs", "plugins/providers/pi/README.md"]) {
+    assert.deepEqual(commands(plan([path])), [AGENTS, ROOT_TESTS, ...PLUGINS.slice(0, 2)]);
+  }
+  assert.deepEqual(commands(plan(["plugins/themes/fjord/theme.json"])), [
+    AGENTS,
+    ROOT_TESTS,
+    PLUGINS[2],
+  ]);
+  assert.deepEqual(commands(plan(["plugins/README.md"])), [AGENTS, ROOT_TESTS, ...PLUGINS]);
+  assert.deepEqual(commands(plan([{ path: "plugins/providers/pi/src/old.mjs", deleted: true }])), [
+    AGENTS,
+    ROOT_TESTS,
+    ...PLUGINS.slice(0, 2),
+  ]);
+});
+
+test("mixed application and plugin edits union checks without duplicate plugin tests", () => {
+  const result = commands(
+    plan([
+      "plugins/providers/pi/src/provider.mjs",
+      "plugins/providers/pi/test/provider.test.mjs",
+      "plugins/themes/graphite/theme.json",
+      "packages/desktop/src/lib/foo.ts",
+    ]),
+  );
+  for (const command of PLUGINS) assert.equal(result.filter((item) => item === command).length, 1);
+  assert.ok(result.some((command) => command.includes("--filter=@cadencr/desktop")));
+  for (const path of ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"]) {
+    for (const command of PLUGINS) assert.ok(commands(plan([path])).includes(command));
+  }
 });
 
 test("checks do not inherit the hook's git index variables", () => {
