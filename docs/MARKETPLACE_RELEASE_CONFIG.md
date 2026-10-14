@@ -8,6 +8,12 @@ release. Keep official marketplace desktop build trust/feed variables unset;
 publishing registry contents does not expose or configure the desktop UI.
 The configuration below describes the later authorized desktop deployment.
 
+Graphite, Ember and Fjord now pass isolated current-source UI/editor/terminal QA,
+including persisted theme selection and author-project flags after service restart.
+This is local-authoring evidence only: no public archive/install or packaged-client
+acceptance is inferred. See the [current delivery checklist](./MARKETPLACE_V1.md)
+for scoped evidence and the remaining publication gates.
+
 Read-only CLI preparation CI and downloaded checksum verification are complete
 ([run 38214595106](https://github.com/merkr-software/CadencR/actions/runs/38214595106),
 source `6d0e2b6ed39ceb22d9fd1fa785d5cb5fa8a09f93`). Its `v0.12.1`

@@ -69,6 +69,48 @@ a future desktop release. Publication is not public UI or desktop trust activati
 - All 184 root script tests pass, including the new qualification safety tests.
   This does not claim a new full desktop/service workspace verification.
 
+### Second-wave evidence — 2026-10-13
+
+- The approved preparation is committed: `08673d5b7` (released-CLI qualification),
+  `0dac95ada` (delivery plan), `8487b0d` (Pi author source) and `ba55310`
+  (original theme source). These are signed local commits, not published author
+  repositories, immutable release tags or a deployed registry update.
+- All three themes were created through the normal API in a fresh private dev
+  profile, with `authoring_target: theme` and their own `plugin_id`. Real UI
+  activation, editor rendering and terminal ANSI output were visually reviewed.
+  A real service restart followed by renderer reload retained Fjord's selection
+  and all three author-project flags. Fjord keeps dark editor/terminal surfaces.
+  The owned QA servers were stopped; the QA database and evidence are retained.
+  No production database/profile or model call was involved. This is current-source
+  service/Vite QA, not packaged Electron or signed marketplace-install acceptance.
+- The author theme repository now has a portable supplemental 40-pair contrast
+  gate, seven mutation tests and read-only CI. It does not replace the released
+  Rust validator, certify all rendered interaction states or sign packages.
+- The Pi live-QA harness uses a retained scratch workspace, allows only the exact
+  reviewed bash input, never transmits the process environment through ACP, and
+  requires per-turn text and correlated tool-output evidence. Thirty-five fake-only
+  tests, lint and formatting pass; real Pi/model/native-platform conformance and
+  icon-rights verification remain pending.
+- `scripts/qualify-released-cli-github.sh preflight` checks only reviewed local
+  scratch targets/inputs and the released ELF identity. It rejects credentials
+  and unsupported write phases, reports `lifecycle_qualified: false` and exits
+  `3` even when the contract checks succeed. Semantic validation, remote target
+  verification and real publication/recovery/renewal are not implemented by it.
+  The real interruption test requires separately reviewed public scratch source
+  and registry repositories, discovery-branch protections and publication/recovery
+  authority. No such resources were provisioned by this wave; production pins
+  remain `PENDING` and JavaScript cutover remains blocked on that qualification.
+  Its contract-only success path was exercised with the exact published ELF in
+  the isolated Linux container with networking disabled; the expected result
+  remains incomplete with exit code `3`, not a lifecycle pass.
+- All 194 root script tests pass. These scoped results do not claim a new full
+  desktop/service workspace verification or hosted CI execution.
+
+The follow-up finish-job on 2026-10-14 requires an actually observed, correlated
+Pi permission decision, promptly rejects process/write failures, and exercises
+bounded EOF/SIGTERM/SIGKILL teardown. All 45 fake-only Pi tests, lint and formatting
+pass. No real model call or new live desktop acceptance is inferred from this review.
+
 ### Starting deployment state
 
 Read-only inspection on 2026-10-13 found the public registry at
