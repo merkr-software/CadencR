@@ -1,17 +1,27 @@
 # Marketplace desktop build configuration
 
-## v0.13.0: preparation only, no activation
+## After v0.13.0: populate the registry, no desktop activation
 
-Keep marketplace entry points hidden and official marketplace build trust/feed
-variables unset for this milestone. The configuration below describes a **later**
-authorized deployment; it is not an instruction to enable it now.
+v0.13.0 is released with marketplace entry points hidden. The next milestone
+publishes reviewed themes and Pi to the registry before a future activation
+release. Keep official marketplace desktop build trust/feed variables unset;
+publishing registry contents does not expose or configure the desktop UI.
+The configuration below describes the later authorized desktop deployment.
+
+Graphite, Ember and Fjord now pass isolated current-source UI/editor/terminal QA,
+including persisted theme selection and author-project flags after service restart.
+This is local-authoring evidence only: no public archive/install or packaged-client
+acceptance is inferred. See the [current delivery checklist](./MARKETPLACE_V1.md)
+for scoped evidence and the remaining publication gates.
 
 Read-only CLI preparation CI and downloaded checksum verification are complete
 ([run 38214595106](https://github.com/merkr-software/CadencR/actions/runs/38214595106),
 source `6d0e2b6ed39ceb22d9fd1fa785d5cb5fa8a09f93`). Its `v0.12.1`
-artifact label matches current source, not a selected future release. Actual CLI
-release, distributed-binary qualification, registry pins, JavaScript removal,
-plugin publication and official trust activation remain pending.
+artifact label belonged to preparation only. The actual
+[v0.13.0 release](https://github.com/merkr-software/CadencR/releases/tag/v0.13.0)
+now contains the Linux Rust CLI and checksums. Distributed-binary lifecycle
+qualification, reviewed registry pins/cutover, JavaScript removal and plugin
+publication remain pending; official desktop trust activation remains separate.
 
 Internal QA can opt in with `VITE_INTERNAL_MARKETPLACE=true` in a DEV renderer
 only; production builds cannot expose the marketplace through that environment

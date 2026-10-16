@@ -1,5 +1,6 @@
 packages:
   - "packages/*"
+  - "plugins/providers/*"
 
 nodeLinker: hoisted
 engineStrict: true

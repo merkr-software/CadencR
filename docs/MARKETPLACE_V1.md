@@ -1,8 +1,181 @@
 # Marketplace V1 — GitHub-only distribution
 
-## Current milestone — hidden v0.13.0 preparation
+## Current milestone — publish plugins before public activation (2026-10-13)
 
-This section is authoritative over the historical public-v1 delivery plan below.
+This section supersedes the preparation-only stop below. v0.13.0 is released
+with the marketplace hidden. The next milestone is to publish reviewed original
+themes and the external Pi provider into the registry **before** exposing it in
+a future desktop release. Publication is not public UI or desktop trust activation.
+
+- [x] Start a clean delivery branch from current `origin/main` (`4a954e23e`).
+      The preceding feature branch is preserved without rewriting its history.
+- [x] Independently download the released `v0.13.0` Linux CLI and verify its
+      release checksum: `d3223e3b3ff74543595fd3354c3249f50fa01def65f376a624eb1fbc8072df2a`.
+      [Published assets](https://github.com/merkr-software/CadencR/releases/tag/v0.13.0)
+      replace preparation artifacts as the qualification input, not as proof of
+      successful publication/recovery.
+- [x] Exercise that executable on an isolated Linux runner: inert provider/theme
+      validation, deterministic packaging, signing/verification and fail-closed
+      malformed inputs. Keep test keys and any credentials out of evidence.
+- [x] Integrate official sources in `plugins/` without desktop bundling or built-in
+      registration, with independent task names, required CI and isolation tests.
+      Signed commit `f55db02a0` is delivered in
+      [draft PR #267](https://github.com/merkr-software/CadencR/pull/267).
+- [x] Implement read-only, source-bound theme release preparation and its rejection
+      tests. Namespaced tags and canonical Rust packaging do not grant publication
+      authority. Production pins remain `PENDING`; see
+      [`plugins/RELEASING.md`](../plugins/RELEASING.md).
+- [ ] Qualify real GitHub publication, interruption/resume, fresh-runner recovery
+      and empty-delta renewal against an explicitly reviewed isolated **public**
+      QA target. Anonymous archive/discovery verification cannot positively
+      qualify a private repository. Use inert fixtures and QA-only signing keys;
+      offline tests and source-level transport fixtures do not satisfy this gate.
+- [ ] Pin the qualified executable atomically in contribution and protected
+      publication workflows; deploy the reviewed registry update and verify CI.
+      Only then remove replaced JavaScript business implementations.
+- [ ] Harden and package the Pi draft from `plugins/providers/pi`, retaining
+      its existing `0.4.0` candidate version unless a different initial release is
+      explicitly selected. Establish source provenance, runtime prerequisites and
+      supported targets; validate the extracted payload and generic ACP host path.
+- [ ] Prepare original Graphite and Ember dark themes plus Fjord light, review
+      their live previews, and publish source-pinned immutable author releases.
+      Names/version/repository are candidates until reviewed; no placeholder digest
+      or invented provenance may enter the registry.
+- [ ] Implement protected author publication and final provider/theme registry
+      package metadata after readiness and trust decisions. The current independent
+      release workflow only prepares artifacts; it does not sign, release or submit.
+- [ ] Provision the reviewed signing/trust profile, protected publication
+      environment, renewal/revocation owners and monitoring before signed feeds
+      become operational. Never treat test keys or an unprotected workflow as
+      production authority.
+- [ ] Publish the reviewed theme/Pi contributions, independently verify public
+      metadata/archive bytes and exercise fresh install/update/removal in isolated
+      supported clients. Keep `marketplace-v2` distinct from legacy schema-1 feeds.
+- [ ] Stop with populated, verified feeds and the desktop marketplace still
+      hidden. Public UI exposure and official build roots/URLs require the later
+      activation release and a separate acceptance decision.
+
+### Official source location decision — 2026-10-14
+
+Official plugins now live under `plugins/providers/` and `plugins/themes/` in
+this monorepo. Separate Git repositories are not required to preserve the
+distribution boundary. Their dedicated task names, dependency-graph checks,
+app-only Electron resource allowlists and a separate required CI job keep them
+outside the application build/bundle. Workspace membership shares dependency
+management only; it does not register, install or activate a plugin.
+
+Each plugin retains its own version and future namespaced release tag. No
+plugin tag/release or registry publication is created by importing sources.
+The previous sibling repositories are retained as untouched local baselines,
+not the authoritative location for future official-plugin development.
+Read-only CI uses the pinned released CLI for compatibility validation, not
+as a replacement for pending real GitHub lifecycle qualification. See
+[`plugins/README.md`](../plugins/README.md) for commands and publication gates.
+
+The imported theme documents and their released-CLI archive hashes are unchanged.
+The Pi import also hardens pipe-failure and session-shutdown paths: stdin/output
+failures trigger orderly cleanup, and shutdown drains late session creation and
+in-flight explicit closes, preserving native cleanup failures. Fake-only tests
+cover these regressions. Native QA scripts share a bounded ACP client/child
+shutdown helper, default to rejecting tool permissions unless the live QA's
+narrow policy is explicitly selected, and retain Pi-populated scratch directories
+instead of recursively deleting potential databases. An isolated live service
+verified normal workspace import, restart-gated registration and generic model
+discovery using fake Pi; direct connector initialize/new/close also passed.
+This does not certify real Pi compatibility or host-spawned prompt/resume behavior.
+
+The next preparation wave pins Pi protocol references to upstream `0.85.1` and
+aligns the connector's Node minimum with that pinned upstream (`22.19.0`). It
+does not upgrade Pi, certify native behavior or clear the imported icon's rights.
+Real installation/model calls remain outside fake-only qualification.
+
+### First-wave evidence — 2026-10-13
+
+- The published Linux ELF passed 20 offline checks in a fresh Ubuntu 24.04
+  container (amd64 emulation on macOS arm64), with network disabled and no host
+  credentials/profile/database mounts. Coverage includes provider/theme validation,
+  deterministic archives, mixed catalog and theme-policy signature roundtrips,
+  malformed/nested/nonfinite-input rejection, nonfinite theme colors, signed policy
+  tampering and exclusive-output rejection. Disposable test keys were removed; only
+  key-free evidence is eligible for upload. This is not a hosted CI run or real
+  GitHub publication/recovery/renewal qualification. Production pins stay `PENDING`.
+- An isolated Pi candidate retains `0.4.0` and passes 28 fake-Pi tests, lint and
+  formatting. Hardening bounds JSONL frames, surfaces shutdown failures, removes
+  an unsupported persistent permission choice, protects connector-owned flags,
+  guards billable QA, fixes canonical-path launcher detection and builds fresh
+  allowlisted payloads. Extracted launcher/model smoke passes. Reviewed corrections
+  were applied to the author draft only after original/candidate checksum guards;
+  a source-only baseline backup is retained. Real Pi compatibility and signed host
+  conformance are pending.
+- Three original theme drafts pass the released CLI validator, 40 measured
+  contrast checks per theme and deterministic closed-content packaging with that
+  released binary. Local theme tests pass (58 core and one CLI integration).
+  Sources are retained in the sibling `cadencr-plugin-themes` author folder, with
+  no public repository/commit/tag or final package metadata yet. Live visual review
+  and publication remain pending.
+- All 184 root script tests pass, including the new qualification safety tests.
+  This does not claim a new full desktop/service workspace verification.
+
+### Second-wave evidence — 2026-10-13
+
+- The approved preparation is committed: `08673d5b7` (released-CLI qualification),
+  `0dac95ada` (delivery plan), `8487b0d` (Pi author source) and `ba55310`
+  (original theme source). These are signed local commits, not published author
+  repositories, immutable release tags or a deployed registry update.
+- All three themes were created through the normal API in a fresh private dev
+  profile, with `authoring_target: theme` and their own `plugin_id`. Real UI
+  activation, editor rendering and terminal ANSI output were visually reviewed.
+  A real service restart followed by renderer reload retained Fjord's selection
+  and all three author-project flags. Fjord keeps dark editor/terminal surfaces.
+  The owned QA servers were stopped; the QA database and evidence are retained.
+  No production database/profile or model call was involved. This is current-source
+  service/Vite QA, not packaged Electron or signed marketplace-install acceptance.
+- The author theme repository now has a portable supplemental 40-pair contrast
+  gate, seven mutation tests and read-only CI. It does not replace the released
+  Rust validator, certify all rendered interaction states or sign packages.
+- The Pi live-QA harness uses a retained scratch workspace, allows only the exact
+  reviewed bash input, never transmits the process environment through ACP, and
+  requires per-turn text and correlated tool-output evidence. Thirty-five fake-only
+  tests, lint and formatting pass; real Pi/model/native-platform conformance and
+  icon-rights verification remain pending.
+- `scripts/qualify-released-cli-github.sh preflight` checks only reviewed local
+  scratch targets/inputs and the released ELF identity. It rejects credentials
+  and unsupported write phases, reports `lifecycle_qualified: false` and exits
+  `3` even when the contract checks succeed. Semantic validation, remote target
+  verification and real publication/recovery/renewal are not implemented by it.
+  The real interruption test requires separately reviewed public scratch source
+  and registry repositories, discovery-branch protections and publication/recovery
+  authority. No such resources were provisioned by this wave; production pins
+  remain `PENDING` and JavaScript cutover remains blocked on that qualification.
+  Its contract-only success path was exercised with the exact published ELF in
+  the isolated Linux container with networking disabled; the expected result
+  remains incomplete with exit code `3`, not a lifecycle pass.
+- All 194 root script tests pass. These scoped results do not claim a new full
+  desktop/service workspace verification or hosted CI execution.
+
+The follow-up finish-job on 2026-10-14 requires an actually observed, correlated
+Pi permission decision, promptly rejects process/write failures, and exercises
+bounded EOF/SIGTERM/SIGKILL teardown. All 45 fake-only Pi tests, lint and formatting
+pass. No real model call or new live desktop acceptance is inferred from this review.
+
+### Starting deployment state
+
+Read-only inspection on 2026-10-13 found the public registry at
+`24656f0f1ceb23576b0be9449c86c6d09e24f5b3`: empty `packages/` and `submissions/`,
+no releases, no protected environments, and only the initial JavaScript
+contribution workflow. The newer monorepo template is **not deployed there**.
+Publishing mixed themes/providers therefore requires a reviewed registry update;
+the app release alone did not perform that cutover.
+
+Use GPT-6.1-Sol parallel advisors/workers and finish each wave with independent
+reuse/quality/efficiency reviews, scoped checks and a commit plan. No production
+database is involved. Initial implementation reviews stop before committing or
+pushing until the scoped plan is approved.
+
+## Completed milestone — hidden v0.13.0 preparation
+
+This section records the completed preparation scope; the current milestone above
+now governs subsequent registry delivery.
 v0.13.0 ships the marketplace implementation **hidden everywhere in the UI**.
 There is no public marketplace launch until reviewed plugins populate the registry
 and a separately authorized activation clears every gate.

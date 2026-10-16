@@ -2,10 +2,12 @@
 
 ## Authority and deployment gates
 
-v0.13.0 ships hidden UI, not a public registry launch. All steps involving signing,
-release/tag creation, feed advancement, production pins or remote writes below are
-**future operator procedures requiring separate authority**. Examples are syntax,
-not actual keys, destinations or assigned owners. No scheduler is deployed here.
+v0.13.0 ships hidden UI, not a public registry launch. The next milestone publishes
+reviewed themes and Pi before a future desktop activation. Procedures involving
+signing, tags, feed advancement, production pins or remote writes require reviewed
+targets/inputs and protected operator authority; preparation alone is insufficient.
+Examples are syntax, not actual keys, destinations or assigned owners. No scheduler
+is deployed here, and the released CLI still needs full lifecycle qualification.
 
 | Required record before activation | Accountable role / evidence                                                             |
 | --------------------------------- | --------------------------------------------------------------------------------------- |

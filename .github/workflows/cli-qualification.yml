@@ -1,0 +1,46 @@
+name: Qualify distributed Linux CLI (offline only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      # Run only the selected reviewed workflow revision, never candidate code.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Fetch exact official released Linux ELF
+        env:
+          CLI_ROOT: ${{ runner.temp }}/qualified-released-cli
+        run: |
+          sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            scripts/cli-qualification.env "$CLI_ROOT" > "$RUNNER_TEMP/qualified-cli-path"
+      - name: Exercise offline distributed-binary contracts
+        env:
+          CLI_WORK_ROOT: ${{ runner.temp }}/cli-offline-qualification
+        run: |
+          CLI=$(cat "$RUNNER_TEMP/qualified-cli-path")
+          export CLI
+          # Create a networkless namespace, then drop all privileges before the ELF runs.
+          sudo unshare --net -- setpriv \
+            --reuid "$(id -u)" --regid "$(id -g)" --clear-groups \
+            --bounding-set=-all --no-new-privs \
+            env -i PATH="$PATH" CLI="$CLI" CLI_WORK_ROOT="$CLI_WORK_ROOT" \
+            sh scripts/qualify-released-cli.sh
+      # Never upload the workspace, keys, logs, or signed fixtures. The evidence
+      # explicitly leaves real publication, resume, recovery and renewal pending.
+      - name: Preserve key-free qualification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cli-offline-qualification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cli-offline-qualification/evidence/evidence.json
+          if-no-files-found: warn
+          retention-days: 7

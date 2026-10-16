@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "themes": {
+    "graphite": "0.1.0",
+    "ember": "0.1.0",
+    "fjord": "0.1.0"
+  },
+  "publication": "PENDING"
+}

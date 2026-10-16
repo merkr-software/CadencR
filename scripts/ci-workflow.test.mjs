@@ -106,3 +106,34 @@ test("CodeQL analyzes PRs into main and the version integration branches", () =>
   assert.deepEqual(codeql.on.push.branches, ["main"]);
   assert.ok(codeql.on.schedule.length > 0);
 });
+
+test("official plugins have a separate read-only job included in the required gate", () => {
+  const job = ci.jobs.plugins;
+  assert.ok(job);
+  assert.equal(job.if, undefined, "path-skipping a job would fail the required aggregate");
+  assert.equal(ci.permissions.contents, "read");
+  assert.equal(job.permissions, undefined);
+  assert.ok(ci.jobs["precommit-checks"].needs.includes("plugins"));
+  const runs = job.steps.map((step) => step.run ?? "").join("\n");
+  for (const command of [
+    "pnpm install --frozen-lockfile",
+    "pnpm run check:plugin:pi",
+    "pnpm run test:plugins",
+    "pnpm run build:plugin:pi",
+    "fetch-released-cli.sh",
+    "scripts/cli-qualification.env",
+    "plugin validate",
+    "registry pack-theme",
+    "cmp",
+    "tar -tzf",
+  ])
+    assert.ok(runs.includes(command), command);
+  assert.doesNotMatch(
+    runs,
+    /live-qa|resume-qa|\bsmoke\b|git push|gh release|sign-index|publish-registry/,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(job),
+    /secrets\.|contents:write|upload-artifact|CADENCR_MANAGED_/,
+  );
+});
