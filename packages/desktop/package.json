@@ -140,7 +140,7 @@
     "typescript": "^5.7.0",
     "unified": "11.0.5",
     "unist-util-visit": "5.1.0",
-    "vite": "6.4.3",
+    "vite": "6.4.4",
     "vitest": "4.1.11",
     "vscode-languageserver-protocol": "^3.18.1",
     "zod": "4.4.3",
