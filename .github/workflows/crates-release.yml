@@ -61,7 +61,7 @@ jobs:
           persist-credentials: false
 
       # actions/setup-node@v7.0.0 (only to run the cargo wrapper)
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
@@ -121,7 +121,7 @@ jobs:
           persist-credentials: false
 
       # actions/setup-node@v7.0.0 (only to run the cargo wrapper)
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version-file: .nvmrc
           package-manager-cache: false
