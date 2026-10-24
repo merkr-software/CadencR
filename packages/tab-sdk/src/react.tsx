@@ -225,9 +225,8 @@ export function useStorage<T extends JsonValue>(key: string, initial: T): Storag
   // A suspended render must not orphan writes belonging to the visible key.
   useLayoutEffect(() => {
     keyState.current = state;
-    return () => {
-      keyState.current = null;
-    };
+    // Suspense can hide this committed tree and clean up layout effects without
+    // unmounting its state. Keep its identity so pending failures still roll back.
   }, [state]);
 
   useEffect(() => {

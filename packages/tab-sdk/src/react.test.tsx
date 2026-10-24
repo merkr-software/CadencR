@@ -400,6 +400,73 @@ describe("hooks", () => {
     expect(host.storage.get("b")).toBe("chosen-b");
   });
 
+  it("useStorage rolls back a failed write while Suspense hides the committed key", async () => {
+    host = createTestHost({ storage: { note: "stored" } });
+    let rejectWrite!: (error: CadencrError) => void;
+    const pendingWrite = new Promise<null>((_, reject) => {
+      rejectWrite = reject;
+    });
+    host.handle("storage.set", () => pendingWrite);
+    const suspended = new Promise<never>(() => {});
+    let write!: Promise<void>;
+    function HiddenNotes({ hidden }: { hidden: boolean }) {
+      const { value, loading, error, set } = useStorage<string>("note", "empty");
+      if (hidden) throw suspended;
+      return (
+        <>
+          <p data-testid="hidden-note">{loading ? "loading" : value}</p>
+          {error ? <p role="alert">{error.message}</p> : null}
+          <button
+            type="button"
+            onClick={() => {
+              write = set("chosen");
+            }}
+          >
+            write
+          </button>
+        </>
+      );
+    }
+    function HidingNotes() {
+      const [hidden, setHidden] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setHidden((value) => !value)}>
+            toggle
+          </button>
+          <Suspense fallback={<p>hidden fallback</p>}>
+            <HiddenNotes hidden={hidden} />
+          </Suspense>
+        </>
+      );
+    }
+    render(
+      <CadencrProvider connectOptions={{ transport: host.transport }}>
+        <HidingNotes />
+      </CadencrProvider>,
+    );
+    await screen.findByText("stored");
+    await act(async () => {
+      screen.getByRole("button", { name: "write" }).click();
+    });
+    expect(screen.getByTestId("hidden-note").textContent).toBe("chosen");
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+    expect(screen.getByText("hidden fallback")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "write" })).toBeNull();
+    await act(async () => {
+      rejectWrite(new CadencrError("HOST_ERROR", "disk full"));
+      await expect(write).rejects.toMatchObject({ code: "HOST_ERROR" });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+    expect(screen.queryByText("hidden fallback")).toBeNull();
+    expect(screen.getByTestId("hidden-note").textContent).toBe("stored");
+    expect(screen.getByRole("alert").textContent).toBe("disk full");
+  });
+
   it("useStorage retains the committed key when a new key's transition suspends", async () => {
     host = createTestHost({ storage: { a: "stored-a", b: "stored-b" } });
     let rejectWrite!: (error: CadencrError) => void;
