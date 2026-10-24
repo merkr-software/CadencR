@@ -1,5 +1,5 @@
 import { CadencrError } from "./errors.js";
-import { StrictMode, useState } from "react";
+import { StrictMode, Suspense, startTransition, useLayoutEffect, useState } from "react";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -213,6 +213,71 @@ describe("hooks", () => {
     expect(host.storage.get("note")).toBe("chosen");
   });
 
+  it.each(["pending", "confirmed"] as const)(
+    "useStorage keeps a %s layout-effect write when the initial read answers",
+    async (writeStatus) => {
+      host = createTestHost({ storage: { note: "old" } });
+      let answerRead!: (value: string) => void;
+      const read = new Promise<string>((resolve) => {
+        answerRead = resolve;
+      });
+      host.handle("storage.get", () => read);
+      let finishWrite!: () => void;
+      const writeStarted = new Promise<void>((started) => {
+        host.handle(
+          "storage.set",
+          ({ key, value }) =>
+            new Promise((resolve) => {
+              finishWrite = () => {
+                host.storage.set(key, value);
+                resolve(null);
+              };
+              started();
+            }),
+        );
+      });
+      let write!: Promise<void>;
+      function EarlyNotes() {
+        const { value, loading, set } = useStorage<string>("note", "empty");
+        useLayoutEffect(() => {
+          write = set("chosen");
+        }, [set]);
+        return <p data-testid="early-note">{loading ? "loading" : value}</p>;
+      }
+      render(
+        <CadencrProvider connectOptions={{ transport: host.transport }}>
+          <EarlyNotes />
+        </CadencrProvider>,
+      );
+      await screen.findByTestId("early-note");
+      await writeStarted;
+      if (writeStatus === "confirmed") {
+        await act(async () => {
+          finishWrite();
+          await write;
+        });
+        expect(host.storage.get("note")).toBe("chosen");
+      } else {
+        expect(host.storage.get("note")).toBe("old");
+      }
+      // Releasing the stale read must not replace either kind of early write.
+      await act(async () => {
+        answerRead("old");
+      });
+      try {
+        expect((await screen.findByText("chosen")).textContent).toBe("chosen");
+      } finally {
+        if (writeStatus === "pending") {
+          await act(async () => {
+            finishWrite();
+            await write;
+          });
+        }
+      }
+      expect(host.storage.get("note")).toBe("chosen");
+    },
+  );
+
   it("useStorage shows the stored value when a write failed before the first read answered", async () => {
     host = createTestHost({ storage: { note: "stored" } });
     let answerRead: (() => void) | undefined;
@@ -291,6 +356,176 @@ describe("hooks", () => {
       await flush();
     });
     expect(shown()).toBe("value-b");
+  });
+
+  it("useStorage accepts a new key's layout-effect write after StrictMode replay", async () => {
+    host = createTestHost({ storage: { a: "stored-a", b: "old-b" } });
+    let answerRead!: (value: string) => void;
+    const read = new Promise<string>((resolve) => {
+      answerRead = resolve;
+    });
+    host.handle("storage.get", ({ key }) => (key === "b" ? read : "stored-a"));
+    let write!: Promise<void>;
+    function SwitchingNotes() {
+      const [key, setKey] = useState("a");
+      const { value, loading, set } = useStorage<string>(key, "empty");
+      useLayoutEffect(() => {
+        if (key === "b") write = set("chosen-b");
+      }, [key, set]);
+      return (
+        <>
+          <p>{loading ? "loading" : value}</p>
+          <button type="button" onClick={() => setKey("b")}>
+            switch
+          </button>
+        </>
+      );
+    }
+    render(
+      <StrictMode>
+        <CadencrProvider connectOptions={{ transport: host.transport }}>
+          <SwitchingNotes />
+        </CadencrProvider>
+      </StrictMode>,
+    );
+    await screen.findByText("stored-a");
+    await act(async () => {
+      screen.getByRole("button", { name: "switch" }).click();
+    });
+    await act(async () => {
+      await write;
+      answerRead("old-b");
+    });
+    expect(await screen.findByText("chosen-b")).toBeTruthy();
+    expect(host.storage.get("b")).toBe("chosen-b");
+  });
+
+  it("useStorage rolls back a failed write while Suspense hides the committed key", async () => {
+    host = createTestHost({ storage: { note: "stored" } });
+    let rejectWrite!: (error: CadencrError) => void;
+    const pendingWrite = new Promise<null>((_, reject) => {
+      rejectWrite = reject;
+    });
+    host.handle("storage.set", () => pendingWrite);
+    const suspended = new Promise<never>(() => {});
+    let write!: Promise<void>;
+    function HiddenNotes({ hidden }: { hidden: boolean }) {
+      const { value, loading, error, set } = useStorage<string>("note", "empty");
+      if (hidden) throw suspended;
+      return (
+        <>
+          <p data-testid="hidden-note">{loading ? "loading" : value}</p>
+          {error ? <p role="alert">{error.message}</p> : null}
+          <button
+            type="button"
+            onClick={() => {
+              write = set("chosen");
+            }}
+          >
+            write
+          </button>
+        </>
+      );
+    }
+    function HidingNotes() {
+      const [hidden, setHidden] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setHidden((value) => !value)}>
+            toggle
+          </button>
+          <Suspense fallback={<p>hidden fallback</p>}>
+            <HiddenNotes hidden={hidden} />
+          </Suspense>
+        </>
+      );
+    }
+    render(
+      <CadencrProvider connectOptions={{ transport: host.transport }}>
+        <HidingNotes />
+      </CadencrProvider>,
+    );
+    await screen.findByText("stored");
+    await act(async () => {
+      screen.getByRole("button", { name: "write" }).click();
+    });
+    expect(screen.getByTestId("hidden-note").textContent).toBe("chosen");
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+    expect(screen.getByText("hidden fallback")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "write" })).toBeNull();
+    await act(async () => {
+      rejectWrite(new CadencrError("HOST_ERROR", "disk full"));
+      await expect(write).rejects.toMatchObject({ code: "HOST_ERROR" });
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "toggle" }).click();
+    });
+    expect(screen.queryByText("hidden fallback")).toBeNull();
+    expect(screen.getByTestId("hidden-note").textContent).toBe("stored");
+    expect(screen.getByRole("alert").textContent).toBe("disk full");
+  });
+
+  it("useStorage retains the committed key when a new key's transition suspends", async () => {
+    host = createTestHost({ storage: { a: "stored-a", b: "stored-b" } });
+    let rejectWrite!: (error: CadencrError) => void;
+    const pendingWrite = new Promise<null>((_, reject) => {
+      rejectWrite = reject;
+    });
+    host.handle("storage.set", () => pendingWrite);
+    const suspended = new Promise<never>(() => {});
+    let renderedB = false;
+    let write!: Promise<void>;
+    function SwitchingNotes() {
+      const [key, setKey] = useState("a");
+      const { value, loading, error, set } = useStorage<string>(key, "empty");
+      if (key === "b") {
+        renderedB = true;
+        throw suspended;
+      }
+      return (
+        <>
+          <p data-testid="committed-note">{loading ? "loading" : value}</p>
+          {error ? <p role="alert">{error.message}</p> : null}
+          <button
+            type="button"
+            onClick={() => {
+              write = set("chosen-a");
+            }}
+          >
+            write
+          </button>
+          <button type="button" onClick={() => startTransition(() => setKey("b"))}>
+            switch
+          </button>
+        </>
+      );
+    }
+    render(
+      <CadencrProvider connectOptions={{ transport: host.transport }}>
+        <Suspense fallback={<p>switching</p>}>
+          <SwitchingNotes />
+        </Suspense>
+      </CadencrProvider>,
+    );
+    await screen.findByText("stored-a");
+    await act(async () => {
+      screen.getByRole("button", { name: "write" }).click();
+    });
+    expect(screen.getByTestId("committed-note").textContent).toBe("chosen-a");
+    await act(async () => {
+      screen.getByRole("button", { name: "switch" }).click();
+    });
+    expect(renderedB).toBe(true);
+    expect(screen.queryByText("switching")).toBeNull();
+    await act(async () => {
+      rejectWrite(new CadencrError("HOST_ERROR", "disk full"));
+      await expect(write).rejects.toMatchObject({ code: "HOST_ERROR" });
+    });
+    expect(screen.getByTestId("committed-note").textContent).toBe("stored-a");
+    expect(screen.getByRole("alert").textContent).toBe("disk full");
+    expect(host.requests.filter((request) => request.method === "storage.get")).toHaveLength(1);
   });
 
   it("useStorage rolls a failed write back to the one saved before it", async () => {

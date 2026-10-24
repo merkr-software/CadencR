@@ -3,6 +3,8 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -217,12 +219,18 @@ export function useStorage<T extends JsonValue>(key: string, initial: T): Storag
   // What is known about the current key. Each key gets its own, so a write
   // still pending for the previous key never holds back (or overwrites) the
   // new key's value.
-  const keyState = useRef<KeyState<T>>(newKeyState(initial));
+  const state = useMemo(() => newKeyState(initialRef.current), [client, key]);
+  const keyState = useRef<KeyState<T> | null>(null);
+  // Publish only committed keys, before the consumer's layout effects can write.
+  // A suspended render must not orphan writes belonging to the visible key.
+  useLayoutEffect(() => {
+    keyState.current = state;
+    // Suspense can hide this committed tree and clean up layout effects without
+    // unmounting its state. Keep its identity so pending failures still roll back.
+  }, [state]);
 
   useEffect(() => {
     let cancelled = false;
-    const state = newKeyState(initialRef.current);
-    keyState.current = state;
     setLoading(true);
     client.storage.get<T>(key).then(
       (loaded) => {
@@ -245,11 +253,10 @@ export function useStorage<T extends JsonValue>(key: string, initial: T): Storag
     return () => {
       cancelled = true;
     };
-  }, [client, key]);
+  }, [client, key, state]);
 
   const set = useCallback(
     async (next: T) => {
-      const state = keyState.current;
       const current = () => keyState.current === state;
       state.pending += 1;
       setValue(next);
@@ -270,7 +277,7 @@ export function useStorage<T extends JsonValue>(key: string, initial: T): Storag
         state.pending -= 1;
       }
     },
-    [client, key],
+    [client, key, state],
   );
 
   return { value, loading, error, set };
