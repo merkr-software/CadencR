@@ -1,6 +1,6 @@
 import { CadencrError } from "./errors.js";
 import { StrictMode, useState } from "react";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CadencrProvider,
@@ -234,15 +234,14 @@ describe("hooks", () => {
     const button = await screen.findByRole("button");
     await act(async () => {
       button.click();
-      await flush();
     });
+    // The failed write's round trip can outlast a fixed flush on a busy runner.
+    expect((await screen.findByRole("alert")).textContent).toBe("disk full");
     expect(button.textContent).toBe("empty");
-    expect(screen.getByRole("alert").textContent).toBe("disk full");
     await act(async () => {
       answerRead?.();
-      await flush();
     });
-    expect(button.textContent).toBe("stored");
+    await waitFor(() => expect(button.textContent).toBe("stored"));
   });
 
   it("useStorage shows the new key's value while a write to the old key is pending", async () => {
