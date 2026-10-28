@@ -2,20 +2,14 @@ import { memo, type ReactElement } from "react";
 import { Blocks } from "lucide-react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useMarketplaceUpdateCount } from "@/hooks/useMarketplaceListings";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
 import { cn } from "@/lib/utils";
 
 /**
  * Sidebar entry for the Marketplace, above Agents. Its badge counts installed
  * plugins with a newer compatible version — the one marketplace number worth
- * a glance from anywhere in the app. Builds without the marketplace opt-in
- * render nothing and mount no marketplace query.
+ * a glance from anywhere in the app.
  */
-export function MarketplaceSidebarLink(): ReactElement | null {
-  return MARKETPLACE_ENABLED ? <EnabledMarketplaceSidebarLink /> : null;
-}
-
-const EnabledMarketplaceSidebarLink = memo(function EnabledMarketplaceSidebarLink(): ReactElement {
+export const MarketplaceSidebarLink = memo(function MarketplaceSidebarLink(): ReactElement {
   const active = useRouterState({
     select: (state) => state.location.pathname.startsWith("/marketplace"),
   });

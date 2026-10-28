@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -81,26 +80,25 @@ export function ProjectSettingsDialog({
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
-          {MARKETPLACE_ENABLED &&
-            (authoringTarget === "provider" ? (
-              <>
-                <ProviderPublicationPreparation projectId={projectId} enabled={open} />
-                <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
-              </>
-            ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
-              <>
-                <ProviderPublicationPreparation
-                  projectId={projectId}
-                  enabled={open}
-                  pluginKind={authoringTarget}
-                />
-                <ThemePublicationPackagePreparation
-                  projectId={projectId}
-                  enabled={open}
-                  pluginKind={authoringTarget}
-                />
-              </>
-            ) : null)}
+          {authoringTarget === "provider" ? (
+            <>
+              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
+          ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
+            <>
+              <ProviderPublicationPreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+              <ThemePublicationPackagePreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+            </>
+          ) : null}
           <IdentitySection
             projectId={projectId}
             color={settings[PROJECT_SETTING_KEYS.color]}

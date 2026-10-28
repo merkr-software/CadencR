@@ -28,11 +28,14 @@ JavaScript business implementations and executable legacy test oracles are
 removed from the source template; thin orchestration and frozen test data remain.
 The candidate registry pin still targets an older CLI. Reviewing its replacement,
 regenerating delivery approvals, actual registry deployment and official-plugin
-publication remain pending. Desktop activation is separate.
+publication remain pending.
 
-Internal QA can opt in with `VITE_INTERNAL_MARKETPLACE=true` in a DEV renderer
-only; production builds cannot expose the marketplace through that environment
-variable. This is not a public activation switch.
+The marketplace UI is visible in every desktop build; there is no renderer
+opt-in. Whether it can browse or install anything depends only on the feed and
+trust configuration compiled into the service. A build without that
+configuration (dev builds, forks) shows the marketplace as unavailable: the
+catalog page says it is not available in this build and offers no retry, and
+anything already installed stays manageable.
 
 Use the [operator runbook](../tooling/marketplace-registry/OPERATIONS.md)
 for renewal, failure alerts, revocation and rotation preparation. No real owner,
@@ -45,26 +48,25 @@ They are template files, not deployed, and inert until configured as described b
 
 ## Activation gate
 
-**State 2026-10-26:** not activated. The marketplace is hidden in production
-builds (`VITE_INTERNAL_MARKETPLACE` gate) and none of the variables below is set
-on `merkr-software/CadencR`. Activation was prepared, QA'd against the
-production registry and then held back for the release owner's go: see
-[Activation runbook](#activation-runbook).
+**State 2026-10-28:** activated for the v0.16.0 release, on the release
+owner's go. The UI gate is removed on the release branch, the variables below
+are set on `merkr-software/CadencR`, and both desktop release workflows run
+`node scripts/validate-marketplace-build-env.mjs --require-catalog`, so a
+release without the root-authorized trust and the catalog feeds fails before
+compiling the service. Until that branch is merged, `main` still hides the
+marketplace (`VITE_INTERNAL_MARKETPLACE` gate); a release from `main` in the
+meantime compiles the feeds into the service but shows no marketplace.
 
 ### Activation runbook
 
 Everything below is public data; no secret is involved. Do it only on the
 release owner's explicit go, right before the activation release.
 
-1. **Show the marketplace in every build.** Revert the hiding commit on `main`:
-
-   ```sh
-   git revert 82c0b4263   # "revert(marketplace): hide the marketplace again until the activation go"
-   ```
-
-   This restores `89b2b9f11` (gate removed, honest "not available in this
-   build" state) and the `catalogSourceMissing` helper reuse. The original
-   commits also live on the branch `feature/marketplace-activation`.
+1. **Show the marketplace in every build.** Done for v0.16.0 by re-applying
+   `89b2b9f11` (gate removed, honest "not available in this build" state) and
+   the `catalogSourceMissing` helper reuse from `9e4c5ea93`, which
+   `82c0b4263` had hidden again on `main`. The original commits also live on
+   the branch `feature/marketplace-activation`.
 
 2. **Compile the production trust and feeds into releases.** From the
    repository root:
@@ -103,7 +105,8 @@ For a local packaged check, export the same variables and run
 `node scripts/validate-marketplace-build-env.mjs -- pnpm build:local`; turbo
 passes `CADENCR_MANAGED_*` and `CADENCR_REGISTRY_*` through.
 
-To deactivate again, revert the step-1 commit and delete the nine variables.
+To deactivate again, restore the gate (`82c0b4263`), drop `--require-catalog`
+from the release workflows and delete the nine variables.
 
 The desktop release workflow forwards public repository variables into service
 compilation. It does **not** provision trust, deploy feeds, generate signing keys,

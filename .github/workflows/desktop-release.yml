@@ -110,7 +110,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate marketplace build configuration
-        run: node scripts/validate-marketplace-build-env.mjs
+        run: node scripts/validate-marketplace-build-env.mjs --require-catalog
 
       - name: Use bounded pnpm listing for packaging
         run: |

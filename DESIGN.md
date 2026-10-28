@@ -597,7 +597,7 @@ The "Notch" notification destination: transparent, click-through windows managed
 
 ### Marketplace (`/marketplace`, `components/marketplace/`)
 
-The unreleased plugin catalog (`VITE_INTERNAL_MARKETPLACE` dev builds only). One sidebar entry above Agents, `Blocks` glyph, with a quiet primary dot + count of available updates; it is no longer a Settings tab (old `?tab=marketplace` links redirect).
+The plugin catalog, shown in every build; a build with no compiled-in catalog feed says so once on the page ("The catalog isn't available in this build") with no retry. One sidebar entry above Agents, `Blocks` glyph, with a quiet primary dot + count of available updates; it is no longer a Settings tab (old `?tab=marketplace` links redirect).
 
 - **Thesis.** A plugin is shown at the scale it lives at in Cadencr, never as a row of settings text: a theme as a miniature workspace (`ThemeStage`: sidebar rail, tab strip, thinking block, diff, composer) painted with the theme's own token values scoped to that box; a provider as the composer with its agent picker opened upward, this provider selected and its neighbours left blank (`ProviderStage`; tiles use its `compact` crop). Before a verified preview exists the stage is drawn in dashed outline only — the active app theme never stands in for unknown colors. Previews download and validate the archive without installing, so they run only on an explicit "Preview colors" click; installed themes paint immediately.
 - **Custom tabs.** A schematic workspace tab strip with its name and a neutral `PanelTop` surface represents this contribution; it is not a preview of untrusted web content. Activation reuses the custom-tab permissions dialog. Installed marketplace revisions are separate from editable author projects.

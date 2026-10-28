@@ -432,8 +432,7 @@ private network addresses, are refused.
 
 Build the tab first (`pnpm build` in its author project). Open the project's
 settings and use **Custom tab publication preparation**, then **Prepare a custom
-tab bundle**. These sections are available in development builds with
-`VITE_INTERNAL_MARKETPLACE=true`, like the rest of the unreleased marketplace.
+tab bundle**. These sections are available in every build.
 
 The metadata uses the signed catalog's schema-2 `tab` kind. This is a template,
 not publishable metadata: replace the checksum and `FIRST_COMPATIBLE_APP_VERSION`

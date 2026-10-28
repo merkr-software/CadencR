@@ -26,7 +26,7 @@ Long sessions on a desktop monitor, often next to a terminal and a browser; the 
 
 ## Capabilities and Constraints
 
-- Marketplace (unreleased, behind the build-time `VITE_INTERNAL_MARKETPLACE` dev flag): a signed, verified catalog that today serves **themes** and **provider connectors**, each package one kind. Install, update, enable/disable, remove, restart-required state, history, quarantine, signing trust and blocklist diagnostics exist.
+- Marketplace (visible in every build; browsing and installing need the catalog feed compiled into the service): a signed, verified catalog that today serves **themes** and **provider connectors**, each package one kind. Install, update, enable/disable, remove, restart-required state, history, quarantine, signing trust and blocklist diagnostics exist.
 - Target content kinds for the marketplace (user, 2026-10-17): MCP servers, skills, themes, providers, custom tabs, custom pages; one plugin may contribute several kinds. Only kinds the catalog actually serves may be shown — no placeholder categories or fabricated listings (user decision 2026-10-17: this iteration covers what the catalog serves).
 - The marketplace is for discovery and management; author publication flows stay outside it (user decision 2026-10-17).
 - Signed revisions are immutable; installation and activation are separate choices.

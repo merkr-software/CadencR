@@ -1,12 +1,7 @@
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { MarketplaceProvider } from "@/components/marketplace/MarketplaceContext";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
 
 export const Route = createFileRoute("/marketplace")({
-  // Unreleased: builds without the dev opt-in have no marketplace route at all.
-  beforeLoad: () => {
-    if (!MARKETPLACE_ENABLED) throw redirect({ to: "/" });
-  },
   component: MarketplaceLayout,
 });
 
