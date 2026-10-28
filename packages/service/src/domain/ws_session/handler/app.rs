@@ -51,6 +51,9 @@ pub(super) async fn handle_app_action(
         "subscribe.provider_update_events" => {
             super::app_notifications::subscribe_provider_update_events(sender, app_state)
         }
+        "subscribe.restart_continuation_events" => {
+            super::app_notifications::subscribe_restart_continuation_events(sender)
+        }
         "subscribe.storage_maintenance_events" => {
             super::app_notifications::subscribe_storage_maintenance(sender, app_state)
         }

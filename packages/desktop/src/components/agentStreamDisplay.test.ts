@@ -26,6 +26,24 @@ describe("agentStreamDisplay", () => {
     ]);
   });
 
+  it("folds a restart marker into the resume that follows it", () => {
+    const marker = block("marker", "restart", { type: "turn_interrupted" });
+    const resume = block("resume", "Cadencr restarted while you were working", {
+      type: "user_message",
+      origin: {
+        originKind: "system_generated",
+        note: "restart_continuation",
+      } as AgentBlockData["origin"],
+    });
+    const stopped = block("stopped", "", { type: "turn_interrupted" });
+    const prompt = block("prompt", "go on", { type: "user_message" });
+
+    expect(filterRenderableBlocks([marker, resume])).toEqual([resume]);
+    expect(filterRenderableBlocks([marker, prompt])).toEqual([marker, prompt]);
+    expect(filterRenderableBlocks([stopped, resume])).toEqual([stopped, resume]);
+    expect(countRenderableDisplayRows([marker, resume])).toBe(1);
+  });
+
   it("keeps only Agent and Task tool results that render standalone", () => {
     const bashResult = block("bash", "bash output", {
       type: "tool_result",

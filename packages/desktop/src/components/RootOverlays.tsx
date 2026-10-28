@@ -2,7 +2,7 @@ import type { Dispatch, ReactElement, SetStateAction } from "react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { ArchiveFeatureDialog } from "@/components/ArchiveFeatureDialog";
 import { FeatureDeleteDialog } from "@/components/FeatureDeleteDialog";
-import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { AppCloseDialog } from "@/components/AppCloseDialog";
 import { ImageLightboxHost } from "@/components/ImageLightbox";
 import { MermaidFullscreenHost } from "@/components/MermaidFullscreen";
 import { KeyboardShortcutsModal } from "@/components/KeyboardShortcutsModal";
@@ -14,6 +14,7 @@ import { ThemeDrawer } from "@/components/theme/ThemeDrawer";
 import { PluginTabPresenceKeeper } from "@/components/plugin-tabs/PluginTabPresenceKeeper";
 import { PluginTabShortcutRelay } from "@/components/plugin-tabs/PluginTabShortcutRelay";
 import { useRemoteUpdateCheck } from "@/hooks/useRemoteUpdateCheck";
+import type { AppCloseState } from "@/hooks/useAppClose";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
 import { useListFeatureWorktrees, type Feature } from "@/api/generated";
 import { getArchiveCleanupAvailability } from "@/components/archive-cleanup-availability";
@@ -25,13 +26,6 @@ export interface ConfirmFeatureAction {
   feature: Feature;
 }
 
-interface AppCloseOverlayState {
-  showConfirm: boolean;
-  setShowConfirm: Dispatch<SetStateAction<boolean>>;
-  confirmAndClose: () => void;
-  runningAgents: Array<{ sessionId: string; label: string }>;
-}
-
 interface RootOverlaysProps {
   commandPaletteOpen: boolean;
   setCommandPaletteOpen: Dispatch<SetStateAction<boolean>>;
@@ -41,7 +35,7 @@ interface RootOverlaysProps {
   setConfirmAction: Dispatch<SetStateAction<ConfirmFeatureAction | null>>;
   onArchiveFeature: (featureId: number, options: ArchiveRelativeSelection) => Promise<unknown>;
   onDeleteFeature: (featureId: number) => void;
-  appClose: AppCloseOverlayState;
+  appClose: AppCloseState;
 }
 
 export function RootOverlays({
@@ -117,21 +111,7 @@ export function RootOverlays({
         }}
         onDelete={onDeleteFeature}
       />
-      <ConfirmDialog
-        open={appClose.showConfirm}
-        onOpenChange={appClose.setShowConfirm}
-        title="Quit Cadencr?"
-        description="The following agents are still running. They will be stopped and can be resumed next time you open the app."
-        confirmText="Quit"
-        variant="destructive"
-        onConfirm={appClose.confirmAndClose}
-      >
-        <ul className="text-sm text-muted-foreground space-y-1 py-2">
-          {appClose.runningAgents.map((agent) => (
-            <li key={agent.sessionId}>{agent.label}</li>
-          ))}
-        </ul>
-      </ConfirmDialog>
+      <AppCloseDialog state={appClose} />
     </>
   );
 }

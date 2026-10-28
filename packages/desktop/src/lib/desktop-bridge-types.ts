@@ -108,6 +108,7 @@ export type UpdateEvent =
     };
 
 export type { RendererErrorReportPayload } from "@/shared/renderer-error";
+import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
 
 export interface CadencrDesktopBridge {
   isElectron: boolean;
@@ -131,8 +132,8 @@ export interface CadencrDesktopBridge {
   onNotificationClicked: (cb: (payload: NotificationClickPayload) => void) => () => void;
   onNotificationFailed: (cb: (payload: { reason: string }) => void) => () => void;
   onNotificationFallback: (cb: (payload: NotificationFallbackPayload) => void) => () => void;
-  onCloseRequested: (cb: () => void) => () => void;
-  confirmClose: () => Promise<void>;
+  onCloseRequested: (cb: (request: AppCloseRequest) => void) => () => void;
+  confirmClose: (choice?: AppCloseChoice) => Promise<void>;
   requestQuit: () => Promise<void>;
   windowMinimize?: () => Promise<void>;
   windowToggleMaximize?: () => Promise<void>;

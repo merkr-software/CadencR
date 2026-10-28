@@ -51,7 +51,7 @@ where
     let served = serve_then_shutdown_within(
         server,
         drain_started,
-        stop_background_work(pty_manager, remote, plugin_tab_backends),
+        stop_background_work(pty_manager, remote, plugin_tab_backends, write_pool.clone()),
         DRAIN_GRACE,
     )
     .await;
@@ -92,7 +92,11 @@ async fn stop_background_work(
     pty_manager: crate::domain::terminal::service::PtyManager,
     remote: std::sync::Arc<crate::remote::RemoteController>,
     plugin_tab_backends: crate::domain::plugin_tabs::backend::BackendSupervisor,
+    write_pool: sqlx::SqlitePool,
 ) {
+    // Record the turns this shutdown is about to cut off before anything can
+    // end them: the next start resumes them (`restart_continuations`).
+    crate::domain::restart_continuations::begin_shutdown(&write_pool).await;
     // Drop the remote listener first: it has its own admission path, so it is
     // the one thing that could still start new work. Bounded internally so a
     // hung remote WS can't block quit.

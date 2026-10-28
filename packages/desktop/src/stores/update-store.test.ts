@@ -1,5 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { desktopBridge } from "@/lib/desktop-bridge";
+import { useSessionStatusStore } from "./session-status-store";
 import { useUpdateStore } from "./update-store";
+
+vi.mock("@/lib/desktop-bridge", () => ({
+  desktopBridge: {
+    installUpdate: vi.fn(() => Promise.resolve()),
+    checkForUpdates: vi.fn(() => Promise.resolve()),
+  },
+}));
 
 function resetStore(): void {
   useUpdateStore.setState({
@@ -81,5 +90,54 @@ describe("update-store applyEvent", () => {
     expect(state.status).toBe("up-to-date");
     expect(state.error).toBeNull();
     expect(state.version).toBe("0.1.2");
+  });
+});
+
+describe("update-store install when agents finish", () => {
+  beforeEach(() => {
+    resetStore();
+    useUpdateStore.setState({ status: "downloaded", version: "0.2.0" });
+    useUpdateStore.getState().cancelInstallWhenAgentsFinish();
+    useSessionStatusStore.setState({ bySession: {} });
+    vi.mocked(desktopBridge.installUpdate).mockClear();
+  });
+
+  function working(sessionId: number, status: "agent" | "question" | "idle"): void {
+    useSessionStatusStore.setState((state) => ({
+      bySession: {
+        ...state.bySession,
+        [sessionId]: { status, kind: null, featureId: sessionId, seq: 1 },
+      },
+    }));
+  }
+
+  it("installs right away when no agent is working", () => {
+    working(1, "question");
+    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
+    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
+  });
+
+  it("waits for the last working agent, then installs once", () => {
+    working(1, "agent");
+    working(2, "agent");
+    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(true);
+
+    working(1, "idle");
+    expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
+    working(2, "idle");
+    working(2, "idle");
+    expect(desktopBridge.installUpdate).toHaveBeenCalledTimes(1);
+    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
+  });
+
+  it("does nothing after the user cancels", () => {
+    working(1, "agent");
+    useUpdateStore.getState().scheduleInstallWhenAgentsFinish();
+    useUpdateStore.getState().cancelInstallWhenAgentsFinish();
+    working(1, "idle");
+    expect(desktopBridge.installUpdate).not.toHaveBeenCalled();
+    expect(useUpdateStore.getState().installWhenAgentsFinish).toBe(false);
   });
 });

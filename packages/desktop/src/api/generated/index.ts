@@ -5125,6 +5125,51 @@ export interface ResolvedCommand {
   cwd: string;
 }
 
+export type RestartContinuationOutcome =
+  (typeof RestartContinuationOutcome)[keyof typeof RestartContinuationOutcome];
+
+export const RestartContinuationOutcome = {
+  resumed: "resumed",
+  skipped: "skipped",
+  failed: "failed",
+} as const;
+
+export interface RestartContinuationEntry {
+  feature_id: number;
+  feature_title: string;
+  outcome: RestartContinuationOutcome;
+  project_id: number;
+  /**
+   * Skip code (`awaiting_input`, `disabled`, `no_resume_id`, `loop_guard`,
+   * `archived`, `already_running`) or the delivery error.
+   * @nullable
+   */
+  reason?: string | null;
+  session_id: number;
+}
+
+/**
+ * `app/restart_continuations` WebSocket payload.
+ */
+export interface RestartContinuationReport {
+  app_version: string;
+  /** Identifies this service process: a client shows each report once. */
+  boot_id: string;
+  entries: RestartContinuationEntry[];
+  /**
+   * Set when the pass itself could not run (e.g. the database was
+   * unreadable); entries may then be incomplete.
+   * @nullable
+   */
+  error?: string | null;
+  /**
+   * Version that was running when the turns were cut off, when it differs
+   * from `app_version` (an update, as opposed to a plain restart).
+   * @nullable
+   */
+  previous_version?: string | null;
+}
+
 export interface RetryWorktreeBody {
   feature_id: number;
   project_id: number;

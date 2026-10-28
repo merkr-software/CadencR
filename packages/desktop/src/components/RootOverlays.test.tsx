@@ -94,12 +94,7 @@ function renderRootOverlays(
       setConfirmAction={vi.fn()}
       onArchiveFeature={onArchiveFeature}
       onDeleteFeature={vi.fn()}
-      appClose={{
-        showConfirm: false,
-        setShowConfirm: vi.fn(),
-        confirmAndClose: vi.fn(),
-        runningAgents: [],
-      }}
+      appClose={{ request: null, agents: [], cancel: vi.fn(), close: vi.fn() }}
     />,
   );
   return onArchiveFeature;

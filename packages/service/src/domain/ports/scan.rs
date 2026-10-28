@@ -88,7 +88,7 @@ pub async fn cwd_map(pids: &[i32]) -> anyhow::Result<HashMap<i32, String>> {
 ///
 /// `kill_on_drop` matters as much as the timeout: without it, a child outlives
 /// the dropped future both on timeout and when a client disconnects mid-request.
-async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
+pub(crate) async fn capture(program: &str, args: &[&str]) -> anyhow::Result<String> {
     let run = Command::new(program)
         .args(args)
         .stdin(Stdio::null())

@@ -9,6 +9,8 @@ import { childProcessEnv } from "./child-env";
 import { ensureLinuxSidecarExecutable } from "./sidecar-executable";
 import { createStartupWatchdog, recordStartupProgress, waitForHealthy } from "./sidecar-health";
 import { NEWER_DATABASE_RECOVERY_DETAIL, isNewerDatabaseStartupFailure } from "./startup-recovery";
+import { sendShutdownIntent } from "./shutdown-intent";
+import type { AppCloseChoice } from "../../src/shared/app-close";
 
 export { ensureLinuxSidecarExecutable } from "./sidecar-executable";
 
@@ -39,6 +41,12 @@ export interface SidecarHandle {
   baseUrl: string;
   authToken: string | null;
   stop: () => Promise<void>;
+  /**
+   * Before `stop`: whether the agents it cuts off resume on the next start
+   * (they do unless told otherwise). A no-op for the dev service, which
+   * outlives the app.
+   */
+  setShutdownIntent: (choice: AppCloseChoice) => Promise<void>;
 }
 
 export interface BrowserBridgeSidecarEnv {
@@ -72,6 +80,7 @@ export function createDevSidecarHandle(): SidecarHandle {
     baseUrl: normalizeBaseUrl("VITE_API_URL", rawBaseUrl),
     authToken,
     stop: () => Promise.resolve(),
+    setShutdownIntent: () => Promise.resolve(),
   };
 }
 
@@ -193,6 +202,7 @@ export async function spawnProductionSidecar(
     baseUrl,
     authToken,
     stop: () => stopChild(child),
+    setShutdownIntent: (choice) => sendShutdownIntent(baseUrl, authToken, choice),
   };
 }
 

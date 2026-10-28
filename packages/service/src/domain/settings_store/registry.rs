@@ -105,7 +105,8 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
         | "animations_enabled"
         | "notch_always_on"
         | "browser_mcp_enabled"
-        | "project_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
+        | "project_mcp_enabled"
+        | "agent_restart_resume_enabled" => SettingSpec::new(BOOL, Some("true")),
         "workspace_mcp_enabled" => SettingSpec::new(BOOL, Some("true")),
         "workspace_mcp_max_result_chars" => SettingSpec::new(NUMBER, Some("100000")),
         // Storage retention is the only lossy maintenance pass, so users must

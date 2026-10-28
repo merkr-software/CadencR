@@ -30,6 +30,11 @@ pub async fn get_setting(_pool: &SqlitePool, key: &str) -> Result<Option<String>
     Ok(crate::domain::settings_store::global_get(key))
 }
 
+/// A switch that is on unless explicitly set to `"false"`.
+pub async fn setting_enabled_by_default(pool: &SqlitePool, key: &str) -> bool {
+    !matches!(get_setting(pool, key).await, Ok(Some(value)) if value == "false")
+}
+
 /// Like `get_setting` but treats empty/whitespace-only values as unset.
 pub async fn get_nonempty_setting(
     _pool: &SqlitePool,

@@ -62,3 +62,45 @@ pub(super) fn subscribe_provider_update_events(sender: &WsSender, app_state: &Ap
     let _ = sender.send(Message::Text(String::from(update).into()));
     forward_app_events(sender, rx, "provider_updates", OnLag::Skip);
 }
+
+/// Which agents the last restart interrupted and what this start did about
+/// them: sent on subscribe while the report is fresh, then when the startup
+/// pass publishes it (a client usually connects before the pass finishes).
+pub(super) fn subscribe_restart_continuation_events(sender: &WsSender) {
+    use crate::domain::restart_continuations::{fresh_report, subscribe_reports};
+    let mut rx = subscribe_reports();
+    let initial = fresh_report(&rx.borrow_and_update());
+    if let Some(report) = initial {
+        send_restart_continuations(sender, &report);
+    }
+    let sender = sender.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = sender.closed() => break,
+                changed = rx.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    let report = fresh_report(&rx.borrow_and_update());
+                    if let Some(report) = report {
+                        if !send_restart_continuations(&sender, &report) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+fn send_restart_continuations(
+    sender: &WsSender,
+    report: &crate::domain::restart_continuations::RestartContinuationReport,
+) -> bool {
+    let payload = serde_json::to_value(report).unwrap_or_else(|_| serde_json::json!({}));
+    let update = WsEnvelope::new("app", "restart_continuations", payload);
+    sender
+        .send(Message::Text(String::from(update).into()))
+        .is_ok()
+}

@@ -7,26 +7,31 @@ const WORKSPACE_MCP_ENABLED_SETTING_KEY: &str = "workspace_mcp_enabled";
 pub(in crate::domain::ws_session::handler::session_prompt) async fn browser_mcp_enabled(
     read_pool: &SqlitePool,
 ) -> bool {
-    enabled_by_default_setting(read_pool, BROWSER_MCP_ENABLED_SETTING_KEY).await
+    crate::domain::workspace::repository::setting_enabled_by_default(
+        read_pool,
+        BROWSER_MCP_ENABLED_SETTING_KEY,
+    )
+    .await
 }
 
 pub(in crate::domain::ws_session::handler::session_prompt) async fn project_mcp_enabled(
     read_pool: &SqlitePool,
 ) -> bool {
-    enabled_by_default_setting(read_pool, PROJECT_MCP_ENABLED_SETTING_KEY).await
+    crate::domain::workspace::repository::setting_enabled_by_default(
+        read_pool,
+        PROJECT_MCP_ENABLED_SETTING_KEY,
+    )
+    .await
 }
 
 pub(in crate::domain::ws_session::handler::session_prompt) async fn workspace_mcp_enabled(
     read_pool: &SqlitePool,
 ) -> bool {
-    enabled_by_default_setting(read_pool, WORKSPACE_MCP_ENABLED_SETTING_KEY).await
-}
-
-async fn enabled_by_default_setting(read_pool: &SqlitePool, key: &str) -> bool {
-    !matches!(
-        crate::domain::workspace::repository::get_setting(read_pool, key).await,
-        Ok(Some(value)) if value == "false"
+    crate::domain::workspace::repository::setting_enabled_by_default(
+        read_pool,
+        WORKSPACE_MCP_ENABLED_SETTING_KEY,
     )
+    .await
 }
 
 #[cfg(test)]

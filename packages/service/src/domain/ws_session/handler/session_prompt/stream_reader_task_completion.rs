@@ -242,16 +242,7 @@ impl StreamReaderTask {
         message: String,
         received_prompt_message_uuids: Vec<String>,
     ) {
-        if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
-            &self.write_pool,
-            self.db_session_id,
-            "delivery_failed",
-        )
-        .await
-        {
-            error!(self.db_session_id, error = %error, "failed to resolve pending prompt receipts after stream error");
-        }
-        WsSessionPersistence::mark_paused_static(&self.write_pool, self.db_session_id).await;
+        self.fail_receipts_and_pause("after stream error").await;
         self.session_status_tx
             .broadcast_turn_failed(self.db_session_id, self.feature_id);
         self.persist_and_emit_error_with_receipts(

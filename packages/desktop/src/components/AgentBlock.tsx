@@ -16,7 +16,7 @@ import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrott
 import { renderFileChangeBlocks } from "@/components/file-change-block";
 import { UserMessageBlock } from "@/components/UserMessageBlock";
 import { AgentMessageSender } from "@/components/AgentMessageSender";
-import { isAgentSentMessage } from "@/lib/agent-message-origin";
+import { isAgentSentMessage, isRestartContinuationMessage } from "@/lib/agent-message-origin";
 import { renderGeneratedSessionMessage } from "@/components/session-generated-message";
 import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
 import { CopyAsMenu } from "@/components/agent-session/CopyAsMenu";
@@ -27,7 +27,7 @@ import { ThinkingBlock } from "@/components/ThinkingBlock";
 import { CompactDivider, ClearDivider, TurnSummaryDivider } from "@/components/StreamDividers";
 import { ToolSummaryBlock } from "@/components/agent-session/ToolSummaryBlock";
 import { ErrorBlock } from "@/components/ErrorBlock";
-import { TurnInterruptedMarker } from "@/components/TurnInterruptedMarker";
+import { RestartResumedDivider, TurnInterruptedMarker } from "@/components/TurnInterruptedMarker";
 import { FullContentPreview } from "@/components/FullContentPreview";
 import { CodeBlockHeader } from "@/components/CodeBlockHeader";
 import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
@@ -181,7 +181,7 @@ function TranscriptMarker({ block }: { block: AgentBlockData }): ReactNode {
     case "clear_divider":
       return <ClearDivider previousSessionId={block.content} />;
     case "turn_interrupted":
-      return <TurnInterruptedMarker blockId={block.id} />;
+      return <TurnInterruptedMarker blockId={block.id} cause={block.content} />;
     default:
       return <ErrorBlock content={block.content} code={block.errorCode} blockId={block.id} />;
   }
@@ -278,6 +278,8 @@ function UserMessageContent({
   block: AgentBlockData;
   sessionReply?: SessionReplyEnvelope | null;
 }): ReactNode {
+  if (isRestartContinuationMessage(block))
+    return <RestartResumedDivider sentAt={block.createdAt} />;
   const generated = renderGeneratedSessionMessage(block.content, block.origin, sessionReply);
   if (generated) return generated;
   return (

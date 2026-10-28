@@ -13,6 +13,7 @@ import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { CHANGELOG_URL, SIDEBAR_FOOTER_PILL_CLASS } from "@/lib/changelog";
 import { ChangelogBody, type ChangelogBodyState } from "@/components/ChangelogBody";
+import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,9 +29,11 @@ export function SidebarUpdateButton(): ReactElement | null {
   const status = useUpdateStore((s) => s.status);
   const version = useUpdateStore((s) => s.version);
   const progress = useUpdateStore((s) => s.progress);
+  const waitingForAgents = useUpdateStore((s) => s.installWhenAgentsFinish);
   const [open, setOpen] = useState(false);
 
   if (!isPendingStatus(status)) return null;
+  const label = waitingForAgents ? "Updating after agents finish" : triggerLabel(status, version);
 
   return (
     <>
@@ -39,11 +42,11 @@ export function SidebarUpdateButton(): ReactElement | null {
         onClick={() => setOpen(true)}
         data-nav-item
         className={cn(SIDEBAR_FOOTER_PILL_CLASS, "text-foreground/90")}
-        title={triggerTitle(status, version)}
+        title={waitingForAgents ? label : triggerTitle(status, version)}
       >
         <span className="flex items-center gap-2">
           <ArrowUpCircle className="size-4 text-primary" aria-hidden />
-          <span>{triggerLabel(status, version)}</span>
+          <span>{label}</span>
         </span>
         {status === "downloading" ? (
           <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -71,7 +74,6 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
   const changelogMarkdown = useUpdateStore((s) => s.changelogMarkdown);
   const changelogLoading = useUpdateStore((s) => s.changelogLoading);
   const progress = useUpdateStore((s) => s.progress);
-  const installUpdate = useUpdateStore((s) => s.installUpdate);
 
   const bodyState = useMemo<ChangelogBodyState>(
     () => deriveBodyState(changelogMarkdown, changelogLoading),
@@ -97,6 +99,7 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
         </DialogHeader>
 
         <ChangelogBody state={bodyState} />
+        {status === "downloaded" && <UpdateInstallNotice />}
 
         <DialogFooter className="gap-2 sm:gap-2">
           <Button variant="outline" onClick={() => void desktopBridge.openExternal(CHANGELOG_URL)}>
@@ -104,7 +107,7 @@ function UpdateDialog({ onOpenChange }: { onOpenChange: (open: boolean) => void 
             View full changelog
           </Button>
           {status === "downloaded" ? (
-            <Button onClick={() => void installUpdate()}>Restart to install</Button>
+            <UpdateInstallActions />
           ) : (
             <Button disabled>
               <Loader2 className="size-4 animate-spin" aria-hidden />

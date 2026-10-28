@@ -15,7 +15,12 @@ import {
 import { flushStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
-import { createSessionEntry, type SessionEntry, updateSession } from "./ws-session-types";
+import {
+  createSessionEntry,
+  type SessionEntry,
+  updateSession,
+  WS_RECONNECTING_CODE,
+} from "./ws-session-types";
 import { isTurnActive, transitionTurn } from "./ws-turn-lifecycle";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
 import { handleSocketMessage, type SocketHandlerDeps } from "./ws-session-socket-handler";
@@ -80,11 +85,11 @@ function handleConnectionClose(
   const session = get().sessions[context.sessionId];
   if (session) rejectPendingRequests(session);
   const wasRunning = session != null && isTurnActive(session.lifecycle);
-  const alreadyReportedReconnect = session?.blocks.at(-1)?.errorCode === "WS_RECONNECTING";
+  const alreadyReportedReconnect = session?.blocks.at(-1)?.errorCode === WS_RECONNECTING_CODE;
   const closedDerived =
     wasRunning && !alreadyReportedReconnect
       ? appendErrorBlockPatch(session, "Connection lost while streaming. Reconnecting…", {
-          code: "WS_RECONNECTING",
+          code: WS_RECONNECTING_CODE,
           idPrefix: "ws-err-close",
         })
       : { blocks: session?.blocks ?? [] };

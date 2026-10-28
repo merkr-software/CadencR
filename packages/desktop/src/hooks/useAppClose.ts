@@ -9,11 +9,9 @@ import { getFocusedTabForFeature } from "@/lib/feature-focus-handoff";
 import { useGlobalShortcutById } from "@/hooks/useShortcut";
 import { getListFeaturesQueryKey } from "@/api/generated";
 import { desktopBridge } from "@/lib/desktop-bridge";
-
-interface RunningAgentInfo {
-  sessionId: string;
-  label: string;
-}
+import { PLATFORM_IS_MAC } from "@/lib/shortcuts/format";
+import type { AppCloseChoice, AppCloseRequest } from "@/shared/app-close";
+import { useSessionStatusStore } from "@/stores/session-status-store";
 
 function lookupFeatureTitle(featureId: number | null, queryClient: QueryClient): string | null {
   if (!featureId) return null;
@@ -48,53 +46,82 @@ export function shouldBypassAppClose(featureId: number | null): boolean {
   return false;
 }
 
-function getRunningAgents(queryClient: QueryClient): RunningAgentInfo[] {
-  const agents: RunningAgentInfo[] = [];
-  const sessions = useWsSessionStore.getState().sessions;
-  for (const [sessionId, session] of Object.entries(sessions)) {
-    if (!isTurnActive(session.lifecycle)) continue;
-    const title =
-      session.featureTitle ?? lookupFeatureTitle(session.featureId, queryClient) ?? "Untitled";
-    // `ws-feature-` is a legacy WS session ID prefix (the ws-feature feature
-    // type itself was removed). Treat any session with that prefix as a
-    // pre-rename ws-session entry for label purposes.
-    const isLegacyPrefixed = sessionId.startsWith("ws-feature-");
+/** An agent mid-turn when the user asked to close, on any device. */
+export interface WorkingAgent {
+  sessionId: number;
+  label: string;
+  /** Mid-turn but blocked on a question or permission request. */
+  waitingOnYou: boolean;
+}
+
+function getWorkingAgents(queryClient: QueryClient): WorkingAgent[] {
+  const agents: WorkingAgent[] = [];
+  for (const [sessionId, entry] of Object.entries(useSessionStatusStore.getState().bySession)) {
+    if (entry.status === "idle") continue;
     agents.push({
-      sessionId,
-      label: isLegacyPrefixed ? `${title} - agent` : title,
+      sessionId: Number(sessionId),
+      label: lookupFeatureTitle(entry.featureId, queryClient) ?? "Untitled conversation",
+      waitingOnYou: entry.status === "question",
     });
   }
   return agents;
 }
 
+/**
+ * The dev service outlives the app, so quitting cannot leave its agents
+ * stopped the way a packaged build does (`setShutdownIntent`): stop the ones
+ * this window runs instead.
+ */
+function interruptDevAgents(): boolean {
+  if (!import.meta.env.DEV) return false;
+  const wsStore = useWsSessionStore.getState();
+  let interrupted = false;
+  for (const [sessionId, session] of Object.entries(wsStore.sessions)) {
+    if (!isTurnActive(session.lifecycle)) continue;
+    wsStore.interrupt(sessionId);
+    interrupted = true;
+  }
+  return interrupted;
+}
+
+export interface AppCloseState {
+  /** The close waiting on the user's confirmation, or `null`. */
+  request: AppCloseRequest | null;
+  agents: WorkingAgent[];
+  cancel: () => void;
+  close: (choice: AppCloseChoice) => void;
+}
+
 export function useAppClose(queryClient: QueryClient, activeFeatureId: number | null) {
-  const [showConfirm, setShowConfirm] = useState(false);
-  const [runningAgents, setRunningAgents] = useState<RunningAgentInfo[]>([]);
+  const [request, setRequest] = useState<AppCloseRequest | null>(null);
+  const [agents, setAgents] = useState<WorkingAgent[]>([]);
 
-  const requestClose = useCallback(() => {
-    const agents = getRunningAgents(queryClient);
-    if (agents.length > 0) {
-      setRunningAgents(agents);
-      setShowConfirm(true);
-    } else {
-      void desktopBridge.confirmClose();
-    }
-  }, [queryClient]);
-
-  const confirmAndClose = useCallback(() => {
-    const wsStore = useWsSessionStore.getState();
-    for (const { sessionId } of runningAgents) {
-      if (wsStore.sessions[sessionId] && isTurnActive(wsStore.sessions[sessionId].lifecycle)) {
-        wsStore.interrupt(sessionId);
+  const requestClose = useCallback(
+    (next: AppCloseRequest) => {
+      const working = getWorkingAgents(queryClient);
+      if (working.length === 0) {
+        void desktopBridge.confirmClose();
+        return;
       }
-    }
-    setShowConfirm(false);
-    setTimeout(() => {
-      void desktopBridge.confirmClose();
-    }, 300);
-  }, [runningAgents]);
+      setAgents(working);
+      setRequest(next);
+    },
+    [queryClient],
+  );
 
-  // X button: always route through requestClose
+  const cancel = useCallback(() => setRequest(null), []);
+
+  const close = useCallback((choice: AppCloseChoice) => {
+    setRequest(null);
+    if (!choice.resumeAgents && interruptDevAgents()) {
+      // Let the interrupts reach the service before the window goes away.
+      setTimeout(() => void desktopBridge.confirmClose(choice), 300);
+      return;
+    }
+    void desktopBridge.confirmClose(choice);
+  }, []);
+
+  // X button, Cmd+Q, the Dock: the main process says whether it quits.
   useEffect(() => {
     return desktopBridge.onCloseRequested(requestClose);
   }, [requestClose]);
@@ -111,19 +138,15 @@ export function useAppClose(queryClient: QueryClient, activeFeatureId: number | 
   // the "I'm on an empty editor / non-owning tab, ⌘W should close the
   // window" fallback. Scoping the bypass to the *focused tab's* owning
   // surface (not the whole feature) is intentional — see registry entry.
+  // Closing the last window quits everywhere but macOS.
   useGlobalShortcutById("app-close", (e) => {
     if (shouldBypassAppClose(activeFeatureId)) return;
     e.preventDefault();
-    requestClose();
+    requestClose({ quitting: !PLATFORM_IS_MAC });
   });
 
-  return useMemo(
-    () => ({
-      showConfirm,
-      setShowConfirm,
-      runningAgents,
-      confirmAndClose,
-    }),
-    [showConfirm, setShowConfirm, runningAgents, confirmAndClose],
+  return useMemo<AppCloseState>(
+    () => ({ request, agents, cancel, close }),
+    [request, agents, cancel, close],
   );
 }

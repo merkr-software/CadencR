@@ -35,11 +35,16 @@ import { PLUGIN_TAB_PRIVILEGED_SCHEME } from "./plugin-tabs/plugin-tab-ids";
 import { registerPluginTabIpc } from "./plugin-tabs/plugin-tab-ipc";
 import type { PluginTabManager } from "./plugin-tabs/plugin-tab-manager";
 import { windowIconOption } from "./app-icon";
+import { RESUME_AGENTS, type AppCloseChoice } from "../../src/shared/app-close";
 let mainWindow: BrowserWindow | null = null;
 let splash: SplashHandle | null = null;
 let sidecar: SidecarHandle | null = null;
 let allowClose = false;
 let pendingQuit = false;
+/** What the user chose for working agents when they confirmed the quit. */
+let closeChoice: AppCloseChoice = RESUME_AGENTS;
+/** The service was told to keep the agents stopped when it stops. */
+let stopIntentRecorded = false;
 let ipcRegistered = false;
 let themeEventsRegistered = false;
 let powerRegistered = false;
@@ -119,7 +124,7 @@ async function retryBrowserBridgeRegistration(
 }
 
 function sendCloseRequest(): void {
-  sendToWindow(mainWindow, "app:close-requested");
+  sendToWindow(mainWindow, "app:close-requested", { quitting: true });
 }
 
 function requestQuit(): void {
@@ -156,7 +161,8 @@ function createWindow(): BrowserWindow {
     if (allowClose) return;
     event.preventDefault();
     pendingQuit = false;
-    sendToWindow(win, "app:close-requested");
+    // Only macOS keeps the app, and so its agents, running without a window.
+    sendToWindow(win, "app:close-requested", { quitting: process.platform !== "darwin" });
   });
   // The window's own focus, which stays put while a guest view (a custom tab,
   // a browser pane) has it; the renderer's document reports that as a blur.
@@ -182,16 +188,26 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function confirmClose(): void {
+function confirmClose(choice: AppCloseChoice): void {
   allowClose = true;
-  if (pendingQuit) {
-    void stopSidecarThenQuit().catch(handleShutdownFailure);
-    return;
-  }
+  closeChoice = choice;
   const closingWindow = mainWindow;
-  void prepareBrowserWindowClose()
-    .then(() => closingWindow?.close())
+  // The choice goes first, while the window is still up to show a failure:
+  // closing the last window quits on Linux.
+  void recordCloseChoice()
+    .then(() =>
+      pendingQuit
+        ? stopSidecarThenQuit()
+        : prepareBrowserWindowClose().then(() => closingWindow?.close()),
+    )
     .catch(handleShutdownFailure);
+}
+
+/** Tell the service to keep the agents stopped, when that is the choice. */
+async function recordCloseChoice(): Promise<void> {
+  if (closeChoice.resumeAgents || !sidecar) return;
+  await sidecar.setShutdownIntent(closeChoice);
+  stopIntentRecorded = true;
 }
 
 function wireMainProcess(): void {
@@ -386,9 +402,18 @@ async function prepareBrowserWindowClose(): Promise<void> {
 function handleShutdownFailure(error: unknown): void {
   allowClose = false;
   pendingQuit = false;
+  closeChoice = RESUME_AGENTS;
   const message = error instanceof Error ? error.message : String(error);
   console.error(`Could not complete shutdown safely: ${message}`);
   dialog.showErrorBox("Could not close Cadencr", message);
+  // Cadencr keeps running: a later stop (an update) must resume the agents.
+  if (stopIntentRecorded && sidecar) {
+    stopIntentRecorded = false;
+    void sidecar.setShutdownIntent(RESUME_AGENTS).catch((resetError: unknown) => {
+      const detail = resetError instanceof Error ? resetError.message : String(resetError);
+      dialog.showErrorBox("Cadencr may not resume your agents after a restart", detail);
+    });
+  }
 }
 
 async function stopBrowserBridge(): Promise<void> {

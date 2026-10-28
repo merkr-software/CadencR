@@ -73,6 +73,8 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.prompt_queue_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.alacritty_config_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.storage_maintenance_events", {})));
+  // Which agents the last restart interrupted, and which were resumed.
+  ws.send(JSON.stringify(createEnvelope("app", "subscribe.restart_continuation_events", {})));
   connection.unsubscribeForgeVisibility = subscribeForgeStatus(ws);
   void hydratePrStatuses();
   if (!isBrowserRemote()) {

@@ -1,9 +1,11 @@
 import { ExportDiagnosticsButton } from "../ExportDiagnosticsButton";
 import { CadencrLogo } from "@/components/CadencrLogo";
+import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
 import { Button } from "@/components/ui/button";
 import { APP_VERSION } from "@/lib/app-version";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
+import { RestartResumeToggle } from "./RestartResumeToggle";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsSection } from "./SettingsSection";
 
@@ -15,12 +17,11 @@ export function AboutSection(): React.JSX.Element {
   const error = useUpdateStore((s) => s.error);
   const unsupportedMessage = useUpdateStore((s) => s.unsupportedMessage);
   const checkForUpdates = useUpdateStore((s) => s.checkForUpdates);
-  const installUpdate = useUpdateStore((s) => s.installUpdate);
   const checking = status === "checking" || status === "downloading";
   const unsupported = status === "unsupported";
 
   return (
-    <SettingsSection id="about" title="About" subtitle="Build · Diagnostics">
+    <SettingsSection id="about" title="About" subtitle="Build · Updates · Diagnostics">
       <SettingsCard padded>
         <div className="flex items-center gap-4">
           <div className="grid size-12 shrink-0 place-items-center">
@@ -33,9 +34,7 @@ export function AboutSection(): React.JSX.Element {
           {isDesktop && (
             <div className="flex items-center gap-2">
               {status === "downloaded" ? (
-                <Button size="sm" onClick={() => void installUpdate()}>
-                  Restart to install v{updateVersion ?? ""}
-                </Button>
+                <UpdateInstallActions size="sm" />
               ) : (
                 <Button
                   size="sm"
@@ -64,6 +63,14 @@ export function AboutSection(): React.JSX.Element {
             })}
           </div>
         )}
+        {isDesktop && status === "downloaded" && (
+          <div className="mt-2">
+            <UpdateInstallNotice />
+          </div>
+        )}
+      </SettingsCard>
+      <SettingsCard>
+        <RestartResumeToggle />
       </SettingsCard>
       <SettingsCard padded>
         <h3 className="text-sm font-semibold">Diagnostics</h3>

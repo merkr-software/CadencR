@@ -47,6 +47,7 @@ pub mod projects;
 pub mod prompt_queue;
 pub mod push;
 pub mod remote;
+pub mod restart_continuations;
 pub mod runtime_stream;
 pub mod schedules;
 pub mod search;

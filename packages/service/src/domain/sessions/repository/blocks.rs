@@ -220,7 +220,8 @@ pub(super) fn build_blocks(messages: &[AgentMessageRow]) -> Vec<AgentBlock> {
             }
             "turn_interrupted" => {
                 push_block(
-                    make_simple_block("turn_interrupted", String::new(), msg, id, None, true),
+                    // Empty for a user stop; `restart` when a restart cut the turn off.
+                    make_simple_block("turn_interrupted", msg.content.clone(), msg, id, None, true),
                     parent_idx,
                     &mut all,
                     &mut root_indices,

@@ -341,3 +341,6 @@ export function markLastPlanBlock(
   updated[lastIdx] = { ...updated[lastIdx], planApprovalStatus: status };
   return updated;
 }
+
+/** Error code of the "Connection lost while streaming. Reconnecting…" notice. */
+export const WS_RECONNECTING_CODE = "WS_RECONNECTING";

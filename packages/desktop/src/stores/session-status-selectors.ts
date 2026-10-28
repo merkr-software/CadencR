@@ -81,14 +81,17 @@ export function useLiveWorkingCount(sessionIds: readonly number[]): number {
   });
 }
 
+/** How many sessions have an agent mid-turn (gates waiting on the user excluded). */
+export function countWorkingSessions(bySession: Record<number, SessionStatusEntry>): number {
+  let count = 0;
+  for (const entry of Object.values(bySession)) {
+    if (entry.status === "agent") count++;
+  }
+  return count;
+}
+
 export function useLiveTotalWorkingCount(): number {
-  return useSessionStatusStore((s) => {
-    let count = 0;
-    for (const entry of Object.values(s.bySession)) {
-      if (entry.status === "agent") count++;
-    }
-    return count;
-  });
+  return useSessionStatusStore((s) => countWorkingSessions(s.bySession));
 }
 
 export function useLiveActiveSessionIds(): readonly number[] {

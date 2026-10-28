@@ -183,11 +183,9 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => tracing::warn!("failed to prune ephemeral settings keys: {e}"),
             }
 
-            // Mark any sessions left as 'running' from a previous crash as 'paused'
-            domain::ws_session::persistence::WsSessionPersistence::cleanup_stale_sessions(
-                &write_pool,
-            )
-            .await;
+            // Turns a crash left 'running' are captured for resume, then paused.
+            let app_version = config.app_version.as_deref();
+            domain::restart_continuations::recover_at_startup(&write_pool, app_version).await;
             let recovered_shell_context =
                 domain::ws_session::handler::recover_user_shell_context(&write_pool)
                     .await
@@ -325,6 +323,7 @@ async fn main() -> anyhow::Result<()> {
             // Background dispatcher for user schedules (one poll loop for the
             // process lifetime; survives client disconnects).
             domain::schedules::scheduler::spawn(state.clone());
+            domain::restart_continuations::spawn_startup_pass(state.clone());
             domain::mcp::control::message_queue::spawn(state.clone());
             domain::git::forge::spawn(state.clone());
             domain::git::linked_branches::spawn(state.clone());

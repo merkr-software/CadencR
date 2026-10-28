@@ -55,9 +55,10 @@ import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { applyToolCallUpdates } from "@/hooks/useFeatureAgentState-merge";
 import type { AgentBlockData } from "@/components/AgentBlock";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
-import { updateSession, type ResyncTarget } from "./ws-session-types";
+import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId, mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
+import { isServiceStopMarker } from "@/lib/agent-message-origin";
 
 const reconnectResyncs = new Map<string, Promise<void>>();
 
@@ -110,7 +111,10 @@ async function performMessageResync(
     pages.toolCallUpdates,
     pages.truncatedToolCallUpdateIds,
   );
-  const merged = mergeCanonicalBlocks(currentWithUpdates, incomingWithUpdates);
+  const merged = dropStaleReconnectNotices(
+    mergeCanonicalBlocks(currentWithUpdates, incomingWithUpdates),
+    incomingWithUpdates,
+  );
   ctx.set(
     updateSession(ctx.get(), sessionId, {
       ...idPatch,
@@ -126,6 +130,21 @@ async function performMessageResync(
       ),
     }),
   );
+}
+
+/**
+ * "Connection lost while streaming. Reconnecting…" is this client's guess at
+ * why the stream stopped. When the catch-up brings the server's own account —
+ * the turn was cut off by a Cadencr restart (usually resumed) or quit — the guess
+ * is stale and would read as the agent failing.
+ */
+function dropStaleReconnectNotices(
+  blocks: AgentBlockData[],
+  incoming: readonly AgentBlockData[],
+): AgentBlockData[] {
+  if (!incoming.some(isServiceStopMarker)) return blocks;
+  const kept = blocks.filter((block) => block.errorCode !== WS_RECONNECTING_CODE);
+  return kept.length === blocks.length ? blocks : kept;
 }
 
 interface ResyncPageRequest {

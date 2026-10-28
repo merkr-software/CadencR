@@ -40,11 +40,21 @@ where
 {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let (start_tx, start_rx) = tokio::sync::oneshot::channel();
+    let ledger_runtime = runtime.clone();
     let task = tokio::spawn(async move {
         if start_rx.await.is_err() {
             return;
         }
+        // Recorded for the reader's lifetime, which is the runtime's: a start
+        // after a hard kill stops the agent process if it outlived us. Off the
+        // reader's path, so the first event is not held behind the write.
+        let ledger_entry = tokio::spawn(record_agent_process(db_session_id, ledger_runtime));
         reader.await;
+        let ledger_entry = ledger_entry.await.unwrap_or_else(|error| {
+            tracing::warn!(db_session_id, %error, "recording an agent process failed");
+            None
+        });
+        crate::domain::restart_continuations::forget_agent_process(ledger_entry).await;
         readers().remove(&id);
     });
     readers().insert(
@@ -56,6 +66,15 @@ where
         },
     );
     let _ = start_tx.send(());
+}
+
+async fn record_agent_process(
+    db_session_id: i64,
+    runtime: Option<RuntimeSessionWeakHandle>,
+) -> Option<i64> {
+    let runtime = runtime?.upgrade()?;
+    let pid = runtime.read().await.pid()?;
+    crate::domain::restart_continuations::record_agent_process(db_session_id, pid).await
 }
 
 /// Close every runtime and wait for its reader to process the final events.

@@ -235,6 +235,10 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     "browser_mcp_enabled",
     "project_mcp_enabled",
     "workspace_mcp_enabled",
+    // "true"/"false" (default enabled): after a restart (update, rebuild,
+    // crash), resume the agent turns it interrupted. Read by
+    // `domain::restart_continuations`.
+    "agent_restart_resume_enabled",
     "workspace_mcp_max_result_chars",
     // Storage retention. `retention_compact_archived_enabled` toggles the sweep
     // that strips heavy tool payloads (terminal output, screenshots) out of

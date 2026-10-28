@@ -1,6 +1,10 @@
 import type { AgentBlockData } from "./AgentBlock";
 import { shouldGateFullContent } from "./agent-block-types";
 import { collapseTurnsToSummary } from "./agentStreamSummary";
+import {
+  isRestartContinuationMessage,
+  isRestartInterruptionMarker,
+} from "@/lib/agent-message-origin";
 import { shouldHideToolCall } from "@/lib/tool-display-policy";
 
 /**
@@ -93,6 +97,11 @@ export function filterRenderableBlocks(blocks: AgentBlockData[]): AgentBlockData
   const visible: AgentBlockData[] = [];
   for (const block of blocks) {
     if (isHiddenByRenderer(block)) continue;
+    // The resume divider tells the whole story; the marker above it would repeat it.
+    const previous = visible.at(-1);
+    if (isRestartContinuationMessage(block) && previous && isRestartInterruptionMarker(previous)) {
+      visible.pop();
+    }
     visible.push(block);
   }
   return visible;

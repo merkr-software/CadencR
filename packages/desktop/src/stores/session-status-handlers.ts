@@ -28,6 +28,7 @@ import { showRemoteConnectedToast } from "@/lib/remote/connection-toast";
 import { handleAgentArchived } from "@/lib/agent-archived";
 import { applyStorageMaintenanceEvent } from "@/stores/storage-maintenance-store";
 import { applyProviderUpdatesEvent } from "@/stores/provider-updates";
+import { applyRestartContinuationsEvent } from "@/stores/restart-continuations";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import type { SessionStatusEntry } from "@/stores/session-status-store";
 
@@ -359,6 +360,10 @@ export function handleAppEnvelope(
   }
   if (domain === "app" && action === "provider_updates") {
     applyProviderUpdatesEvent(payload);
+    return true;
+  }
+  if (domain === "app" && action === "restart_continuations") {
+    applyRestartContinuationsEvent(payload);
     return true;
   }
   if (domain === "app" && action === "storage_maintenance") {

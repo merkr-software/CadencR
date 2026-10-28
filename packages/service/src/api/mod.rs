@@ -291,6 +291,7 @@ pub fn build_router(state: AppState) -> Router {
     let limiter = std::sync::Arc::new(middleware::RateLimiter::default());
     build_api_routes()
         .route("/api/browser-bridge", put(register_browser_bridge))
+        .merge(crate::domain::restart_continuations::loopback_router())
         .merge(provider_development_router())
         .merge(crate::domain::projects::publication_package::router())
         .merge(crate::domain::projects::publication_release::router())

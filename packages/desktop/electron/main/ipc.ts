@@ -21,6 +21,7 @@ import {
   type NotifyOptions,
 } from "./notifications";
 import { sendToWindow } from "./safe-send";
+import { parseAppCloseChoice, type AppCloseChoice } from "../../src/shared/app-close";
 import { registerRendererDiagnosticsIpc } from "./renderer-diagnostics-ipc";
 import { setLinkHoverContext, suppressNextNativeContextMenu } from "./context-menu";
 import { assertOpenableLocalFile } from "./openable-local-file";
@@ -36,7 +37,7 @@ const fileHandles = new Map<string, string>();
 
 export interface IpcOptions {
   getMainWindow: () => BrowserWindow | null;
-  confirmClose: () => void;
+  confirmClose: (choice: AppCloseChoice) => void;
   requestQuit: () => void;
 }
 
@@ -98,9 +99,9 @@ export function registerIpc({ getMainWindow, confirmClose, requestQuit }: IpcOpt
     assertTrustedSender(event, getMainWindow);
     sendTestNotification(requireMainWindow(getMainWindow));
   });
-  ipcMain.handle("app:confirm-close", (event) => {
+  ipcMain.handle("app:confirm-close", (event, choice: unknown) => {
     assertTrustedSender(event, getMainWindow);
-    confirmClose();
+    confirmClose(parseAppCloseChoice(choice));
   });
   ipcMain.handle("app:request-quit", (event) => {
     assertTrustedSender(event, getMainWindow);

@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { desktopBridge, type UpdateEvent } from "@/lib/desktop-bridge";
 import { apiErrorMessage } from "@/lib/api-errors";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+import { countWorkingSessions } from "@/stores/session-status-selectors";
 
 export type UpdateStatus =
   | "idle"
@@ -28,12 +30,32 @@ interface UpdateState {
   error: string | null;
   /** Human-readable explanation when `status === "unsupported"`. */
   unsupportedMessage: string | null;
+  /**
+   * The user asked to install once no agent is mid-turn. Cleared when the
+   * install starts or the user cancels.
+   */
+  installWhenAgentsFinish: boolean;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  /** Install now if no agent is working, else as soon as the last one finishes. */
+  scheduleInstallWhenAgentsFinish: () => void;
+  cancelInstallWhenAgentsFinish: () => void;
   applyEvent: (event: UpdateEvent) => void;
 }
 
-export const useUpdateStore = create<UpdateState>((set) => ({
+/**
+ * Watches live agent status while an install waits for agents to finish.
+ * A plain store subscription, not a React hook: a root-level component
+ * subscribed to every status change would re-render the whole app shell.
+ */
+let stopWatchingAgents: (() => void) | null = null;
+
+function stopAgentWatch(): void {
+  stopWatchingAgents?.();
+  stopWatchingAgents = null;
+}
+
+export const useUpdateStore = create<UpdateState>((set, get) => ({
   status: "idle",
   version: null,
   changelogMarkdown: null,
@@ -41,6 +63,7 @@ export const useUpdateStore = create<UpdateState>((set) => ({
   progress: 0,
   error: null,
   unsupportedMessage: null,
+  installWhenAgentsFinish: false,
   checkForUpdates: async () => {
     set({ status: "checking", error: null });
     try {
@@ -50,11 +73,30 @@ export const useUpdateStore = create<UpdateState>((set) => ({
     }
   },
   installUpdate: async () => {
+    stopAgentWatch();
+    set({ installWhenAgentsFinish: false });
     try {
       await desktopBridge.installUpdate();
     } catch (err) {
       set({ status: "error", error: apiErrorMessage(err, String(err)) });
     }
+  },
+  scheduleInstallWhenAgentsFinish: () => {
+    const idle = (): boolean =>
+      countWorkingSessions(useSessionStatusStore.getState().bySession) === 0;
+    if (idle()) {
+      void get().installUpdate();
+      return;
+    }
+    stopAgentWatch();
+    stopWatchingAgents = useSessionStatusStore.subscribe(() => {
+      if (idle()) void get().installUpdate();
+    });
+    set({ installWhenAgentsFinish: true });
+  },
+  cancelInstallWhenAgentsFinish: () => {
+    stopAgentWatch();
+    set({ installWhenAgentsFinish: false });
   },
   applyEvent: (event) => {
     switch (event.kind) {
