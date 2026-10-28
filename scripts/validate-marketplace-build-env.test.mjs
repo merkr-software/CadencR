@@ -230,3 +230,24 @@ test("root-authorized generation configuration replaces legacy trust without act
     assert.throws(() => validatedBuildEnv({ ...env, [GENERATION_ENV[0]]: manifest }));
   assert.throws(() => validatedBuildEnv({ ...env, [GENERATION_ENV[2]]: "private-key" }));
 });
+
+test("releases require the root-authorized trust and the catalog feeds", () => {
+  const env = generationConfigured();
+  assert.deepEqual(validatedBuildEnv(env, { requireCatalog: true }), env);
+  const required = /requires the root-authorized trust and the marketplace catalog/;
+  assert.throws(() => validatedBuildEnv({}, { requireCatalog: true }), required);
+  assert.throws(() => validatedBuildEnv(configured(), { requireCatalog: true }), required);
+  const result = spawnSync(
+    process.execPath,
+    ["scripts/validate-marketplace-build-env.mjs", "--require-catalog"],
+    { env: { PATH: process.env.PATH }, encoding: "utf8" },
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, required);
+  for (const file of ["desktop-release.yml", "desktop-linux-release.yml"])
+    assert.ok(
+      readFileSync(`.github/workflows/${file}`, "utf8").includes(
+        "run: node scripts/validate-marketplace-build-env.mjs --require-catalog\n",
+      ),
+    );
+});

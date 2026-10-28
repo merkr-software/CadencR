@@ -71,6 +71,17 @@ export function MarketplaceUnavailable({
   );
 }
 
+/** No catalog feed is compiled into this build: not a failure, so no retry is offered. */
+export function MarketplaceNotInBuild(): React.JSX.Element {
+  return (
+    <MarketplaceEmpty
+      icon={CloudOff}
+      title="The catalog isn't available in this build"
+      detail="This build isn't connected to a plugin catalog, so there is nothing to browse or install. Anything already installed stays manageable from Installed."
+    />
+  );
+}
+
 /** First load: the showcase and a shelf, in outline. */
 export function MarketplaceSkeleton(): React.JSX.Element {
   return (

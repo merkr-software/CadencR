@@ -77,7 +77,12 @@ function sameRepository(policy, catalog, message) {
     throw new Error(message);
 }
 
-export function validatedBuildEnv(env) {
+/**
+ * `env` with blank pins removed, else throws. `requireCatalog` (desktop
+ * releases: the marketplace is visible in every build) also refuses a build
+ * without the root-authorized trust and the complete catalog feeds.
+ */
+export function validatedBuildEnv(env, { requireCatalog = false } = {}) {
   const output = { ...env };
   for (const name of [
     ...TRUST_ENV,
@@ -108,6 +113,10 @@ export function validatedBuildEnv(env) {
   )
     throw new Error(
       "provider key id, public key, index URL and blocklist URL must be configured together",
+    );
+  if (requireCatalog && (!generation.length || !output[THEME_ENV]))
+    throw new Error(
+      "this release requires the root-authorized trust and the marketplace catalog feeds",
     );
   if (!feeds.length) {
     if (output[THEME_ENV] || output[THEME_POLICY_ENV] || output[TAB_POLICY_ENV])
@@ -182,11 +191,15 @@ function marketplaceFeed(value, name, file, message) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const env = validatedBuildEnv(process.env);
     const args = process.argv.slice(2);
+    const requireCatalog = args[0] === "--require-catalog";
+    if (requireCatalog) args.shift();
+    const env = validatedBuildEnv(process.env, { requireCatalog });
     if (args.length) {
       if (args.shift() !== "--" || !args.length)
-        throw new Error("usage: validate-marketplace-build-env.mjs [-- command args...]");
+        throw new Error(
+          "usage: validate-marketplace-build-env.mjs [--require-catalog] [-- command args...]",
+        );
       const child = spawnSync(args.shift(), args, { env, stdio: "inherit" });
       if (child.error) throw child.error;
       process.exitCode = child.status ?? 1;

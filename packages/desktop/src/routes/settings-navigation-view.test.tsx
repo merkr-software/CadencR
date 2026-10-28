@@ -9,12 +9,6 @@ const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
   persist: vi.fn(),
   realSetting: false,
-  marketplaceEnabled: true,
-}));
-vi.mock("@/lib/marketplace-gate", () => ({
-  get MARKETPLACE_ENABLED() {
-    return mocks.marketplaceEnabled;
-  },
 }));
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute:
@@ -83,7 +77,6 @@ afterEach(() => {
   mocks.navigate.mockClear();
   mocks.persist.mockClear();
   mocks.realSetting = false;
-  mocks.marketplaceEnabled = true;
   vi.useRealTimers();
 });
 
@@ -109,11 +102,6 @@ describe("Settings page", () => {
       }
     },
   );
-
-  it("stays on Settings for marketplace links when the marketplace is not in the build", () => {
-    mocks.marketplaceEnabled = false;
-    expect(() => beforeLoad({ search: { tab: "marketplace" } })).not.toThrow();
-  });
 
   it("persists a real debounced setting once", async () => {
     vi.useFakeTimers();

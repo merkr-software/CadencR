@@ -32,7 +32,6 @@ import { MarketplaceHome } from "./MarketplaceHome";
 import { PluginDetail } from "./PluginDetail";
 const tabMutations = vi.hoisted(() => ({ consent: vi.fn(), enable: vi.fn(), discard: vi.fn() }));
 
-vi.mock("@/lib/marketplace-gate", () => ({ MARKETPLACE_ENABLED: true }));
 vi.mock("@/hooks/useTheme", () => ({
   useTheme: () => ({ themeId: "managed:graphite", isLoading: false }),
 }));
@@ -475,6 +474,47 @@ describe("marketplace home", () => {
     inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
     expect(await screen.findByText("No verified catalog right now")).toBeTruthy();
     expect(screen.getByRole("tab", { name: /Installed 2/ })).toBeTruthy();
+  });
+
+  describe("in a build without a catalog feed", () => {
+    // The service answers 200 with these shapes when no feed URL is compiled in.
+    function stubUnconfigured() {
+      stubBackend([]);
+      vi.mocked(catalog).mockResolvedValue({
+        source_configured: false,
+        cache_status: "missing",
+        refreshed: false,
+        used_cached_verified_catalog: false,
+        error_code: "MANAGED_CATALOG_SOURCE_NOT_CONFIGURED",
+        error: "managed provider catalog source is not configured in this build",
+      });
+      const unconfigured = {
+        verified: false,
+        index: null,
+        recommended_versions: {},
+        error: "theme catalog source is not configured; verified cache unavailable: os error 2",
+      };
+      vi.mocked(getManagedThemeCatalog).mockResolvedValue(unconfigured);
+      vi.mocked(getManagedTabCatalog).mockResolvedValue(unconfigured);
+    }
+
+    it("says so once, calmly, with no retry and no error notices", async () => {
+      stubUnconfigured();
+      inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
+      expect(await screen.findByText("The catalog isn't available in this build")).toBeTruthy();
+      expect(screen.queryByText("No verified catalog right now")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.queryByText(/not configured/i)).toBeNull();
+    });
+
+    it("does not report updates as unknown or current", async () => {
+      stubUnconfigured();
+      inMarketplace(<MarketplaceHome view="updates" kind="all" query="" onChange={vi.fn()} />);
+      expect(await screen.findByText("Updates aren't available in this build")).toBeTruthy();
+      expect(screen.queryByText("Updates could not be determined")).toBeNull();
+      expect(screen.queryByText("Everything is up to date")).toBeNull();
+    });
   });
 });
 

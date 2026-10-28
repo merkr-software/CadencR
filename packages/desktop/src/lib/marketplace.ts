@@ -114,6 +114,13 @@ export interface MarketplaceNotice {
   text: string;
 }
 
+/** The service's code for a build with no catalog feed compiled in (dev builds, forks). */
+export const CATALOG_SOURCE_NOT_CONFIGURED = "MANAGED_CATALOG_SOURCE_NOT_CONFIGURED";
+
+export function catalogSourceMissing(catalog?: ManagedCatalogResponse): boolean {
+  return catalog?.error_code === CATALOG_SOURCE_NOT_CONFIGURED;
+}
+
 export function usableCatalog(catalog?: ManagedCatalogResponse): boolean {
   return (
     catalog?.cache_status === "verified" &&

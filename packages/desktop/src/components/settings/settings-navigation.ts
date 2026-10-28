@@ -1,5 +1,4 @@
 import { z } from "zod";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
 
 const settingsSearchSchema = z.object({
   section: z.string().optional().catch(undefined),
@@ -17,5 +16,5 @@ export function parseSettingsSearch(search: Record<string, unknown>): SettingsSe
 
 /** Old marketplace deep links into Settings now open the Marketplace page. */
 export function isLegacyMarketplaceLink(search: SettingsSearch): boolean {
-  return MARKETPLACE_ENABLED && (search.tab === "marketplace" || search.section === "marketplace");
+  return search.tab === "marketplace" || search.section === "marketplace";
 }

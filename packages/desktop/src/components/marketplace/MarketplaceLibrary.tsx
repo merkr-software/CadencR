@@ -133,6 +133,47 @@ export function MarketplaceLibrary({
   onDiscover: () => void;
 }): React.JSX.Element {
   const actions = usePluginActions();
+  if (!listings.length)
+    return (
+      <LibraryEmpty
+        view={view}
+        publishedAt={publishedAt}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onDiscover={onDiscover}
+      />
+    );
+  return (
+    <div className="space-y-3">
+      {view === "updates" && <UpdateAllBar listings={listings} actions={actions} />}
+      <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
+        {scrollParent && (
+          <Virtuoso
+            data={listings}
+            customScrollParent={scrollParent}
+            computeItemKey={(_, listing) => listing.key}
+            itemContent={(_, listing) => <LibraryRow listing={listing} actions={actions} />}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Why the Installed or Updates list is empty — never "up to date" when that is unknown. */
+function LibraryEmpty({
+  view,
+  publishedAt,
+  refreshing,
+  onRefresh,
+  onDiscover,
+}: {
+  view: "installed" | "updates";
+  publishedAt?: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onDiscover: () => void;
+}): React.JSX.Element {
   const state = useMarketplaceState();
   const hasUnfilteredResults = state.listings.some((listing) =>
     view === "updates" ? !!listing.update : !!listing.installed,
@@ -150,7 +191,7 @@ export function MarketplaceLibrary({
     state.providers.catalogQuery.isError ||
     state.themes.catalog.isError ||
     state.tabs.catalog.isError;
-  if (!listings.length && hasUnfilteredResults)
+  if (hasUnfilteredResults)
     return (
       <MarketplaceEmpty
         icon={Search}
@@ -162,7 +203,15 @@ export function MarketplaceLibrary({
         detail="Try another search or clear it to see all results."
       />
     );
-  if (!listings.length && (view === "updates" ? updatesUnknown : inventoryUnavailable))
+  if (view === "updates" && state.catalogMissing && !inventoryUnavailable)
+    return (
+      <MarketplaceEmpty
+        icon={CloudOff}
+        title="Updates aren't available in this build"
+        detail="This build isn't connected to a plugin catalog, so there is nothing to check installed plugins against."
+      />
+    );
+  if (view === "updates" ? updatesUnknown : inventoryUnavailable)
     return (
       <MarketplaceEmpty
         icon={CloudOff}
@@ -179,40 +228,24 @@ export function MarketplaceLibrary({
         }
       />
     );
-  if (!listings.length)
-    return view === "updates" ? (
-      <MarketplaceEmpty
-        icon={PackageOpen}
-        title="Everything is up to date"
-        detail={`Updates are never automatic: each one installs the exact version shown.${publishedAt ? ` Catalog published ${formatAgo(publishedAt)}.` : ""}`}
-        action={<CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} />}
-      />
-    ) : (
-      <MarketplaceEmpty
-        icon={PackageOpen}
-        title="Nothing installed from the marketplace yet"
-        detail="Themes, providers and custom tabs you install show up here, with their version and history."
-        action={
-          <Button size="sm" onClick={onDiscover}>
-            Discover plugins
-          </Button>
-        }
-      />
-    );
-  return (
-    <div className="space-y-3">
-      {view === "updates" && <UpdateAllBar listings={listings} actions={actions} />}
-      <div className="overflow-hidden rounded-xl border border-border/80 bg-card">
-        {scrollParent && (
-          <Virtuoso
-            data={listings}
-            customScrollParent={scrollParent}
-            computeItemKey={(_, listing) => listing.key}
-            itemContent={(_, listing) => <LibraryRow listing={listing} actions={actions} />}
-          />
-        )}
-      </div>
-    </div>
+  return view === "updates" ? (
+    <MarketplaceEmpty
+      icon={PackageOpen}
+      title="Everything is up to date"
+      detail={`Updates are never automatic: each one installs the exact version shown.${publishedAt ? ` Catalog published ${formatAgo(publishedAt)}.` : ""}`}
+      action={<CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} />}
+    />
+  ) : (
+    <MarketplaceEmpty
+      icon={PackageOpen}
+      title="Nothing installed from the marketplace yet"
+      detail="Themes, providers and custom tabs you install show up here, with their version and history."
+      action={
+        <Button size="sm" onClick={onDiscover}>
+          Discover plugins
+        </Button>
+      }
+    />
   );
 }
 

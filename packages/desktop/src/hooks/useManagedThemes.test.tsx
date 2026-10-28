@@ -2,18 +2,13 @@ import { afterEach, expect, it, vi } from "vitest";
 import { act, render, renderHook } from "@testing-library/react";
 import { QueryClientProvider, focusManager } from "@tanstack/react-query";
 import { createTestQueryClient } from "@/test-utils";
+import { toast } from "sonner";
 import { getManagedThemes } from "@/api/generated";
 import { ManagedThemeRegistry, useManagedThemes } from "./useManagedThemes";
 
-const gate = vi.hoisted(() => ({ enabled: true }));
-vi.mock("@/lib/marketplace-gate", () => ({
-  get MARKETPLACE_ENABLED() {
-    return gate.enabled;
-  },
-}));
 vi.mock("@/api/generated", () => ({ getManagedThemes: vi.fn() }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 afterEach(() => {
-  gate.enabled = true;
   focusManager.setFocused(undefined);
   vi.useRealTimers();
   vi.resetAllMocks();
@@ -41,31 +36,16 @@ it("rechecks policy through inventory within fifteen minutes even without focus 
   client.clear();
 });
 
-it("does not fetch managed marketplace inventory or poll when disabled", async () => {
-  gate.enabled = false;
-  vi.useFakeTimers();
-  const client = createTestQueryClient();
-  const hook = renderHook(() => useManagedThemes(), {
-    wrapper: ({ children }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    ),
-  });
-  await act(() => vi.advanceTimersByTimeAsync(30 * 60_000));
-  expect(getManagedThemes).not.toHaveBeenCalled();
-  hook.unmount();
-  client.clear();
-});
-
-it("mounts no marketplace query observer for the disabled root registry", () => {
-  gate.enabled = false;
+it("loads installed themes once at the root and reports a failure with a stable toast id", async () => {
+  vi.mocked(getManagedThemes).mockRejectedValue(new Error("inventory broke"));
   const client = createTestQueryClient();
   const view = render(
     <QueryClientProvider client={client}>
       <ManagedThemeRegistry />
     </QueryClientProvider>,
   );
-  expect(client.getQueryCache().getAll()).toHaveLength(0);
-  expect(getManagedThemes).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(toast.error).mock.calls[0]?.[1]).toEqual({ id: "managed-themes-load" });
   view.unmount();
   client.clear();
 });
