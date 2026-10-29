@@ -63,7 +63,8 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLElement>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
-  const { activeProjectId, effectiveFeatureId } = useSidebarActiveIds(selectedFeatureId);
+  const { activeProjectId, routeFeatureId, effectiveFeatureId } =
+    useSidebarActiveIds(selectedFeatureId);
   useSidebarKeyboardNavigation(sidebarRef, navigate, effectiveFeatureId);
   useSidebarRowShortcuts();
   useBrowserActivityBridge();
@@ -112,22 +113,24 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
                 {!showsSamples && <SidebarFilterInput />}
                 <SidebarAttentionShortcuts
                   activeFeatureId={effectiveFeatureId}
+                  openFeatureId={routeFeatureId}
                   onSelectFeature={setSelectedFeatureId}
-                />
-                <SidebarRowActionsProvider>
-                  {/* One scroller for the blocks and the projects, so every block stays
-                reachable however many are open, on a phone as on desktop. */}
-                  <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
-                    <div className="flex min-w-0 flex-col pb-2">
-                      <SidebarSections
-                        showsSamples={showsSamples}
-                        activeProjectId={activeProjectId}
-                        activeFeatureId={effectiveFeatureId}
-                        onSelectFeature={setSelectedFeatureId}
-                      />
-                    </div>
-                  </ScrollArea>
-                </SidebarRowActionsProvider>
+                >
+                  <SidebarRowActionsProvider>
+                    {/* One scroller for the blocks and the projects, so every block stays
+                  reachable however many are open, on a phone as on desktop. */}
+                    <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-col pb-2">
+                        <SidebarSections
+                          showsSamples={showsSamples}
+                          activeProjectId={activeProjectId}
+                          activeFeatureId={effectiveFeatureId}
+                          onSelectFeature={setSelectedFeatureId}
+                        />
+                      </div>
+                    </ScrollArea>
+                  </SidebarRowActionsProvider>
+                </SidebarAttentionShortcuts>
               </div>
             </SidebarSampleProvider>
           </SidebarDisplayOptionsHost>
@@ -141,10 +144,15 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
 
 function useSidebarActiveIds(selectedFeatureId: number | null): {
   activeProjectId: number | null;
+  routeFeatureId: number | null;
   effectiveFeatureId: number | null;
 } {
   const { projectId, featureId } = useRouteFeatureIds();
-  return { activeProjectId: projectId, effectiveFeatureId: featureId ?? selectedFeatureId };
+  return {
+    activeProjectId: projectId,
+    routeFeatureId: featureId,
+    effectiveFeatureId: featureId ?? selectedFeatureId,
+  };
 }
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {

@@ -13,6 +13,7 @@ import { useSidebarRenameStore } from "@/stores/sidebar-rename-store";
 import { useUnreadStore } from "@/stores/unread-store";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
 import { SidebarAttentionProvider } from "./SidebarAttentionProvider";
+import { SidebarForMeDoneAction } from "./SidebarForMeDoneAction";
 import {
   nextQueueIndex,
   SidebarAttentionShortcuts,
@@ -91,14 +92,22 @@ describe("attention jump shortcuts", () => {
   it("⌘J walks the action list from the open conversation, waiting oldest first", async () => {
     const { user, rerender } = render(
       <SidebarAttentionProvider>
-        <SidebarAttentionShortcuts activeFeatureId={null} onSelectFeature={vi.fn()} />
+        <SidebarAttentionShortcuts
+          activeFeatureId={null}
+          openFeatureId={null}
+          onSelectFeature={vi.fn()}
+        />
       </SidebarAttentionProvider>,
       { queryClient: seededClient() },
     );
     await user.keyboard("{Meta>}j{/Meta}");
     rerender(
       <SidebarAttentionProvider>
-        <SidebarAttentionShortcuts activeFeatureId={2} onSelectFeature={vi.fn()} />
+        <SidebarAttentionShortcuts
+          activeFeatureId={2}
+          openFeatureId={2}
+          onSelectFeature={vi.fn()}
+        />
       </SidebarAttentionProvider>,
     );
     await user.keyboard("{Meta>}j{/Meta}");
@@ -109,7 +118,11 @@ describe("attention jump shortcuts", () => {
     usePrStatusStore.getState().hydrate([failingPr(4)]);
     const shortcuts = (active: number) => (
       <SidebarAttentionProvider>
-        <SidebarAttentionShortcuts activeFeatureId={active} onSelectFeature={vi.fn()} />
+        <SidebarAttentionShortcuts
+          activeFeatureId={active}
+          openFeatureId={active}
+          onSelectFeature={vi.fn()}
+        />
       </SidebarAttentionProvider>
     );
     const { user, rerender } = render(shortcuts(1), { queryClient: seededClient() });
@@ -126,7 +139,11 @@ describe("attention jump shortcuts", () => {
     useUnreadStore.setState({ byFeature: {}, failedByFeature: {}, markedOrder: {} });
     const { user } = render(
       <SidebarAttentionProvider>
-        <SidebarAttentionShortcuts activeFeatureId={null} onSelectFeature={vi.fn()} />
+        <SidebarAttentionShortcuts
+          activeFeatureId={null}
+          openFeatureId={null}
+          onSelectFeature={vi.fn()}
+        />
       </SidebarAttentionProvider>,
       { queryClient: seededClient() },
     );
@@ -138,7 +155,11 @@ describe("attention jump shortcuts", () => {
   it("⌥⌘J opens the next unread conversation", async () => {
     const { user } = render(
       <SidebarAttentionProvider>
-        <SidebarAttentionShortcuts activeFeatureId={null} onSelectFeature={vi.fn()} />
+        <SidebarAttentionShortcuts
+          activeFeatureId={null}
+          openFeatureId={null}
+          onSelectFeature={vi.fn()}
+        />
       </SidebarAttentionProvider>,
       { queryClient: seededClient() },
     );
@@ -150,7 +171,11 @@ describe("attention jump shortcuts", () => {
 describe("mark done shortcut", () => {
   const shortcuts = (active: number | null) => (
     <SidebarAttentionProvider>
-      <SidebarAttentionShortcuts activeFeatureId={active} onSelectFeature={vi.fn()} />
+      <SidebarAttentionShortcuts
+        activeFeatureId={active}
+        openFeatureId={active}
+        onSelectFeature={vi.fn()}
+      />
     </SidebarAttentionProvider>
   );
 
@@ -172,6 +197,82 @@ describe("mark done shortcut", () => {
     await user.keyboard("{Meta>}{Alt>}{Enter}{/Alt}{/Meta}");
     expect(toastMessage).toHaveBeenLastCalledWith("Nothing for you here");
     expect(useUnreadStore.getState().byFeature[3]).toBe(true);
+  });
+});
+
+describe("marking the conversation on screen done", () => {
+  const sidebar = (active: number | null, open: number | null = active) => (
+    <SidebarAttentionProvider>
+      <SidebarAttentionShortcuts
+        activeFeatureId={active}
+        openFeatureId={open}
+        onSelectFeature={vi.fn()}
+      >
+        <SidebarForMeDoneAction featureId={3} kind="review" />
+        <SidebarForMeDoneAction featureId={4} kind="fix_ci" />
+      </SidebarAttentionShortcuts>
+    </SidebarAttentionProvider>
+  );
+  const doneButton = (featureId: 3 | 4) =>
+    screen.getAllByRole("button", { name: "Mark done" })[featureId === 3 ? 0 : 1] as HTMLElement;
+
+  beforeEach(() => {
+    // For me: waiting 2, 1 → fix_ci 4 → review 3.
+    usePrStatusStore.getState().hydrate([failingPr(4)]);
+  });
+
+  it("⌥⌘↩ opens the entry that took its place", async () => {
+    const { user } = render(sidebar(4), { queryClient: seededClient() });
+    await user.keyboard("{Meta>}{Alt>}{Enter}{/Alt}{/Meta}");
+    expect(useUnreadStore.getState().prAcks).toEqual({ 4: "fix_ci:4:abc" });
+    expect(openedFeatureIds()).toEqual([3]);
+  });
+
+  it("the row check on the open conversation wraps to the top of the list", async () => {
+    const { user } = render(sidebar(3), { queryClient: seededClient() });
+    await user.click(doneButton(3));
+    expect(useUnreadStore.getState().byFeature[3]).toBeUndefined();
+    // Waiting entries are never marked done but stay next in line.
+    expect(openedFeatureIds()).toEqual([2]);
+  });
+
+  it("the row check on another conversation only marks it done", async () => {
+    const { user } = render(sidebar(3), { queryClient: seededClient() });
+    await user.click(doneButton(4));
+    expect(useUnreadStore.getState().prAcks).toEqual({ 4: "fix_ci:4:abc" });
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("only marks once the active conversation is off screen (another page)", async () => {
+    const { user } = render(sidebar(3, null), { queryClient: seededClient() });
+    await user.click(doneButton(3));
+    expect(useUnreadStore.getState().byFeature[3]).toBeUndefined();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("stays put and says so once the list is empty", async () => {
+    useSessionStatusStore.setState({ bySession: {} });
+    usePrStatusStore.setState({ byFeature: {}, latestFetchedAtByFeature: {} });
+    const { user } = render(sidebar(3), { queryClient: seededClient() });
+    await user.keyboard("{Meta>}{Alt>}{Enter}{/Alt}{/Meta}");
+    expect(useUnreadStore.getState().byFeature[3]).toBeUndefined();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(toastMessage).toHaveBeenCalledWith("All caught up");
+  });
+
+  it("lets ⌘J carry on from where the entry it opened was, once read", async () => {
+    // For me: waiting 2 → fix_ci 4 → review 3, 1.
+    useSessionStatusStore.setState({
+      bySession: { 10: { featureId: 2, status: "question", kind: "permission", seq: 1 } },
+    });
+    useUnreadStore.getState().markUnread(1);
+    const { user, rerender } = render(sidebar(4), { queryClient: seededClient() });
+    await user.keyboard("{Meta>}{Alt>}{Enter}{/Alt}{/Meta}");
+    // Opening 3 reads it (For me clears "On open"): 1 takes its place.
+    useUnreadStore.getState().markRead(3);
+    rerender(sidebar(3));
+    await user.keyboard("{Meta>}j{/Meta}");
+    expect(openedFeatureIds()).toEqual([3, 1]);
   });
 });
 
