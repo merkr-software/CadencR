@@ -4,6 +4,9 @@
 
 use super::{SettingSpec, ValueKind, BOOL};
 
+/// The sidebar's sections: the blocks above the project list, and the list.
+const SIDEBAR_SECTIONS: &[&str] = &["for-me", "working", "recent", "pinned", "projects"];
+
 /// Spec for a sidebar display key, or `None` for any other key.
 pub(super) fn sidebar_display_spec(key: &str) -> Option<SettingSpec> {
     let spec = match key {
@@ -17,6 +20,15 @@ pub(super) fn sidebar_display_spec(key: &str) -> Option<SettingSpec> {
         "sidebar_title_lines" => {
             SettingSpec::new(ValueKind::Enum(&["one", "two", "hover"]), Some("one"))
         }
+        "sidebar_row_height" => SettingSpec::new(ValueKind::Enum(&["auto", "fixed"]), Some("auto")),
+        "sidebar_color_mode" => {
+            SettingSpec::new(ValueKind::Enum(&["light", "increased"]), Some("light"))
+        }
+        "sidebar_block_order" => SettingSpec::new(
+            ValueKind::IdList(SIDEBAR_SECTIONS),
+            Some("for-me,working,recent,pinned,projects"),
+        ),
+        "sidebar_folded_blocks" => SettingSpec::new(ValueKind::IdList(SIDEBAR_SECTIONS), Some("")),
         "sidebar_title_source" => SettingSpec::new(
             ValueKind::Enum(&["title", "branch", "folder"]),
             Some("title"),
@@ -169,5 +181,24 @@ mod tests {
             workspace_spec("sidebar_compact_rows").unwrap().default,
             Some("false")
         );
+        let row_height = workspace_spec("sidebar_row_height").unwrap();
+        assert_eq!(row_height.default, Some("auto"));
+        assert!(!row_height.is_valid("4"));
+        let color_mode = workspace_spec("sidebar_color_mode").unwrap();
+        assert_eq!(color_mode.default, Some("light"));
+        assert!(color_mode.is_valid("increased"));
+        assert!(!color_mode.is_valid("vivid"));
+    }
+
+    #[test]
+    fn sidebar_section_lists_take_known_sections_once() {
+        let order = workspace_spec("sidebar_block_order").unwrap();
+        assert!(order.is_valid("projects,pinned,for-me"));
+        assert!(!order.is_valid("projects,projects"));
+        assert!(!order.is_valid("projects,inbox"));
+        assert!(!order.is_valid("projects,"));
+        let folded = workspace_spec("sidebar_folded_blocks").unwrap();
+        assert!(folded.is_valid(""));
+        assert!(folded.is_valid("pinned"));
     }
 }

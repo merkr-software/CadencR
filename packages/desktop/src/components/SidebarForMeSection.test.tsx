@@ -21,6 +21,21 @@ vi.mock("@/hooks/useFeaturePrefetch", () => ({ useFeaturePrefetch: () => vi.fn()
 vi.mock("@/components/ShortcutTooltip", () => ({
   ShortcutTooltip: ({ children }: { children: unknown }) => children,
 }));
+// The block's rows get the tree's worktree, shell and port details.
+vi.mock("@/hooks/usePinnedActivity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/usePinnedActivity")>()),
+  usePinnedActivity: () => ({
+    shellCountByFeatureId: new Map([[1, 2]]),
+    liveWorktreeFeatureIds: new Set([1]),
+    worktreeByFeatureId: new Map([
+      [1, { feature_id: 1, worktree_branch: "feature/fix-flaky", live: true }],
+    ]),
+  }),
+}));
+vi.mock("@/hooks/useFeaturePorts", () => ({
+  NO_PORTS: [],
+  useFeaturePorts: () => new Map([[1, [{ port: 5173 }]]]),
+}));
 
 const FEATURES = [
   [1, "Asks permission"],
@@ -137,6 +152,15 @@ beforeEach(() => {
 });
 
 describe("SidebarForMeSection", () => {
+  it("shows a row's branch, shells and ports, as the project tree does", () => {
+    configure({ branch: true });
+    renderSection();
+    const row = section().querySelector('[data-nav-id="1"]');
+    expect(row?.querySelector("[data-feature-branch]")).toHaveTextContent("feature/fix-flaky");
+    expect(within(row as HTMLElement).getByLabelText("2 shell commands running")).toBeTruthy();
+    expect(within(row as HTMLElement).getByLabelText(/5173/)).toBeTruthy();
+  });
+
   it("lists the next actions most urgent first, each led by its verb, up to the limit", async () => {
     const { user } = renderSection();
     expect(rowLabels()).toEqual([

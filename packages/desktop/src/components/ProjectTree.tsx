@@ -36,6 +36,7 @@ import { SampleScope, useSidebarSamplePreview } from "./SidebarSampleProvider";
 import { SidebarCrossProjectList } from "./SidebarCrossProjectList";
 import { STICKY_HEADER_CLASS } from "./SidebarLensGroupHeader";
 import { useSidebarListMode } from "@/hooks/useSidebarViews";
+import { useSidebarSectionFold, useSidebarSectionReorder } from "@/hooks/useSidebarSections";
 import { SidebarSampleTree } from "./SidebarSampleTree";
 import { SidebarSampleRail } from "./SidebarSampleRail";
 
@@ -204,9 +205,17 @@ export function ProjectTree(props: ProjectTreeProps) {
   // A cross-project list reveals its own open row (it is virtualized).
   useRevealActiveRow(treeRef, mode.kind === "tree" ? props.activeFeatureId : null);
   const showsSamples = useSidebarSamplePreview() !== null;
+  const fold = useSidebarSectionFold("projects");
+  const reorder = useSidebarSectionReorder("projects");
   return (
-    <div className="flex min-w-0 flex-col gap-2">
+    <div
+      data-sidebar-section="projects"
+      {...reorder.target}
+      className="relative flex min-w-0 flex-col gap-2 not-last:mb-3"
+    >
       <SidebarProjectsHeader
+        fold={fold}
+        dragHandle={reorder.handle}
         onAddProject={controller.addProject}
         isAddingProject={
           controller.isSelectingFolder || controller.mutations.createProject.isPending
@@ -219,7 +228,7 @@ export function ProjectTree(props: ProjectTreeProps) {
         }
         isRefreshing={controller.ordered.isRefreshing}
       />
-      {showsSamples ? (
+      {!fold.expanded ? null : showsSamples ? (
         <div data-sidebar-sample className="flex min-w-0 flex-col gap-0.5 px-1">
           <SampleScope>
             <SidebarSampleTree />

@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen, within } from "@/test-utils";
 import { afterEach } from "vitest";
-import { getGetFeatureQueryKey, type Feature } from "@/api/generated";
+import {
+  getGetFeatureQueryKey,
+  getGetWorkspaceSettingQueryKey,
+  type Feature,
+} from "@/api/generated";
 import { createTestQueryClient } from "@/test-utils";
-import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import { DEFAULT_SIDEBAR_CONFIG, SIDEBAR_OPTIONS } from "@/lib/sidebar-config";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useUnreadStore } from "@/stores/unread-store";
@@ -11,16 +15,30 @@ import { SidebarAttentionProvider } from "./SidebarAttentionProvider";
 import { SidebarWorkingSection } from "./SidebarWorkingSection";
 
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => vi.fn() }));
+// A saved write lands in the mirrored config, as `SidebarConfigProvider` would put it.
+vi.mock("@/hooks/useSidebarSettings", async () => {
+  const { useSidebarConfigStore } = await import("@/stores/sidebar-config-store");
+  return {
+    useSetSidebarOption: () => (id: string, value: unknown) =>
+      useSidebarConfigStore.setState((state) => ({ config: { ...state.config, [id]: value } })),
+  };
+});
 vi.mock("@/components/PinnedConversationRow", () => ({
   PinnedConversationRow: ({ feature }: { feature: Feature }) => (
     <div role="row">{feature.title}</div>
   ),
 }));
 
-function seededClient() {
+function seededClient({ foldsLoaded = true } = {}) {
   const client = createTestQueryClient();
   client.setDefaultOptions({ queries: { staleTime: Infinity, retry: false } });
   client.setQueryData(["/api/projects"], []);
+  // The saved folds have loaded, so the header may fold.
+  if (foldsLoaded) {
+    client.setQueryData(getGetWorkspaceSettingQueryKey(SIDEBAR_OPTIONS.foldedSections.key), {
+      value: null,
+    });
+  }
   for (const [id, title] of [
     [1, "Building"],
     [2, "Asks"],
@@ -36,12 +54,12 @@ function seededClient() {
   return client;
 }
 
-function renderSection() {
+function renderSection(client = seededClient()) {
   return render(
     <SidebarAttentionProvider>
       <SidebarWorkingSection activeFeatureId={null} onSelectFeature={vi.fn()} />
     </SidebarAttentionProvider>,
-    { queryClient: seededClient() },
+    { queryClient: client },
   );
 }
 
@@ -101,6 +119,18 @@ describe("SidebarWorkingSection", () => {
         .getByRole("button", { name: /In progress/ })
         .click(),
     );
+    expect(within(section).getAllByRole("row")).toHaveLength(2);
+  });
+
+  it("keeps the saved folds until they have loaded, rather than overwrite them", () => {
+    renderSection(seededClient({ foldsLoaded: false }));
+    const section = screen.getByRole("region", { name: "In progress" });
+    act(() =>
+      within(section)
+        .getByRole("button", { name: /In progress/ })
+        .click(),
+    );
+    expect(useSidebarConfigStore.getState().config.foldedSections).toEqual([]);
     expect(within(section).getAllByRole("row")).toHaveLength(2);
   });
 });

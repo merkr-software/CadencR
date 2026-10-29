@@ -9,6 +9,10 @@ import {
 import { ROW_ELEMENTS_DESCRIPTION } from "@/components/sidebar-display-rows";
 import { SidebarConfiguratorSteps } from "@/components/SidebarConfiguratorSteps";
 import {
+  SECTION_ORDER_DESCRIPTION,
+  SidebarSectionOrderList,
+} from "@/components/SidebarSectionOrder";
+import {
   DISPLAY_GROUPS,
   resolveDisplayItem,
   type DisplayItem,
@@ -89,6 +93,24 @@ function SettingsItem({
   divided: boolean;
 }): ReactElement {
   const resolved = resolveDisplayItem(item);
+  if (resolved.kind === "sectionOrder") {
+    return (
+      <div data-sidebar-option="sectionOrder">
+        <SettingsRow
+          divided={divided}
+          align="start"
+          className={STACKED}
+          label="Block order"
+          description={SECTION_ORDER_DESCRIPTION}
+          control={
+            <div className="w-56">
+              <SidebarSectionOrderList form={form} />
+            </div>
+          }
+        />
+      </div>
+    );
+  }
   if (resolved.kind === "rowElements") {
     return (
       <SettingsRow

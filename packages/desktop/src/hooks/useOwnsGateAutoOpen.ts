@@ -3,6 +3,7 @@ import { useSidebarAttention } from "@/components/SidebarAttentionProvider";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useForMeShowMore } from "@/hooks/useForMeShowMore";
+import { useSidebarSectionExpanded } from "@/hooks/useSidebarSections";
 import { useSidebarSample } from "@/lib/sidebar-sample-context";
 import { useMostRecentPendingFeatureId } from "@/stores/pending-gate-popover-selectors";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
@@ -10,7 +11,6 @@ import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
 import {
   openSidebarGateOwner,
   SidebarSurfaceContext,
-  useSidebarSurfaceStore,
   type SidebarSurface,
 } from "@/stores/sidebar-surface-store";
 
@@ -39,7 +39,7 @@ function useGateAutoOpenOwner(): SidebarSurface | null {
   const rail = useSidebarOption("rail");
   const forMe = useSidebarOption("forMe");
   const filtering = useSidebarFilterQuery() !== "";
-  const forMeExpanded = useSidebarSurfaceStore((state) => state.expanded["for-me"]);
+  const forMeExpanded = useSidebarSectionExpanded("for-me");
   const newestHidden = useNewestRequestHiddenInForMe();
   if (collapsed && !isMobile) {
     return rail === "conversations" || rail === "attention" ? "rail" : null;

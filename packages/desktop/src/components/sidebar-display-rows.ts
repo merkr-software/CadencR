@@ -60,12 +60,32 @@ export const CHOICE_ROWS: readonly { [K in ChoiceId]: ChoiceRow<K> }[ChoiceId][]
   },
   {
     id: "titleLines",
-    description: "How much of a long title shows.",
+    description: "How much of a long title shows. A fixed row height keeps it to one line.",
     label: "Title",
     options: [
       { value: "one", label: "1 line" },
       { value: "two", label: "2 lines" },
       { value: "hover", label: "Full on hover", title: "One line, the full title on hover" },
+    ],
+  },
+  {
+    id: "rowHeight",
+    description:
+      "Fixed: every row the same height and every line filled: a one-line title, then the request, the last reply and the details, the reply wrapping over the lines a row's details leave. Without the reply (Preview: None), the details sit beside the title and a request shows as the status alone. Hovering a row never moves anything.",
+    label: "Row height",
+    options: [
+      { value: "auto", label: "Auto", title: "Each row as tall as what it shows" },
+      { value: "fixed", label: "Fixed", title: "Every row the same height" },
+    ],
+  },
+  {
+    id: "colorMode",
+    description:
+      "Light: color only where it carries a state (status, diff, pull request, label, request). Increased: every other detail takes a discreet color of its own too (time, reply, branch, model, todos, shells, tabs), so each one reads at a glance.",
+    label: "Colors",
+    options: [
+      { value: "light", label: "Light", title: "Color only where it carries a state" },
+      { value: "increased", label: "Increased", title: "A discreet color for every detail" },
     ],
   },
   {
