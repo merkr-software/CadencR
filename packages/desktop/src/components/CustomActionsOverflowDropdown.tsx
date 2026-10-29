@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import type { CustomAction } from "@/api/generated";
 import { CustomActionIcon } from "./CustomActionIcon";
-import { CustomActionStatusDot } from "./CustomActionStatusDot";
+import { CustomActionStatusDot, customActionStatus } from "./CustomActionStatusDot";
 
 interface CustomActionsOverflowDropdownProps {
   actions: CustomAction[];
@@ -63,9 +63,17 @@ export function CustomActionsOverflowDropdown({
               <CustomActionStatusDot lastRun={action.last_run ?? null} isRunning={false} />
             </span>
             <span className="truncate">{action.name}</span>
+            <OverflowStatusText action={action} />
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/** Screen-reader copy of the decorative status dot; silent for never-run actions. */
+function OverflowStatusText({ action }: { action: CustomAction }): ReactElement | null {
+  const status = customActionStatus(action.last_run ?? null, false);
+  if (status.color == null) return null;
+  return <span className="sr-only">, {status.label}</span>;
 }

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { type CustomAction } from "@/api/generated";
 import { useCustomActionRunner } from "@/hooks/useCustomActionRunner";
 import { CustomActionIcon } from "./CustomActionIcon";
-import { CustomActionStatusDot } from "./CustomActionStatusDot";
+import { CustomActionStatusDot, customActionStatus } from "./CustomActionStatusDot";
 
 interface CustomActionButtonProps {
   action: CustomAction;
@@ -13,6 +13,8 @@ interface CustomActionButtonProps {
   projectId: number;
   /** Bar-level callback to open the shared details/output surface for this action. */
   onOpenDetails: (action: CustomAction) => void;
+  /** Whether the shared details surface is currently showing this action. */
+  detailsOpen: boolean;
 }
 
 /**
@@ -31,8 +33,11 @@ function CustomActionButtonInner({
   featureId,
   projectId,
   onOpenDetails,
+  detailsOpen,
 }: CustomActionButtonProps): ReactElement {
   const { run, isStarting } = useCustomActionRunner({ action, featureId, projectId });
+  const runTitle = action.run_in_terminal ? `Run ${action.name} in terminal` : `Run ${action.name}`;
+  const status = customActionStatus(action.last_run ?? null, isStarting);
 
   return (
     <div className="inline-flex items-center">
@@ -40,7 +45,8 @@ function CustomActionButtonInner({
         variant="ghost"
         size="icon"
         className="relative size-7 rounded-r-none text-xs"
-        title={action.run_in_terminal ? `Run ${action.name} in terminal` : `Run ${action.name}`}
+        title={runTitle}
+        aria-label={status.color == null ? runTitle : `${runTitle}. ${status.label}`}
         onClick={run}
         disabled={isStarting}
       >
@@ -56,6 +62,8 @@ function CustomActionButtonInner({
         size="icon"
         className="h-7 w-5 rounded-l-none px-0 text-xs"
         title={`Open ${action.name} details`}
+        aria-haspopup="dialog"
+        aria-expanded={detailsOpen}
         onClick={() => onOpenDetails(action)}
       >
         <ChevronDownIcon className="size-3" />

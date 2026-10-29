@@ -48,7 +48,8 @@ export function useCustomActionRunner({
           featureId,
         });
       },
-      onError: (err) => toast.error(`${action.name} failed: ${err.message}`),
+      onError: (err) =>
+        toast.error(`${action.name} failed: ${apiErrorMessage(err, "the run could not start")}`),
     },
   });
 

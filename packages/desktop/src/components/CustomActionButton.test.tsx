@@ -1,16 +1,22 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { AxiosError, AxiosHeaders } from "axios";
+import { toast } from "sonner";
 import { fireEvent, render, screen, waitFor } from "@/test-utils";
 import { CustomActionButton } from "./CustomActionButton";
 import { useTerminalStore } from "@/hooks/useTerminalState";
 import type { CustomAction } from "@/api/generated";
 
 const mockRunCustomAction = vi.hoisted(() => vi.fn());
+const runMutationOptions = vi.hoisted(() => ({ onError: undefined as unknown }));
 const mockResolveCommand = vi.hoisted(() => vi.fn());
 
 vi.mock("@/api/generated", () => ({
   getGetCustomActionRunsQueryKey: vi.fn(() => ["custom-action-runs"]),
   getListCustomActionsQueryKey: vi.fn(() => ["custom-actions"]),
-  useRunCustomAction: vi.fn(() => ({ mutate: mockRunCustomAction, isPending: false })),
+  useRunCustomAction: vi.fn((options: { mutation: { onError: unknown } }) => {
+    runMutationOptions.onError = options.mutation.onError;
+    return { mutate: mockRunCustomAction, isPending: false };
+  }),
   resolveCommand: mockResolveCommand,
 }));
 
@@ -44,6 +50,7 @@ describe("CustomActionButton", () => {
         featureId={42}
         projectId={1}
         onOpenDetails={vi.fn()}
+        detailsOpen={false}
       />,
     );
 
@@ -64,6 +71,7 @@ describe("CustomActionButton", () => {
         featureId={42}
         projectId={1}
         onOpenDetails={onOpenDetails}
+        detailsOpen={false}
       />,
     );
 
@@ -86,6 +94,7 @@ describe("CustomActionButton", () => {
         featureId={42}
         projectId={1}
         onOpenDetails={vi.fn()}
+        detailsOpen={false}
       />,
     );
 
@@ -96,5 +105,70 @@ describe("CustomActionButton", () => {
     expect(mockResolveCommand).toHaveBeenCalledWith(7, { feature_id: 42 });
     await waitFor(() => expect(sendToTerminal).toHaveBeenCalledWith(42, "npm run dev\n"));
     expect(mockRunCustomAction).not.toHaveBeenCalled();
+  });
+
+  it("names the run button after the action and its last result, not the status dot", (): void => {
+    render(
+      <CustomActionButton
+        action={{ ...makeAction(), last_run: { exit_code: 2, ended_at: "2026-01-01T00:01:00Z" } }}
+        featureId={42}
+        projectId={1}
+        onOpenDetails={vi.fn()}
+        detailsOpen
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Run Deploy. Last run failed (exit 2)" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open Deploy details" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("draws no status dot for an action that has never run", (): void => {
+    render(
+      <CustomActionButton
+        action={makeAction()}
+        featureId={42}
+        projectId={1}
+        onOpenDetails={vi.fn()}
+        detailsOpen={false}
+      />,
+    );
+
+    const runButton = screen.getByRole("button", { name: "Run Deploy" });
+    expect(runButton.querySelector(".rounded-full")).toBeNull();
+  });
+
+  it("surfaces the backend's error message when a run is rejected", (): void => {
+    const toastError = vi.spyOn(toast, "error");
+    render(
+      <CustomActionButton
+        action={makeAction()}
+        featureId={42}
+        projectId={1}
+        onOpenDetails={vi.fn()}
+        detailsOpen={false}
+      />,
+    );
+    const error = new AxiosError("Request failed with status code 400");
+    error.response = {
+      data: { error: "Bad request: Missing values for variables: ENV", code: "BAD_REQUEST" },
+      status: 400,
+      statusText: "Bad Request",
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+    };
+
+    const onError = runMutationOptions.onError;
+    if (typeof onError !== "function") throw new Error("run mutation has no onError");
+    onError(error);
+
+    expect(toastError).toHaveBeenCalledWith(
+      "Deploy failed: Bad request: Missing values for variables: ENV",
+    );
+    toastError.mockRestore();
   });
 });

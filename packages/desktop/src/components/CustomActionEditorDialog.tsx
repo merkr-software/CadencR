@@ -29,6 +29,7 @@ import {
   type CustomAction,
   type Scope as CustomActionScope,
 } from "@/api/generated";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { BashFrame } from "./BashFrame";
 import { CustomActionIcon } from "./CustomActionIcon";
 
@@ -90,7 +91,7 @@ function useCustomActionMutations(props: CustomActionEditorDialogProps) {
         invalidate();
         toast.success("Action created");
       },
-      onError: (error) => toast.error(`Create failed: ${error.message}`),
+      onError: (error) => toast.error(`Create failed: ${apiErrorMessage(error, "unknown error")}`),
     },
   });
   const updateMutation = useUpdateCustomAction({
@@ -99,7 +100,7 @@ function useCustomActionMutations(props: CustomActionEditorDialogProps) {
         invalidate();
         toast.success("Action updated");
       },
-      onError: (error) => toast.error(`Update failed: ${error.message}`),
+      onError: (error) => toast.error(`Update failed: ${apiErrorMessage(error, "unknown error")}`),
     },
   });
   return useMemo(() => ({ createMutation, updateMutation }), [createMutation, updateMutation]);

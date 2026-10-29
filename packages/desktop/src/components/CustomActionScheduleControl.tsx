@@ -17,6 +17,7 @@ import {
   useGetCustomActionSchedule,
   useSetCustomActionSchedule,
 } from "@/api/generated";
+import { apiErrorMessage } from "@/lib/api-errors";
 
 type Unit = "seconds" | "minutes" | "hours";
 
@@ -129,7 +130,7 @@ export function CustomActionScheduleControl({
           queryKey: getGetCustomActionScheduleQueryKey(vars.id, vars.params),
         });
       },
-      onError: (err) => toast.error(`Scheduling failed: ${err.message}`),
+      onError: (err) => toast.error(`Scheduling failed: ${apiErrorMessage(err, "unknown error")}`),
     },
   });
 

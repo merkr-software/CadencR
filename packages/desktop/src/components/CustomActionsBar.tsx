@@ -88,6 +88,7 @@ export function CustomActionsBar({ featureId, projectId }: CustomActionsBarProps
                 featureId={featureId}
                 projectId={projectId}
                 onOpenDetails={openDetails}
+                detailsOpen={detailsAction?.id === action.id}
               />
             ))}
             {overflow.length > 0 && (
@@ -104,9 +105,15 @@ export function CustomActionsBar({ featureId, projectId }: CustomActionsBarProps
             </Button>
           </div>
         </PopoverAnchor>
-        <PopoverContent align="end" className="w-[44rem] max-w-[90vw]">
+        <PopoverContent
+          align="end"
+          className="w-[44rem] max-w-[90vw]"
+          aria-label={detailsAction ? `${detailsAction.name} details` : undefined}
+        >
           {detailsAction && (
             <CustomActionDetails
+              // Remount per action so variable drafts never leak between actions.
+              key={detailsAction.id}
               action={detailsAction}
               featureId={featureId}
               projectId={projectId}

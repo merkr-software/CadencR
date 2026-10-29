@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { Loader2, PencilIcon, PlayIcon, SquareIcon, TerminalIcon, Trash2Icon } from "lucide-react";
@@ -10,14 +10,18 @@ import {
   getListCustomActionsQueryKey,
   useCancelCustomActionRun,
   useDeleteCustomAction,
-  useGetCustomActionRuns,
-  useGetCustomActionVariables,
   useSetCustomActionVariable,
   type CustomAction,
   type CustomActionRun,
 } from "@/api/generated";
+import { apiErrorMessage } from "@/lib/api-errors";
 import { invalidateCustomActionRunQueries } from "@/lib/custom-action-queries";
 import { useCustomActionRunner } from "@/hooks/useCustomActionRunner";
+import {
+  useCustomActionRuns,
+  useCustomActionVariableDrafts,
+  type CustomActionVariableDrafts,
+} from "@/hooks/useCustomActionDetailsQueries";
 import { BashBlock } from "./BashBlock";
 import { CustomActionScheduleControl } from "./CustomActionScheduleControl";
 
@@ -69,8 +73,7 @@ export function CustomActionDetails({
       />
       <CustomActionVariables
         action={action}
-        drafts={controller.drafts}
-        setDrafts={controller.setDrafts}
+        variables={controller.variables}
         saveVariable={controller.saveVariable}
       />
       <CustomActionRunControl action={action} controller={controller} />
@@ -80,27 +83,6 @@ export function CustomActionDetails({
       <CustomActionRunHistory action={action} runViews={controller.runViews} />
     </div>
   );
-}
-
-function useVariableDrafts(
-  action: CustomAction,
-  storedVars: Array<{ var_name: string; value: string }> | undefined,
-) {
-  const valuesByName = useMemo(
-    () => new Map((storedVars ?? []).map((variable) => [variable.var_name, variable.value])),
-    [storedVars],
-  );
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  useEffect(() => {
-    setDrafts((previous) => {
-      const next = { ...previous };
-      for (const name of action.variable_names) {
-        if (next[name] === undefined) next[name] = valuesByName.get(name) ?? "";
-      }
-      return next;
-    });
-  }, [action.variable_names, valuesByName]);
-  return useMemo(() => ({ drafts, setDrafts }), [drafts]);
 }
 
 function useCancelRunMutation({
@@ -122,7 +104,7 @@ function useCancelRunMutation({
         invalidateCustomActionRunQueries({ queryClient, projectId, actionId, featureId }),
       onError: (error) => {
         clearCancelling();
-        toast.error(`Stop failed: ${error.message}`);
+        toast.error(`Stop failed: ${apiErrorMessage(error, "the run could not be stopped")}`);
       },
     },
   });
@@ -135,19 +117,7 @@ function useCustomActionDetailsController({
   onAfterDelete,
 }: Omit<CustomActionDetailsProps, "onEdit">) {
   const queryClient = useQueryClient();
-  const { data: storedVars } = useGetCustomActionVariables(action.id, { feature_id: featureId });
-  const runsQuery = useGetCustomActionRuns(
-    action.id,
-    { feature_id: featureId, limit: 5 },
-    {
-      query: {
-        refetchInterval: (query) => {
-          const latestRun = query.state.data?.[0];
-          return latestRun != null && latestRun.ended_at == null ? 2000 : false;
-        },
-      },
-    },
-  );
+  const runsQuery = useCustomActionRuns(action, featureId);
   const latestRun = runsQuery.data?.[0];
   const isRunning = latestRun != null && latestRun.ended_at == null;
   const [cancellingId, setCancellingId] = useState<number | null>(null);
@@ -162,12 +132,13 @@ function useCustomActionDetailsController({
   const isStopping = isRunning && latestRun != null && cancellingId === latestRun.id;
   const setVariableMutation = useSetCustomActionVariable({
     mutation: {
-      onSuccess: (_data, variables) => {
+      onSuccess: (_data, request) => {
         queryClient.invalidateQueries({
-          queryKey: getGetCustomActionVariablesQueryKey(variables.id, variables.params),
+          queryKey: getGetCustomActionVariablesQueryKey(request.id, request.params),
         });
       },
-      onError: (err) => toast.error(`Saving variable failed: ${err.message}`),
+      onError: (err) =>
+        toast.error(`Saving variable failed: ${apiErrorMessage(err, "unknown error")}`),
     },
   });
   const deleteMutation = useDeleteCustomAction({
@@ -179,14 +150,14 @@ function useCustomActionDetailsController({
         onAfterDelete();
         toast.success("Action deleted");
       },
-      onError: (err) => toast.error(`Delete failed: ${err.message}`),
+      onError: (err) => toast.error(`Delete failed: ${apiErrorMessage(err, "unknown error")}`),
     },
   });
   const runViews = useMemo(
     () => (runsQuery.data ?? []).map((run) => ({ run, output: runOutput(run) })),
     [runsQuery.data],
   );
-  const { drafts, setDrafts } = useVariableDrafts(action, storedVars);
+  const variables = useCustomActionVariableDrafts(action.id, featureId);
   return useMemo(
     () => ({
       cancelRun: () => {
@@ -195,7 +166,6 @@ function useCustomActionDetailsController({
         cancelMutation.mutate({ id: action.id, runId: latestRun.id });
       },
       deleteAction: () => deleteMutation.mutate({ id: action.id }),
-      drafts,
       isDeleting: deleteMutation.isPending,
       isRunning,
       isStarting,
@@ -203,19 +173,20 @@ function useCustomActionDetailsController({
       latestRun,
       run,
       runViews,
-      saveVariable: (name: string) =>
+      saveVariable: (name: string) => {
+        if (!variables.isDirty(name)) return;
         setVariableMutation.mutate({
           id: action.id,
           params: { feature_id: featureId },
-          data: { var_name: name, value: drafts[name] ?? "" },
-        }),
-      setDrafts,
+          data: { var_name: name, value: variables.valueOf(name) },
+        });
+      },
+      variables,
     }),
     [
       action.id,
       cancelMutation,
       deleteMutation,
-      drafts,
       featureId,
       isRunning,
       isStarting,
@@ -224,6 +195,7 @@ function useCustomActionDetailsController({
       run,
       runViews,
       setVariableMutation,
+      variables,
     ],
   );
 }
@@ -274,13 +246,11 @@ function CustomActionDetailsHeader({
 
 function CustomActionVariables({
   action,
-  drafts,
-  setDrafts,
+  variables,
   saveVariable,
 }: {
   action: CustomAction;
-  drafts: Record<string, string>;
-  setDrafts: CustomActionDetailsController["setDrafts"];
+  variables: CustomActionVariableDrafts;
   saveVariable: (name: string) => void;
 }) {
   if (action.variable_names.length === 0) return null;
@@ -294,10 +264,8 @@ function CustomActionVariables({
           <label key={name} className="block space-y-1">
             <span className="block font-mono text-xs text-foreground">${`{${name}}`}</span>
             <Input
-              value={drafts[name] ?? ""}
-              onChange={(event) =>
-                setDrafts((previous) => ({ ...previous, [name]: event.target.value }))
-              }
+              value={variables.valueOf(name)}
+              onChange={(event) => variables.setDraft(name, event.target.value)}
               onBlur={() => saveVariable(name)}
               className="h-8 text-xs"
             />

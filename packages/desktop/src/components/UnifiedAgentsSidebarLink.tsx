@@ -56,8 +56,7 @@ function AgentsSidebarAnchor({
 /**
  * Live "agents working" badge: a breathing blue dot + count when one or more
  * agents are running, an idle grey dot + count when none are. Blue matches the
- * working tint on each row's provider mark (`text-blue-500`); grey matches the
- * idle dot used elsewhere (`CustomActionStatusDot`).
+ * working tint on each row's provider mark (`text-blue-500`).
  */
 function RunningAgentsIndicator({ count }: { count: number }): ReactElement {
   const running = count > 0;
