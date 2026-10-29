@@ -1,4 +1,5 @@
-import type { ReactElement, ReactNode, RefObject } from "react";
+import type { CSSProperties, ReactElement, ReactNode, RefObject } from "react";
+import { FeatureRowLanes } from "@/components/FeatureRowLanes";
 import type {
   AllocatedPort,
   Feature,
@@ -15,7 +16,14 @@ import { useFeatureRowSummary } from "@/hooks/useFeatureRowSummary";
 import type { NextActionKind } from "@/lib/next-actions";
 import type { Attention } from "@/lib/sidebar-attention";
 import type { SidebarConfig } from "@/lib/sidebar-config";
-import { rowLayout } from "@/lib/sidebar-row-summary";
+import { rowMetaOptions } from "@/lib/sidebar-row-meta";
+import {
+  fixedRowLineCount,
+  rowLayout,
+  type RowLayout,
+  type RowSummary,
+} from "@/lib/sidebar-row-summary";
+import { cn } from "@/lib/utils";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useShallow } from "zustand/react/shallow";
 
@@ -49,7 +57,8 @@ export interface FeatureRowBodyProps {
 /**
  * What a conversation row shows, wherever it is: the title line, what a
  * waiting conversation asks for (else the agent's last reply), and the
- * details, beside the title (uniform rows) or on their own line. Compact rows
+ * details, beside the title (uniform rows) or on their own line. A fixed row
+ * fills its lines itself (`FeatureRowLanes`). Compact rows
  * keep only the title line until their conversation waits. A "For me" row also
  * names its next action under the title, in every density, in place of the
  * request line. Takes plain values, so the project tree, the blocks above it
@@ -86,25 +95,31 @@ export function FeatureRowBody({
     attention.state,
     layout.showsPreview || layout.showsTodos,
   );
-  const details = layout.compact ? null : (
-    <FeatureRowMetaLine
-      feature={feature}
-      worktree={worktree}
-      prStatus={prStatus}
-      gitStats={gitStats}
-      shellCount={shellCount}
-      browserCount={browserCount}
-      downloadCount={downloadCount}
-      ports={ports}
-      labelEditor={labelEditor}
-      onOpenPort={onOpenPort}
-      onOpenPr={onOpenPr}
-      summary={summary}
-      inline={layout.foldMeta}
-    />
-  );
+  // What both the meta line and a fixed row's lines (`FeatureRowLanes`) read their details from.
+  const meta = {
+    feature,
+    worktree,
+    prStatus,
+    gitStats,
+    shellCount,
+    browserCount,
+    downloadCount,
+    ports,
+    labelEditor,
+    onOpenPort,
+    onOpenPr,
+    summary,
+  };
+  const details =
+    layout.compact || (layout.fixed && !layout.foldMeta) ? null : (
+      <FeatureRowMetaLine {...meta} inline={layout.foldMeta} />
+    );
   return (
-    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+    <div
+      data-feature-row-body
+      className={cn("flex min-w-0 flex-1 flex-col", !layout.fixed && "gap-0.5")}
+      style={layout.fixed ? fixedRowStyle(layout, nextAction !== undefined) : undefined}
+    >
       <FeatureRowTitleLine
         feature={feature}
         liveTitle={liveTitle}
@@ -120,31 +135,77 @@ export function FeatureRowBody({
       >
         {actions}
       </FeatureRowTitleLine>
-      {nextAction && (
-        <SidebarNextActionLine
-          kind={nextAction}
-          featureId={attention.sourceFeatureId}
-          prStatus={prStatus}
+      {layout.fixed ? (
+        <FeatureRowLanes
+          {...meta}
+          layout={layout}
+          options={options}
+          attention={attention}
+          nextAction={nextAction}
         />
-      )}
-      {!layout.compact && (
+      ) : (
         <>
-          {!nextAction && <SidebarPendingRequestLine attention={attention} />}
-          {layout.showsPreview && <FeatureRowPreviewLine summary={summary} />}
-          {!layout.foldMeta && details}
+          {nextAction && (
+            <SidebarNextActionLine
+              kind={nextAction}
+              featureId={attention.sourceFeatureId}
+              prStatus={prStatus}
+            />
+          )}
+          {!layout.compact && (
+            <AutoRowLines
+              layout={layout}
+              attention={attention}
+              namesNextAction={nextAction !== undefined}
+              summary={summary}
+              details={details}
+            />
+          )}
         </>
       )}
     </div>
   );
 }
 
+/** The lines under an auto-height row's title, each only when it has something to show. */
+function AutoRowLines({
+  layout,
+  attention,
+  namesNextAction,
+  summary,
+  details,
+}: {
+  layout: RowLayout;
+  attention: Attention;
+  /** A "For me" row: its next action already took the request line. */
+  namesNextAction: boolean;
+  summary: RowSummary | undefined;
+  details: ReactNode;
+}): ReactElement {
+  return (
+    <>
+      {!namesNextAction && <SidebarPendingRequestLine attention={attention} />}
+      {layout.showsPreview && <FeatureRowPreviewLine summary={summary} />}
+      {!layout.foldMeta && details}
+    </>
+  );
+}
+
+/** A fixed row's height under its title: 20px for each line its options hold (`sidebar-row-height.css`). */
+function fixedRowStyle(layout: RowLayout, namesNextAction: boolean): CSSProperties {
+  return {
+    "--feature-row-detail-height": `${fixedRowLineCount(layout, namesNextAction) * 1.25}rem`,
+  } as CSSProperties;
+}
+
 function rowOptions(config: SidebarConfig) {
   return {
+    ...rowMetaOptions(config),
     compactRows: config.compactRows,
     uniformRows: config.uniformRows,
     titleLines: config.titleLines,
+    rowHeight: config.rowHeight,
     preview: config.preview,
-    todos: config.todos,
     pendingRequest: config.pendingRequest,
   };
 }

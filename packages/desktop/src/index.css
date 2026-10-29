@@ -1,4 +1,6 @@
 @import "./sidebar-rows.css";
+@import "./sidebar-row-height.css";
+@import "./sidebar-row-colors.css";
 @import "./mobile-status-bar.css";
 @import "./app-viewport.css";
 @import "tailwindcss";

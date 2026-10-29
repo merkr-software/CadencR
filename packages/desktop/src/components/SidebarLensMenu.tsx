@@ -1,10 +1,10 @@
-import type { ReactElement } from "react";
+import { useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   Bookmark,
   CalendarDays,
   Check,
-  ChevronDown,
+  ChevronsUpDown,
   CircleDot,
   Folder,
   GitBranch,
@@ -78,27 +78,37 @@ function MenuCheck({ on }: { on: boolean }): ReactElement {
 
 /**
  * The Projects header's name, as a menu: how conversations are grouped (the
- * "Group by" option) and the saved views, one click away.
+ * "Group by" option) and the saved views, one click away. It opens on click,
+ * not on press like other menus: pressing the name may start dragging the
+ * whole project list by its header, which a menu opened on press would stop.
  */
 export function SidebarLensMenu(): ReactElement {
   const lens = useSidebarOption("lens");
   const setOption = useSetSidebarOption();
   const { views, activeView, showView } = useSidebarViews();
   const navigate = useNavigate();
+  const menu = useClickToOpenMenu();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger
-        data-sidebar-lens-menu
-        className={cn(
-          EYEBROW_TEXT_CLASS,
-          "flex min-w-0 items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:text-foreground",
-        )}
-      >
-        <LensLabel
-          icon={activeView ? Bookmark : LENS_ICONS[lens]}
-          name={headerName(lens, activeView?.name)}
-        />
-        <ChevronDown className="size-3 shrink-0 opacity-70" />
+    <DropdownMenu open={menu.open} onOpenChange={menu.setOpen}>
+      {/* Radix opens its trigger on press; disabled, it leaves the press to the
+          drag and this element opens the menu itself (click, Enter, Space, ↓). */}
+      <DropdownMenuTrigger asChild disabled>
+        <span
+          role="button"
+          tabIndex={0}
+          data-sidebar-lens-menu
+          {...menu.triggerProps}
+          className={cn(
+            EYEBROW_TEXT_CLASS,
+            "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-sm outline-none hover:text-foreground focus-visible:text-foreground",
+          )}
+        >
+          <LensLabel
+            icon={activeView ? Bookmark : LENS_ICONS[lens]}
+            name={headerName(lens, activeView?.name)}
+          />
+          <ChevronsUpDown className="size-3 shrink-0 opacity-70" />
+        </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-44">
         <DropdownMenuLabel className="text-xs text-muted-foreground">Group by</DropdownMenuLabel>
@@ -131,4 +141,40 @@ export function SidebarLensMenu(): ReactElement {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/**
+ * A menu trigger that opens on click and from the keyboard. A click on the
+ * open menu's trigger closes it: the press outside the menu has closed it
+ * already, so the click must not open it again.
+ */
+function useClickToOpenMenu(): {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  triggerProps: {
+    onPointerDown: () => void;
+    onClick: () => void;
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => void;
+  };
+} {
+  const [open, setOpen] = useState(false);
+  const openAtPress = useRef(false);
+  return {
+    open,
+    setOpen,
+    triggerProps: {
+      onPointerDown: () => {
+        openAtPress.current = open;
+      },
+      onClick: () => {
+        setOpen(!openAtPress.current);
+        openAtPress.current = false;
+      },
+      onKeyDown: (event) => {
+        if (!["Enter", " ", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        setOpen(true);
+      },
+    },
+  };
 }

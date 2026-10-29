@@ -2,7 +2,6 @@ import type { Feature } from "@/api/generated";
 import type { PartitionedFeatures } from "@/lib/feature-grouping";
 import { descendantIdsOf, type FeatureTreeNode } from "@/lib/feature-hierarchy";
 import { applyOrder } from "@/lib/frozen-order";
-import { intArraysEqual } from "@/lib/utils";
 
 /**
  * Workspace setting holding the manual conversation order: a JSON array of
@@ -27,20 +26,23 @@ export function sortByManualOrder(
   return order.length === 0 ? features : applyOrder(features, order);
 }
 
-/** The group's ids once `movedId` sits before or after `targetId`; null when nothing moves. */
-export function moveWithinGroup(
-  groupIds: readonly number[],
-  movedId: number,
-  targetId: number,
+/**
+ * The group's ids once `movedId` sits before or after `targetId`; null when
+ * nothing moves. Conversations by id, sidebar sections by name.
+ */
+export function moveWithinGroup<T extends number | string>(
+  groupIds: readonly T[],
+  movedId: T,
+  targetId: T,
   position: DropPosition,
-): number[] | null {
+): T[] | null {
   if (movedId === targetId || !groupIds.includes(movedId) || !groupIds.includes(targetId)) {
     return null;
   }
   const next = groupIds.filter((id) => id !== movedId);
   const at = next.indexOf(targetId) + (position === "after" ? 1 : 0);
   next.splice(at, 0, movedId);
-  return intArraysEqual(next, groupIds) ? null : next;
+  return next.every((id, index) => id === groupIds[index]) ? null : next;
 }
 
 /**
@@ -83,11 +85,11 @@ export function pruneManualOrder(
 }
 
 /** Where a one-step keyboard move lands: next to the neighbor, or null at the group's edge. */
-export function keyboardMoveTarget(
-  groupIds: readonly number[],
-  featureId: number,
+export function keyboardMoveTarget<T extends number | string>(
+  groupIds: readonly T[],
+  featureId: T,
   direction: "up" | "down",
-): { targetId: number; position: DropPosition } | null {
+): { targetId: T; position: DropPosition } | null {
   const index = groupIds.indexOf(featureId);
   if (index < 0) return null;
   const targetId = groupIds[direction === "up" ? index - 1 : index + 1];

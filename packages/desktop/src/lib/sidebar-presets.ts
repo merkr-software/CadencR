@@ -31,7 +31,7 @@ export interface SidebarPreset extends SidebarPresetDefinition {
  * Classic is the defaults, so it is also what a new user gets. Behaviour
  * switches are left alone. They differ on purpose: Focus strips rows to their
  * status, Supervise is about the agents (replies, todos, who is at work),
- * Detailed about the worktrees (branch, diff, PR, ports).
+ * Detailed shows everything at once, in rows of one fixed height.
  */
 const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
   {
@@ -85,13 +85,16 @@ const PRESET_DEFINITIONS: readonly SidebarPresetDefinition[] = [
   {
     id: "detailed",
     label: "Detailed",
-    tagline: "Every worktree detail",
+    tagline: "Every detail, fixed rows",
     description:
-      "Compact two-line titles over the branch, diff, PR, ports and shells, absolute times, a Recent block.",
+      "Every row four lines high and every line filled: the title, the request, the agent's last reply over the lines the details leave, the code (branch, diff, PR), then the activity (label, todos, shells, ports), each detail in a color of its own. Absolute times, a Recent block.",
     overrides: {
-      density: "compact",
       fontSize: "12",
-      titleLines: "two",
+      rowHeight: "fixed",
+      colorMode: "increased",
+      worktreeIcon: false,
+      preview: "last_message",
+      todos: true,
       branch: true,
       uniformRows: false,
       time: "absolute",
@@ -116,6 +119,8 @@ const BEHAVIOUR_OPTIONS: ReadonlySet<SidebarOptionId> = new Set([
   "projectSort",
   "stickyHeaders",
   "forMeAck",
+  "sectionOrder",
+  "foldedSections",
 ]);
 
 const PRESET_OPTION_IDS = (Object.keys(SIDEBAR_OPTIONS) as SidebarOptionId[]).filter(

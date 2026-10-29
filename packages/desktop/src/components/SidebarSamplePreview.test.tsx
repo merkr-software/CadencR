@@ -8,7 +8,7 @@ import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useSidebarPreviewStore } from "@/stores/sidebar-preview-store";
 import { PinnedConversationRow } from "./PinnedConversationRow";
 import { SampleReplayButton } from "./SidebarSampleBanner";
-import { SidebarSampleBlocks } from "./SidebarSampleBlocks";
+import { SidebarSampleBlock } from "./SidebarSampleBlock";
 import {
   SampleScope,
   SidebarSampleProvider,
@@ -40,7 +40,9 @@ function Preview({ enabled = true }: { enabled?: boolean }) {
     <SidebarSampleProvider enabled={enabled}>
       <Replay />
       <SampleScope>
-        <SidebarSampleBlocks />
+        {(["for-me", "working", "recent", "pinned"] as const).map((id) => (
+          <SidebarSampleBlock key={id} id={id} />
+        ))}
         <SidebarSampleTree />
         <SidebarSampleRail />
       </SampleScope>

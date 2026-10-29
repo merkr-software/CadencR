@@ -9,50 +9,52 @@ import { isStrongAction, type NextActionKind } from "@/lib/next-actions";
 import { isStrongAttention } from "@/lib/sidebar-attention";
 import type { SampleAction, SampleRow } from "@/lib/sidebar-sample-views";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
-import {
-  SidebarSurfaceContext,
-  useSidebarBlockFold,
-  type SidebarBlockId,
-} from "@/stores/sidebar-surface-store";
+import { useSidebarSectionFold } from "@/hooks/useSidebarSections";
+import { SidebarSurfaceContext, type SidebarBlockId } from "@/stores/sidebar-surface-store";
 
-/** The blocks above the projects (For me, In progress, Recent, Pinned), filled with samples. */
-export function SidebarSampleBlocks(): ReactElement {
+/**
+ * One block beside the projects (For me, In progress, Recent, Pinned), filled
+ * with samples; hidden like the live block when its option is off.
+ */
+export function SidebarSampleBlock({ id }: { id: SidebarBlockId }): ReactElement | null {
   const { views } = useSamplePreview();
   const forMeOn = useSidebarOption("forMe");
   const workingOn = useSidebarOption("workingBlock");
   const recentOn = useSidebarOption("recentBlock");
-  return (
-    <>
-      {forMeOn && <SampleForMeBlock actions={views.forMe} />}
-      {workingOn && (
-        <SampleBlock
-          label="In progress"
-          icon={LoaderIcon}
-          block="working"
-          rows={views.working}
-          count={views.working.length}
-          empty="No agent at work"
-        />
-      )}
-      {recentOn && (
-        <SampleBlock
-          label="Recent"
-          icon={HistoryIcon}
-          block="recent"
-          rows={views.recent}
-          empty="No conversation yet"
-        />
-      )}
+  if (id === "for-me") return forMeOn ? <SampleForMeBlock actions={views.forMe} /> : null;
+  if (id === "working") {
+    return workingOn ? (
       <SampleBlock
-        label="Pinned"
-        icon={PinIcon}
-        block="pinned"
-        rows={views.pinned}
-        count={views.pinned.length}
-        empty="Pin a conversation to keep it here"
-        strongCount={views.pinned.filter((row) => isStrongAttention(row.state)).length}
+        label="In progress"
+        icon={LoaderIcon}
+        block="working"
+        rows={views.working}
+        count={views.working.length}
+        empty="No agent at work"
       />
-    </>
+    ) : null;
+  }
+  if (id === "recent") {
+    return recentOn ? (
+      <SampleBlock
+        label="Recent"
+        icon={HistoryIcon}
+        block="recent"
+        rows={views.recent}
+        empty="No conversation yet"
+      />
+    ) : null;
+  }
+  return (
+    <SampleBlock
+      label="Pinned"
+      icon={PinIcon}
+      block="pinned"
+      rows={views.pinned}
+      count={views.pinned.length}
+      empty="Pin a conversation to keep it here"
+      strongCount={views.pinned.filter((row) => isStrongAttention(row.state)).length}
+    />
   );
 }
 
@@ -108,7 +110,7 @@ function SampleBlock({
 }: SampleBlockProps): ReactElement | null {
   const preview = useSamplePreview();
   // Folds with the live block of the same name: the preview is the user's sidebar.
-  const fold = useSidebarBlockFold(block);
+  const fold = useSidebarSectionFold(block);
   const hideEmpty = useSidebarOption("hideEmptyBlocks");
   if (rows.length === 0 && hideEmpty) return null;
   return (

@@ -1,6 +1,8 @@
 import type { ReactElement, ReactNode, Ref } from "react";
 import { ChevronDown, ChevronRight, type LucideIcon } from "lucide-react";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
+import { SidebarDisplayOptionsButton } from "@/components/SidebarDisplayOptionsPopover";
+import { useSidebarSectionReorder, type SectionFold } from "@/hooks/useSidebarSections";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 import { cn } from "@/lib/utils";
 import type { SidebarBlockId } from "@/stores/sidebar-surface-store";
@@ -15,6 +17,10 @@ export const EYEBROW_TEXT_CLASS =
 /** A hairline above each sidebar section: the sections read as the top level, above projects. */
 export const SECTION_DIVIDER_CLASS = "border-t border-border/60 pt-2";
 
+/** A section header's actions: shown while the header is hovered or focused, always on touch. */
+export const HOVER_REVEAL_CLASS =
+  "can-hover:opacity-0 can-hover:transition-opacity can-hover:focus-visible:opacity-100 can-hover:group-hover:opacity-100";
+
 export const EYEBROW_CLASS = `flex items-center gap-1.5 rounded-md px-2 py-1 ${EYEBROW_TEXT_CLASS}`;
 
 interface SidebarBlockProps {
@@ -27,7 +33,7 @@ interface SidebarBlockProps {
   /** How many of `count` need an action: read out, and turns the dot counter amber. */
   strongCount?: number;
   /** Foldable blocks fold from their header; others always show their rows. */
-  fold?: { expanded: boolean; toggle: () => void };
+  fold?: SectionFold;
   /** The line shown instead of the rows when there are none. */
   empty: string;
   isEmpty: boolean;
@@ -42,9 +48,11 @@ interface SidebarBlockProps {
 }
 
 /**
- * A content block above the project list (For me, In progress, Recent,
+ * A content block beside the project list (For me, In progress, Recent,
  * Pinned): the shared eyebrow header with its counter (F8), and an empty line
  * when "Hide empty blocks" (F9) is off. Callers decide when to render at all.
+ * Dragging the header moves the block among the sidebar's sections; its
+ * hover button opens the display options, as on the Projects header.
  */
 export function SidebarBlock({
   block,
@@ -60,6 +68,7 @@ export function SidebarBlock({
   children,
 }: SidebarBlockProps): ReactElement {
   const open = fold?.expanded ?? true;
+  const reorder = useSidebarSectionReorder(block);
   const content = (
     <>
       <Icon className="size-3 shrink-0" />
@@ -94,24 +103,40 @@ export function SidebarBlock({
       ref={ref}
       aria-label={label}
       data-sidebar-block={block}
-      className={cn("mb-3 flex shrink-0 flex-col gap-0.5 px-1", SECTION_DIVIDER_CLASS)}
+      data-sidebar-section={block}
+      {...reorder.target}
+      className={cn("relative mb-3 flex shrink-0 flex-col gap-0.5 px-1", SECTION_DIVIDER_CLASS)}
     >
-      {fold ? (
-        <button
-          type="button"
-          data-nav-item
-          aria-expanded={open}
-          onClick={fold.toggle}
+      <div className="group relative">
+        {fold ? (
+          <button
+            type="button"
+            data-nav-item
+            aria-expanded={open}
+            title={open ? `Collapse ${label}` : `Expand ${label}`}
+            onClick={fold.toggle}
+            {...reorder.handle}
+            className={cn(
+              EYEBROW_CLASS,
+              "w-full outline-none hover:text-foreground focus-visible:text-foreground",
+            )}
+          >
+            {content}
+          </button>
+        ) : (
+          <div {...reorder.handle} className={cn(EYEBROW_CLASS, "w-full")}>
+            {content}
+          </div>
+        )}
+        <SidebarDisplayOptionsButton
+          section={block}
           className={cn(
-            EYEBROW_CLASS,
-            "outline-none hover:text-foreground focus-visible:text-foreground",
+            "absolute top-1/2 -translate-y-1/2",
+            fold ? "right-6" : "right-1",
+            HOVER_REVEAL_CLASS,
           )}
-        >
-          {content}
-        </button>
-      ) : (
-        <div className={EYEBROW_CLASS}>{content}</div>
-      )}
+        />
+      </div>
       {fold ? <CollapsibleSection open={open}>{body}</CollapsibleSection> : body}
     </section>
   );

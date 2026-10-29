@@ -14,11 +14,11 @@ import { useStableFeatureOrder } from "@/hooks/useStableFeatureOrder";
 import { useManualConversationOrder } from "@/hooks/useManualConversationOrder";
 import { sortByManualOrder } from "@/lib/sidebar-manual-order";
 import { SidebarReorderProvider } from "@/components/SidebarReorderProvider";
-import { NO_PORTS, useFeaturePorts } from "@/hooks/useFeaturePorts";
-import { usePinnedActivity } from "@/hooks/usePinnedActivity";
+import { useFeaturePorts } from "@/hooks/useFeaturePorts";
+import { crossProjectRowData, usePinnedActivity } from "@/hooks/usePinnedActivity";
 import { useSidebarFilteredFeatures } from "@/hooks/useSidebarFilteredFeatures";
 import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
-import { useSidebarBlockFold } from "@/stores/sidebar-surface-store";
+import { useSidebarSectionFold } from "@/hooks/useSidebarSections";
 
 /**
  * Global "Pinned" section rendered above the project list. Pinning is a
@@ -61,19 +61,12 @@ export function SidebarPinnedConversations({
   );
   const hideEmpty = useSidebarOption("hideEmptyBlocks");
   const filtering = useSidebarFilterQuery() !== "";
-  const fold = useSidebarBlockFold("pinned");
+  const fold = useSidebarSectionFold("pinned");
   const strongCount = usePinnedStrongCount(pinnedFeatures);
 
   const isEmpty = pinnedFeatures.length === 0;
   // An empty Pinned block only shows when empty blocks are kept and nothing is filtered out.
   if (isEmpty && (hideEmpty || filtering)) return null;
-
-  // While filtering, hold the block open so a matching pinned conversation
-  // stays reachable — pinned rows are excluded from the project tree, so a
-  // folded Pinned would hide the only place the match renders. The stored
-  // fold state is left untouched (the toggle is disabled) and resumes once
-  // the filter clears.
-  const foldWhileFiltering = filtering ? { expanded: true, toggle: () => {} } : fold;
 
   return (
     <SidebarBlock
@@ -84,7 +77,7 @@ export function SidebarPinnedConversations({
       count={pinnedFeatures.length}
       // Pinned rows show nowhere else: a folded block still flags who waits on the user.
       strongCount={strongCount}
-      fold={foldWhileFiltering}
+      fold={fold}
       empty="Pin a conversation to keep it here"
       isEmpty={isEmpty}
       capped
@@ -95,10 +88,7 @@ export function SidebarPinnedConversations({
             key={feature.id}
             feature={feature}
             activeFeatureId={activeFeatureId}
-            ports={portsByFeatureId.get(feature.id) ?? NO_PORTS}
-            shellCount={activity.shellCountByFeatureId.get(feature.id) ?? 0}
-            hasLiveWorktree={activity.liveWorktreeFeatureIds.has(feature.id)}
-            worktree={activity.worktreeByFeatureId.get(feature.id)}
+            {...crossProjectRowData(activity, portsByFeatureId, feature.id)}
             onNavigate={handleNavigate}
             showUnpin
           />
