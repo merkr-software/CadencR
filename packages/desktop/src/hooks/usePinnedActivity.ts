@@ -2,12 +2,14 @@ import { useEffect, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  type AllocatedPort,
   getListFeatureActivityQueryOptions,
   getListFeatureWorktreesQueryOptions,
   type Feature,
   type FeatureActivity,
   type FeatureWorktreeInfo,
 } from "@/api/generated";
+import { NO_PORTS } from "@/hooks/useFeaturePorts";
 import { apiErrorMessage } from "@/lib/api-errors";
 import {
   FEATURE_ACTIVITY_ERROR_TOAST_ID,
@@ -49,7 +51,8 @@ export interface PinnedActivity {
 }
 
 /**
- * Shell counts and worktrees for the pinned section: one activity and one
+ * Shell counts and worktrees for rows outside their project (Pinned, the For
+ * me, In progress and Recent blocks, the lenses): one activity and one
  * worktrees query per distinct project, with the project sections' keys and
  * options so an expanded project shares the same cache entries. Without
  * `withShells`, only worktrees: no activity polling.
@@ -98,4 +101,23 @@ export function usePinnedActivity(pinned: readonly Feature[], withShells = true)
     }),
     [activity.counts, worktrees.live, worktrees.byFeatureId],
   );
+}
+
+/** What a row outside its project shows of it, as the tree's rows do: ports, shells, worktree. */
+export function crossProjectRowData(
+  activity: PinnedActivity,
+  portsByFeatureId: ReadonlyMap<number, readonly AllocatedPort[]>,
+  featureId: number,
+): {
+  ports: readonly AllocatedPort[];
+  shellCount: number;
+  hasLiveWorktree: boolean;
+  worktree: FeatureWorktreeInfo | undefined;
+} {
+  return {
+    ports: portsByFeatureId.get(featureId) ?? NO_PORTS,
+    shellCount: activity.shellCountByFeatureId.get(featureId) ?? 0,
+    hasLiveWorktree: activity.liveWorktreeFeatureIds.has(featureId),
+    worktree: activity.worktreeByFeatureId.get(featureId),
+  };
 }

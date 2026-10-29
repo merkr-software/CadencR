@@ -18,18 +18,23 @@ import { cn } from "@/lib/utils";
  */
 export function SidebarPendingRequestLine({
   attention,
+  fillsLine = false,
 }: {
   attention: Attention;
+  /** A fixed row holds this line: a request without a readable prompt still says it waits. */
+  fillsLine?: boolean;
 }): ReactElement | null {
   if (attention.state !== "waiting") return null;
-  return <PendingRequestLine featureId={attention.sourceFeatureId} />;
+  return <PendingRequestLine featureId={attention.sourceFeatureId} fillsLine={fillsLine} />;
 }
 
 const PendingRequestLine = memo(function PendingRequestLine({
   featureId,
+  fillsLine,
 }: {
   /** The conversation that asks: the row itself or a child folded under it. */
   featureId: number;
+  fillsLine: boolean;
 }): ReactElement | null {
   const enabled = useSidebarOption("pendingRequest");
   const { gate, isLoading, errorMessage } = useFeaturePendingGate({ featureId, enabled });
@@ -43,7 +48,13 @@ const PendingRequestLine = memo(function PendingRequestLine({
     );
   }
   const prompt = gate ? gatePrompt(gate) : null;
-  if (!gate || !prompt) return null;
+  if (!gate || !prompt) {
+    return fillsLine ? (
+      <span data-feature-pending-request className={LINE_CLASS}>
+        Waiting for you
+      </span>
+    ) : null;
+  }
   return (
     <span
       data-feature-pending-request

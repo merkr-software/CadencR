@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { Feature } from "@/api/generated";
+import { getGetWorkspaceSettingQueryKey, type Feature } from "@/api/generated";
 
 const mocks = vi.hoisted(() => {
   const navigate = vi.fn();
@@ -21,6 +21,7 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@/api/generated", () => ({
+  getGetWorkspaceSettingQueryKey: (key: string) => [`/api/workspace/settings/${key}`] as const,
   useListPinnedFeatures: () => ({ data: mocks.getPinned() }),
   useListProjects: () => ({
     data: [
@@ -61,9 +62,18 @@ vi.mock("@/hooks/useFeaturePorts", () => ({
   useFeaturePorts: () => new Map(),
 }));
 
+// A saved write lands in the mirrored config, as `SidebarConfigProvider` would put it.
+vi.mock("@/hooks/useSidebarSettings", async () => {
+  const { useSidebarConfigStore } = await import("@/stores/sidebar-config-store");
+  return {
+    useSetSidebarOption: () => (id: string, value: unknown) =>
+      useSidebarConfigStore.setState((state) => ({ config: { ...state.config, [id]: value } })),
+  };
+});
 vi.mock("@/hooks/useLiveFeatureMeta", () => ({ useLiveFeatureMeta: () => ({}) }));
 
-vi.mock("@/hooks/usePinnedActivity", () => ({
+vi.mock("@/hooks/usePinnedActivity", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/usePinnedActivity")>()),
   usePinnedActivity: () => ({
     shellCountByFeatureId: new Map(),
     liveWorktreeFeatureIds: new Set(),
@@ -93,9 +103,22 @@ vi.mock("@/components/PinnedConversationRow", () => ({
 
 import { SidebarPinnedConversations } from "./SidebarPinnedConversations";
 import { useSidebarFilterStore } from "@/stores/sidebar-filter-store";
-import { useSidebarSurfaceStore } from "@/stores/sidebar-surface-store";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
-import { DEFAULT_SIDEBAR_CONFIG } from "@/lib/sidebar-config";
+import {
+  DEFAULT_SIDEBAR_CONFIG,
+  SIDEBAR_OPTIONS,
+  type SidebarSectionId,
+} from "@/lib/sidebar-config";
+
+function setFolded(folded: readonly SidebarSectionId[]): void {
+  useSidebarConfigStore.setState((state) => ({
+    config: { ...state.config, foldedSections: folded },
+  }));
+}
+
+function pinnedFolded(): boolean {
+  return useSidebarConfigStore.getState().config.foldedSections.includes("pinned");
+}
 import {
   collectSidebarNavItems,
   useSidebarKeyboardNavigation,
@@ -125,6 +148,10 @@ function KeyboardSidebar({ children }: { children: React.ReactNode }): React.Rea
 
 function renderSection(activeFeatureId: number | null = null, withKeyboard = false) {
   const client = new QueryClient();
+  // The saved folds have loaded, so the header may fold.
+  client.setQueryData(getGetWorkspaceSettingQueryKey(SIDEBAR_OPTIONS.foldedSections.key), {
+    value: null,
+  });
   const section = (
     <SidebarPinnedConversations activeFeatureId={activeFeatureId} onSelectFeature={vi.fn()} />
   );
@@ -144,9 +171,6 @@ describe("SidebarPinnedConversations", () => {
     mocks.setPinned([]);
     useSidebarConfigStore.setState({ config: DEFAULT_SIDEBAR_CONFIG });
     useSidebarFilterStore.getState().close();
-    useSidebarSurfaceStore.setState({
-      expanded: { "for-me": true, working: true, recent: true, pinned: true },
-    });
     // Fold tests need synchronous mount/unmount (CollapsibleSection).
     document.documentElement.dataset.animations = "off";
   });
@@ -180,7 +204,7 @@ describe("SidebarPinnedConversations", () => {
   it("preserves the folded choice after Enter on a filtered header and clearing the filter", async () => {
     const user = userEvent.setup();
     mocks.setPinned([{ ...feature(1, 5), title: "Login bug" }]);
-    useSidebarSurfaceStore.getState().toggleBlock("pinned");
+    setFolded(["pinned"]);
     useSidebarFilterStore.getState().start("login");
     renderSection(null, true);
     const header = screen.getByRole("button", { name: /Pinned/ });
@@ -192,7 +216,7 @@ describe("SidebarPinnedConversations", () => {
     expect(click).toHaveBeenCalledTimes(1);
     expect(header).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("open-1")).toBeInTheDocument();
-    expect(useSidebarSurfaceStore.getState().expanded.pinned).toBe(false);
+    expect(pinnedFolded()).toBe(true);
 
     act(() => useSidebarFilterStore.getState().close());
     expect(header).toHaveAttribute("aria-expanded", "false");
@@ -295,7 +319,7 @@ describe("SidebarPinnedConversations", () => {
 
   it("holds the block open on the filter's matches, even folded", () => {
     mocks.setPinned([{ ...feature(1, 5), title: "Login bug" }]);
-    useSidebarSurfaceStore.getState().toggleBlock("pinned");
+    setFolded(["pinned"]);
     useSidebarFilterStore.getState().start("login");
     renderSection();
     expect(screen.getByText("open-1")).toBeInTheDocument();
@@ -328,7 +352,7 @@ describe("SidebarPinnedConversations", () => {
       // Fold via the store (the header's onClick path) inside act so React
       // flushes the state change before we inspect the DOM.
       act(() => {
-        useSidebarSurfaceStore.getState().toggleBlock("pinned");
+        setFolded(["pinned"]);
       });
 
       // During the 200 ms close window the row is still mounted but hidden.
@@ -354,9 +378,7 @@ describe("SidebarPinnedConversations", () => {
   it("holds the block open while filtering, without changing the stored fold state", () => {
     mocks.setPinned([feature(1, 5), { ...feature(2, 9), title: "Login bug" }]);
     // Start folded: the stored state must stay folded throughout.
-    useSidebarSurfaceStore.setState({
-      expanded: { "for-me": true, working: true, recent: true, pinned: false },
-    });
+    setFolded(["pinned"]);
     renderSection();
     // Folded and unfiltered: rows are hidden.
     expect(screen.queryByText("open-1")).not.toBeInTheDocument();
@@ -367,14 +389,14 @@ describe("SidebarPinnedConversations", () => {
     });
     expect(screen.getByText("open-2")).toBeInTheDocument();
     expect(screen.queryByText("open-1")).not.toBeInTheDocument();
-    expect(useSidebarSurfaceStore.getState().expanded.pinned).toBe(false);
+    expect(pinnedFolded()).toBe(true);
 
     // Clearing the filter restores the stored fold state.
     act(() => {
       useSidebarFilterStore.getState().close();
     });
     expect(screen.queryByText("open-2")).not.toBeInTheDocument();
-    expect(useSidebarSurfaceStore.getState().expanded.pinned).toBe(false);
+    expect(pinnedFolded()).toBe(true);
   });
 
   it("does not toggle the stored fold state when the header is clicked while filtering", async () => {
@@ -382,9 +404,7 @@ describe("SidebarPinnedConversations", () => {
     mocks.setPinned([feature(1, 5), { ...feature(2, 9), title: "Login bug" }]);
     // Start folded: clicking the open-looking header during filtering must
     // not flip the stored state.
-    useSidebarSurfaceStore.setState({
-      expanded: { "for-me": true, working: true, recent: true, pinned: false },
-    });
+    setFolded(["pinned"]);
     renderSection();
     act(() => {
       useSidebarFilterStore.getState().start("login");
@@ -394,7 +414,7 @@ describe("SidebarPinnedConversations", () => {
 
     // Clicking the header is a no-op while filtering.
     await user.click(screen.getByRole("button", { name: /Pinned/ }));
-    expect(useSidebarSurfaceStore.getState().expanded.pinned).toBe(false);
+    expect(pinnedFolded()).toBe(true);
     // The row stays visible (the filter still holds the block open).
     expect(screen.getByText("open-2")).toBeInTheDocument();
 
@@ -403,6 +423,6 @@ describe("SidebarPinnedConversations", () => {
       useSidebarFilterStore.getState().close();
     });
     expect(screen.queryByText("open-2")).not.toBeInTheDocument();
-    expect(useSidebarSurfaceStore.getState().expanded.pinned).toBe(false);
+    expect(pinnedFolded()).toBe(true);
   });
 });

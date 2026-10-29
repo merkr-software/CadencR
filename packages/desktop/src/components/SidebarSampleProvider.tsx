@@ -24,7 +24,8 @@ import {
 import { sampleViews, type SampleRow, type SampleViews } from "@/lib/sidebar-sample-views";
 import { SidebarSampleContext, type SidebarSampleData } from "@/lib/sidebar-sample-context";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
-import { openSidebarGateOwner, useSidebarSurfaceStore } from "@/stores/sidebar-surface-store";
+import { useSidebarSectionExpanded } from "@/hooks/useSidebarSections";
+import { openSidebarGateOwner } from "@/stores/sidebar-surface-store";
 
 interface SidebarSamplePreview {
   /** When the samples were made: their times count back from it. */
@@ -109,7 +110,7 @@ function useSampleState(enabled: boolean): SidebarSamplePreview {
   const collapsedParents = useIdSet(() => []);
   const forMe = useSidebarOption("forMe");
   const recentCount = Number(useSidebarOption("recentCount"));
-  const forMeExpanded = useSidebarSurfaceStore((state) => state.expanded["for-me"]);
+  const forMeExpanded = useSidebarSectionExpanded("for-me");
 
   // Each showing starts from fresh samples, timed from now, before it paints.
   useLayoutEffect(() => {

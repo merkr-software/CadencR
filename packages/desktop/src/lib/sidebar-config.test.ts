@@ -41,5 +41,28 @@ describe("parseSidebarConfig", () => {
   it("serializes booleans the way the settings file stores them", () => {
     expect(serializeSidebarOption(false)).toBe("false");
     expect(serializeSidebarOption("compact")).toBe("compact");
+    expect(serializeSidebarOption(["projects", "pinned"])).toBe("projects,pinned");
+  });
+
+  it("keeps every section once in the block order, missing ones at their default place", () => {
+    expect(DEFAULT_SIDEBAR_CONFIG.sectionOrder).toEqual([
+      "for-me",
+      "working",
+      "recent",
+      "pinned",
+      "projects",
+    ]);
+    const config = parseSidebarConfig(
+      reader({ sidebar_block_order: "projects,bogus,pinned,projects" }),
+    );
+    expect(config.sectionOrder).toEqual(["projects", "pinned", "for-me", "working", "recent"]);
+  });
+
+  it("reads folded sections as a subset, empty by default", () => {
+    expect(DEFAULT_SIDEBAR_CONFIG.foldedSections).toEqual([]);
+    expect(parseSidebarConfig(reader({ sidebar_folded_blocks: "" })).foldedSections).toEqual([]);
+    expect(
+      parseSidebarConfig(reader({ sidebar_folded_blocks: "pinned,nope,projects" })).foldedSections,
+    ).toEqual(["pinned", "projects"]);
   });
 });

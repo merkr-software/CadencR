@@ -1,0 +1,52 @@
+/* Fixed row height ("Row height: Fixed"): every row is as tall as the lines
+ * its options can fill (a one-line title, then FeatureRowLanes' 20px lines,
+ * `--feature-row-detail-height`), never its own data, and each row fills
+ * every one of them: the reply wraps over what its details leave. The title
+ * leads in medium weight over the 11px lines. The hover actions stack over
+ * the time in one slot as wide as the wider of the two, so pointing at a row
+ * swaps them without moving the title. */
+[data-sidebar-row-height="fixed"] {
+  & [data-feature-row-body] {
+    height: calc(1.5rem + var(--feature-row-detail-height, 0rem));
+  }
+  /* `flex: none`: the line is a column item with `flex-1`, whose zero basis
+   * would let it stretch over the row's free space. */
+  & [data-feature-title-line] {
+    flex: none;
+    height: 1.5rem;
+  }
+  & [data-feature-title] {
+    font-weight: 500;
+  }
+  & [data-feature-trailing] {
+    display: grid;
+    flex-shrink: 0;
+    justify-items: end;
+  }
+  & [data-feature-trailing] > * {
+    grid-area: 1 / 1;
+  }
+  & [data-feature-trailing] > .sidebar-row-actions {
+    display: inline-flex;
+    visibility: hidden;
+  }
+  & [data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-trailing] {
+    & > .sidebar-row-actions {
+      visibility: visible;
+    }
+    & > [data-feature-time] {
+      display: block;
+      visibility: hidden;
+    }
+  }
+}
+@media (hover: none) {
+  [data-sidebar-row-height="fixed"] [data-feature-trailing] {
+    & > .sidebar-row-actions {
+      visibility: visible;
+    }
+    & > [data-feature-time] {
+      visibility: hidden;
+    }
+  }
+}

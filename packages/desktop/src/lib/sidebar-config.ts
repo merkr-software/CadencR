@@ -19,7 +19,20 @@ interface BoolOption {
   fallback: boolean;
 }
 
-type SidebarOption = EnumOption<string> | BoolOption;
+/**
+ * A comma-separated list of ids. `complete` lists hold every id once, in the
+ * user's order (missing ids join at their default place); others are any
+ * subset.
+ */
+interface ListOption<V extends string> {
+  kind: "list";
+  key: string;
+  values: readonly V[];
+  complete: boolean;
+  fallback: readonly V[];
+}
+
+type SidebarOption = EnumOption<string> | BoolOption | ListOption<string>;
 
 function enumOption<const V extends string>(
   key: string,
@@ -33,10 +46,27 @@ function boolOption(key: string, fallback: boolean): BoolOption {
   return { kind: "bool", key, fallback };
 }
 
+function listOption<const V extends string>(
+  key: string,
+  values: readonly [V, ...V[]],
+  complete: boolean,
+): ListOption<V> {
+  return { kind: "list", key, values, complete, fallback: complete ? values : [] };
+}
+
+/**
+ * The sidebar's sections, top to bottom by default: the blocks, then the
+ * project list. The values of `sidebar_block_order` and `sidebar_folded_blocks`.
+ */
+export const SIDEBAR_SECTION_IDS = ["for-me", "working", "recent", "pinned", "projects"] as const;
+export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
+
 export const SIDEBAR_OPTIONS = {
   density: enumOption("sidebar_density", ["compact", "comfortable", "spacious"], "comfortable"),
   fontSize: enumOption("sidebar_font_size", ["12", "12.5", "13", "14"], "12.5"),
   titleLines: enumOption("sidebar_title_lines", ["one", "two", "hover"], "one"),
+  rowHeight: enumOption("sidebar_row_height", ["auto", "fixed"], "auto"),
+  colorMode: enumOption("sidebar_color_mode", ["light", "increased"], "light"),
   titleSource: enumOption("sidebar_title_source", ["title", "branch", "folder"], "title"),
   status: enumOption("sidebar_row_status", ["shape", "dot", "hidden"], "shape"),
   time: enumOption("sidebar_row_time", ["none", "relative", "absolute"], "relative"),
@@ -81,9 +111,18 @@ export const SIDEBAR_OPTIONS = {
   ),
   projectSort: enumOption("sidebar_project_sort", ["frozen", "live", "name"], "frozen"),
   stickyHeaders: boolOption("sidebar_sticky_headers", true),
+  sectionOrder: listOption("sidebar_block_order", SIDEBAR_SECTION_IDS, true),
+  foldedSections: listOption("sidebar_folded_blocks", SIDEBAR_SECTION_IDS, false),
 } as const;
 
-type OptionValue<O> = O extends EnumOption<infer V> ? V : O extends BoolOption ? boolean : never;
+type OptionValue<O> =
+  O extends EnumOption<infer V>
+    ? V
+    : O extends BoolOption
+      ? boolean
+      : O extends ListOption<infer V>
+        ? readonly V[]
+        : never;
 
 export type SidebarOptionId = keyof typeof SIDEBAR_OPTIONS;
 export type SidebarConfig = {
@@ -106,7 +145,19 @@ export const SIDEBAR_SETTING_KEYS: readonly string[] = [
 
 const BOOL_SCHEMA = z.enum(["true", "false"]);
 
-function parseOption(option: SidebarOption, raw: string | null | undefined): string | boolean {
+type OptionRawValue = string | boolean | readonly string[];
+
+/** Known ids once each, in stored order; a complete list appends the missing ones. */
+function parseList(option: ListOption<string>, raw: string | null | undefined): readonly string[] {
+  if (raw == null) return option.fallback;
+  const known = new Set(option.values);
+  const listed = [...new Set(raw.split(","))].filter((id) => known.has(id));
+  if (!option.complete) return listed;
+  return [...listed, ...option.values.filter((id) => !listed.includes(id))];
+}
+
+function parseOption(option: SidebarOption, raw: string | null | undefined): OptionRawValue {
+  if (option.kind === "list") return parseList(option, raw);
   if (option.kind === "bool") {
     const parsed = BOOL_SCHEMA.safeParse(raw);
     return parsed.success ? parsed.data === "true" : option.fallback;
@@ -140,6 +191,7 @@ export function parseSidebarConfig(
 
 export const DEFAULT_SIDEBAR_CONFIG: SidebarConfig = parseSidebarConfig(() => null);
 
-export function serializeSidebarOption(value: string | boolean): string {
-  return typeof value === "boolean" ? String(value) : value;
+export function serializeSidebarOption(value: OptionRawValue): string {
+  if (typeof value === "boolean") return String(value);
+  return typeof value === "string" ? value : value.join(",");
 }

@@ -22,12 +22,23 @@ import { FeatureMetaBadge } from "@/components/FeatureMetaBadge";
 import { FeaturePortsBadge } from "@/components/FeaturePortsBadge";
 import { FeatureLabelEditor } from "@/components/FeatureLabelEditor";
 import { FeaturePrIndicator } from "@/components/PrStatusIndicators";
-import { FeatureTodoProgress, hasTodoChip } from "@/components/FeatureRowSummaryParts";
+import { FeatureTodoProgress } from "@/components/FeatureRowSummaryParts";
 import type { RowSummary } from "@/lib/sidebar-row-summary";
 import { NumStat } from "@/components/NumStat";
 import { useSidebarConfigStore } from "@/stores/sidebar-config-store";
 import { useShallow } from "zustand/react/shallow";
 import type { SidebarConfig } from "@/lib/sidebar-config";
+import {
+  hasActivityItems,
+  hasCodeItems,
+  rowMetaItems,
+  rowMetaOptions,
+  rowMetaPart,
+  type RowMetaItems,
+  type RowMetaPart,
+} from "@/lib/sidebar-row-meta";
+import { branchTail } from "@/lib/thread-prs";
+import { cn } from "@/lib/utils";
 
 interface FeatureRowMetaLineProps {
   feature: Feature;
@@ -47,6 +58,8 @@ interface FeatureRowMetaLineProps {
   summary?: RowSummary;
   /** Beside the title (uniform rows): the items join the title line's flow. */
   inline?: boolean;
+  /** One part of the details on a line of its own (a fixed row's code or activity line). */
+  part?: RowMetaPart;
 }
 
 export interface FeatureLabelEditing {
@@ -65,11 +78,17 @@ export interface FeatureLabelEditing {
  * beside the title as far as they fit. Renders nothing when the row has none of
  * them to show, so a bare row stays a single line.
  */
-export function FeatureRowMetaLine({
+export function FeatureRowMetaLine(props: FeatureRowMetaLineProps): ReactElement | null {
+  const show = useSidebarConfigStore(useShallow((state) => rowMetaOptions(state.config)));
+  return (
+    <FeatureRowMetaItems {...props} items={rowMetaItems(show, props)} labelStyle={show.label} />
+  );
+}
+
+/** The details from items already worked out: a fixed row's lines share one pass for both parts. */
+export function FeatureRowMetaItems({
   feature,
-  worktree,
   prStatus,
-  gitStats,
   shellCount,
   browserCount,
   downloadCount,
@@ -77,53 +96,34 @@ export function FeatureRowMetaLine({
   labelEditor,
   onOpenPort,
   onOpenPr,
-  summary,
   inline = false,
-}: FeatureRowMetaLineProps): ReactElement | null {
-  const show = useSidebarConfigStore(useShallow((state) => metaLineOptions(state.config)));
-  const branch = show.branch ? worktree?.worktree_branch : null;
-  const label = show.label === "hidden" ? null : feature.label;
-  // "Logo + model": the logo keeps its title-line slot, the model reads here.
-  const model =
-    show.provider === "logo_model" && feature.runtime_provider
-      ? feature.model_session?.trim() || "Default"
-      : null;
-  const hasStats =
-    show.diff && gitStats != null && (gitStats.insertions > 0 || gitStats.deletions > 0);
-  // `FeaturePrIndicator` also renders for an error with no proposal — a forge
-  // auth failure must not be the one thing that keeps this line from mounting.
-  // Any branch's proposal counts: one on another branch of the conversation
-  // still leads the chip while the current branch has none.
-  const hasPrIndicator =
-    show.pr &&
-    (prStatus?.pr != null || (prStatus?.other_prs?.length ?? 0) > 0 || prStatus?.error != null);
-  const hasActivity = show.activity && (shellCount > 0 || browserCount > 0 || downloadCount > 0);
-  const hasPorts = show.ports && ports.length > 0;
-  const todos = show.todos && hasTodoChip(summary) ? summary : null;
-  if (
-    !labelEditor &&
-    !label &&
-    !branch &&
-    !model &&
-    !hasStats &&
-    !hasActivity &&
-    !hasPorts &&
-    !hasPrIndicator &&
-    !todos
-  ) {
-    return null;
-  }
+  part,
+  items: all,
+  labelStyle,
+}: FeatureRowMetaLineProps & {
+  items: RowMetaItems;
+  labelStyle: SidebarConfig["label"];
+}): ReactElement | null {
+  const items = rowMetaPart(all, part);
+  const { branch, model, stats, todos } = items;
+  // The label editor belongs with the label, never on the code line.
+  const editor = part === "code" ? undefined : labelEditor;
+  if (!editor && !hasCodeItems(items) && !hasActivityItems(items)) return null;
 
   return (
     <div
       data-feature-meta-line
+      data-feature-meta-part={part}
       className={
         inline
           ? "contents text-[11px]"
-          : "flex min-w-0 items-center gap-2 pl-5 text-[11px] leading-tight"
+          : cn(
+              "flex min-w-0 items-center gap-2 pl-5 text-[11px] leading-tight",
+              part && "h-5 shrink-0",
+            )
       }
     >
-      <MetaLineLabel feature={feature} label={label} style={show.label} editor={labelEditor} />
+      <MetaLineLabel feature={feature} label={items.label} style={labelStyle} editor={editor} />
       {branch && (
         <span
           data-feature-branch
@@ -131,7 +131,11 @@ export function FeatureRowMetaLine({
           className="inline-flex min-w-0 items-center gap-1 text-muted-foreground"
         >
           <GitBranchIcon className="size-3 shrink-0" aria-hidden />
-          <span className="truncate font-mono text-[10.5px]">{branch}</span>
+          {/* A line of its own names the branch by its last segment: the
+              shared prefix would leave room for nothing else. */}
+          <span className="truncate font-mono text-[10.5px]">
+            {part ? branchTail(branch) : branch}
+          </span>
         </span>
       )}
       {model && (
@@ -143,40 +147,27 @@ export function FeatureRowMetaLine({
           {model}
         </span>
       )}
-      {hasStats && (
+      {stats && (
         <span data-feature-diff className="inline-flex shrink-0">
           <NumStat
-            additions={gitStats.insertions}
-            deletions={gitStats.deletions}
+            additions={stats.insertions}
+            deletions={stats.deletions}
             className="text-[11px] leading-tight"
           />
         </span>
       )}
-      {show.pr && <FeaturePrIndicator snapshot={prStatus} onOpen={onOpenPr} />}
+      {items.pr && <FeaturePrIndicator snapshot={prStatus} onOpen={onOpenPr} />}
       {todos && <FeatureTodoProgress summary={todos} />}
-      {hasActivity && (
+      {items.activity && (
         <FeatureActivityIndicators
           shellCount={shellCount}
           browserCount={browserCount}
           downloadCount={downloadCount}
         />
       )}
-      {hasPorts && <FeaturePortsBadge ports={ports} onOpenPort={onOpenPort} />}
+      {items.ports && <FeaturePortsBadge ports={ports} onOpenPort={onOpenPort} />}
     </div>
   );
-}
-
-function metaLineOptions(config: SidebarConfig) {
-  return {
-    branch: config.branch,
-    label: config.label,
-    diff: config.diff,
-    pr: config.pr,
-    activity: config.activity,
-    ports: config.ports,
-    provider: config.provider,
-    todos: config.todos,
-  };
 }
 
 /** The label in its chosen style, or its editor while it is being edited. */
@@ -307,18 +298,21 @@ function FeatureActivityIndicators({
   return (
     <span data-feature-activity-indicators className="inline-flex shrink-0 items-center gap-1">
       <FeatureActivityBadge
+        kind="shell"
         count={shellCount}
         labelSingular="shell command running"
         labelPlural="shell commands running"
         icon={<TerminalIcon className="size-3" />}
       />
       <FeatureActivityBadge
+        kind="browser"
         count={browserCount}
         labelSingular="browser tab open"
         labelPlural="browser tabs open"
         icon={<GlobeIcon className="size-3" />}
       />
       <FeatureActivityBadge
+        kind="download"
         count={downloadCount}
         labelSingular="browser download active"
         labelPlural="browser downloads active"
@@ -329,11 +323,14 @@ function FeatureActivityIndicators({
 }
 
 function FeatureActivityBadge({
+  kind,
   count,
   labelSingular,
   labelPlural,
   icon,
 }: {
+  /** Names the badge for the row CSS (each kind takes its own color in "Increased"). */
+  kind: "shell" | "browser" | "download";
   count: number;
   labelSingular: string;
   labelPlural: string;
@@ -342,8 +339,10 @@ function FeatureActivityBadge({
   if (count <= 0) return null;
   const label = `${count} ${count === 1 ? labelSingular : labelPlural}`;
   return (
-    <FeatureMetaBadge icon={icon} label={label}>
-      <span>{count}</span>
-    </FeatureMetaBadge>
+    <span data-feature-activity={kind} className="contents">
+      <FeatureMetaBadge icon={icon} label={label}>
+        <span>{count}</span>
+      </FeatureMetaBadge>
+    </span>
   );
 }

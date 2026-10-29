@@ -23,6 +23,8 @@ pub enum ValueKind {
     Number,
     /// Parses as an integer within an inclusive range.
     IntegerRange { min: i64, max: i64 },
+    /// Comma-separated values from a fixed set, none twice; empty is the empty list.
+    IdList(&'static [&'static str]),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,8 +51,19 @@ impl SettingSpec {
                 .trim()
                 .parse::<i64>()
                 .is_ok_and(|number| (min..=max).contains(&number)),
+            ValueKind::IdList(allowed) => is_id_list(value, allowed),
         }
     }
+}
+
+fn is_id_list(value: &str, allowed: &[&str]) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let ids: Vec<&str> = value.split(',').collect();
+    ids.iter()
+        .enumerate()
+        .all(|(index, id)| allowed.contains(id) && !ids[..index].contains(id))
 }
 
 const BOOL: ValueKind = ValueKind::Bool;
