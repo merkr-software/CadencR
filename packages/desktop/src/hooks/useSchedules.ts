@@ -33,7 +33,7 @@ export interface UseSchedulesResult {
   save: (body: SaveScheduleRequest, id?: number) => Promise<Schedule>;
   remove: (id: number) => Promise<void>;
   setEnabled: (id: number, enabled: boolean) => Promise<void>;
-  runNow: (id: number) => Promise<void>;
+  runNow: (schedule: Schedule) => Promise<void>;
 }
 
 /**
@@ -149,12 +149,16 @@ function useScheduleMutations(): Omit<UseSchedulesResult, "schedules" | "isLoadi
   // HTTP error (the schedule itself is fine — this attempt wasn't), so the
   // success path has to check it too.
   const runNow = useCallback(
-    async (id: number): Promise<void> => {
+    async (schedule: Schedule): Promise<void> => {
       const result = await run("run the schedule", invalidate, () =>
-        runMutation.mutateAsync({ id }),
+        runMutation.mutateAsync({ id: schedule.id }),
       );
       if (result.ran) {
-        toast.success("Schedule sent.");
+        // An action run only reports that it started: its output streams into
+        // the conversation, and it may never exit.
+        toast.success(
+          schedule.target.kind === "custom_action" ? "Action started." : "Schedule sent.",
+        );
       } else if (result.condition_passed) {
         // Not a failure: the check is the thing being tested.
         toast.success("The command passed — nothing to send.");

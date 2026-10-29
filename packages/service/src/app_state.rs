@@ -5,7 +5,6 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 use crate::domain::custom_actions::run_registry::CustomActionRunRegistry;
-use crate::domain::custom_actions::scheduler::CustomActionScheduler;
 use crate::domain::editor::watcher::{FileChangeEvent, SharedFileWatcher};
 use crate::domain::feature_events::FeatureEventBroadcaster;
 use crate::domain::features::run_registry::FeatureRunRegistry;
@@ -161,9 +160,6 @@ pub struct AppState {
     pub frontend_port: u16,
     /// Listener port, pinned against the `Host` header for DNS-rebinding defense.
     pub port: u16,
-    /// Scheduler for periodic custom-action runs. Holds one tokio task per
-    /// enabled `custom_action_schedules` row.
-    pub custom_action_scheduler: CustomActionScheduler,
     /// In-flight custom-action runs keyed by `run_id`, so a `cancel` request can
     /// interrupt a running command (Ctrl-C) even after the triggering UI closes.
     pub custom_action_runs: Arc<CustomActionRunRegistry>,
@@ -336,7 +332,6 @@ impl AppState {
             mcp_control_token: uuid::Uuid::new_v4().to_string(),
             frontend_port,
             port,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
             custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),
@@ -429,7 +424,6 @@ impl AppState {
             mcp_control_token: "test-mcp-token".to_string(),
             frontend_port: 1420,
             port: 0,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
             custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),

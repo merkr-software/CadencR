@@ -37,7 +37,15 @@ export function useSessionSchedules(
   // Cleared after a successful save so a later edit can't re-clear the composer.
   const [onSaved, setOnSaved] = useState<(() => void) | null>(null);
 
-  const armed = useMemo(() => schedules.filter(isActive), [schedules]);
+  // Messages only: a custom action scheduled in this conversation is managed
+  // on the Schedules page, and this composer's editor can only write prompts.
+  const armed = useMemo(
+    () =>
+      schedules.filter(
+        (schedule) => isActive(schedule) && schedule.target.kind !== "custom_action",
+      ),
+    [schedules],
+  );
   const lockedConversation = useMemo(
     () => (featureId ? { featureId, projectId } : undefined),
     [featureId, projectId],
@@ -70,7 +78,7 @@ export function useSessionSchedules(
   );
 
   const cancel = useCallback((schedule: Schedule) => fireAndForget(remove(schedule.id)), [remove]);
-  const sendNow = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule.id)), [runNow]);
+  const sendNow = useCallback((schedule: Schedule) => fireAndForget(runNow(schedule)), [runNow]);
 
   const element = featureId ? (
     <>

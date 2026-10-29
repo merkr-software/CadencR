@@ -5,10 +5,9 @@ use serde::Deserialize;
 
 use super::events::notify_changed;
 use super::models::{
-    CreateCustomActionRequest, CustomAction, CustomActionRun, CustomActionSchedule,
-    CustomActionVariable, ReorderCustomActionsRequest, ResolvedCommand, RunResponse, Scope,
-    SetCustomActionScheduleRequest, SetCustomActionVariableRequest, SuccessResponse, TriggeredBy,
-    UpdateCustomActionRequest,
+    CreateCustomActionRequest, CustomAction, CustomActionRun, CustomActionVariable,
+    ReorderCustomActionsRequest, ResolvedCommand, RunResponse, Scope,
+    SetCustomActionVariableRequest, SuccessResponse, TriggeredBy, UpdateCustomActionRequest,
 };
 use super::repository;
 use super::runner;
@@ -139,9 +138,9 @@ pub async fn delete_action_handler(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
+    // Its schedules go with it (`schedules.custom_action_id` cascades).
     repository::delete(&state.write_pool, id).await?;
     notify_changed(&state.custom_action_events_tx, Some(id));
-    state.custom_action_scheduler.stop_for_action(id).await;
     Ok(Json(SuccessResponse { success: true }))
 }
 
@@ -238,46 +237,6 @@ pub async fn cancel_run_handler(
     Ok(Json(SuccessResponse { success: true }))
 }
 
-// ---------------------------------------------------------------------------
-// Schedule
-// ---------------------------------------------------------------------------
-
-#[utoipa::path(get, path = "/api/custom-actions/{id}/schedule", params(("id" = i64, Path,), FeatureIdQuery), responses((status = 200, body = Option<CustomActionSchedule>)))]
-pub async fn get_schedule_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Query(q): Query<FeatureIdQuery>,
-) -> Result<Json<Option<CustomActionSchedule>>, AppError> {
-    Ok(Json(
-        repository::get_schedule(&state.read_pool, id, q.feature_id).await?,
-    ))
-}
-
-#[utoipa::path(put, path = "/api/custom-actions/{id}/schedule", params(("id" = i64, Path,), FeatureIdQuery), request_body = SetCustomActionScheduleRequest, responses((status = 200, body = SuccessResponse)))]
-pub async fn set_schedule_handler(
-    State(state): State<AppState>,
-    Path(id): Path<i64>,
-    Query(q): Query<FeatureIdQuery>,
-    Json(body): Json<SetCustomActionScheduleRequest>,
-) -> Result<Json<SuccessResponse>, AppError> {
-    match (body.interval_seconds, body.enabled.unwrap_or(true)) {
-        (None, _) | (_, false) => {
-            repository::delete_schedule(&state.write_pool, id, q.feature_id).await?;
-        }
-        (Some(secs), true) => {
-            if secs < 5 {
-                return Err(AppError::BadRequest("interval_seconds must be >= 5".into()));
-            }
-            repository::upsert_schedule(&state.write_pool, id, q.feature_id, secs, true).await?;
-        }
-    }
-    state
-        .custom_action_scheduler
-        .apply_change(&state, id, q.feature_id)
-        .await?;
-    Ok(Json(SuccessResponse { success: true }))
-}
-
 pub fn custom_actions_router() -> Router<AppState> {
     Router::new()
         .route(
@@ -305,9 +264,5 @@ pub fn custom_actions_router() -> Router<AppState> {
         .route(
             "/api/custom-actions/{id}/runs/{run_id}/cancel",
             post(cancel_run_handler),
-        )
-        .route(
-            "/api/custom-actions/{id}/schedule",
-            get(get_schedule_handler).put(set_schedule_handler),
         )
 }

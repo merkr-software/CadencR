@@ -111,23 +111,6 @@ pub struct CustomActionRun {
     pub triggered_by: TriggeredBy,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, ToSchema)]
-pub struct CustomActionSchedule {
-    pub id: i64,
-    pub action_id: i64,
-    pub feature_id: i64,
-    pub interval_seconds: i64,
-    pub enabled: bool,
-    pub last_run_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct SetCustomActionScheduleRequest {
-    /// `None` = clear the schedule.
-    pub interval_seconds: Option<i64>,
-    pub enabled: Option<bool>,
-}
-
 /// Response for starting an asynchronous run. Output and exit code are streamed
 /// into `custom_action_runs` and read back via `GET /runs`, so the start call
 /// only returns the new run's id.

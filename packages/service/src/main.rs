@@ -317,9 +317,6 @@ async fn main() -> anyhow::Result<()> {
                 Err(e) => tracing::warn!("failed to reconcile orphaned custom action runs: {e}"),
             }
 
-            // Resume periodic custom-action schedules from a previous launch.
-            state.custom_action_scheduler.bootstrap(&state).await;
-
             // Background dispatcher for user schedules (one poll loop for the
             // process lifetime; survives client disconnects).
             domain::schedules::scheduler::spawn(state.clone());

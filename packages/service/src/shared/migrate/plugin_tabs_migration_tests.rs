@@ -44,6 +44,7 @@ async fn legacy_pool() -> SqlitePool {
     .await
     .unwrap();
     super::test_fixtures::seed_applied_migrations_before(&pool, TARGET_VERSION).await;
+    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
     pool
 }
 

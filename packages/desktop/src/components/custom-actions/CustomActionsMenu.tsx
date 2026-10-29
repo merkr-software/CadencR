@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  CalendarClockIcon,
   ListVideoIcon,
   PencilIcon,
   PlusIcon,
@@ -23,6 +24,7 @@ import { launchCustomAction, showCustomActionOutput } from "@/lib/custom-actions
 import { runStateText } from "@/lib/custom-actions/run-state";
 import { formatCombo } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
+import { useOpenScheduleEditorForAction } from "@/hooks/useOpenScheduleEditorForAction";
 import { useCustomActionsUiStore } from "@/stores/custom-actions-ui-store";
 import { CustomActionIcon } from "./CustomActionIcon";
 import { RunStateDot } from "./RunStateDot";
@@ -47,24 +49,9 @@ function useDigitShortcut(): (index: number) => string[] | null {
  * action last did in this conversation; picking a running background action
  * shows its output instead of starting it twice.
  */
-export function CustomActionsMenu({
-  actions,
-  selected,
-  featureId,
-  projectId,
-  onDone,
-}: CustomActionsMenuProps): ReactElement {
-  const navigate = useNavigate();
+export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
+  const { actions, featureId, projectId, onDone } = props;
   const digitKeys = useDigitShortcut();
-  const then = (fn: () => void) => (): void => {
-    onDone();
-    fn();
-  };
-  const openEditor = (action?: CustomAction): void =>
-    useCustomActionsUiStore
-      .getState()
-      .openEditor({ action, projectId, defaultScope: action?.scope ?? "project" });
-
   return (
     <Command loop>
       <CommandInput placeholder="Run an action…" aria-label="Filter actions" />
@@ -79,7 +66,10 @@ export function CustomActionsMenu({
                   key={action.id}
                   value={`${action.name} ${action.id}`}
                   keywords={[action.command]}
-                  onSelect={then(() => activateAction(action, featureId, projectId))}
+                  onSelect={() => {
+                    onDone();
+                    activateAction(action, featureId, projectId);
+                  }}
                 >
                   <CustomActionIcon iconData={action.icon_data} name={action.name} />
                   <span className="min-w-0 flex-1 truncate">{action.name}</span>
@@ -94,57 +84,82 @@ export function CustomActionsMenu({
           </CommandGroup>
         )}
         <CommandSeparator />
-        <CommandGroup>
-          {actions.length > 0 && (
-            <CommandItem
-              value="show runs"
-              onSelect={then(() =>
-                showCustomActionOutput(featureId, selected?.id ?? actions[0].id),
-              )}
-            >
-              <ListVideoIcon />
-              Show runs
-            </CommandItem>
-          )}
-          {selected && selected.variable_names.length > 0 && (
-            <CommandItem
-              value={`run ${selected.name} with values`}
-              onSelect={then(
-                () =>
-                  void launchCustomAction(
-                    { action: selected, featureId, projectId },
-                    { promptVariables: true },
-                  ),
-              )}
-            >
-              <TextCursorInputIcon />
-              Run {selected.name} with…
-            </CommandItem>
-          )}
-          {selected && (
-            <CommandItem
-              value={`edit ${selected.name}`}
-              onSelect={then(() => openEditor(selected))}
-            >
-              <PencilIcon />
-              Edit {selected.name}…
-            </CommandItem>
-          )}
-          <CommandItem value="new action" onSelect={then(() => openEditor())}>
-            <PlusIcon />
-            New action…
-          </CommandItem>
-          <CommandItem
-            value="manage actions"
-            onSelect={then(
-              () => void navigate({ to: "/settings", search: { section: "actions" } }),
-            )}
-          >
-            <Settings2Icon />
-            Manage actions…
-          </CommandItem>
-        </CommandGroup>
+        <MenuCommands {...props} />
       </CommandList>
     </Command>
+  );
+}
+
+/** What else can be done from the menu, about the selected action or all of them. */
+function MenuCommands({
+  actions,
+  selected,
+  featureId,
+  projectId,
+  onDone,
+}: CustomActionsMenuProps): ReactElement {
+  const navigate = useNavigate();
+  const openScheduleEditor = useOpenScheduleEditorForAction();
+  const then = (fn: () => void) => (): void => {
+    onDone();
+    fn();
+  };
+  const openEditor = (action?: CustomAction): void =>
+    useCustomActionsUiStore
+      .getState()
+      .openEditor({ action, projectId, defaultScope: action?.scope ?? "project" });
+  return (
+    <CommandGroup>
+      {actions.length > 0 && (
+        <CommandItem
+          value="show runs"
+          onSelect={then(() => showCustomActionOutput(featureId, selected?.id ?? actions[0].id))}
+        >
+          <ListVideoIcon />
+          Show runs
+        </CommandItem>
+      )}
+      {selected && selected.variable_names.length > 0 && (
+        <CommandItem
+          value={`run ${selected.name} with values`}
+          onSelect={then(
+            () =>
+              void launchCustomAction(
+                { action: selected, featureId, projectId },
+                { promptVariables: true },
+              ),
+          )}
+        >
+          <TextCursorInputIcon />
+          Run {selected.name} with…
+        </CommandItem>
+      )}
+      {selected && (
+        <CommandItem value={`edit ${selected.name}`} onSelect={then(() => openEditor(selected))}>
+          <PencilIcon />
+          Edit {selected.name}…
+        </CommandItem>
+      )}
+      {selected && !selected.run_in_terminal && (
+        <CommandItem
+          value={`schedule ${selected.name}`}
+          onSelect={then(() => openScheduleEditor({ projectId, featureId, actionId: selected.id }))}
+        >
+          <CalendarClockIcon />
+          Schedule {selected.name}…
+        </CommandItem>
+      )}
+      <CommandItem value="new action" onSelect={then(() => openEditor())}>
+        <PlusIcon />
+        New action…
+      </CommandItem>
+      <CommandItem
+        value="manage actions"
+        onSelect={then(() => void navigate({ to: "/settings", search: { section: "actions" } }))}
+      >
+        <Settings2Icon />
+        Manage actions…
+      </CommandItem>
+    </CommandGroup>
   );
 }

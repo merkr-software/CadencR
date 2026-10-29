@@ -1,5 +1,12 @@
 import { useState, type ReactElement } from "react";
-import { Loader2Icon, PencilIcon, PlayIcon, SquareIcon, TerminalIcon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  Loader2Icon,
+  PencilIcon,
+  PlayIcon,
+  SquareIcon,
+  TerminalIcon,
+} from "lucide-react";
 
 import { useGetCustomActionRuns, type CustomAction, type CustomActionRun } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -11,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useIsActionStarting } from "@/hooks/useFeatureCustomActions";
+import { useOpenScheduleEditorForAction } from "@/hooks/useOpenScheduleEditorForAction";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { launchCustomAction, stopCustomActionRun } from "@/lib/custom-actions/launch";
 import { describeRun, runOutcomeText } from "@/lib/custom-actions/run-history";
@@ -35,6 +43,7 @@ export function CustomActionRunPanel({
   projectId,
 }: CustomActionRunPanelProps): ReactElement {
   const target = { action, featureId, projectId };
+  const openScheduleEditor = useOpenScheduleEditorForAction();
   return (
     <section aria-label={`${action.name} runs`} className="flex min-h-0 flex-1 flex-col gap-3">
       <header className="flex items-start gap-3">
@@ -50,6 +59,16 @@ export function CustomActionRunPanel({
             {action.command}
           </p>
         </div>
+        {!action.run_in_terminal && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => openScheduleEditor({ projectId, featureId, actionId: action.id })}
+          >
+            <CalendarClockIcon />
+            Schedule…
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
