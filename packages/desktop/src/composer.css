@@ -152,6 +152,13 @@
   background-color: var(--border);
   pointer-events: none;
 }
+/* The skill wizard's instrument strip wraps on narrow trays, where a hairline
+ * would dangle at a line's end. */
+@container (max-width: 30rem) {
+  [data-virtual-skill-wizard] [data-composer-group]::before {
+    display: none;
+  }
+}
 /* Fast mode on: the bolt is lit, not the control. */
 .composer-fast-lit {
   filter: drop-shadow(0 0 4px color-mix(in oklab, var(--acc-yellow) 55%, transparent));
