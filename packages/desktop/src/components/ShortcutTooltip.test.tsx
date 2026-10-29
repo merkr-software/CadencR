@@ -76,6 +76,21 @@ describe("ShortcutTooltip", () => {
     expect(tooltipContent()).toHaveTextContent("Git");
   });
 
+  it("closes a keyboard-opened bubble on Esc, so the next Esc reaches the page", () => {
+    render(
+      <ShortcutTooltip label="Model" keys={["cmd", "P"]}>
+        <button>Model</button>
+      </ShortcutTooltip>,
+    );
+    const trigger = screen.getByText("Model");
+    fireEvent.keyDown(window, { key: "Tab" });
+    fireEvent.focus(trigger);
+    expect(tooltipContent()).toHaveTextContent("Model");
+
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+    expect(document.querySelector('[data-slot="tooltip-content"]')).toBeNull();
+  });
+
   it("ignores focus a pane shortcut moved for us", () => {
     render(
       <ShortcutTooltip label="Git" keys={["cmd", "shift", "G"]}>
