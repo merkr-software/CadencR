@@ -100,7 +100,14 @@ export function ShortcutTooltip({
             {children}
           </div>
         </TooltipTrigger>
-        <TooltipContent side={side} align={align} aria-label={`${label} tooltip`}>
+        <TooltipContent
+          side={side}
+          align={align}
+          aria-label={`${label} tooltip`}
+          // `open` is controlled: Radix's Esc dismissal must close it here, or a
+          // keyboard-opened tooltip would swallow every Esc while focus stays put.
+          onEscapeKeyDown={handleMouseLeave}
+        >
           {content ?? <span>{label}</span>}
           {keys?.length ? <KbdShortcut keys={keys} size="sm" /> : null}
         </TooltipContent>
