@@ -10,6 +10,7 @@ import {
 import { useGitStatusSubscription } from "@/hooks/useGitStatusSubscription";
 import { useAgentLetterFocus } from "@/hooks/useAgentLetterFocus";
 import { useScopedShortcut } from "@/hooks/useShortcut";
+import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import { nextThinkingEffort } from "@/shared/thinking-effort";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useGitStatusStore } from "@/stores/useGitStatusStore";
@@ -277,9 +278,9 @@ export function useWsSessionShortcuts(args: {
     "agent-thinking",
     (e) => {
       const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || !active.closest("[data-agent-prompt-bar='true']")) {
-        return;
-      }
+      const promptBar =
+        active instanceof HTMLElement ? active.closest("[data-agent-prompt-bar='true']") : null;
+      if (!promptBar || focusInSkillWizard(promptBar)) return;
       if (controls.supportedThinkingEfforts.length === 0) return;
       e.preventDefault();
       const next = nextThinkingEffort(

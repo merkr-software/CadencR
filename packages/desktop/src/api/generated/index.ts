@@ -5708,6 +5708,17 @@ export interface SideQuestionResponse {
   session_id: number;
 }
 
+/**
+ * Where a spawned session works, relative to the invoking conversation.
+ */
+export type SkillWorktree = (typeof SkillWorktree)[keyof typeof SkillWorktree];
+
+export const SkillWorktree = {
+  same: "same",
+  new: "new",
+  project: "project",
+} as const;
+
 export interface StartImportRequest {
   session_ids: string[];
 }
@@ -6056,6 +6067,26 @@ export interface UserMessagePayload {
  */
 export interface VapidKeyResponse {
   public_key: string;
+}
+
+export interface VirtualSkillParametersPayload {
+  /** Provider, model, thinking level and permission mode are configurable. */
+  agent: boolean;
+  /**
+   * Offered worktree placements; the first is the default. Shown as a choice
+   * only when there are at least two.
+   */
+  worktrees: SkillWorktree[];
+}
+
+export interface VirtualSkillPayload {
+  /** @nullable */
+  argument_hint?: string | null;
+  /** The namespaced command, e.g. `cadencr:review`. */
+  command: string;
+  description: string;
+  details: string;
+  parameters: VirtualSkillParametersPayload;
 }
 
 export interface WorkingDirResponse {
@@ -31620,6 +31651,105 @@ export const useDismissUsageRecordingIssue = <TError = ErrorType<unknown>, TCont
 > => {
   return useMutation(getDismissUsageRecordingIssueMutationOptions(options), queryClient);
 };
+
+export const listVirtualSkills = (signal?: AbortSignal) => {
+  return customInstance<VirtualSkillPayload[]>({
+    url: `/api/virtual-skills`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListVirtualSkillsQueryKey = () => {
+  return [`/api/virtual-skills`] as const;
+};
+
+export const getListVirtualSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListVirtualSkillsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listVirtualSkills>>> = ({ signal }) =>
+    listVirtualSkills(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listVirtualSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListVirtualSkillsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listVirtualSkills>>
+>;
+export type ListVirtualSkillsQueryError = ErrorType<unknown>;
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListVirtualSkillsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getAutoNamePrompt = (signal?: AbortSignal) => {
   return customInstance<AutoNamePromptResponse>({

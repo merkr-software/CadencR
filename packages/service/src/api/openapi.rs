@@ -7,6 +7,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::claude_code::routes as claude_code_routes;
 use crate::domain::agents::codex::routes as codex_routes;
 use crate::domain::agents::discovery::routes as discovery_routes;
+use crate::domain::agents::orchestration_skills::routes as virtual_skills_routes;
 use crate::domain::agents::providers::development::routes as provider_development_routes;
 use crate::domain::agents::providers::installed::managed::routes as managed_provider_routes;
 use crate::domain::agents::providers::installed::routes as installed_provider_routes;
@@ -162,6 +163,7 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_routes::set_schedule_enabled_handler,
         schedules_routes::run_schedule_handler,
         ws_routes::get_prompt_commands,
+        virtual_skills_routes::list_virtual_skills,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
         feature_layouts_routes::update_layout_handler,
@@ -579,6 +581,9 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_models::ScheduleDeleted,
         schedules_models::ScheduleRunResult,
         ws_routes::PromptCommandsResponse,
+        virtual_skills_routes::VirtualSkillPayload,
+        virtual_skills_routes::VirtualSkillParametersPayload,
+        crate::domain::agents::orchestration_skills::SkillWorktree,
         ws_protocol::SlashCommandPayload,
         ws_protocol::SlashCommandKindPayload,
         ws_protocol::PromptCommandPolicyPayload,

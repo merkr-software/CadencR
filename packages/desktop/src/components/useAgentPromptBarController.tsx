@@ -33,6 +33,7 @@ import type { PromptEditorHandle } from "./prompt-editor/PromptEditor";
 import { useDeferredAgentPrompts } from "./useDeferredAgentPrompts";
 import { useQueueSend } from "./composer/useQueueSend";
 import { useContextualSend } from "./composer/useContextualSend";
+import { useVirtualSkillWizard } from "./composer/useVirtualSkillWizard";
 
 function usePromptState(props: AgentPromptBarProps) {
   const editorRef = useRef<PromptEditorHandle>(null);
@@ -139,6 +140,7 @@ function usePromptSending(
     },
     [props.projectId, state.history.addEntry],
   );
+  const skillWizard = useVirtualSkillWizard(state.text);
   const send = useAgentPromptSend({
     editorRef: state.editorRef,
     setText: state.setText,
@@ -150,7 +152,7 @@ function usePromptSending(
     interactedRef: state.interactedRef,
     sendInFlightRef: state.sendInFlightRef,
   });
-  const contextual = useContextualSend(props.featureId, props.sessionId);
+  const contextual = useContextualSend(props.featureId, props.sessionId, skillWizard.decorate);
   const hasSendableContent = isShellCommandMode
     ? state.text.slice(1).trim().length > 0 && state.attachments.attachments.length === 0
     : state.text.trim().length > 0 ||
@@ -175,6 +177,7 @@ function usePromptSending(
     featureId: props.featureId,
     enabled: canSend && state.text.trim().length > 0,
     textRef: state.textRef,
+    decorate: skillWizard.decorate,
     editorRef: state.editorRef,
     setText: state.setText,
     saveDraft: state.draft.saveDraft,
@@ -213,6 +216,7 @@ function usePromptSending(
     handleSplitAction,
     scheduleControl,
     sending: send.sending,
+    skillWizard: skillWizard.state,
   };
 }
 

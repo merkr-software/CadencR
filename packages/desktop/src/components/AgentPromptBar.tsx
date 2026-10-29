@@ -24,6 +24,7 @@ import { QueueRail } from "./composer/QueueRail";
 import { RunningSweep } from "./composer/RunningSweep";
 import { StopArmHint } from "./composer/StopArmHint";
 import { useComposerContextValue } from "./composer/useComposerContextValue";
+import { VirtualSkillWizard } from "./composer/VirtualSkillWizard";
 import { InstrumentPlacementContext } from "./composer/InstrumentPlacement";
 import { InstrumentRow } from "./composer/InstrumentRow";
 import { useInstrumentRows, type PlaceInstrument } from "./composer/useInstrumentRows";
@@ -154,6 +155,11 @@ function PromptComposer({
               <ComposerHelp />
             </div>
           )}
+          <VirtualSkillWizard
+            state={controller.sending.skillWizard}
+            editorRef={state.editorRef}
+            shortcutsEnabled={(props.agentTabActive ?? true) && !props.disableShortcuts}
+          />
           <PromptSurface props={props} controller={controller} />
           {props.splitSendActions && !controller.isRunning && !controller.isShellCommandMode && (
             <SplitSendActions
