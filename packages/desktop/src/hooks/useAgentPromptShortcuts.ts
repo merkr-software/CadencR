@@ -7,6 +7,7 @@
  */
 import { type RefObject } from "react";
 import { useScopedShortcut, useShortcut } from "@/hooks/useShortcut";
+import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import { useStopArmStore } from "@/stores/stop-arm-store";
 
 /** An open typeahead/popover inside the composer owns Esc (it closes first). */
@@ -40,7 +41,7 @@ export function useAgentPromptShortcuts({
   useScopedShortcut(
     "agent-model-picker",
     (e) => {
-      if (!onOpenModelPicker) return;
+      if (!onOpenModelPicker || focusInSkillWizard(wrapperRef.current ?? document)) return;
       e.preventDefault();
       onOpenModelPicker();
     },
@@ -60,7 +61,7 @@ export function useAgentPromptShortcuts({
   useScopedShortcut(
     "agent-permission-mode",
     (e) => {
-      if (!onPermissionModeToggle) return;
+      if (!onPermissionModeToggle || focusInSkillWizard(wrapperRef.current ?? document)) return;
       e.preventDefault();
       onPermissionModeToggle();
     },
@@ -80,7 +81,9 @@ export function useAgentPromptShortcuts({
   useShortcut(
     "agent-stop",
     (e) => {
-      if (!isRunning || e.defaultPrevented) return;
+      // In the skill wizard, Esc returns to the prompt instead.
+      if (!isRunning || e.defaultPrevented || focusInSkillWizard(wrapperRef.current ?? document))
+        return;
       const wrapper = wrapperRef.current;
       if (!wrapper?.contains(document.activeElement)) return;
       if (wrapper.querySelector(COMPOSER_POPOVER_SELECTOR)) return;

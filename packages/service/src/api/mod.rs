@@ -259,6 +259,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(crate::domain::plugin_tabs::plugin_tabs_router())
         .merge(crate::domain::plugin_tabs::managed::routes::router())
         .merge(prompt_commands_router())
+        .merge(crate::domain::agents::orchestration_skills::routes::virtual_skills_router())
         .merge(neovim_routes())
         .merge(neovim_ws_routes())
         // VAPID public key — shared, so the frontend can fetch it on either

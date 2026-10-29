@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import { ResolvedShortcutHint } from "@/components/KbdShortcut";
+import { focusInSkillWizard } from "@/components/composer/skill-wizard-focus";
 import {
   WORKTREE_MODES,
   describeWorktreeMode,
@@ -78,6 +79,7 @@ export const WorktreeModePicker = memo(function WorktreeModePicker({
   useScopedShortcut(
     "agent-worktree-mode",
     () => {
+      if (focusInSkillWizard()) return;
       const next = nextWorktreeMode(mode, state, modes);
       if (next) onModeChange(next);
     },

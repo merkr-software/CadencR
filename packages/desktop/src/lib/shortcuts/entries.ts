@@ -305,6 +305,15 @@ const APP_SHORTCUTS = [
     scope: "agent",
   },
   {
+    // Free in this scope: ⌘⇧C is only the Editor tab's "Copy file path".
+    // Toggles: from the prompt into the wizard, and from the wizard back.
+    id: "agent-skill-wizard",
+    keys: ["mod", "shift", "c"],
+    description: "Configure the invoked /cadencr skill, or return to the prompt",
+    scope: "agent",
+    aliases: ["skill", "wizard"],
+  },
+  {
     id: "agent-autoscroll",
     keys: ["mod", "shift", "s"],
     description: "Re-enable auto-scroll",
