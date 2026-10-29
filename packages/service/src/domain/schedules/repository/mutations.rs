@@ -157,8 +157,8 @@ async fn require_available_action(
     else {
         return Ok(());
     };
-    let available: Option<i64> = sqlx::query_scalar(
-        "SELECT a.id FROM custom_actions a
+    let run_in_terminal: Option<bool> = sqlx::query_scalar(
+        "SELECT a.run_in_terminal FROM custom_actions a
          JOIN features f ON f.id = ?
          WHERE a.id = ? AND (a.scope = 'global' OR a.project_id = f.project_id)",
     )
@@ -166,12 +166,18 @@ async fn require_available_action(
     .bind(action_id)
     .fetch_optional(pool)
     .await?;
-    if available.is_none() {
-        return Err(AppError::BadRequest(format!(
+    match run_in_terminal {
+        None => Err(AppError::BadRequest(format!(
             "custom action {action_id} is not available in this conversation's project"
-        )));
+        ))),
+        // A terminal action is meant to be watched and typed into (a dev
+        // server): run unattended it would never end.
+        Some(true) => Err(AppError::BadRequest(
+            "Terminal actions can't be scheduled; switch the action to run in the background first"
+                .into(),
+        )),
+        Some(false) => Ok(()),
     }
-    Ok(())
 }
 
 type Sql<'q> = sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments>;
@@ -677,6 +683,20 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(error, AppError::BadRequest(_)), "{error}");
+
+        let terminal = action(&pool, "global", None).await;
+        sqlx::query("UPDATE custom_actions SET run_in_terminal = 1 WHERE id = ?")
+            .bind(terminal)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let error = insert(&pool, run_action(feature_id, terminal))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(&error, AppError::BadRequest(message) if message.contains("Terminal actions")),
+            "{error}"
+        );
 
         let mut no_action = run_action(feature_id, global);
         no_action.target.action_id = None;

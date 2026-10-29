@@ -50,6 +50,18 @@ async fn run(state: &AppState, schedule: &Schedule, wait: Wait) -> Result<i64, S
             schedule.id
         ));
     };
+    // Saving refuses terminal actions, but one can be switched to the terminal
+    // after it was scheduled: unattended, it would never end.
+    let action = repository::get(&state.read_pool, action_id)
+        .await
+        .map_err(user_message)?
+        .ok_or_else(|| "the action was deleted".to_string())?;
+    if action.run_in_terminal {
+        return Err(
+            "the action now runs in a terminal; switch it back to the background to schedule it"
+                .into(),
+        );
+    }
     // Setup errors (missing worktree, unset `${VAR}` values) surface here,
     // before any run row exists — the message the user needs to fix them.
     let run_id = runner::start(state, action_id, feature_id, TriggeredBy::Schedule)
@@ -173,6 +185,19 @@ mod tests {
             panic!("expected a failed run");
         };
         assert_eq!(error, "Missing values for variables: ENV");
+    }
+
+    #[tokio::test]
+    async fn an_action_moved_to_the_terminal_is_not_run_unattended() {
+        let (state, schedule) = action_schedule("exit 0").await;
+        sqlx::query("UPDATE custom_actions SET run_in_terminal = 1")
+            .execute(&state.write_pool)
+            .await
+            .unwrap();
+        let FireOutcome::Failed { error } = fire(&state, &schedule, Wait::ForExit).await else {
+            panic!("expected a refused run");
+        };
+        assert!(error.contains("runs in a terminal"), "{error}");
     }
 
     #[tokio::test]

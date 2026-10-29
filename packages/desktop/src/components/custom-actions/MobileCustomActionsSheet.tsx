@@ -132,7 +132,7 @@ function SheetRow({
         size="icon-sm"
         className="size-11"
         disabled={starting}
-        aria-label={running ? `Stop ${action.name}` : `Run ${action.name}`}
+        aria-label={running ? `Stop “${action.name}”` : `Run “${action.name}”`}
         onClick={() => {
           if (running && runId != null) {
             void stopCustomActionRun({ action, featureId, projectId }, runId);

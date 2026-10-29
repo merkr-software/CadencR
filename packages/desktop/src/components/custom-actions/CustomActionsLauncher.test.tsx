@@ -58,7 +58,7 @@ describe("CustomActionsLauncher", () => {
     listed.data = [action(1), action(2)];
     useCustomActionsUiStore.setState({ selectedByProject: { 1: 2 } });
     render(<CustomActionsLauncher featureId={2} projectId={1} />);
-    fireEvent.click(screen.getByRole("button", { name: "Run Action 2" }));
+    fireEvent.click(screen.getByRole("button", { name: "Run “Action 2”" }));
     expect(launch.launchCustomAction).toHaveBeenCalledWith({
       action: listed.data[1],
       featureId: 2,
@@ -70,7 +70,7 @@ describe("CustomActionsLauncher", () => {
     const running = { run_id: 8, started_at: "", ended_at: null, exit_code: null };
     listed.data = [action(1, { last_run: running })];
     render(<CustomActionsLauncher featureId={2} projectId={1} />);
-    fireEvent.click(screen.getByRole("button", { name: "Stop Action 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop “Action 1”" }));
     expect(launch.stopCustomActionRun).toHaveBeenCalledWith(
       { action: listed.data[0], featureId: 2, projectId: 1 },
       8,

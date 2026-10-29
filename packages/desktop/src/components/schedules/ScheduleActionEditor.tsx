@@ -143,17 +143,21 @@ function ActionPicker({
   );
   const options = useMemo(
     () =>
-      (Array.isArray(query.data) ? query.data : []).map((action) => ({
-        value: action.id,
-        label: action.name,
-        icon: (
-          <CustomActionIcon
-            iconData={action.icon_data ?? null}
-            name={action.name}
-            className="size-3.5 text-muted-foreground"
-          />
-        ),
-      })),
+      (Array.isArray(query.data) ? query.data : [])
+        // Terminal actions are meant to be watched and typed into; the
+        // service refuses to schedule them.
+        .filter((action) => !action.run_in_terminal)
+        .map((action) => ({
+          value: action.id,
+          label: action.name,
+          icon: (
+            <CustomActionIcon
+              iconData={action.icon_data ?? null}
+              name={action.name}
+              className="size-3.5 text-muted-foreground"
+            />
+          ),
+        })),
     [query.data],
   );
 

@@ -128,8 +128,8 @@ function PrimaryButton({
       className={cn(LAUNCHER_BUTTON_CLASS, "max-w-48 rounded-r-none border-r-0")}
       disabled={starting}
       onClick={onTrigger}
-      title={`${verb} ${action.name}`}
-      aria-label={`${verb} ${action.name}`}
+      title={`${verb} “${action.name}”`}
+      aria-label={`${verb} “${action.name}”`}
     >
       <Icon
         aria-hidden
