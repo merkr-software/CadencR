@@ -1658,6 +1658,9 @@ export interface LastRunSummary {
    * @nullable
    */
   exit_code?: number | null;
+  /** The run's id, so the header can stop it without fetching the history. */
+  run_id: number;
+  started_at: string;
 }
 
 export type CustomActionLastRun = null | LastRunSummary;
@@ -5116,6 +5119,13 @@ export interface RenamePathResponse {
 }
 
 /**
+ * New order for one list of actions (the globals, or one project's).
+ */
+export interface ReorderCustomActionsRequest {
+  ids: number[];
+}
+
+/**
  * An action's `${VAR}`-interpolated command and resolved working directory,
  * returned without running it. The frontend uses this to spawn the command in
  * a dedicated terminal split when `run_in_terminal` is set.
@@ -5140,8 +5150,9 @@ export interface RestartContinuationEntry {
   outcome: RestartContinuationOutcome;
   project_id: number;
   /**
-   * Skip code (`awaiting_input`, `disabled`, `no_resume_id`, `loop_guard`,
-   * `archived`, `already_running`) or the delivery error.
+   * Skip code (`disabled`, `no_resume_id`, `loop_guard`, `archived`,
+   * `already_running`), the delivery error, or — on a resumed entry —
+   * `lost_gate`: the agent was waiting on the user and will ask again.
    * @nullable
    */
   reason?: string | null;
@@ -6282,7 +6293,11 @@ export type GetUnifiedAgentsParams = {
 };
 
 export type ListCustomActionsParams = {
-  project_id: number;
+  /**
+   * Omit to list only the global actions (the Settings page).
+   * @nullable
+   */
+  project_id?: number | null;
   /**
    * Optional feature id to embed `last_run` summaries on each action.
    * @nullable
@@ -9795,7 +9810,7 @@ export const useCodexDeleteProfile = <TError = ErrorType<unknown>, TContext = un
   return useMutation(getCodexDeleteProfileMutationOptions(options), queryClient);
 };
 
-export const listCustomActions = (params: ListCustomActionsParams, signal?: AbortSignal) => {
+export const listCustomActions = (params?: ListCustomActionsParams, signal?: AbortSignal) => {
   return customInstance<CustomAction[]>({
     url: `/api/custom-actions`,
     method: "GET",
@@ -9812,7 +9827,7 @@ export const getListCustomActionsQueryOptions = <
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9840,7 +9855,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params: undefined | ListCustomActionsParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9858,7 +9873,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9876,7 +9891,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9887,7 +9902,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9976,6 +9991,82 @@ export const useCreateCustomAction = <TError = ErrorType<unknown>, TContext = un
   TContext
 > => {
   return useMutation(getCreateCustomActionMutationOptions(options), queryClient);
+};
+
+export const reorderCustomActions = (
+  reorderCustomActionsRequest: ReorderCustomActionsRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<SuccessResponse>({
+    url: `/api/custom-actions/order`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: reorderCustomActionsRequest,
+    signal,
+  });
+};
+
+export const getReorderCustomActionsMutationKey = () => ["reorderCustomActions"] as const;
+
+export const getReorderCustomActionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    TError,
+    ReorderCustomActionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderCustomActionsMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    ReorderCustomActionsMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderCustomActions(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderCustomActionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderCustomActions>>
+>;
+export type ReorderCustomActionsMutationBody = ReorderCustomActionsRequest;
+export type ReorderCustomActionsMutationError = ErrorType<unknown>;
+export type ReorderCustomActionsMutationVariables = { data: ReorderCustomActionsRequest };
+
+export const useReorderCustomActions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderCustomActions>>,
+      TError,
+      ReorderCustomActionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderCustomActionsMutationOptions(options), queryClient);
 };
 
 export const updateCustomAction = (

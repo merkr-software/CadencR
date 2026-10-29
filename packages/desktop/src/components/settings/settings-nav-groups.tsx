@@ -1,5 +1,6 @@
 import type { SettingsNavGroup } from "@/components/settings/SettingsNavSidebar";
 import { CUSTOM_TABS_SECTION_ID } from "@/components/settings/custom-tabs/custom-tab-model";
+import { CUSTOM_ACTIONS_SECTION_ID } from "@/components/settings/CustomActionsSettingsSection";
 import {
   BarChart3,
   Bell,
@@ -13,6 +14,7 @@ import {
   Network,
   Palette,
   PanelLeft,
+  Play,
   Plug,
   Puzzle,
   Tag,
@@ -66,6 +68,11 @@ export const NAV_GROUPS: SettingsNavGroup[] = [
         id: CUSTOM_TABS_SECTION_ID,
         label: "Custom tabs",
         icon: <Puzzle className="size-4" />,
+      },
+      {
+        id: CUSTOM_ACTIONS_SECTION_ID,
+        label: "Custom actions",
+        icon: <Play className="size-4" />,
       },
       {
         id: "storage",

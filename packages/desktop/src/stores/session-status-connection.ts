@@ -71,6 +71,7 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.plugin_tab_events", {})));
   // Prompts queued for after a turn: delivery happens server-side at turn end.
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.prompt_queue_events", {})));
+  ws.send(JSON.stringify(createEnvelope("app", "subscribe.custom_action_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.alacritty_config_events", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.storage_maintenance_events", {})));
   // Which agents the last restart interrupted, and which were resumed.

@@ -4,7 +4,7 @@ mod runs;
 mod schedules;
 mod variables;
 
-pub use action_mutations::{delete, update};
+pub use action_mutations::{delete, reorder, update};
 pub use actions::{get, insert, list_for_project};
 pub use runs::{fail_orphaned_runs, finalize_run, insert_run, list_runs, update_run_output};
 pub use schedules::{

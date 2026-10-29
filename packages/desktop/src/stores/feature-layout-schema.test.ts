@@ -30,6 +30,7 @@ describe("parseLayoutState", () => {
         "editor",
         "browser",
         "preview",
+        "runs",
       ]);
     }
   });
@@ -55,7 +56,7 @@ describe("parseLayoutState", () => {
     expect(parsed?.splitRoot).toEqual({
       type: "leaf",
       id: "root",
-      tabIds: ["agent", "terminal", "git", "editor", "browser", "preview"],
+      tabIds: ["agent", "terminal", "git", "editor", "browser", "preview", "runs"],
       activeTabId: "agent",
     });
   });
@@ -93,7 +94,7 @@ describe("parseLayoutState", () => {
           {
             type: "leaf",
             id: "root",
-            tabIds: ["agent", "browser", "preview"],
+            tabIds: ["agent", "browser", "preview", "runs"],
             activeTabId: "agent",
           },
           state.splitRoot.children[1],
@@ -143,7 +144,7 @@ describe("parseLayoutState", () => {
     expect(parsed?.splitRoot).toEqual({
       type: "leaf",
       id: "root",
-      tabIds: ["agent", "terminal", "git", "editor", "browser", "preview"],
+      tabIds: ["agent", "terminal", "git", "editor", "browser", "preview", "runs"],
       activeTabId: "agent",
     });
   });
@@ -230,7 +231,7 @@ describe("parseLayoutState", () => {
         {
           type: "leaf",
           id: "root",
-          tabIds: ["agent", "git", "editor", "preview"],
+          tabIds: ["agent", "git", "editor", "preview", "runs"],
           activeTabId: "agent",
         },
         { type: "leaf", id: "b", tabIds: ["terminal", "browser"], activeTabId: "terminal" },
@@ -304,7 +305,15 @@ describe("parseLayoutState", () => {
 
 describe("tab kinds", () => {
   it("recognizes built-in and well-formed plugin tabs only", () => {
-    expect(BUILTIN_TAB_KINDS).toEqual(["agent", "terminal", "git", "editor", "browser", "preview"]);
+    expect(BUILTIN_TAB_KINDS).toEqual([
+      "agent",
+      "terminal",
+      "git",
+      "editor",
+      "browser",
+      "preview",
+      "runs",
+    ]);
     expect(Object.isFrozen(BUILTIN_TAB_KINDS)).toBe(true);
     expect(isTabKind("agent")).toBe(true);
     expect(isTabKind("plugin:changed-files-graph")).toBe(true);

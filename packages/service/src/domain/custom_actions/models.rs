@@ -24,6 +24,9 @@ pub enum TriggeredBy {
 /// list-actions request rather than one HTTP call per button.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LastRunSummary {
+    /// The run's id, so the header can stop it without fetching the history.
+    pub run_id: i64,
+    pub started_at: String,
     /// `None` while the run is still in flight.
     pub exit_code: Option<i64>,
     pub ended_at: Option<String>,
@@ -75,6 +78,12 @@ pub struct UpdateCustomActionRequest {
     pub project_id: Option<i64>,
     pub position: Option<i64>,
     pub run_in_terminal: Option<bool>,
+}
+
+/// New order for one list of actions (the globals, or one project's).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReorderCustomActionsRequest {
+    pub ids: Vec<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow, ToSchema)]

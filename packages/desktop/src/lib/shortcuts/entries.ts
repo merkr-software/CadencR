@@ -239,6 +239,20 @@ const APP_SHORTCUTS = [
     scope: "feature",
   },
   {
+    id: "custom-actions",
+    keys: ["mod", "alt", "r"],
+    description: "Custom actions menu",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
+  },
+  {
+    id: "custom-action-run-1-9",
+    keys: ["mod", "alt", "1-9"],
+    description: "Run custom action 1–9",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
+  },
+  {
     id: "git-commit",
     keys: ["mod", "shift", "k"],
     description: "Open commit dialog",

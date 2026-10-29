@@ -23,6 +23,7 @@ import {
   type PaletteShortcutId,
 } from "@/lib/command-palette/palette-shortcut-commands";
 import { runShortcutAction, useShortcutActionStore } from "@/lib/command-palette/shortcut-actions";
+import { useCustomActionPaletteStore } from "@/lib/custom-actions/palette-commands";
 import type { PaletteCommand } from "@/lib/command-palette/palette-types";
 import { isDesktopShell } from "@/lib/desktop-bridge";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
@@ -214,12 +215,14 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
   const ids = useShortcutActionStore(
     useShallow((state) => Object.keys(state.byId) as ShortcutId[]),
   );
+  const actionCommands = useCustomActionPaletteStore((state) => state.commands);
   return useMemo(() => {
     const all = [
       ...createCommands(context),
       ...modeCommands(context),
       ...navigationCommands(navigate),
       ...shortcutCommands(ids, context.activeFeatureId != null),
+      ...(context.activeFeatureId != null ? actionCommands : []),
       ...settingsCommands(navigate),
     ];
     const byId = new Map(all.map((command) => [command.id, command]));
@@ -230,5 +233,5 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
       byId.get("go-agents"),
     ].filter((command): command is PaletteCommand => command !== undefined);
     return { all, suggestions };
-  }, [context, ids, navigate]);
+  }, [actionCommands, context, ids, navigate]);
 }

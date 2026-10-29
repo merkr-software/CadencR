@@ -13,6 +13,7 @@ const NONE: NonAgentTabReadiness = {
   terminal: false,
   browser: false,
   preview: false,
+  runs: false,
 };
 
 describe("useStaggeredTabReadiness", () => {
@@ -44,6 +45,7 @@ describe("useStaggeredTabReadiness", () => {
       terminal: true,
       browser: true,
       preview: true,
+      runs: false,
     });
   });
 

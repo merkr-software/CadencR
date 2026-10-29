@@ -114,8 +114,8 @@ pub(super) async fn latest_runs_for_feature(
     pool: &SqlitePool,
     feature_id: i64,
 ) -> Result<HashMap<i64, LastRunSummary>, AppError> {
-    let rows: Vec<(i64, Option<i64>, Option<String>)> = sqlx::query_as(
-        r#"SELECT r.action_id, r.exit_code, r.ended_at
+    let rows: Vec<(i64, i64, Option<i64>, Option<String>, String)> = sqlx::query_as(
+        r#"SELECT r.action_id, r.id, r.exit_code, r.ended_at, r.started_at
            FROM custom_action_runs r
            INNER JOIN (
                SELECT action_id, MAX(id) AS max_id
@@ -129,12 +129,14 @@ pub(super) async fn latest_runs_for_feature(
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(action_id, exit_code, ended_at)| {
+        .map(|(action_id, run_id, exit_code, ended_at, started_at)| {
             (
                 action_id,
                 LastRunSummary {
+                    run_id,
                     exit_code,
                     ended_at,
+                    started_at,
                 },
             )
         })

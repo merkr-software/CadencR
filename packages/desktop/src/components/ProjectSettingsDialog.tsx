@@ -9,6 +9,7 @@ import {
 } from "../api/generated";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WorktreeList } from "./WorktreeList";
+import { CustomActionsManager } from "./custom-actions/CustomActionsManager";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { ProjectColorField } from "@/components/settings/ProjectColorField";
@@ -105,6 +106,16 @@ export function ProjectSettingsDialog({
             iconPath={settings[PROJECT_SETTING_KEYS.iconPath]}
             saveProjectSetting={saveProjectSetting}
           />
+          <SettingsSection
+            size="sm"
+            title="Custom actions"
+            subtitle="Header launcher · Runs tab"
+            description="This project's own actions, shown in its header before the global ones (Settings → Custom actions)."
+          >
+            <SettingsCard padded>
+              <CustomActionsManager scope="project" projectId={projectId} />
+            </SettingsCard>
+          </SettingsSection>
           <EditorToolingSection projectId={projectId} enabled={open} />
           <GitAutomationSection
             projectId={projectId}

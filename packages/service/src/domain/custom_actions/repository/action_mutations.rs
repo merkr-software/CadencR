@@ -60,6 +60,42 @@ pub async fn update(
     Ok(())
 }
 
+/// Rewrite `position` so the actions appear in `ids` order. Every id must exist
+/// and all must belong to the same list (the globals, or one project's), since
+/// the header orders each list on its own.
+pub async fn reorder(pool: &SqlitePool, ids: &[i64]) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let mut list: Option<(Scope, Option<i64>)> = None;
+    for id in ids {
+        let row: Option<(Scope, Option<i64>)> =
+            sqlx::query_as("SELECT scope, project_id FROM custom_actions WHERE id = ?")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let row = row.ok_or_else(|| AppError::NotFound(format!("Custom action {id} not found")))?;
+        match list {
+            None => list = Some(row),
+            Some(first) if first == row => {}
+            Some(_) => {
+                return Err(AppError::BadRequest(
+                    "Only actions from the same list can be reordered together".into(),
+                ))
+            }
+        }
+    }
+    for (position, id) in ids.iter().enumerate() {
+        sqlx::query(
+            "UPDATE custom_actions SET position = ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(position as i64)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn delete(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     sqlx::query("DELETE FROM custom_actions WHERE id = ?")
         .bind(id)
@@ -215,5 +251,46 @@ mod tests {
             .await
             .unwrap()
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn reorder_rewrites_positions_within_one_list() {
+        let (pool, project_id, _) = pool_with_project_and_feature().await;
+        let a = insert(
+            &pool,
+            "a",
+            "echo",
+            None,
+            Scope::Project,
+            Some(project_id),
+            false,
+        )
+        .await
+        .unwrap();
+        let b = insert(
+            &pool,
+            "b",
+            "echo",
+            None,
+            Scope::Project,
+            Some(project_id),
+            false,
+        )
+        .await
+        .unwrap();
+        let g = insert(&pool, "g", "echo", None, Scope::Global, None, false)
+            .await
+            .unwrap();
+
+        reorder(&pool, &[b, a]).await.unwrap();
+        assert_eq!(get(&pool, b).await.unwrap().unwrap().position, 0);
+        assert_eq!(get(&pool, a).await.unwrap().unwrap().position, 1);
+
+        let mixed = reorder(&pool, &[a, g]).await.unwrap_err();
+        assert!(matches!(mixed, AppError::BadRequest(_)));
+        let missing = reorder(&pool, &[a, 9999]).await.unwrap_err();
+        assert!(matches!(missing, AppError::NotFound(_)));
+        // A rejected reorder leaves the stored order alone.
+        assert_eq!(get(&pool, a).await.unwrap().unwrap().position, 1);
     }
 }

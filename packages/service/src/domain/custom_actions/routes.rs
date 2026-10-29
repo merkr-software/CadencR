@@ -3,10 +3,12 @@ use axum::routing::{get, post, put};
 use axum::Router;
 use serde::Deserialize;
 
+use super::events::notify_changed;
 use super::models::{
     CreateCustomActionRequest, CustomAction, CustomActionRun, CustomActionSchedule,
-    CustomActionVariable, ResolvedCommand, RunResponse, Scope, SetCustomActionScheduleRequest,
-    SetCustomActionVariableRequest, SuccessResponse, TriggeredBy, UpdateCustomActionRequest,
+    CustomActionVariable, ReorderCustomActionsRequest, ResolvedCommand, RunResponse, Scope,
+    SetCustomActionScheduleRequest, SetCustomActionVariableRequest, SuccessResponse, TriggeredBy,
+    UpdateCustomActionRequest,
 };
 use super::repository;
 use super::runner;
@@ -16,7 +18,8 @@ use crate::error::AppError;
 
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 pub struct ListActionsQuery {
-    pub project_id: i64,
+    /// Omit to list only the global actions (the Settings page).
+    pub project_id: Option<i64>,
     /// Optional feature id to embed `last_run` summaries on each action.
     pub feature_id: Option<i64>,
 }
@@ -72,6 +75,7 @@ pub async fn create_action_handler(
     let row = repository::get(&state.read_pool, id)
         .await?
         .ok_or_else(|| AppError::Internal("inserted action vanished".into()))?;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
 }
 
@@ -116,7 +120,18 @@ pub async fn update_action_handler(
     let row = repository::get(&state.read_pool, id)
         .await?
         .ok_or_else(|| AppError::Internal("updated action vanished".into()))?;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     Ok(Json(row))
+}
+
+#[utoipa::path(put, path = "/api/custom-actions/order", request_body = ReorderCustomActionsRequest, responses((status = 200, body = SuccessResponse)))]
+pub async fn reorder_custom_actions_handler(
+    State(state): State<AppState>,
+    Json(body): Json<ReorderCustomActionsRequest>,
+) -> Result<Json<SuccessResponse>, AppError> {
+    repository::reorder(&state.write_pool, &body.ids).await?;
+    notify_changed(&state.custom_action_events_tx, None);
+    Ok(Json(SuccessResponse { success: true }))
 }
 
 #[utoipa::path(delete, path = "/api/custom-actions/{id}", params(("id" = i64, Path,)), responses((status = 200, body = SuccessResponse)))]
@@ -125,6 +140,7 @@ pub async fn delete_action_handler(
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
     repository::delete(&state.write_pool, id).await?;
+    notify_changed(&state.custom_action_events_tx, Some(id));
     state.custom_action_scheduler.stop_for_action(id).await;
     Ok(Json(SuccessResponse { success: true }))
 }
@@ -267,6 +283,10 @@ pub fn custom_actions_router() -> Router<AppState> {
         .route(
             "/api/custom-actions",
             get(list_actions_handler).post(create_action_handler),
+        )
+        .route(
+            "/api/custom-actions/order",
+            put(reorder_custom_actions_handler),
         )
         .route(
             "/api/custom-actions/{id}",

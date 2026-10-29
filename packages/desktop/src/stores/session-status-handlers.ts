@@ -19,6 +19,7 @@ import {
 } from "@/api/generated";
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { invalidatePromptQueue } from "@/lib/prompt-queue";
+import { applyCustomActionEvent } from "@/lib/custom-actions/events";
 import { GLOBAL_FEATURE_LIST_URLS, invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
 import { openingClearsForMe } from "@/stores/for-me-ack";
@@ -404,6 +405,10 @@ export function handleAppEnvelope(
   if (domain === "app" && action === "prompt_queue_changed") {
     // Bare ping ({session_id}, or nothing after a lagged stream): re-fetch.
     invalidatePromptQueue(typeof payload.session_id === "number" ? payload.session_id : undefined);
+    return true;
+  }
+  if (domain === "app" && action === "custom_action_event") {
+    applyCustomActionEvent(queryClient, payload);
     return true;
   }
   if (domain === "app" && action === "plugin_tab_changed") {

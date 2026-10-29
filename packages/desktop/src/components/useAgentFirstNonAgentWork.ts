@@ -53,6 +53,7 @@ const STAGGER_ORDER: readonly Exclude<TabKind, "agent">[] = [
   "terminal",
   "browser",
   "preview",
+  "runs",
 ];
 /** Gap between revealing each successive tab. */
 const STAGGER_STEP_MS = 120;
@@ -129,6 +130,7 @@ export function useStaggeredTabReadiness({
       terminal: ready("terminal", 2),
       browser: ready("browser", 3),
       preview: ready("preview", 4),
+      runs: ready("runs", 5),
     };
   }, [enabled, immediateTab, stage]);
 }
