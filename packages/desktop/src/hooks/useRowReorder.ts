@@ -26,9 +26,17 @@ export interface RowReorderProps extends Partial<RowDragHandlers> {
 
 const NOT_REORDERABLE: RowReorderProps = {};
 
-function dropPositionOf(event: DragEvent<HTMLElement>): DropPosition {
+/** The hovered half of the drop target: a line above or below it. */
+export function dropPositionOf(event: DragEvent<HTMLElement>): DropPosition {
   const rect = event.currentTarget.getBoundingClientRect();
   return event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+}
+
+/** A `dragleave` for anything but the target's own content: a header, a gap, outside the sidebar. */
+export function leavesTarget(event: DragEvent<HTMLElement>): boolean {
+  return !(
+    event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)
+  );
 }
 
 /**
@@ -74,15 +82,9 @@ function dragHandlers(scope: SidebarReorderScope, featureId: number): RowDragHan
       const moves = moveWithinGroup(drag.group, drag.id, featureId, position) !== null;
       store().hover(moves ? { scope: scope.key, id: featureId, position } : null);
     },
-    // Leaving the row for anything but its own content (a header, a gap,
-    // outside the sidebar) takes its drop line with it.
+    // Leaving the row takes its drop line with it.
     onDragLeave: (event) => {
-      if (
-        event.relatedTarget instanceof Node &&
-        event.currentTarget.contains(event.relatedTarget)
-      ) {
-        return;
-      }
+      if (!leavesTarget(event)) return;
       const { over } = store();
       if (over?.scope === scope.key && over.id === featureId) store().hover(null);
     },

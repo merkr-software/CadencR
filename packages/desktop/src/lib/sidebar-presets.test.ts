@@ -49,6 +49,8 @@ describe("sidebar presets", () => {
     expect(matchSidebarPreset({ ...DEFAULT_SIDEBAR_CONFIG, typeToFilter: false })).toBe("classic");
     const values = sidebarPresetValues("focus");
     expect(values).not.toHaveProperty("sidebar_type_to_filter");
+    expect(values).not.toHaveProperty("sidebar_block_order");
+    expect(values).not.toHaveProperty("sidebar_folded_blocks");
     expect(values).not.toHaveProperty("sidebar_reveal_active");
     expect(values).not.toHaveProperty("sidebar_gate_popover");
     expect(values).not.toHaveProperty("sidebar_auto_collapse");
@@ -71,10 +73,13 @@ describe("sidebar presets", () => {
   it("writes a preset's own values and clears every other key", () => {
     const values = sidebarPresetValues("detailed");
     expect(values).toMatchObject({
-      sidebar_density: "compact",
-      sidebar_title_lines: "two",
+      sidebar_density: null,
+      sidebar_title_lines: null,
+      sidebar_row_worktree_icon: "false",
+      sidebar_row_height: "fixed",
+      sidebar_color_mode: "increased",
       sidebar_row_branch: "true",
-      sidebar_row_preview: null,
+      sidebar_row_ports: null,
       [LEGACY_PROVIDER_LOGOS_KEY]: null,
     });
   });
@@ -87,5 +92,7 @@ describe("sidebar presets", () => {
       [LEGACY_PROVIDER_LOGOS_KEY]: null,
     });
     expect(values).not.toHaveProperty("sidebar_type_to_filter");
+    expect(values).not.toHaveProperty("sidebar_block_order");
+    expect(values).not.toHaveProperty("sidebar_folded_blocks");
   });
 });

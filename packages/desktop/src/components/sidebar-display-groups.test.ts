@@ -5,11 +5,12 @@ import { DISPLAY_GROUPS, resolveDisplayItem } from "./sidebar-display-groups";
 import { ROW_ELEMENTS } from "./sidebar-display-rows";
 
 describe("DISPLAY_GROUPS", () => {
-  it("lays out every option exactly once, row elements in their grid", () => {
+  it("lays out every option exactly once, row elements in their grid, folds in the sidebar", () => {
     const grouped = DISPLAY_GROUPS.flatMap((group) => group.items).filter(
       (item) => item !== "rowElements",
     );
-    const all = [...grouped, ...ROW_ELEMENTS.map((element) => element.id)];
+    // Folds are set from each section's header, not from the options.
+    const all = [...grouped, ...ROW_ELEMENTS.map((element) => element.id), "foldedSections"];
     expect([...all].sort()).toEqual(Object.keys(SIDEBAR_OPTIONS).sort());
     expect(new Set(all).size).toBe(all.length);
   });

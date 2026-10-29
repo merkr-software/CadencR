@@ -22,6 +22,10 @@ import { HintTooltip } from "@/components/HintTooltip";
 import { UsageSegmentedControl } from "@/components/usage/UsageSegmentedControl";
 import { SidebarConfiguratorSteps } from "@/components/SidebarConfiguratorSteps";
 import {
+  SECTION_ORDER_DESCRIPTION,
+  SidebarSectionOrderList,
+} from "@/components/SidebarSectionOrder";
+import {
   ROW_ELEMENTS,
   ROW_ELEMENTS_DESCRIPTION,
   type ChoiceId,
@@ -244,6 +248,16 @@ function DisplayItemRow({
   switchId: string;
 }): ReactElement {
   const resolved = resolveDisplayItem(item);
+  if (resolved.kind === "sectionOrder") {
+    return (
+      <div data-sidebar-option="sectionOrder" className="flex flex-col gap-1.5">
+        <HintLabel hint={SECTION_ORDER_DESCRIPTION} className="self-start">
+          Block order
+        </HintLabel>
+        <SidebarSectionOrderList form={form} />
+      </div>
+    );
+  }
   if (resolved.kind === "rowElements") {
     return (
       <div className="flex flex-col gap-1.5">

@@ -13,8 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PinnedConversationRow } from "@/components/PinnedConversationRow";
 import { SidebarLensGroupHeader, STICKY_FILL_CLASS } from "@/components/SidebarLensGroupHeader";
 import { useCrossProjectNavigate } from "@/hooks/useCrossProjectNavigate";
-import { NO_PORTS, useFeaturePorts } from "@/hooks/useFeaturePorts";
-import type { PinnedActivity } from "@/hooks/usePinnedActivity";
+import { useFeaturePorts } from "@/hooks/useFeaturePorts";
+import { crossProjectRowData, type PinnedActivity } from "@/hooks/usePinnedActivity";
 import { useReorderAnimation } from "@/hooks/useReorderAnimation";
 import { useSidebarVirtualList } from "@/hooks/useVirtualFeatureFocus";
 import type { LensGroup } from "@/lib/sidebar-lens";
@@ -99,10 +99,7 @@ export function SidebarLensList(props: SidebarLensListProps): ReactElement {
             <PinnedConversationRow
               feature={entry.feature}
               activeFeatureId={activeFeatureId}
-              ports={portsByFeatureId.get(entry.feature.id) ?? NO_PORTS}
-              shellCount={activity.shellCountByFeatureId.get(entry.feature.id) ?? 0}
-              hasLiveWorktree={activity.liveWorktreeFeatureIds.has(entry.feature.id)}
-              worktree={activity.worktreeByFeatureId.get(entry.feature.id)}
+              {...crossProjectRowData(activity, portsByFeatureId, entry.feature.id)}
               onNavigate={navigate}
             />
           </div>

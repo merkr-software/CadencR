@@ -103,13 +103,16 @@
   white-space: normal;
   overflow-wrap: break-word;
 }
-[data-sidebar-title-lines="hover"] .sidebar-row:is(:hover, :focus-within) [data-feature-title] {
+/* A fixed row height never grows on hover: the title stays on its line. */
+[data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
+  .sidebar-row:is(:hover, :focus-within)
+  [data-feature-title] {
   white-space: normal;
   overflow-wrap: break-word;
 }
 /* Uniform rows hold the details beside the title on one clipped line; a title
  * shown in full on hover brings the ones that didn't fit along with it. */
-[data-sidebar-title-lines="hover"]
+[data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
   .sidebar-row:is(:hover, :focus-within)
   [data-feature-title-fold] {
   height: auto;
@@ -120,14 +123,8 @@
   }
   &
     [data-feature-title-line]
-    > :is(
-      [data-sidebar-status],
-      svg,
-      .sidebar-row-actions,
-      [data-feature-time],
-      [data-feature-model],
-      [data-sidebar-identity-slot]
-    ) {
+    > :is([data-sidebar-status], svg, [data-feature-model], [data-sidebar-identity-slot]),
+  & [data-feature-trailing] > :is(.sidebar-row-actions, [data-feature-time]) {
     height: 1.5rem;
   }
   /* Margin, not padding: a clamped box shows its padding, so padding would
@@ -309,6 +306,17 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
 [data-sidebar-highlight="preview"] [data-feature-preview],
 [data-sidebar-highlight="uniformRows"] [data-feature-title-fold],
 [data-sidebar-highlight="compactRows"] .sidebar-row,
+[data-sidebar-highlight="rowHeight"] .sidebar-row,
+[data-sidebar-highlight="colorMode"]
+  :is(
+    [data-feature-time],
+    [data-feature-preview],
+    [data-feature-branch],
+    [data-feature-model],
+    [data-feature-todos],
+    [data-feature-activity-indicators]
+  ),
+[data-sidebar-highlight="sectionOrder"] :is([data-sidebar-block], [data-sidebar-lens-menu]),
 [data-sidebar-highlight="projectBadges"] [data-project-attention],
 [data-sidebar-highlight="dormantAfter"] [data-feature-fold="dormant"],
 [data-sidebar-highlight="lens"] :is([data-sidebar-lens-menu], [data-sidebar-lens-header]),
@@ -347,10 +355,12 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
   color: var(--foreground);
 }
 
-/* Manual order: where a dragged conversation would land, a 2px primary line
- * across the gap above or below the hovered row (`useRowReorder`), and the
- * dragged row stepping back while it travels. */
-.sidebar-row[data-drop-position]::before {
+/* Manual and section order: where a dragged conversation (`useRowReorder`)
+ * or section (a block or the project list, by its header,
+ * `useSidebarSectionReorder`) would land, a 2px primary line across the gap
+ * above or below the hovered one, and the dragged one stepping back while it
+ * travels. A section's line sits over its rows' own. */
+:is(.sidebar-row[data-drop-position], [data-section-drop])::before {
   content: "";
   position: absolute;
   inset-inline: 6px;
@@ -358,14 +368,19 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
   border-radius: 1px;
   background: var(--primary);
   pointer-events: none;
+}
+.sidebar-row[data-drop-position]::before {
   z-index: 1;
 }
-.sidebar-row[data-drop-position="before"]::before {
+[data-section-drop]::before {
+  z-index: 2;
+}
+:is(.sidebar-row[data-drop-position="before"], [data-section-drop="before"])::before {
   top: -2px;
 }
-.sidebar-row[data-drop-position="after"]::before {
+:is(.sidebar-row[data-drop-position="after"], [data-section-drop="after"])::before {
   bottom: -2px;
 }
-.sidebar-row[data-dragging] {
+:is(.sidebar-row[data-dragging], [data-section-dragging]) {
   opacity: 0.45;
 }

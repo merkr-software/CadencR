@@ -5,14 +5,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { PinnedConversationRow } from "@/components/PinnedConversationRow";
 import { SidebarBlock } from "@/components/SidebarBlock";
 import { useCrossProjectNavigate } from "@/hooks/useCrossProjectNavigate";
+import { useFeaturePorts } from "@/hooks/useFeaturePorts";
+import { crossProjectRowData, usePinnedActivity } from "@/hooks/usePinnedActivity";
 import type { NextActionKind } from "@/lib/next-actions";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
 import { useSidebarFilterQuery } from "@/stores/sidebar-filter-store";
-import {
-  SidebarSurfaceContext,
-  useSidebarBlockFold,
-  type SidebarBlockSurface,
-} from "@/stores/sidebar-surface-store";
+import { useSidebarSectionFold } from "@/hooks/useSidebarSections";
+import { SidebarSurfaceContext, type SidebarBlockSurface } from "@/stores/sidebar-surface-store";
 
 interface SidebarConversationBlockProps {
   label: string;
@@ -38,8 +37,12 @@ interface SidebarConversationBlockProps {
 /**
  * A foldable block of cross-project conversation rows (For me, In progress,
  * Recent). Hidden while the sidebar filter is on (the tree shows the matches),
- * and when empty unless empty blocks are kept.
+ * and when empty unless empty blocks are kept. Its rows get the same worktree,
+ * shell and port details as the project tree's, so a conversation shows the
+ * same information in a block as anywhere else.
  */
+const NO_FEATURES: readonly Feature[] = [];
+
 export function SidebarConversationBlock({
   label,
   icon,
@@ -57,8 +60,14 @@ export function SidebarConversationBlock({
 }: SidebarConversationBlockProps): ReactElement | null {
   const filtering = useSidebarFilterQuery() !== "";
   const hideEmpty = useSidebarOption("hideEmptyBlocks");
-  const fold = useSidebarBlockFold(surface);
+  const fold = useSidebarSectionFold(surface);
   const handleNavigate = useCrossProjectNavigate(activeFeatureId, onSelectFeature);
+  // Only rows on screen need their shells and worktrees: a folded or hidden
+  // block polls nothing, and shells only while the Activity detail shows.
+  const showsRows = fold.expanded && !filtering;
+  const showsShells = useSidebarOption("activity");
+  const activity = usePinnedActivity(showsRows ? features : NO_FEATURES, showsShells);
+  const portsByFeatureId = useFeaturePorts();
   const isEmpty = features.length === 0 && !loading && !error;
 
   if (filtering || (isEmpty && hideEmpty)) return null;
@@ -87,6 +96,7 @@ export function SidebarConversationBlock({
               key={feature.id}
               feature={feature}
               activeFeatureId={activeFeatureId}
+              {...crossProjectRowData(activity, portsByFeatureId, feature.id)}
               onNavigate={handleNavigate}
               nextAction={nextActions?.get(feature.id)}
             />

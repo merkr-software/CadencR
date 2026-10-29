@@ -121,8 +121,13 @@ export function FeatureRowTitleLine({
           className="min-w-8 flex-1"
         />
       )}
-      {children}
-      <FeatureRowTime feature={feature} />
+      {/* The hover actions and the time they replace. A fixed row height
+          stacks them in one slot (`sidebar-row-height.css`), so the title never
+          reflows on hover; otherwise they sit in the line's own flow. */}
+      <span data-feature-trailing className="contents">
+        {children}
+        <FeatureRowTime feature={feature} />
+      </span>
       <span
         data-sidebar-identity-slot
         className="relative inline-flex size-4 shrink-0 items-center justify-center"

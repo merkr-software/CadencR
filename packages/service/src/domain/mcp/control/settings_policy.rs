@@ -127,6 +127,7 @@ fn catalog_entry(scope: Scope, key: &'static str) -> CatalogEntry {
         Some(ValueKind::Enum(values)) => ("enum", Some(values), None, None),
         Some(ValueKind::Number) => ("number", None, None, None),
         Some(ValueKind::IntegerRange { min, max }) => ("integer", None, Some(min), Some(max)),
+        Some(ValueKind::IdList(values)) => ("list", Some(values), None, None),
         None => ("string", None, None, None),
     };
     CatalogEntry {
@@ -225,6 +226,10 @@ fn expected_shape(kind: ValueKind) -> String {
         ValueKind::Enum(values) => format!("expected one of {}", values.join(", ")),
         ValueKind::Number => "expected a number".into(),
         ValueKind::IntegerRange { min, max } => format!("expected an integer from {min} to {max}"),
+        ValueKind::IdList(values) => format!(
+            "expected a comma-separated list of distinct values among {}",
+            values.join(", ")
+        ),
     }
 }
 
