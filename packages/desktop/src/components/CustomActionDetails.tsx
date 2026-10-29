@@ -1,7 +1,15 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, PencilIcon, PlayIcon, SquareIcon, TerminalIcon, Trash2Icon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  Loader2,
+  PencilIcon,
+  PlayIcon,
+  SquareIcon,
+  TerminalIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,13 +25,13 @@ import {
 import { apiErrorMessage } from "@/lib/api-errors";
 import { invalidateCustomActionRunQueries } from "@/lib/custom-action-queries";
 import { useCustomActionRunner } from "@/hooks/useCustomActionRunner";
+import { useOpenScheduleEditorForAction } from "@/hooks/useOpenScheduleEditorForAction";
 import {
   useCustomActionRuns,
   useCustomActionVariableDrafts,
   type CustomActionVariableDrafts,
 } from "@/hooks/useCustomActionDetailsQueries";
 import { BashBlock } from "./BashBlock";
-import { CustomActionScheduleControl } from "./CustomActionScheduleControl";
 
 /**
  * Merge a run's captured streams into a single terminal-style body. We capture
@@ -48,7 +56,7 @@ interface CustomActionDetailsProps {
  * Unified run/output/details surface for a custom action, shown identically for
  * inline and overflow actions. Polls the action's recent runs so live output
  * (manual or scheduled) streams in without a manual refresh, and exposes the
- * run button, per-feature variables and the schedule control.
+ * run button and per-feature variables. Schedules live on the Schedules page.
  */
 export function CustomActionDetails({
   action,
@@ -63,11 +71,13 @@ export function CustomActionDetails({
     projectId,
     onAfterDelete,
   });
+  const openScheduleEditor = useOpenScheduleEditorForAction();
   return (
     <div className="space-y-3">
       <CustomActionDetailsHeader
         action={action}
         onEdit={onEdit}
+        onSchedule={() => openScheduleEditor({ projectId, featureId, actionId: action.id })}
         onDelete={controller.deleteAction}
         isDeleting={controller.isDeleting}
       />
@@ -77,9 +87,6 @@ export function CustomActionDetails({
         saveVariable={controller.saveVariable}
       />
       <CustomActionRunControl action={action} controller={controller} />
-      <section className="rounded border border-dashed p-2">
-        <CustomActionScheduleControl actionId={action.id} featureId={featureId} />
-      </section>
       <CustomActionRunHistory action={action} runViews={controller.runViews} />
     </div>
   );
@@ -205,11 +212,14 @@ type CustomActionDetailsController = ReturnType<typeof useCustomActionDetailsCon
 function CustomActionDetailsHeader({
   action,
   onEdit,
+  onSchedule,
   onDelete,
   isDeleting,
 }: {
   action: CustomAction;
   onEdit: () => void;
+  /** Opens the Schedules page on a new schedule for this action here. */
+  onSchedule: () => void;
   onDelete: () => void;
   isDeleting: boolean;
 }) {
@@ -222,6 +232,16 @@ function CustomActionDetailsHeader({
         </p>
       </div>
       <div className="flex shrink-0 gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          title="Schedule…"
+          aria-label={`Schedule ${action.name}`}
+          onClick={onSchedule}
+        >
+          <CalendarClockIcon className="size-3.5" />
+        </Button>
         <Button variant="ghost" size="icon" className="size-7" title="Edit action" onClick={onEdit}>
           <PencilIcon className="size-3.5" />
         </Button>

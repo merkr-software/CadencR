@@ -67,6 +67,7 @@ async fn migration_counts_existing_prompts_into_the_usage_buckets() {
     .await
     .unwrap();
     seed_applied_migrations_before(&pool, TARGET_VERSION).await;
+    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
     super::test_fixtures::ensure_project_authoring_marker(&pool).await;
 
     run_migrations(&MigrationContext::pool_only(&pool))

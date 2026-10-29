@@ -109,6 +109,23 @@ pub async fn list_runs(
     Ok(rows)
 }
 
+/// Exit code and end time of one run; both `None` while it is in flight.
+/// `Ok(None)` when the run row is gone (its action was deleted).
+pub async fn run_outcome(
+    pool: &SqlitePool,
+    run_id: i64,
+) -> Result<Option<LastRunSummary>, AppError> {
+    let row: Option<(Option<i64>, Option<String>)> =
+        sqlx::query_as("SELECT exit_code, ended_at FROM custom_action_runs WHERE id = ?")
+            .bind(run_id)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.map(|(exit_code, ended_at)| LastRunSummary {
+        exit_code,
+        ended_at,
+    }))
+}
+
 /// Latest run per action for a given feature, keyed by `action_id`.
 pub(super) async fn latest_runs_for_feature(
     pool: &SqlitePool,

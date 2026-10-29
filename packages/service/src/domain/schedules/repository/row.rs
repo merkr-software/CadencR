@@ -9,7 +9,7 @@ use crate::error::AppError;
 /// `Z`) on the way out; the display context (project, conversation titles) is
 /// joined here so a list of N schedules is still one query.
 pub const SELECT: &str = "SELECT
-        s.id, s.name, s.prompt, s.target_kind, s.feature_id, s.project_id,
+        s.id, s.name, s.prompt, s.target_kind, s.feature_id, s.project_id, s.custom_action_id,
         s.provider, s.model, s.thinking_level,
         s.permission_mode, s.access_mode, s.profile,
         s.worktree_mode, s.reuse_branch, s.base_branch,
@@ -25,12 +25,14 @@ pub const SELECT: &str = "SELECT
         p.name AS project_name,
         f.title AS feature_title,
         lf.title AS last_feature_title,
+        ca.name AS action_name,
         strftime('%Y-%m-%dT%H:%M:%SZ', s.created_at) AS created_at,
         strftime('%Y-%m-%dT%H:%M:%SZ', s.updated_at) AS updated_at
      FROM schedules s
      LEFT JOIN features f ON f.id = s.feature_id
      LEFT JOIN features lf ON lf.id = s.last_feature_id
-     LEFT JOIN projects p ON p.id = COALESCE(s.project_id, f.project_id)";
+     LEFT JOIN projects p ON p.id = COALESCE(s.project_id, f.project_id)
+     LEFT JOIN custom_actions ca ON ca.id = s.custom_action_id";
 
 #[derive(Debug, sqlx::FromRow)]
 pub struct ScheduleRow {
@@ -40,6 +42,7 @@ pub struct ScheduleRow {
     pub target_kind: String,
     pub feature_id: Option<i64>,
     pub project_id: Option<i64>,
+    pub custom_action_id: Option<i64>,
     pub provider: Option<String>,
     pub model: Option<String>,
     pub thinking_level: Option<String>,
@@ -71,6 +74,7 @@ pub struct ScheduleRow {
     pub project_name: Option<String>,
     pub feature_title: Option<String>,
     pub last_feature_title: Option<String>,
+    pub action_name: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -110,8 +114,9 @@ impl ScheduleRow {
             name: self.name,
             prompt: self.prompt,
             target: ScheduleTarget {
-                kind: TargetKind::parse(&self.target_kind)?,
+                kind: TargetKind::from_storage(&self.target_kind, self.custom_action_id)?,
                 feature_id: self.feature_id,
+                action_id: self.custom_action_id,
                 project_id: self.project_id,
                 provider: self.provider,
                 model: self.model,
@@ -139,6 +144,7 @@ impl ScheduleRow {
                 project_name: self.project_name,
                 feature_title: self.feature_title,
                 last_feature_title: self.last_feature_title,
+                action_name: self.action_name,
             },
             created_at: self.created_at,
             updated_at: self.updated_at,

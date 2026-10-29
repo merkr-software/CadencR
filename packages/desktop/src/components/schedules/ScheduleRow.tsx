@@ -2,6 +2,7 @@ import { memo, useMemo, type ReactElement } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   CalendarClock,
+  CirclePlay,
   MessageSquarePlus,
   MessagesSquare,
   Pause,
@@ -20,6 +21,7 @@ import {
   describeTarget,
   formatAbsolute,
   formatRelative,
+  isActionSchedule,
   schedulePromptPreview,
   scheduleTitle,
 } from "@/lib/schedules/format";
@@ -33,6 +35,13 @@ const STATE_DOT: Record<ScheduleState, string> = {
   failed: "bg-destructive",
   paused: "bg-muted-foreground/50",
   completed: "bg-muted-foreground/30",
+};
+
+/** A custom action is a shell command, so it shares the condition's glyph. */
+const TARGET_ICONS: Record<Schedule["target"]["kind"], typeof MessagesSquare> = {
+  conversation: MessagesSquare,
+  new_conversation: MessageSquarePlus,
+  custom_action: SquareTerminal,
 };
 
 export interface ScheduleRowProps {
@@ -57,8 +66,7 @@ export const ScheduleRow = memo(function ScheduleRow({
   );
   useCountdownTick(state === "upcoming" ? nextRun : null);
 
-  const TargetIcon =
-    schedule.target.kind === "new_conversation" ? MessageSquarePlus : MessagesSquare;
+  const TargetIcon = TARGET_ICONS[schedule.target.kind];
   const RecurrenceIcon = schedule.recurrence.kind === "once" ? CalendarClock : Repeat;
 
   return (
@@ -87,10 +95,13 @@ export const ScheduleRow = memo(function ScheduleRow({
           )}
         </div>
 
-        {/* The prompt itself, when the name isn't already it — two schedules on
-            the same rule are told apart by what they send. */}
+        {/* The prompt (or action) itself, when the name isn't already it — two
+            schedules on the same rule are told apart by what they do. */}
         {schedule.name?.trim() && (
-          <p className="mt-0.5 truncate text-xs text-muted-foreground/90" title={schedule.prompt}>
+          <p
+            className="mt-0.5 truncate text-xs text-muted-foreground/90"
+            title={isActionSchedule(schedule) ? undefined : schedule.prompt}
+          >
             {schedulePromptPreview(schedule)}
           </p>
         )}
@@ -186,7 +197,8 @@ function NextRunLine({
 function lastRunLabel(schedule: Schedule): string {
   if (!schedule.last_run) return "Never ran";
   const at = formatAbsolute(new Date(schedule.last_run.at));
-  return schedule.last_run.status === "skipped" ? `Missed — ${at}` : `Sent ${at}`;
+  if (schedule.last_run.status === "skipped") return `Missed — ${at}`;
+  return isActionSchedule(schedule) ? `Ran ${at}` : `Sent ${at}`;
 }
 
 function RowActions({
@@ -231,7 +243,11 @@ function RowActions({
           onClick={() => onRunNow(schedule)}
           aria-label={`Run ${scheduleTitle(schedule)} now`}
         >
-          <Send className="size-3.5" />
+          {isActionSchedule(schedule) ? (
+            <CirclePlay className="size-3.5" />
+          ) : (
+            <Send className="size-3.5" />
+          )}
         </Button>
       </ShortcutTooltip>
       {state !== "completed" && (

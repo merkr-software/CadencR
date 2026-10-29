@@ -75,30 +75,6 @@ pub async fn resolve(
     Ok((prepared.command, prepared.cwd))
 }
 
-/// Execute `action_id` for `feature_id`, blocking until completion.
-///
-/// Used by the scheduler, where serialising runs prevents a slow command from
-/// overlapping itself across ticks.
-pub async fn execute(
-    state: &AppState,
-    action_id: i64,
-    feature_id: i64,
-    triggered_by: TriggeredBy,
-) -> Result<(), AppError> {
-    let prepared = prepare(state, action_id, feature_id).await?;
-    let run_id =
-        repository::insert_run(&state.write_pool, action_id, feature_id, triggered_by).await?;
-    run_and_finalize(
-        state.write_pool.clone(),
-        state.custom_action_runs.clone(),
-        run_id,
-        feature_id,
-        prepared,
-    )
-    .await;
-    Ok(())
-}
-
 /// Start an asynchronous run: create the run row, kick the command off in the
 /// background and return `run_id` immediately.
 ///

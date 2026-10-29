@@ -74,8 +74,7 @@ mod tests {
     use super::*;
     use crate::domain::custom_actions::models::TriggeredBy;
     use crate::domain::custom_actions::repository::{
-        finalize_run, get, get_schedule, insert, insert_run, list_runs, list_variables,
-        upsert_schedule, upsert_variable,
+        finalize_run, get, insert, insert_run, list_runs, list_variables, upsert_variable,
     };
     #[tokio::test]
     async fn run_in_terminal_round_trips_through_insert_and_update() {
@@ -197,9 +196,17 @@ mod tests {
             .await
             .unwrap();
         finalize_run(&pool, run_id, Some(0), "", "").await.unwrap();
-        upsert_schedule(&pool, action_id, feature_id, 60, true)
-            .await
-            .unwrap();
+        // A schedule on the Schedules page that runs this action.
+        sqlx::query(
+            "INSERT INTO schedules
+                (prompt, target_kind, feature_id, custom_action_id, recurrence_kind, interval_seconds)
+             VALUES ('', 'conversation', ?, ?, 'interval', 60)",
+        )
+        .bind(feature_id)
+        .bind(action_id)
+        .execute(&pool)
+        .await
+        .unwrap();
 
         delete(&pool, action_id).await.unwrap();
 
@@ -211,9 +218,12 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
-        assert!(get_schedule(&pool, action_id, feature_id)
-            .await
-            .unwrap()
-            .is_none());
+        let schedules: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM schedules WHERE custom_action_id = ?")
+                .bind(action_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(schedules, 0);
     }
 }

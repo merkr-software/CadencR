@@ -83,8 +83,21 @@ export function formatRelative(date: Date): string {
   return formatDistanceToNowStrict(date, { addSuffix: true });
 }
 
-/** What the schedule targets, e.g. `New conversation in cadencr`. */
+/** Whether the schedule runs a custom action rather than sending a prompt. */
+export function isActionSchedule(schedule: Schedule): boolean {
+  return schedule.target.kind === "custom_action";
+}
+
+function actionName(schedule: Schedule): string {
+  return schedule.context.action_name ?? "a custom action";
+}
+
+/** What the schedule targets, e.g. `New conversation in cadencr`, or
+ *  `Run tests in Fix login` for a custom action. */
 export function describeTarget(schedule: Schedule): string {
+  if (isActionSchedule(schedule)) {
+    return `${actionName(schedule)} in ${schedule.context.feature_title ?? "a conversation"}`;
+  }
   if (schedule.target.kind === "new_conversation") {
     const project = schedule.context.project_name;
     return project ? `New conversation in ${project}` : "New conversation";
@@ -93,17 +106,21 @@ export function describeTarget(schedule: Schedule): string {
 }
 
 /** First line of the prompt, clipped — what the run will actually send, which
- *  is how a schedule is recognized in a list of them. */
+ *  is how a schedule is recognized in a list of them. An action schedule sends
+ *  nothing, so it is recognized by the action it runs. */
 export function schedulePromptPreview(schedule: Schedule, maxLength = 120): string {
+  if (isActionSchedule(schedule)) return `Runs ${actionName(schedule)}`;
   const firstLine = schedule.prompt.trim().split("\n")[0].trim();
   return firstLine.length > maxLength ? `${firstLine.slice(0, maxLength)}…` : firstLine;
 }
 
 /** The label a schedule is listed under. Falls back to its prompt's first line
- *  so an unnamed schedule is still identifiable at a glance. */
+ *  (or the action it runs) so an unnamed schedule is still identifiable at a
+ *  glance. */
 export function scheduleTitle(schedule: Schedule): string {
   const name = schedule.name?.trim();
   if (name) return name;
+  if (isActionSchedule(schedule)) return `Run ${schedule.context.action_name ?? "custom action"}`;
   return schedulePromptPreview(schedule, 80) || "Untitled schedule";
 }
 
