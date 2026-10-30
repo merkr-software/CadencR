@@ -1,7 +1,6 @@
 use tracing::{debug, info};
 
 use crate::app_state::AppState;
-use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 
 use crate::domain::agents::adapter::RuntimeSessionHandle;
@@ -10,13 +9,15 @@ use super::super::session_profile::{
     apply_profile_update, desired_profile_name, prompt_profile, resolve_provider_profile,
     validate_resume_profile_state, SessionProfileUpdate,
 };
-use super::super::{parse_session_id, send_error, QueryState, SdkHandle, SdkSessions, WsSender};
+use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
 use super::prompt_followup::{handle_followup_prompt, FollowupPromptContext};
 use super::prompt_pending::{handle_pending_prompt, PendingPromptContext};
 use super::prompt_runtime_config::{
     apply_respawn_if_needed, dispatch_changes, log_dispatch_decision, notify_deferred_respawn,
 };
+use super::prompt_selection_sync::{self, StoredSelection};
 use super::prompt_send_entry::{report_prompt_result, PromptedSelection};
+use super::prompt_validation;
 
 pub(super) struct PreparedPrompt {
     pub payload: PromptSendPayload,
@@ -30,9 +31,9 @@ pub(super) async fn prepare_prompt(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
 ) -> Option<PreparedPrompt> {
-    let mut payload = parse_prompt_payload(envelope, sender)?;
-    let db_session_id = parse_prompt_session_id(&payload, envelope, sender)?;
-    if let Err(message) = super::prompt_validation::normalize_message_uuid(&mut payload) {
+    let mut payload = prompt_validation::parse_prompt_payload(envelope, sender)?;
+    let db_session_id = prompt_validation::parse_prompt_session_id(&payload, envelope, sender)?;
+    if let Err(message) = prompt_validation::normalize_message_uuid(&mut payload) {
         send_error(sender, &envelope.id, "INVALID_MESSAGE_UUID", &message);
         return None;
     }
@@ -71,6 +72,7 @@ pub(super) async fn dispatch_local_phase(
     db_session_id: i64,
     payload: PromptSendPayload,
     profile_update: Option<&SessionProfileUpdate>,
+    stored: &StoredSelection,
 ) -> Option<PromptSendPayload> {
     let mut sessions = sdk_sessions.lock().await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
@@ -82,6 +84,7 @@ pub(super) async fn dispatch_local_phase(
         );
         return None;
     };
+    prompt_selection_sync::sync_handle(handle, stored, app_state, db_session_id);
     apply_prompt_profile_update(handle, profile_update);
     let changes = apply_respawn_if_needed(handle, app_state, db_session_id).await;
     log_dispatch_decision(handle, db_session_id, &changes);
@@ -114,10 +117,12 @@ pub(super) async fn dispatch_owner_phase(
     db_session_id: i64,
     payload: PromptSendPayload,
     profile_update: Option<&SessionProfileUpdate>,
+    stored: &StoredSelection,
 ) -> Option<PromptSendPayload> {
     if let Some(owner) = app_state.active_turns.owner_sessions(db_session_id).await {
         if let Some(target) = owner_prompt_target(
             &owner,
+            stored,
             db_session_id,
             sender,
             app_state,
@@ -192,6 +197,7 @@ enum OwnerPromptTarget {
 
 async fn owner_prompt_target(
     owner: &SdkSessions,
+    stored: &StoredSelection,
     db_session_id: i64,
     sender: &WsSender,
     app_state: &AppState,
@@ -201,7 +207,10 @@ async fn owner_prompt_target(
     let (query, feature_id, provider_id, selection) = {
         let mut sessions = owner.lock().await;
         let handle = sessions.get_mut(&db_session_id)?;
-        let changes = if profile_update.is_some() {
+        // An idle runtime still on another model respawns before taking the
+        // prompt; a live turn is steered as is.
+        let adopted = prompt_selection_sync::sync_handle(handle, stored, app_state, db_session_id);
+        let changes = if profile_update.is_some() || adopted {
             apply_prompt_profile_update(handle, profile_update);
             apply_respawn_if_needed(handle, app_state, db_session_id).await
         } else {
@@ -266,12 +275,12 @@ pub(super) async fn spawn_pending_prompt(
     let feature_id = handle.feature_id;
     let provider_id = handle.runtime_provider.clone();
     // Sequential per-connection dispatch guarantees the handle is still
-    // `Pending` here (we only reach Phase 3 when Phase 1 saw `Pending`).
-    let mut options = match std::mem::replace(
-        &mut handle.state,
-        QueryState::Pending(RuntimeSpawnConfig::default()),
-    ) {
-        QueryState::Pending(opts) => opts,
+    // `Pending` here (we only reach Phase 3 when Phase 1 saw `Pending`). The
+    // handle keeps its copy: a dispatch that fails before the runtime is
+    // registered leaves it `Pending`, and the next prompt must spawn from these
+    // options, not from empty ones that drop the model, mode and profile.
+    let mut options = match &handle.state {
+        QueryState::Pending(opts) => opts.clone(),
         _ => unreachable!("handle was Pending in phase 1 and dispatch is sequential"),
     };
 
@@ -364,33 +373,4 @@ fn apply_prompt_profile_update(handle: &mut SdkHandle, update: Option<&SessionPr
         return;
     };
     apply_profile_update(handle, update);
-}
-
-fn parse_prompt_payload(envelope: &WsEnvelope, sender: &WsSender) -> Option<PromptSendPayload> {
-    match serde_json::from_value(envelope.payload.clone()) {
-        Ok(payload) => Some(payload),
-        Err(error) => {
-            send_error(sender, &envelope.id, "INVALID_PAYLOAD", &error.to_string());
-            None
-        }
-    }
-}
-
-fn parse_prompt_session_id(
-    payload: &PromptSendPayload,
-    envelope: &WsEnvelope,
-    sender: &WsSender,
-) -> Option<i64> {
-    match parse_session_id(&payload.session_id) {
-        Some(id) => Some(id),
-        None => {
-            send_error(
-                sender,
-                &envelope.id,
-                "INVALID_SESSION_ID",
-                "session_id must be a numeric DB id",
-            );
-            None
-        }
-    }
 }

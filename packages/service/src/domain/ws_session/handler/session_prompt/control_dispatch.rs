@@ -12,6 +12,8 @@ use super::control_dispatch_config::build_pending_handle;
 use super::control_dispatch_payload::replay_payload;
 use super::prompt_followup::{handle_followup_prompt, FollowupPromptContext};
 use super::prompt_pending::{handle_pending_prompt, PendingPromptContext};
+use super::prompt_runtime_config::apply_respawn_if_needed;
+use super::prompt_selection_sync;
 
 /// Inject a prompt into a session without a connected WS client.
 ///
@@ -70,11 +72,19 @@ async fn dispatch_to_active_owner(
     let Some(owner) = app_state.active_turns.owner_sessions(session_id).await else {
         return Ok(false);
     };
+    let stored = prompt_selection_sync::load(&app_state.read_pool, session_id)
+        .await
+        .map_err(|(code, message)| AppError::Internal(format!("{code}: {message}")))?;
     let target = {
-        let sessions = owner.lock().await;
-        let Some(handle) = sessions.get(&session_id) else {
+        let mut sessions = owner.lock().await;
+        let Some(handle) = sessions.get_mut(&session_id) else {
             return Ok(false);
         };
+        // The owner's runtime stays alive between turns. One still on another
+        // model is closed so the prompt spawns on the persisted selection.
+        if prompt_selection_sync::sync_handle(handle, &stored, app_state, session_id) {
+            apply_respawn_if_needed(handle, app_state, session_id).await;
+        }
         match &handle.state {
             QueryState::Active { query, .. } => Some(FollowupPromptContext {
                 query: query.clone(),

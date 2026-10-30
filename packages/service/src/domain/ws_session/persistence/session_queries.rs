@@ -114,6 +114,52 @@ mod session_queries_tests {
     }
 
     #[tokio::test]
+    async fn overrides_and_their_model_are_written_together() {
+        let pool = setup_test_db().await;
+        let mut p = WsSessionPersistence::new(pool.clone(), 1);
+        let id = p
+            .find_or_create_session(Some("gpt-old"), None)
+            .await
+            .unwrap();
+        let read = || async {
+            sqlx::query_as::<_, (Option<String>, Option<String>)>(
+                "SELECT model, runtime_overrides FROM agent_sessions WHERE id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap()
+        };
+        let overrides = crate::domain::agents::adapter::RuntimeConfigOverrides {
+            model: Some("gpt-new".to_string()),
+            ..Default::default()
+        };
+
+        WsSessionPersistence::update_runtime_overrides_and_model(
+            &pool,
+            id,
+            &overrides,
+            Some("gpt-new"),
+        )
+        .await
+        .unwrap();
+        let (model, document) = read().await;
+        assert_eq!(model.as_deref(), Some("gpt-new"));
+        assert!(document.unwrap().contains("gpt-new"));
+
+        // An inherited model nothing resolved leaves the column alone.
+        WsSessionPersistence::update_runtime_overrides_and_model(
+            &pool,
+            id,
+            &Default::default(),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(read().await.0.as_deref(), Some("gpt-new"));
+    }
+
+    #[tokio::test]
     async fn test_get_session_row() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 42);

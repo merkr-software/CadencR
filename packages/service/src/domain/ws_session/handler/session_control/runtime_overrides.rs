@@ -9,7 +9,7 @@ use crate::domain::ws_session::protocol::{
 use crate::error::AppError;
 use serde_json::Value;
 
-use super::super::{parse_session_id, send_error, SdkSessions, WsSender};
+use super::super::{parse_session_id, send_error, SdkHandle, SdkSessions, WsSender};
 use super::effort::persist_model_thinking_default;
 
 pub(crate) async fn handle_runtime_overrides_set(
@@ -186,10 +186,12 @@ async fn persist_overrides(
 ) -> Result<(), AppError> {
     // Workspace default first: if it fails, the session overrides stay untouched.
     remember_explicit_effort(app_state, provider, explicit_effort, effective).await?;
-    WsSessionPersistence::update_runtime_overrides_static(
+    // Session lists, cards and schedules read the model column.
+    WsSessionPersistence::update_runtime_overrides_and_model(
         &app_state.write_pool,
         session_id,
         overrides,
+        effective.model.as_deref(),
     )
     .await?;
     Ok(())
@@ -291,6 +293,12 @@ async fn apply_to_handle(
     let Some(handle) = sessions.get_mut(&session_id) else {
         return;
     };
+    adopt_runtime_overrides(handle, overrides);
+}
+
+/// Point a handle at `overrides`: its next spawn, and a respawn of its live
+/// runtime on the next prompt, run with them.
+pub(crate) fn adopt_runtime_overrides(handle: &mut SdkHandle, overrides: &RuntimeConfigOverrides) {
     handle.config.overrides = overrides.clone();
     handle.config.runtime_overrides_dirty = true;
     handle.desired_model = overrides.model.clone();

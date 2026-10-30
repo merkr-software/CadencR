@@ -57,14 +57,13 @@ pub(super) async fn clear_unsupported_fast_mode(
     }
 }
 
+/// Persist what a model switch changes besides the model itself.
 pub(super) async fn persist_model_selection(
     app_state: &AppState,
     db_session_id: i64,
-    model: &str,
     runtime_provider: &str,
     context_window: Option<u64>,
 ) {
-    WsSessionPersistence::update_model_static(&app_state.write_pool, db_session_id, model).await;
     if let Err(error) = sqlx::query("UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?")
         .bind(runtime_provider)
         .bind(db_session_id)

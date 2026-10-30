@@ -13,6 +13,27 @@ impl WsSessionPersistence {
             .await?;
         Ok(())
     }
+
+    /// Persist an override document together with the model it resolves to,
+    /// so the model column never names the model the session switched away
+    /// from. `None` (an inherited model nothing resolved) keeps the column.
+    pub async fn update_runtime_overrides_and_model(
+        pool: &SqlitePool,
+        session_id: i64,
+        overrides: &crate::domain::agents::adapter::RuntimeConfigOverrides,
+        model: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let json = serde_json::to_string(overrides).expect("runtime overrides serialize");
+        sqlx::query(
+            "UPDATE agent_sessions SET runtime_overrides = ?, model = COALESCE(?, model) WHERE id = ?",
+        )
+        .bind(json)
+        .bind(model)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
     pub async fn mark_paused_static(pool: &SqlitePool, session_id: i64) {
         let now = chrono::Utc::now().to_rfc3339();
         if let Err(e) =
@@ -66,15 +87,17 @@ impl WsSessionPersistence {
         }
     }
 
-    pub async fn update_model_static(pool: &SqlitePool, session_id: i64, model: &str) {
-        if let Err(e) = sqlx::query("UPDATE agent_sessions SET model = ? WHERE id = ?")
+    pub async fn update_model_static(
+        pool: &SqlitePool,
+        session_id: i64,
+        model: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET model = ? WHERE id = ?")
             .bind(model)
             .bind(session_id)
             .execute(pool)
-            .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to update model");
-        }
+            .await?;
+        Ok(())
     }
 
     pub async fn update_profile_static(pool: &SqlitePool, session_id: i64, profile: &str) {
@@ -390,7 +413,9 @@ mod session_state_tests {
             .await
             .unwrap();
 
-        WsSessionPersistence::update_model_static(&pool, id, "opus").await;
+        WsSessionPersistence::update_model_static(&pool, id, "opus")
+            .await
+            .unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT model FROM agent_sessions WHERE id = ?")
             .bind(id)

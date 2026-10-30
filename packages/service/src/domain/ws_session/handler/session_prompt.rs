@@ -14,6 +14,7 @@ mod prompt_pending_mcp;
 mod prompt_receipt;
 mod prompt_resume_resolution;
 pub(super) mod prompt_runtime_config;
+mod prompt_selection_sync;
 mod prompt_send;
 mod prompt_send_entry;
 mod prompt_status;

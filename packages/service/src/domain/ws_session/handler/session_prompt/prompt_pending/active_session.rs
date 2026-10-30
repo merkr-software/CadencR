@@ -1,4 +1,4 @@
-use super::super::super::{QueryState, SdkHandle};
+use super::super::super::{QueryState, SdkHandle, SessionConfig};
 use super::super::bridge::PermissionResponse;
 use super::PendingPromptContext;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
@@ -37,7 +37,12 @@ pub(super) async fn insert_active_session(
             spawned_claude_profile,
             runtime_control_endpoint,
             resume_session_id: None,
-            config: context.config.clone(),
+            // The runtime was just spawned with these overrides; a change
+            // adopted while the handle was pending must not respawn it again.
+            config: SessionConfig {
+                runtime_overrides_dirty: false,
+                ..context.config.clone()
+            },
             manual_compact_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             manual_compact_spawn_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         },
