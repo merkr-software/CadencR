@@ -1,5 +1,5 @@
 import type { AgentBlockData } from "./AgentBlock";
-import { shouldGateFullContent } from "./agent-block-types";
+import { rendersStandaloneToolResult, shouldGateFullContent } from "./agent-block-types";
 import { collapseTurnsToSummary, isCountableTool } from "./agentStreamSummary";
 import {
   isRestartContinuationMessage,
@@ -82,9 +82,7 @@ function isHiddenByRenderer(block: AgentBlockData): boolean {
   if (block.type === "thinking") return !block.content.trim();
   if (block.type === "tool_call") return shouldHideToolCall(block.toolName);
   if (block.type !== "tool_result") return false;
-  if (block.isError && shouldHideToolCall(block.sourceToolName)) return false;
-  if (block.sourceToolName === "Agent" || block.sourceToolName === "Task") return false;
-  return true;
+  return !rendersStandaloneToolResult(block);
 }
 
 export function filterRenderableBlocks(blocks: AgentBlockData[]): AgentBlockData[] {

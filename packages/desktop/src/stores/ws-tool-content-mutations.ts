@@ -18,6 +18,8 @@ export function applyBlockContentMutation(
 ): boolean {
   if (block.type !== "tool_call") {
     if (mutation.action === "finalize") return false;
+    // Live content no longer matches the size hydration reported for it.
+    block.fullContentBytes = undefined;
     const previous = publishedFields(block);
     const merged = mergeToolContent(block, mutation.block.content, mutation.action);
     block.content = merged.text;
@@ -33,6 +35,7 @@ function applyToolContentMutation(
   mutation: BlockMutation,
 ): boolean {
   const previous = publishedFields(block);
+  block.fullContentBytes = undefined;
   if (mutation.action === "replace") {
     state.structuredToolStreams.delete(block.id);
     const merged = mergeToolContent(block, mutation.block.content, "replace");
@@ -104,6 +107,7 @@ function syncCanonicalToolBlock(state: StreamingState, block: AgentBlockData): v
     canonical.toolArgs = block.toolArgs;
     canonical.content = block.content;
     canonical.truncatedContent = block.truncatedContent;
+    canonical.fullContentBytes = block.fullContentBytes;
   }
 }
 

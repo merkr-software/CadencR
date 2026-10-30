@@ -45,6 +45,7 @@ export function serverBlocksToAgentBlocks(serverBlocks: AgentBlock[]): AgentBloc
       model: nullToUndefined(sb.model),
       origin: sb.origin ?? null,
       truncatedContent: sb.truncatedContent === true,
+      fullContentBytes: nullToUndefined(sb.fullContentBytes),
       // DB-loaded sub-agents are always complete (streaming state handles the active one)
       ...(isSubagent ? { taskComplete: true } : {}),
     });
@@ -191,7 +192,13 @@ export function applyToolCallUpdates(
     return {
       ...block,
       ...(contentChanged
-        ? { content: clamped.text, toolArgs: clamped.text, truncatedContent: truncated }
+        ? // The revision's own size is unknown; a stale one would mislabel it.
+          {
+            content: clamped.text,
+            toolArgs: clamped.text,
+            truncatedContent: truncated,
+            fullContentBytes: undefined,
+          }
         : {}),
       ...(children === block.childBlocks ? {} : { childBlocks: children }),
     };

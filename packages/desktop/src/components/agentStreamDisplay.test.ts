@@ -271,18 +271,52 @@ describe("agentStreamDisplay", () => {
     });
   });
 
-  it("keeps truncated generic results as standalone rows in compact mode", () => {
-    const result = block("large-result", "preview", {
+  it("keeps truncated generic results hidden like any other generic result", () => {
+    const screenshot = block("screenshot", '[{"type":"image","source":{"data":"iVBOR…', {
+      type: "tool_result",
+      sourceToolName: "mcp__chrome-devtools__take_screenshot",
+      truncatedContent: true,
+    });
+    const read = block("large-read", "preview", {
       type: "tool_result",
       sourceToolName: "Read",
+      truncatedContent: true,
+    });
+    const call = block("call", "", {
+      type: "tool_call",
+      toolName: "mcp__chrome-devtools__take_screenshot",
+    });
+
+    expect(filterRenderableBlocks([screenshot, read])).toEqual([]);
+    expect(countRenderableDisplayRows([screenshot, read], { compactMode: true })).toBe(0);
+    // The hidden result no longer splits the compact run around it.
+    const items = buildDisplayItems(filterRenderableBlocks([call, screenshot, call]), {
+      compact: true,
+    });
+    expect(items.map((item) => item.kind)).toEqual(["flow"]);
+  });
+
+  it("keeps truncated runtime-plumbing calls hidden", () => {
+    const call = block("plumbing", "{}", {
+      type: "tool_call",
+      toolName: "update_plan",
+      truncatedContent: true,
+    });
+
+    expect(filterRenderableBlocks([call])).toEqual([]);
+  });
+
+  it("keeps truncated subagent output as a standalone gated row", () => {
+    const result = block("large-agent", "preview", {
+      type: "tool_result",
+      sourceToolName: "Agent",
       truncatedContent: true,
     });
 
     expect(filterRenderableBlocks([result])).toEqual([result]);
     expect(buildDisplayItems([result], { compact: true })).toEqual([
-      { kind: "block", key: "large-result", block: result },
+      { kind: "block", key: "large-agent", block: result },
     ]);
-    expect(countRenderableDisplayRows([result], { compactMode: true })).toBe(1);
   });
 
   it("folds truncated tool previews into the run (their line shows the name only)", () => {
