@@ -81,7 +81,7 @@ pub(super) fn spawn_test_stream_reader_for_runtime(
         feature_id,
         msg_rx,
         runtime_session_handle,
-        ws_tx,
+        ws_tx.into(),
         app_state.ws_feature_senders.clone(),
         app_state.write_pool.clone(),
         app_state.session_status_tx.clone(),

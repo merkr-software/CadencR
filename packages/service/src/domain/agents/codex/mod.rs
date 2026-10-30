@@ -46,6 +46,7 @@ mod permission_options_tests;
 mod permissions;
 mod profile_runtime;
 pub mod profiles;
+mod prompt_attachments;
 mod prompt_receipts;
 mod raw_tool_names;
 mod responses;
@@ -383,5 +384,13 @@ mod tests {
     fn advertises_session_branching_capability() {
         let adapter = CodexAdapter;
         assert!(adapter.session_branching().is_some());
+    }
+    #[test]
+    fn adapter_owns_legacy_access_mode_mirroring() {
+        assert_eq!(
+            CodexAdapter.legacy_access_mode_wire(Some("fullAccess")),
+            Some("fullAccess".into())
+        );
+        assert_eq!(CodexAdapter.legacy_access_mode_wire(None), None);
     }
 }

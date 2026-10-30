@@ -70,6 +70,8 @@ pub enum FeaturePlanAction {
 pub struct FeatureRespondGateResponse {
     pub resolved: bool,
     pub request_id: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
 }
 
 pub fn pending_gate_routes() -> Router<AppState> {
@@ -128,10 +130,11 @@ pub async fn respond_gate_handler(
     }
     let decision = to_internal_decision(body.decision);
     let payload = authorize_decision(&state, session_id, &body.request_id, &decision).await?;
-    dispatch_permission_response(&state, session_id, payload).await?;
+    let warnings = dispatch_permission_response(&state, session_id, payload).await?;
     Ok(Json(FeatureRespondGateResponse {
         resolved: true,
         request_id: body.request_id,
+        warnings,
     }))
 }
 

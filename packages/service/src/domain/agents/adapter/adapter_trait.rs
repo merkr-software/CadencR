@@ -62,13 +62,29 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     ) -> Result<Option<ResolvedRuntimeProfile>, RuntimeError> {
         Ok(None)
     }
+    /// Encode an attachment at the provider transport boundary.
+    fn prompt_attachment_block(&self, attachment: &super::RuntimePromptAttachment<'_>) -> Value {
+        super::prompt_attachments::default_prompt_attachment_block(attachment)
+    }
+    /// Optional scoped opt-in for permission bypass; None leaves provider policy unchanged.
+    async fn bypass_permission_opt_in(
+        &self,
+        _pool: &sqlx::SqlitePool,
+        _feature_id: i64,
+        _project_id: Option<i64>,
+    ) -> Option<bool> {
+        None
+    }
+    /// Compatibility mirror for the original access-mode field.
+    fn legacy_access_mode_wire(&self, _access_mode: Option<&str>) -> Option<String> {
+        None
+    }
+
     fn is_valid_resume_session_id(&self, _session_id: &str) -> bool {
         true
     }
 
-    /// Point-in-time context branching (rewind / fork). `None` (the default)
-    /// means the provider can't branch; the orchestrator reports the action
-    /// unsupported. Providers that can (today: Claude Code) return their impl.
+    /// Point-in-time rewind/fork support; None reports unsupported.
     fn session_branching(&self) -> Option<&dyn SessionBranching> {
         None
     }
@@ -96,18 +112,10 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.resolve_resume_session_id(runtime_session_id)
     }
 
-    /// Static catalog entry (available immediately at startup).
-    ///
-    /// Model entries are owned by this adapter. Shared legacy resolution uses
-    /// exact catalog membership rather than inferring ownership from model-id
-    /// spelling.
+    /// Startup catalog; shared resolution uses exact model membership.
     fn catalog_entry(&self) -> super::super::runtime::ProviderCatalogEntry;
 
-    /// Canonicalize a requested model id against this provider's catalog.
-    ///
-    /// The default is provider-neutral and preserves the caller's value.
-    /// Providers that support stable aliases can override this without leaking
-    /// provider-specific model semantics into shared orchestration code.
+    /// Canonicalize model aliases against this provider's catalog; default preserves input.
     fn canonicalize_model_id(
         &self,
         model_id: &str,
@@ -165,13 +173,8 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.default_model_id().await
     }
 
-    /// Configured profile to pin on a newly-created session for this provider.
-    ///
-    /// The profile name is persisted before the runtime is dispatched so a
-    /// headless spawn and a concurrently connecting UI reconstruct the same
-    /// provider configuration. `None` means the provider has no profile
-    /// concept; profile-aware providers may return their reserved built-in
-    /// profile name (for example `"default"`).
+    /// Profile persisted before dispatch so headless launch and UI use the same configuration.
+    /// None means this provider has no profile concept.
     fn profile_name_for_new_session(&self) -> Option<String> {
         None
     }
@@ -229,15 +232,11 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         source_project_path: &Path,
         worktree_path: &Path,
     ) -> Result<(), RuntimeError> {
-        let paths = self.worktree_config_paths();
-        if paths.is_empty() {
-            return Ok(());
-        }
         super::adapter_defaults::copy_worktree_config(
             &self.catalog_entry().label,
             source_project_path,
             worktree_path,
-            &paths,
+            &self.worktree_config_paths(),
         )
         .await
     }
@@ -451,6 +450,9 @@ mod tests {
             .is_none());
         assert!(!adapter.supports_prompt_receipts());
         assert!(!adapter.uses_legacy_permission_channel_on_response_error());
+        assert_eq!(adapter.legacy_access_mode_wire(Some("fullAccess")), None);
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        assert_eq!(adapter.bypass_permission_opt_in(&pool, 1, None).await, None);
         assert_eq!(adapter.profile_name_for_new_session(), None);
         assert_eq!(adapter.environment_for_new_session(), None);
         assert_eq!(

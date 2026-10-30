@@ -47,12 +47,6 @@ const LEGACY_NAMED_DEPENDENCY_FILES = new Set([
   "packages/service/src/domain/ws_session/handler/session_control/mode.rs",
   "packages/service/src/domain/ws_session/handler/session_control/provider.rs",
   "packages/service/src/domain/ws_session/handler/session_init.rs",
-  "packages/service/src/domain/ws_session/handler/session_profile.rs",
-  "packages/service/src/domain/ws_session/handler/session_runtime_config.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/content.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/bridge.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/control_dispatch_config.rs",
-  "packages/service/src/domain/ws_session/handler/session_prompt/prompt_runtime_config.rs",
 ]);
 
 function walk(directory) {

@@ -16,13 +16,22 @@ use super::{ClaudeCodeAdapter, CLAUDE_CODE_ADAPTER};
 use crate::domain::agents::adapter::{
     static_config_paths, AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimeEvent,
     RuntimePermissionMode, RuntimePromptCommandPlacement, RuntimePromptCommandPolicy,
-    RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSlashCommandKind, RuntimeSpawnConfig,
+    RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSpawnConfig,
     RuntimeUserShellStrategy,
 };
 use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
 
 #[async_trait]
 impl AgentRuntimeAdapter for ClaudeCodeAdapter {
+    async fn bypass_permission_opt_in(
+        &self,
+        pool: &SqlitePool,
+        feature_id: i64,
+        project_id: Option<i64>,
+    ) -> Option<bool> {
+        Some(super::bypass_permissions::enabled(pool, Some(feature_id), project_id).await)
+    }
+
     async fn profile_catalog(
         &self,
         _cwd: Option<&Path>,
@@ -116,27 +125,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         &self,
         cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        // Filesystem entries are cwd-specific and re-scanned per call;
-        // built-ins are cwd-invariant and cached. The two probes are
-        // independent, so run them concurrently. Filesystem entries come
-        // first so `resolve_commands`'s downstream first-seen dedup keeps
-        // user-defined commands over identically-named built-ins.
-        let (filesystem, builtins) = tokio::join!(
-            claude_agent_sdk_rs::list_filesystem_commands(cwd),
-            self.load_builtin_slash_commands(),
-        );
-        let filesystem = filesystem.map_err(RuntimeError::from)?;
-
-        let mut commands: Vec<RuntimeSlashCommand> = filesystem
-            .into_iter()
-            .map(|command| RuntimeSlashCommand {
-                name: command.name,
-                description: command.description,
-                kind: RuntimeSlashCommandKind::Command,
-            })
-            .collect();
-        commands.extend(builtins);
-        Ok(commands)
+        self.discover_runtime_slash_commands(cwd).await
     }
 
     fn supports_permission_mode(&self, mode: &RuntimePermissionMode) -> bool {

@@ -165,12 +165,12 @@ mod tests {
         RuntimeSessionConfigKind, RuntimeSessionConfigOption, RuntimeSessionConfigSnapshot,
         RuntimeSessionConfigValue,
     };
-    use crate::domain::ws_session::handler::new_sdk_sessions;
     use crate::domain::ws_session::handler::tests::support::{
         make_active_handle, make_test_app_state,
     };
     use crate::domain::ws_session::handler::types::QueryState;
     use crate::domain::ws_session::protocol::{SessionConfigSnapshotPayload, WsEnvelope};
+    use crate::domain::ws_session::runtime::state::new_sdk_sessions;
 
     struct ConfigSession {
         snapshot: Arc<RwLock<RuntimeSessionConfigSnapshot>>,

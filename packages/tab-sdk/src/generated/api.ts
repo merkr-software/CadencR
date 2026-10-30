@@ -1076,6 +1076,7 @@ export const WsSessionAction = {
   usage_update: "usage_update",
   ended: "ended",
   error: "error",
+  warning: "warning",
   deleted: "deleted",
   cleared: "cleared",
   lifecycle: "lifecycle",
@@ -1256,6 +1257,15 @@ export interface SessionErrorPayload {
    * @nullable
    */
   retry_after_ms?: number | null;
+}
+
+/**
+ * Non-terminal local warning after the provider accepted work. Receiving this
+ * event must preserve the live turn, pending receipts, and permission state.
+ */
+export interface SessionWarningPayload {
+  code: string;
+  message: string;
 }
 
 export interface SessionDeletedPayload {
@@ -1524,6 +1534,10 @@ export type WsSessionEvent =
   | {
       action: "error";
       payload: SessionErrorPayload;
+    }
+  | {
+      action: "warning";
+      payload: SessionWarningPayload;
     }
   | {
       action: "deleted";

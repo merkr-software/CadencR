@@ -60,17 +60,15 @@ impl WsSessionPersistence {
     }
 
     pub async fn mark_completed_static(pool: &SqlitePool, session_id: i64) {
-        let now = chrono::Utc::now().to_rfc3339();
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET status = 'completed', ended_at = ? WHERE id = ?",
-        )
-        .bind(&now)
-        .bind(session_id)
-        .execute(pool)
-        .await
-        {
+        if let Err(e) = Self::try_mark_completed_static(pool, session_id).await {
             error!(error = %e, session_db_id = session_id, "failed to mark session completed");
         }
+    }
+
+    pub(crate) async fn try_mark_completed_static(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET status = 'completed', ended_at = ? WHERE id = ?")
+            .bind(chrono::Utc::now().to_rfc3339()).bind(session_id).execute(pool).await?;
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -623,4 +621,14 @@ mod session_state_tests {
                 .unwrap();
         assert_eq!(row.0, None);
     }
+    #[tokio::test]
+    async fn try_mark_completed_reports_failed_write_and_preserves_running_status() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, status TEXT, ended_at TEXT); INSERT INTO agent_sessions VALUES (7, 'running', NULL); CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON agent_sessions BEGIN SELECT RAISE(FAIL, 'storage unavailable'); END;")
+            .execute(&pool).await.unwrap();
+        assert!(WsSessionPersistence::try_mark_completed_static(&pool, 7).await.is_err());
+        let row: (String, Option<String>) = sqlx::query_as("SELECT status, ended_at FROM agent_sessions WHERE id = 7").fetch_one(&pool).await.unwrap();
+        assert_eq!(row, ("running".into(), None));
+    }
+
 }

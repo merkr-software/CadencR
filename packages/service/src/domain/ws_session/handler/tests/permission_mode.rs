@@ -211,6 +211,7 @@ async fn mode_set_rejection_keeps_accepted_mode_as_desired_mode() {
     sdk_sessions.lock().await.insert(
         77,
         SdkHandle {
+            identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state: QueryState::Active {
                 query,
                 permission_tx,
@@ -317,6 +318,7 @@ async fn claude_bypass_mode_set_rearms_existing_session_before_next_prompt() {
     sdk_sessions.lock().await.insert(
         78,
         SdkHandle {
+            identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state: QueryState::Active {
                 query,
                 permission_tx,

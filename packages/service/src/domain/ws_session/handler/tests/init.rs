@@ -108,7 +108,10 @@ async fn test_init_persists_resolved_pair_before_reconnect() {
     )
     .await;
     assert_eq!(restored_id, session_id);
-    let sessions = reconnected.lock().await;
+    let canonical = app_state.session_runtimes.get(db_id).await.unwrap();
+    assert!(Arc::ptr_eq(&canonical, &sdk_sessions));
+    assert!(reconnected.lock().await.is_empty());
+    let sessions = canonical.lock().await;
     let handle = sessions.get(&db_id).unwrap();
     assert_eq!(handle.runtime_provider, selection.0);
     assert_eq!(handle.desired_model, selection.1);

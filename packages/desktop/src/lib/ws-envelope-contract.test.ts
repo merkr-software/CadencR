@@ -3,6 +3,7 @@ import type {
   ModelSetPayload,
   PermissionRespondPayload,
   PromptSendPayload,
+  SessionWarningPayload,
   WsSessionCommand,
   WsSessionEvent,
 } from "@/api/generated";
@@ -23,6 +24,9 @@ describe("generated session command contract", () => {
     expectTypeOf<Extract<Arguments, ["model.set", unknown]>[1]>().toEqualTypeOf<ModelSetPayload>();
     expectTypeOf<Arguments[0]>().toEqualTypeOf<WsSessionCommand["action"]>();
     expectTypeOf<SessionActionName>().toEqualTypeOf<WsSessionEvent["action"]>();
+    expectTypeOf<
+      Extract<WsSessionEvent, { action: "warning" }>["payload"]
+    >().toEqualTypeOf<SessionWarningPayload>();
     expectTypeOf<
       Extract<WsSessionEvent, { action: "compact.started" }>["payload"]
     >().toEqualTypeOf<null>();

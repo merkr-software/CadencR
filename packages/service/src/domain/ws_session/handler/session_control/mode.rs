@@ -7,7 +7,7 @@ use super::super::helpers::{
     parse_permission_mode, parse_session_id, persist_and_close_query, provider_supports_mode,
     send_error,
 };
-use super::super::types::{QueryState, SdkHandle, SdkSessions, WsSender};
+use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimePermissionMode, RuntimeSessionHandle, RuntimeSpawnConfig,
@@ -168,11 +168,11 @@ async fn apply_active_permission_mode(
     new_mode: RuntimePermissionMode,
     app_state: &AppState,
 ) -> Result<ModeApplied, SessionErrorPayload> {
-    if should_rearm_claude_bypass(handle, &new_mode, &app_state.read_pool).await {
+    if should_rearm_bypass(handle, &new_mode, &app_state.read_pool).await {
         if runtime_is_held(db_session_id, &query) {
             // Re-arming closes the runtime, killing its background tasks and
             // pending wake-up. Record the mode; the prompt-time respawn arms
-            // bypass once the runtime is free (`arm_claude_bypass_for_respawn`).
+            // bypass once the runtime is free (`arm_bypass_for_respawn`).
             info!(
                 db_session_id,
                 "runtime owes a resume; deferring bypass re-arm"
@@ -199,36 +199,7 @@ async fn apply_active_permission_mode(
     Ok(ModeApplied::Live)
 }
 
-/// Allow bypass on the next spawn when a deferred bypass re-arm is pending
-/// (see [`apply_active_permission_mode`]). Called right before every
-/// prompt-time respawn.
-pub(in crate::domain::ws_session::handler) async fn arm_claude_bypass_for_respawn(
-    handle: &mut SdkHandle,
-    pool: &sqlx::SqlitePool,
-) {
-    let Some(mode) = handle.desired_permission_mode.clone() else {
-        return;
-    };
-    if should_rearm_claude_bypass(handle, &mode, pool).await {
-        handle.config.allow_bypass_permissions = true;
-    }
-}
-
-async fn should_rearm_claude_bypass(
-    handle: &super::super::SdkHandle,
-    new_mode: &RuntimePermissionMode,
-    pool: &sqlx::SqlitePool,
-) -> bool {
-    *new_mode == RuntimePermissionMode::BypassPermissions
-        && handle.runtime_provider == crate::domain::agents::claude_code::PROVIDER_ID
-        && !handle.config.allow_bypass_permissions
-        && super::super::claude_access::bypass_permissions_enabled(
-            pool,
-            Some(handle.feature_id),
-            None,
-        )
-        .await
-}
+pub(in crate::domain::ws_session::handler) use crate::domain::ws_session::runtime::control_policy::should_rearm_bypass;
 
 async fn rearm_claude_bypass_session(
     handle: &mut super::super::SdkHandle,

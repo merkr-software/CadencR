@@ -1,11 +1,10 @@
+use super::prompt_send_pending::spawn_pending_prompt;
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::WsEnvelope;
 
 use super::super::{send_error, SdkHandle, SdkSessions, WsSender};
-use super::prompt_selection_sync;
-use super::prompt_send::{
-    dispatch_local_phase, dispatch_owner_phase, prepare_prompt, spawn_pending_prompt,
-};
+use super::prompt_send::{dispatch_local_phase, dispatch_owner_phase, prepare_prompt};
+use crate::domain::ws_session::runtime::prompt::prompt_selection_sync;
 
 /// Handle `session.prompt.send` through local, remote-owner, then spawn phases.
 pub(crate) async fn handle_prompt_send(
@@ -92,13 +91,13 @@ pub(crate) async fn handle_prompt_send(
 }
 
 /// The provider/model a user-typed prompt is about to run on.
-pub(super) struct PromptedSelection {
+pub(in crate::domain::ws_session) struct PromptedSelection {
     provider_id: String,
     model_id: Option<String>,
 }
 
 impl PromptedSelection {
-    pub(super) fn of(handle: &SdkHandle) -> Self {
+    pub(in crate::domain::ws_session) fn of(handle: &SdkHandle) -> Self {
         Self {
             provider_id: handle.runtime_provider.clone(),
             model_id: handle.desired_model.clone(),
@@ -110,7 +109,7 @@ impl PromptedSelection {
 /// makes its pair the workspace's last-used selection — the one the next new
 /// conversation starts on — off the prompt path. Schedules and MCP spawns
 /// dispatch through the control path, so they never move it.
-pub(super) fn report_prompt_result(
+pub(in crate::domain::ws_session) fn report_prompt_result(
     sender: &WsSender,
     envelope_id: &str,
     selection: PromptedSelection,

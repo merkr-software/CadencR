@@ -46,7 +46,7 @@ impl SessionPersistenceHealth {
         payload: SessionPersistenceStatusPayload,
         read_pool: &sqlx::SqlitePool,
         senders: &WsFeatureSenderRegistry,
-        sender: &mpsc::UnboundedSender<Message>,
+        sender: &impl crate::domain::ws_session::runtime::output::OutputTarget,
     ) {
         let mut sessions = self.sessions.lock().await;
         // A superseded reader may finish after session/feature deletion. Keep

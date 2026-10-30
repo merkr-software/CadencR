@@ -21,7 +21,7 @@ use crate::domain::mcp::send_message_tool::SendMessageTool;
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
 use crate::domain::sessions::models::AgentMessageOrigin;
 use crate::domain::sessions::user_messages::PersistedUserMessage;
-use crate::domain::ws_session::handler::session_prompt::publish_user_message;
+use crate::domain::ws_session::runtime::prompt::publish_user_message;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
