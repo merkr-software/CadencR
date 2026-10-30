@@ -29,7 +29,7 @@ export function CustomActionsSettingsSection(): ReactElement {
     <SettingsSection
       id={CUSTOM_ACTIONS_SECTION_ID}
       title="Custom actions"
-      subtitle="Header launcher · Runs tab · ⌥⌘1–9"
+      subtitle="Header launcher · Actions tab · ⌥⌘1–9"
       description="Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below."
     >
       <SettingsCard>

@@ -43,7 +43,7 @@ export type FeatureTabDef = FeatureTabDefBase & FeatureTabIconSource;
 export type OptionalBuiltinTabKind = Extract<BuiltinTabKind, "runs">;
 
 /**
- * Every other built-in is always provided; the Runs tab and a plugin tab have
+ * Every other built-in is always provided; the Actions tab (kind `runs`) and a plugin tab have
  * an entry only while they are available. Layout tabs without an entry are
  * hidden, not dropped.
  */

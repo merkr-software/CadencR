@@ -38,7 +38,7 @@ export interface CustomActionEditorRequest {
 interface CustomActionsUiState {
   /** The action the launcher's primary button runs, per project. */
   selectedByProject: Record<number, number>;
-  /** The action the Runs tab shows, per conversation. */
+  /** The action the Actions tab shows, per conversation. */
   runsTabActionByFeature: Record<number, number>;
   /** `${actionId}:${featureId}` keys whose launch request is in flight. */
   starting: Record<string, true>;

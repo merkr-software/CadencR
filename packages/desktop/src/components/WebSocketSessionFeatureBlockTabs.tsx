@@ -222,7 +222,7 @@ function useRunsTab(args: UseSessionTabsArgs): FeatureTabDef | null {
     if (!pluginTabsEnabled || !hasActions) return null;
     const dot = RUN_STATE_DOT_CLASS[aggregate];
     return {
-      label: "Runs",
+      label: "Actions",
       Icon: ListVideoIcon,
       badge: dot ? (
         <span
@@ -233,7 +233,7 @@ function useRunsTab(args: UseSessionTabsArgs): FeatureTabDef | null {
       content: runsReady ? (
         <CustomActionRunsTab featureId={featureId} projectId={projectId} />
       ) : (
-        <DeferredTabContent label="Runs" />
+        <DeferredTabContent label="Actions" />
       ),
     };
   }, [aggregate, featureId, hasActions, pluginTabsEnabled, projectId, runsReady]);

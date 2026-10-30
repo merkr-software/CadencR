@@ -123,7 +123,7 @@ export async function stopCustomActionRun(
   }
 }
 
-/** Bring a conversation's Runs tab forward on an action's output. */
+/** Bring a conversation's Actions tab forward on an action's output. */
 export function showCustomActionOutput(featureId: number, actionId: number): void {
   useCustomActionsUiStore.getState().showInRunsTab(featureId, actionId);
   activateFeatureTab(featureId, "runs");

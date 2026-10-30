@@ -18,7 +18,7 @@ interface CustomActionRunsTabProps {
 }
 
 /**
- * The Runs tab: every custom action of the conversation on the left with its
+ * The Actions tab (layout kind `runs`): every custom action of the conversation on the left with its
  * latest outcome, the chosen one's output and history on the right. It is
  * where a background run's output lives, so closing a menu never hides it.
  */
