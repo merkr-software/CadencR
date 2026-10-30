@@ -48,6 +48,7 @@ import {
   handleUsageUpdate,
 } from "./ws-envelope-turn-handlers";
 import { SESSION_ACTION, type SessionActionName } from "./ws-session-action-names";
+import { handleSubagentUpdated, handleTurnEndWithSubagents } from "./ws-subagent-handlers";
 import { discardStreamDeltas } from "./ws-delta-coalescer";
 import { SESSION_CLOSED_BEFORE_DELIVERY, failPromptDelivery } from "./ws-session-prompt-delivery";
 export type { StoreAccessors } from "./ws-envelope-types";
@@ -197,8 +198,9 @@ const SESSION_ACTION_HANDLERS: Record<SessionActionName, SessionActionHandler> =
   // `branch.forked` broadcast needs no per-session handling here.
   [SESSION_ACTION.branchForked]: ignoreSessionAction,
   [SESSION_ACTION.configSnapshot]: handleSessionConfigSnapshot,
-  [SESSION_ACTION.ended]: handleTurnComplete,
-  [SESSION_ACTION.turnComplete]: handleTurnComplete,
+  [SESSION_ACTION.ended]: handleTurnEndWithSubagents(handleTurnComplete),
+  [SESSION_ACTION.turnComplete]: handleTurnEndWithSubagents(handleTurnComplete),
+  [SESSION_ACTION.subagentUpdated]: handleSubagentUpdated,
 };
 
 function handleSessionAction(

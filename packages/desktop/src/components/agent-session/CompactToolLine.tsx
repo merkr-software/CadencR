@@ -8,15 +8,21 @@ import {
   FilePlusIcon,
   type LucideIcon,
 } from "lucide-react";
-import { cn, toRelativePath } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { shouldGateFullContent, type AgentBlockData } from "@/components/agent-block-types";
 import { hasCompactLine } from "@/components/agentStreamDisplay";
 import { NumStat } from "@/components/NumStat";
 import { thinkingPreview } from "@/components/ThinkingBlock";
-import { extractBashCommand, isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
+import {
+  extractBashCommand,
+  isFileChangeTool,
+  normalizeToolName,
+  oneLineDetail,
+  oneLineShellCommand,
+} from "@/lib/tool-adapter";
 import { parseMcpTool } from "@/lib/mcp-tool-parser";
 import { parseToolCall } from "@/lib/tool-call-parser";
-import { semanticSkillPresentation } from "@/lib/tool-display-policy";
+import { isSubagentToolName, semanticSkillPresentation } from "@/lib/tool-display-policy";
 import { computeToolNumStat } from "@/lib/tool-numstat";
 import { TOOL_ACCENT_CLASSES, type ToolAccent } from "@/lib/tool-accent";
 
@@ -87,10 +93,10 @@ interface ToolLineProps {
 }
 
 function BashLine({ toolArgs, basePath }: ToolLineProps) {
-  const command = useMemo(() => {
-    const raw = extractBashCommand(toolArgs);
-    return raw ? singleLine(toRelativePath(raw, basePath)) : undefined;
-  }, [toolArgs, basePath]);
+  const command = useMemo(
+    () => oneLineShellCommand(extractBashCommand(toolArgs), basePath),
+    [toolArgs, basePath],
+  );
   return <BaseLine icon={TerminalIcon} accent="bash" label="Bash" detail={command} />;
 }
 
@@ -102,7 +108,7 @@ function FileChangeLine({
 }: ToolLineProps & { rawToolName: string; toolName: string }) {
   const stats = useMemo(() => computeToolNumStat(rawToolName, toolArgs), [rawToolName, toolArgs]);
   const path = useMemo(
-    () => relativeDetail(parseToolCall(toolName, toolArgs)?.detail, basePath),
+    () => oneLineDetail(parseToolCall(toolName, toolArgs)?.detail, basePath),
     [toolName, toolArgs, basePath],
   );
   return (
@@ -123,17 +129,17 @@ function FileChangeLine({
 function GenericToolLine({ toolName, toolArgs, basePath }: ToolLineProps & { toolName: string }) {
   const presentation = useMemo(() => {
     const mcp = parseMcpTool(toolName, toolArgs);
-    if (mcp) return { label: mcp.label, detail: mcp.detail, mcp: true };
-    const detail = relativeDetail(parseToolCall(toolName, toolArgs)?.detail, basePath);
+    if (mcp) return { label: mcp.label, detail: oneLineDetail(mcp.detail, undefined), mcp: true };
+    const detail = oneLineDetail(parseToolCall(toolName, toolArgs)?.detail, basePath);
     return { label: toolName, detail, mcp: false };
   }, [toolName, toolArgs, basePath]);
-  const subagent = toolName === "Task" || toolName === "Agent";
+  const subagent = isSubagentToolName(toolName);
   return (
     <BaseLine
       icon={subagent ? BotIcon : WrenchIcon}
       accent={presentation.mcp ? "mcp" : "tool"}
       label={presentation.label}
-      detail={presentation.detail ? singleLine(presentation.detail) : undefined}
+      detail={presentation.detail}
     />
   );
 }
@@ -171,16 +177,4 @@ function BaseLine({ icon: Icon, accent, label, detail, trailing, prose }: BaseLi
       </span>
     </span>
   );
-}
-
-function singleLine(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function relativeDetail(
-  detail: string | undefined,
-  basePath: string | undefined,
-): string | undefined {
-  if (!detail) return undefined;
-  return singleLine(toRelativePath(detail, basePath));
 }

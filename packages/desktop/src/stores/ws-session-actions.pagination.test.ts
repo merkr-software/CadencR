@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   getFeatureAgentState: apiMocks.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
 }));
 
 vi.mock("@/hooks/useFeatureAgentState", () => ({
@@ -165,7 +166,7 @@ describe("ws session history pagination", () => {
     );
   });
 
-  it("marks a cloned Task boundary without dropping newly merged children", async () => {
+  it("merges older children into a cloned Task boundary, which never folds", async () => {
     const task = makeBlock("msg-300", "{}", "tool_call", {
       toolName: "Task",
       toolUseId: "task-300",
@@ -199,7 +200,8 @@ describe("ws session history pagination", () => {
 
     const session = ctx.get().sessions.s1;
     const mergedTask = session.blocks.find((block) => block.id === task.id);
-    expect(mergedTask?.compactFlowBreakBefore).toBe(true);
+    // A sub-agent keeps its own row in compact flow, so no fold seam to mark.
+    expect(mergedTask?.compactFlowBreakBefore).toBeUndefined();
     expect(mergedTask?.childBlocks?.map((child) => child.id)).toEqual([
       "child-current",
       "child-older",

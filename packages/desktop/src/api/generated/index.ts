@@ -5823,6 +5823,70 @@ export interface StashPushBody {
   message?: string | null;
 }
 
+export type SubagentRunStatus = (typeof SubagentRunStatus)[keyof typeof SubagentRunStatus];
+
+export const SubagentRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+/**
+ * One sub-agent as the desktop renders it: the transcript's sub-agent card
+ * for its carrier. `action_count` is observed by Cadencr from the
+ * sub-agent's transcript; every other field is a provider fact.
+ */
+export interface SubagentRun {
+  /**
+   * Tool calls Cadencr saw in the sub-agent's transcript.
+   * @nullable
+   */
+  actionCount?: number | null;
+  /** @nullable */
+  agentName?: string | null;
+  /** @nullable */
+  agentType?: string | null;
+  background: boolean;
+  /** @nullable */
+  childSessionId?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** `model` is what the sub-agent ran on, not just what it was asked to use. */
+  modelResolved: boolean;
+  /**
+   * Carrier of the sub-agent that launched this one, when nested.
+   * @nullable
+   */
+  parentToolUseId?: string | null;
+  /** @nullable */
+  prompt?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
+  /** @nullable */
+  resultSummary?: string | null;
+  sessionId: number;
+  startedAt: string;
+  status: SubagentRunStatus;
+  /** @nullable */
+  statusReason?: string | null;
+  /**
+   * Tool calls the provider reports the sub-agent made.
+   * @nullable
+   */
+  toolUseCount?: number | null;
+  /** The carrier tool_use id: joins the run to its transcript block. */
+  toolUseId: string;
+  /** @nullable */
+  totalTokens?: number | null;
+}
+
 export interface SubmitPublicationRegistryRequest {
   bundle_id: string;
   bundle_ids?: string[];
@@ -14558,6 +14622,131 @@ export function useGetSessions<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetSessionsQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+export const listFeatureSubagents = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<SubagentRun[]>({
+    url: `/api/features/${featureId}/subagents`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListFeatureSubagentsQueryKey = (featureId: number) => {
+  return [`/api/features/${featureId}/subagents`] as const;
+};
+
+export const getListFeatureSubagentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFeatureSubagentsQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listFeatureSubagents>>> = ({ signal }) =>
+    listFeatureSubagents(featureId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: featureId !== null && featureId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListFeatureSubagentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFeatureSubagents>>
+>;
+export type ListFeatureSubagentsQueryError = ErrorType<unknown>;
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListFeatureSubagentsQueryOptions(featureId, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;

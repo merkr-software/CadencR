@@ -67,6 +67,30 @@ describe("collapseTurnsToSummary", () => {
     expect(result[2].content).toBe("all done");
   });
 
+  it("keeps the sub-agents a turn launched as their own rows around the recap", () => {
+    const result = collapseTurnsToSummary([
+      user("u"),
+      tool("explore", "Agent"),
+      tool("read", "Read"),
+      tool("review", "Task"),
+      text("answer"),
+    ]);
+    expect(result.map((block) => block.id)).toEqual([
+      "u",
+      "explore",
+      "tool-summary-read",
+      "review",
+      "answer",
+    ]);
+    expect(summaryOf(result)).toEqual({ Read: 1 });
+    expect(result[2].childBlocks?.map((block) => block.id)).toEqual(["read"]);
+  });
+
+  it("keeps a turn's only sub-agent without an empty recap", () => {
+    const result = collapseTurnsToSummary([user("u"), tool("explore", "Agent"), text("answer")]);
+    expect(result.map((block) => block.id)).toEqual(["u", "explore", "answer"]);
+  });
+
   it("keeps only the final text of a turn, dropping preamble text", () => {
     const result = collapseTurnsToSummary([
       user("u1"),

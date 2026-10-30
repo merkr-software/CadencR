@@ -49,6 +49,7 @@ export const SESSION_ACTION = {
   configSnapshot: "config.snapshot",
   ended: "ended",
   turnComplete: "turn_complete",
+  subagentUpdated: "subagent_updated",
 } as const;
 
 export type SessionActionName = (typeof SESSION_ACTION)[keyof typeof SESSION_ACTION];
