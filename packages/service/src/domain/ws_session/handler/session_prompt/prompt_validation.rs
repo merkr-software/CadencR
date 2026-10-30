@@ -3,7 +3,9 @@ use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 
 use super::super::{parse_session_id, send_error, WsSender};
 
-pub(super) fn normalize_message_uuid(payload: &mut PromptSendPayload) -> Result<(), String> {
+pub(in crate::domain::ws_session) fn normalize_message_uuid(
+    payload: &mut PromptSendPayload,
+) -> Result<(), String> {
     let message_uuid = canonical_user_message_uuid(payload.message_uuid.as_deref())
         .map_err(|_| "message_uuid must be a valid UUID".to_string())?
         .to_string();
@@ -11,7 +13,7 @@ pub(super) fn normalize_message_uuid(payload: &mut PromptSendPayload) -> Result<
     Ok(())
 }
 
-pub(super) fn parse_prompt_payload(
+pub(in crate::domain::ws_session) fn parse_prompt_payload(
     envelope: &WsEnvelope,
     sender: &WsSender,
 ) -> Option<PromptSendPayload> {
@@ -24,7 +26,7 @@ pub(super) fn parse_prompt_payload(
     }
 }
 
-pub(super) fn parse_prompt_session_id(
+pub(in crate::domain::ws_session) fn parse_prompt_session_id(
     payload: &PromptSendPayload,
     envelope: &WsEnvelope,
     sender: &WsSender,

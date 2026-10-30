@@ -1,5 +1,10 @@
 #[async_trait]
 impl AgentRuntimeAdapter for CodexAdapter {
+    fn prompt_attachment_block(&self, attachment: &super::adapter::RuntimePromptAttachment<'_>) -> Value {
+        prompt_attachments::attachment_block(attachment)
+    }
+    fn legacy_access_mode_wire(&self, access_mode: Option<&str>) -> Option<String> { access_mode.map(ToOwned::to_owned) }
+
     async fn resolve_profile_for_selection(
         &self,
         selection: Option<&str>,

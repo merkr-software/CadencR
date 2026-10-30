@@ -12,10 +12,7 @@ mod interrupt;
 mod lifecycle;
 mod mode;
 mod model;
-mod permission;
 mod permission_dispatch;
-mod permission_pending;
-mod permission_user_message;
 mod power;
 mod profile;
 mod provider;
@@ -27,7 +24,7 @@ pub(super) use effort::handle_effort_set;
 pub(super) use fast_mode::handle_fast_mode_set;
 pub(super) use interrupt::finish_interruption;
 pub(super) use lifecycle::{handle_clear, handle_delete, handle_destroy, handle_interrupt};
-pub(super) use mode::{arm_claude_bypass_for_respawn, handle_mode_set};
+pub(super) use mode::handle_mode_set;
 pub(super) use model::handle_model_set;
 pub(crate) use permission_dispatch::handle_permission_respond;
 pub(super) use power::{handle_resume, handle_retry_worktree_setup, handle_suspend};
@@ -35,48 +32,16 @@ pub(super) use profile::handle_profile_set;
 pub(super) use provider::handle_provider_set;
 #[cfg(test)]
 pub(super) use provider::{read_persisted_selection, restore_persisted_selection};
-pub(super) use runtime_overrides::{adopt_runtime_overrides, handle_runtime_overrides_set};
+pub(super) use runtime_overrides::handle_runtime_overrides_set;
 pub(super) use session_config::{handle_session_config_get, handle_session_config_set};
 
 use axum::extract::ws::Message;
 
-use super::types::{QueryState, SdkSessions, WsSender};
+use super::types::WsSender;
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::{WsEnvelope, WsSessionEvent};
 
-/// Whether `sessions` holds a live (`Active`) handle for this session. Locks
-/// briefly and releases before the caller acquires any further lock, so it
-/// never nests the per-connection map lock with the owner-map lock.
-pub(super) async fn session_is_active(sessions: &SdkSessions, db_session_id: i64) -> bool {
-    let guard = sessions.lock().await;
-    matches!(
-        guard.get(&db_session_id).map(|h| &h.state),
-        Some(QueryState::Active { .. })
-    )
-}
-
-/// Resolve the connection map that owns this session's live turn. The fast path
-/// is the caller's own map (it drove the turn). When the turn is owned by a
-/// different connection — e.g. the host acting on a conversation that was
-/// started on a remote device — the caller's own map holds only a `Pending`
-/// handle, so we fall back to the global registry to reach the live query. This
-/// is what makes model/mode/interrupt work from any connected device, not just
-/// the turn owner (the same pattern `permission.respond` already uses).
-pub(super) async fn resolve_owner_sessions(
-    own: &SdkSessions,
-    app_state: &AppState,
-    db_session_id: i64,
-) -> SdkSessions {
-    if session_is_active(own, db_session_id).await {
-        own.clone()
-    } else {
-        app_state
-            .active_turns
-            .owner_sessions(db_session_id)
-            .await
-            .unwrap_or_else(|| own.clone())
-    }
-}
+pub(super) use crate::domain::ws_session::runtime::control_policy::resolve_owner_sessions;
 
 /// Mirror a session-control change to the *other* devices viewing the same
 /// feature so their UI chips stay in sync (the originating sender already got

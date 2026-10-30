@@ -5,21 +5,19 @@ impl WsSessionPersistence {
         message: &str,
         parent_tool_use_id: Option<&str>,
     ) {
-        if let Err(e) = Self::insert_message(
-            pool,
-            session_id,
-            "assistant",
-            message,
-            "error",
-            None,
-            None,
-            parent_tool_use_id,
-            None,
-        )
-        .await
-        {
+        if let Err(e) = Self::try_persist_error_message_static(pool, session_id, message, parent_tool_use_id).await {
             error!(error = %e, session_db_id = session_id, "failed to persist error message");
         }
+    }
+
+    pub(crate) async fn try_persist_error_message_static(
+        pool: &SqlitePool,
+        session_id: i64,
+        message: &str,
+        parent_tool_use_id: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        Self::insert_message(pool, session_id, "assistant", message, "error", None, None, parent_tool_use_id, None).await?;
+        Ok(())
     }
 }
 

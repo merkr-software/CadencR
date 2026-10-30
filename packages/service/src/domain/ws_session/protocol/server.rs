@@ -140,6 +140,14 @@ impl From<RuntimePermissionOption> for PermissionOptionPayload {
     }
 }
 
+/// Non-terminal local warning after the provider accepted work. Receiving this
+/// event must preserve the live turn, pending receipts, and permission state.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SessionWarningPayload {
+    pub code: String,
+    pub message: String,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct SessionErrorPayload {
     pub code: String,

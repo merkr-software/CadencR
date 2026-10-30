@@ -96,11 +96,17 @@ async fn idle_owner(app_state: &AppState) -> (SdkSessions, i64) {
 /// Steer a scheduled prompt into the owner. The stub runtime never confirms
 /// delivery, so a steered prompt is abandoned after a moment.
 async fn dispatch_scheduled(app_state: &AppState, db_id: i64) -> Option<Result<(), String>> {
-    let dispatch = session_prompt::dispatch_control_prompt(app_state, 1, db_id, "check", false);
+    let dispatch = crate::domain::ws_session::runtime::application::dispatch_control_prompt(
+        app_state, 1, db_id, "check", false,
+    );
     tokio::time::timeout(std::time::Duration::from_secs(2), dispatch)
         .await
         .ok()
-        .map(|result| result.map_err(|error| error.to_string()))
+        .map(|result| {
+            result
+                .map(|outcome| outcome.delivery_confirmed())
+                .map_err(|error| error.to_string())
+        })
 }
 
 /// Scheduled prompts are steered into the owner's runtime. One still on an

@@ -11,7 +11,9 @@ use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 
 use super::super::{send_error, QueryState, SdkSessions, WsSender};
 use super::prompt_send::PreparedPrompt;
-use super::user_shell_local::{run_cadencr_managed_user_shell, LocalUserShellRequest};
+use crate::domain::ws_session::runtime::prompt::user_shell_local::{
+    run_cadencr_managed_user_shell, LocalUserShellRequest,
+};
 
 struct UserShellTarget {
     feature_id: i64,
@@ -34,7 +36,7 @@ impl UserShellRouteError {
 }
 
 /// Return `true` when `prepared` was a user shell command and was fully handled.
-pub(super) async fn maybe_handle_user_shell_prompt(
+pub(in crate::domain::ws_session) async fn maybe_handle_user_shell_prompt(
     envelope: &WsEnvelope,
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
@@ -232,8 +234,10 @@ async fn resolve_target(
     app_state: &AppState,
     session_id: i64,
 ) -> Option<UserShellTarget> {
-    let effective =
-        super::super::session_control::resolve_owner_sessions(local, app_state, session_id).await;
+    let effective = crate::domain::ws_session::runtime::control_policy::resolve_owner_sessions(
+        local, app_state, session_id,
+    )
+    .await;
     target_from_sessions(&effective, session_id).await
 }
 
@@ -268,7 +272,7 @@ async fn prepare_branch_if_requested(
     let QueryState::Pending(options) = &mut handle.state else {
         return Err("Branch setup is only valid before the provider runtime starts.".to_string());
     };
-    super::prompt_worktree::prepare_branch_provisioning(
+    crate::domain::ws_session::runtime::prompt::prompt_worktree::prepare_branch_provisioning(
         app_state,
         &app_state.write_pool,
         sender,

@@ -689,6 +689,7 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::SessionMessagePayload,
         ws_protocol::SessionUsageUpdatePayload,
         ws_protocol::SessionErrorPayload,
+        ws_protocol::SessionWarningPayload,
         ws_protocol::SessionEndedPayload,
         ws_protocol::SessionLifecyclePayload,
         ws_protocol::SessionLifecycleKind,

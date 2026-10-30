@@ -6,6 +6,7 @@ pub mod persistence_health;
 pub mod protocol;
 pub mod question_answers;
 pub mod routes;
+pub(crate) mod runtime;
 pub mod sender_registry;
 pub mod slash_commands;
 pub(crate) mod stream_readers;

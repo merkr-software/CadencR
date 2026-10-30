@@ -10,7 +10,7 @@ use crate::domain::ws_session::protocol::{
 use crate::error::AppError;
 use serde_json::Value;
 
-use super::super::{parse_session_id, send_error, SdkHandle, SdkSessions, WsSender};
+use super::super::{parse_session_id, send_error, SdkSessions, WsSender};
 use super::effort::persist_model_thinking_default;
 
 pub(crate) async fn handle_runtime_overrides_set(
@@ -296,25 +296,7 @@ async fn apply_to_handle(
     adopt_runtime_overrides(handle, overrides);
 }
 
-/// Point a handle at `overrides`: its next spawn, and a respawn of its live
-/// runtime on the next prompt, run with them.
-pub(crate) fn adopt_runtime_overrides(handle: &mut SdkHandle, overrides: &RuntimeConfigOverrides) {
-    handle.config.overrides = overrides.clone();
-    handle.config.runtime_overrides_dirty = true;
-    handle.desired_model = overrides.model.clone();
-    handle.desired_thinking_effort = overrides.thinking_effort.clone();
-    if let Some(fast_mode) = overrides.fast_mode {
-        handle.config.fast_mode = fast_mode;
-    }
-    if let super::super::QueryState::Pending(options) = &mut handle.state {
-        options.overrides = overrides.clone();
-        options.model = overrides.model.clone();
-        options.thinking_effort = overrides.thinking_effort.clone();
-        if let Some(fast_mode) = overrides.fast_mode {
-            options.fast_mode = fast_mode;
-        }
-    }
-}
+pub(crate) use crate::domain::ws_session::runtime::control_policy::adopt_runtime_overrides;
 
 fn nullable_string(value: &serde_json::Value) -> Result<Option<String>, ()> {
     if value.is_null() {

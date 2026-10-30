@@ -50,6 +50,7 @@ session_events! {
     UsageUpdate(SessionUsageUpdatePayload) => "usage_update",
     Ended(SessionEndedPayload) => "ended",
     Error(SessionErrorPayload) => "error",
+    Warning(SessionWarningPayload) => "warning",
     Deleted(SessionDeletedPayload) => "deleted",
     Cleared(SessionClearedPayload) => "cleared",
     Lifecycle(SessionLifecyclePayload) => "lifecycle",

@@ -1,15 +1,13 @@
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
-use super::{
-    send_error, send_runtime_session_id, thinking_effort, QueryState, SdkHandle, SdkSessions,
-    SessionConfig, WsSender,
-};
+use super::{send_error, thinking_effort, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
-use std::sync::Arc;
 use tracing::{debug, info, warn};
+#[path = "session_init_binding.rs"]
+mod session_init_binding;
 #[path = "session_init_effort.rs"]
 mod session_init_effort;
 #[path = "session_init_fast_mode.rs"]
@@ -33,9 +31,9 @@ pub(super) async fn handle_init(
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
-) {
+) -> Option<i64> {
     let Some((payload, feature_id, cwd)) = session_init_input::parse(&envelope, sender) else {
-        return;
+        return None;
     };
 
     // Register the WS sender so HTTP handlers (e.g. auto-rename) can push
@@ -53,7 +51,7 @@ pub(super) async fn handle_init(
     )
     .await
     else {
-        return;
+        return None;
     };
 
     let (initial_provider, configured_initial_access_mode) =
@@ -70,7 +68,7 @@ pub(super) async fn handle_init(
     let mut persistence = WsSessionPersistence::new(app_state.write_pool.clone(), feature_id);
     let pm_str = payload.permission_mode.as_deref();
     let db_session_id = match persistence
-        .find_or_create_session_with_access_mode(
+        .find_or_create_session_for_binding(
             payload.model.as_deref(),
             pm_str,
             configured_initial_access_wire,
@@ -92,12 +90,44 @@ pub(super) async fn handle_init(
                 "DB_ERROR",
                 "Failed to create/find session in database",
             );
-            return;
+            return None;
         }
     };
 
+    let sdk_sessions = app_state
+        .session_runtimes
+        .bind_feature(db_session_id, feature_id, sdk_sessions)
+        .await;
+    let mut sessions = sdk_sessions.lock().await;
+
     // Read session row for runtime_session_id (--resume), token usage, and stored model.
     let row = WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await;
+    let spawning = app_state.session_runtimes.is_spawning(db_session_id).await;
+    if let Some(payload) = sessions.get(&db_session_id).and_then(|handle| {
+        session_init_binding::live_payload(db_session_id, handle, row.as_ref(), spawning)
+    }) {
+        drop(sessions);
+        session_init_binding::reply_and_restore(
+            app_state,
+            sender,
+            &envelope.id,
+            payload,
+            feature_id,
+            row.as_ref()
+                .and_then(|row| row.runtime_session_id.as_deref()),
+        )
+        .await;
+        return Some(db_session_id);
+    }
+    if let Err(error) = persistence.reopen_session(db_session_id, pm_str).await {
+        send_error(
+            sender,
+            &envelope.id,
+            "DB_ERROR",
+            &format!("Failed to reopen session: {error}"),
+        );
+        return Some(db_session_id);
+    }
     let runtime_provider = row.as_ref().and_then(|r| r.runtime_provider.clone());
     if let Some(ref r) = row {
         debug!(
@@ -140,7 +170,7 @@ pub(super) async fn handle_init(
                     "NO_MODEL_AVAILABLE",
                     &error.to_string(),
                 );
-                return;
+                return Some(db_session_id);
             }
         },
     };
@@ -174,7 +204,7 @@ pub(super) async fn handle_init(
                 "Runtime provider '{effective_provider}' is not implemented yet for session agents"
             ),
         );
-        return;
+        return Some(db_session_id);
     };
 
     if let Err(error) = WsSessionPersistence::update_runtime_selection_static()
@@ -198,7 +228,7 @@ pub(super) async fn handle_init(
             "DB_ERROR",
             "Failed to persist session runtime selection",
         );
-        return;
+        return Some(db_session_id);
     }
 
     // Build SDK options — prefer the model stored in the DB (last used) over the frontend settings model
@@ -208,7 +238,7 @@ pub(super) async fn handle_init(
         Ok(path) => path,
         Err(error) => {
             send_error(sender, &envelope.id, "WORKTREE_CHECK_FAILED", &error);
-            return;
+            return Some(db_session_id);
         }
     };
     if effective_cwd != cwd {
@@ -267,7 +297,7 @@ pub(super) async fn handle_init(
         Ok(config) => config,
         Err((code, message)) => {
             send_error(sender, &envelope.id, code, &message);
-            return;
+            return Some(db_session_id);
         }
     };
     let session_init_profile::ResolvedProfileConfig {
@@ -301,7 +331,7 @@ pub(super) async fn handle_init(
                 "DB_ERROR",
                 "Failed to restore fast mode",
             );
-            return;
+            return Some(db_session_id);
         }
     };
     effective_fast_mode = session_init_fast_mode::profile_effective_or_legacy(
@@ -316,39 +346,23 @@ pub(super) async fn handle_init(
         feature_id, "session initialized (pending first prompt)"
     );
 
-    let desired_model = runtime_config.model.clone();
-    let desired_permission_mode = runtime_config.permission_mode.clone();
-    let desired_access_mode = runtime_config.access_mode.clone();
-    let desired_thinking_effort = runtime_config.thinking_effort.clone();
     let runtime_overrides = runtime_config.overrides.clone();
-    let config = SessionConfig::from_runtime(&runtime_config, effective_profile.clone());
-    let handle = SdkHandle {
-        state: QueryState::Pending(runtime_config),
-        feature_id,
-        runtime_provider: effective_provider.clone(),
-        desired_model,
-        spawned_model: None,
-        desired_permission_mode,
-        spawned_permission_mode: None,
-        desired_access_mode,
-        spawned_access_mode: None,
-        desired_thinking_effort,
-        spawned_thinking_effort: None,
-        desired_claude_profile: effective_profile.clone(),
-        spawned_claude_profile: None,
-        runtime_control_endpoint: None,
-        resume_session_id: resume_session_id.clone(),
-        config,
-        manual_compact_cancel: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        manual_compact_spawn_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-    };
+    let handle = session_init_binding::pending_handle()
+        .runtime_config(runtime_config)
+        .feature_id(feature_id)
+        .runtime_provider(effective_provider.clone())
+        .maybe_profile(effective_profile.clone())
+        .maybe_resume_session_id(resume_session_id.clone())
+        .call();
 
-    sdk_sessions.lock().await.insert(db_session_id, handle);
+    sessions.insert(db_session_id, handle);
+    drop(sessions);
 
-    // Send initialized response — session_id is now the DB id as a string
-    let reply = WsEnvelope::session_reply(
+    session_init_binding::reply_and_restore(
+        app_state,
+        sender,
         &envelope.id,
-        &WsSessionEvent::Initialized(SessionInitializedPayload {
+        SessionInitializedPayload {
             session_id: db_session_id.to_string(),
             provider: Some(effective_provider.clone()),
             model: effective_model,
@@ -357,38 +371,17 @@ pub(super) async fn handle_init(
             profile: effective_profile,
             runtime_overrides,
             permission_mode: effective_permission_mode_wire,
-            codex_permission_mode: if effective_provider
-                == crate::domain::agents::codex::PROVIDER_ID
-            {
-                effective_access_mode_wire.clone()
-            } else {
-                None
-            },
+            codex_permission_mode: adapter
+                .legacy_access_mode_wire(effective_access_mode_wire.as_deref()),
             access_mode: effective_access_mode_wire,
             input_tokens: init_input_tokens.map(|v| v as u64),
             output_tokens: init_output_tokens.map(|v| v as u64),
             context_window: init_context_window.map(|v| v as u64),
             supports_prompt_receipts: adapter.supports_prompt_receipts(),
-        }),
+        },
+        feature_id,
+        resume_session_id.as_deref(),
     )
-    .expect("session event payload should serialize");
-    let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
-
-    app_state
-        .persistence_health
-        .replay(db_session_id, sender)
-        .await;
-
-    if let Some(ref cli_sid) = resume_session_id {
-        send_runtime_session_id(sender, cli_sid);
-    }
-
-    session_init_restore::restore_pending_or_idle(app_state, sender, db_session_id, feature_id)
-        .await;
-
-    if let Err(error) =
-        super::session_init_worktree::restore_worktree_state(app_state, sender, feature_id).await
-    {
-        send_error(sender, &envelope.id, "WORKTREE_CHECK_FAILED", &error);
-    }
+    .await;
+    Some(db_session_id)
 }

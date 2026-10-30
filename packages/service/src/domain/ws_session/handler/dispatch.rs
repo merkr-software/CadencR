@@ -22,24 +22,27 @@ pub(super) async fn dispatch_envelope(
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
-) {
+) -> Option<i64> {
     info!(domain = %envelope.domain, action = %envelope.action, id = %envelope.id, "received envelope");
     match envelope.domain.as_str() {
-        "session" => {
-            handle_session_action(envelope, sender, sdk_sessions, app_state).await;
-        }
+        "session" => handle_session_action(envelope, sender, sdk_sessions, app_state).await,
         "commands" => {
             commands::handle_commands_action(envelope, sender).await;
+            None
         }
         "app" => {
             app::handle_app_action(envelope, sender, app_state).await;
+            None
         }
-        unknown => send_error(
-            sender,
-            &envelope.id,
-            "UNKNOWN_DOMAIN",
-            &format!("Unknown domain: {unknown}"),
-        ),
+        unknown => {
+            send_error(
+                sender,
+                &envelope.id,
+                "UNKNOWN_DOMAIN",
+                &format!("Unknown domain: {unknown}"),
+            );
+            None
+        }
     }
 }
 
@@ -49,7 +52,7 @@ async fn handle_session_action(
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
-) {
+) -> Option<i64> {
     let Some(action) = canonical_session_command_action(&envelope.action) else {
         send_error(
             sender,
@@ -57,10 +60,30 @@ async fn handle_session_action(
             "UNKNOWN_ACTION",
             &format!("Unknown session action: {}", envelope.action),
         );
-        return;
+        return None;
     };
+    if matches!(action, Command::Init) {
+        return session_init::handle_init(envelope, sender, sdk_sessions, app_state).await;
+    }
+    let session_id = envelope
+        .payload
+        .get("session_id")
+        .and_then(|id| id.as_str())
+        .and_then(|id| id.parse::<i64>().ok());
+    // Every command resolves the service-owned cell. The connection's candidate
+    // exists only until init binds a session and never owns a live process.
+    let canonical = match envelope
+        .payload
+        .get("session_id")
+        .and_then(|id| id.as_str())
+        .and_then(|id| id.parse::<i64>().ok())
+    {
+        Some(id) => app_state.session_runtimes.get(id).await,
+        None => None,
+    };
+    let sdk_sessions = canonical.as_ref().unwrap_or(sdk_sessions);
     match action {
-        Command::Init => session_init::handle_init(envelope, sender, sdk_sessions, app_state).await,
+        Command::Init => unreachable!("init handled before canonical command dispatch"),
         Command::PromptSend => {
             session_prompt::handle_prompt_send(envelope, sender, sdk_sessions, app_state).await
         }
@@ -129,4 +152,5 @@ async fn handle_session_action(
             control::handle_retry_worktree_setup(envelope, sender, app_state).await
         }
     }
+    session_id
 }

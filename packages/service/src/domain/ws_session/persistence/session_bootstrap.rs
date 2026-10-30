@@ -40,60 +40,127 @@ impl WsSessionPersistence {
         permission_mode: Option<&str>,
         access_mode: Option<&str>,
     ) -> Option<i64> {
-        let existing: Option<(i64,)> = sqlx::query_as(
-            "SELECT id FROM agent_sessions WHERE feature_id = ? AND agent_type = 'session' ORDER BY id DESC LIMIT 1",
-        )
-        .bind(self.feature_id)
-        .fetch_optional(&self.write_pool)
-        .await
-        .ok()?;
-
-        if let Some((id,)) = existing {
-            if let Err(e) = sqlx::query(
-                "UPDATE agent_sessions
-                 SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
-                     permission_mode = COALESCE(?, permission_mode)
-                 WHERE id = ?",
-            )
-            .bind(permission_mode)
-            .bind(id)
-            .execute(&self.write_pool)
+        self.ensure_session(model, permission_mode, access_mode, true)
             .await
-            {
-                error!(error = %e, session_db_id = id, "failed to update existing agent_sessions row");
-            }
+    }
 
-            self.session_db_id = Some(id);
-            debug!(session_db_id = id, feature_id = self.feature_id, "reusing existing agent_sessions row");
-            return Some(id);
+    /// Select the DB identity before acquiring its runtime cell. Existing rows
+    /// are reopened only after the caller knows no live runtime owns them.
+    pub async fn find_or_create_session_for_binding(
+        &mut self,
+        model: Option<&str>,
+        permission_mode: Option<&str>,
+        access_mode: Option<&str>,
+    ) -> Option<i64> {
+        self.ensure_session(model, permission_mode, access_mode, false)
+            .await
+    }
+
+    pub async fn reopen_session(
+        &self,
+        id: i64,
+        permission_mode: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let result = sqlx::query(
+            "UPDATE agent_sessions
+             SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
+                 permission_mode = COALESCE(?, permission_mode)
+             WHERE id = ?",
+        )
+        .bind(permission_mode)
+        .bind(id)
+        .execute(&self.write_pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
+        Ok(())
+    }
+
+    async fn ensure_session(
+        &mut self,
+        model: Option<&str>,
+        permission_mode: Option<&str>,
+        access_mode: Option<&str>,
+        reopen_existing: bool,
+    ) -> Option<i64> {
+        if let Some(id) = self.latest_session_id().await.ok()? {
+            return self
+                .reuse_session(id, permission_mode, reopen_existing)
+                .await;
         }
 
         let now = chrono::Utc::now().to_rfc3339();
-        let result = sqlx::query(
-            "INSERT INTO agent_sessions (feature_id, agent_type, status, model, permission_mode, codex_permission_mode, started_at) VALUES (?, 'session', 'paused', ?, ?, COALESCE(?, 'default'), ?)",
+        // The existence check and insert share one SQLite write statement.
+        // Concurrent initializers which both observed no row select the winner
+        // below, rather than manufacturing a second runtime identity.
+        let result: Result<Option<(i64,)>, sqlx::Error> = sqlx::query_as(
+            "INSERT INTO agent_sessions
+             (feature_id, agent_type, status, model, permission_mode, codex_permission_mode, started_at)
+             SELECT ?, 'session', 'paused', ?, ?, COALESCE(?, 'default'), ?
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM agent_sessions WHERE feature_id = ? AND agent_type = 'session'
+             ) RETURNING id",
         )
         .bind(self.feature_id)
         .bind(model)
         .bind(permission_mode)
-        // `codex_permission_mode` is the legacy SQLite storage name. The
-        // runtime/session contract above this boundary is provider-neutral.
+        // `codex_permission_mode` is the legacy SQLite storage name.
         .bind(access_mode)
         .bind(&now)
-        .execute(&self.write_pool)
+        .bind(self.feature_id)
+        .fetch_optional(&self.write_pool)
         .await;
 
         match result {
-            Ok(r) => {
-                let id = r.last_insert_rowid();
+            Ok(Some((id,))) => {
                 self.session_db_id = Some(id);
-                debug!(session_db_id = id, feature_id = self.feature_id, "created agent_sessions row");
+                debug!(
+                    session_db_id = id,
+                    feature_id = self.feature_id,
+                    "created agent_sessions row"
+                );
                 Some(id)
+            }
+            Ok(None) => {
+                let id = self.latest_session_id().await.ok()??;
+                self.reuse_session(id, permission_mode, reopen_existing)
+                    .await
             }
             Err(e) => {
                 error!(error = %e, feature_id = self.feature_id, "failed to create agent_sessions row");
                 None
             }
         }
+    }
+
+    async fn latest_session_id(&self) -> Result<Option<i64>, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT id FROM agent_sessions WHERE feature_id = ? AND agent_type = 'session' ORDER BY id DESC LIMIT 1",
+        )
+        .bind(self.feature_id)
+        .fetch_optional(&self.write_pool)
+        .await
+    }
+
+    async fn reuse_session(
+        &mut self,
+        id: i64,
+        permission_mode: Option<&str>,
+        reopen: bool,
+    ) -> Option<i64> {
+        if reopen {
+            if let Err(e) = self.reopen_session(id, permission_mode).await {
+                error!(error = %e, session_db_id = id, "failed to update existing agent_sessions row");
+            }
+        }
+        self.session_db_id = Some(id);
+        debug!(
+            session_db_id = id,
+            feature_id = self.feature_id,
+            "reusing existing agent_sessions row"
+        );
+        Some(id)
     }
 
     /// Persist a canonical user prompt. A repeated UUID returns the existing
@@ -271,6 +338,87 @@ mod session_bootstrap_tests {
     }
 
     #[tokio::test]
+    async fn concurrent_fresh_feature_binding_has_one_database_identity() {
+        let pool = setup_test_db().await;
+        let starters = std::sync::Arc::new(tokio::sync::Barrier::new(16));
+        let mut callers = Vec::new();
+        for _ in 0..16 {
+            let pool = pool.clone();
+            let starters = starters.clone();
+            callers.push(tokio::spawn(async move {
+                let mut persistence = WsSessionPersistence::new(pool, 1);
+                starters.wait().await;
+                let id = persistence
+                    .find_or_create_session_for_binding(Some("opus"), Some("plan"), None)
+                    .await
+                    .unwrap();
+                assert_eq!(persistence.session_db_id, Some(id));
+                id
+            }));
+        }
+        let mut ids = Vec::new();
+        for caller in callers {
+            ids.push(caller.await.unwrap());
+        }
+        assert!(ids.iter().all(|id| *id == ids[0]));
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM agent_sessions WHERE feature_id = 1 AND agent_type = 'session'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn binding_selects_latest_existing_without_mutation_then_reopen_preserves_model() {
+        let pool = setup_test_db().await;
+        sqlx::query("INSERT INTO agent_sessions (feature_id, agent_type, status, model, permission_mode) VALUES (1, 'session', 'completed', 'older', 'plan'), (1, 'session', 'completed', 'latest', 'default'), (1, 'other', 'running', 'unrelated', 'default')")
+            .execute(&pool).await.unwrap();
+        let expected: i64 =
+            sqlx::query_scalar("SELECT id FROM agent_sessions WHERE model = 'latest'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let mut persistence = WsSessionPersistence::new(pool.clone(), 1);
+        assert_eq!(
+            persistence
+                .find_or_create_session_for_binding(
+                    Some("replacement"),
+                    Some("bypassPermissions"),
+                    None
+                )
+                .await,
+            Some(expected)
+        );
+        let untouched: (String, String, String) = sqlx::query_as(
+            "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
+        )
+        .bind(expected)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            untouched,
+            ("completed".into(), "latest".into(), "default".into())
+        );
+        assert_eq!(
+            persistence
+                .find_or_create_session_with_access_mode(Some("replacement"), Some("plan"), None)
+                .await,
+            Some(expected)
+        );
+        let reopened: (String, String, String) = sqlx::query_as(
+            "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
+        )
+        .bind(expected)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(reopened, ("paused".into(), "latest".into(), "plan".into()));
+    }
+
+    #[tokio::test]
     async fn test_find_or_create_session_creates_new() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
@@ -278,12 +426,13 @@ mod session_bootstrap_tests {
         assert!(id.is_some());
         assert_eq!(p.session_db_id, id);
 
-        let row: (String, String, String) =
-            sqlx::query_as("SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?")
-                .bind(id.unwrap())
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let row: (String, String, String) = sqlx::query_as(
+            "SELECT status, model, permission_mode FROM agent_sessions WHERE id = ?",
+        )
+        .bind(id.unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(row.0, "paused");
         assert_eq!(row.1, "opus");
         assert_eq!(row.2, "plan");
@@ -293,7 +442,10 @@ mod session_bootstrap_tests {
     async fn test_find_or_create_session_reuses_existing() {
         let pool = setup_test_db().await;
         let mut p1 = WsSessionPersistence::new(pool.clone(), 1);
-        let id1 = p1.find_or_create_session(Some("sonnet"), None).await.unwrap();
+        let id1 = p1
+            .find_or_create_session(Some("sonnet"), None)
+            .await
+            .unwrap();
         WsSessionPersistence::mark_completed_static(&pool, id1).await;
         let mut p2 = WsSessionPersistence::new(pool.clone(), 1);
         let id2 = p2
@@ -324,12 +476,11 @@ mod session_bootstrap_tests {
             .find_or_create_session(None, Some("plan"))
             .await
             .unwrap();
-        let status: String =
-            sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
-                .bind(session_id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let status: String = sqlx::query_scalar("SELECT status FROM agent_sessions WHERE id = ?")
+            .bind(session_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         assert_eq!(status, "running");
     }
 

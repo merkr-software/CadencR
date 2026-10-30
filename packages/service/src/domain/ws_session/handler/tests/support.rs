@@ -460,6 +460,7 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
     let query = Query::new_test_stub(session_id);
     let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ClaudeCodeSession::from_query(query)))),
             permission_tx,
@@ -503,6 +504,7 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
 pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
     let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(InPlaceEffortSession::new()))),
             permission_tx,

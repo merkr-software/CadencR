@@ -41,6 +41,7 @@ import {
   handleCanonicalUserMessage,
 } from "./ws-envelope-session-handlers";
 import { handleError } from "./ws-envelope-error-handler";
+import { handleWarning } from "./ws-envelope-warning-handler";
 import { handlePersistenceStatus } from "./ws-persistence-status";
 import {
   handleStreamStatus,
@@ -65,8 +66,10 @@ export function handleEnvelope(
   sessionId: string,
   envelope: { domain: string; action: string; ref?: string; payload: unknown },
 ): void {
+  // A warning may reference an accepted command, but never resolves its reply.
+  const isWarning = envelope.domain === "session" && envelope.action === SESSION_ACTION.warning;
   // Resolve pending request-response callbacks
-  if (envelope.ref) {
+  if (envelope.ref && !isWarning) {
     const session = ctx.get().sessions[sessionId];
     const cb = session?.pendingWsRequests.get(envelope.ref);
     if (cb) {
@@ -184,6 +187,7 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.user_message]: handleCanonicalUserMessage,
   [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
+  [SESSION_ACTION.warning]: handleWarning,
   [SESSION_ACTION.compacting]: handleCompacting,
   [SESSION_ACTION.access_modechanged]: handleAccessModeChanged,
   [LEGACY_SESSION_ACTION.codexPermissionModeChanged]: handleAccessModeChanged,

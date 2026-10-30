@@ -81,22 +81,15 @@ impl WsSessionPersistence {
     /// (e.g. `session_control::handle_permission_respond` after any
     /// Allow/Deny, and `session_init` reconnect cleanup).
     pub async fn clear_all_pending_user_input_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET \
-                pending_permission = NULL, \
-                pending_questions = NULL \
-             WHERE id = ?",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await
-        {
-            error!(
-                error = %e,
-                session_db_id = session_id,
-                "failed to clear all pending user input",
-            );
+        if let Err(e) = Self::try_clear_all_pending_user_input_static(pool, session_id).await {
+            error!(error = %e, session_db_id = session_id, "failed to clear all pending user input");
         }
+    }
+
+    pub(crate) async fn try_clear_all_pending_user_input_static(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET pending_permission = NULL, pending_questions = NULL WHERE id = ?")
+            .bind(session_id).execute(pool).await?;
+        Ok(())
     }
 
 }
@@ -405,4 +398,14 @@ mod pending_user_input_tests {
         let event = rx.recv().await.unwrap();
         assert_eq!(event.status, AgentStatus::Idle);
     }
+    #[tokio::test]
+    async fn try_clear_reports_failed_write_without_claiming_gate_removed() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, pending_permission TEXT, pending_questions TEXT); INSERT INTO agent_sessions VALUES (7, 'permission', 'question'); CREATE TRIGGER reject_clear BEFORE UPDATE ON agent_sessions BEGIN SELECT RAISE(FAIL, 'storage unavailable'); END;")
+            .execute(&pool).await.unwrap();
+        assert!(WsSessionPersistence::try_clear_all_pending_user_input_static(&pool, 7).await.is_err());
+        let row: (String, String) = sqlx::query_as("SELECT pending_permission, pending_questions FROM agent_sessions WHERE id = 7").fetch_one(&pool).await.unwrap();
+        assert_eq!(row, ("permission".into(), "question".into()));
+    }
+
 }

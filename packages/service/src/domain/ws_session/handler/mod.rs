@@ -15,19 +15,17 @@
 //! They are grouped by responsibility into thematic files under `tests/`
 //! and exercise the public surface this module re-exports.
 
-mod access;
+pub(crate) use super::runtime::access;
 mod active_turns;
 mod app;
 mod app_forge;
 mod app_notifications;
-mod claude_access;
 pub(in crate::domain::ws_session) mod commands;
 mod connection;
 mod dispatch;
 mod fast_mode_support;
-pub(crate) mod helpers;
+pub(crate) use super::runtime::helpers;
 
-pub(crate) mod post_plan_mode;
 mod session_branch;
 mod session_compact;
 mod session_compact_lifecycle;
@@ -36,21 +34,23 @@ mod session_control;
 mod session_data;
 mod session_gate;
 mod session_init;
-mod session_init_resume;
+pub(crate) use super::runtime::session_init_resume;
 mod session_init_worktree;
-mod session_profile;
+pub(crate) use super::runtime::session_profile;
 pub(crate) mod session_prompt;
-mod session_runtime_config;
+pub(crate) use super::runtime::session_runtime_config;
 mod thinking_effort;
 mod types;
 
 pub use connection::ws_handler;
 pub use session_prompt::user_shell_recovery::recover_user_shell_context;
 
-// Public type for crate-wide use (referenced via `handler::SdkHandle`).
+#[cfg(test)]
 pub(crate) use session_control::handle_permission_respond;
+
+// Public type for crate-wide use (referenced via `handler::SdkHandle`).
 pub use types::SdkHandle;
-pub(crate) use types::{new_sdk_sessions, SdkSessions};
+pub(crate) use types::SdkSessions;
 
 // Process-global registry of which connection owns each session's live turn.
 // Held on `AppState` so cross-device permission/question/plan answers and the
@@ -77,4 +77,4 @@ use types::{QueryState, SessionConfig, WsSender};
 // the 400-line file-size cap, so it lives in a `tests/` subtree grouped by
 // responsibility. The file-size rule takes precedence here.
 #[cfg(test)]
-mod tests;
+pub(in crate::domain::ws_session) mod tests;

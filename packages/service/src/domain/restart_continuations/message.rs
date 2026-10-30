@@ -1,4 +1,5 @@
 //! The system-generated prompt that resumes an interrupted conversation.
+use crate::domain::ws_session::runtime::prompt::publish_user_message;
 
 use std::time::Duration;
 
@@ -9,9 +10,7 @@ use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::sessions::user_messages::{
     persist_user_message, update_delivery_state, NewUserMessage, PersistedUserMessage,
 };
-use crate::domain::ws_session::handler::session_prompt::{
-    dispatch_control_prompt_with_message_uuid, publish_user_message,
-};
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
 
 /// What the agent is told. It names what was lost (the running command,
@@ -78,7 +77,7 @@ pub(super) async fn deliver(
         Some(message_uuid),
     );
     let result = match tokio::time::timeout(DISPATCH_TIMEOUT, dispatch).await {
-        Ok(result) => result,
+        Ok(result) => result.map(|outcome| outcome.delivery_confirmed()),
         Err(_) => Err(AppError::Internal(format!(
             "resuming the conversation timed out after {}s",
             DISPATCH_TIMEOUT.as_secs()
