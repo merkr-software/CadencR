@@ -716,6 +716,8 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::RuntimeSessionIdPayload,
         ws_protocol::BranchRewoundPayload,
         ws_protocol::BranchForkedPayload,
+        ws_protocol::SessionPersistenceStatusPayload,
+        ws_protocol::PersistenceStatusState,
         ws_protocol::SessionStreamStatusPayload,
         ws_protocol::StreamStatusState,
         ws_protocol::CommandsGetPayload,

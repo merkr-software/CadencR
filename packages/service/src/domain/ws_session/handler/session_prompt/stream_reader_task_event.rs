@@ -8,7 +8,9 @@ use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent, RuntimeT
 use crate::domain::runtime_stream::{
     capture_runtime_session_id, permission_request_payload, persist_usage,
 };
-use crate::domain::ws_session::persistence::{PendingUserInput, WsSessionPersistence};
+use crate::domain::ws_session::persistence::{
+    PendingUserInput, TranscriptPersistenceError, WsSessionPersistence,
+};
 use crate::domain::ws_session::protocol::{
     permission_request_envelope, PermissionRequestPayload, WsEnvelope,
 };
@@ -300,7 +302,16 @@ impl StreamReaderTask {
             .await;
         }
 
-        let persisted_message = persistence.persist_runtime_event(runtime_event).await;
+        let persisted_message = match persistence.persist_runtime_event(runtime_event).await {
+            Ok(message) => message,
+            Err(TranscriptPersistenceError::AwaitingReconciliation) => None,
+            Err(error) => {
+                error!(self.db_session_id, error = %error, "transcript persistence degraded");
+                None
+            }
+        };
+        self.publish_transcript_status(persistence, runtime_event.is_result())
+            .await;
         // Only stream-event blocks carry a stamped model, so skip the lookup
         // entirely for other events on this per-delta hot path.
         let current_model = runtime_event
@@ -332,7 +343,8 @@ impl StreamReaderTask {
                 interrupted_generation,
             )
             .await;
-        // The event is already persisted and mirrored to any other connected
+        // Live forwarding continues even when transcript durability is degraded.
+        // The event is mirrored to any other connected
         // device, so a gone owner socket is fine — keep streaming. A `None`
         // envelope means the turn-complete signal was intentionally withheld
         // because a background agent is still alive (issue #58) — keep the turn

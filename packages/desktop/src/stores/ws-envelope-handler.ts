@@ -42,6 +42,7 @@ import {
   handleCanonicalUserMessage,
 } from "./ws-envelope-session-handlers";
 import { handleError } from "./ws-envelope-error-handler";
+import { handlePersistenceStatus } from "./ws-persistence-status";
 import {
   handleStreamStatus,
   handleTurnComplete,
@@ -185,6 +186,7 @@ const SESSION_ACTION_HANDLERS: Record<SessionActionName, SessionActionHandler> =
   [SESSION_ACTION.deleted]: handleDeleted,
   [SESSION_ACTION.usageUpdate]: handleUsageUpdate,
   [SESSION_ACTION.streamStatus]: handleStreamStatus,
+  [SESSION_ACTION.persistenceStatus]: handlePersistenceStatus,
   [SESSION_ACTION.promptReceived]: handlePromptReceived,
   [SESSION_ACTION.lifecycle]: handleLifecyclePayload,
   [SESSION_ACTION.gateClosed]: handleGateClosed,

@@ -8,7 +8,7 @@ impl WsSessionPersistence {
         session_id: i64,
         message: &RuntimeAssistantMessage,
         ptuid: &str,
-    ) {
+    ) -> Result<(), TranscriptPersistenceError> {
         let model = message.model.as_deref();
         for cb in &message.content {
             match cb {
@@ -30,58 +30,27 @@ impl WsSessionPersistence {
                     .execute(&self.write_pool)
                     .await;
 
-                    match result {
-                        Ok(r) if r.rows_affected() == 0 => {
-                            let _ = Self::insert_message(
-                                &self.write_pool,
-                                session_id,
-                                "assistant",
-                                &content,
-                                "tool_call",
-                                Some(name),
-                                Some(id),
-                                Some(ptuid),
-                                model,
-                            )
-                            .await;
-                        }
-                        Err(e) => {
-                            error!(error = %e, session_id, tool_use_id = %id, "failed to update sub-agent tool_call parent");
-                        }
-                        _ => {}
+                    if result?.rows_affected() == 0 {
+                        Self::insert_message(
+                            &self.write_pool,
+                            session_id,
+                            "assistant",
+                            &content,
+                            "tool_call",
+                            Some(name),
+                            Some(id),
+                            Some(ptuid),
+                            model,
+                        )
+                        .await?;
                     }
                 }
-                RuntimeContentBlock::Text { text } => {
-                    let _ = Self::insert_message(
-                        &self.write_pool,
-                        session_id,
-                        "assistant",
-                        text,
-                        "text",
-                        None,
-                        None,
-                        Some(ptuid),
-                        model,
-                    )
-                    .await;
-                }
-                RuntimeContentBlock::Thinking { thinking } => {
-                    let _ = Self::insert_message(
-                        &self.write_pool,
-                        session_id,
-                        "assistant",
-                        thinking,
-                        "thinking",
-                        None,
-                        None,
-                        Some(ptuid),
-                        model,
-                    )
-                    .await;
-                }
+                // Text/thinking are reconciled once, using the scoped streaming row identities.
+                RuntimeContentBlock::Text { .. } | RuntimeContentBlock::Thinking { .. } => {}
                 RuntimeContentBlock::Other => {}
             }
         }
+        Ok(())
     }
 }
 
@@ -203,7 +172,8 @@ mod session_subagents_tests {
             input: serde_json::json!({"command": "ls -la"}),
         }]);
         p.persist_assistant_subagent(sid, &msg, "toolu_parent")
-            .await;
+            .await
+            .expect("persist subagent tools");
 
         let row: (Option<String>, String) = sqlx::query_as(
             "SELECT parent_tool_use_id, content FROM agent_messages WHERE tool_use_id = 'toolu_child1'",
@@ -214,11 +184,12 @@ mod session_subagents_tests {
         assert_eq!(row.0.as_deref(), Some("toolu_parent"));
         assert!(row.1.contains("ls -la"));
 
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM agent_messages WHERE tool_use_id = 'toolu_child1'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM agent_messages WHERE tool_use_id = 'toolu_child1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(count.0, 1);
     }
 
@@ -234,7 +205,8 @@ mod session_subagents_tests {
             input: serde_json::json!({"file_path": "/tmp/test"}),
         }]);
         p.persist_assistant_subagent(sid, &msg, "toolu_parent")
-            .await;
+            .await
+            .expect("persist subagent tools");
 
         let row: (String, String, Option<String>) = sqlx::query_as(
             "SELECT tool_name, content, parent_tool_use_id FROM agent_messages WHERE tool_use_id = 'toolu_new'",
@@ -272,7 +244,8 @@ mod session_subagents_tests {
             input: serde_json::json!({"file_path": "/tmp/test"}),
         }]);
         p.persist_assistant_subagent(sid, &msg, "toolu_parent")
-            .await;
+            .await
+            .expect("persist subagent tools");
 
         let row: (String, Option<String>) = sqlx::query_as(
             "SELECT content, parent_tool_use_id FROM agent_messages WHERE tool_use_id = 'toolu_same_parent'",
@@ -306,8 +279,9 @@ mod session_subagents_tests {
                 text: "Here are my findings.".to_string(),
             },
         ]);
-        p.persist_assistant_subagent(sid, &msg, "toolu_parent")
-            .await;
+        p.persist_runtime_event(&make_assistant_event(msg.content, Some("toolu_parent")))
+            .await
+            .expect("persist subagent text");
 
         let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
             "SELECT message_type, content, parent_tool_use_id FROM agent_messages WHERE session_id = ? ORDER BY id",
@@ -342,7 +316,9 @@ mod session_subagents_tests {
             }],
             None,
         );
-        p.persist_runtime_event(&runtime_event).await;
+        p.persist_runtime_event(&runtime_event)
+            .await
+            .expect("persist runtime event");
 
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT message_type, content FROM agent_messages WHERE session_id = ? ORDER BY id",
@@ -370,7 +346,9 @@ mod session_subagents_tests {
             }],
             Some("toolu_agent"),
         );
-        p.persist_runtime_event(&runtime_event).await;
+        p.persist_runtime_event(&runtime_event)
+            .await
+            .expect("persist runtime event");
 
         let row: (String, Option<String>) = sqlx::query_as(
             "SELECT tool_name, parent_tool_use_id FROM agent_messages WHERE tool_use_id = 'toolu_via_sdk'",

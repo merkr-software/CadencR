@@ -28,6 +28,7 @@ import type { PermissionMode } from "../types/permission-mode";
 import type { AccessMode } from "@/types/access-mode";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { RuntimeSessionConfigSnapshot } from "@/api/generated";
+import type { PersistenceStatus } from "./ws-persistence-status";
 
 export type { PermissionMode };
 
@@ -247,6 +248,8 @@ export interface SessionEntry extends SessionConfigState {
    * `"ok"`. See `StreamHealth`.
    */
   streamHealth: StreamHealth;
+  /** Transcript saving health; only a confirmed persistence update clears it. */
+  persistenceStatus: PersistenceStatus | null;
 }
 
 export function createSessionEntry(): SessionEntry {
@@ -311,6 +314,7 @@ export function createSessionEntry(): SessionEntry {
     queuedPrompts: [],
     initRequestId: null,
     streamHealth: createStreamHealth(),
+    persistenceStatus: null,
   };
 }
 

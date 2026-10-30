@@ -58,7 +58,8 @@ mod session_events_reconcile_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         for fragment in [
             r#"{"file_path":"#,
@@ -76,7 +77,8 @@ mod session_events_reconcile_tests {
                         },
                     },
                 ))
-                .await;
+                .await
+                .expect("persist runtime event");
         }
 
         persistence
@@ -85,7 +87,8 @@ mod session_events_reconcile_tests {
                 None,
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let content = fetch_tool_call_content(&pool, "tool_edit_1").await;
         assert_eq!(
@@ -120,7 +123,8 @@ mod session_events_reconcile_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         // No deltas advance the accumulator (simulates the failure mode where
         // every fragment is rejected by the buffer).
@@ -142,7 +146,8 @@ mod session_events_reconcile_tests {
                     }],
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -150,7 +155,8 @@ mod session_events_reconcile_tests {
                 None,
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let content = fetch_tool_call_content(&pool, "tool_edit_2").await;
         assert_eq!(
@@ -185,7 +191,8 @@ mod session_events_reconcile_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&assistant_event(
@@ -204,7 +211,8 @@ mod session_events_reconcile_tests {
                     }],
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -212,7 +220,8 @@ mod session_events_reconcile_tests {
                 Some("task_a"),
                 RuntimeStreamEvent::ContentBlockStop { index: 0 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let content = fetch_tool_call_content(&pool, "tool_sub_1").await;
         assert_eq!(

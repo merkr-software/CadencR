@@ -3591,6 +3591,18 @@ export interface PermissionRespondPayload {
   updated_input?: unknown;
 }
 
+/**
+ * Transcript durability is independent of provider-stream and turn health.
+ */
+export type PersistenceStatusState =
+  (typeof PersistenceStatusState)[keyof typeof PersistenceStatusState];
+
+export const PersistenceStatusState = {
+  degraded: "degraded",
+  recovered: "recovered",
+  failed: "failed",
+} as const;
+
 export interface PluginBackendCallError {
   code: string;
   message: string;
@@ -5596,6 +5608,11 @@ export interface SessionInitPayload {
   thinking_effort?: string | null;
 }
 
+export interface SessionPersistenceStatusPayload {
+  message: string;
+  status: PersistenceStatusState;
+}
+
 export interface SessionPrompt {
   attachment_count: number;
   /** @nullable */
@@ -6289,6 +6306,7 @@ export const WsSessionAction = {
   permissionrequest: "permission.request",
   prompt_received: "prompt_received",
   stream_status: "stream_status",
+  persistence_status: "persistence_status",
 } as const;
 
 export type GetAgentCatalogParams = {

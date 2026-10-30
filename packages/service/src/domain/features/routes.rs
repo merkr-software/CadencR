@@ -141,6 +141,7 @@ pub async fn delete_feature_handler(
         debug!(%error, feature_id = id, "no neovim to stop before feature deletion");
     }
     service::delete_feature(&state.write_pool, &state.read_pool, id).await?;
+    state.persistence_health.forget_feature(id).await;
     // Its custom tabs' backends stop now, not when their leases lapse.
     state.plugin_tab_presence.release_features(&[id]);
     state

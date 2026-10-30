@@ -1,8 +1,8 @@
 //! Database persistence for WebSocket sessions.
 //!
 //! Mirrors the logic in `SessionPersistence.ts` (Effect service) but implemented
-//! in Rust using sqlx. All writes are best-effort — errors are logged but never
-//! propagate to the caller so the WebSocket stream is not interrupted.
+//! in Rust using sqlx. Transcript errors propagate independently from live
+//! event forwarding, with bounded recovery from complete assistant messages.
 
 use sqlx::SqlitePool;
 use std::collections::{HashMap, HashSet};
@@ -51,6 +51,9 @@ pub struct PersistedMessageRef {
     pub id: i64,
 }
 
+mod transcript;
+pub use transcript::{TranscriptPersistenceError, TranscriptPersistenceStatus};
+
 mod event_identity;
 pub use event_identity::{raw_event_with_agent_message_id, PersistedEventRef};
 
@@ -93,6 +96,7 @@ pub struct WsSessionPersistence {
     /// double-writes a normal turn. Reset per cycle on `message_start` and
     /// consumed when the full assistant message is reconciled.
     streamed_assistant_content: HashSet<RuntimeStreamScope>,
+    transcript: transcript::TranscriptDurability,
     file_change_marked: bool,
 }
 

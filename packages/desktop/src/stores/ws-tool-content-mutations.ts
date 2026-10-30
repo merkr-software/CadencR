@@ -1,5 +1,7 @@
 import type { AgentBlockData } from "@/components/AgentBlock";
 import type { BlockMutation, StreamingState } from "./ws-message-processing";
+import { blockMessageDbId, messageDbId } from "./ws-message-identity";
+import type { DatabaseIdentityOwners } from "./ws-block-reconciliation";
 import {
   latestValidJsonSnapshot,
   mergeCompletedToolSnapshot,
@@ -15,7 +17,23 @@ export function applyBlockContentMutation(
   state: StreamingState,
   block: AgentBlockData,
   mutation: BlockMutation,
+  databaseOwners?: DatabaseIdentityOwners,
 ): boolean {
+  if (mutation.action === "identify") {
+    const id = messageDbId(mutation.block.messageDbId);
+    if (
+      id === undefined ||
+      blockMessageDbId(block) !== null ||
+      block.type !== mutation.block.type ||
+      !databaseOwners ||
+      (databaseOwners.has(id) && databaseOwners.get(id) !== block.id)
+    )
+      return false;
+    block.messageDbId = id;
+    databaseOwners.set(id, block.id);
+    state.unidentifiedContentIds.delete(block.id);
+    return true;
+  }
   if (block.type !== "tool_call") {
     if (mutation.action === "finalize") return false;
     // Live content no longer matches the size hydration reported for it.

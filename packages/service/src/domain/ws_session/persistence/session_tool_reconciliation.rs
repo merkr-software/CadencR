@@ -3,14 +3,14 @@ impl WsSessionPersistence {
         &self,
         session_id: i64,
         message: &RuntimeAssistantMessage,
-    ) {
+    ) -> Result<(), TranscriptPersistenceError> {
         for block in &message.content {
             let RuntimeContentBlock::ToolUse { id, name, input } = block else {
                 continue;
             };
 
             let content = serde_json::to_string(input).unwrap_or_default();
-            let _ = crate::domain::features::repository::persist_tool_call_message(
+            crate::domain::features::repository::persist_tool_call_message(
                 &self.write_pool,
                 crate::domain::features::repository::ToolCallMessage {
                     session_id,
@@ -21,53 +21,9 @@ impl WsSessionPersistence {
                     model: message.model.as_deref(),
                 },
             )
-            .await;
+            .await?;
         }
-    }
-
-    /// Persist a full assistant message's `Text`/`Thinking` blocks, but ONLY
-    /// when the turn did not stream them live. A normal turn streams its text as
-    /// `content_block_delta`s (already persisted by the mergeable-block path),
-    /// and the full message that follows is just a reconciliation — re-writing
-    /// its text here would duplicate it. When the message was NOT streamed (a
-    /// synthetic message, streaming disabled, or a turn degraded by CLI schema
-    /// drift), the live path never ran and the text would otherwise be lost
-    /// entirely. The per-cycle `streamed_assistant_content` marker (set on the
-    /// first streamed text/thinking, reset on `message_start`) distinguishes the
-    /// two; consuming it here also closes the message cycle.
-    async fn persist_unstreamed_assistant_text(
-        &mut self,
-        session_id: i64,
-        stream_scope: &RuntimeStreamScope,
-        message: &RuntimeAssistantMessage,
-    ) {
-        if self.streamed_assistant_content.remove(stream_scope) {
-            return;
-        }
-        for block in &message.content {
-            let (message_type, content) = match block {
-                RuntimeContentBlock::Text { text } => (MergeableMessageType::Text, text),
-                RuntimeContentBlock::Thinking { thinking } => {
-                    (MergeableMessageType::Thinking, thinking)
-                }
-                _ => continue,
-            };
-            if content.trim().is_empty() {
-                continue;
-            }
-            let _ = Self::insert_message(
-                &self.write_pool,
-                session_id,
-                "assistant",
-                content,
-                message_type.db_value(),
-                None,
-                None,
-                None,
-                message.model.as_deref(),
-            )
-            .await;
-        }
+        Ok(())
     }
 }
 
@@ -181,7 +137,10 @@ mod session_tool_reconciliation_tests {
                 parent_tool_use_id: None,
             },
         );
-        persistence.persist_runtime_event(&initial).await;
+        persistence
+            .persist_runtime_event(&initial)
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&assistant_event(RuntimeAssistantMessage {
@@ -196,7 +155,8 @@ mod session_tool_reconciliation_tests {
                     }),
                 }],
             }))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row = sqlx::query(
             "SELECT content FROM agent_messages WHERE session_id = 1 AND tool_use_id = 'tool_1'",
@@ -233,7 +193,8 @@ mod session_tool_reconciliation_tests {
                     }),
                 }],
             }))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row = sqlx::query(
             "SELECT tool_name, content FROM agent_messages WHERE session_id = 1 AND tool_use_id = 'tool_2'",
@@ -280,14 +241,16 @@ mod session_tool_reconciliation_tests {
             model: Some("claude-opus-4-8".to_string()),
             input_tokens: None,
         }))
-        .await;
+        .await
+        .expect("persist runtime event");
         p.persist_runtime_event(&stream_ev(RuntimeStreamEvent::ContentBlockStart {
             index: 0,
             block: RuntimeContentBlock::Text {
                 text: "Hello".to_string(),
             },
         }))
-        .await;
+        .await
+        .expect("persist runtime event");
 
         p.persist_runtime_event(&RuntimeEvent::new(
             RuntimeEventMetadata {
@@ -306,7 +269,8 @@ mod session_tool_reconciliation_tests {
                 parent_tool_use_id: None,
             },
         ))
-        .await;
+        .await
+        .expect("persist runtime event");
 
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT message_type, content FROM agent_messages WHERE session_id = 1 ORDER BY id",
@@ -314,7 +278,11 @@ mod session_tool_reconciliation_tests {
         .fetch_all(&pool)
         .await
         .expect("fetch rows");
-        assert_eq!(rows.len(), 1, "streamed text must not be duplicated: {rows:?}");
+        assert_eq!(
+            rows.len(),
+            1,
+            "streamed text must not be duplicated: {rows:?}"
+        );
         assert_eq!(rows[0].0, "text");
         assert_eq!(rows[0].1, "Hello");
     }
@@ -345,7 +313,8 @@ mod session_tool_reconciliation_tests {
                 parent_tool_use_id: None,
             },
         ))
-        .await;
+        .await
+        .expect("persist runtime event");
 
         let rows: Vec<(String, String)> = sqlx::query_as(
             "SELECT message_type, content FROM agent_messages WHERE session_id = 1 ORDER BY id",

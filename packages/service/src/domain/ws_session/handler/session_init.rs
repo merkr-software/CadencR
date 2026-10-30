@@ -376,6 +376,11 @@ pub(super) async fn handle_init(
     );
     let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
 
+    app_state
+        .persistence_health
+        .replay(db_session_id, sender)
+        .await;
+
     if let Some(ref cli_sid) = resume_session_id {
         send_runtime_session_id(sender, cli_sid);
     }

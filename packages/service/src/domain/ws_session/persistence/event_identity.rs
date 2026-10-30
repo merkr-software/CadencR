@@ -1,9 +1,11 @@
 use super::PersistedMessageRef;
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum PersistedEventRef {
     Message(PersistedMessageRef),
     ToolResults(Vec<(String, i64)>),
+    AssistantContent(Vec<(usize, i64)>),
 }
 
 /// Results are stamped individually: a single event can persist several rows.
@@ -16,6 +18,18 @@ pub fn raw_event_with_agent_message_id(
         Some(PersistedEventRef::Message(message)) => {
             if let Some(object) = value.as_object_mut() {
                 object.insert("agent_message_id".into(), message.id.into());
+            }
+        }
+        Some(PersistedEventRef::AssistantContent(rows)) => {
+            if let Some(items) = value
+                .pointer_mut("/message/content")
+                .and_then(|value| value.as_array_mut())
+            {
+                for (index, id) in rows {
+                    if let Some(serde_json::Value::Object(item)) = items.get_mut(index) {
+                        item.insert("agent_message_id".into(), id.into());
+                    }
+                }
             }
         }
         Some(PersistedEventRef::ToolResults(results)) => {
@@ -75,5 +89,20 @@ mod tests {
         assert_eq!(stamped["message"]["content"][1]["agent_message_id"], 22);
         assert!(stamped["message"]["content"][2]["agent_message_id"].is_null());
         assert!(stamped["agent_message_id"].is_null());
+    }
+    #[test]
+    fn full_assistant_repair_stamps_each_content_index_with_its_durable_row() {
+        let raw = json!({"type":"assistant","message":{"content":[
+            {"type":"thinking","thinking":"reason"},
+            {"type":"tool_use","id":"tool"},
+            {"type":"text","text":"answer"}
+        ]}});
+        let stamped = raw_event_with_agent_message_id(
+            &raw,
+            Some(PersistedEventRef::AssistantContent(vec![(2, 42), (0, 41)])),
+        );
+        assert_eq!(stamped["message"]["content"][0]["agent_message_id"], 41);
+        assert!(stamped["message"]["content"][1]["agent_message_id"].is_null());
+        assert_eq!(stamped["message"]["content"][2]["agent_message_id"], 42);
     }
 }

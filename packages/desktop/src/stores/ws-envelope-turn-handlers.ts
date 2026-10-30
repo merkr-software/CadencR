@@ -13,6 +13,7 @@ import {
   trimTailPromptTurnBoundary,
 } from "./ws-pending-prompts";
 import { repairPersistedBlocksAfterTurn } from "./ws-session-resync";
+import { repairRecoveredPersistence } from "./ws-persistence-resync";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
 import { toast } from "sonner";
@@ -139,6 +140,7 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     lifecycle === session.lifecycle &&
     !shouldClearRuntimeCompacting
   ) {
+    repairRecoveredPersistence(ctx, sessionId);
     return;
   }
   ctx.set(
@@ -148,6 +150,7 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
       ...(shouldClearRuntimeCompacting ? { runtimeCompacting: false } : {}),
     }),
   );
+  repairRecoveredPersistence(ctx, sessionId);
 }
 
 function mapTerminalReason(reason: string | undefined): TurnTerminalReason {

@@ -11,6 +11,19 @@ use crate::domain::ws_session::protocol::{
 use super::prompt_receipt::prompt_received_envelope;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
+impl StreamReaderTask {
+    /// Send `msg` to this turn's owner socket and mirror it to any *other*
+    /// devices viewing the same feature. Others are mirrored first so the owner
+    /// send can move `msg` without a clone; in the common single-viewer case
+    /// `broadcast_others` is a no-op. Returns `true` when the owner socket is
+    /// gone, so callers can stop the loop exactly as a bare `send().is_err()`.
+    pub(super) async fn send_and_mirror(&self, msg: Message) -> bool {
+        self.feature_senders
+            .send_and_mirror(self.feature_id, &self.sender, msg)
+            .await
+    }
+}
+
 pub(super) enum ForwardOutcome {
     Forwarded,
     NotHandled,
