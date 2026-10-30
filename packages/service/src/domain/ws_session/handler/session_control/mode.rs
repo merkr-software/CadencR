@@ -107,8 +107,7 @@ pub(crate) async fn handle_mode_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ModeChanged,
-        ModeChangedPayload { mode: payload.mode },
+        &WsSessionEvent::ModeChanged(ModeChangedPayload { mode: payload.mode }),
     )
     .await;
     if matches!(applied, ModeApplied::Deferred) {
@@ -296,11 +295,7 @@ fn mode_set_error_payload(
 }
 
 fn send_mode_set_error(sender: &WsSender, ref_id: &str, payload: SessionErrorPayload) {
-    let err = WsEnvelope::reply(
-        ref_id,
-        "session",
-        "error",
-        serde_json::to_value(payload).unwrap(),
-    );
+    let err = WsEnvelope::session_reply(ref_id, &WsSessionEvent::Error(payload))
+        .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(err).into()));
 }

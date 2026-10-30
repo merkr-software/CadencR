@@ -108,8 +108,7 @@ pub(crate) async fn handle_profile_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ProfileChanged,
-        ProfileChangedPayload {
+        &WsSessionEvent::ProfileChanged(ProfileChangedPayload {
             provider,
             model: effective
                 .as_ref()
@@ -117,7 +116,7 @@ pub(crate) async fn handle_profile_set(
                 .or(model),
             profile: update.name,
             effective,
-        },
+        }),
     )
     .await;
 }

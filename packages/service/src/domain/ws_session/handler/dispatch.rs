@@ -2,16 +2,18 @@
 //! and per-action handler. Kept separate from the connection loop so the
 //! routing table is the only thing that grows when new actions land.
 
-use axum::extract::ws::Message;
 use tracing::info;
 
 use crate::app_state::AppState;
-use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
+use crate::domain::ws_session::protocol::{
+    canonical_session_command_action, WsEnvelope, WsSessionCommandAction as Command,
+};
 
+use super::helpers::send_error;
 use super::types::{SdkSessions, WsSender};
 use super::{
-    app, commands, session_branch, session_compact, session_control, session_data, session_gate,
-    session_init, session_prompt,
+    app, commands, session_branch, session_compact, session_control as control, session_data,
+    session_gate, session_init, session_prompt,
 };
 
 /// Dispatch an envelope to the appropriate domain handler.
@@ -32,20 +34,12 @@ pub(super) async fn dispatch_envelope(
         "app" => {
             app::handle_app_action(envelope, sender, app_state).await;
         }
-        unknown => {
-            let err = WsEnvelope::reply(
-                &envelope.id,
-                "session",
-                "error",
-                serde_json::to_value(SessionErrorPayload {
-                    code: "UNKNOWN_DOMAIN".into(),
-                    message: format!("Unknown domain: {unknown}"),
-                    ..Default::default()
-                })
-                .unwrap(),
-            );
-            let _ = sender.send(Message::Text(String::from(err).into()));
-        }
+        unknown => send_error(
+            sender,
+            &envelope.id,
+            "UNKNOWN_DOMAIN",
+            &format!("Unknown domain: {unknown}"),
+        ),
     }
 }
 
@@ -56,92 +50,83 @@ async fn handle_session_action(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
 ) {
-    match envelope.action.as_str() {
-        "init" => session_init::handle_init(envelope, sender, sdk_sessions, app_state).await,
-        "prompt.send" => {
+    let Some(action) = canonical_session_command_action(&envelope.action) else {
+        send_error(
+            sender,
+            &envelope.id,
+            "UNKNOWN_ACTION",
+            &format!("Unknown session action: {}", envelope.action),
+        );
+        return;
+    };
+    match action {
+        Command::Init => session_init::handle_init(envelope, sender, sdk_sessions, app_state).await,
+        Command::PromptSend => {
             session_prompt::handle_prompt_send(envelope, sender, sdk_sessions, app_state).await
         }
-        "permission.respond" => {
-            session_control::handle_permission_respond(envelope, sender, sdk_sessions, app_state)
-                .await
+        Command::PermissionRespond => {
+            control::handle_permission_respond(envelope, sender, sdk_sessions, app_state).await
         }
-        "gate.close" => {
+        Command::GateClose => {
             session_gate::handle_gate_close(envelope, sender, sdk_sessions, app_state).await
         }
-        "provider.set" => {
-            session_control::handle_provider_set(envelope, sender, sdk_sessions, app_state).await
+        Command::ProviderSet => {
+            control::handle_provider_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "model.set" => {
-            session_control::handle_model_set(envelope, sender, sdk_sessions, app_state).await
+        Command::ModelSet => {
+            control::handle_model_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "mode.set" => {
-            session_control::handle_mode_set(envelope, sender, sdk_sessions, app_state).await
+        Command::ModeSet => {
+            control::handle_mode_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "access_mode.set" | "codex_permission_mode.set" => {
-            session_control::handle_access_mode_set(envelope, sender, sdk_sessions, app_state).await
+        Command::AccessModeSet => {
+            control::handle_access_mode_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "effort.set" => {
-            session_control::handle_effort_set(envelope, sender, sdk_sessions, app_state).await
+        Command::EffortSet => {
+            control::handle_effort_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "config.get" => {
-            session_control::handle_session_config_get(envelope, sender, sdk_sessions, app_state)
-                .await
+        Command::ConfigGet => {
+            control::handle_session_config_get(envelope, sender, sdk_sessions, app_state).await
         }
-        "config.set" => {
-            session_control::handle_session_config_set(envelope, sender, sdk_sessions, app_state)
-                .await
+        Command::ConfigSet => {
+            control::handle_session_config_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "fast_mode.set" => {
-            session_control::handle_fast_mode_set(envelope, sender, sdk_sessions, app_state).await
+        Command::FastModeSet => {
+            control::handle_fast_mode_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "profile.set" => {
-            session_control::handle_profile_set(envelope, sender, sdk_sessions, app_state).await
+        Command::ProfileSet => {
+            control::handle_profile_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "runtime_overrides.set" => {
-            session_control::handle_runtime_overrides_set(envelope, sender, sdk_sessions, app_state)
-                .await
+        Command::RuntimeOverridesSet => {
+            control::handle_runtime_overrides_set(envelope, sender, sdk_sessions, app_state).await
         }
-        "interrupt" => {
-            session_control::handle_interrupt(envelope, sender, sdk_sessions, app_state).await
+        Command::Interrupt => {
+            control::handle_interrupt(envelope, sender, sdk_sessions, app_state).await
         }
-        "branch.rewind" => {
+        Command::BranchRewind => {
             session_branch::handle_rewind(envelope, sender, sdk_sessions, app_state).await
         }
-        "branch.fork" => {
+        Command::BranchFork => {
             session_branch::handle_fork(envelope, sender, sdk_sessions, app_state).await
         }
-        "suspend" => {
-            session_control::handle_suspend(envelope, sender, sdk_sessions, app_state).await
+        Command::Suspend => {
+            control::handle_suspend(envelope, sender, sdk_sessions, app_state).await
         }
-        "resume" => session_control::handle_resume(envelope, sender).await,
-        "destroy" => {
-            session_control::handle_destroy(envelope, sender, sdk_sessions, app_state).await
+        Command::Resume => control::handle_resume(envelope, sender).await,
+        Command::Destroy => {
+            control::handle_destroy(envelope, sender, sdk_sessions, app_state).await
         }
-        "compact" => {
+        Command::Compact => {
             session_compact::handle_compact(envelope, sender, sdk_sessions, app_state).await
         }
-        "delete" => session_control::handle_delete(envelope, sender, sdk_sessions, app_state).await,
-        "clear" => session_control::handle_clear(envelope, sender, sdk_sessions, app_state).await,
-        "history.get" => session_data::handle_history_get(envelope, sender, app_state).await,
-        "history.add" => session_data::handle_history_add(envelope, sender, app_state).await,
-        "draft.get" => session_data::handle_draft_get(envelope, sender, app_state).await,
-        "draft.save" => session_data::handle_draft_save(envelope, sender, app_state).await,
-        "retry_worktree_setup" => {
-            session_control::handle_retry_worktree_setup(envelope, sender, app_state).await
-        }
-        unknown => {
-            let err = WsEnvelope::reply(
-                &envelope.id,
-                "session",
-                "error",
-                serde_json::to_value(SessionErrorPayload {
-                    code: "UNKNOWN_ACTION".into(),
-                    message: format!("Unknown session action: {unknown}"),
-                    ..Default::default()
-                })
-                .unwrap(),
-            );
-            let _ = sender.send(Message::Text(String::from(err).into()));
+        Command::Delete => control::handle_delete(envelope, sender, sdk_sessions, app_state).await,
+        Command::Clear => control::handle_clear(envelope, sender, sdk_sessions, app_state).await,
+        Command::HistoryGet => session_data::handle_history_get(envelope, sender, app_state).await,
+        Command::HistoryAdd => session_data::handle_history_add(envelope, sender, app_state).await,
+        Command::DraftGet => session_data::handle_draft_get(envelope, sender, app_state).await,
+        Command::DraftSave => session_data::handle_draft_save(envelope, sender, app_state).await,
+        Command::RetryWorktreeSetup => {
+            control::handle_retry_worktree_setup(envelope, sender, app_state).await
         }
     }
 }

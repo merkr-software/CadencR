@@ -1,5 +1,6 @@
 //! WebSocket upgrade + per-connection loop, dispatch, and disconnect cleanup.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -195,17 +196,12 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                                 retry_after_ms = INBOUND_RATE_RETRY_AFTER_MS,
                                 "WebSocket inbound message rate exceeded"
                             );
-                            let err_env = WsEnvelope::new(
-                                "session",
-                                "error",
-                                serde_json::to_value(SessionErrorPayload {
+                            let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
                                     code: "RATE_LIMITED".into(),
                                     message: "WebSocket message rate exceeded".into(),
                                     retry_after_ms: Some(INBOUND_RATE_RETRY_AFTER_MS),
                                     ..Default::default()
-                                })
-                                .unwrap(),
-                            );
+                                })).expect("session event payload should serialize");
                             let shutdown = retryable_error_shutdown(
                                 Message::Text(String::from(err_env).into()),
                                 "rate-limited",
@@ -228,16 +224,11 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                                 .await;
                             }
                             Err(e) => {
-                                let err_env = WsEnvelope::new(
-                                    "session",
-                                    "error",
-                                    serde_json::to_value(SessionErrorPayload {
+                                let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
                                         code: "PARSE_ERROR".into(),
                                         message: format!("Invalid envelope: {e}"),
                                         ..Default::default()
-                                    })
-                                    .unwrap(),
-                                );
+                                    })).expect("session event payload should serialize");
                                 let _ = outbound_tx
                                     .send(Message::Text(String::from(err_env).into()));
                             }

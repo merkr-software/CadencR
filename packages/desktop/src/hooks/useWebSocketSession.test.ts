@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-vi.mock("@/api/generated", () => ({
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
   useGetFeatureAgentState: vi.fn(() => ({ data: undefined, isLoading: false })),
   getGetFeatureQueryKey: (id: number) => ["features", "detail", id],
   getGetFeatureSettingsQueryKey: (id: number) => ["features", "settings", id],

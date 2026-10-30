@@ -1,33 +1,10 @@
 use axum::extract::ws::Message;
-use serde::Deserialize;
 
 use super::super::protocol::*;
 use super::{send_error, WsSender};
 use crate::app_state::AppState;
 use crate::domain::sessions::repository as sessions_repo;
 use crate::domain::workspace::repository as workspace_repo;
-
-#[derive(Deserialize)]
-struct HistoryGetPayload {
-    project_id: i64,
-}
-
-#[derive(Deserialize)]
-struct HistoryAddPayload {
-    project_id: i64,
-    content: String,
-}
-
-#[derive(Deserialize)]
-struct DraftGetPayload {
-    session_id: i64,
-}
-
-#[derive(Deserialize)]
-struct DraftSavePayload {
-    session_id: i64,
-    draft: Option<String>,
-}
 
 pub(super) async fn handle_history_get(
     envelope: WsEnvelope,
@@ -44,12 +21,11 @@ pub(super) async fn handle_history_get(
 
     match workspace_repo::get_prompt_history(&app_state.read_pool, payload.project_id).await {
         Ok(entries) => {
-            let reply = WsEnvelope::reply(
+            let reply = WsEnvelope::session_reply(
                 &envelope.id,
-                "session",
-                "history.result",
-                serde_json::json!({ "entries": entries }),
-            );
+                &WsSessionEvent::HistoryResult(HistoryResultPayload { entries }),
+            )
+            .expect("session event payload should serialize");
             let _ = sender.send(Message::Text(String::from(reply).into()));
         }
         Err(e) => {
@@ -79,12 +55,11 @@ pub(super) async fn handle_history_add(
     .await
     {
         Ok(added) => {
-            let reply = WsEnvelope::reply(
+            let reply = WsEnvelope::session_reply(
                 &envelope.id,
-                "session",
-                "history.added",
-                serde_json::json!({ "added": added }),
-            );
+                &WsSessionEvent::HistoryAdded(HistoryAddedPayload { added }),
+            )
+            .expect("session event payload should serialize");
             let _ = sender.send(Message::Text(String::from(reply).into()));
         }
         Err(e) => {
@@ -108,12 +83,11 @@ pub(super) async fn handle_draft_get(
 
     match sessions_repo::get_draft(&app_state.read_pool, payload.session_id).await {
         Ok(draft) => {
-            let reply = WsEnvelope::reply(
+            let reply = WsEnvelope::session_reply(
                 &envelope.id,
-                "session",
-                "draft.result",
-                serde_json::json!({ "draft": draft }),
-            );
+                &WsSessionEvent::DraftResult(DraftResultPayload { draft }),
+            )
+            .expect("session event payload should serialize");
             let _ = sender.send(Message::Text(String::from(reply).into()));
         }
         Err(e) => {
@@ -143,12 +117,11 @@ pub(super) async fn handle_draft_save(
     .await
     {
         Ok(()) => {
-            let reply = WsEnvelope::reply(
+            let reply = WsEnvelope::session_reply(
                 &envelope.id,
-                "session",
-                "draft.saved",
-                serde_json::json!({ "success": true }),
-            );
+                &WsSessionEvent::DraftSaved(DraftSavedPayload { success: true }),
+            )
+            .expect("session event payload should serialize");
             let _ = sender.send(Message::Text(String::from(reply).into()));
         }
         Err(e) => {

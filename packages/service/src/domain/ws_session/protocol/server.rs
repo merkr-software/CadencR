@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -7,7 +8,7 @@ use crate::domain::agents::adapter::{
 use crate::domain::sessions::models::AgentMessageOrigin;
 pub use crate::domain::sessions::models::UserMessageDeliveryState;
 
-use super::{GateCloseReason, PermissionDecision, WsEnvelope, WsSessionAction};
+use super::{GateCloseReason, PermissionDecision, WsEnvelope};
 
 // --- Server → Client payloads ---
 
@@ -100,8 +101,10 @@ pub fn clear_question_permission_chrome(payload: &mut PermissionRequestPayload) 
     payload.pattern = None;
 }
 
-pub fn permission_request_envelope(payload: impl Serialize) -> serde_json::Result<WsEnvelope> {
-    WsEnvelope::session_event(WsSessionAction::PermissionRequest, payload)
+pub fn permission_request_envelope(
+    payload: PermissionRequestPayload,
+) -> serde_json::Result<WsEnvelope> {
+    WsEnvelope::session_event(&WsSessionEvent::PermissionRequest(payload))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

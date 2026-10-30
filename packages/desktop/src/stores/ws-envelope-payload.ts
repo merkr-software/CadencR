@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { CommandsListPayload } from "@/lib/ws-envelope";
 import type { McpServerStatus } from "./ws-session-types";
 import type {
+  ProviderSetOkPayload,
   RuntimeSessionConfigChoices,
   RuntimeSessionConfigOption,
   RuntimeSessionConfigSelectOption,
@@ -310,7 +311,7 @@ const providerPayloadSchema = z.object({
       fast_mode: z.boolean().nullable(),
     })
     .optional(),
-});
+}) satisfies z.ZodType<Partial<ProviderSetOkPayload>>;
 
 export function parseProviderPayload(
   payload: unknown,

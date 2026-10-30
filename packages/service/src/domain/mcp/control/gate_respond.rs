@@ -8,7 +8,7 @@ use super::gate_notify::linked_parent;
 use super::gate_policy::{authorize_decision, GateDecision};
 use super::scope::{resolve_session_scope, SessionScope};
 use crate::app_state::AppState;
-use crate::domain::ws_session::protocol::{PermissionRespondPayload, WsEnvelope};
+use crate::domain::ws_session::protocol::{PermissionRespondPayload, WsEnvelope, WsSessionCommand};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -146,11 +146,8 @@ pub(crate) async fn dispatch_permission_response(
         .await
         .ok_or_else(|| AppError::Conflict("target session has no live turn owner".into()))?;
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
-    let envelope = WsEnvelope::new(
-        "session",
-        "permission.respond",
-        serde_json::to_value(payload).map_err(|cause| AppError::Internal(cause.to_string()))?,
-    );
+    let envelope = WsEnvelope::session_command(&WsSessionCommand::PermissionRespond(payload))
+        .map_err(|cause| AppError::Internal(cause.to_string()))?;
     crate::domain::ws_session::handler::handle_permission_respond(
         envelope, &sender, &sessions, state,
     )

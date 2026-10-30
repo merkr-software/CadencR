@@ -346,11 +346,9 @@ pub(super) async fn handle_init(
     sdk_sessions.lock().await.insert(db_session_id, handle);
 
     // Send initialized response — session_id is now the DB id as a string
-    let reply = WsEnvelope::reply(
+    let reply = WsEnvelope::session_reply(
         &envelope.id,
-        "session",
-        "initialized",
-        serde_json::to_value(SessionInitializedPayload {
+        &WsSessionEvent::Initialized(SessionInitializedPayload {
             session_id: db_session_id.to_string(),
             provider: Some(effective_provider.clone()),
             model: effective_model,
@@ -371,9 +369,9 @@ pub(super) async fn handle_init(
             output_tokens: init_output_tokens.map(|v| v as u64),
             context_window: init_context_window.map(|v| v as u64),
             supports_prompt_receipts: adapter.supports_prompt_receipts(),
-        })
-        .unwrap(),
-    );
+        }),
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
 
     app_state

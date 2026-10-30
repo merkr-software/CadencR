@@ -61,6 +61,7 @@ describe("PluginStreamSocket", () => {
     const request = socket.lastRequest();
     expect(request).toMatchObject({ action: "subscribe", payload: { topic: "git.status" } });
     socket.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "subscribed",
       ref: request.id,
@@ -68,6 +69,7 @@ describe("PluginStreamSocket", () => {
     });
     const localId = await subscribing;
     socket.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "event",
       payload: {
@@ -83,6 +85,7 @@ describe("PluginStreamSocket", () => {
       payload: { dirty: true },
     });
     socket.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "resync",
       payload: { subscription_id: "srv-1", topic: "git.status" },
@@ -98,6 +101,7 @@ describe("PluginStreamSocket", () => {
     sockets[0]!.open();
     await until(() => sockets[0]!.sent.length === 1);
     sockets[0]!.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "error",
       ref: sockets[0]!.lastRequest().id,
@@ -114,6 +118,7 @@ describe("PluginStreamSocket", () => {
     sockets[0]!.open();
     await until(() => sockets[0]!.sent.length === 1);
     sockets[0]!.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "subscribed",
       ref: sockets[0]!.lastRequest().id,
@@ -122,6 +127,7 @@ describe("PluginStreamSocket", () => {
     const localId = await subscribing;
     for (const seq of [1, 2, 3]) {
       sockets[0]!.receive({
+        id: crypto.randomUUID(),
         domain: "plugin",
         action: "event",
         payload: { subscription_id: "srv-1", seq, envelope: { domain: "git", action: "status" } },
@@ -139,6 +145,7 @@ describe("PluginStreamSocket", () => {
     second.open();
     await until(() => second.sent.length === 1);
     second.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "subscribed",
       ref: second.lastRequest().id,
@@ -147,6 +154,7 @@ describe("PluginStreamSocket", () => {
     await until(() => vi.mocked(sink.resync).mock.calls.length === 1);
     expect(sink.resync).toHaveBeenCalledWith(localId);
     second.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "event",
       payload: {
@@ -171,6 +179,7 @@ describe("PluginStreamSocket", () => {
     sockets[0]!.open();
     await until(() => sockets[0]!.sent.length === 1);
     sockets[0]!.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "subscribed",
       ref: sockets[0]!.lastRequest().id,
@@ -180,6 +189,7 @@ describe("PluginStreamSocket", () => {
     streams.reset();
     expect(sockets[0]!.readyState).toBe(3);
     sockets[0]!.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "event",
       payload: { subscription_id: "srv-1", seq: 2, envelope: { domain: "git", action: "status" } },
@@ -224,6 +234,7 @@ describe("PluginStreamSocket", () => {
     expect(sink.resync).toHaveBeenCalledWith(firstId);
 
     socket.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "event",
       payload: { subscription_id: "srv-2", seq: 1, envelope: { domain: "s", action: "a" } },

@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -200,16 +201,12 @@ impl WsBridgeCanUseTool {
                 error = %e,
                 "post-plan-approval: failed to push set_permission_mode to CLI"
             );
-            let err = WsEnvelope::new(
-                "session",
-                "error",
-                serde_json::to_value(SessionErrorPayload {
-                    code: "SDK_ERROR".into(),
-                    message: format!("Failed to apply post-plan permission mode: {e}"),
-                    ..Default::default()
-                })
-                .unwrap(),
-            );
+            let err = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+                code: "SDK_ERROR".into(),
+                message: format!("Failed to apply post-plan permission mode: {e}"),
+                ..Default::default()
+            }))
+            .expect("session event payload should serialize");
             let _ = self.sender.send(Message::Text(String::from(err).into()));
         }
     }
@@ -267,16 +264,13 @@ impl WsBridgeCanUseTool {
                     error = %error,
                     "failed to persist enriched ExitPlanMode tool input"
                 );
-                let envelope = WsEnvelope::new(
-                    "session",
-                    "error",
-                    serde_json::to_value(SessionErrorPayload {
+                let envelope =
+                    WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
                         code: "DB_ERROR".into(),
                         message: "Failed to persist the enriched plan approval request.".into(),
                         ..Default::default()
-                    })
-                    .unwrap(),
-                );
+                    }))
+                    .expect("session event payload should serialize");
                 let _ = self
                     .sender
                     .send(Message::Text(String::from(envelope).into()));

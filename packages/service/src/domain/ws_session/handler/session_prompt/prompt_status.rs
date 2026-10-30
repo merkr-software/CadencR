@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 
 use crate::domain::sessions::message_dispatch::{self, DispatchClaim};
@@ -258,25 +259,19 @@ pub(crate) async fn publish_user_message(
     origin: Option<AgentMessageOrigin>,
     pending_agent_receipt: bool,
 ) -> Result<(), UserMessageDeliveryError> {
-    let env = WsEnvelope::new(
-        "session",
-        "user_message",
-        serde_json::to_value(UserMessagePayload {
-            message_id: message.id,
-            message_uuid: message.message_uuid.clone(),
-            text: message.content.clone(),
-            created_at: message.created_at.clone(),
-            origin,
-            prompt_delivery_state: message
-                .delivery_state
-                .as_deref()
-                .and_then(UserMessageDeliveryState::from_db)
-                .or_else(|| {
-                    pending_agent_receipt.then_some(UserMessageDeliveryState::PendingAgent)
-                }),
-        })
-        .unwrap(),
-    );
+    let env = WsEnvelope::session_event(&WsSessionEvent::UserMessage(UserMessagePayload {
+        message_id: message.id,
+        message_uuid: message.message_uuid.clone(),
+        text: message.content.clone(),
+        created_at: message.created_at.clone(),
+        origin,
+        prompt_delivery_state: message
+            .delivery_state
+            .as_deref()
+            .and_then(UserMessageDeliveryState::from_db)
+            .or_else(|| pending_agent_receipt.then_some(UserMessageDeliveryState::PendingAgent)),
+    }))
+    .expect("session event payload should serialize");
     let ws_message = Message::Text(String::from(env).into());
     if let Some(owner) = owner {
         let owner_closed = feature_senders

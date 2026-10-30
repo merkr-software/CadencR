@@ -3,8 +3,9 @@ use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimeEffectiveCon
 use crate::domain::agents::providers::resolve_model_or_error_for_profile;
 use crate::domain::settings::target_thinking_effort;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::protocol::{
-    RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope, WsSessionAction,
+    RuntimeOverridesChangedPayload, RuntimeOverridesSetPayload, WsEnvelope,
 };
 use crate::error::AppError;
 use serde_json::Value;
@@ -102,11 +103,10 @@ pub(crate) async fn handle_runtime_overrides_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::RuntimeOverridesChanged,
-        RuntimeOverridesChangedPayload {
+        &WsSessionEvent::RuntimeOverridesChanged(RuntimeOverridesChangedPayload {
             runtime_overrides: overrides,
             effective,
-        },
+        }),
     )
     .await;
 }

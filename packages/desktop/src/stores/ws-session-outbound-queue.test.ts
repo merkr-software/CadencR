@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
-import { createEnvelope } from "@/lib/ws-envelope";
+import { createSessionEnvelope } from "@/lib/ws-envelope";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
 
 // --- Mock WebSocket (same shape as ws-session-store.test.ts) ---
@@ -176,7 +176,7 @@ describe("ws-session outbound queue", () => {
     await connectInitializedThenDrop();
     const store = useWsSessionStore.getState();
 
-    const envelope = createEnvelope("session", "retry_worktree_setup", { feature_id: 42 });
+    const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 42 });
     const pending = store.sendRequest("s1", envelope);
 
     store.connect("s1");
@@ -222,7 +222,7 @@ describe("ws-session outbound queue", () => {
 
     vi.useFakeTimers();
     try {
-      const envelope = createEnvelope("session", "retry_worktree_setup", { feature_id: 42 });
+      const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 42 });
       const pending = store.sendRequest("s1", envelope);
       expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
@@ -256,7 +256,7 @@ describe("ws-session outbound queue", () => {
     ws.readyState = MockWebSocket.CLOSED;
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
     expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
@@ -286,7 +286,7 @@ describe("ws-session outbound queue", () => {
     ws.readyState = MockWebSocket.CLOSED;
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
     expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
@@ -305,7 +305,7 @@ describe("ws-session outbound queue", () => {
 
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
     store.disconnect("s1");
 
@@ -319,7 +319,7 @@ describe("ws-session outbound queue", () => {
 
     const pending = store.sendRequest(
       "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
+      createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
     store.destroy("s1");
 

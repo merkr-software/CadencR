@@ -2,10 +2,11 @@
 //! state before a chosen user message, in place. The chosen message's text is
 //! returned as a draft (NOT sent) so the user can edit and re-send.
 
+use crate::domain::ws_session::protocol::{BranchNeedsConfirmPayload, WsSessionEvent};
 use tracing::{info, warn};
 
 use super::super::super::persistence::WsSessionPersistence;
-use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope};
 use super::super::helpers::send_error;
 use super::super::types::{SdkSessions, WsSender};
 use super::rewind_state::{apply_rewind_state, RewindStateError};
@@ -45,17 +46,16 @@ pub(crate) async fn handle_rewind(
     // since the snapshot. If the worktree is dirty and the user hasn't confirmed,
     // ask first — never discard silently.
     if checkpoint.is_some() && !payload.confirm_discard && worktree_dirty(&inputs).await {
-        let reply = WsEnvelope::reply(
+        let reply = WsEnvelope::session_reply(
             &envelope.id,
-            "session",
-            "branch.needs_confirm",
-            serde_json::json!({
-                "sessionId": db_session_id.to_string(),
-                "messageId": inputs.message_id,
-                "kind": "rewind",
-                "reason": "Rewinding will discard uncommitted changes since this message.",
+            &WsSessionEvent::BranchNeedsConfirm(BranchNeedsConfirmPayload {
+                session_id: db_session_id.to_string(),
+                message_id: inputs.message_id,
+                kind: "rewind".into(),
+                reason: "Rewinding will discard uncommitted changes since this message.".into(),
             }),
-        );
+        )
+        .expect("session event payload should serialize");
         let _ = sender.send(axum::extract::ws::Message::Text(String::from(reply).into()));
         return;
     }
@@ -144,14 +144,13 @@ async fn finish_rewind(
         sender,
         envelope_id,
         inputs.feature_id,
-        WsSessionAction::BranchRewound,
-        BranchRewoundPayload {
+        &WsSessionEvent::BranchRewound(BranchRewoundPayload {
             session_id: db_session_id.to_string(),
             message_id: inputs.message_id,
             draft_text: inputs.message_text.clone(),
             code_restored,
             code_restore_error,
-        },
+        }),
     )
     .await;
 }

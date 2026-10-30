@@ -177,16 +177,14 @@ pub(crate) async fn handle_destroy(
         None,
     );
 
-    let reply = WsEnvelope::reply(
+    let reply = WsEnvelope::session_reply(
         &envelope.id,
-        "session",
-        "ended",
-        serde_json::to_value(SessionEndedPayload {
+        &WsSessionEvent::Ended(SessionEndedPayload {
             reason: "destroyed".into(),
             ..Default::default()
-        })
-        .unwrap(),
-    );
+        }),
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(reply).into()));
 }
 
@@ -239,12 +237,13 @@ pub(crate) async fn handle_delete(
 
             let _ = agent_type; // agent_type kept for log/symmetry — no further branching.
 
-            let reply = WsEnvelope::reply(
+            let reply = WsEnvelope::session_reply(
                 &envelope.id,
-                "session",
-                "deleted",
-                serde_json::json!({ "session_id": db_session_id.to_string() }),
-            );
+                &WsSessionEvent::Deleted(SessionDeletedPayload {
+                    session_id: db_session_id.to_string(),
+                }),
+            )
+            .expect("session event payload should serialize");
             let _ = sender.send(Message::Text(String::from(reply).into()));
         }
         Err(reason) => {
@@ -346,14 +345,13 @@ pub(crate) async fn handle_clear(
     };
     handle.state = QueryState::Pending(fresh_options);
 
-    let reply = WsEnvelope::reply(
+    let reply = WsEnvelope::session_reply(
         &envelope.id,
-        "session",
-        "cleared",
-        serde_json::json!({
-            "session_id": db_session_id.to_string(),
-            "previous_session_id": cli_sid,
+        &WsSessionEvent::Cleared(SessionClearedPayload {
+            session_id: db_session_id.to_string(),
+            previous_session_id: cli_sid,
         }),
-    );
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(reply).into()));
 }

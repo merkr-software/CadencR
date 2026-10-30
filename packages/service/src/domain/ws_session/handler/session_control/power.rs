@@ -17,15 +17,11 @@ use crate::domain::ws_session::protocol::GateCloseReason;
 /// state machine flips only on backend-confirmed transitions (per
 /// `no-optimistic-updates.md`). Used by both suspend and resume paths.
 fn broadcast_lifecycle(sender: &WsSender, session_id: i64, kind: SessionLifecycleKind) {
-    let envelope = WsEnvelope::new(
-        "session",
-        "lifecycle",
-        serde_json::to_value(SessionLifecyclePayload {
-            session_id: session_id.to_string(),
-            kind,
-        })
-        .unwrap(),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Lifecycle(SessionLifecyclePayload {
+        session_id: session_id.to_string(),
+        kind,
+    }))
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
 }
 
@@ -183,9 +179,14 @@ pub(crate) async fn handle_retry_worktree_setup(
     sender: &WsSender,
     app_state: &AppState,
 ) {
-    let payload: serde_json::Value = envelope.payload;
-    let feature_id = match payload.get("feature_id").and_then(|v| v.as_i64()) {
-        Some(fid) => fid,
+    // Only feature_id is consumed here. Older clients may attach arbitrary
+    // session context; retain the established ignored-field/error behavior.
+    let feature_id = match envelope
+        .payload
+        .get("feature_id")
+        .and_then(|value| value.as_i64())
+    {
+        Some(feature_id) => feature_id,
         None => {
             send_error(
                 sender,
@@ -211,14 +212,11 @@ pub(crate) async fn handle_retry_worktree_setup(
             }
         };
 
-    let reply = WsEnvelope::reply(
+    let reply = WsEnvelope::session_reply(
         &envelope.id,
-        "session",
-        "retry_worktree_setup.ok",
-        serde_json::json!({
-            "feature_id": feature_id,
-        }),
-    );
+        &WsSessionEvent::RetryWorktreeSetupOk(RetryWorktreeSetupOkPayload { feature_id }),
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(reply).into()));
     if app_state.worktree_setup_runs.is_owned(feature_id) {
         return;

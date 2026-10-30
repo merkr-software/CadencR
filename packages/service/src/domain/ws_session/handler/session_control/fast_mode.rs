@@ -240,8 +240,7 @@ pub(super) async fn send_fast_mode_set_ok(
         sender,
         envelope_id,
         feature_id,
-        WsSessionAction::FastModeSetOk,
-        FastModeSetOkPayload { enabled },
+        &WsSessionEvent::FastModeSetOk(FastModeSetOkPayload { enabled }),
     )
     .await;
 }

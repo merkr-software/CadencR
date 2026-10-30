@@ -1,22 +1,17 @@
+import { decodeEnvelope, createSessionEnvelope, type WsEnvelope } from "./ws-envelope-contract";
+export { createSessionEnvelope, type WsEnvelope } from "./ws-envelope-contract";
+import type {
+  CommandsGetPayload,
+  GateCloseReason,
+  PermissionRespondPayload,
+  RuntimeConfigOverrides,
+} from "@/api/generated";
+export type { GateCloseReason } from "@/api/generated";
 import { recordDiagnosticEvent } from "./renderer-diagnostics";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { SlashCommandKind } from "@/lib/slash-command";
 import type { PromptCommandPolicyPayload } from "@/lib/prompt-command-policy";
 import { normalizeMessageUuid } from "@/lib/message-uuid";
-
-/**
- * WebSocket envelope utilities for communicating with the Rust Axum WS endpoint.
- *
- * Mirrors the WsEnvelope struct in packages/service/src/domain/ws_session/protocol.rs.
- */
-
-export interface WsEnvelope {
-  id: string;
-  domain: string;
-  action: string;
-  ref?: string;
-  payload: unknown;
-}
 
 export interface SessionConfig {
   provider?: string;
@@ -28,9 +23,13 @@ export interface SessionConfig {
   featureId?: number;
 }
 
-export type GateCloseReason = "sleep" | "escape";
+type ExtensionDomain = "app" | "commands" | "plugin";
 
-export function createEnvelope(domain: string, action: string, payload: unknown): WsEnvelope {
+export function createEnvelope(
+  domain: ExtensionDomain,
+  action: string,
+  payload: unknown,
+): WsEnvelope {
   return {
     id: crypto.randomUUID(),
     domain,
@@ -40,11 +39,8 @@ export function createEnvelope(domain: string, action: string, payload: unknown)
 }
 
 export function parseEnvelope(raw: string): WsEnvelope {
-  const parsed = JSON.parse(raw);
-  if (!parsed.domain || !parsed.action) {
-    throw new Error("Invalid envelope: missing domain or action");
-  }
-  const envelope = parsed as WsEnvelope;
+  const parsed: unknown = JSON.parse(raw);
+  const envelope = decodeEnvelope(parsed);
   recordDiagnosticEvent("stream", {
     domain: /^[a-z_]{1,40}$/.test(envelope.domain) ? envelope.domain : "other",
     action: /^[a-z_.]{1,80}$/.test(envelope.action) ? envelope.action : "other",
@@ -53,7 +49,7 @@ export function parseEnvelope(raw: string): WsEnvelope {
 }
 
 export function createSessionInit(config: SessionConfig): WsEnvelope {
-  return createEnvelope("session", "init", {
+  return createSessionEnvelope("init", {
     provider: config.provider ?? null,
     model: config.model ?? null,
     thinking_effort: config.thinkingEffort ?? null,
@@ -97,7 +93,7 @@ export function createPromptSend(
   const messageUuid = options.messageUuid
     ? normalizeMessageUuid(options.messageUuid)
     : crypto.randomUUID();
-  return createEnvelope("session", "prompt.send", {
+  return createSessionEnvelope("prompt.send", {
     session_id: sessionId,
     text,
     ...(options.attachments && options.attachments.length > 0
@@ -123,10 +119,10 @@ interface PermissionRespondOptions {
 export function createPermissionRespond(
   sessionId: string,
   requestId: string,
-  decision: "allow_once" | "allow_future" | "deny",
+  decision: PermissionRespondPayload["decision"],
   options: PermissionRespondOptions = {},
 ): WsEnvelope {
-  return createEnvelope("session", "permission.respond", {
+  return createSessionEnvelope("permission.respond", {
     session_id: sessionId,
     request_id: requestId,
     ...(options.messageUuid ? { message_uuid: options.messageUuid } : {}),
@@ -138,7 +134,7 @@ export function createPermissionRespond(
 }
 
 export function createInterrupt(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "interrupt", { session_id: sessionId });
+  return createSessionEnvelope("interrupt", { session_id: sessionId });
 }
 
 /**
@@ -152,7 +148,7 @@ export function createRewind(
   messageId: number,
   options: { confirmDiscard?: boolean } = {},
 ): WsEnvelope {
-  return createEnvelope("session", "branch.rewind", {
+  return createSessionEnvelope("branch.rewind", {
     session_id: sessionId,
     message_id: messageId,
     confirm_discard: options.confirmDiscard ?? false,
@@ -165,7 +161,7 @@ export function createRewind(
  * becomes the new session's draft.
  */
 export function createFork(sessionId: string, messageId: number): WsEnvelope {
-  return createEnvelope("session", "branch.fork", {
+  return createSessionEnvelope("branch.fork", {
     session_id: sessionId,
     message_id: messageId,
   });
@@ -178,11 +174,11 @@ export function createFork(sessionId: string, messageId: number): WsEnvelope {
  * provider it belongs to. See `domain::ws_session::handler::session_control`.
  */
 export function createSessionSuspend(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "suspend", { session_id: sessionId });
+  return createSessionEnvelope("suspend", { session_id: sessionId });
 }
 
 export function createSessionResume(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "resume", { session_id: sessionId });
+  return createSessionEnvelope("resume", { session_id: sessionId });
 }
 
 export function createGateClose(
@@ -190,7 +186,7 @@ export function createGateClose(
   requestId: string | null,
   reason: GateCloseReason,
 ): WsEnvelope {
-  return createEnvelope("session", "gate.close", {
+  return createSessionEnvelope("gate.close", {
     session_id: sessionId,
     request_id: requestId,
     reason,
@@ -198,7 +194,7 @@ export function createGateClose(
 }
 
 export function createModelSet(sessionId: string, model: string, provider: string): WsEnvelope {
-  return createEnvelope("session", "model.set", {
+  return createSessionEnvelope("model.set", {
     session_id: sessionId,
     model,
     provider,
@@ -206,7 +202,7 @@ export function createModelSet(sessionId: string, model: string, provider: strin
 }
 
 export function createProviderSet(sessionId: string, provider: string, model?: string): WsEnvelope {
-  return createEnvelope("session", "provider.set", {
+  return createSessionEnvelope("provider.set", {
     session_id: sessionId,
     provider,
     ...(model !== undefined ? { model } : {}),
@@ -214,53 +210,49 @@ export function createProviderSet(sessionId: string, provider: string, model?: s
 }
 
 export function createModeSet(sessionId: string, mode: string): WsEnvelope {
-  return createEnvelope("session", "mode.set", { session_id: sessionId, mode });
+  return createSessionEnvelope("mode.set", { session_id: sessionId, mode });
 }
 
 export function createAccessModeSet(sessionId: string, mode: string): WsEnvelope {
-  return createEnvelope("session", "access_mode.set", {
+  return createSessionEnvelope("access_mode.set", {
     session_id: sessionId,
     mode,
   });
 }
 
 export function createEffortSet(sessionId: string, thinkingEffort?: string): WsEnvelope {
-  return createEnvelope("session", "effort.set", {
+  return createSessionEnvelope("effort.set", {
     session_id: sessionId,
     thinking_effort: thinkingEffort ?? null,
   });
 }
 
 export function createFastModeSet(sessionId: string, enabled: boolean): WsEnvelope {
-  return createEnvelope("session", "fast_mode.set", {
+  return createSessionEnvelope("fast_mode.set", {
     session_id: sessionId,
     enabled,
   });
 }
 
 export function createProfileSet(sessionId: string, profile: string): WsEnvelope {
-  return createEnvelope("session", "profile.set", {
+  return createSessionEnvelope("profile.set", {
     session_id: sessionId,
     profile,
   });
 }
-export type RuntimeConfigOverridePatch = {
-  model?: string | null;
-  thinking_effort?: string | null;
-  fast_mode?: boolean | null;
-};
+export type RuntimeConfigOverridePatch = RuntimeConfigOverrides;
 export function createRuntimeOverridesSet(
   sessionId: string,
   runtimeOverrides: RuntimeConfigOverridePatch,
 ): WsEnvelope {
-  return createEnvelope("session", "runtime_overrides.set", {
+  return createSessionEnvelope("runtime_overrides.set", {
     session_id: sessionId,
     runtime_overrides: runtimeOverrides,
   });
 }
 
 export function createSessionConfigGet(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "config.get", { session_id: sessionId });
+  return createSessionEnvelope("config.get", { session_id: sessionId });
 }
 
 export function createSessionConfigSet(
@@ -268,7 +260,7 @@ export function createSessionConfigSet(
   configId: string,
   value: string | boolean,
 ): WsEnvelope {
-  return createEnvelope("session", "config.set", {
+  return createSessionEnvelope("config.set", {
     session_id: sessionId,
     config_id: configId,
     value,
@@ -276,26 +268,30 @@ export function createSessionConfigSet(
 }
 
 export function createDestroy(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "destroy", { session_id: sessionId });
+  return createSessionEnvelope("destroy", { session_id: sessionId });
 }
 
 export function createSessionClear(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "clear", { session_id: sessionId });
+  return createSessionEnvelope("clear", { session_id: sessionId });
 }
 
 export function createSessionDelete(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "delete", { session_id: sessionId });
+  return createSessionEnvelope("delete", { session_id: sessionId });
 }
 
 export function createSessionCompact(sessionId: string): WsEnvelope {
-  return createEnvelope("session", "compact", {
+  return createSessionEnvelope("compact", {
     session_id: sessionId,
     message_uuid: crypto.randomUUID(),
   });
 }
 
 export function createCommandsGet(cwd: string, provider: string, profile?: string): WsEnvelope {
-  return createEnvelope("commands", "get", { cwd, provider, ...(profile ? { profile } : {}) });
+  return createEnvelope("commands", "get", {
+    cwd,
+    provider,
+    ...(profile ? { profile } : {}),
+  } satisfies CommandsGetPayload);
 }
 
 export interface CommandsListPayload {
@@ -308,11 +304,11 @@ export interface CommandsListPayload {
 }
 
 export function createHistoryGet(projectId: number): WsEnvelope {
-  return createEnvelope("session", "history.get", { project_id: projectId });
+  return createSessionEnvelope("history.get", { project_id: projectId });
 }
 
 export function createHistoryAdd(projectId: number, content: string): WsEnvelope {
-  return createEnvelope("session", "history.add", {
+  return createSessionEnvelope("history.add", {
     project_id: projectId,
     content,
   });

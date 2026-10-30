@@ -56,6 +56,7 @@ export class FakePluginSocket implements SocketLike {
     const request = this.subscribes().find((message) => message.payload.topic === topic);
     if (!request) throw new Error(`no subscribe for ${topic}`);
     this.receive({
+      id: crypto.randomUUID(),
       domain: "plugin",
       action: "subscribed",
       ref: request.id,

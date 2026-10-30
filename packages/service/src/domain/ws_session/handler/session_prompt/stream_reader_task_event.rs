@@ -14,6 +14,7 @@ use crate::domain::ws_session::persistence::{
 use crate::domain::ws_session::protocol::{
     permission_request_envelope, PermissionRequestPayload, WsEnvelope,
 };
+use crate::domain::ws_session::protocol::{SessionCompactingPayload, WsSessionEvent};
 use axum::extract::ws::Message;
 use tracing::{debug, error, info};
 impl StreamReaderTask {
@@ -146,7 +147,7 @@ impl StreamReaderTask {
         });
         self.persist_pending_user_input(&payload, question_payload.as_ref())
             .await;
-        let envelope = permission_request_envelope(&payload)
+        let envelope = permission_request_envelope(payload)
             .expect("permission request payload should serialize");
         // Mirror the gate to every device viewing this feature so it appears on
         // the host and any remote clients alike, not only the turn owner.
@@ -245,11 +246,11 @@ impl StreamReaderTask {
         if !state.turn_state.set_compacting(next) {
             return;
         }
-        let envelope = WsEnvelope::new(
-            "session",
-            "compacting",
-            serde_json::json!({ "active": next }),
-        );
+        let envelope =
+            WsEnvelope::session_event(&WsSessionEvent::Compacting(SessionCompactingPayload {
+                active: next,
+            }))
+            .expect("session event payload should serialize");
         let _ = self
             .send_and_mirror(Message::Text(String::from(envelope).into()))
             .await;

@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 
 use super::bridge::WsBridgeCanUseTool;
@@ -54,16 +55,12 @@ impl WsBridgeCanUseTool {
     }
 
     fn send_user_message_persist_error(&self, message: &str) {
-        let error = WsEnvelope::new(
-            "session",
-            "error",
-            serde_json::to_value(SessionErrorPayload {
-                code: "USER_MESSAGE_PERSIST_FAILED".to_string(),
-                message: message.to_string(),
-                ..Default::default()
-            })
-            .unwrap(),
-        );
+        let error = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+            code: "USER_MESSAGE_PERSIST_FAILED".to_string(),
+            message: message.to_string(),
+            ..Default::default()
+        }))
+        .expect("session event payload should serialize");
         let _ = self.sender.send(Message::Text(String::from(error).into()));
     }
 }

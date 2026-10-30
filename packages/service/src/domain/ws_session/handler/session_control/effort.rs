@@ -258,8 +258,7 @@ pub(super) async fn send_effort_set_ok(
         sender,
         envelope_id,
         feature_id,
-        WsSessionAction::EffortSetOk,
-        EffortSetOkPayload { thinking_effort },
+        &WsSessionEvent::EffortSetOk(EffortSetOkPayload { thinking_effort }),
     )
     .await;
 }
