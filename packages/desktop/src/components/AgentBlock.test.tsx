@@ -46,7 +46,7 @@ describe("AgentBlock", () => {
   });
 
   describe("truncated persisted content", () => {
-    it("shows a safe text preview without parsing Markdown or fetching automatically", () => {
+    it("renders a text preview through its renderer without fetching automatically", () => {
       render(
         <AgentBlock
           block={makeBlock({
@@ -58,9 +58,90 @@ describe("AgentBlock", () => {
         />,
       );
 
-      expect(screen.getByText("# Preview only")).toHaveProperty("tagName", "PRE");
-      expect(screen.queryByRole("heading", { name: "Preview only" })).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Load full content" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Preview only" })).toBeInTheDocument();
+      expect(screen.getByText("Truncated")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
+    });
+
+    it("never surfaces a truncated tool call the stream hides", () => {
+      for (const toolName of ["TodoWrite", "update_plan"]) {
+        const { unmount } = render(
+          <AgentBlock
+            block={makeBlock({
+              id: `msg-${toolName}`,
+              type: "tool_call",
+              toolName,
+              content: "{}",
+              toolArgs: "{}",
+              truncatedContent: true,
+            })}
+          />,
+        );
+        expect(screen.queryByText(/Truncated/)).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("draws a truncated prompt without the actions that would resend it cut", () => {
+      const control = render(
+        <AgentBlock
+          block={makeBlock({
+            id: "msg-49",
+            type: "user_message",
+            content: JSON.stringify([{ type: "text", text: "whole prompt" }]),
+          })}
+        />,
+      );
+      expect(screen.getByTitle("Copy as Markdown")).toBeInTheDocument();
+      control.unmount();
+
+      render(
+        <AgentBlock
+          block={makeBlock({
+            id: "msg-47",
+            type: "user_message",
+            content: JSON.stringify([{ type: "text", text: "see screenshot" }]),
+            truncatedContent: true,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("see screenshot")).toBeInTheDocument();
+      expect(screen.queryByTitle("Copy as Markdown")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
+    });
+
+    it("hides the truncation line under a card the policy folded", () => {
+      render(
+        <AgentBlock
+          block={makeBlock({
+            id: "msg-48",
+            type: "thinking",
+            content: "long thought",
+            truncatedContent: true,
+          })}
+          verbosityMode="collapsed"
+          isCollapsedByPolicy
+        />,
+      );
+
+      expect(screen.queryByText(/Truncated/)).not.toBeInTheDocument();
+    });
+
+    it("states the full size the server reported", () => {
+      render(
+        <AgentBlock
+          block={makeBlock({
+            id: "msg-46",
+            type: "text",
+            content: "preview",
+            truncatedContent: true,
+            fullContentBytes: 1_468_006,
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Truncated · 1.4 MB")).toBeInTheDocument();
     });
 
     it("gates a truncated file-change tool before its normal renderer", () => {
@@ -78,7 +159,9 @@ describe("AgentBlock", () => {
       );
 
       expect(screen.queryByTestId("inline-diff")).not.toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Load full content" })).toBeInTheDocument();
+      expect(screen.getByText("Write")).toBeInTheDocument();
+      expect(screen.queryByText("partial")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
     });
 
     it("gates truncated Bash arguments but leaves truncated output on the existing path", () => {
@@ -99,11 +182,11 @@ describe("AgentBlock", () => {
         truncatedContent: true,
       });
       const { rerender } = render(<AgentBlock block={{ ...call, truncatedContent: true }} />);
-      expect(screen.getByRole("button", { name: "Load full content" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show all" })).toBeInTheDocument();
 
       rerender(<AgentBlock block={call} toolResultMap={new Map([["bash-1", result]])} />);
       expect(screen.getByText("pwd")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Load full content" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Show all" })).not.toBeInTheDocument();
     });
   });
 
