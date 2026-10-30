@@ -65,7 +65,7 @@ export interface AgentBlockData {
   errorCode?: string;
   /** Provenance for machine-generated user messages. */
   origin?: AgentMessageOrigin | null;
-  /** Keep compact-flow chunks stable across a paginated history seam. */
+  /** Keep compact-flow rows stable across a paginated history seam. */
   compactFlowBreakBefore?: true;
 }
 

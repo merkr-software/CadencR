@@ -129,7 +129,7 @@ describe("ws session history pagination", () => {
     ]);
   });
 
-  it("preserves bounded compact chunks across consecutive history prepend seams", async () => {
+  it("preserves compact runs across consecutive history prepend seams", async () => {
     const currentBlocks = Array.from({ length: 50 }, (_, index) =>
       makeBlock(`msg-${300 + index}`, "read", "tool_call", { toolName: "Read" }),
     );
@@ -152,7 +152,8 @@ describe("ws session history pagination", () => {
     await loadOlderSessionMessages(ctx, "s1", { compactMode: true });
 
     const session = ctx.get().sessions.s1;
-    expect(session.historyPrependDisplayOffset).toBe(8);
+    // Each page adds one row ([170-199], then [160-169]) on top of the seeded 5.
+    expect(session.historyPrependDisplayOffset).toBe(7);
     expect(session.blocks.find((block) => block.id === "msg-170")?.compactFlowBreakBefore).toBe(
       true,
     );

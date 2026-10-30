@@ -5,7 +5,6 @@ import {
   countRenderableDisplayRows,
   deriveAgentStreamDisplayBlocks,
   filterRenderableBlocks,
-  MAX_COMPACT_FLOW_BLOCKS,
 } from "./agentStreamDisplay";
 
 function block(id: string, content: string, extra: Partial<AgentBlockData> = {}): AgentBlockData {
@@ -180,90 +179,95 @@ describe("agentStreamDisplay", () => {
       expect(items.map((item) => item.key)).toEqual(["dup", "dup#1"]);
     });
 
-    it("splits long tool runs into bounded outer Virtuoso rows", () => {
+    it("folds a whole tool run into one row, however long", () => {
       const tools = Array.from({ length: 1_000 }, (_, index) =>
         block(`tool-${index}`, "", { type: "tool_call", toolName: "Read" }),
       );
 
       const items = buildDisplayItems(tools, { compact: true });
-      const flows = items.filter((item) => item.kind === "flow");
 
-      expect(flows).toHaveLength(Math.ceil(tools.length / MAX_COMPACT_FLOW_BLOCKS));
-      expect(Math.max(...flows.map((item) => item.blocks.length))).toBe(MAX_COMPACT_FLOW_BLOCKS);
-      expect(flows.flatMap((item) => item.blocks.map((item) => item.id))).toEqual(
-        tools.map((item) => item.id),
-      );
-      expect(countRenderableDisplayRows(tools, { compactMode: true })).toBe(flows.length);
+      expect(items).toHaveLength(1);
+      expect(items[0].key).toBe("flow:tool-0");
+      expect(countRenderableDisplayRows(tools, { compactMode: true })).toBe(1);
     });
 
-    it("keeps completed compact chunks stable when a tool crosses a chunk boundary", () => {
-      const tools = Array.from({ length: MAX_COMPACT_FLOW_BLOCKS + 1 }, (_, index) =>
+    it("keeps the run's key when the tail grows", () => {
+      const tools = Array.from({ length: 3 }, (_, index) =>
         block(`tool-${index}`, "", { type: "tool_call", toolName: "Read" }),
       );
       const before = buildDisplayItems(tools.slice(0, -1), { compact: true });
       const after = buildDisplayItems(tools, { compact: true });
 
-      expect(before).toHaveLength(1);
-      expect(after).toHaveLength(2);
-      expect(after[0].key).toBe(before[0].key);
-      expect(after[0].kind).toBe("flow");
-      if (after[0].kind !== "flow") throw new Error("expected first compact chunk");
-      expect(after[0].blocks.map((item) => item.id)).toEqual(
-        tools.slice(0, MAX_COMPACT_FLOW_BLOCKS).map((item) => item.id),
-      );
-      expect(after[1].key).toBe(`flow:tool-${MAX_COMPACT_FLOW_BLOCKS}`);
+      expect(after.map((item) => item.key)).toEqual(before.map((item) => item.key));
     });
 
-    it.each([10, 30])(
-      "preserves current chunk keys and membership across a %i-tool prepend seam",
-      (olderCount) => {
-        const current = Array.from({ length: 1_000 }, (_, index) =>
-          block(`current-${index}`, "", { type: "tool_call", toolName: "Read" }),
-        );
-        const older = Array.from({ length: olderCount }, (_, index) =>
-          block(`older-${index}`, "", { type: "tool_call", toolName: "Read" }),
-        );
-        const before = buildDisplayItems(current, { compact: true });
-        const withSeam = [
-          ...older,
-          { ...current[0], compactFlowBreakBefore: true as const },
-          ...current.slice(1),
-        ];
-        const after = buildDisplayItems(withSeam, { compact: true });
-        const firstCurrentRow = after.findIndex((item) => item.key === before[0].key);
+    it("preserves current row keys and membership across a prepend seam", () => {
+      const current = Array.from({ length: 50 }, (_, index) =>
+        block(`current-${index}`, "", { type: "tool_call", toolName: "Read" }),
+      );
+      const older = Array.from({ length: 10 }, (_, index) =>
+        block(`older-${index}`, "", { type: "tool_call", toolName: "Read" }),
+      );
+      const before = buildDisplayItems(current, { compact: true });
+      expect(before.map((item) => item.key)).toEqual(["flow:current-0"]);
+      const withSeam = [
+        ...older,
+        { ...current[0], compactFlowBreakBefore: true as const },
+        ...current.slice(1),
+      ];
+      const after = buildDisplayItems(withSeam, { compact: true });
 
-        expect(firstCurrentRow).toBe(Math.ceil(olderCount / MAX_COMPACT_FLOW_BLOCKS));
-        expect(after.slice(firstCurrentRow).map((item) => item.key)).toEqual(
-          before.map((item) => item.key),
-        );
-        expect(
-          after
-            .slice(firstCurrentRow)
-            .map((item) =>
-              item.kind === "flow" ? item.blocks.map((block) => block.id) : [item.block.id],
-            ),
-        ).toEqual(
-          before.map((item) =>
-            item.kind === "flow" ? item.blocks.map((block) => block.id) : [item.block.id],
-          ),
-        );
-      },
-    );
+      expect(after.map((item) => item.key)).toEqual(["flow:older-0", "flow:current-0"]);
+      const currentRow = after[1];
+      if (currentRow.kind !== "flow") throw new Error("expected flow row");
+      expect(currentRow.blocks.map((item) => item.id)).toEqual(current.map((item) => item.id));
+    });
 
-    it("starts a fresh chunk after every flow-breaking row", () => {
-      const tools = Array.from({ length: MAX_COMPACT_FLOW_BLOCKS + 2 }, (_, index) =>
+    it("keeps prose, prompts, plans and subagent output as full rows", () => {
+      const read = block("read", "", { type: "tool_call", toolName: "Read" });
+      const plan = block("plan", "", { type: "tool_call", toolName: "ExitPlanMode" });
+      const agentOutput = block("agent-out", "[]", {
+        type: "tool_result",
+        sourceToolName: "Agent",
+      });
+      const code = block("code", "x = 1", { type: "code" });
+      const items = buildDisplayItems([read, plan, read, agentOutput, read, code], {
+        compact: true,
+      });
+
+      expect(items.map((item) => item.key)).toEqual([
+        "flow:read",
+        "plan",
+        "flow:read#1",
+        "agent-out",
+        "flow:read#2",
+        "code",
+      ]);
+    });
+
+    it("drops a run with no step to draw instead of yielding an empty row", () => {
+      const todo = block("todo", "", { type: "tool_call", toolName: "TodoWrite" });
+      const bash = block("bash", "", { type: "tool_call", toolName: "Bash" });
+      const items = buildDisplayItems(
+        [block("a", "before"), todo, block("b", "after"), todo, bash],
+        { compact: true },
+      );
+
+      expect(items.map((item) => item.key)).toEqual(["a", "b", "flow:todo"]);
+      expect(countRenderableDisplayRows([block("a", "before"), todo], { compactMode: true })).toBe(
+        1,
+      );
+    });
+
+    it("starts a fresh row after every flow-breaking row", () => {
+      const tools = Array.from({ length: 3 }, (_, index) =>
         block(`tool-${index}`, "", { type: "tool_call", toolName: "Read" }),
       );
       const user = block("user", "continue", { type: "user_message" });
       const items = buildDisplayItems([...tools, user, ...tools.slice(0, 2)], { compact: true });
 
-      expect(items.map((item) => item.kind)).toEqual(["flow", "flow", "block", "flow"]);
-      expect(items.map((item) => item.key)).toEqual([
-        "flow:tool-0",
-        `flow:tool-${MAX_COMPACT_FLOW_BLOCKS}`,
-        "user",
-        "flow:tool-0#1",
-      ]);
+      expect(items.map((item) => item.kind)).toEqual(["flow", "block", "flow"]);
+      expect(items.map((item) => item.key)).toEqual(["flow:tool-0", "user", "flow:tool-0#1"]);
     });
   });
 
@@ -281,7 +285,7 @@ describe("agentStreamDisplay", () => {
     expect(countRenderableDisplayRows([result], { compactMode: true })).toBe(1);
   });
 
-  it("keeps truncated patch and Bash arguments out of compact summary tiles", () => {
+  it("folds truncated tool previews into the run (their line shows the name only)", () => {
     const patch = block("partial-patch", "preview", {
       type: "tool_call",
       toolName: "apply_patch",
@@ -296,8 +300,7 @@ describe("agentStreamDisplay", () => {
     });
 
     expect(buildDisplayItems([patch, bash], { compact: true })).toEqual([
-      { kind: "block", key: "partial-patch", block: patch },
-      { kind: "block", key: "partial-command", block: bash },
+      { kind: "flow", key: "flow:partial-patch", blocks: [patch, bash] },
     ]);
   });
 });

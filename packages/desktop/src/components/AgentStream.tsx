@@ -3,6 +3,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type MutableRefObject,
   type ReactNode,
@@ -45,6 +46,8 @@ interface AgentStreamVirtuosoContext {
   streamingBlockId: string | null;
   lifecycle?: TurnLifecycle;
   workingLabel: string;
+  /** Block holding the active search match: a compact run holding it unfolds. */
+  searchBlockId: string | null;
 }
 
 interface AgentStreamProps {
@@ -120,7 +123,8 @@ interface AgentStreamProps {
 
 const StreamingCursor = memo(function StreamingCursor({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 text-xs text-primary">
+    // No inline padding: the cursor sits on the transcript's left edge.
+    <div className="flex items-center gap-2 py-2 text-xs text-primary">
       <span className="animate-pulse">█</span>
       <span className="font-medium tabular-nums">{label}</span>
     </div>
@@ -192,6 +196,19 @@ function useAgentStreamRefs(
   );
 }
 
+function useVirtuosoContext({
+  showStreamingIndicator,
+  streamingBlockId,
+  lifecycle,
+  workingLabel,
+  searchBlockId,
+}: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
+  return useMemo(
+    () => ({ showStreamingIndicator, streamingBlockId, lifecycle, workingLabel, searchBlockId }),
+    [showStreamingIndicator, streamingBlockId, lifecycle, workingLabel, searchBlockId],
+  );
+}
+
 function useAgentStreamItemRenderer(
   basePath: string | undefined,
   toolResultMap: Map<string, AgentBlockData>,
@@ -200,7 +217,15 @@ function useAgentStreamItemRenderer(
   return useCallback(
     (_index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => {
       if (item.kind === "flow") {
-        return <CompactFlowRow blocks={item.blocks} basePath={basePath} />;
+        const target = context.searchBlockId;
+        const reveal = target && item.blocks.some((block) => block.id === target);
+        return (
+          <CompactFlowRow
+            blocks={item.blocks}
+            basePath={basePath}
+            revealBlockId={reveal ? target : undefined}
+          />
+        );
       }
       return (
         <AgentStreamItem
@@ -311,18 +336,16 @@ export const AgentStream = memo(function AgentStream({
   );
   const firstItemIndex = FIRST_ITEM_INDEX_BASE - historyPrependDisplayOffset;
 
-  // Only the last displayed block can receive stream chunks; pass its id
-  // through Virtuoso context so older memoized rows remain stable.
-  const lastBlockId = displayBlocks.at(-1)?.id;
-  const virtuosoContext = useMemo(
-    (): AgentStreamVirtuosoContext => ({
-      showStreamingIndicator,
-      streamingBlockId: isStreaming && lastBlockId ? lastBlockId : null,
-      lifecycle,
-      workingLabel,
-    }),
-    [isStreaming, lastBlockId, lifecycle, showStreamingIndicator, workingLabel],
-  );
+  const [searchBlockId, setSearchBlockId] = useState<string | null>(null);
+  const virtuosoContext = useVirtuosoContext({
+    showStreamingIndicator,
+    // Only the last displayed block can receive stream chunks; pass its id
+    // through Virtuoso context so older memoized rows remain stable.
+    streamingBlockId: isStreaming ? (displayBlocks.at(-1)?.id ?? null) : null,
+    lifecycle,
+    workingLabel,
+    searchBlockId,
+  });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
   const onRangeChanged = useCallback(
     (range: ListRange): void => {
@@ -365,6 +388,7 @@ export const AgentStream = memo(function AgentStream({
         scrollerRef={streamRefs.scrollerElRef}
         shortcutsEnabled={searchEnabled}
         messageNavigator={messageNavigator}
+        onSearchBlockChange={setSearchBlockId}
       />
       <AgentVirtuoso
         items={displayItems}

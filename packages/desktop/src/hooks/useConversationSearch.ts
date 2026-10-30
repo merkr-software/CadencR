@@ -28,6 +28,8 @@ export interface ConversationSearchState {
   activeNumber: number;
   /** Bumped on every (re)open so the input can refocus + select. */
   focusNonce: number;
+  /** Block holding the active match while the bar is open, so a folded row can unfold. */
+  activeBlockId: string | null;
   setQuery: (next: string) => void;
   openSearch: () => void;
   closeSearch: () => void;
@@ -197,6 +199,7 @@ export function useConversationSearch({
     clearConversationHighlights();
   }, [reset, searchIndex]);
 
+  const activeBlockId = isOpen ? (activeMatch?.blockId ?? null) : null;
   return useMemo(
     () => ({
       isOpen,
@@ -204,6 +207,7 @@ export function useConversationSearch({
       matchCount: snapshot.matchCount,
       activeNumber,
       focusNonce,
+      activeBlockId,
       setQuery,
       openSearch,
       closeSearch,
@@ -216,6 +220,7 @@ export function useConversationSearch({
       snapshot.matchCount,
       activeNumber,
       focusNonce,
+      activeBlockId,
       openSearch,
       closeSearch,
       next,

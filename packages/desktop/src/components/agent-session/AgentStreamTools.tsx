@@ -15,6 +15,8 @@ interface AgentStreamToolsProps {
   shortcutsEnabled: boolean;
   /** Null hides the prompt rail (Settings → Interface). */
   messageNavigator: MessageNavigatorControls | null;
+  /** Block holding the active search match, or null. */
+  onSearchBlockChange: (blockId: string | null) => void;
 }
 
 /** Overlays that find and jump through the transcript: ⌘F search and the prompt rail. */
@@ -25,6 +27,7 @@ export const AgentStreamTools = memo(function AgentStreamTools({
   scrollerRef,
   shortcutsEnabled,
   messageNavigator,
+  onSearchBlockChange,
 }: AgentStreamToolsProps): ReactElement {
   return (
     <>
@@ -35,6 +38,7 @@ export const AgentStreamTools = memo(function AgentStreamTools({
           toolResultMap={toolResultMap}
           virtuosoRef={virtuosoRef}
           scrollerRef={scrollerRef}
+          onActiveBlockChange={onSearchBlockChange}
         />
       )}
       {messageNavigator && (

@@ -1250,6 +1250,9 @@ html[data-animations="off"] *::after {
   --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
   --animate-fade-up: fade-up 220ms var(--ease-fluid) both;
   --animate-fade-in: fade-in 180ms var(--ease-fluid) both;
+  /* Compact flow: one step scrolls out as the next scrolls in, ticker-style. */
+  --animate-step-in: step-in 220ms var(--ease-fluid) both;
+  --animate-step-out: step-out 220ms var(--ease-fluid) both;
 }
 
 @keyframes fade-up {
@@ -1260,6 +1263,28 @@ html[data-animations="off"] *::after {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes step-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
   }
 }
 
