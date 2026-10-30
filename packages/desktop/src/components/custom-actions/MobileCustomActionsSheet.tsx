@@ -76,7 +76,7 @@ export function MobileCustomActionsSheet({
           <DialogTitle>Actions</DialogTitle>
           <DialogDescription>Run in this conversation&apos;s working copy.</DialogDescription>
         </DialogHeader>
-        <ul className="-mx-1 max-h-[60svh] overflow-y-auto">
+        <ul className="-mx-1 flex max-h-[60svh] flex-col gap-1 overflow-y-auto">
           {actions.map((action) => (
             <li key={action.id}>
               <SheetRow
@@ -111,7 +111,7 @@ function SheetRow({
     <div className="flex min-h-11 items-center gap-2 rounded-md px-1">
       <button
         type="button"
-        className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 text-left"
+        className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onClick={() => {
           onDone();
           if (running) showCustomActionOutput(featureId, action.id);
@@ -128,9 +128,9 @@ function SheetRow({
         </span>
       </button>
       <Button
-        variant="outline"
+        variant="ghost"
         size="icon-sm"
-        className="size-11"
+        className="size-11 text-muted-foreground disabled:opacity-100"
         disabled={starting}
         aria-label={running ? `Stop “${action.name}”` : `Run “${action.name}”`}
         onClick={() => {
