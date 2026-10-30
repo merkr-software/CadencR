@@ -29,6 +29,7 @@
 
 use serde_json::{json, Value};
 
+use crate::domain::agents::acp::runtime::provider_hooks::unwrap_nested_text_block;
 use crate::domain::agents::adapter::{
     RuntimeAssistantMessage, RuntimeContentBlock, RuntimeEvent, RuntimeEventKind,
     RuntimeEventMetadata,
@@ -61,7 +62,7 @@ fn raw_text_from_body(body: &Value) -> Option<String> {
     }
     let content = body.get("content").and_then(Value::as_array)?;
     for entry in content {
-        if let Some(text) = unwrap_text_block(entry) {
+        if let Some(text) = unwrap_nested_text_block(entry) {
             return Some(text.to_string());
         }
     }
@@ -119,20 +120,6 @@ fn extract_tagged<'a>(raw: &'a str, tag: &str) -> Option<&'a str> {
     let content_start = start + start_tag.len();
     let end = raw[content_start..].find(&end_tag)? + content_start;
     Some(&raw[content_start..end])
-}
-
-/// Recursive text unwrap matching OpenCode's `{type:"content", content:{…}}`
-/// envelope. Mirrors the helper in `adapter.rs` — kept local to avoid a
-/// cross-module `pub(super)` leak for what's a tiny three-line walk.
-fn unwrap_text_block(block: &Value) -> Option<&str> {
-    let kind = block.get("type").and_then(Value::as_str)?;
-    match kind {
-        "text" => block.get("text").and_then(Value::as_str),
-        "content" => block
-            .get("content")
-            .and_then(|inner| unwrap_text_block(inner)),
-        _ => None,
-    }
 }
 
 /// Build the synthetic `AssistantMessage` event that nests under the parent

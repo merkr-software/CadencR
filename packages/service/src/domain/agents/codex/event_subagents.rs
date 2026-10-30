@@ -61,21 +61,79 @@ pub(super) fn subagent_prompt(item: &Value) -> Option<String> {
 }
 
 fn agent_description(item: &Value, prompt: &str) -> String {
-    if let Some(line) = prompt.lines().map(str::trim).find(|line| !line.is_empty()) {
-        return truncate_label(line);
+    if let Some(label) = prompt_label(prompt) {
+        return label;
     }
     if let Some(agent_path) = item
         .get("agentPath")
         .and_then(Value::as_str)
-        .and_then(|path| path.rsplit('/').find(|segment| !segment.is_empty()))
+        .and_then(path_label)
     {
-        return agent_path.to_string();
+        return agent_path;
     }
     item.get("model")
         .and_then(Value::as_str)
         .filter(|model| !model.is_empty())
         .map(ToOwned::to_owned)
         .unwrap_or_else(|| "Sub-agent".to_string())
+}
+
+/// A sub-agent label: the first non-blank line of its prompt.
+pub(super) fn prompt_label(prompt: &str) -> Option<String> {
+    prompt
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(truncate_label)
+}
+
+fn path_label(path: &str) -> Option<String> {
+    path.rsplit('/')
+        .find(|segment| !segment.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+/// Codex can hand a multi-agent v2 child its `message` as an encrypted
+/// token (Fernet: `gAAAAA…`, no whitespace), which is no prompt to show.
+pub(super) fn readable_prompt(text: &str) -> bool {
+    let text = text.trim();
+    !(text.starts_with("gAAAAA") && !text.contains(char::is_whitespace))
+}
+
+/// A raw `spawn_agent` call names no description, so its carrier would get
+/// a generic label: derive one from its prompt or task name. An encrypted
+/// `message` is dropped so it is never read as the prompt.
+pub(super) fn describe_raw_spawn_input(input: &mut Value) {
+    let Some(fields) = input.as_object_mut() else {
+        return;
+    };
+    if fields
+        .get("message")
+        .and_then(Value::as_str)
+        .is_some_and(|message| !readable_prompt(message))
+    {
+        fields.remove("message");
+    }
+    if fields.contains_key("description") {
+        return;
+    }
+    let label = ["prompt", "message"]
+        .iter()
+        .find_map(|key| {
+            fields
+                .get(*key)
+                .and_then(Value::as_str)
+                .and_then(prompt_label)
+        })
+        .or_else(|| {
+            fields
+                .get("task_name")
+                .and_then(Value::as_str)
+                .and_then(path_label)
+        });
+    if let Some(label) = label {
+        fields.insert("description".to_string(), Value::String(label));
+    }
 }
 
 fn truncate_label(line: &str) -> String {
@@ -185,7 +243,8 @@ fn synthetic_text_event(session_id: &str, parent_tool_use_id: &str, message: &st
 #[cfg(test)]
 mod tests {
     use super::{
-        agent_tool_input, subagent_prompt, synthesize_subagent_messages, synthesize_subagent_prompt,
+        agent_tool_input, describe_raw_spawn_input, readable_prompt, subagent_prompt,
+        synthesize_subagent_messages, synthesize_subagent_prompt,
     };
     use crate::domain::agents::adapter::RuntimeContentBlock;
     use crate::domain::agents::codex::event_state::IndexState;
@@ -302,6 +361,28 @@ mod tests {
         assert_eq!(input["description"], "gpt-5.4");
         let input = agent_tool_input(&json!({}));
         assert_eq!(input["description"], "Sub-agent");
+    }
+
+    #[test]
+    fn raw_spawn_input_gets_a_label_and_loses_an_encrypted_message() {
+        // v1 `spawn_agent` arguments: the readable message labels the carrier.
+        let mut input = json!({"agent_type": "explorer", "message": "Audit codex\nin depth"});
+        describe_raw_spawn_input(&mut input);
+        assert_eq!(input["description"], "Audit codex");
+        assert_eq!(input["message"], "Audit codex\nin depth");
+        // v2 arguments as Codex persisted them: an encrypted message.
+        let mut input = json!({"task_name": "finish_reuse", "fork_turns": "none",
+            "message": "gAAAAABq19EmzQByATzOlejQn7b5azKIT52DLmttdUsUAk-QcqwXzJO7OH"});
+        describe_raw_spawn_input(&mut input);
+        assert_eq!(input["description"], "finish_reuse");
+        assert!(input.get("message").is_none());
+        let mut input = json!({"description": "Given", "message": "Other"});
+        describe_raw_spawn_input(&mut input);
+        assert_eq!(input["description"], "Given");
+        let mut input = json!({});
+        describe_raw_spawn_input(&mut input);
+        assert!(input.get("description").is_none());
+        assert!(readable_prompt("gAAAAA is how a token starts"));
     }
 
     #[test]

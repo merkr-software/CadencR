@@ -1,6 +1,6 @@
 //! Prompt-turn lifecycle helpers.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
@@ -21,6 +21,9 @@ pub type PromptTurnLock = Arc<AsyncMutex<()>>;
 pub struct PromptCancel {
     epoch: Arc<AtomicU64>,
     notify: Arc<Notify>,
+    /// Set by a cancel, cleared when the next prompt is dispatched: tool calls
+    /// the agent fails in between were interrupted, not broken.
+    interrupted: Arc<AtomicBool>,
 }
 
 impl PromptCancel {
@@ -29,8 +32,13 @@ impl PromptCancel {
     }
 
     pub fn cancel_current_turn(&self) {
+        self.interrupted.store(true, Ordering::Relaxed);
         self.epoch.fetch_add(1, Ordering::Relaxed);
         self.notify.notify_waiters();
+    }
+
+    pub fn turn_interrupted(&self) -> bool {
+        self.interrupted.load(Ordering::Relaxed)
     }
 
     fn current_epoch(&self) -> u64 {
@@ -113,6 +121,7 @@ pub async fn request_prompt_with_cancel(
     prompt_cancel: &PromptCancel,
 ) -> Result<Value, RuntimeError> {
     let start_epoch = prompt_cancel.current_epoch();
+    prompt_cancel.interrupted.store(false, Ordering::Relaxed);
     let prompt =
         client.request_with_timeout("session/prompt", params, Duration::from_secs(60 * 60));
     tokio::pin!(prompt);

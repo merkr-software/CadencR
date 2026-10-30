@@ -57,3 +57,42 @@ pub(super) async fn record_fork_lineage(
     .await?;
     Ok(())
 }
+
+/// Carry the sub-agent registry facts of every carrier the fork kept, so its
+/// sub-agent cards keep their status and configuration. Nothing runs in the
+/// fork yet: a run still live in the source lands stopped.
+pub(super) async fn copy_subagent_runs(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    new_session_id: i64,
+    source_session_id: i64,
+) -> Result<(), sqlx::Error> {
+    let now = crate::domain::subagents::model::now_timestamp();
+    sqlx::query(
+        "INSERT INTO agent_subagent_runs \
+            (session_id, tool_use_id, parent_tool_use_id, status, status_reason, agent_type, \
+             agent_name, description, prompt, model, model_resolved, reasoning_effort, background, \
+             child_session_id, duration_ms, total_tokens, tool_use_count, result_summary, \
+             started_at, ended_at, updated_at) \
+         SELECT ?, r.tool_use_id, r.parent_tool_use_id, \
+             CASE WHEN r.status = 'running' THEN 'stopped' ELSE r.status END, \
+             CASE WHEN r.status = 'running' THEN ? ELSE r.status_reason END, \
+             r.agent_type, r.agent_name, r.description, r.prompt, r.model, r.model_resolved, \
+             r.reasoning_effort, r.background, r.child_session_id, r.duration_ms, \
+             r.total_tokens, r.tool_use_count, r.result_summary, r.started_at, \
+             CASE WHEN r.status = 'running' THEN COALESCE(r.ended_at, ?) ELSE r.ended_at END, ? \
+         FROM agent_subagent_runs r \
+         WHERE r.session_id = ? AND EXISTS ( \
+             SELECT 1 FROM agent_messages m \
+             WHERE m.session_id = ? AND m.tool_use_id = r.tool_use_id) \
+         ORDER BY r.id",
+    )
+    .bind(new_session_id)
+    .bind(crate::domain::agents::adapter::stop_reason::RUNTIME_ENDED)
+    .bind(&now)
+    .bind(&now)
+    .bind(source_session_id)
+    .bind(new_session_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}

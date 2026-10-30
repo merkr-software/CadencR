@@ -5,7 +5,7 @@
 //! stays a thin orchestration layer.
 
 mod copy;
-use copy::{copy_worktree_settings, record_fork_lineage};
+use copy::{copy_subagent_runs, copy_worktree_settings, record_fork_lineage};
 
 /// What a fork produced: the new feature + session, plus the project they live
 /// under (the originating client navigates to `project_id`/`new_feature_id`).
@@ -94,6 +94,7 @@ pub(super) async fn create_forked_feature(
     .bind(message_id)
     .execute(&mut *tx)
     .await?;
+    copy_subagent_runs(&mut tx, new_session_id, source_session_id).await?;
 
     record_fork_lineage(
         &mut tx,
@@ -141,6 +142,15 @@ mod tests {
                 role TEXT, content TEXT, message_type TEXT, tool_name TEXT,
                 tool_use_id TEXT, parent_tool_use_id TEXT, model TEXT,
                 provider_message_uuid TEXT, message_uuid TEXT, created_at TEXT);
+             CREATE TABLE agent_subagent_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
+                tool_use_id TEXT NOT NULL, parent_tool_use_id TEXT, status TEXT NOT NULL,
+                status_reason TEXT, agent_type TEXT, agent_name TEXT, description TEXT,
+                prompt TEXT, model TEXT, model_resolved INTEGER NOT NULL DEFAULT 0,
+                reasoning_effort TEXT, background INTEGER NOT NULL DEFAULT 0,
+                child_session_id TEXT, duration_ms INTEGER, total_tokens INTEGER,
+                tool_use_count INTEGER, result_summary TEXT, started_at TEXT NOT NULL,
+                ended_at TEXT, updated_at TEXT NOT NULL, UNIQUE (session_id, tool_use_id));
              CREATE TABLE agent_message_origins (
                 message_id INTEGER PRIMARY KEY, origin_kind TEXT NOT NULL,
                 source_session_id INTEGER, source_feature_id INTEGER,
@@ -327,6 +337,64 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(skip.as_deref(), Some("true"));
+    }
+
+    #[tokio::test]
+    async fn fork_keeps_the_registry_of_copied_carriers_and_stops_live_ones() {
+        let pool = pool_with_source_feature().await;
+        sqlx::raw_sql(
+            "UPDATE agent_messages SET tool_use_id = 'done' WHERE id = 1;
+             UPDATE agent_messages SET tool_use_id = 'live' WHERE id = 2;
+             UPDATE agent_messages SET tool_use_id = 'cut' WHERE id = 3;
+             INSERT INTO agent_subagent_runs
+                (session_id, tool_use_id, status, description, started_at, ended_at, updated_at)
+             VALUES
+                (1, 'done', 'completed', 'Finished', 't0', 't1', 't1'),
+                (1, 'live', 'running', 'Busy', 't0', NULL, 't0'),
+                (1, 'cut', 'running', 'After the cut', 't0', NULL, 't0');",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let fork = create_forked_feature(&pool, 1, 9, 3, "q2", None)
+            .await
+            .unwrap();
+
+        let copied: Vec<(String, String, Option<String>, String, bool)> = sqlx::query_as(
+            "SELECT tool_use_id, status, status_reason, description, ended_at IS NOT NULL
+             FROM agent_subagent_runs WHERE session_id = ? ORDER BY id",
+        )
+        .bind(fork.new_session_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            copied,
+            vec![
+                (
+                    "done".into(),
+                    "completed".into(),
+                    None,
+                    "Finished".into(),
+                    true
+                ),
+                (
+                    "live".into(),
+                    "stopped".into(),
+                    Some("runtime_ended".into()),
+                    "Busy".into(),
+                    true
+                ),
+            ]
+        );
+        let source_live: String = sqlx::query_scalar(
+            "SELECT status FROM agent_subagent_runs WHERE session_id = 1 AND tool_use_id = 'live'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(source_live, "running", "the source run is untouched");
     }
 
     #[tokio::test]

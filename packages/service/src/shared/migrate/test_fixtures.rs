@@ -108,6 +108,32 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
     ensure_user_message_count_prerequisites(pool).await;
 }
 
+/// The sub-agent registry migration (20261030120000) references
+/// `agent_sessions` and indexes `agent_messages` carriers by their tool
+/// columns and creation time, which late-baselined fixtures omit or declare
+/// without them.
+pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
+    sqlx::raw_sql(
+        "CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+         CREATE TABLE IF NOT EXISTS agent_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL
+         );",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (column, ddl_type) in [
+        ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
+        ("tool_name", "TEXT"),
+        ("tool_use_id", "TEXT"),
+        ("parent_tool_use_id", "TEXT"),
+        ("created_at", "TEXT"),
+    ] {
+        ensure_column(pool, "agent_messages", column, ddl_type).await;
+    }
+}
+
 /// The unified custom-action schedules migration (20261029100000) copies
 /// `custom_action_schedules` rows into `schedules` and drops the table, so it
 /// needs both tables with the columns the copy reads and writes. Fixtures
@@ -116,6 +142,7 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
 /// needed; the missing pieces are added here, nullable where the copy fills
 /// them. Fixtures baselined earlier get the real tables from those migrations.
 pub(crate) async fn ensure_custom_action_schedule_prerequisites(pool: &SqlitePool) {
+    ensure_subagent_runs_prerequisites(pool).await;
     if migration_applied(pool, 20260425153153).await {
         sqlx::raw_sql(
             "CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT);
@@ -212,6 +239,9 @@ pub(crate) async fn ensure_user_message_count_prerequisites(pool: &SqlitePool) {
         ("created_at", "TEXT"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
         ("parent_tool_use_id", "TEXT"),
+        // The sub-agent registry migration (20261030120000) indexes carriers.
+        ("tool_name", "TEXT"),
+        ("tool_use_id", "TEXT"),
     ] {
         ensure_column(pool, "agent_messages", column, ddl_type).await;
     }

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use serde_json::Value;
 
 mod signals;
@@ -19,6 +21,7 @@ use super::event_reasoning::{
     reasoning_delta_event, reasoning_summary_part_added, ReasoningDeltaKind,
 };
 use super::event_state::IndexState;
+use super::event_subagent_reports::{read_subagent_facts, subagent_report_event};
 use super::event_subagent_routes::register_thread_started_route;
 use super::event_usage::{
     capture_raw_response_usage, flush_raw_response_usage_events, usage_events,
@@ -26,6 +29,20 @@ use super::event_usage::{
 use crate::domain::agents::adapter::RuntimeEvent;
 
 pub fn notification_events(
+    method: &str,
+    params: Value,
+    model: Option<&str>,
+    index_state: &mut IndexState,
+) -> Vec<RuntimeEvent> {
+    // Read before routing consumes the params; resolve after it, since
+    // routing is what registers a newly spawned child thread.
+    let facts = read_subagent_facts(method, &params);
+    let mut events = route_notification(method, params, model, index_state);
+    events.extend(subagent_report_event(facts, index_state, Instant::now()));
+    events
+}
+
+fn route_notification(
     method: &str,
     params: Value,
     model: Option<&str>,

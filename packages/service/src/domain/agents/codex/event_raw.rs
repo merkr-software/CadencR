@@ -4,7 +4,9 @@ use super::event_items::{stream_start_event, tool_result_event_with_error};
 use super::event_json::thread_id;
 use super::event_payloads::parse_raw_response_item_params;
 use super::event_state::IndexState;
-use super::event_subagents::{synthesize_subagent_messages, synthesize_subagent_prompt};
+use super::event_subagents::{
+    describe_raw_spawn_input, synthesize_subagent_messages, synthesize_subagent_prompt,
+};
 use super::event_web::{record_raw_web_item, web_search_input};
 use super::raw_tool_names::{canonical_tool_name, function_tool_name, string_field};
 use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeEvent};
@@ -75,7 +77,7 @@ fn tool_call_event(
     params: &Value,
     item: &Value,
     name: String,
-    input: Value,
+    mut input: Value,
     index_state: &mut IndexState,
 ) -> Vec<RuntimeEvent> {
     let id = response_item_id(params, item, name.as_str());
@@ -107,6 +109,7 @@ fn tool_call_event(
     // the spawned threadId. Stamp the pending flag here, before the event is
     // emitted, so the result handler can identify the pairing.
     if name == "Agent" {
+        describe_raw_spawn_input(&mut input);
         index_state.record_pending_spawn_call(
             &id,
             thread_id(params),
