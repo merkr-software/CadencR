@@ -3,13 +3,12 @@
   "version": "0.15.1",
   "private": true,
   "description": "Cadencr desktop shell — Electron app with a React frontend for driving local AI coding agents.",
-  "desktopName": "cadencr.desktop",
   "homepage": "https://cadencr.com",
+  "license": "Apache-2.0",
   "author": {
     "name": "Raphael Le Minor",
     "email": "raphael.leminor@gmail.com"
   },
-  "license": "Apache-2.0",
   "main": "out/main/index.js",
   "scripts": {
     "dev": "node ./scripts/electron-vite.mjs dev",
@@ -107,7 +106,7 @@
     "autoprefixer": "^10.6.1",
     "axios": "1.20.0",
     "beautiful-mermaid": "1.1.3",
-    "celeritty": "1.2.6",
+    "celeritty": "1.3.1",
     "chart.js": "4.5.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -160,5 +159,6 @@
     "vscode-languageserver-protocol": "^3.18.4",
     "zod": "4.6.6",
     "zustand": "^5.0.15"
-  }
+  },
+  "desktopName": "cadencr.desktop"
 }
