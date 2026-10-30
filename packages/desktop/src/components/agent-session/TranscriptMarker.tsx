@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { CompactDivider, ClearDivider } from "@/components/StreamDividers";
 import { ErrorBlock } from "@/components/ErrorBlock";
 import { TurnInterruptedMarker } from "@/components/TurnInterruptedMarker";

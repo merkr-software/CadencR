@@ -4,7 +4,7 @@ import { act, render, screen, waitFor } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { AgentSession, shallowEqualSkipFunctions } from "./agent-session";
 import type { AgentSessionProps } from "./agent-session";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { HotkeyCallback } from "@tanstack/hotkeys";
 import { invokeRegisteredHotkey } from "@/test/hotkeys";
 

@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 
 export interface SkillPresentation {

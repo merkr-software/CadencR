@@ -1,7 +1,7 @@
 import { memo, useEffect, type RefObject } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
 import { useConversationSearch } from "@/hooks/useConversationSearch";
 import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";

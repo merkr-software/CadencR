@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
 import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy";
 

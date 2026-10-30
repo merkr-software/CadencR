@@ -1,4 +1,4 @@
-import type { AgentQuestion, AgentQuestionOption } from "./types";
+import type { AgentQuestion, AgentQuestionOption } from "@/types/agent-question";
 
 /**
  * Parse AskUserQuestion tool calls from stream-json events.

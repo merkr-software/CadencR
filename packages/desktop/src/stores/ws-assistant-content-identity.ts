@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { BlockMutation, StreamingState } from "./ws-message-processing-core";
 import { getStreamSessionId } from "./ws-message-processing-core";
 import { blockMessageDbId, messageDbId } from "./ws-message-identity";

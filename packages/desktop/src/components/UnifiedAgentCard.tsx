@@ -166,7 +166,7 @@ function useHydrateUnifiedWsSession(entry: UnifiedAgentEntry): void {
 function shouldRestoreUnifiedBlocks(session: SessionEntry | undefined): boolean {
   if (!session) return true;
   if (session.persistedLoaded || session.blocks.length > 0) return false;
-  return !session.conn && !session.isConnected && !session.serverSessionId;
+  return !session.isConnecting && !session.isConnected && !session.serverSessionId;
 }
 
 function ensureWsSessionEntry(sessionId: string): void {

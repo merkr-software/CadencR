@@ -1,5 +1,5 @@
-import { parseAskUserQuestions } from "@/components/agent-question/parse-questions";
-import { agentQuestionOptionValue } from "@/components/agent-question/types";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
+import { agentQuestionOptionValue } from "@/types/agent-question";
 import { getPermissionPreview } from "@/components/permission-preview";
 import {
   FeaturePermissionAction,

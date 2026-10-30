@@ -1,6 +1,6 @@
-import type { AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
-import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { AgentQuestionAnswers } from "@/types/agent-question";
+import type { PermissionDecisionValue } from "@/types/agent-permission";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import type {
   GateCloseReason,
   PromptDispatchOptions,

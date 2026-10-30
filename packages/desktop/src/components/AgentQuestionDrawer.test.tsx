@@ -3,8 +3,9 @@ import { act, render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { useHotkeys } from "@tanstack/react-hotkeys";
 import { invokeRegisteredHotkey } from "@/test/hotkeys";
-import { AgentQuestionDrawer, parseAskUserQuestions } from "./AgentQuestionDrawer";
-import type { AgentQuestion } from "./AgentQuestionDrawer";
+import { AgentQuestionDrawer } from "./AgentQuestionDrawer";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
+import type { AgentQuestion } from "@/types/agent-question";
 
 vi.mock("@tanstack/react-hotkeys", () => ({
   useHotkeys: vi.fn(),

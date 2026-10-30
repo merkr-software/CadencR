@@ -1,3 +1,4 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
 import { updateQuestionDraft, useQuestionDraftStore } from "./question-drafts";
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -60,7 +61,10 @@ class MockWebSocket {
 
 Object.assign(MockWebSocket, { OPEN: 1, CONNECTING: 0, CLOSED: 3 });
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   useQuestionDraftStore.setState({ drafts: new Map() });
   MockWebSocket.reset();
   canonicalMessageSequence = 1000;
@@ -72,6 +76,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePresentation();
   // Disconnect all sessions to close WebSocket connections and clear pending state
   const store = useWsSessionStore.getState();
   for (const sessionId of Object.keys(store.sessions)) {
@@ -1198,7 +1203,7 @@ describe("ws-session-store", () => {
     // to rebuild the per-connection handle on the backend.
     expect(session.serverSessionId).toBe("srv-1");
     expect(session.runtimeSessionId).toBe("uuid-abc-123");
-    expect(session.conn).toBeNull();
+    expect(session).not.toHaveProperty("conn");
   });
 
   it("re-emits session.init on reconnect to rebuild the backend handle", async () => {
@@ -1407,13 +1412,14 @@ describe("ws-session-store", () => {
     const { store, ws } = await connectInitializedSession();
     simulatePermissionRequest(ws, "perm-retry");
 
-    store.respondToPermission("s1", "perm-retry", "allow_once");
-    const respondEnvelope = JSON.parse(ws.sent[ws.sent.length - 1]);
-    // Simulate the WS-level null payload that `sendRequest` resolves with on
-    // timeout — the gate stays so the user can retry once the WS recovers.
-    const session = useWsSessionStore.getState().sessions["s1"];
-    const cb = session.pendingWsRequests.get(respondEnvelope.id);
-    cb?.(null);
+    // Exercise the request timer: the gate stays so the user can retry.
+    vi.useFakeTimers();
+    try {
+      store.respondToPermission("s1", "perm-retry", "allow_once");
+      await vi.advanceTimersByTimeAsync(10_000);
+    } finally {
+      vi.useRealTimers();
+    }
     await tick();
 
     const after = useWsSessionStore.getState().sessions["s1"];

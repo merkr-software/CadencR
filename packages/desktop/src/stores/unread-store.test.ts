@@ -22,6 +22,7 @@ import {
   type Feature,
 } from "@/api/generated";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { installSessionIntegration } from "@/lib/session-integration";
 import { useIsFeatureUnread, useUnreadStore } from "@/stores/unread-store";
 
 class MockWebSocket {
@@ -66,7 +67,7 @@ beforeEach(() => {
 
 afterEach(() => {
   useSessionStatusStore.getState().disconnect();
-  useSessionStatusStore.setState({ bySession: {}, ws: null, isConnected: false });
+  useSessionStatusStore.setState({ bySession: {}, connectionEpoch: 0, isConnected: false });
   MockWebSocket.reset();
   queryClient.clear();
   vi.unstubAllGlobals();
@@ -219,3 +220,10 @@ describe("failed and unread marks", () => {
     expect(useUnreadStore.getState().failedByFeature).toBe(failedByFeature);
   });
 });
+
+// Exercise the same explicit composition that production installs before mounting.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => disposeSessionIntegration());

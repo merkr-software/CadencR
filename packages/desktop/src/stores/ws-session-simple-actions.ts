@@ -1,4 +1,4 @@
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import {
   createAccessModeSet,
   createCommandsGet,
@@ -32,7 +32,6 @@ import {
 } from "./ws-session-actions";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
 import { discardStreamDeltas } from "./ws-delta-coalescer";
-import { SESSION_CLOSED_BEFORE_DELIVERY, failPromptDelivery } from "./ws-session-prompt-delivery";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
@@ -41,7 +40,6 @@ import type {
   PermissionMode,
   PersistedStatePayload,
   ResyncTarget,
-  SessionEntry,
   WsSessionStore,
 } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
@@ -78,7 +76,6 @@ interface SimpleSessionActionDeps {
   ctx: StoreAccessors;
   sendRaw: (sessionId: string, envelope: WsEnvelope) => void;
   sourceKey: (sessionId: string) => string;
-  rejectPendingRequests: (session: SessionEntry) => void;
   planRestorePrefix: string;
 }
 
@@ -91,7 +88,7 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
 }
 
 function createLifecycleActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, sourceKey, rejectPendingRequests } = deps;
+  const { ctx, sendRaw, sourceKey } = deps;
   const { get, set, getSession } = ctx;
   return {
     interrupt(sessionId: string) {
@@ -103,27 +100,19 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
       clearReconnect(sourceKey(sessionId));
       unregisterReconnector(sourceKey(sessionId));
       useConnectionStatusStore.getState().clearSource(sourceKey(sessionId));
-      discardStreamDeltas(sessionId);
+      discardStreamDeltas(ctx, sessionId);
       const session = get().sessions[sessionId];
-      // Same rationale as disconnect(): a destroyed session must not replay
-      // its queued envelopes on a future connect, nor leave sendRequest()
-      // callers hanging until the timeout after a deliberate close().
-      session?.outboundQueue.splice(0);
-      if (session) rejectPendingRequests(session);
+      const connection = ctx.transport.get(sessionId)?.conn;
+      if (session?.serverSessionId) connection?.sendJson(createDestroy(session.serverSessionId));
+      ctx.transport.remove(sessionId);
       if (session?.queuedPrompts.length)
         set(updateSession(get(), sessionId, { queuedPrompts: [] }));
-      failPromptDelivery(sessionId, SESSION_CLOSED_BEFORE_DELIVERY);
-      if (!session?.conn) return;
-
-      if (session.serverSessionId) {
-        session.conn.sendJson(createDestroy(session.serverSessionId));
-      }
-      session.conn.close();
+      if (!session || !connection) return;
 
       set(
         updateSession(get(), sessionId, {
-          conn: null,
           isConnected: false,
+          isConnecting: false,
           lifecycle: transitionTurn(session.lifecycle, {
             type: "turn_ended",
             reason: "completed",

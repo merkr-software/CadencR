@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import {
   buildDisplayItems,
   countRenderableDisplayRows,
   deriveAgentStreamDisplayBlocks,
   filterRenderableBlocks,
-} from "./agentStreamDisplay";
+} from "@/lib/agent-stream-display";
 
 function block(id: string, content: string, extra: Partial<AgentBlockData> = {}): AgentBlockData {
   return { id, type: "text", content, ...extra };

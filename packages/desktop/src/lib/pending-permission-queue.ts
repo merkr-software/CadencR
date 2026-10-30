@@ -1,4 +1,4 @@
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
+import type { PendingPermission } from "@/types/agent-permission";
 
 interface PendingPermissionQueueState {
   pendingPermission: PendingPermission | null;

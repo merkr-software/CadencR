@@ -5,7 +5,7 @@ import { cleanup, render, screen } from "@/test-utils";
 import { getMessageFullContent } from "@/api/generated";
 import { AgentBlock } from "./AgentBlock";
 import { FullContentPreview } from "./FullContentPreview";
-import { deriveAgentStreamDisplayBlocks } from "./agentStreamDisplay";
+import { deriveAgentStreamDisplayBlocks } from "@/lib/agent-stream-display";
 import { __highlightCacheTestHelpers as highlightCache } from "./markdown/highlight-cache";
 import { __markdownCacheTestHelpers as markdownCache } from "./markdown/markdown-tree-cache";
 

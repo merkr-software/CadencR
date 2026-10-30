@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { TurnTimingState } from "@/stores/ws-turn-timing";
 import type { ContextUsageState } from "@/types/agent";
 

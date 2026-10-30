@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import {
   BASH_OUTPUT_KEYS,
   extractBashCommandFromArgs,

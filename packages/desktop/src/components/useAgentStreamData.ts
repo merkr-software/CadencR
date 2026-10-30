@@ -1,7 +1,9 @@
 import { useMemo } from "react";
-import { buildToolResultMap, type AgentBlockData } from "./AgentBlock";
-import { buildDisplayItems, filterRenderableBlocks, type DisplayItem } from "./agentStreamDisplay";
-import { collapseTurnsToSummary } from "./agentStreamSummary";
+import { buildToolResultMap } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
+import { buildDisplayItems, filterRenderableBlocks } from "@/lib/agent-stream-display";
+import type { DisplayItem } from "@/types/agent-stream";
+import { collapseTurnsToSummary } from "@/lib/agent-stream-summary";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
 
 export function useRootBlocks(

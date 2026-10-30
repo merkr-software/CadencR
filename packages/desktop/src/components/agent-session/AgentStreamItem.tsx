@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AgentBlock, type AgentBlockData } from "../AgentBlock";
+import { AgentBlock } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { hasSenderTab } from "@/lib/agent-message-origin";
 import { formatStreamTimestamp } from "@/lib/date-utils";
 import AgentStreamContextMenu from "./AgentStreamContextMenu";

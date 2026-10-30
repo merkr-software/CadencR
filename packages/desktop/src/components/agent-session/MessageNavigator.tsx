@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { DisplayItem } from "@/types/agent-stream";
 import { markIndexAtFraction, type UserMessageMark } from "@/lib/agent-message-navigator";
 import { cn } from "@/lib/utils";
 import { MessageNavigatorPreview, type RailBox } from "./MessageNavigatorPreview";

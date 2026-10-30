@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@/test-utils";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 vi.mock("@/components/SubagentActionRow", () => ({
   SubagentActionRow: () => <button type="button">Nested action</button>,

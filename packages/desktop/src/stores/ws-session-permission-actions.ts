@@ -2,7 +2,7 @@ import type { StoreApi } from "zustand";
 import { createPermissionRespond } from "@/lib/ws-envelope";
 import { advancePendingPermissionQueue } from "@/lib/pending-permission-queue";
 import { buildAskUserQuestionUpdatedInput } from "@/lib/build-ask-user-question-payload";
-import type { AgentQuestionAnswers } from "@/components/agent-question/types";
+import type { AgentQuestionAnswers } from "@/types/agent-question";
 import { parseErrorPayload } from "./ws-envelope-payload";
 import { buildClearedGatePatch, isGateClosingErrorCode } from "./ws-gate-state";
 import { makeErrorBlock } from "./ws-session-store-helpers";

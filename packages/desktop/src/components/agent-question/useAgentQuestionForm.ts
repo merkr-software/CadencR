@@ -4,7 +4,11 @@ import type {
   QuestionAnswerDraft as SavedAnswer,
   QuestionDraftIdentity,
 } from "@/stores/question-drafts";
-import { agentQuestionOptionValue, type AgentQuestion, type AgentQuestionAnswers } from "./types";
+import {
+  agentQuestionOptionValue,
+  type AgentQuestion,
+  type AgentQuestionAnswers,
+} from "@/types/agent-question";
 
 interface UseAgentQuestionFormParams {
   questions: AgentQuestion[];

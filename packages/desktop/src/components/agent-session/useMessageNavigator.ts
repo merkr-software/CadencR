@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { toast } from "sonner";
 import { toastError } from "@/lib/api-errors";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { DisplayItem } from "@/types/agent-stream";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import {
   adjacentMarkIndex,

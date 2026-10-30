@@ -8,7 +8,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { Virtuoso, type ItemContent, type VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { SubagentActionRow } from "@/components/SubagentActionRow";
 import { isNestedSubagentBlock } from "@/components/subagent-actions";
 import { useStickToBottom } from "@/hooks/useStickToBottom";
