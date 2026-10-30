@@ -2,6 +2,7 @@ use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::WsEnvelope;
 
 use super::super::{send_error, SdkHandle, SdkSessions, WsSender};
+use super::prompt_selection_sync;
 use super::prompt_send::{
     dispatch_local_phase, dispatch_owner_phase, prepare_prompt, spawn_pending_prompt,
 };
@@ -46,6 +47,12 @@ pub(crate) async fn handle_prompt_send(
     {
         return;
     }
+    // Handles may hold a stale model; both dispatch phases adopt the row's.
+    let stored =
+        match prompt_selection_sync::load(&app_state.read_pool, prepared.db_session_id).await {
+            Ok(stored) => stored,
+            Err((code, message)) => return send_error(sender, &envelope.id, code, &message),
+        };
     let Some(payload) = dispatch_local_phase(
         &envelope,
         sender,
@@ -54,6 +61,7 @@ pub(crate) async fn handle_prompt_send(
         prepared.db_session_id,
         prepared.payload,
         prepared.profile_update.as_ref(),
+        &stored,
     )
     .await
     else {
@@ -66,6 +74,7 @@ pub(crate) async fn handle_prompt_send(
         prepared.db_session_id,
         payload,
         prepared.profile_update.as_ref(),
+        &stored,
     )
     .await
     else {

@@ -126,20 +126,26 @@ async fn persist_switch(
     model: &str,
     switch: &ModelSwitch,
 ) -> Result<Option<u64>, String> {
-    if let Some(overrides) = switch.overrides.as_ref() {
-        WsSessionPersistence::update_runtime_overrides_static(
-            &app_state.write_pool,
-            db_session_id,
-            overrides,
-        )
-        .await
-        .map_err(|error| error.to_string())?;
+    // The row first, before the catalog lookup below: prompts dispatched by
+    // other connections adopt the row, so it must not lag behind the handle.
+    let pool = &app_state.write_pool;
+    match switch.overrides.as_ref() {
+        Some(overrides) => {
+            WsSessionPersistence::update_runtime_overrides_and_model(
+                pool,
+                db_session_id,
+                overrides,
+                Some(model),
+            )
+            .await
+        }
+        None => WsSessionPersistence::update_model_static(pool, db_session_id, model).await,
     }
+    .map_err(|error| error.to_string())?;
     let seeded_window = seed_context_window(model, &switch.runtime_provider).await;
     persist_model_selection(
         app_state,
         db_session_id,
-        model,
         &switch.runtime_provider,
         seeded_window,
     )

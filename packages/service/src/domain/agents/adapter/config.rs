@@ -256,6 +256,7 @@ pub enum RuntimePurpose {
     AutoName,
 }
 
+#[derive(Clone)]
 pub struct RuntimeSpawnConfig {
     pub cwd: PathBuf,
     pub permission_mode: Option<RuntimePermissionMode>,

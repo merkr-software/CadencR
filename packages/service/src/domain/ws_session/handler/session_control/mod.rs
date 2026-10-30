@@ -35,7 +35,7 @@ pub(super) use profile::handle_profile_set;
 pub(super) use provider::handle_provider_set;
 #[cfg(test)]
 pub(super) use provider::{read_persisted_selection, restore_persisted_selection};
-pub(super) use runtime_overrides::handle_runtime_overrides_set;
+pub(super) use runtime_overrides::{adopt_runtime_overrides, handle_runtime_overrides_set};
 pub(super) use session_config::{handle_session_config_get, handle_session_config_set};
 
 use axum::extract::ws::Message;

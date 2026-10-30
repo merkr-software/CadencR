@@ -21,6 +21,7 @@ mod permission_mode;
 mod profile;
 mod prompt;
 mod provider;
+mod stale_model;
 mod stream_reader;
 mod stream_reader_background_agents;
 mod stream_reader_background_tasks;
