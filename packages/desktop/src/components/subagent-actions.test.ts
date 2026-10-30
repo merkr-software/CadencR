@@ -6,7 +6,6 @@ import {
   isSubagentAction,
   selectSubagentActions,
   truncateSubagentText,
-  windowSubagentActions,
 } from "./subagent-actions";
 
 function block(
@@ -27,29 +26,6 @@ describe("selectSubagentActions", () => {
       block({ id: "hidden", type: "tool_call", toolName: "collaboration__wait_agent" }),
     ]);
     expect(selected.map((b) => b.id)).toEqual(["t1", "txt", "th"]);
-  });
-});
-
-describe("windowSubagentActions", () => {
-  const actions = Array.from({ length: 8 }, (_, i) =>
-    block({ id: `a${i}`, type: "text", content: `step ${i}` }),
-  );
-
-  it("keeps the latest N actions when collapsed", () => {
-    const { visible, hiddenCount } = windowSubagentActions(actions, false);
-    expect(visible.map((b) => b.id)).toEqual(["a3", "a4", "a5", "a6", "a7"]);
-    expect(hiddenCount).toBe(3);
-  });
-
-  it("returns everything when expanded", () => {
-    const { visible, hiddenCount } = windowSubagentActions(actions, true);
-    expect(visible).toHaveLength(8);
-    expect(hiddenCount).toBe(0);
-  });
-
-  it("does not window a short list", () => {
-    const short = actions.slice(0, 3);
-    expect(windowSubagentActions(short, false)).toEqual({ visible: short, hiddenCount: 0 });
   });
 });
 

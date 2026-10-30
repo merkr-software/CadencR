@@ -6,6 +6,7 @@ import { useCodeBlockActions } from "@/components/CodeBlockActionsContext";
 import { CopyAsMenu } from "@/components/agent-session/CopyAsMenu";
 import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
 import { copyAs } from "@/lib/markdown-export";
+import { subagentResultText } from "@/lib/subagents/subagent-report";
 
 /** Render the final text output from an Agent/Task tool_result (JSON content blocks). */
 export function AgentResultBlock({
@@ -15,20 +16,7 @@ export function AgentResultBlock({
   content: string;
   actions?: boolean;
 }) {
-  const text = useMemo(() => {
-    try {
-      const blocks = JSON.parse(content) as Array<{
-        type?: string;
-        text?: string;
-      }>;
-      return blocks
-        .filter((b) => b.type === "text" || (!b.type && typeof b.text === "string"))
-        .map((b) => b.text ?? "")
-        .join("\n");
-    } catch {
-      return content;
-    }
-  }, [content]);
+  const text = useMemo(() => subagentResultText(content), [content]);
   if (!text) return null;
   return <TextBlock content={text} actions={actions} />;
 }

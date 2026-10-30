@@ -13,8 +13,14 @@ import { NumStat } from "@/components/NumStat";
 import { thinkingPreview } from "@/components/ThinkingBlock";
 import { truncateSubagentText, firstSubagentMarkdownLine } from "@/components/subagent-actions";
 import { useStreamingMarkdownThrottle } from "@/hooks/useStreamingMarkdownThrottle";
-import { cn, toRelativePath } from "@/lib/utils";
-import { extractBashCommand, isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
+import { cn } from "@/lib/utils";
+import {
+  extractBashCommand,
+  isFileChangeTool,
+  normalizeToolName,
+  oneLineDetail,
+  oneLineShellCommand,
+} from "@/lib/tool-adapter";
 import { parseMcpTool } from "@/lib/mcp-tool-parser";
 import { parseToolCall } from "@/lib/tool-call-parser";
 import { semanticSkillPresentation } from "@/lib/tool-display-policy";
@@ -155,7 +161,7 @@ function ToolActionLine({
       />
     );
   }
-  return <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} />;
+  return <GenericActionLine toolName={toolName} toolArgs={block.toolArgs} basePath={basePath} />;
 }
 
 function BashActionLine({
@@ -165,12 +171,10 @@ function BashActionLine({
   toolArgs: string | undefined;
   basePath: string | undefined;
 }): ReactElement {
-  const command = useMemo(() => extractBashCommand(toolArgs), [toolArgs]);
   const detail = useMemo(() => {
-    if (!command) return undefined;
-    const rel = toRelativePath(command.replace(/\s+/g, " ").trim(), basePath);
-    return truncateSubagentText(rel, 90);
-  }, [command, basePath]);
+    const command = oneLineShellCommand(extractBashCommand(toolArgs), basePath);
+    return truncateOptional(command, 90);
+  }, [toolArgs, basePath]);
   return <ActionLine icon={TerminalIcon} accent="bash" label="Bash" detail={detail} />;
 }
 
@@ -188,9 +192,7 @@ function FileChangeActionLine({
   const { detail, stats } = useMemo(() => {
     const summary = parseToolCall(toolName, toolArgs);
     return {
-      detail: summary?.detail
-        ? toRelativePath(truncateSubagentText(summary.detail, 70), basePath)
-        : undefined,
+      detail: truncateOptional(oneLineDetail(summary?.detail, basePath), 70),
       stats: computeToolNumStat(rawToolName, toolArgs),
     };
   }, [rawToolName, toolName, toolArgs, basePath]);
@@ -213,9 +215,11 @@ function FileChangeActionLine({
 function GenericActionLine({
   toolName,
   toolArgs,
+  basePath,
 }: {
   toolName: string;
   toolArgs: string | undefined;
+  basePath: string | undefined;
 }): ReactElement {
   const { label, detail, accent } = useMemo(() => {
     const mcp = parseMcpTool(toolName, toolArgs);
@@ -225,16 +229,16 @@ function GenericActionLine({
     const summary = parseToolCall(toolName, toolArgs);
     return {
       label: toolName,
-      detail: summary?.detail,
+      detail: oneLineDetail(summary?.detail, basePath),
       accent: "tool" as const,
     };
-  }, [toolName, toolArgs]);
+  }, [toolName, toolArgs, basePath]);
   return (
     <ActionLine
       icon={WrenchIcon}
       accent={accent}
       label={label}
-      detail={detail ? truncateSubagentText(detail, 80) : undefined}
+      detail={truncateOptional(detail, 80)}
     />
   );
 }
@@ -266,4 +270,8 @@ function ActionLine({
       {trailing}
     </div>
   );
+}
+
+function truncateOptional(text: string | undefined, maxLen: number): string | undefined {
+  return text ? truncateSubagentText(text, maxLen) : undefined;
 }

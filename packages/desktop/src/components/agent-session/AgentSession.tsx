@@ -175,10 +175,11 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
   const agentSessionContextValue = useMemo(
     () => ({
       wsSessionId: wsSessionId ?? null,
+      featureId: props.featureId ?? null,
       sendPrompt: (text: string) => sendRef.current?.(text),
       openModelPicker: () => metaBarRef.current?.openModelPicker(),
     }),
-    [metaBarRef, wsSessionId],
+    [metaBarRef, props.featureId, wsSessionId],
   );
   const {
     isAgentWorking,

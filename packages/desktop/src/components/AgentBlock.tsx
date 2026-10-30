@@ -29,7 +29,11 @@ import { RestartResumedDivider } from "@/components/TurnInterruptedMarker";
 import { FullContentPreview, type FullContentMode } from "@/components/FullContentPreview";
 import { CompactToolLine } from "@/components/agent-session/CompactToolLine";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
-import { semanticSkillPresentation, shouldHideToolCall } from "@/lib/tool-display-policy";
+import {
+  isSubagentCarrier,
+  semanticSkillPresentation,
+  shouldHideToolCall,
+} from "@/lib/tool-display-policy";
 import { verbosityControlsCollapse, type AgentVerbosityMode } from "@/lib/agent-verbosity";
 import { blockMessageDbId } from "@/stores/ws-message-identity";
 import type { SessionReplyEnvelope } from "@/lib/session-reply";
@@ -127,6 +131,7 @@ export const AgentBlock = memo(function AgentBlock({
           toolResultMap={toolResultMap}
           controlledExpanded={controlledExpanded}
           onExpandedChange={onExpandedChange}
+          compact={verbosityMode === "compact"}
         />
       );
     case "tool_result":
@@ -229,6 +234,8 @@ interface ToolCallContentProps {
   toolResultMap?: Map<string, AgentBlockData>;
   controlledExpanded?: boolean;
   onExpandedChange?: (next: boolean) => void;
+  /** Compact flow: sub-agents keep one line until opened. */
+  compact?: boolean;
 }
 
 function ToolCallContent({
@@ -237,12 +244,13 @@ function ToolCallContent({
   toolResultMap,
   controlledExpanded,
   onExpandedChange,
+  compact,
 }: ToolCallContentProps): ReactNode {
   if (!rendersToolCall(block)) return null;
   const skill = semanticSkillPresentation(block.toolName, block.toolArgs);
   if (skill) return <ToolCallBlock name="Skill" args={skill.args} basePath={basePath} />;
-  if ((block.toolName === "Task" || block.toolName === "Agent") && block.childBlocks) {
-    return <TaskAgentBlock block={block} basePath={basePath} />;
+  if (isSubagentCarrier(block)) {
+    return <TaskAgentBlock block={block} basePath={basePath} compact={compact} />;
   }
   if (
     block.toolName === "ExitPlanMode" ||

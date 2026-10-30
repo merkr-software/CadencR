@@ -1,7 +1,8 @@
 import { memo, type CSSProperties } from "react";
 import { ChevronRightIcon, XIcon } from "lucide-react";
 import type { NotchAgent } from "@/shared/notch";
-import { formatAge, formatElapsed } from "./notch-format";
+import { formatElapsed } from "@/lib/format-elapsed";
+import { formatAge } from "./notch-format";
 import { ActionIcon, NotchTile } from "./NotchTile";
 
 interface NotchAgentRowProps {
