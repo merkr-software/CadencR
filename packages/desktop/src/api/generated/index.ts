@@ -149,6 +149,13 @@ export interface AgentBlock {
   content: string;
   /** @nullable */
   createdAt?: string | null;
+  /**
+   * UTF-8 size of the complete persisted content when `content` is a
+   * bounded preview of it, so the client can say what loading it costs.
+   * @minimum 0
+   * @nullable
+   */
+  fullContentBytes?: number | null;
   id: string;
   /** @nullable */
   isError?: boolean | null;

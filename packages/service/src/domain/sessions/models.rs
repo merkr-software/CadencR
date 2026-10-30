@@ -126,6 +126,10 @@ pub struct AgentBlock {
     /// `GET /api/sessions/messages/{id}/full`.
     #[serde(rename = "truncatedContent", skip_serializing_if = "Option::is_none")]
     pub truncated_content: Option<bool>,
+    /// UTF-8 size of the complete persisted content when `content` is a
+    /// bounded preview of it, so the client can say what loading it costs.
+    #[serde(rename = "fullContentBytes", skip_serializing_if = "Option::is_none")]
+    pub full_content_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentMessageOrigin>,
 }
@@ -357,6 +361,7 @@ mod tests {
             created_at: Some("2024-01-01".to_string()),
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -391,6 +396,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -418,6 +424,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let parent = AgentBlock {
@@ -436,6 +443,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&parent).unwrap();

@@ -207,6 +207,7 @@ pub(super) fn make_root_block(id_num: i64) -> AgentBlock {
         created_at: None,
         model: None,
         truncated_content: None,
+        full_content_bytes: None,
         origin: None,
     }
 }
