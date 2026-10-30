@@ -15,7 +15,14 @@ const mocks = vi.hoisted(() => {
     resize = new Set<(size: { cols: number; rows: number }) => void>();
     selectionChange = new Set<() => void>();
     loadAddon = vi.fn();
-    write = vi.fn<(data: string | Uint8Array) => void>();
+    write = vi.fn<(data: string | Uint8Array, callback?: () => void) => void>((_data, callback) =>
+      callback?.(),
+    );
+    parser = {
+      registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    };
     focus = vi.fn();
     blur = vi.fn();
     scrollLines = vi.fn();
@@ -338,7 +345,11 @@ describe("xterm compatibility events and disposal", () => {
     adapter.blur();
     adapter.scrollLines(-3);
     adapter.scrollToBottom();
-    expect(term.write.mock.calls).toEqual([["local notice"], ["\x1b[2J\x1b[H"]]);
+    expect(term.write.mock.calls.map(([data]) => data)).toEqual([
+      "",
+      "local notice",
+      "\x1b[2J\x1b[H",
+    ]);
     expect(term.focus).toHaveBeenCalledOnce();
     expect(term.blur).toHaveBeenCalledOnce();
     expect(term.scrollLines).toHaveBeenCalledWith(-3);
