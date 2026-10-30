@@ -10,9 +10,14 @@ pub(super) fn content_preview(content: &str) -> (String, bool) {
     if content.len() <= CONTENT_PREVIEW_MAX_BYTES {
         return (content.to_owned(), false);
     }
-    let Ok(mut value) = serde_json::from_str::<Value>(content) else {
+    let Ok(value) = serde_json::from_str::<Value>(content) else {
         return (prefix_with_marker(content, CONTENT_PREVIEW_MAX_BYTES), true);
     };
+    value_preview(value)
+}
+
+/// Bound an already-parsed oversized JSON value, keeping it valid JSON.
+fn value_preview(mut value: Value) -> (String, bool) {
     let overhead = structural_json_bytes(&value);
     if overhead >= CONTENT_PREVIEW_MAX_BYTES {
         return (fallback_preview(), true);
@@ -47,6 +52,51 @@ pub(super) fn user_message_preview(content: &str) -> (String, bool) {
     let without_binary = serde_json::to_string(&blocks).unwrap_or_default();
     let (preview, text_truncated) = content_preview(&without_binary);
     (preview, removed_payload || text_truncated)
+}
+
+/// Tool content without its inline image payloads. No renderer draws an image
+/// out of a tool call or result (an MCP screenshot is for the agent, not the
+/// transcript), so a dropped payload is not content the preview is missing and
+/// does not flag it: only text that still overflows does.
+pub(super) fn tool_content_preview(content: &str) -> (String, bool) {
+    if content.len() <= CONTENT_PREVIEW_MAX_BYTES {
+        return (content.to_owned(), false);
+    }
+    let Ok(mut value) = serde_json::from_str::<Value>(content) else {
+        return content_preview(content);
+    };
+    // Parsed once: a multi-MB tool payload must not be parsed again per page.
+    if remove_image_payloads(&mut value) {
+        if let Ok(without_images) = serde_json::to_string(&value) {
+            if without_images.len() <= CONTENT_PREVIEW_MAX_BYTES {
+                return (without_images, false);
+            }
+        }
+    }
+    value_preview(value)
+}
+
+/// Covers both wire shapes: Anthropic `{type:image, source:{data}}` and MCP
+/// `{type:image, data, mimeType}`, at any depth of the result envelope.
+fn remove_image_payloads(value: &mut Value) -> bool {
+    match value {
+        Value::Array(values) => values.iter_mut().fold(false, |removed, value| {
+            remove_image_payloads(value) | removed
+        }),
+        Value::Object(object) => {
+            let mut removed = false;
+            if object.get("type").and_then(Value::as_str) == Some("image") {
+                removed |= remove_inline_data(object);
+                if let Some(source) = object.get_mut("source").and_then(Value::as_object_mut) {
+                    removed |= remove_inline_data(source);
+                }
+            }
+            object.values_mut().fold(removed, |removed, value| {
+                remove_image_payloads(value) | removed
+            })
+        }
+        _ => false,
+    }
 }
 
 fn remove_inline_data(object: &mut serde_json::Map<String, Value>) -> bool {
@@ -195,5 +245,43 @@ mod tests {
         assert!(parsed[1]["source"].get("data").is_none());
         assert!(parsed[2].get("data").is_none());
         assert_eq!(parsed[2]["file_name"], "data.bin");
+    }
+
+    #[test]
+    fn tool_preview_drops_screenshot_payloads_without_flagging_truncation() {
+        let content = serde_json::json!([{
+            "type": "text", "text": "Took a screenshot of the current page's viewport."
+        }, {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/png", "data": "A".repeat(CONTENT_PREVIEW_MAX_BYTES * 2)}
+        }, {
+            "content": [{"type": "image", "mimeType": "image/jpeg", "data": "B".repeat(CONTENT_PREVIEW_MAX_BYTES)}]
+        }])
+        .to_string();
+        let (preview, truncated) = tool_content_preview(&content);
+        let parsed: Value = serde_json::from_str(&preview).unwrap();
+        assert!(!truncated);
+        assert_eq!(
+            parsed[0]["text"],
+            "Took a screenshot of the current page's viewport."
+        );
+        assert_eq!(parsed[1]["source"]["media_type"], "image/png");
+        assert!(parsed[1]["source"].get("data").is_none());
+        assert!(parsed[2]["content"][0].get("data").is_none());
+    }
+
+    #[test]
+    fn tool_preview_still_flags_text_that_overflows() {
+        let image =
+            serde_json::json!({"type": "image", "data": "A".repeat(CONTENT_PREVIEW_MAX_BYTES)});
+        let with_text = serde_json::json!([image, {"type": "text", "text": "x".repeat(CONTENT_PREVIEW_MAX_BYTES * 2)}]);
+        let (preview, truncated) = tool_content_preview(&with_text.to_string());
+        assert!(truncated && preview.len() <= CONTENT_PREVIEW_MAX_BYTES);
+        assert!(serde_json::from_str::<Value>(&preview).unwrap()[0]
+            .get("data")
+            .is_none());
+
+        let plain = "y".repeat(CONTENT_PREVIEW_MAX_BYTES * 2);
+        assert_eq!(tool_content_preview(&plain), content_preview(&plain));
     }
 }

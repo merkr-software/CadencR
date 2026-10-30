@@ -11,7 +11,7 @@ use super::byte_pagination::{
     trim_blocks_to_byte_cap, trim_newest_blocks_to_byte_cap, SESSION_WIRE_SOFT_CAP_BYTES,
 };
 use super::pagination::{block_message_id, trim_blocks_to_cap, BLOCK_SOFT_CAP};
-use super::wire_preview::content_preview;
+use super::wire_preview::tool_content_preview;
 
 fn build_block_page(
     msgs: &[AgentMessageRow],
@@ -55,7 +55,7 @@ fn preview_tool_updates(
             .iter()
             .map(|(id, content)| {
                 let block_id = format!("msg-{id}");
-                let (preview, truncated) = content_preview(content);
+                let (preview, truncated) = tool_content_preview(content);
                 if truncated {
                     truncated_ids.push(block_id.clone());
                 }
