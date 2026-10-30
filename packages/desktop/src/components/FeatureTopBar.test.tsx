@@ -94,9 +94,9 @@ vi.mock("@/stores/session-status-selectors", () => ({
   useFeatureStatus: () => ({ status: "idle", kind: null }),
 }));
 
-// CustomActionsBar pulls in network hooks we don't care about for these tests.
-vi.mock("./CustomActionsBar", () => ({
-  CustomActionsBar: () => {
+// The launcher pulls in network hooks we don't care about for these tests.
+vi.mock("./custom-actions/CustomActionsLauncher", () => ({
+  CustomActionsLauncher: () => {
     const React = require("react");
     return React.createElement("div", { "data-testid": "custom-actions-bar" });
   },

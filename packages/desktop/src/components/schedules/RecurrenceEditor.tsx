@@ -48,6 +48,8 @@ export interface RecurrenceEditorProps {
   /** The schedule runs a command at these times rather than sending outright,
    *  so the preview names them checks. */
   evaluatesCommand?: boolean;
+  /** The schedule runs a custom action: a one-shot "runs", not "sends". */
+  runsAction?: boolean;
 }
 
 /**
@@ -63,6 +65,7 @@ export const RecurrenceEditor = memo(function RecurrenceEditor({
   onChange,
   now,
   evaluatesCommand = false,
+  runsAction = false,
 }: RecurrenceEditorProps): ReactElement {
   const error = draftError(value, now);
   const preview = useMemo(() => nextOccurrences(value, 3, now), [value, now]);
@@ -122,7 +125,7 @@ export const RecurrenceEditor = memo(function RecurrenceEditor({
       <NextRuns
         preview={preview}
         error={error}
-        label={previewLabel(value.kind, evaluatesCommand)}
+        label={previewLabel(value.kind, evaluatesCommand, runsAction)}
       />
     </div>
   );
@@ -256,8 +259,12 @@ function TimeOfDayPicker({
   );
 }
 
-function previewLabel(kind: RecurrenceKind, evaluatesCommand: boolean): string {
-  if (kind === "once") return evaluatesCommand ? "Checks" : "Sends";
+function previewLabel(
+  kind: RecurrenceKind,
+  evaluatesCommand: boolean,
+  runsAction: boolean,
+): string {
+  if (kind === "once") return evaluatesCommand ? "Checks" : runsAction ? "Runs" : "Sends";
   return evaluatesCommand ? "Next checks" : "Next runs";
 }
 

@@ -27,6 +27,7 @@ async fn prompt_queue_identity_preserves_legacy_rows_and_deduplicates_sources() 
     .await
     .unwrap();
     seed_applied_migrations_before(&pool, 20261026210000).await;
+    super::test_fixtures::ensure_custom_action_schedule_prerequisites(&pool).await;
     run_migrations(&MigrationContext::pool_only(&pool))
         .await
         .unwrap();

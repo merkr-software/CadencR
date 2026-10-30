@@ -306,4 +306,20 @@ describe("useGlobalShortcut", () => {
       expect(callback).not.toHaveBeenCalled();
     });
   });
+
+  describe("modified digits", () => {
+    it("matches Mod+Alt+digit on the physical digit key whatever it types", () => {
+      renderHook(() => useGlobalShortcut(["Mod+Alt+1", "Mod+Alt+2"], callback));
+      const mod = navigator.platform.toLowerCase().includes("mac")
+        ? { metaKey: true }
+        : { ctrlKey: true };
+      // macOS Option turns 1 into "¡"; AZERTY types "&" on the 1 key.
+      fireKey("¡", { ...mod, altKey: true, code: "Digit1" });
+      fireKey("&", { ...mod, altKey: true, code: "Digit1" });
+      fireKey("2", { ...mod, altKey: true, code: "Digit2" });
+      expect(callback).toHaveBeenCalledTimes(3);
+      fireKey("3", { ...mod, altKey: true, code: "Digit3" });
+      expect(callback).toHaveBeenCalledTimes(3);
+    });
+  });
 });

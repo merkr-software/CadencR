@@ -15,6 +15,11 @@ import { Input } from "@/components/ui/input";
 import { PopoverModality } from "@/components/ui/popover";
 import { ConditionEditor } from "./ConditionEditor";
 import { RecurrenceEditor } from "./RecurrenceEditor";
+import {
+  ScheduleActionEditor,
+  ScheduleKindToggle,
+  switchScheduleKind,
+} from "./ScheduleActionEditor";
 import { ScheduleComposer } from "./ScheduleComposer";
 import { Field, ScheduleTargetEditor } from "./ScheduleTargetEditor";
 import { useScheduleDraft, type ScheduleDraft, type ScheduleDraftParams } from "./useScheduleDraft";
@@ -34,7 +39,8 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
   const { open, onOpenChange, schedule, lockedConversation, projects, onDelete } = props;
   const draft = useScheduleDraft(props);
   const projectPath = projects.find((project) => project.id === draft.target.project_id)?.path;
-  const gated = draft.condition.enabled;
+  const { runsAction } = draft;
+  const gated = !runsAction && draft.condition.enabled;
 
   // Same ⌘/Ctrl+Enter as every other dialog in the app, and as the composer this
   // one embeds. Captured at the document so it works from inside the prompt
@@ -53,16 +59,29 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>{schedule ? "Edit schedule" : "New schedule"}</DialogTitle>
-          <DialogDescription>
-            {gated
-              ? "While Cadencr is running, it runs the command at the times you pick and sends the prompt only when the command fails."
-              : "Cadencr sends the prompt at the times you pick, as long as it is running."}
-          </DialogDescription>
+          <DialogDescription>{describe(runsAction, gated)}</DialogDescription>
         </DialogHeader>
 
         <PopoverModality>
           <div className="flex flex-col gap-4">
-            <Field label="Name" hint="Optional — falls back to the first line of the prompt">
+            {/* The composer's own editor only ever schedules its message. */}
+            {!lockedConversation && (
+              <ScheduleKindToggle
+                runsAction={runsAction}
+                onChange={(next) =>
+                  draft.setTarget(switchScheduleKind(draft.target, next, projects))
+                }
+              />
+            )}
+
+            <Field
+              label="Name"
+              hint={
+                runsAction
+                  ? "Optional — falls back to the action's name"
+                  : "Optional — falls back to the first line of the prompt"
+              }
+            >
               <Input
                 value={draft.name}
                 onChange={(event) => draft.setName(event.target.value)}
@@ -71,33 +90,19 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
               />
             </Field>
 
-            <Section title="Send to">
-              <ScheduleTargetEditor
-                value={draft.target}
-                onChange={draft.setTarget}
-                projects={projects}
-                lockedToConversation={Boolean(lockedConversation)}
-                targetedConversationTitle={schedule?.context.feature_title}
-              />
-            </Section>
-
-            <Section title="Prompt">
-              <div className="flex flex-col gap-1.5">
-                <ScheduleComposer
-                  key={draft.formKey}
-                  initialPrompt={draft.prompt}
-                  onPromptChange={draft.setPrompt}
-                  target={draft.target}
-                  onTargetChange={draft.setTarget}
-                  projectPath={projectPath}
+            {runsAction ? (
+              <Section title="Action">
+                <ScheduleActionEditor
+                  value={draft.target}
+                  onChange={draft.setTarget}
+                  projects={projects}
+                  targetedConversationTitle={schedule?.context.feature_title}
+                  targetedActionName={schedule?.context.action_name}
                 />
-                {draft.worktreeError && (
-                  <p className="text-xs text-destructive" role="alert">
-                    {draft.worktreeError}
-                  </p>
-                )}
-              </div>
-            </Section>
+              </Section>
+            ) : (
+              <PromptSections draft={draft} props={props} projectPath={projectPath} />
+            )}
 
             <Section title="When">
               <RecurrenceEditor
@@ -105,16 +110,19 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
                 onChange={draft.setRecurrence}
                 now={draft.now}
                 evaluatesCommand={gated}
+                runsAction={runsAction}
               />
             </Section>
 
-            <Section title="Condition">
-              <ConditionEditor
-                value={draft.condition}
-                onChange={draft.setCondition}
-                targetsExistingConversation={draft.target.kind === "conversation"}
-              />
-            </Section>
+            {!runsAction && (
+              <Section title="Condition">
+                <ConditionEditor
+                  value={draft.condition}
+                  onChange={draft.setCondition}
+                  targetsExistingConversation={draft.target.kind === "conversation"}
+                />
+              </Section>
+            )}
           </div>
         </PopoverModality>
 
@@ -125,6 +133,59 @@ export function ScheduleEditorDialog(props: ScheduleEditorDialogProps): ReactEle
         />
       </DialogContent>
     </Dialog>
+  );
+}
+
+function describe(runsAction: boolean, gated: boolean): string {
+  if (runsAction) {
+    return "While Cadencr is running, it runs the action at the times you pick. A run that exits non-zero is listed as failed.";
+  }
+  return gated
+    ? "While Cadencr is running, it runs the command at the times you pick and sends the prompt only when the command fails."
+    : "Cadencr sends the prompt at the times you pick, as long as it is running.";
+}
+
+/** Where the prompt goes and what it says — everything a prompt schedule has
+ *  that an action schedule doesn't. */
+function PromptSections({
+  draft,
+  props,
+  projectPath,
+}: {
+  draft: ScheduleDraft;
+  props: ScheduleEditorDialogProps;
+  projectPath: string | undefined;
+}): ReactElement {
+  return (
+    <>
+      <Section title="Send to">
+        <ScheduleTargetEditor
+          value={draft.target}
+          onChange={draft.setTarget}
+          projects={props.projects}
+          lockedToConversation={Boolean(props.lockedConversation)}
+          targetedConversationTitle={props.schedule?.context.feature_title}
+        />
+      </Section>
+
+      <Section title="Prompt">
+        <div className="flex flex-col gap-1.5">
+          <ScheduleComposer
+            key={draft.formKey}
+            initialPrompt={draft.prompt}
+            onPromptChange={draft.setPrompt}
+            target={draft.target}
+            onTargetChange={draft.setTarget}
+            projectPath={projectPath}
+          />
+          {draft.worktreeError && (
+            <p className="text-xs text-destructive" role="alert">
+              {draft.worktreeError}
+            </p>
+          )}
+        </div>
+      </Section>
+    </>
   );
 }
 

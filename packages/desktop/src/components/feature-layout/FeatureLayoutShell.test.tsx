@@ -45,6 +45,7 @@ const tabs: FeatureTabs = {
   editor: { label: "Editor", Icon: CodeIcon, content: null },
   browser: { label: "Browser", Icon: GlobeIcon, content: null },
   preview: { label: "Preview", Icon: FileTextIcon, content: null },
+  runs: { label: "Actions", Icon: TerminalIcon, content: null },
 };
 
 describe("FeatureLayoutShell", () => {

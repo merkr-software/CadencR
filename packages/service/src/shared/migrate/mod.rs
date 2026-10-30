@@ -13,6 +13,8 @@ mod codex_permission_mode_migration_tests;
 #[cfg(test)]
 mod context_window_null_default_migration_tests;
 #[cfg(test)]
+mod custom_action_schedules_migration_tests;
+#[cfg(test)]
 mod custom_model_effort_migration_tests;
 #[cfg(test)]
 mod mcp_orchestration_migration_tests;

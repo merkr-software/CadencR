@@ -4,6 +4,7 @@ import { Switch } from "@/components/ui/switch";
 import { NotificationsSection } from "@/components/settings/NotificationsSection";
 import { BrowserSection } from "@/components/settings/BrowserSection";
 import { CustomTabsSection } from "@/components/settings/custom-tabs/CustomTabsSection";
+import { CustomActionsSettingsSection } from "@/components/settings/CustomActionsSettingsSection";
 import { StorageSection } from "@/components/settings/StorageSection";
 import { McpSection } from "@/components/settings/McpSection";
 import { InterfaceSection } from "@/components/settings/InterfaceSection";
@@ -47,6 +48,7 @@ export function GeneralSettingsSections(): React.JSX.Element {
       <NotificationsSection />
       <BrowserSection />
       <CustomTabsSection />
+      <CustomActionsSettingsSection />
       <StorageSection />
       <McpSection />
       <AutoNameSettingsSection />

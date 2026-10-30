@@ -48,6 +48,11 @@ pub async fn run(state: &AppState, schedule: &Schedule, occurrence: &str) -> Res
     match schedule.target.kind {
         TargetKind::Conversation => deliver_to_conversation(state, schedule, occurrence).await,
         TargetKind::NewConversation => spawn::run(state, schedule, occurrence).await,
+        // `fire` runs these through `custom_action` before ever dispatching.
+        TargetKind::CustomAction => Err(AppError::Internal(format!(
+            "schedule {} runs a custom action and has no prompt to deliver",
+            schedule.id
+        ))),
     }
 }
 

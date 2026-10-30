@@ -12,22 +12,31 @@ pub enum TargetKind {
     Conversation,
     /// Create a fresh conversation for every run.
     NewConversation,
+    /// Run a custom action in an existing conversation's working copy instead
+    /// of sending a prompt. Stored as a `conversation` row with
+    /// `custom_action_id` set (see the 20261029100000 migration).
+    CustomAction,
 }
 
 impl TargetKind {
-    pub fn as_str(self) -> &'static str {
+    /// The `target_kind` column value. A custom-action schedule is stored as a
+    /// `conversation` row (the column's CHECK predates it); `custom_action_id`
+    /// is what tells the two apart — see [`TargetKind::from_storage`].
+    pub fn storage_str(self) -> &'static str {
         match self {
-            Self::Conversation => "conversation",
+            Self::Conversation | Self::CustomAction => "conversation",
             Self::NewConversation => "new_conversation",
         }
     }
 
-    pub fn parse(raw: &str) -> Result<Self, AppError> {
-        match raw {
-            "conversation" => Ok(Self::Conversation),
-            "new_conversation" => Ok(Self::NewConversation),
-            other => Err(AppError::BadRequest(format!(
-                "unknown schedule target '{other}'"
+    /// Inverse of [`TargetKind::storage_str`].
+    pub fn from_storage(raw: &str, custom_action_id: Option<i64>) -> Result<Self, AppError> {
+        match (raw, custom_action_id) {
+            ("conversation", Some(_)) => Ok(Self::CustomAction),
+            ("conversation", None) => Ok(Self::Conversation),
+            ("new_conversation", None) => Ok(Self::NewConversation),
+            (other, _) => Err(AppError::Internal(format!(
+                "schedule row has an unreadable target '{other}' (custom action {custom_action_id:?})"
             ))),
         }
     }
@@ -39,9 +48,13 @@ impl TargetKind {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ScheduleTarget {
     pub kind: TargetKind,
-    /// Required when `kind = conversation`.
+    /// Required when `kind = conversation` or `custom_action` (the conversation
+    /// whose working copy the action runs in).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature_id: Option<i64>,
+    /// Required when `kind = custom_action`: the action to run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_id: Option<i64>,
     /// Required when `kind = new_conversation`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_id: Option<i64>,
@@ -78,6 +91,28 @@ pub struct ScheduleTarget {
     pub base_branch: Option<String>,
 }
 
+impl ScheduleTarget {
+    /// Run `action_id` in `feature_id`'s working copy. No agent runs, so every
+    /// agent option stays unset.
+    pub fn custom_action(feature_id: i64, action_id: i64) -> Self {
+        Self {
+            kind: TargetKind::CustomAction,
+            feature_id: Some(feature_id),
+            action_id: Some(action_id),
+            project_id: None,
+            provider: None,
+            model: None,
+            thinking_level: None,
+            permission_mode: None,
+            access_mode: None,
+            profile: None,
+            worktree_mode: None,
+            reuse_branch: None,
+            base_branch: None,
+        }
+    }
+}
+
 /// Read-only context resolved by join so the schedules list can render a target
 /// without one lookup per row.
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -93,6 +128,9 @@ pub struct ScheduleContext {
     /// Title of the conversation the most recent run landed in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_feature_title: Option<String>,
+    /// Name of the action a `custom_action` schedule runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_name: Option<String>,
 }
 
 /// Outcome of the most recent run.

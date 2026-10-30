@@ -13,9 +13,12 @@ import {
   KeyboardIcon,
   LayoutPanelLeftIcon,
   PanelLeftIcon,
+  PlayIcon,
   ScanSearchIcon,
+  SearchIcon,
   ShieldIcon,
   SlidersHorizontalIcon,
+  SparklesIcon,
   SquareIcon,
   TagIcon,
   TerminalIcon,
@@ -23,8 +26,6 @@ import {
   UploadIcon,
   ZoomInIcon,
   ZoomOutIcon,
-  SearchIcon,
-  SparklesIcon,
 } from "lucide-react";
 import type { PaletteShortcutId } from "@/lib/command-palette/palette-shortcut-commands";
 
@@ -51,6 +52,7 @@ export const PALETTE_SHORTCUT_ICONS: Record<PaletteShortcutId, ReactNode> = {
   "layout-auto-toggle": <LayoutPanelLeftIcon />,
   "conversation-search": <ScanSearchIcon />,
   "git-actions": <GitBranchIcon />,
+  "custom-actions": <PlayIcon />,
   "git-commit": <GitCommitHorizontalIcon />,
   "git-push": <UploadIcon />,
   "git-pr": <GitPullRequestArrowIcon />,

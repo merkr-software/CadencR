@@ -24,6 +24,10 @@ vi.mock("../api/generated", async (importOriginal) => ({
   useListProjectWorktrees: vi.fn(() => ({ data: [] })),
 }));
 
+// The custom actions list is covered by its own tests.
+vi.mock("./custom-actions/CustomActionsManager", () => ({
+  CustomActionsManager: () => null,
+}));
 vi.mock("./ModelSelector", () => ({
   ModelSelector: () => <div data-testid="model-selector" />,
 }));

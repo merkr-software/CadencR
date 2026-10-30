@@ -1658,6 +1658,9 @@ export interface LastRunSummary {
    * @nullable
    */
   exit_code?: number | null;
+  /** The run's id, so the header can stop it without fetching the history. */
+  run_id: number;
+  started_at: string;
 }
 
 export type CustomActionLastRun = null | LastRunSummary;
@@ -1713,16 +1716,6 @@ export interface CustomActionRun {
   stderr: string;
   stdout: string;
   triggered_by: TriggeredBy;
-}
-
-export interface CustomActionSchedule {
-  action_id: number;
-  enabled: boolean;
-  feature_id: number;
-  id: number;
-  interval_seconds: number;
-  /** @nullable */
-  last_run_at?: string | null;
 }
 
 export interface CustomActionVariable {
@@ -5116,6 +5109,13 @@ export interface RenamePathResponse {
 }
 
 /**
+ * New order for one list of actions (the globals, or one project's).
+ */
+export interface ReorderCustomActionsRequest {
+  ids: number[];
+}
+
+/**
  * An action's `${VAR}`-interpolated command and resolved working directory,
  * returned without running it. The frontend uses this to spawn the command in
  * a dedicated terminal split when `run_in_terminal` is set.
@@ -5140,8 +5140,9 @@ export interface RestartContinuationEntry {
   outcome: RestartContinuationOutcome;
   project_id: number;
   /**
-   * Skip code (`awaiting_input`, `disabled`, `no_resume_id`, `loop_guard`,
-   * `archived`, `already_running`) or the delivery error.
+   * Skip code (`disabled`, `no_resume_id`, `loop_guard`, `archived`,
+   * `already_running`), the delivery error, or — on a resumed entry —
+   * `lost_gate`: the agent was waiting on the user and will ask again.
    * @nullable
    */
   reason?: string | null;
@@ -5332,6 +5333,7 @@ export type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
 export const TargetKind = {
   conversation: "conversation",
   new_conversation: "new_conversation",
+  custom_action: "custom_action",
 } as const;
 
 /**
@@ -5346,10 +5348,16 @@ export interface ScheduleTarget {
    * @nullable
    */
   access_mode?: string | null;
+  /**
+   * Required when `kind = custom_action`: the action to run.
+   * @nullable
+   */
+  action_id?: number | null;
   /** @nullable */
   base_branch?: string | null;
   /**
-   * Required when `kind = conversation`.
+   * Required when `kind = conversation` or `custom_action` (the conversation
+   * whose working copy the action runs in).
    * @nullable
    */
   feature_id?: number | null;
@@ -5468,6 +5476,11 @@ export type ScheduleLastRunProperty = null | ScheduleLastRun;
  * without one lookup per row.
  */
 export interface ScheduleContext {
+  /**
+   * Name of the action a `custom_action` schedule runs.
+   * @nullable
+   */
+  action_name?: string | null;
   /**
    * Title of the targeted conversation (`kind = conversation` only).
    * @nullable
@@ -5625,16 +5638,6 @@ export interface SessionStreamStatusPayload {
 
 export interface SetActiveProfileRequest {
   name: string;
-}
-
-export interface SetCustomActionScheduleRequest {
-  /** @nullable */
-  enabled?: boolean | null;
-  /**
-   * `None` = clear the schedule.
-   * @nullable
-   */
-  interval_seconds?: number | null;
 }
 
 export interface SetCustomActionVariableRequest {
@@ -6282,7 +6285,11 @@ export type GetUnifiedAgentsParams = {
 };
 
 export type ListCustomActionsParams = {
-  project_id: number;
+  /**
+   * Omit to list only the global actions (the Settings page).
+   * @nullable
+   */
+  project_id?: number | null;
   /**
    * Optional feature id to embed `last_run` summaries on each action.
    * @nullable
@@ -6304,16 +6311,6 @@ export type GetCustomActionRunsParams = {
    * @nullable
    */
   limit?: number | null;
-};
-
-export type GetCustomActionScheduleParams = {
-  feature_id: number;
-};
-
-export type GetCustomActionSchedule200 = null | CustomActionSchedule;
-
-export type SetCustomActionScheduleParams = {
-  feature_id: number;
 };
 
 export type GetCustomActionVariablesParams = {
@@ -9795,7 +9792,7 @@ export const useCodexDeleteProfile = <TError = ErrorType<unknown>, TContext = un
   return useMutation(getCodexDeleteProfileMutationOptions(options), queryClient);
 };
 
-export const listCustomActions = (params: ListCustomActionsParams, signal?: AbortSignal) => {
+export const listCustomActions = (params?: ListCustomActionsParams, signal?: AbortSignal) => {
   return customInstance<CustomAction[]>({
     url: `/api/custom-actions`,
     method: "GET",
@@ -9812,7 +9809,7 @@ export const getListCustomActionsQueryOptions = <
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9840,7 +9837,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params: undefined | ListCustomActionsParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9858,7 +9855,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9876,7 +9873,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9887,7 +9884,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9976,6 +9973,82 @@ export const useCreateCustomAction = <TError = ErrorType<unknown>, TContext = un
   TContext
 > => {
   return useMutation(getCreateCustomActionMutationOptions(options), queryClient);
+};
+
+export const reorderCustomActions = (
+  reorderCustomActionsRequest: ReorderCustomActionsRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<SuccessResponse>({
+    url: `/api/custom-actions/order`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: reorderCustomActionsRequest,
+    signal,
+  });
+};
+
+export const getReorderCustomActionsMutationKey = () => ["reorderCustomActions"] as const;
+
+export const getReorderCustomActionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    TError,
+    ReorderCustomActionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderCustomActionsMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    ReorderCustomActionsMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderCustomActions(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderCustomActionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderCustomActions>>
+>;
+export type ReorderCustomActionsMutationBody = ReorderCustomActionsRequest;
+export type ReorderCustomActionsMutationError = ErrorType<unknown>;
+export type ReorderCustomActionsMutationVariables = { data: ReorderCustomActionsRequest };
+
+export const useReorderCustomActions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderCustomActions>>,
+      TError,
+      ReorderCustomActionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderCustomActionsMutationOptions(options), queryClient);
 };
 
 export const updateCustomAction = (
@@ -10513,222 +10586,6 @@ export const useCancelCustomActionRun = <TError = ErrorType<unknown>, TContext =
   TContext
 > => {
   return useMutation(getCancelCustomActionRunMutationOptions(options), queryClient);
-};
-
-export const getCustomActionSchedule = (
-  id: number,
-  params: GetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<GetCustomActionSchedule200>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetCustomActionScheduleQueryKey = (
-  id: number,
-  params?: GetCustomActionScheduleParams,
-) => {
-  return [`/api/custom-actions/${id}/schedule`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetCustomActionScheduleQueryOptions = <
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetCustomActionScheduleQueryKey(id, params);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomActionSchedule>>> = ({
-    signal,
-  }) => getCustomActionSchedule(id, params, signal);
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: id !== null && id !== undefined,
-    ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-};
-
-export type GetCustomActionScheduleQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getCustomActionSchedule>>
->;
-export type GetCustomActionScheduleQueryError = ErrorType<unknown>;
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-  const queryOptions = getGetCustomActionScheduleQueryOptions(id, params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export const setCustomActionSchedule = (
-  id: number,
-  setCustomActionScheduleRequest: SetCustomActionScheduleRequest,
-  params: SetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<SuccessResponse>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    data: setCustomActionScheduleRequest,
-    params,
-    signal,
-  });
-};
-
-export const getSetCustomActionScheduleMutationKey = () => ["setCustomActionSchedule"] as const;
-
-export const getSetCustomActionScheduleMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    TError,
-    SetCustomActionScheduleMutationVariables,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  const mutationKey = getSetCustomActionScheduleMutationKey();
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    SetCustomActionScheduleMutationVariables
-  > = (props) => {
-    const { id, data, params } = props ?? {};
-
-    return setCustomActionSchedule(id, data, params);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SetCustomActionScheduleMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>
->;
-export type SetCustomActionScheduleMutationBody = SetCustomActionScheduleRequest;
-export type SetCustomActionScheduleMutationError = ErrorType<unknown>;
-export type SetCustomActionScheduleMutationVariables = {
-  id: number;
-  data: SetCustomActionScheduleRequest;
-  params: SetCustomActionScheduleParams;
-};
-
-export const useSetCustomActionSchedule = <TError = ErrorType<unknown>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof setCustomActionSchedule>>,
-      TError,
-      SetCustomActionScheduleMutationVariables,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  return useMutation(getSetCustomActionScheduleMutationOptions(options), queryClient);
 };
 
 export const getCustomActionVariables = (

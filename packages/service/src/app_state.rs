@@ -5,7 +5,6 @@ use sqlx::SqlitePool;
 use tokio::sync::broadcast;
 
 use crate::domain::custom_actions::run_registry::CustomActionRunRegistry;
-use crate::domain::custom_actions::scheduler::CustomActionScheduler;
 use crate::domain::editor::watcher::{FileChangeEvent, SharedFileWatcher};
 use crate::domain::feature_events::FeatureEventBroadcaster;
 use crate::domain::features::run_registry::FeatureRunRegistry;
@@ -161,12 +160,11 @@ pub struct AppState {
     pub frontend_port: u16,
     /// Listener port, pinned against the `Host` header for DNS-rebinding defense.
     pub port: u16,
-    /// Scheduler for periodic custom-action runs. Holds one tokio task per
-    /// enabled `custom_action_schedules` row.
-    pub custom_action_scheduler: CustomActionScheduler,
     /// In-flight custom-action runs keyed by `run_id`, so a `cancel` request can
     /// interrupt a running command (Ctrl-C) even after the triggering UI closes.
     pub custom_action_runs: Arc<CustomActionRunRegistry>,
+    /// Broadcast when an action or one of its runs changes (bare hint).
+    pub custom_action_events_tx: crate::domain::custom_actions::events::CustomActionEventSender,
     /// Per-worktree filesystem watchers driving real-time `git.status`
     /// envelopes. Refcounted by WS subscriptions; see `domain::git::watcher`.
     pub git_watcher: Arc<GitWatcherRegistry>,
@@ -287,6 +285,7 @@ impl AppState {
         let (theme_events_tx, _) = broadcast::channel(16);
         let (plugin_tab_events_tx, _) = broadcast::channel(16);
         let (prompt_queue_events_tx, _) = broadcast::channel(32);
+        let (custom_action_events_tx, _) = broadcast::channel(64);
         let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
@@ -333,8 +332,8 @@ impl AppState {
             mcp_control_token: uuid::Uuid::new_v4().to_string(),
             frontend_port,
             port,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
+            custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),
             forge_status: Arc::new(ForgeStatusCache::default()),
             port_scan: Arc::new(PortScanCache::default()),
@@ -384,6 +383,7 @@ impl AppState {
         let (theme_events_tx, _) = broadcast::channel(16);
         let (plugin_tab_events_tx, _) = broadcast::channel(16);
         let (prompt_queue_events_tx, _) = broadcast::channel(32);
+        let (custom_action_events_tx, _) = broadcast::channel(64);
         let (alacritty_config_events_tx, _) = broadcast::channel(16);
         let (remote_events_tx, _) = broadcast::channel(16);
         let storage_maintenance_events_tx = StorageMaintenanceBroadcaster::new(16);
@@ -424,8 +424,8 @@ impl AppState {
             mcp_control_token: "test-mcp-token".to_string(),
             frontend_port: 1420,
             port: 0,
-            custom_action_scheduler: CustomActionScheduler::new(),
             custom_action_runs: Arc::new(CustomActionRunRegistry::new()),
+            custom_action_events_tx,
             git_watcher: Arc::new(GitWatcherRegistry::new()),
             forge_status: Arc::new(ForgeStatusCache::default()),
             port_scan: Arc::new(PortScanCache::default()),
