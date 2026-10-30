@@ -59,6 +59,7 @@ pub enum WsSessionAction {
     PermissionRequest,
     PromptReceived,
     StreamStatus,
+    PersistenceStatus,
 }
 
 impl WsSessionAction {
@@ -96,6 +97,7 @@ impl WsSessionAction {
             Self::PermissionRequest => "permission.request",
             Self::PromptReceived => "prompt_received",
             Self::StreamStatus => "stream_status",
+            Self::PersistenceStatus => "persistence_status",
         }
     }
 
@@ -133,6 +135,7 @@ impl WsSessionAction {
             Self::PermissionRequest,
             Self::PromptReceived,
             Self::StreamStatus,
+            Self::PersistenceStatus,
         ]
     }
 }

@@ -34,7 +34,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row: (i64, String) = sqlx::query_as(
             "SELECT COUNT(*), MAX(content) FROM agent_messages
@@ -72,7 +73,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row: (i64, String) = sqlx::query_as(
             "SELECT COUNT(*), MAX(content) FROM agent_messages
@@ -81,10 +83,7 @@ mod session_events_compact_tests {
         .fetch_one(&pool)
         .await
         .expect("fetch row summary");
-        assert_eq!(
-            row,
-            (1, r#"{"command":"x","plan":"ready"}"#.to_string())
-        );
+        assert_eq!(row, (1, r#"{"command":"x","plan":"ready"}"#.to_string()));
     }
 
     #[tokio::test]
@@ -105,7 +104,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -118,7 +118,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -131,7 +132,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row = sqlx::query(
             "SELECT content FROM agent_messages WHERE session_id = 1 AND tool_use_id = 'tool_a'",
@@ -161,7 +163,8 @@ mod session_events_compact_tests {
                     input_tokens: None,
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
         persistence
             .persist_runtime_event(&stream_event(
                 "child_a",
@@ -175,7 +178,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -186,7 +190,8 @@ mod session_events_compact_tests {
                     input_tokens: None,
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
         persistence
             .persist_runtime_event(&stream_event(
                 "child_b",
@@ -200,7 +205,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         persistence
             .persist_runtime_event(&stream_event(
@@ -213,7 +219,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
         persistence
             .persist_runtime_event(&stream_event(
                 "child_b",
@@ -225,7 +232,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let rows = sqlx::query(
             "SELECT tool_use_id, tool_name, content, parent_tool_use_id FROM agent_messages WHERE session_id = 1 AND message_type = 'tool_call' ORDER BY tool_use_id",
@@ -275,7 +283,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
         persistence
             .persist_runtime_event(&stream_event(
                 "thread",
@@ -287,7 +296,8 @@ mod session_events_compact_tests {
                     },
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let row = sqlx::query(
             "SELECT content FROM agent_messages WHERE session_id = 1 AND tool_use_id = 'cmd'",
@@ -329,7 +339,8 @@ mod session_events_compact_tests {
                 trigger: Some("auto".to_string()),
                 pre_tokens: Some(90_000),
             })))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let session_row = sqlx::query("SELECT was_compacted FROM agent_sessions WHERE id = 1")
             .fetch_one(&pool)
@@ -337,13 +348,15 @@ mod session_events_compact_tests {
             .expect("fetch session row");
         assert_eq!(session_row.get::<i64, _>("was_compacted"), 1);
 
-        let message_row = sqlx::query(
-            "SELECT content, message_type FROM agent_messages WHERE session_id = 1",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("fetch message row");
-        assert_eq!(message_row.get::<String, _>("message_type"), "compact_divider");
+        let message_row =
+            sqlx::query("SELECT content, message_type FROM agent_messages WHERE session_id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("fetch message row");
+        assert_eq!(
+            message_row.get::<String, _>("message_type"),
+            "compact_divider"
+        );
         let content = message_row.get::<String, _>("content");
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&content).expect("valid json"),
@@ -358,7 +371,8 @@ mod session_events_compact_tests {
 
         persistence
             .persist_runtime_event(&compact_boundary_event(None))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         let message_row = sqlx::query("SELECT content FROM agent_messages WHERE session_id = 1")
             .fetch_one(&pool)

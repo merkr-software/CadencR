@@ -122,11 +122,13 @@ impl From<WsEnvelope> for String {
 mod actions;
 mod client;
 mod commands;
+mod persistence_status;
 mod server;
 
 pub use actions::*;
 pub use client::*;
 pub use commands::*;
+pub use persistence_status::*;
 pub use server::*;
 
 #[cfg(test)]

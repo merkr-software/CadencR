@@ -539,3 +539,46 @@ async fn test_init_no_resume_does_not_send_runtime_session_id_message() {
         "expected no runtime_session_id message for new session"
     );
 }
+
+#[tokio::test]
+async fn reconnect_replays_current_transcript_warning_and_proven_recovery() {
+    let state = make_test_app_state().await;
+    let (owner, mut owner_rx) = mpsc::unbounded_channel();
+    let owner_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let session_id = init_session(&owner, &mut owner_rx, &owner_sessions, &state, 1).await;
+    assert!(
+        owner_rx.try_recv().is_err(),
+        "healthy initialization stays quiet"
+    );
+    let db_session_id = session_id.parse().unwrap();
+
+    for status in [
+        PersistenceStatusState::Degraded,
+        PersistenceStatusState::Recovered,
+    ] {
+        state
+            .persistence_health
+            .publish(
+                db_session_id,
+                1,
+                42,
+                SessionPersistenceStatusPayload {
+                    status,
+                    message: "Transcript durability changed".into(),
+                },
+                &state.read_pool,
+                &state.ws_feature_senders,
+                &owner,
+            )
+            .await;
+        assert_next_persistence_status(&mut owner_rx, status).await;
+
+        // A fresh connection has no reader-local state. Initialization must
+        // replay the process-shared latest transition after initialized.
+        let (viewer, mut viewer_rx) = mpsc::unbounded_channel();
+        let viewer_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+        let restored = init_session(&viewer, &mut viewer_rx, &viewer_sessions, &state, 1).await;
+        assert_eq!(restored, session_id);
+        assert_next_persistence_status(&mut viewer_rx, status).await;
+    }
+}

@@ -28,6 +28,7 @@ pub(crate) fn spawn_stream_reader(
     let task = StreamReaderTask {
         db_session_id,
         feature_id,
+        persistence_reader_id: app_state.persistence_health.reader_id(),
         message_rx,
         runtime_session_handle,
         sender,

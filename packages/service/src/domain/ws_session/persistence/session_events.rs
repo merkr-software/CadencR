@@ -1,73 +1,4 @@
 impl WsSessionPersistence {
-    /// Main dispatch for normalized runtime events.
-    pub async fn persist_runtime_event(
-        &mut self,
-        runtime_event: &RuntimeEvent,
-    ) -> Option<PersistedEventRef> {
-        let Some(session_id) = self.session_db_id else {
-            return None;
-        };
-
-        if let Some(event) = runtime_event.stream_event() {
-            return self
-                .persist_stream_event(
-                    session_id,
-                    runtime_event.session_id(),
-                    event,
-                    runtime_event.parent_tool_use_id(),
-                )
-                .await
-                .map(PersistedEventRef::Message);
-        }
-
-        if let Some(message) = runtime_event.user_message() {
-            let results = self
-                .persist_user_tool_results(session_id, message, runtime_event.parent_tool_use_id())
-                .await;
-            return (!results.is_empty()).then_some(PersistedEventRef::ToolResults(results));
-        }
-
-        if let Some(message) = runtime_event.assistant_message() {
-            if let Some(ptuid) = runtime_event.parent_tool_use_id() {
-                self.persist_assistant_subagent(session_id, message, ptuid)
-                    .await;
-            } else {
-                self.reconcile_tool_call_content(session_id, message).await;
-                let stream_scope = RuntimeStreamScope::new(runtime_event.session_id(), None);
-                self.persist_unstreamed_assistant_text(session_id, &stream_scope, message)
-                    .await;
-            }
-            return None;
-        }
-
-        if runtime_event.is_compact_boundary() {
-            let content = serialize_compact_metadata(runtime_event.compact_metadata());
-            let result = Self::insert_message(
-                &self.write_pool,
-                session_id,
-                "system",
-                &content,
-                "compact_divider",
-                None,
-                None,
-                None,
-                None,
-            )
-            .await;
-            let _ = sqlx::query("UPDATE agent_sessions SET was_compacted = 1 WHERE id = ?")
-                .bind(session_id)
-                .execute(&self.write_pool)
-                .await;
-            return result.ok().map(|row| {
-                PersistedEventRef::Message(PersistedMessageRef {
-                    id: row.last_insert_rowid(),
-                })
-            });
-        }
-
-        None
-    }
-
     async fn insert_message(
         pool: &SqlitePool,
         session_id: i64,
@@ -108,18 +39,21 @@ impl WsSessionPersistence {
         runtime_session_id: Option<&str>,
         event: &RuntimeStreamEvent,
         ptuid: Option<&str>,
-    ) -> Option<PersistedMessageRef> {
+    ) -> Result<Option<PersistedMessageRef>, TranscriptPersistenceError> {
         let stream_scope = RuntimeStreamScope::new(runtime_session_id, ptuid);
 
         match event {
             RuntimeStreamEvent::MessageStart { model, .. } => {
                 // A new message cycle begins: clear the streamed-text marker so
                 // each message is judged on its own deltas.
+                self.transcript.begin_cycle(&stream_scope);
+                self.pending_mergeable_blocks
+                    .retain(|(scope, _), _| scope != &stream_scope);
                 self.streamed_assistant_content.remove(&stream_scope);
                 if let Some(model) = model.clone() {
                     self.current_models.insert(stream_scope, model);
                 }
-                None
+                Ok(None)
             }
             RuntimeStreamEvent::ContentBlockStart { index, block } => {
                 let current_model = self.current_models.get(&stream_scope).cloned();
@@ -138,10 +72,11 @@ impl WsSessionPersistence {
                     .await
             }
             RuntimeStreamEvent::ContentBlockStop { index } => {
-                self.persist_content_block_stop(&stream_scope, *index).await;
-                None
+                self.persist_content_block_stop(&stream_scope, *index)
+                    .await?;
+                Ok(None)
             }
-            RuntimeStreamEvent::Other => None,
+            RuntimeStreamEvent::Other => Ok(None),
         }
     }
 
@@ -281,7 +216,8 @@ mod session_events_tests {
                     input_tokens: None,
                 },
             ))
-            .await;
+            .await
+            .expect("persist runtime event");
 
         // After `message_start`, later events on the same runtime session expose
         // the captured model so the forward path can stamp live blocks.
@@ -354,7 +290,10 @@ mod session_events_tests {
                 },
             ),
         ] {
-            persistence.persist_runtime_event(&event).await;
+            persistence
+                .persist_runtime_event(&event)
+                .await
+                .expect("persist runtime event");
         }
 
         let root_event = stream_event("thread", None, RuntimeStreamEvent::Other);
@@ -411,6 +350,7 @@ mod session_events_tests {
                 },
             ))
             .await
+            .expect("persist runtime event")
             .expect("start row id");
         let delta_ref = persistence
             .persist_runtime_event(&stream_event(
@@ -424,6 +364,7 @@ mod session_events_tests {
                 },
             ))
             .await
+            .expect("persist runtime event")
             .expect("delta row id");
 
         assert!(

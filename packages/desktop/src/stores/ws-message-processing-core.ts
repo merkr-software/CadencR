@@ -6,6 +6,11 @@ import { processSystemMessage } from "./ws-message-processing-system";
 import { processUserMessage } from "./ws-message-processing-user";
 import { nextSyntheticBlockId } from "./ws-message-processing-utils";
 import type { StructuredToolStream } from "./ws-structured-tool-stream";
+import {
+  identifyAssistantContent,
+  trackAssistantContentBlocks,
+} from "./ws-assistant-content-identity";
+import { blockIdFromAgentMessage } from "./ws-message-identity";
 
 export { isRecord } from "./ws-message-processing-utils";
 
@@ -20,7 +25,16 @@ type StreamSessionId = string | symbol;
 const DEFAULT_STREAM_SESSION_ID: StreamSessionId = Symbol("default-stream-session");
 
 export interface StreamingState {
+  /** Increments for every parsed runtime message, including a content-free message_start. */
+  messageGeneration: number;
+  /** Unsaved copies outlive stream cycles until identified or safely resynced. */
+  unidentifiedContentIds: Set<string>;
   streams: Map<StreamSessionId, StreamContext>;
+  /** Final assistant snapshots retain identities even when nested streams interleave. */
+  assistantContentBlocks: Map<
+    StreamSessionId,
+    Map<string | null, Map<number, { id: string; type: AgentBlockData["type"] }>>
+  >;
   toolUseIdToBlock: Map<string, AgentBlockData>;
   counter: number;
   /**
@@ -77,13 +91,16 @@ export interface MessageProcessingResult {
 }
 
 export type BlockMutation = {
-  action: "append" | "update" | "replace" | "finalize";
+  action: "append" | "update" | "replace" | "finalize" | "identify";
   block: AgentBlockData;
 };
 
 export function createStreamingState(): StreamingState {
   return {
+    messageGeneration: 0,
+    unidentifiedContentIds: new Set(),
     streams: new Map(),
+    assistantContentBlocks: new Map(),
     toolUseIdToBlock: new Map(),
     counter: 0,
     rootBlocks: [],
@@ -114,10 +131,14 @@ export function processSdkMessage(
   }
 
   const signals = createParserSignals();
+  state.messageGeneration += 1;
 
   switch (msg.type as string) {
-    case "stream_event":
-      return { mutations: processStreamEvent(msg, state), signals };
+    case "stream_event": {
+      const mutations = processStreamEvent(msg, state);
+      trackAssistantContentBlocks(msg, state, mutations);
+      return { mutations, signals };
+    }
     case "assistant":
       return { mutations: processAssistantMessage(msg, state, signals), signals };
     case "user":
@@ -148,6 +169,10 @@ function processAssistantMessage(
 
   const stream = getOrCreateStreamContext(state, getStreamSessionId(msg));
   const assistantParentId = (msg.parent_tool_use_id as string) ?? null;
+  const identities = identifyAssistantContent(msg, contentArr, state);
+  const trackedContent = state.assistantContentBlocks
+    .get(getStreamSessionId(msg))
+    ?.get(assistantParentId);
   const referencesKnownToolUse = contentArr.some(
     (cb) =>
       cb.type === "tool_use" &&
@@ -157,9 +182,10 @@ function processAssistantMessage(
 
   if (
     (stream.contentBlockIds.size > 0 && assistantParentId === stream.parentToolUseId) ||
-    referencesKnownToolUse
+    referencesKnownToolUse ||
+    trackedContent?.size
   ) {
-    return processAssistantReplace(contentArr, state);
+    return [...identities, ...processAssistantReplace(contentArr, state)];
   }
 
   const model = (assistantMsg?.model as string | undefined) ?? stream.model ?? undefined;
@@ -219,7 +245,7 @@ function createAssistantMutation(
   parentToolUseId: string | null,
   createdAt: string,
 ): BlockMutation | null {
-  const blockId = nextSyntheticBlockId(state);
+  const blockId = blockIdFromAgentMessage(contentBlock) ?? nextSyntheticBlockId(state);
 
   switch (contentBlock.type as string) {
     case "text":

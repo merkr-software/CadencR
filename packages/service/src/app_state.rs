@@ -28,6 +28,7 @@ use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::terminal::service::PtyManager;
 use crate::domain::workflow::worktree::WorktreeSetupRegistry;
 use crate::domain::ws_session::handler::{new_sdk_sessions, ActiveTurnRegistry};
+use crate::domain::ws_session::persistence_health::SessionPersistenceHealth;
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 use crate::domain::ws_session::user_shell_runs::UserShellRunRegistry;
 use crate::remote::{RemoteConfig, RemoteController};
@@ -199,6 +200,8 @@ pub struct AppState {
     /// remote client answer a permission/question/plan against the host's live
     /// query, and carries the server-stamped turn start for synced timers.
     pub active_turns: Arc<ActiveTurnRegistry>,
+    /// Latest transcript durability transitions, shared by all viewers.
+    pub persistence_health: Arc<SessionPersistenceHealth>,
     /// In-flight Cadencr-managed `!` commands, keyed by agent session.
     pub user_shell_runs: Arc<UserShellRunRegistry>,
     /// In-flight worktree setup commands and recovery claims, keyed by feature.
@@ -345,6 +348,7 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),
@@ -437,6 +441,7 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),

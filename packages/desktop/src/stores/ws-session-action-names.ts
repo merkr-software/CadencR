@@ -39,6 +39,7 @@ export const SESSION_ACTION = {
   deleted: "deleted",
   usageUpdate: "usage_update",
   streamStatus: "stream_status",
+  persistenceStatus: "persistence_status",
   promptReceived: "prompt_received",
   lifecycle: "lifecycle",
   gateClosed: "gate.closed",

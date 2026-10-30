@@ -28,6 +28,7 @@ const PROVIDER_RECONCILE_IDLE: std::time::Duration = std::time::Duration::from_m
 pub(super) struct StreamReaderTask {
     pub db_session_id: i64,
     pub feature_id: i64,
+    pub persistence_reader_id: u64,
     pub message_rx: RuntimeMessageRx,
     /// Exact runtime instance whose receiver this task owns. Used during
     /// teardown so an older interrupted reader cannot replace a newly resumed
@@ -131,17 +132,6 @@ fn should_close_orphaned(
 }
 
 impl StreamReaderTask {
-    /// Send `msg` to this turn's owner socket and mirror it to any *other*
-    /// devices viewing the same feature. Others are mirrored first so the owner
-    /// send can move `msg` without a clone; in the common single-viewer case
-    /// `broadcast_others` is a no-op. Returns `true` when the owner socket is
-    /// gone, so callers can stop the loop exactly as a bare `send().is_err()`.
-    pub(super) async fn send_and_mirror(&self, msg: Message) -> bool {
-        self.feature_senders
-            .send_and_mirror(self.feature_id, &self.sender, msg)
-            .await
-    }
-
     pub async fn run(mut self) {
         info!(self.db_session_id, "stream reader started");
         let initial_usage = self.initial_usage_snapshot().await;
@@ -189,6 +179,7 @@ impl StreamReaderTask {
         }
 
         self.stop_running_subagents(&mut state).await;
+        self.publish_transcript_status(&mut persistence, true).await;
         drop(hold_registration);
         transition_active_to_pending_on_stream_end(
             &self.sdk_sessions,

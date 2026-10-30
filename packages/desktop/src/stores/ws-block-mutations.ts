@@ -4,6 +4,11 @@ import type { TodoItem } from "@/types/agent";
 import type { BlockMutation, ParserSignals, StreamingState } from "./ws-message-processing";
 import { parseTaskTodosFromBlocks, taskTodoMutationSeen } from "./ws-task-todos";
 import { applyBlockContentMutation } from "./ws-tool-content-mutations";
+import {
+  buildDatabaseIdentityOwners,
+  mergeDuplicateAppend,
+  type DatabaseIdentityOwners,
+} from "./ws-block-reconciliation";
 export type ParsedTodo = TodoItem;
 type InternalRootMutation =
   | BlockMutation
@@ -170,8 +175,11 @@ export function applyMutations(
     ...prevBlocks.slice(boundedRootAppendIndex),
   ];
   let changed = rootAppends.length > 0;
+  let databaseOwners: DatabaseIdentityOwners | undefined;
 
   for (const mut of rootUpdates) {
+    if (mut.action === "identify")
+      databaseOwners ??= buildDatabaseIdentityOwners(result, rootUpdates);
     if (mut.action === "replace_parent" || mut.action === "replace_block") {
       const idx = rootResultIndexById(result, streamState, mut.block.id);
       if (idx !== -1) {
@@ -186,7 +194,7 @@ export function applyMutations(
     if (idx !== -1) {
       const previous = result[idx];
       const existing = { ...previous };
-      if (!applyBlockContentMutation(streamState, existing, mut)) {
+      if (!applyBlockContentMutation(streamState, existing, mut, databaseOwners)) {
         const stream = streamState.structuredToolStreams.get(existing.id);
         if (stream) stream.owner = previous;
         continue;
@@ -194,7 +202,7 @@ export function applyMutations(
       result[idx] = existing;
       recordRootRefChange(streamState, existing.id, existing);
       changed = true;
-    } else if (applyChildUpdate(streamState, mut)) {
+    } else if (applyChildUpdate(streamState, mut, databaseOwners)) {
       changed = true;
     }
   }
@@ -256,24 +264,6 @@ function replaceDuplicateChildAppend(
   );
   recordDerivedBlock(streamState, merged);
   return { changed: true, parentToolUseId };
-}
-
-function mergeDuplicateAppend(existing: AgentBlockData, incoming: AgentBlockData): AgentBlockData {
-  const preferExistingContent = existing.content.length >= incoming.content.length;
-  const incomingHasChildren = (incoming.childBlocks?.length ?? 0) > 0;
-  if (preferExistingContent && !incomingHasChildren && !incoming.toolArgs) {
-    return existing;
-  }
-  return {
-    ...(preferExistingContent ? { ...incoming, ...existing } : { ...existing, ...incoming }),
-    content: preferExistingContent ? existing.content : incoming.content,
-    childBlocks: incomingHasChildren
-      ? incoming.childBlocks
-      : (existing.childBlocks ?? incoming.childBlocks),
-    toolArgs: preferExistingContent
-      ? (existing.toolArgs ?? incoming.toolArgs)
-      : (incoming.toolArgs ?? existing.toolArgs),
-  };
 }
 
 /**
@@ -378,14 +368,18 @@ function recordRootRefChange(
   }
 }
 
-function applyChildUpdate(streamState: StreamingState, mut: BlockMutation): boolean {
+function applyChildUpdate(
+  streamState: StreamingState,
+  mut: BlockMutation,
+  databaseOwners?: DatabaseIdentityOwners,
+): boolean {
   for (const parentBlock of streamState.toolUseIdToBlock.values()) {
     if (!parentBlock.childBlocks) continue;
     const childIdx = parentBlock.childBlocks.findIndex((b) => b.id === mut.block.id);
     if (childIdx === -1) continue;
     const previous = parentBlock.childBlocks[childIdx];
     const child = { ...previous };
-    if (!applyBlockContentMutation(streamState, child, mut)) {
+    if (!applyBlockContentMutation(streamState, child, mut, databaseOwners)) {
       const stream = streamState.structuredToolStreams.get(child.id);
       if (stream) stream.owner = previous;
       return false;
