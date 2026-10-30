@@ -1,10 +1,8 @@
 use std::collections::HashSet;
 
-use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeEvent, RuntimeUserContentBlock};
-
-/// Names of dispatch tools that spawn a sub-agent inside the same runtime
-/// session. Provider-neutral: Claude Code uses `Task`, OpenCode uses `Agent`.
-pub(super) const SUBAGENT_TOOL_NAMES: &[&str] = &["Task", "Agent"];
+use crate::domain::agents::adapter::{
+    is_subagent_tool_name, RuntimeContentBlock, RuntimeEvent, RuntimeUserContentBlock,
+};
 
 /// Tracks in-flight sub-agent dispatch calls (`Task` / `Agent` tool_use ids).
 ///
@@ -41,7 +39,7 @@ impl SubagentWindow {
         };
         for block in &msg.content {
             if let RuntimeContentBlock::ToolUse { id, name, .. } = block {
-                if SUBAGENT_TOOL_NAMES.contains(&name.as_str()) {
+                if is_subagent_tool_name(name) {
                     self.active.insert(id.clone());
                 }
             }
@@ -91,7 +89,7 @@ impl SubagentWindow {
                 matches!(
                     block,
                     RuntimeContentBlock::ToolUse { name, .. }
-                        if SUBAGENT_TOOL_NAMES.contains(&name.as_str())
+                        if is_subagent_tool_name(name)
                 )
             });
         }

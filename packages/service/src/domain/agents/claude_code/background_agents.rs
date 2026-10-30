@@ -12,24 +12,13 @@ use serde_json::Value;
 
 use crate::domain::agents::adapter::BackgroundAgentSignal;
 
-/// Terminal task statuses reported on `system/task_notification`. A background
-/// agent that reaches any of these is no longer running. Kept permissive so an
-/// unforeseen terminal label still releases the session instead of pinning it
-/// to a phantom "working" state.
+/// Terminal task statuses reported on `system/task_notification` (`completed`,
+/// `failed`, `stopped`) and `system/task_updated` (`completed`, `failed`,
+/// `killed`). A background agent that reaches any of these is no longer
+/// running. Kept permissive so an unforeseen terminal label still releases the
+/// session instead of pinning it to a phantom "working" state.
 fn is_terminal_task_status(status: Option<&str>) -> bool {
-    matches!(
-        status,
-        Some(
-            "completed"
-                | "failed"
-                | "cancelled"
-                | "canceled"
-                | "error"
-                | "incomplete"
-                | "timed_out"
-                | "aborted"
-        )
-    )
+    status.is_some_and(|status| super::subagents::terminal_task_status(status).is_some())
 }
 
 /// Derive a [`BackgroundAgentSignal`] from the Claude Code task lifecycle.
@@ -67,6 +56,14 @@ pub(super) fn background_agent_signal(
         }
         Some("task_notification")
             if is_terminal_task_status(raw.get("status").and_then(Value::as_str)) =>
+        {
+            Some(BackgroundAgentSignal::Finished {
+                agent_id: task_id.to_string(),
+            })
+        }
+        // A stopped agent's end is first reported as a `killed` patch.
+        Some("task_updated")
+            if is_terminal_task_status(raw.pointer("/patch/status").and_then(Value::as_str)) =>
         {
             Some(BackgroundAgentSignal::Finished {
                 agent_id: task_id.to_string(),
@@ -151,6 +148,54 @@ mod tests {
             Some(BackgroundAgentSignal::Finished {
                 agent_id: "task-abc".into()
             })
+        );
+    }
+
+    #[test]
+    fn stopped_and_killed_background_agents_are_finished() {
+        // SDK 0.3.156 `SDKTaskNotificationMessage.status` includes `stopped`;
+        // a stopped agent was pinning the session as working forever.
+        assert_eq!(
+            signal(json!({
+                "type": "system", "subtype": "task_notification", "uuid": "u", "session_id": "s",
+                "task_id": "task-abc", "tool_use_id": "toolu_1", "status": "stopped",
+                "output_file": "", "summary": "Audit codex"
+            })),
+            Some(BackgroundAgentSignal::Finished {
+                agent_id: "task-abc".into()
+            })
+        );
+        // `SDKTaskUpdatedMessage.patch.status` reports the kill first.
+        assert_eq!(
+            signal(json!({
+                "type": "system", "subtype": "task_updated", "uuid": "u", "session_id": "s",
+                "task_id": "task-abc", "run_id": "r1",
+                "patch": { "status": "killed", "end_time": 1761800000000u64 }
+            })),
+            Some(BackgroundAgentSignal::Finished {
+                agent_id: "task-abc".into()
+            })
+        );
+    }
+
+    #[test]
+    fn non_terminal_task_updates_are_not_finished() {
+        for status in ["running", "paused", "pending"] {
+            assert_eq!(
+                signal(json!({
+                    "type": "system", "subtype": "task_updated", "uuid": "u", "session_id": "s",
+                    "task_id": "task-abc", "patch": { "status": status }
+                })),
+                None,
+                "{status}"
+            );
+        }
+        assert_eq!(
+            signal(json!({
+                "type": "system", "subtype": "task_updated", "uuid": "u", "session_id": "s",
+                "task_id": "task-abc", "patch": { "is_backgrounded": true }
+            })),
+            None
         );
     }
 

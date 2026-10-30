@@ -1,19 +1,10 @@
-use crate::domain::agents::acp::runtime::provider_hooks::flatten_tool_result_content_with;
+use crate::domain::agents::acp::runtime::provider_hooks::{
+    flatten_tool_result_content_with, unwrap_nested_text_block,
+};
 use serde_json::Value;
 
 pub(super) fn flatten_tool_result_content(content: &[Value]) -> Value {
-    flatten_tool_result_content_with(content, unwrap_text_block)
-}
-
-fn unwrap_text_block(block: &Value) -> Option<&str> {
-    let kind = block.get("type").and_then(Value::as_str)?;
-    match kind {
-        "text" => block.get("text").and_then(Value::as_str),
-        "content" => block
-            .get("content")
-            .and_then(|inner| unwrap_text_block(inner)),
-        _ => None,
-    }
+    flatten_tool_result_content_with(content, unwrap_nested_text_block)
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use super::event_types::{
     RuntimeUserMessage, ScheduledWakeup,
 };
 use super::permission::RuntimeSlashCommand;
+use super::subagent::RuntimeSubagentUpdate;
 
 /// Identity of one root or nested runtime stream within a provider session.
 ///
@@ -43,7 +44,29 @@ impl RuntimeEvent {
             result_error: None,
             token_usage: None,
             provider_message_id: None,
+            subagent_updates: Vec::new(),
         }
+    }
+
+    /// Attach sub-agent facts (see [`RuntimeSubagentUpdate`]).
+    pub fn with_subagent_updates(mut self, updates: Vec<RuntimeSubagentUpdate>) -> Self {
+        self.subagent_updates.extend(updates);
+        self
+    }
+
+    /// A standalone sub-agent fact with no transcript block of its own.
+    pub fn subagent_signal(updates: Vec<RuntimeSubagentUpdate>) -> Self {
+        Self::new(RuntimeEventMetadata::default(), RuntimeEventKind::Other)
+            .with_subagent_updates(updates)
+    }
+
+    pub fn subagent_updates(&self) -> &[RuntimeSubagentUpdate] {
+        &self.subagent_updates
+    }
+
+    /// Carries only sub-agent facts: nothing to persist or forward as a block.
+    pub fn is_subagent_signal_only(&self) -> bool {
+        !self.subagent_updates.is_empty() && matches!(self.kind, RuntimeEventKind::Other)
     }
 
     /// Attach a [`BackgroundAgentSignal`] to this event. Used by adapters that

@@ -1,5 +1,5 @@
 use super::super::send_runtime_session_id;
-use super::mcp_servers::{refresh_mcp_servers_for_active_session, send_mcp_servers_if_init};
+use super::mcp_servers::send_mcp_servers_if_init;
 use super::stream_reader_background_agents::track_background_agents;
 use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_resume::runtime_allows_resume_persistence;
@@ -51,6 +51,11 @@ impl StreamReaderTask {
         };
         self.forward_compaction_state(state, &runtime_event).await;
         track_background_agents(&mut state.live_background_agents, &runtime_event);
+        self.track_subagents(state, &runtime_event, interrupted_generation.is_some())
+            .await;
+        if runtime_event.is_subagent_signal_only() {
+            return;
+        }
         state.runtime_hold.observe(&runtime_event);
 
         match forward_immediate_event(self, state, &runtime_event).await {
@@ -349,49 +354,7 @@ impl StreamReaderTask {
             {
                 error!(self.db_session_id, error = %error, "failed to deliver MCP session reply");
             }
-            self.drain_queued_message_after_result().await;
-            let _ = self.refresh_mcp_servers_after_turn().await;
+            self.after_turn_result().await;
         }
-    }
-
-    async fn drain_queued_message_after_result(&self) {
-        let has_pending_user_input =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.has_pending_user_input());
-        if has_pending_user_input {
-            return;
-        }
-        // The user's own queued prompts go first: they are what the person
-        // supervising this session asked for next.
-        use crate::domain::prompt_queue::delivery::drain_next_after_turn;
-        if drain_next_after_turn(&self.app_state, self.db_session_id).await {
-            return;
-        }
-        if let Err(error) = crate::domain::mcp::control::message_queue::drain_next_queued_message(
-            &self.app_state,
-            self.feature_id,
-            self.db_session_id,
-        )
-        .await
-        {
-            error!(self.db_session_id, error = %error, "failed to drain queued MCP message");
-        }
-    }
-
-    async fn refresh_mcp_servers_after_turn(&self) -> Result<(), ()> {
-        let result = refresh_mcp_servers_for_active_session(
-            &self.sender,
-            &self.sdk_sessions,
-            self.db_session_id,
-        )
-        .await;
-        if result.is_err() {
-            debug!(
-                self.db_session_id,
-                "WebSocket sender closed during post-turn mcp_servers refresh"
-            );
-        }
-        result
     }
 }

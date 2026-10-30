@@ -41,6 +41,8 @@
 //!    embedded backend, so it would also need to migrate before the
 //!    `--port` flag can go.
 
+mod child_status;
+mod pending_subagents;
 mod root_usage_listener;
 mod side_channel;
 mod subagent_listener;
@@ -50,7 +52,6 @@ mod subagent_permission;
 // re-exports here (rather than `pub(in …)` on the items themselves) means
 // the adapter's import path is `super::upstream_workaround::{…}` — short,
 // and a grep for `upstream_workaround::` lands directly on every consumer.
+pub(super) use pending_subagents::{PendingSubagentState, PendingSubagentTasks};
 pub(super) use side_channel::spawn_side_channel_listeners;
-pub(super) use subagent_listener::{
-    PendingSubagentState, PendingSubagentTasks, PermissionRegistry,
-};
+pub(super) use subagent_listener::PermissionRegistry;

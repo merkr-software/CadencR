@@ -100,6 +100,8 @@ pub(super) struct StreamReaderState {
     /// a file when the turn ends abnormally so the surfaced error can point at
     /// evidence (issue #78).
     pub(super) diagnostics: super::stream_diagnostics::StreamDiagnostics,
+    /// Sub-agents this stream launched; see [`crate::domain::subagents`].
+    pub(super) subagents: crate::domain::subagents::tracker::SubagentTracker,
 }
 
 enum ReaderAction {
@@ -150,6 +152,7 @@ impl StreamReaderTask {
             Some(self.db_session_id),
         );
         let mut state = StreamReaderState::new(initial_usage);
+        self.stop_orphaned_subagents(&mut state).await;
         let hold_registration = self.runtime_session_handle.as_ref().map(|runtime| {
             runtime_hold_registry::register(self.db_session_id, runtime, &state.runtime_hold)
         });
@@ -158,11 +161,15 @@ impl StreamReaderTask {
             match self.next_action(&mut state).await {
                 ReaderAction::Continue => continue,
                 ReaderAction::Break => break,
+                // Settled before the end is announced, so a refetch the
+                // announcement triggers already reads them stopped.
                 ReaderAction::Closed => {
+                    self.stop_running_subagents(&mut state).await;
                     self.handle_reader_closed(&mut state).await;
                     break;
                 }
                 ReaderAction::Error(error) => {
+                    self.stop_running_subagents(&mut state).await;
                     self.handle_reader_error(&mut state, error).await;
                     break;
                 }
@@ -181,6 +188,7 @@ impl StreamReaderTask {
             }
         }
 
+        self.stop_running_subagents(&mut state).await;
         drop(hold_registration);
         transition_active_to_pending_on_stream_end(
             &self.sdk_sessions,

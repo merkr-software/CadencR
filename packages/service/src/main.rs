@@ -316,6 +316,8 @@ async fn main() -> anyhow::Result<()> {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("failed to reconcile orphaned custom action runs: {e}"),
             }
+            // Same for sub-agents: none outlives the service that ran it.
+            domain::subagents::stop_runs_orphaned_by_restart(&state.write_pool).await;
 
             // Background dispatcher for user schedules (one poll loop for the
             // process lifetime; survives client disconnects).

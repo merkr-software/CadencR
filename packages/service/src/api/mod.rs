@@ -44,6 +44,7 @@ use crate::domain::prompt_queue::routes::prompt_queue_router;
 use crate::domain::schedules::routes::schedules_router;
 use crate::domain::search::routes::search_routes;
 use crate::domain::sessions::routes::sessions_router;
+use crate::domain::subagents::routes::subagents_router;
 use crate::domain::terminal::routes::terminal_router;
 use crate::domain::themes::themes_router;
 use crate::domain::usage_stats::routes::usage_stats_router;
@@ -234,6 +235,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(feature_layouts_router())
         .merge(diff_comments_router())
         .merge(prompt_queue_router())
+        .merge(subagents_router())
         .merge(side_question_router())
         .merge(sessions_router())
         .merge(schedules_router())

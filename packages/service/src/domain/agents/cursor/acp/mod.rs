@@ -3,6 +3,7 @@ mod extensions;
 mod model_config;
 mod normalize;
 mod permission_policy;
+mod subagent;
 
 use std::ffi::OsString;
 use std::sync::Arc;
