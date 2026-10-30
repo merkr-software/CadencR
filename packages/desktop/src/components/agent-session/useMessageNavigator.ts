@@ -48,19 +48,26 @@ export interface MessageNavigatorState {
 }
 
 /**
- * Row of each display item, keyed by its first block id. Built on first use:
- * `items` changes on every streaming delta, but rows are only looked up on
- * scroll and on ⌥↑ / ⌥↓.
+ * Row of each display item, keyed by every block id it renders: a compact run's
+ * first anchor in the DOM is its newest step, not its first block.
+ */
+export function rowsByBlockId(items: readonly DisplayItem[]): Map<string, number> {
+  const rows = new Map<string, number>();
+  for (const [row, item] of items.entries()) {
+    if (item.kind === "block") rows.set(item.block.id, row);
+    else for (const block of item.blocks) rows.set(block.id, row);
+  }
+  return rows;
+}
+
+/**
+ * {@link rowsByBlockId}, built on first use: `items` changes on every streaming
+ * delta, but rows are only looked up on scroll and on ⌥↑ / ⌥↓.
  */
 function useRowByBlockId(items: readonly DisplayItem[]): () => Map<string, number> {
   return useMemo(() => {
     let map: Map<string, number> | null = null;
-    return () => {
-      map ??= new Map(
-        items.map((item, row) => [item.kind === "block" ? item.block.id : item.blocks[0].id, row]),
-      );
-      return map;
-    };
+    return () => (map ??= rowsByBlockId(items));
   }, [items]);
 }
 

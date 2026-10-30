@@ -1,6 +1,6 @@
 import type { AgentBlockData } from "./AgentBlock";
 import { shouldGateFullContent } from "./agent-block-types";
-import { collapseTurnsToSummary } from "./agentStreamSummary";
+import { collapseTurnsToSummary, isCountableTool } from "./agentStreamSummary";
 import {
   isRestartContinuationMessage,
   isRestartInterruptionMarker,
@@ -9,40 +9,32 @@ import { shouldHideToolCall } from "@/lib/tool-display-policy";
 
 /**
  * A renderable row in the agent stream. In every mode except "compact" each
- * block is its own row. In "compact" mode, consecutive non-text blocks are
- * folded into bounded `flow` rows so the outer Virtuoso can still window long
- * tool runs while the renderer lays each chunk out as a flex-wrap of tiles.
+ * block is its own row. In "compact" mode, each run of consecutive non-text
+ * blocks (tool calls, thinking) folds into one `flow` row that renders as a
+ * single line until the user unfolds it.
  */
 export type DisplayItem =
   | { kind: "block"; key: string; block: AgentBlockData }
   | { kind: "flow"; key: string; blocks: AgentBlockData[] };
 
-/** Maximum tiles mounted by one compact-flow Virtuoso row. */
-export const MAX_COMPACT_FLOW_BLOCKS = 24;
-
-const FLOW_BREAKING_TYPES = new Set<AgentBlockData["type"]>([
-  "text",
-  "user_message",
-  "turn_summary",
-  "tool_summary",
-  "compact_divider",
-  "clear_divider",
-  "turn_interrupted",
-]);
-
+/**
+ * Only tool calls and thinking fold into a compact line. Prose, prompts, plans,
+ * results the renderer shows (Agent/Task output, hidden-tool errors), markers
+ * and dividers keep their full row: the mode keeps the conversation itself
+ * whole. A truncated wire preview still folds; its line shows the name only.
+ */
 function isFlowEligible(block: AgentBlockData): boolean {
-  if (FLOW_BREAKING_TYPES.has(block.type)) return false;
-  // A wire preview is deliberately inert until the user loads the original.
-  // Compact tiles parse tool arguments (including patch numstats), so routing a
-  // truncated payload through them could present invented or incomplete data.
-  if (shouldGateFullContent(block)) return false;
-  // Surface Task/Agent results inline as their own row (they own their card
-  // chrome); skip the rest, which the renderer hides anyway.
-  if (block.type === "tool_result") {
-    if (block.isError && shouldHideToolCall(block.sourceToolName)) return false;
-    return block.sourceToolName !== "Agent" && block.sourceToolName !== "Task";
-  }
-  return true;
+  if (block.type === "thinking") return true;
+  return block.type === "tool_call" && block.toolName !== "ExitPlanMode";
+}
+
+/**
+ * Whether a folded block draws a compact line. Thinking does; a tool call does
+ * unless the full renderer hides it too (runtime plumbing, todo updates the
+ * composer's todos instrument owns).
+ */
+export function hasCompactLine(block: AgentBlockData): boolean {
+  return block.type === "thinking" || isCountableTool(block);
 }
 
 export function buildDisplayItems(
@@ -65,15 +57,17 @@ export function buildDisplayItems(
   const items: DisplayItem[] = [];
   let buffer: AgentBlockData[] = [];
   const flushBuffer = (): void => {
-    if (buffer.length === 0) return;
-    items.push({ kind: "flow", key: nextKey(`flow:${buffer[0].id}`), blocks: buffer });
+    // A run with nothing to draw (todo updates only) would be a zero-height
+    // Virtuoso row; its blocks render nothing in this mode anyway.
+    if (buffer.some(hasCompactLine)) {
+      items.push({ kind: "flow", key: nextKey(`flow:${buffer[0].id}`), blocks: buffer });
+    }
     buffer = [];
   };
   for (const block of blocks) {
     if (block.compactFlowBreakBefore) flushBuffer();
     if (isFlowEligible(block)) {
       buffer.push(block);
-      if (buffer.length === MAX_COMPACT_FLOW_BLOCKS) flushBuffer();
       continue;
     }
     flushBuffer();

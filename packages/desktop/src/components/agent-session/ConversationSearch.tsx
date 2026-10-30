@@ -20,6 +20,8 @@ interface ConversationSearchProps {
   toolResultMap?: ReadonlyMap<string, AgentBlockData>;
   virtuosoRef: RefObject<VirtuosoHandle | null>;
   scrollerRef: RefObject<HTMLElement | null>;
+  /** Reports the block holding the active match (null when none or closed). */
+  onActiveBlockChange?: (blockId: string | null) => void;
 }
 
 /**
@@ -34,9 +36,15 @@ export const ConversationSearch = memo(function ConversationSearch({
   toolResultMap,
   virtuosoRef,
   scrollerRef,
+  onActiveBlockChange,
 }: ConversationSearchProps) {
   const search = useConversationSearch({ items, toolResultMap, virtuosoRef, scrollerRef });
   useTakeFindRequest(search.openSearch, search.setQuery);
+  const { activeBlockId } = search;
+  useEffect(() => {
+    onActiveBlockChange?.(activeBlockId);
+    return () => onActiveBlockChange?.(null);
+  }, [activeBlockId, onActiveBlockChange]);
 
   useScopedGlobalShortcutById(
     "conversation-search",

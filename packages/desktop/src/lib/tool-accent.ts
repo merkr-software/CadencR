@@ -1,7 +1,7 @@
 /**
  * Shared "attributed color" system for tool calls.
  *
- * The Compact-flow tiles and the Summary-mode recap chips paint tools with the
+ * The Compact-flow lines (icon only) and the Summary-mode recap chips paint tools with the
  * same accent so a given tool reads consistently across both: edit for file
  * edits, terminal grey for Bash, blue for generic tools, violet for thinking,
  * and brand purple for our own MCP servers. Colors come from per-theme tokens so
