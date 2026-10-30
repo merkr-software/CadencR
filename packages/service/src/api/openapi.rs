@@ -684,7 +684,40 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_protocol::NeovimStartResponse,
         neovim_protocol::NeovimDetectResponse,
         neovim_protocol::OpenFileRequest,
+        ws_protocol::WsEnvelope,
+        ws_protocol::SessionInitializedPayload,
+        ws_protocol::SessionMessagePayload,
+        ws_protocol::SessionUsageUpdatePayload,
+        ws_protocol::SessionErrorPayload,
+        ws_protocol::SessionEndedPayload,
+        ws_protocol::SessionLifecyclePayload,
+        ws_protocol::SessionLifecycleKind,
+        ws_protocol::FeatureRenamedPayload,
+        ws_protocol::FeatureAutoNamingPayload,
+        ws_protocol::FeatureUpdatedPayload,
         ws_protocol::WsSessionAction,
+        ws_protocol::WsSessionEvent,
+        ws_protocol::SessionAcknowledgedPayload,
+        ws_protocol::SessionCompactingPayload,
+        ws_protocol::SessionCompactStartedPayload,
+        ws_protocol::SessionDeletedPayload,
+        ws_protocol::SessionClearedPayload,
+        ws_protocol::SessionMcpServersPayload,
+        ws_protocol::McpServerStatusPayload,
+        ws_protocol::HistoryResultPayload,
+        ws_protocol::HistoryAddedPayload,
+        ws_protocol::DraftResultPayload,
+        ws_protocol::DraftSavedPayload,
+        ws_protocol::BranchNeedsConfirmPayload,
+        ws_protocol::WsSessionCommand,
+        ws_protocol::AccessModeSetPayload,
+        ws_protocol::BranchPayload,
+        ws_protocol::HistoryGetPayload,
+        ws_protocol::HistoryAddPayload,
+        ws_protocol::DraftGetPayload,
+        ws_protocol::DraftSavePayload,
+        ws_protocol::RetryWorktreeSetupPayload,
+        ws_protocol::RetryWorktreeSetupOkPayload,
         ws_protocol::PermissionDecision,
         ws_protocol::SessionInitPayload,
         ws_protocol::PromptSendPayload,
@@ -776,6 +809,107 @@ pub fn routes() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::api_doc;
+
+    #[test]
+    fn session_commands_export_discriminated_payloads_used_by_runtime_routing() {
+        use crate::domain::ws_session::protocol::canonical_session_command_action;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionCommand"]["oneOf"].as_array().unwrap();
+        assert_eq!(variants.len(), 28);
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(
+                canonical_session_command_action(action).is_some(),
+                "{action}"
+            );
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+        }
+        for (action, payload) in [
+            ("prompt.send", "PromptSendPayload"),
+            ("access_mode.set", "AccessModeSetPayload"),
+            ("branch.rewind", "BranchPayload"),
+            ("history.add", "HistoryAddPayload"),
+            ("draft.save", "DraftSavePayload"),
+            ("retry_worktree_setup", "RetryWorktreeSetupPayload"),
+        ] {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["action"]["enum"][0] == action)
+                .unwrap();
+            assert_eq!(
+                variant["properties"]["payload"]["$ref"],
+                format!("#/components/schemas/{payload}")
+            );
+        }
+        for (schema, optional_fields) in [
+            (
+                "PromptSendPayload",
+                &[
+                    "images",
+                    "attachments",
+                    "message_uuid",
+                    "track_prompt_receipt",
+                ][..],
+            ),
+            ("BranchPayload", &["confirm_discard"][..]),
+        ] {
+            let required = schemas[schema]["required"].as_array().unwrap();
+            for field in optional_fields {
+                assert!(
+                    !required.contains(&serde_json::json!(field)),
+                    "{schema}.{field}"
+                );
+            }
+        }
+        assert!(schemas["WsEnvelope"]["properties"].get("ref").is_some());
+        assert!(!schemas["WsEnvelope"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("ref")));
+    }
+
+    #[test]
+    fn session_events_export_each_canonical_action_with_its_payload() {
+        use crate::domain::ws_session::protocol::WsSessionAction;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionEvent"]["oneOf"].as_array().unwrap();
+        let mut actions: std::collections::HashSet<_> = WsSessionAction::all()
+            .iter()
+            .map(|action| action.as_str())
+            .collect();
+        assert_eq!(variants.len(), actions.len());
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(actions.remove(action), "unknown or repeated event {action}");
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+            if action == "compact.started" {
+                assert_eq!(schemas[payload_name]["type"], "null");
+            }
+        }
+        assert!(actions.is_empty());
+    }
 
     #[test]
     fn descriptor_optional_properties_are_not_advertised_as_nullable() {

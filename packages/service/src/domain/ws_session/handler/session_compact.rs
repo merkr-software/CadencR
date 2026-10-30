@@ -175,8 +175,7 @@ async fn resolve_compact_runtime(
 fn send_compact_started(sender: &WsSender, envelope_id: &str) -> Result<(), String> {
     let reply = WsEnvelope::session_reply(
         envelope_id,
-        WsSessionAction::CompactStarted,
-        serde_json::Value::Null,
+        &WsSessionEvent::CompactStarted(SessionCompactStartedPayload),
     )
     .expect("compact started payload should serialize");
     sender

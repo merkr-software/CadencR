@@ -52,12 +52,13 @@ fn send_pending(
     payload: PermissionRequestPayload,
     kind: PendingKind,
 ) {
+    let request_id = payload.request_id.clone();
     let envelope =
-        permission_request_envelope(&payload).expect("permission request payload should serialize");
+        permission_request_envelope(payload).expect("permission request payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
     app_state
         .session_status_tx
-        .broadcast_gate(db_session_id, feature_id, kind, payload.request_id);
+        .broadcast_gate(db_session_id, feature_id, kind, request_id);
 }
 
 async fn clear_stale_pending(app_state: &AppState, db_session_id: i64, feature_id: i64) {

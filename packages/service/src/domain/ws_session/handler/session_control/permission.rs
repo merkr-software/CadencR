@@ -41,12 +41,13 @@ enum RuntimePermissionOutcome {
 }
 
 fn acknowledge_permission_response(sender: &WsSender, envelope_id: &str) {
-    let ack = WsEnvelope::reply(
+    let ack = WsEnvelope::session_reply(
         envelope_id,
-        "session",
-        "acknowledged",
-        serde_json::json!({ "action": "permission.respond" }),
-    );
+        &WsSessionEvent::Acknowledged(SessionAcknowledgedPayload {
+            action: "permission.respond".into(),
+        }),
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(ack).into()));
 }
 
@@ -121,15 +122,11 @@ async fn finish_accepted_runtime_permission(
     acknowledge_permission_response(sender, envelope_id);
     if denial_completes_session {
         WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
-        let ended = WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
-                reason: "permission_denied".into(),
-                ..Default::default()
-            })
-            .unwrap(),
-        );
+        let ended = WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
+            reason: "permission_denied".into(),
+            ..Default::default()
+        }))
+        .expect("session event payload should serialize");
         let _ = sender.send(Message::Text(String::from(ended).into()));
     }
     persist_question_answer(

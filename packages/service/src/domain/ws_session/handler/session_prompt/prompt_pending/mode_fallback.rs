@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 use tracing::warn;
 
@@ -5,7 +6,7 @@ use super::PendingPromptContext;
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
 use crate::domain::agents::permission_modes::permission_mode_wire;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
-use crate::domain::ws_session::protocol::{ModeChangedPayload, WsEnvelope, WsSessionAction};
+use crate::domain::ws_session::protocol::{ModeChangedPayload, WsEnvelope};
 
 /// Swap in the adapter's fallback when the runtime would silently drop the
 /// requested permission mode on this model, then persist and announce it so
@@ -34,10 +35,9 @@ pub(super) async fn apply_spawn_mode_fallback(
         &wire,
     )
     .await;
-    let envelope = WsEnvelope::session_event(
-        WsSessionAction::ModeChanged,
-        ModeChangedPayload { mode: wire },
-    )
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::ModeChanged(ModeChangedPayload {
+        mode: wire,
+    }))
     .expect("mode changed payload should serialize");
     context
         .app_state

@@ -18,7 +18,7 @@ use super::socket;
 
 /// Component schemas of stream payloads (§4.4), kept even when no operation
 /// references them so the SDK can type stream events.
-const STREAM_SCHEMAS: [&str; 10] = [
+const STREAM_SCHEMAS: [&str; 12] = [
     "GitStatusSnapshot",
     "PrStatusSnapshot",
     "UserMessagePayload",
@@ -29,6 +29,8 @@ const STREAM_SCHEMAS: [&str; 10] = [
     "BranchRewoundPayload",
     "BranchForkedPayload",
     "WsSessionAction",
+    "WsSessionEvent",
+    "WsEnvelope",
 ];
 
 /// Build the plugin surface from the full document.
@@ -209,6 +211,9 @@ mod tests {
             assert!(schemas.contains_key(name), "missing component {name}");
         }
         assert!(schemas.contains_key("GitStatusSnapshot"));
+        assert!(schemas.contains_key("WsSessionAction"));
+        assert!(schemas.contains_key("WsSessionEvent"));
+        assert!(schemas.contains_key("WsEnvelope"));
         assert!(schemas.contains_key("Feature"));
         assert!(!schemas.contains_key("PluginTabSummary"));
         assert_eq!(

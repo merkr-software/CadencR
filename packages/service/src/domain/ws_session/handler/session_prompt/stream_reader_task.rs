@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::collections::HashSet;
 
 use axum::extract::ws::Message;
@@ -283,17 +284,11 @@ impl StreamReaderTask {
             AgentStatus::Idle,
             None,
         );
-        let end_env = WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
-                reason: "provider_complete".into(),
-                received_prompt_message_uuids: std::mem::take(
-                    &mut state.received_prompt_message_uuids,
-                ),
-            })
-            .unwrap(),
-        );
+        let end_env = WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
+            reason: "provider_complete".into(),
+            received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
+        }))
+        .expect("session event payload should serialize");
         let _ = self
             .send_and_mirror(Message::Text(String::from(end_env).into()))
             .await;

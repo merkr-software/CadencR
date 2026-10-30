@@ -31,7 +31,7 @@ fn is_allow_for_session_option(option_id: Option<&str>) -> bool {
 }
 
 /// Envelope — every message in both directions uses this shape.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct WsEnvelope {
     pub id: String,
     pub domain: String,
@@ -71,20 +71,22 @@ impl WsEnvelope {
         }
     }
 
-    pub fn session_event<P: Serialize>(
-        action: WsSessionAction,
-        payload: P,
-    ) -> serde_json::Result<Self> {
-        serde_json::to_value(payload).map(|value| Self::new("session", action, value))
+    pub fn session_command(command: &WsSessionCommand) -> serde_json::Result<Self> {
+        command
+            .parts()
+            .map(|(action, payload)| Self::new("session", action, payload))
     }
 
-    pub fn session_reply<P: Serialize>(
-        original_id: &str,
-        action: WsSessionAction,
-        payload: P,
-    ) -> serde_json::Result<Self> {
-        serde_json::to_value(payload)
-            .map(|value| Self::reply(original_id, "session", action, value))
+    pub fn session_event(event: &WsSessionEvent) -> serde_json::Result<Self> {
+        event
+            .parts()
+            .map(|(action, payload)| Self::new("session", action, payload))
+    }
+
+    pub fn session_reply(original_id: &str, event: &WsSessionEvent) -> serde_json::Result<Self> {
+        event
+            .parts()
+            .map(|(action, payload)| Self::reply(original_id, "session", action, payload))
     }
 
     pub fn parse_action(&self) -> anyhow::Result<(&str, &str)> {
@@ -121,15 +123,21 @@ impl From<WsEnvelope> for String {
 
 mod actions;
 mod client;
+mod client_data;
 mod commands;
 mod persistence_status;
 mod server;
+mod server_data;
+mod session_commands;
 
 pub use actions::*;
 pub use client::*;
+pub use client_data::*;
 pub use commands::*;
 pub use persistence_status::*;
 pub use server::*;
+pub use server_data::*;
+pub use session_commands::*;
 
 #[cfg(test)]
 mod tests {
@@ -189,13 +197,11 @@ mod tests {
         assert!(actions.contains(&WsSessionAction::PromptReceived));
         assert!(actions.contains(&WsSessionAction::StreamStatus));
 
-        let env = WsEnvelope::session_event(
-            WsSessionAction::RuntimeSessionId,
-            RuntimeSessionIdPayload {
+        let env =
+            WsEnvelope::session_event(&WsSessionEvent::RuntimeSessionId(RuntimeSessionIdPayload {
                 runtime_session_id: "runtime-1".to_string(),
-            },
-        )
-        .unwrap();
+            }))
+            .unwrap();
 
         assert_eq!(env.domain, "session");
         assert_eq!(env.action, "runtime_session_id");

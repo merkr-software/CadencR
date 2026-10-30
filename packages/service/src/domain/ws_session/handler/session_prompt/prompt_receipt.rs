@@ -1,8 +1,7 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 
-use crate::domain::ws_session::protocol::{
-    PromptReceiptState, PromptReceivedPayload, WsEnvelope, WsSessionAction,
-};
+use crate::domain::ws_session::protocol::{PromptReceiptState, PromptReceivedPayload, WsEnvelope};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
 use super::super::WsSender;
@@ -11,13 +10,10 @@ pub(super) fn prompt_received_envelope(
     message_uuid: String,
     delivery_state: PromptReceiptState,
 ) -> WsEnvelope {
-    WsEnvelope::session_event(
-        WsSessionAction::PromptReceived,
-        PromptReceivedPayload {
-            message_uuid,
-            delivery_state,
-        },
-    )
+    WsEnvelope::session_event(&WsSessionEvent::PromptReceived(PromptReceivedPayload {
+        message_uuid,
+        delivery_state,
+    }))
     .expect("prompt received payload should serialize")
 }
 

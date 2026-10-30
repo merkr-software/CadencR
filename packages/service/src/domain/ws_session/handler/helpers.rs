@@ -1,6 +1,7 @@
 //! Tiny helpers shared across the per-action handlers: permission-mode
 //! parsing, runtime-session ID persistence, error envelope emission.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 use tracing::debug;
 
@@ -11,7 +12,7 @@ pub(crate) use crate::domain::agents::permission_modes::{
 };
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{
-    RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope, WsSessionAction,
+    RuntimeSessionIdPayload, SessionErrorPayload, WsEnvelope,
 };
 
 use super::session_init_resume::persistable_resume_session_id_for_provider;
@@ -62,14 +63,11 @@ pub(super) async fn persist_and_close_query(
             None,
         )
         .await;
-        let envelope = WsEnvelope::session_event(
-            WsSessionAction::Error,
-            SessionErrorPayload {
-                code: "RUNTIME_CLOSE_FAILED".into(),
-                message,
-                ..Default::default()
-            },
-        )
+        let envelope = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+            code: "RUNTIME_CLOSE_FAILED".into(),
+            message,
+            ..Default::default()
+        }))
         .expect("runtime close error should serialize");
         let message = Message::Text(String::from(envelope).into());
         app_state
@@ -84,28 +82,24 @@ pub(super) async fn persist_and_close_query(
 
 /// Send an error envelope back to the client.
 pub(super) fn send_error(sender: &WsSender, ref_id: &str, code: &str, message: &str) {
-    let err = WsEnvelope::reply(
+    let err = WsEnvelope::session_reply(
         ref_id,
-        "session",
-        "error",
-        serde_json::to_value(SessionErrorPayload {
+        &WsSessionEvent::Error(SessionErrorPayload {
             code: code.into(),
             message: message.into(),
             ..Default::default()
-        })
-        .unwrap(),
-    );
+        }),
+    )
+    .expect("session event payload should serialize");
     let _ = sender.send(Message::Text(String::from(err).into()));
 }
 
 /// Notify the frontend of the runtime session ID (used for --resume).
 pub(super) fn send_runtime_session_id(sender: &WsSender, cli_sid: &str) {
-    let envelope = WsEnvelope::session_event(
-        WsSessionAction::RuntimeSessionId,
-        RuntimeSessionIdPayload {
+    let envelope =
+        WsEnvelope::session_event(&WsSessionEvent::RuntimeSessionId(RuntimeSessionIdPayload {
             runtime_session_id: cli_sid.to_string(),
-        },
-    )
-    .expect("runtime session id payload should serialize");
+        }))
+        .expect("runtime session id payload should serialize");
     let _ = sender.send(Message::Text(String::from(envelope).into()));
 }

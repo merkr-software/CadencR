@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::time::{Duration, Instant};
 
 use tracing::{debug, info, warn};
@@ -178,16 +179,13 @@ pub(super) fn report_close_error(
     senders: &[tokio::sync::mpsc::UnboundedSender<axum::extract::ws::Message>],
     error: RuntimeError,
 ) {
-    use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope, WsSessionAction};
+    use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
 
-    let envelope = WsEnvelope::session_event(
-        WsSessionAction::Error,
-        SessionErrorPayload {
-            code: "RUNTIME_CLOSE_FAILED".into(),
-            message: error.to_string(),
-            ..Default::default()
-        },
-    )
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+        code: "RUNTIME_CLOSE_FAILED".into(),
+        message: error.to_string(),
+        ..Default::default()
+    }))
     .expect("runtime close error should serialize");
     super::send_to_all(senders, String::from(envelope));
 }

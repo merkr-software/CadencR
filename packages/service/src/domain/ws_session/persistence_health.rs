@@ -1,12 +1,11 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::extract::ws::Message;
 use tokio::sync::{mpsc, Mutex};
 
-use super::protocol::{
-    PersistenceStatusState, SessionPersistenceStatusPayload, WsEnvelope, WsSessionAction,
-};
+use super::protocol::{PersistenceStatusState, SessionPersistenceStatusPayload, WsEnvelope};
 use super::sender_registry::WsFeatureSenderRegistry;
 
 struct SessionHealth {
@@ -87,7 +86,7 @@ impl SessionPersistenceHealth {
 
 fn status_message(payload: SessionPersistenceStatusPayload) -> Message {
     // This payload contains only a unit enum and a string, so serialization is infallible.
-    let envelope = WsEnvelope::session_event(WsSessionAction::PersistenceStatus, payload)
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::PersistenceStatus(payload))
         .expect("transcript health payload is serializable");
     Message::Text(String::from(envelope).into())
 }

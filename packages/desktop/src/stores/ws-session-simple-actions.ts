@@ -5,7 +5,7 @@ import {
   createDestroy,
   createEffortSet,
   createFastModeSet,
-  createEnvelope,
+  createSessionEnvelope,
   createGateClose,
   createInterrupt,
   createModeSet,
@@ -278,7 +278,7 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
         );
         return;
       }
-      const envelope = createEnvelope("session", "retry_worktree_setup", {
+      const envelope = createSessionEnvelope("retry_worktree_setup", {
         session_id: session.serverSessionId,
         feature_id: featureId,
       });

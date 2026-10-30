@@ -1,5 +1,6 @@
 //! Cadencr-managed user shell execution and transcript streaming.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -236,15 +237,11 @@ async fn publish_event(
     feature_senders: &WsFeatureSenderRegistry,
     block: Value,
 ) {
-    let envelope = WsEnvelope::new(
-        "session",
-        "message",
-        serde_json::to_value(SessionMessagePayload {
-            blocks: vec![block],
-            seq: None,
-        })
-        .expect("session message payload serializes"),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::Message(SessionMessagePayload {
+        blocks: vec![block],
+        seq: None,
+    }))
+    .expect("session event payload should serialize");
     feature_senders
         .send_and_mirror(
             feature_id,

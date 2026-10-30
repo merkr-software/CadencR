@@ -1,15 +1,16 @@
 import { z } from "zod";
+import { PersistenceStatusState, type SessionPersistenceStatusPayload } from "@/api/generated";
 import { toast } from "sonner";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { updateSession } from "./ws-session-types";
 import { repairRecoveredPersistence } from "./ws-persistence-resync";
 
 const persistenceStatusSchema = z.object({
-  status: z.enum(["degraded", "recovered", "failed"]),
+  status: z.enum(PersistenceStatusState),
   message: z.string().trim().min(1),
-});
+}) satisfies z.ZodType<SessionPersistenceStatusPayload>;
 
-export type PersistenceStatus = z.infer<typeof persistenceStatusSchema>;
+export type PersistenceStatus = SessionPersistenceStatusPayload;
 
 /** Saving the transcript can fail while the agent continues working. */
 export function handlePersistenceStatus(

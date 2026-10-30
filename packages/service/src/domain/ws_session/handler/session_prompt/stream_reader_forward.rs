@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 use tracing::{debug, error};
 
@@ -86,7 +87,7 @@ pub(super) async fn forward_immediate_event(
         return send_envelope(
             task,
             WsSessionAction::StreamStatus.as_str(),
-            WsEnvelope::session_event(WsSessionAction::StreamStatus, stream_status_payload(status))
+            WsEnvelope::session_event(&WsSessionEvent::StreamStatus(stream_status_payload(status)))
                 .expect("stream status payload should serialize"),
             true,
         )

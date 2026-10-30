@@ -1,6 +1,7 @@
 //! Steps that follow a `session.model.set` switch: persistence, the context
 //! window reseed, clearing an unsupported fast mode, and the reply.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use tracing::error;
 
 use super::super::super::super::persistence::WsSessionPersistence;
@@ -110,12 +111,11 @@ pub(super) async fn send_model_set_ok(
         sender,
         envelope_id,
         feature_id,
-        WsSessionAction::ModelSetOk,
-        ModelSetOkPayload {
+        &WsSessionEvent::ModelSetOk(ModelSetOkPayload {
             provider,
             model,
             context_window: seeded_window,
-        },
+        }),
     )
     .await;
 }

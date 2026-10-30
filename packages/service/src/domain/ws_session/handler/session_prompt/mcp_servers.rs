@@ -1,22 +1,14 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
+
 use axum::extract::ws::Message;
-use serde::Serialize;
 use tracing::{info, warn};
 
 use crate::domain::agents::adapter::{AgentRuntimeSession, RuntimeEvent, RuntimeMcpServerStatus};
-use crate::domain::ws_session::protocol::WsEnvelope;
+use crate::domain::ws_session::protocol::{
+    McpServerStatusPayload, SessionMcpServersPayload, WsEnvelope,
+};
 
 use super::super::{QueryState, SdkSessions, WsSender};
-
-#[derive(Debug, Clone, Serialize)]
-pub(super) struct SessionMcpServersPayload {
-    pub mcp_servers: Vec<McpServerStatusPayload>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(super) struct McpServerStatusPayload {
-    pub name: String,
-    pub status: String,
-}
 
 pub(super) async fn send_mcp_servers_if_init(
     sender: &WsSender,
@@ -79,11 +71,8 @@ pub(super) async fn refresh_mcp_servers_for_active_session(
 }
 
 fn send_payload(sender: &WsSender, payload: SessionMcpServersPayload) -> Result<(), ()> {
-    let envelope = WsEnvelope::new(
-        "session",
-        "mcp_servers",
-        serde_json::to_value(payload).unwrap_or_else(|_| serde_json::json!({ "mcp_servers": [] })),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::McpServers(payload))
+        .expect("session event payload should serialize");
     sender
         .send(Message::Text(String::from(envelope).into()))
         .map_err(|_| ())

@@ -1,3 +1,4 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -23,16 +24,13 @@ impl StreamReaderTask {
         output_tokens: u64,
         context_window: Option<u64>,
     ) {
-        let usage_env = WsEnvelope::new(
-            "session",
-            "usage_update",
-            serde_json::to_value(SessionUsageUpdatePayload {
+        let usage_env =
+            WsEnvelope::session_event(&WsSessionEvent::UsageUpdate(SessionUsageUpdatePayload {
                 input_tokens,
                 output_tokens,
                 context_window,
-            })
-            .unwrap(),
-        );
+            }))
+            .expect("session event payload should serialize");
         let _ = self
             .send_and_mirror(Message::Text(String::from(usage_env).into()))
             .await;
@@ -84,15 +82,13 @@ impl StreamReaderTask {
             );
         }
         state.message_seq += 1;
-        Some(WsEnvelope::new(
-            "session",
-            "message",
-            serde_json::to_value(SessionMessagePayload {
+        Some(
+            WsEnvelope::session_event(&WsSessionEvent::Message(SessionMessagePayload {
                 blocks: vec![block],
                 seq: Some(state.message_seq),
-            })
-            .unwrap(),
-        ))
+            }))
+            .expect("session event payload should serialize"),
+        )
     }
 
     async fn result_envelope(
@@ -151,17 +147,15 @@ impl StreamReaderTask {
                 status_tx.broadcast(self.db_session_id, self.feature_id, AgentStatus::Idle, None);
             }
         }
-        Some(WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
+        Some(
+            WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
                 reason: "turn_complete".into(),
                 received_prompt_message_uuids: std::mem::take(
                     &mut state.received_prompt_message_uuids,
                 ),
-            })
-            .unwrap(),
-        ))
+            }))
+            .expect("session event payload should serialize"),
+        )
     }
 
     async fn interrupted_result_envelope(
@@ -200,17 +194,15 @@ impl StreamReaderTask {
                 None,
             );
         }
-        Some(WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
+        Some(
+            WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
                 reason: "turn_interrupted".into(),
                 received_prompt_message_uuids: std::mem::take(
                     &mut state.received_prompt_message_uuids,
                 ),
-            })
-            .unwrap(),
-        ))
+            }))
+            .expect("session event payload should serialize"),
+        )
     }
 
     pub(super) async fn handle_stream_error(
@@ -293,17 +285,13 @@ impl StreamReaderTask {
             parent_tool_use_id,
         )
         .await;
-        let err_env = WsEnvelope::new(
-            "session",
-            "error",
-            serde_json::to_value(SessionErrorPayload {
-                code: code.into(),
-                message,
-                received_prompt_message_uuids,
-                ..Default::default()
-            })
-            .unwrap(),
-        );
+        let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
+            code: code.into(),
+            message,
+            received_prompt_message_uuids,
+            ..Default::default()
+        }))
+        .expect("session event payload should serialize");
         let _ = self
             .send_and_mirror(Message::Text(String::from(err_env).into()))
             .await;
@@ -355,17 +343,11 @@ impl StreamReaderTask {
 
     pub(super) async fn send_stream_closed(&self, state: &mut StreamReaderState) {
         info!(self.db_session_id, "SDK stream closed");
-        let end_env = WsEnvelope::new(
-            "session",
-            "ended",
-            serde_json::to_value(SessionEndedPayload {
-                reason: "stream_closed".into(),
-                received_prompt_message_uuids: std::mem::take(
-                    &mut state.received_prompt_message_uuids,
-                ),
-            })
-            .unwrap(),
-        );
+        let end_env = WsEnvelope::session_event(&WsSessionEvent::Ended(SessionEndedPayload {
+            reason: "stream_closed".into(),
+            received_prompt_message_uuids: std::mem::take(&mut state.received_prompt_message_uuids),
+        }))
+        .expect("session event payload should serialize");
         let _ = self
             .send_and_mirror(Message::Text(String::from(end_env).into()))
             .await;
