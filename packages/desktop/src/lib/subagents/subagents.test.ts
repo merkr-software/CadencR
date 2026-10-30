@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SubagentRun } from "@/api/generated";
-import type { AgentBlockData } from "@/components/agent-block-types";
-import { buildDisplayItems } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import { buildDisplayItems } from "@/lib/agent-stream-display";
 import { countSubagentToolCalls } from "@/components/subagent-actions";
 import { displayShellCommand } from "@/lib/tool-adapter";
 import { subagentActionCount, subagentElapsedMs, subagentView } from "./subagent-presentation";

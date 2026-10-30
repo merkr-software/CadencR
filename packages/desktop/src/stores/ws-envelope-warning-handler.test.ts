@@ -1,3 +1,4 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import type { SessionWarningPayload } from "@/api/generated";
@@ -51,6 +52,7 @@ function context(mode: "running" | "compacting" | "gated" = "running"): StoreAcc
     set: vi.fn((patch: Partial<WsSessionStore>) => {
       state = { ...state, ...patch };
     }),
+    transport: new SessionTransportRegistry(),
     getSession: (id): SessionEntry => state.sessions[id],
   };
 }
@@ -86,13 +88,13 @@ describe("nonterminal session warnings", () => {
     (payload) => {
       const ctx = context();
       const callback = vi.fn();
-      const session = ctx.getSession("s1");
-      session.pendingWsRequests.set("command-1", callback);
+      const transport = ctx.transport.ensure("s1");
+      transport.pendingWsRequests.set("command-1", callback);
 
       sendWarning(ctx, payload, "command-1");
 
       expect(callback).not.toHaveBeenCalled();
-      expect(session.pendingWsRequests.get("command-1")).toBe(callback);
+      expect(transport.pendingWsRequests.get("command-1")).toBe(callback);
       expect(toast.warning).toHaveBeenCalledTimes(payload.message === null ? 0 : 1);
       handleEnvelope(ctx, "s1", {
         domain: "session",
@@ -101,7 +103,7 @@ describe("nonterminal session warnings", () => {
         payload: { accepted: true },
       });
       expect(callback).toHaveBeenCalledExactlyOnceWith({ accepted: true });
-      expect(session.pendingWsRequests.has("command-1")).toBe(false);
+      expect(transport.pendingWsRequests.has("command-1")).toBe(false);
     },
   );
 

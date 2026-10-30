@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { buildToolChips } from "./agentStreamToolChips";
 
 function tool(id: string, toolName: string, toolArgs?: string): AgentBlockData {

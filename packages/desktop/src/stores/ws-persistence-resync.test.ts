@@ -1,5 +1,6 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-types";
 import { applyMutations, blocksPatchWithDerived, processSdkMessage } from "./ws-message-processing";
@@ -44,6 +45,7 @@ function setup(texts = ["repaired output"]) {
     set: (patch) => {
       state = { ...state, ...patch };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (id): SessionEntry => state.sessions[id],
   };
   return { ctx, emit, session };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "./AgentBlock";
-import { collapseTurnsToSummary } from "./agentStreamSummary";
+import type { AgentBlockData } from "@/types/agent-block";
+import { collapseTurnsToSummary } from "@/lib/agent-stream-summary";
 import { buildToolChips } from "./agentStreamToolChips";
 import { upsertCanonicalUserMessage } from "@/stores/ws-user-message-reconciliation";
 

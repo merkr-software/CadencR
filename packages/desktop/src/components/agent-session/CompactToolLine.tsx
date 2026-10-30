@@ -9,8 +9,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { shouldGateFullContent, type AgentBlockData } from "@/components/agent-block-types";
-import { hasCompactLine } from "@/components/agentStreamDisplay";
+import { shouldGateFullContent } from "@/lib/agent-block-content";
+import type { AgentBlockData } from "@/types/agent-block";
+import { hasCompactLine } from "@/lib/agent-stream-display";
 import { NumStat } from "@/components/NumStat";
 import { thinkingPreview } from "@/components/ThinkingBlock";
 import {

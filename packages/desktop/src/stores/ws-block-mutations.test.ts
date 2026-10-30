@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import { applyMutations, parseTodosFromBlocks } from "./ws-block-mutations";
 import { createStreamingState } from "./ws-message-processing";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 function replayLargeToolEnvelope(contentChars: number): {
   block: AgentBlockData;

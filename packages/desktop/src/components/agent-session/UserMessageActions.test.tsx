@@ -23,7 +23,7 @@ vi.mock("sonner", () => ({
   toast: { error: (...args: unknown[]) => toastError(...args) },
 }));
 import { extractPromptBlobs, resetPromptBlobCacheForTest } from "@/lib/prompt-image-cache";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { AgentSessionProvider } from "./agent-session-context";
 import { UserMessageActions } from "./UserMessageActions";
 import { UserMessageBlock } from "../UserMessageBlock";

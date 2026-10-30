@@ -1,3 +1,4 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it } from "vitest";
 
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
@@ -11,6 +12,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>): void => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string): SessionEntry => state.sessions[sessionId],
   };
 }

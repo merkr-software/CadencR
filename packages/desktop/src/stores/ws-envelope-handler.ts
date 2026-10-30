@@ -56,7 +56,6 @@ import {
 } from "./ws-session-action-names";
 import { handleSubagentUpdated, handleTurnEndWithSubagents } from "./ws-subagent-handlers";
 import { discardStreamDeltas } from "./ws-delta-coalescer";
-import { SESSION_CLOSED_BEFORE_DELIVERY, failPromptDelivery } from "./ws-session-prompt-delivery";
 export type { StoreAccessors } from "./ws-envelope-types";
 
 // Main envelope handler
@@ -70,10 +69,10 @@ export function handleEnvelope(
   const isWarning = envelope.domain === "session" && envelope.action === SESSION_ACTION.warning;
   // Resolve pending request-response callbacks
   if (envelope.ref && !isWarning) {
-    const session = ctx.get().sessions[sessionId];
-    const cb = session?.pendingWsRequests.get(envelope.ref);
+    const transport = ctx.transport.get(sessionId);
+    const cb = transport?.pendingWsRequests.get(envelope.ref);
     if (cb) {
-      session.pendingWsRequests.delete(envelope.ref);
+      transport?.pendingWsRequests.delete(envelope.ref);
       cb(envelope.payload);
       // Most correlated replies contain request-only acknowledgements. Runtime
       // override replies are different: the payload is also the canonical
@@ -362,10 +361,8 @@ function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
 }
 
 function handleDeleted(ctx: StoreAccessors, sessionId: string): void {
-  discardStreamDeltas(sessionId);
-  failPromptDelivery(sessionId, SESSION_CLOSED_BEFORE_DELIVERY);
-  const del = ctx.get().sessions[sessionId];
-  if (del?.conn) del.conn.close();
+  discardStreamDeltas(ctx, sessionId);
+  ctx.transport.remove(sessionId);
   const { [sessionId]: _, ...rest } = ctx.get().sessions;
   ctx.set({ sessions: rest });
 }

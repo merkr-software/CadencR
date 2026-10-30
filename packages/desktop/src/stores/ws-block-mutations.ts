@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 import type { TodoItem } from "@/types/agent";
 import type { BlockMutation, ParserSignals, StreamingState } from "./ws-message-processing";

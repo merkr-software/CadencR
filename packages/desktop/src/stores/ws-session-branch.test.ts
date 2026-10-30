@@ -13,7 +13,7 @@ vi.mock("@/lib/queryClient", () => ({ queryClient: { invalidateQueries: vi.fn() 
 vi.mock("@/api/generated", () => ({
   getListFeaturesQueryKey: (params: { project_id: number }) => ["/api/features", params],
 }));
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type WsSessionStore } from "./ws-session-types";
 import {
   forkFromMessage,

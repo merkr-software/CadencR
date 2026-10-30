@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { normalizeToolName } from "@/lib/tool-adapter";
 import { createToolUseBlock } from "./ws-message-processing-tool-blocks";
 import { processStreamEvent } from "./ws-message-processing-stream";

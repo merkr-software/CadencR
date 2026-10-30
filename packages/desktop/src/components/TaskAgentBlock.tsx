@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { ChevronRightIcon } from "lucide-react";
-import type { AgentBlockData } from "@/components/agent-block-types";
-import { hasCompactLine } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import { hasCompactLine } from "@/lib/agent-stream-display";
 import { countSubagentToolCalls, selectSubagentActions } from "@/components/subagent-actions";
 import { useAgentSessionContext } from "@/components/agent-session/agent-session-context";
 import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";

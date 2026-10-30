@@ -1,3 +1,4 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
 
@@ -90,7 +91,10 @@ function confirmPrompt(
   });
 }
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   MockWebSocket.instances = [];
   useWsSessionStore.setState({ sessions: {} });
   vi.stubGlobal("WebSocket", MockWebSocket);
@@ -98,6 +102,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePresentation();
   for (const sessionId of Object.keys(useWsSessionStore.getState().sessions)) {
     useWsSessionStore.getState().disconnect(sessionId);
   }

@@ -22,13 +22,23 @@ interface SessionBuffer {
   scheduled: boolean;
 }
 
-const buffers = new Map<string, SessionBuffer>();
+const buffersByTransport = new WeakMap<StoreAccessors["transport"], Map<string, SessionBuffer>>();
+
+function getBuffers(ctx: StoreAccessors): Map<string, SessionBuffer> {
+  let buffers = buffersByTransport.get(ctx.transport);
+  if (!buffers) {
+    buffers = new Map();
+    buffersByTransport.set(ctx.transport, buffers);
+  }
+  return buffers;
+}
 
 /**
  * Buffer a `session.message` stream-delta payload, scheduling one coalesced
  * flush per frame. A burst of N deltas produces a single store commit.
  */
 export function bufferStreamDelta(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
+  const buffers = getBuffers(ctx);
   let buf = buffers.get(sessionId);
   if (!buf) {
     buf = { payloads: [], scheduled: false };
@@ -46,7 +56,7 @@ export function bufferStreamDelta(ctx: StoreAccessors, sessionId: string, payloa
  * eagerly before any non-delta envelope so ordering is preserved.
  */
 export function flushStreamDeltas(ctx: StoreAccessors, sessionId: string): void {
-  const buf = buffers.get(sessionId);
+  const buf = buffersByTransport.get(ctx.transport)?.get(sessionId);
   if (!buf) return;
   buf.scheduled = false;
   if (buf.payloads.length === 0) return;
@@ -60,6 +70,6 @@ export function flushStreamDeltas(ctx: StoreAccessors, sessionId: string): void 
  * teardown (disconnect/destroy/deleted) so a stale scheduled flush can't apply
  * into a removed session. The deltas are already persisted server-side.
  */
-export function discardStreamDeltas(sessionId: string): void {
-  buffers.delete(sessionId);
+export function discardStreamDeltas(ctx: StoreAccessors, sessionId: string): void {
+  buffersByTransport.get(ctx.transport)?.delete(sessionId);
 }

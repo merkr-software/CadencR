@@ -43,7 +43,7 @@
 import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { applyToolCallUpdates } from "@/hooks/useFeatureAgentState-merge";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
 import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";

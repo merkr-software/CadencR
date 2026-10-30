@@ -1,3 +1,4 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
@@ -23,6 +24,7 @@ function context(): StoreAccessors {
     set: (patch) => {
       state = { ...state, ...patch };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (id): SessionEntry => state.sessions[id],
   };
 }

@@ -38,13 +38,13 @@ import { verbosityControlsCollapse, type AgentVerbosityMode } from "@/lib/agent-
 import { blockMessageDbId } from "@/stores/ws-message-identity";
 import type { SessionReplyEnvelope } from "@/lib/session-reply";
 
-export type { AgentBlockData, BlockType } from "@/components/agent-block-types";
+export type { AgentBlockData, BlockType } from "@/types/agent-block";
 import {
   rendersStandaloneToolResult,
   rendersToolCall,
   shouldGateFullContent,
-  type AgentBlockData,
-} from "@/components/agent-block-types";
+} from "@/lib/agent-block-content";
+import type { AgentBlockData } from "@/types/agent-block";
 
 export function buildToolResultMap(blocks: AgentBlockData[]): Map<string, AgentBlockData> {
   const map = new Map<string, AgentBlockData>();

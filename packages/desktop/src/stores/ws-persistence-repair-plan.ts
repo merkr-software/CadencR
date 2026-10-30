@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { SessionEntry } from "./ws-session-types";
 import { blockMessageDbId } from "./ws-message-identity";
 

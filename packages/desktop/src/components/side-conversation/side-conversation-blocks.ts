@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isAgentSentMessage } from "@/lib/agent-message-origin";
 
 /**

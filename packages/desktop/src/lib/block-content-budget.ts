@@ -18,7 +18,7 @@
  * `TRUNCATION_NOTICE` is the user-visible signal.
  */
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { extractPromptBlobs } from "@/lib/prompt-image-cache";
 
 /**

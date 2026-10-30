@@ -6,8 +6,8 @@ import type { WorktreeMode } from "@/lib/worktree-mode";
 import type { ContextUsageState, LiveAgentStatus } from "@/types/agent";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { PermissionMode } from "@/types/permission-mode";
-import type { AgentQuestion, AgentQuestionAnswers } from "./AgentQuestionDrawer";
-import type { PendingPermission, PermissionDecisionValue } from "./ToolPermissionPrompt";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
+import type { PendingPermission, PermissionDecisionValue } from "@/types/agent-permission";
 
 export interface ReferencedWorktreeSelection {
   mode: WorktreeMode;

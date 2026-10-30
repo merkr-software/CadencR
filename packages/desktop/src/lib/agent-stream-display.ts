@@ -1,25 +1,12 @@
-import type { AgentBlockData } from "./AgentBlock";
-import { rendersStandaloneToolResult, shouldGateFullContent } from "./agent-block-types";
-import { collapseTurnsToSummary, isCountableTool } from "./agentStreamSummary";
+import type { DisplayItem, DisplayRowMode } from "@/types/agent-stream";
+import type { AgentBlockData } from "@/types/agent-block";
+import { rendersStandaloneToolResult, shouldGateFullContent } from "@/lib/agent-block-content";
+import { collapseTurnsToSummary, isCountableTool } from "@/lib/agent-stream-summary";
 import {
   isRestartContinuationMessage,
   isRestartInterruptionMarker,
 } from "@/lib/agent-message-origin";
-import {
-  isSubagentCarrier,
-  isSubagentToolName,
-  shouldHideToolCall,
-} from "@/lib/tool-display-policy";
-
-/**
- * A renderable row in the agent stream. In every mode except "compact" each
- * block is its own row. In "compact" mode, each run of consecutive non-text
- * blocks (tool calls, thinking) folds into one `flow` row that renders as a
- * single line until the user unfolds it.
- */
-export type DisplayItem =
-  | { kind: "block"; key: string; block: AgentBlockData }
-  | { kind: "flow"; key: string; blocks: AgentBlockData[] };
+import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy";
 
 /**
  * Only tool calls and thinking fold into a compact line. Prose, prompts, plans,
@@ -117,15 +104,6 @@ export function leadingCompactFlowBlock(blocks: AgentBlockData[]): AgentBlockDat
     return isFlowEligible(block) ? block : undefined;
   }
   return undefined;
-}
-
-/**
- * Which display transforms are active, so row counts match what `AgentStream`
- * actually renders. Both default to off (Maximal, no summary).
- */
-export interface DisplayRowMode {
-  summaryMode?: boolean;
-  compactMode?: boolean;
 }
 
 /**

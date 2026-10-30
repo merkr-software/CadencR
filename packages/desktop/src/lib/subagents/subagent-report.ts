@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { SubagentView } from "@/lib/subagents/subagent-presentation";
 import { extractTaskOutput } from "@/lib/tool-adapter";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";

@@ -2,7 +2,7 @@ import { render, renderHook, screen, waitFor, act } from "@/test-utils";
 import type { VirtuosoHandle } from "react-virtuoso";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAgentSessionScroll } from "./useAgentSessionScroll";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 const isIosMock = vi.fn(() => false);
 vi.mock("@/lib/is-ios", () => ({ isIos: () => isIosMock() }));

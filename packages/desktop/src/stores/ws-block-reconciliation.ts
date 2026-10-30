@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { blockMessageDbId } from "./ws-message-identity";
 
 /** null marks an already-ambiguous row identity. */

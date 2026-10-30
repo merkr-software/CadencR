@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { rowsByBlockId } from "./useMessageNavigator";
 
 function block(id: string, type: AgentBlockData["type"] = "tool_call"): AgentBlockData {

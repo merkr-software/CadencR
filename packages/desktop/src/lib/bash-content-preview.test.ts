@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { shouldGateFullContent, type AgentBlockData } from "@/components/agent-block-types";
+import { shouldGateFullContent } from "@/lib/agent-block-content";
+import type { AgentBlockData } from "@/types/agent-block";
 
 const gate = (args: unknown) =>
   shouldGateFullContent({

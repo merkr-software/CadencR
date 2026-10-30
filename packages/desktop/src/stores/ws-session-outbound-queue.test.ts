@@ -1,3 +1,4 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
 // @vitest-environment happy-dom
 /**
  * Outbound-queue behavior of the WS session store: envelopes sent while the
@@ -79,7 +80,10 @@ function sentActions(ws: MockWebSocket): string[] {
   });
 }
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   MockWebSocket.reset();
   useWsSessionStore.setState({ sessions: {} });
   vi.stubGlobal("WebSocket", MockWebSocket);
@@ -87,6 +91,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePresentation();
   const store = useWsSessionStore.getState();
   for (const sessionId of Object.keys(store.sessions)) {
     store.disconnect(sessionId);
@@ -117,13 +122,11 @@ describe("ws-session outbound queue", () => {
     const store = useWsSessionStore.getState();
 
     store.interrupt("s1");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     store.connect("s1");
     await tick();
 
     expect(sentActions(getWs())).toContain("session.interrupt");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
   });
 
   it("delivers a prompt sent during the reconnect gap instead of dropping it", async () => {
@@ -197,12 +200,12 @@ describe("ws-session outbound queue", () => {
     const store = useWsSessionStore.getState();
 
     store.interrupt("s1");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     store.disconnect("s1");
-    const session = useWsSessionStore.getState().sessions.s1;
-    // The entry may survive (no live conn to tear down) but its queue must not.
-    expect(session?.outboundQueue ?? []).toHaveLength(0);
+    expect(useWsSessionStore.getState().sessions.s1).toBeUndefined();
+    store.connect("s1");
+    await tick();
+    expect(sentActions(getWs())).not.toContain("session.interrupt");
   });
 
   it("does not resend a sendRequest() envelope that timed out before the reconnect", async () => {
@@ -224,13 +227,11 @@ describe("ws-session outbound queue", () => {
     try {
       const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 42 });
       const pending = store.sendRequest("s1", envelope);
-      expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
       // 10s elapse with the socket still down: the request times out and its
       // envelope must leave the queue instead of lingering as a stale flush.
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(pending).resolves.toBeNull();
-      expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
 
       // The socket comes back: the timed-out envelope must not be replayed.
       ws.readyState = MockWebSocket.OPEN;
@@ -258,13 +259,11 @@ describe("ws-session outbound queue", () => {
       "s1",
       createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     // The close lands: the pending-request sweep resolves the promise null
     // and must take the matching queued envelope with it.
     ws.fireEvent("close");
     await expect(pending).resolves.toBeNull();
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(0);
 
     // The reconnect must not replay a request the caller was told failed.
     store.connect("s1");
@@ -288,7 +287,6 @@ describe("ws-session outbound queue", () => {
       "s1",
       createSessionEnvelope("retry_worktree_setup", { feature_id: 42 }),
     );
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     // Wake-style force reconnect (usePowerEvents.handleResume): closes the
     // old socket, sweeps pending requests, opens a replacement.

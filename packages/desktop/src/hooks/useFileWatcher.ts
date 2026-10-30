@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { createEnvelope } from "@/lib/ws-envelope";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 
 /**
@@ -9,16 +8,12 @@ import { useSessionStatusStore } from "@/stores/session-status-store";
  * a second socket per app.
  */
 export function useFileWatcher(projectId: number, featureId?: number): void {
-  const ws = useSessionStatusStore((s) => s.ws);
   const isConnected = useSessionStatusStore((s) => s.isConnected);
+  const connectionEpoch = useSessionStatusStore((s) => s.connectionEpoch);
+  const subscribeFileWatcher = useSessionStatusStore((s) => s.subscribeFileWatcher);
 
   useEffect(() => {
-    if (!ws || !isConnected || ws.readyState !== WebSocket.OPEN) return;
-
-    const envelope = createEnvelope("app", "subscribe.file_watcher", {
-      project_id: projectId,
-      feature_id: featureId,
-    });
-    ws.send(JSON.stringify(envelope));
-  }, [ws, isConnected, projectId, featureId]);
+    if (!isConnected) return;
+    subscribeFileWatcher(projectId, featureId);
+  }, [isConnected, connectionEpoch, subscribeFileWatcher, projectId, featureId]);
 }
