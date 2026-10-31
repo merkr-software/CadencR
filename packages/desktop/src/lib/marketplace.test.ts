@@ -117,18 +117,20 @@ describe("mixed catalog provider presentation", () => {
     expect(groupPackages(providerCatalogPackages(mixedCatalog.index))).toEqual([[provider]]);
     expect(JSON.stringify(mixedCatalog)).toBe(serialized);
   });
-  it("rejects unknown envelopes, kinds, nested distribution fields, and malformed theme bodies", () => {
+  it("skips entries of a kind this build does not know instead of rejecting the catalog", () => {
+    const future = structuredClone(mixedCatalog);
+    future.index!.signed.packages = [
+      { kind: "skill", package: { skill: { id: "lint" } } },
+      ...mixedCatalog.index!.signed.packages,
+    ];
+    expect(catalogSchema.safeParse(future).success).toBe(true);
+    expect(groupPackages(providerCatalogPackages(future.index))).toEqual([[provider]]);
+  });
+  it("rejects unknown envelopes, nested distribution fields, and malformed known bodies", () => {
     const bad = structuredClone(mixedCatalog);
     for (const index of [
       { ...mixedCatalog.index, future: true },
       { ...mixedCatalog.index, signed: { ...mixedCatalog.index!.signed, schema_version: 3 } },
-      {
-        ...mixedCatalog.index,
-        signed: {
-          ...mixedCatalog.index!.signed,
-          packages: [{ kind: "future", package: provider }],
-        },
-      },
       {
         ...mixedCatalog.index,
         signed: { ...mixedCatalog.index!.signed, packages: [{ kind: "theme", package: provider }] },

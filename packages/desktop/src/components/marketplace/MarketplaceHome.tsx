@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SidebarCollapsedChrome } from "@/components/SidebarCollapsedChrome";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 import { matchesListing, spotlightListings } from "@/lib/marketplace-listings";
+import { isStandalone } from "@/lib/marketplace-plugin-listings";
 import { sidebarFilterTerms } from "@/lib/sidebar-filter";
 import { cn } from "@/lib/utils";
 import { useMarketplaceState } from "./MarketplaceContext";
@@ -56,17 +57,21 @@ export function MarketplaceHome({
     const terms = sidebarFilterTerms(query);
     return state.browsable.filter((listing) => matchesListing(listing, terms));
   }, [state.browsable, query]);
+  // Plugin members are browsed through their plugin (one tile, one update) but
+  // stay listed in Installed, where each says which plugin it is part of.
+  const standalone = useMemo(() => state.browsable.filter(isStandalone), [state.browsable]);
   const summary = useMemo(
     () => ({
       installed: state.browsable.filter((l) => l.installed).length,
-      updates: state.browsable.filter((l) => l.update).length,
-      inCatalog: state.browsable.filter((l) => l.inCatalog).length,
+      updates: standalone.filter((l) => l.update).length,
+      inCatalog: standalone.filter((l) => l.inCatalog).length,
     }),
-    [state.browsable],
+    [state.browsable, standalone],
   );
+  const discover = useMemo(() => searched.filter(isStandalone), [searched]);
   const installed = useMemo(() => searched.filter((l) => l.installed), [searched]);
-  const updates = useMemo(() => searched.filter((l) => l.update), [searched]);
-  const spotlight = useMemo(() => spotlightListings(state.browsable), [state.browsable]);
+  const updates = useMemo(() => discover.filter((l) => l.update), [discover]);
+  const spotlight = useMemo(() => spotlightListings(standalone), [standalone]);
   const { publishedAt, refreshing, anyCatalog } = catalogStatus(state);
   const refresh = () => {
     state.providers.refresh.mutate();
@@ -107,16 +112,16 @@ export function MarketplaceHome({
                   <MarketplaceUnavailable refreshing={refreshing} onRefresh={refresh} />
                 ))}
               {!query && <MarketplaceSpotlight listings={spotlight} />}
-              {searched.length > 0 && (
+              {discover.length > 0 && (
                 <KindFilterBar
-                  listings={searched}
+                  listings={discover}
                   kind={kind}
                   onKindChange={(next) => onChange({ kind: next })}
                 />
               )}
-              {(anyCatalog || searched.length > 0) && (
+              {(anyCatalog || discover.length > 0) && (
                 <MarketplaceDiscover
-                  listings={searched}
+                  listings={discover}
                   kind={kind}
                   searching={!!query.trim()}
                   onKindChange={(next) => onChange({ kind: next })}

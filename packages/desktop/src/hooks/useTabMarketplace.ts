@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
 import {
   getManagedTabCatalog,
@@ -31,30 +31,30 @@ type Action =
   | { kind: "install" | "update"; id: string; version: string; index: SignedMixedCatalog }
   | { kind: "remove"; id: string };
 
+/** Shared with read-only consumers (the sidebar's update badge) so they hit one cache entry. */
+export const tabCatalogQuery = queryOptions({
+  queryKey: catalogKey,
+  staleTime: 60_000,
+  queryFn: async ({ signal }) => {
+    const response = await getManagedTabCatalog(signal);
+    themeCatalogSchema.parse(response);
+    return response;
+  },
+});
+export const tabInventoryQuery = queryOptions({
+  queryKey: inventoryKey,
+  queryFn: async ({ signal }) => {
+    const response = await getManagedTabs(signal);
+    z.array(entry).parse(response);
+    return response;
+  },
+});
+
 export function useTabMarketplace() {
   const client = useQueryClient();
   const [notice, setNotice] = useState<MarketplaceNotice | null>(null);
-  const catalog = useStableQuery(
-    useQuery({
-      queryKey: catalogKey,
-      staleTime: 60_000,
-      queryFn: async ({ signal }) => {
-        const response = await getManagedTabCatalog(signal);
-        themeCatalogSchema.parse(response);
-        return response;
-      },
-    }),
-  );
-  const inventory = useStableQuery(
-    useQuery({
-      queryKey: inventoryKey,
-      queryFn: async ({ signal }) => {
-        const response = await getManagedTabs(signal);
-        z.array(entry).parse(response);
-        return response;
-      },
-    }),
-  );
+  const catalog = useStableQuery(useQuery(tabCatalogQuery));
+  const inventory = useStableQuery(useQuery(tabInventoryQuery));
   const summaries = useStableQuery(
     useQuery({
       queryKey: ["/api/plugin-tabs"],

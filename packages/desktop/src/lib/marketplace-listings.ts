@@ -5,106 +5,37 @@ import type {
   ManagedThemeCatalogResponse,
   ManagedTabInventoryEntry,
   PluginTabSummary,
-  TabVersionUnavailable,
 } from "@/api/generated";
 import {
-  groupTabPackages,
   runtimeNativeCode,
   tabNativeCode,
   type TabMarketplacePackage,
-  type TabNativeCode,
 } from "./marketplace-tab-package";
 import { z } from "zod";
 import { groupPackages, installedRevision, providerCatalogPackages } from "./marketplace";
+import { groupTabPackages } from "./marketplace-catalog";
+import { pluginListings } from "./marketplace-plugin-listings";
 import { matchesSidebarFilter } from "./sidebar-filter";
-import { compareVersions, sortVersions } from "./marketplace-versions";
 import {
-  groupThemePackages,
-  type managedThemeEntrySchema,
-  type ThemeMarketplacePackage,
-} from "./theme-marketplace";
+  baseListing,
+  listingKey,
+  pickMeta,
+  type InstalledState,
+  type ListingVersion,
+  type MarketplaceListing,
+} from "./marketplace-listing-base";
+import type { ThemeMarketplacePackage } from "./marketplace-theme-package";
+import { groupThemePackages, type managedThemeEntrySchema } from "./theme-marketplace";
 
-/** What a marketplace package adds to Cadencr — the kinds the signed catalog serves today. */
-export const PLUGIN_KINDS = ["theme", "provider", "tab"] as const;
-export type PluginKind = (typeof PLUGIN_KINDS)[number];
+export {
+  isListingKind,
+  PLUGIN_KINDS,
+  type ListingKind,
+  type MarketplaceListing,
+  type PluginKind,
+  type PluginMemberRef,
+} from "./marketplace-listing-base";
 type ManagedThemeEntry = z.infer<typeof managedThemeEntrySchema>;
-
-export function isPluginKind(value: string): value is PluginKind {
-  return (PLUGIN_KINDS as readonly string[]).includes(value);
-}
-
-interface ListingVersion {
-  version: string;
-  minApp: string;
-  maxApp?: string | null;
-  /** Provider or tab backend binary targets (`darwin-aarch64`, …); empty for themes. */
-  platforms: string[];
-  /**
-   * Why it can't be installed on this computer — a provider or tab backend with
-   * no binary for this platform, or a newer backend protocol. Absent: it can.
-   */
-  unavailable?: TabVersionUnavailable;
-  /** Custom tab: the native backend this exact version ships (`null`: none). */
-  nativeCode?: TabNativeCode | null;
-  /** Custom tab: why Cadencr's revocation policy blocks this exact version here. */
-  blocked?: string;
-  /** Theme archive digest — keys verified previews to this exact archive. */
-  sha256?: string;
-}
-
-interface InstalledState {
-  version: string | null;
-  /** Provider: running now. Theme: the theme on screen right now. */
-  active: boolean;
-  /** Theme: the installed document validated and can be applied. Provider: always. */
-  usable: boolean;
-  /** Provider startup selection, or a custom tab’s global enablement switch. */
-  enabled?: boolean;
-  /** Theme only: a saved light/dark/manual selection references it. */
-  selected?: boolean;
-  restartRequired: boolean;
-  error?: string | null;
-  /** Custom tab: on Cadencr's revocation list, with its reason. */
-  blocked?: string | null;
-  installedAt?: string;
-  updatedAt?: string;
-}
-
-export interface MarketplaceListing {
-  /** `${kind}:${id}` — unique across kinds. */
-  key: string;
-  kind: PluginKind;
-  /**
-   * Every kind installing this package contributes. One package is one kind in
-   * the signed catalog today; the list is what the UI renders so a future
-   * multi-contribution package needs no new layout.
-   */
-  contributes: PluginKind[];
-  id: string;
-  name: string;
-  description: string;
-  publisher?: string;
-  license?: string;
-  repository?: string;
-  website?: string;
-  authors: string[];
-  /** Catalog versions, newest first by version order. */
-  versions: ListingVersion[];
-  /** Host-computed compatible recommendation (never derived here). */
-  recommended?: string;
-  installed?: InstalledState;
-  /** The recommended version when it is newer than the installed one. */
-  update?: string;
-  inCatalog: boolean;
-  /** Some catalog version installs on this computer (true when none is listed). */
-  availableHere: boolean;
-  /** Custom tab: the native backend of the installed revision, as Cadencr runs it. */
-  installedNativeCode?: TabNativeCode | null;
-  /** Custom tab: a verified update staged beside the installed revision, awaiting review. */
-  pendingVersion?: string | null;
-  /** Custom tab: why the revocation policy blocks that staged update (it can only be discarded). */
-  pendingBlocked?: string | null;
-}
 
 /** The version a listing currently stands for: installed, else the one on offer. */
 export function displayVersion(listing: MarketplaceListing): string | undefined {
@@ -122,11 +53,6 @@ export function offeredVersion(listing: MarketplaceListing): string {
  */
 export function downloadableUpdate(listing: MarketplaceListing): string | undefined {
   return listing.update === listing.pendingVersion ? undefined : listing.update;
-}
-
-function updateFor(recommended?: string, installed?: string | null): string | undefined {
-  if (!recommended || !installed) return undefined;
-  return (compareVersions(recommended, installed) ?? 0) > 0 ? recommended : undefined;
 }
 
 /** Install and last-change dates, read from the confirmed history (newest event wins). */
@@ -163,36 +89,6 @@ function themeInstalled(entry: ManagedThemeEntry, displayedThemeId?: string): In
     selected: entry.active,
     restartRequired: false,
     error: entry.error,
-  };
-}
-
-/** The metadata of the recommended version, else the newest one listed. */
-function pickMeta<T>(
-  versions: T[] | undefined,
-  version: (item: T) => string,
-  recommended?: string,
-) {
-  return versions?.find((item) => version(item) === recommended) ?? versions?.at(-1);
-}
-
-function baseListing(
-  kind: PluginKind,
-  id: string,
-  versions: ListingVersion[],
-  recommended: string | undefined,
-  installed: InstalledState | undefined,
-) {
-  return {
-    key: `${kind}:${id}`,
-    kind,
-    contributes: [kind],
-    id,
-    versions: sortVersions(versions),
-    recommended,
-    installed,
-    update: updateFor(recommended, installed?.version),
-    inCatalog: versions.length > 0,
-    availableHere: versions.length === 0 || versions.some((entry) => !entry.unavailable),
   };
 }
 
@@ -349,7 +245,7 @@ export function buildListings(sources: ListingSources): MarketplaceListing[] {
   const themeEntries = new Map((sources.themeInventory ?? []).map((e) => [e.id, e]));
   const providerIds = new Set([...providerGroups.keys(), ...providerEntries.keys()]);
   const themeIds = new Set([...themeGroups.keys(), ...themeEntries.keys()]);
-  const listings = [
+  const members = [
     ...tabListings(sources),
     ...[...providerIds].map((id) =>
       providerListing(
@@ -370,10 +266,37 @@ export function buildListings(sources: ListingSources): MarketplaceListing[] {
       ),
     ),
   ];
+  const plugins = pluginListings(pluginCatalogs(sources), members);
+  const partOf = new Map(
+    plugins.flatMap((plugin) =>
+      plugin.versions.flatMap((entry) =>
+        (entry.members ?? []).map((member) => [
+          listingKey(member.kind, member.id),
+          { id: plugin.id, name: plugin.name },
+        ]),
+      ),
+    ),
+  );
   // A provider inventory row without a revision is a failed install, not an installation.
-  return listings
+  return [
+    ...members.map((listing) => {
+      const plugin = partOf.get(listing.key);
+      return plugin ? { ...listing, partOf: plugin } : listing;
+    }),
+    ...plugins,
+  ]
     .filter((listing) => listing.inCatalog || listing.installed)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Every signed package list that can carry plugin entries (schema 2). */
+function pluginCatalogs(sources: ListingSources): (readonly unknown[] | undefined)[] {
+  const provider = sources.providerCatalog?.index?.signed;
+  return [
+    provider?.schema_version === 2 ? provider.packages : undefined,
+    sources.themeCatalog?.index?.signed.packages,
+    sources.tabCatalog?.index?.signed.packages,
+  ];
 }
 
 /**
@@ -386,7 +309,7 @@ export function spotlightListings(listings: MarketplaceListing[], limit = 5): Ma
   return [...updates, ...fresh].slice(0, limit);
 }
 
-/** Every search term must appear in the name, id, description, publisher or kind. */
+/** Every search term must appear in the name, id, description, publisher or a kind. */
 export function matchesListing(listing: MarketplaceListing, terms: readonly string[]): boolean {
   return matchesSidebarFilter(terms, [
     listing.name,
@@ -394,5 +317,6 @@ export function matchesListing(listing: MarketplaceListing, terms: readonly stri
     listing.description,
     listing.publisher,
     listing.kind,
+    ...listing.contributes,
   ]);
 }

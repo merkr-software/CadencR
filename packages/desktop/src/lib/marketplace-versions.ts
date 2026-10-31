@@ -30,3 +30,14 @@ export function sortVersions<T extends { version: string }>(versions: T[]): T[] 
     .sort((a, b) => compareParsed(b.parsed, a.parsed) ?? 0)
     .map(({ entry }) => entry);
 }
+
+/** `candidate` when it is semver-newer than `installed`; never claimed when either is missing. */
+export function newerVersion(candidate?: string, installed?: string | null): string | undefined {
+  if (!candidate || !installed) return undefined;
+  return (compareVersions(candidate, installed) ?? 0) > 0 ? candidate : undefined;
+}
+
+/** The oldest of `versions` by semver order (unparseable ones keep their place). */
+export function lowestVersion(versions: string[]): string | undefined {
+  return sortVersions(versions.map((version) => ({ version }))).at(-1)?.version;
+}

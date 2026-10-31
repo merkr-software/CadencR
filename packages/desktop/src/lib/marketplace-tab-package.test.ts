@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { signedMixedCatalogSchema } from "./theme-marketplace";
+import { signedMixedCatalogSchema } from "./marketplace-catalog";
 import { catalogSchema } from "./marketplace";
 import { tabPackageSchema, tabNativeCode } from "./marketplace-tab-package";
 
