@@ -276,8 +276,6 @@ vi.mock("@/api/agentRuntime", () => ({
 
 vi.mock("@/api/generated", () => ({
   useGetBranch: vi.fn(() => ({ data: undefined })),
-  // The Actions tab only shows once the project has actions.
-  useListCustomActions: vi.fn(() => ({ data: [] })),
   useGetFeatureSettings: vi.fn(() => ({ data: [] })),
   useGetProjectSettings: vi.fn(() => ({ data: [] })),
   useGetGitStatus: vi.fn(() => ({ data: undefined })),

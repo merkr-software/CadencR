@@ -12,7 +12,7 @@ import { announceFinishedRun } from "./launch";
  *
  * The service broadcasts a bare hint whenever an action is edited or one of
  * its runs starts, writes output or ends — including runs started by a
- * schedule or on another device — so the launcher status and the Actions tab
+ * schedule or on another device — so the launcher status and an action's page
  * never wait on a poll. An empty payload means the stream lagged: everything
  * custom-action related is re-fetched.
  */

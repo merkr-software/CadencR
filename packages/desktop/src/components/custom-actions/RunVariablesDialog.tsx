@@ -60,7 +60,7 @@ function VariablesForm({
     if (missing.length > 0 || pending) return;
     setPending(true);
     try {
-      await saveVariablesAndLaunch(prompt.target, values, prompt.values);
+      await saveVariablesAndLaunch(prompt.target, values, prompt.values, prompt.showOutput);
       onClose();
     } catch (error) {
       toast.error(

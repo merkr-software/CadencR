@@ -39,16 +39,12 @@ type FeatureTabIconSource =
 
 export type FeatureTabDef = FeatureTabDefBase & FeatureTabIconSource;
 
-/** Built-ins offered only while they have something to show. */
-export type OptionalBuiltinTabKind = Extract<BuiltinTabKind, "runs">;
-
 /**
- * Every other built-in is always provided; the Actions tab (kind `runs`) and a plugin tab have
- * an entry only while they are available. Layout tabs without an entry are
- * hidden, not dropped.
+ * Every built-in is always provided; a plugin tab has an entry only while its
+ * plugin is available. Layout tabs without an entry are hidden, not dropped.
  */
-export type FeatureTabs = Record<Exclude<BuiltinTabKind, OptionalBuiltinTabKind>, FeatureTabDef> &
-  Partial<Record<OptionalBuiltinTabKind | PluginTabKind, FeatureTabDef>>;
+export type FeatureTabs = Record<BuiltinTabKind, FeatureTabDef> &
+  Partial<Record<PluginTabKind, FeatureTabDef>>;
 
 export interface FeatureTabActivationHandlers {
   onTerminalActivate?: () => void;

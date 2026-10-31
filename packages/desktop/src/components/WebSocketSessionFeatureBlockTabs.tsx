@@ -4,7 +4,6 @@ import {
   FileTextIcon,
   GitCompareArrowsIcon,
   GlobeIcon,
-  ListVideoIcon,
   TerminalIcon,
 } from "lucide-react";
 import { FeatureGitTab } from "@/components/FeatureGitTab";
@@ -25,10 +24,6 @@ import {
 import type { NonAgentTabReadiness } from "@/components/useAgentFirstNonAgentWork";
 import { usePluginTabDefs, type PluginTabDefs } from "@/components/plugin-tabs/usePluginTabDefs";
 import { useAgentTab } from "./WebSocketSessionAgentTab";
-import { CustomActionRunsTab } from "@/components/custom-actions/CustomActionRunsTab";
-import { useFeatureCustomActions } from "@/hooks/useFeatureCustomActions";
-import { aggregateRunState, RUN_STATE_DOT_CLASS } from "@/lib/custom-actions/run-state";
-import { cn } from "@/lib/utils";
 const FeatureEditorTab = lazy(() => import("@/components/editor/FeatureEditorTab"));
 const FeaturePreviewTab = lazy(() =>
   import("@/components/document-preview/FeaturePreviewTab").then((module) => ({
@@ -73,7 +68,6 @@ export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
   const editorTab = useEditorTab(args);
   const browserTab = useBrowserTab(args);
   const previewTab = usePreviewTab(args);
-  const runsTab = useRunsTab(args);
   const pluginTabs = useSessionPluginTabs(args);
   return useMemo(
     () => ({
@@ -83,10 +77,9 @@ export function useSessionTabs(args: UseSessionTabsArgs): FeatureTabs {
       editor: editorTab,
       browser: browserTab,
       preview: previewTab,
-      ...(runsTab ? { runs: runsTab } : {}),
       ...pluginTabs,
     }),
-    [agentTab, browserTab, editorTab, gitTab, pluginTabs, previewTab, runsTab, terminalTab],
+    [agentTab, browserTab, editorTab, gitTab, pluginTabs, previewTab, terminalTab],
   );
 }
 
@@ -205,38 +198,6 @@ function useBrowserTab(args: UseSessionTabsArgs): FeatureTabDef {
     }),
     [featureId, browserReady, sendContext],
   );
-}
-
-/**
- * Custom action output. Offered on the full conversation page once the
- * project has actions; its trigger carries the same running/failed mark as the
- * header launcher.
- */
-function useRunsTab(args: UseSessionTabsArgs): FeatureTabDef | null {
-  const { featureId, projectId, pluginTabsEnabled } = args;
-  const runsReady = args.tabReady.runs;
-  const { data: actions = [] } = useFeatureCustomActions(projectId, featureId);
-  const aggregate = aggregateRunState(actions);
-  const hasActions = actions.length > 0;
-  return useMemo(() => {
-    if (!pluginTabsEnabled || !hasActions) return null;
-    const dot = RUN_STATE_DOT_CLASS[aggregate];
-    return {
-      label: "Actions",
-      Icon: ListVideoIcon,
-      badge: dot ? (
-        <span
-          aria-label={aggregate === "running" ? "running" : "failed"}
-          className={cn("size-1.5 rounded-full", dot)}
-        />
-      ) : undefined,
-      content: runsReady ? (
-        <CustomActionRunsTab featureId={featureId} projectId={projectId} />
-      ) : (
-        <DeferredTabContent label="Actions" />
-      ),
-    };
-  }, [aggregate, featureId, hasActions, pluginTabsEnabled, projectId, runsReady]);
 }
 
 function usePreviewTab(args: UseSessionTabsArgs): FeatureTabDef {

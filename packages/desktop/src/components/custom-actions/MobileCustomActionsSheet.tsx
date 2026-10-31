@@ -1,5 +1,5 @@
-import type { ReactElement } from "react";
-import { Loader2Icon, PlayIcon, SquareIcon, TerminalIcon } from "lucide-react";
+import type { ReactElement, ReactNode } from "react";
+import { ChevronRightIcon, Loader2Icon, PlayIcon, SquareIcon, TerminalIcon } from "lucide-react";
 
 import type { CustomAction } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useIsActionStarting } from "@/hooks/useFeatureCustomActions";
-import { showCustomActionOutput, stopCustomActionRun } from "@/lib/custom-actions/launch";
+import { stopCustomActionRun } from "@/lib/custom-actions/launch";
 import {
   runStateOf,
   runStateText,
@@ -30,12 +30,15 @@ interface MobileCustomActionsSheetProps {
   aggregate: CustomActionRunState;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onShowDetails: (actionId: number) => void;
+  /** The details page of one action, shown instead of the list. */
+  details: ReactNode;
 }
 
 /**
  * Phones get a bottom sheet instead of the split button: one 44px row per
- * action to run or stop it and see where it stands. Editing stays on the
- * desktop, where the command can be read.
+ * action to run or stop it and see where it stands, and a page per action
+ * with its output, runs and settings.
  */
 export function MobileCustomActionsSheet({
   actions,
@@ -44,6 +47,8 @@ export function MobileCustomActionsSheet({
   aggregate,
   open,
   onOpenChange,
+  onShowDetails,
+  details,
 }: MobileCustomActionsSheetProps): ReactElement {
   const flagged = aggregate === "running" || aggregate === "failed";
   return (
@@ -72,22 +77,27 @@ export function MobileCustomActionsSheet({
         </Button>
       </DialogTrigger>
       <DialogContent className="top-auto bottom-0 max-w-full translate-y-0 rounded-b-none px-3 pt-5 pb-[max(1rem,env(safe-area-inset-bottom))] data-[state=closed]:zoom-out-100 data-[state=open]:zoom-in-100 sm:max-w-full">
-        <DialogHeader className="px-1 text-left">
+        <DialogHeader className={cn("px-1 text-left", details != null && "sr-only")}>
           <DialogTitle>Actions</DialogTitle>
           <DialogDescription>Run in this conversation&apos;s working copy.</DialogDescription>
         </DialogHeader>
-        <ul className="-mx-1 flex max-h-[60svh] flex-col gap-1 overflow-y-auto">
-          {actions.map((action) => (
-            <li key={action.id}>
-              <SheetRow
-                action={action}
-                featureId={featureId}
-                projectId={projectId}
-                onDone={() => onOpenChange(false)}
-              />
-            </li>
-          ))}
-        </ul>
+        {details != null ? (
+          <div className="-mx-3 max-h-[80svh] overflow-y-auto pt-3">{details}</div>
+        ) : (
+          <ul className="-mx-1 flex max-h-[60svh] flex-col gap-1 overflow-y-auto">
+            {actions.map((action) => (
+              <li key={action.id}>
+                <SheetRow
+                  action={action}
+                  featureId={featureId}
+                  projectId={projectId}
+                  onDone={() => onOpenChange(false)}
+                  onShowDetails={() => onShowDetails(action.id)}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -98,11 +108,13 @@ function SheetRow({
   featureId,
   projectId,
   onDone,
+  onShowDetails,
 }: {
   action: CustomAction;
   featureId: number;
   projectId: number;
   onDone: () => void;
+  onShowDetails: () => void;
 }): ReactElement {
   const starting = useIsActionStarting(action, featureId);
   const running = !action.run_in_terminal && runStateOf(action.last_run) === "running";
@@ -113,9 +125,12 @@ function SheetRow({
         type="button"
         className="flex min-h-11 min-w-0 flex-1 items-center gap-2.5 rounded-md text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         onClick={() => {
+          if (running) {
+            onShowDetails();
+            return;
+          }
           onDone();
-          if (running) showCustomActionOutput(featureId, action.id);
-          else activateAction(action, featureId, projectId);
+          activateAction(action, featureId, projectId);
         }}
       >
         <CustomActionIcon iconData={action.icon_data} name={action.name} className="size-4" />
@@ -151,6 +166,15 @@ function SheetRow({
         ) : (
           <PlayIcon />
         )}
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="size-11 text-muted-foreground"
+        aria-label={`Details of “${action.name}”`}
+        onClick={onShowDetails}
+      >
+        <ChevronRightIcon />
       </Button>
     </div>
   );
