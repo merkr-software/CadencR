@@ -25,6 +25,7 @@ import {
 import { LENS_OPTIONS } from "@/components/sidebar-display-rows";
 import { useSetSidebarOption } from "@/hooks/useSidebarSettings";
 import { useSidebarViews } from "@/hooks/useSidebarViews";
+import { SIDEBAR_VIEWS_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import type { SidebarLens } from "@/lib/sidebar-lens";
 import { cn } from "@/lib/utils";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
@@ -133,7 +134,9 @@ export function SidebarLensMenu(): ReactElement {
           </DropdownMenuItem>
         ))}
         <DropdownMenuItem
-          onSelect={() => void navigate({ to: "/settings", search: { section: "sidebar-views" } })}
+          onSelect={() =>
+            void navigate({ to: "/settings", search: { section: SIDEBAR_VIEWS_SETTINGS_ANCHOR } })
+          }
         >
           <MenuCheck on={false} />
           {views.length === 0 ? "Create a view…" : "Manage views…"}

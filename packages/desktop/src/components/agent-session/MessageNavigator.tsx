@@ -233,7 +233,7 @@ const MessageNavigatorRail = memo(function MessageNavigatorRail({
 /**
  * Discreet map of the user's prompts along the agent stream's right edge.
  * Hover a tick to preview the message, click it to scroll there; ⌥↑ / ⌥↓ walk
- * the same list from the keyboard. Disabled from Settings → Interface.
+ * the same list from the keyboard. Disabled from Settings → Appearance.
  */
 export const MessageNavigator = memo(function MessageNavigator({
   items,

@@ -43,13 +43,17 @@ export function SettingsRow({
   return (
     <div
       className={cn(
-        "flex gap-6 px-5 py-4",
+        // The control drops under its label once the row can't fit both side
+        // by side (phones, narrow cards, a wide control).
+        "flex flex-wrap gap-x-6 gap-y-3 px-5 py-4",
         align === "center" ? "items-center" : "items-start",
         divided && "border-t border-border",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 items-start gap-3">
+      {/* A min-width, not a flex-basis: rows that switch to flex-col would turn a
+          basis into a 240px-tall label block. */}
+      <div className="flex min-w-[min(15rem,100%)] flex-1 items-start gap-3">
         {icon}
         <div className="min-w-0 flex-1">
           {htmlFor ? (

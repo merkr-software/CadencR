@@ -1,4 +1,4 @@
-import { Archive, CalendarClock, LoaderCircle, Play } from "lucide-react";
+import { LoaderCircle, Play } from "lucide-react";
 import {
   ArchivedCleanupRunStatus,
   useRunArchivedCleanup,
@@ -9,11 +9,9 @@ import { Input } from "@/components/ui/input";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { toastError } from "@/lib/api-errors";
 import { useStorageMaintenanceStore } from "@/stores/storage-maintenance-store";
-import { IconTile } from "./IconTile";
-import { SettingsCard } from "./SettingsCard";
+import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
-import { SettingsSection } from "./SettingsSection";
-import { SettingsSubsection } from "./SettingsSubsection";
+import { SettingsPageSection } from "./SettingsPageSection";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 
 /**
@@ -51,62 +49,48 @@ export function StorageSection(): React.JSX.Element {
     daysSetting.isSaving;
 
   return (
-    <SettingsSection id="storage" title="Storage" subtitle="Retention · Archived features">
-      <SettingsCard>
-        <SettingsSubsection padded={false}>
-          <SettingsSwitchRow
-            icon={<Archive className="size-4" />}
-            iconTint="cyan"
-            label={
-              <span className="inline-flex items-center gap-1.5">
-                Compact archived features
-                {enabledSetting.isSaving && (
-                  <LoaderCircle
-                    aria-label="Saving storage policy"
-                    className="size-3.5 animate-spin"
-                  />
-                )}
-              </span>
-            }
-            description="Opt in to shortening long Bash output after a thread has been quiet for the configured period. The feature, its sessions, and the conversation are kept. No rows are deleted, and what you and the agent wrote is never touched."
-            checked={enabled}
-            onCheckedChange={(checked) => enabledSetting.setValue(checked ? "true" : "false")}
-            disabled={enabledSetting.isLoading || enabledSetting.isSaving}
-          />
-          <SettingsRow
-            divided
-            align="start"
-            icon={
-              <IconTile tint="orange">
-                <CalendarClock className="size-4" />
-              </IconTile>
-            }
-            label="Wait before compacting"
-            description="How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock."
-            control={
-              <RetentionDaysControl
-                value={daysSetting.value}
-                onChange={daysSetting.setValue}
-                disabled={!enabled || daysSetting.isLoading || daysSetting.isSaving}
-                saving={daysSetting.isSaving}
-              />
-            }
-          />
-          <SettingsRow
-            divided
-            align="start"
-            icon={
-              <IconTile tint="green">
-                <Play className="size-4" />
-              </IconTile>
-            }
-            label="Run cleanup now"
-            description="Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply."
-            control={<ManualCleanupControl enabled={enabled} settingsBusy={settingsBusy} />}
-          />
-        </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
+    <SettingsPageSection pageId="storage">
+      <SettingsGroup title="Archived features">
+        <SettingsSwitchRow
+          label={
+            <span className="inline-flex items-center gap-1.5">
+              Compact archived features
+              {enabledSetting.isSaving && (
+                <LoaderCircle
+                  aria-label="Saving storage policy"
+                  className="size-3.5 animate-spin"
+                />
+              )}
+            </span>
+          }
+          description="Shorten long Bash output once an archived thread has been quiet for the period below. The feature, its sessions and the conversation are kept: no rows are deleted, and what you and the agent wrote is never touched."
+          checked={enabled}
+          onCheckedChange={(checked) => enabledSetting.setValue(checked ? "true" : "false")}
+          disabled={enabledSetting.isLoading || enabledSetting.isSaving}
+        />
+        <SettingsRow
+          divided
+          align="start"
+          label="Wait before compacting"
+          description="How long an archived feature must remain archived and have no new thread activity before compaction. New activity or restoring it resets the clock."
+          control={
+            <RetentionDaysControl
+              value={daysSetting.value}
+              onChange={daysSetting.setValue}
+              disabled={!enabled || daysSetting.isLoading || daysSetting.isSaving}
+              saving={daysSetting.isSaving}
+            />
+          }
+        />
+        <SettingsRow
+          divided
+          align="start"
+          label="Run cleanup now"
+          description="Check eligible archived conversations immediately instead of waiting for the next automatic sweep. The saved retention window and all safety checks still apply."
+          control={<ManualCleanupControl enabled={enabled} settingsBusy={settingsBusy} />}
+        />
+      </SettingsGroup>
+    </SettingsPageSection>
   );
 }
 

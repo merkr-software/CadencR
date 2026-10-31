@@ -20,15 +20,18 @@ import {
 import { useSidebarOptionHighlight } from "@/hooks/useSidebarOptionHighlight";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsRow } from "./SettingsRow";
-import { SettingsSection } from "./SettingsSection";
+import { SettingsPageSection } from "./SettingsPageSection";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { SidebarPreviewPanel } from "./SidebarPreviewPanel";
+import { SidebarViewsSettings } from "./SidebarViewsSettings";
 
-/** Rows a notch denser than the app's other settings: the section lists every display option. */
-const DENSE_ROW = "py-3";
-
-/** In a narrow card (beside the preview, or a small window) controls go under their description. */
-const STACKED = `${DENSE_ROW} @max-xl:flex-col @max-xl:items-start @max-xl:gap-2`;
+/**
+ * Rows a notch denser than the app's other settings: the section lists every
+ * display option. A control stays beside its label while both fit and wraps
+ * under it otherwise (`SettingsRow`), so a row never takes more room than its
+ * control needs.
+ */
+const DENSE_ROW = "gap-y-2 py-3";
 
 /**
  * The sidebar's display options as settings rows, grouped like the popover,
@@ -40,12 +43,7 @@ export function SidebarSection(): ReactElement {
   const highlight = useSidebarOptionHighlight();
 
   return (
-    <SettingsSection
-      id="sidebar-display"
-      title="Sidebar"
-      subtitle="Presets · Density · Rows · Blocks · Attention"
-      description="Also available from the sliders button in the sidebar's Projects header. Changes apply immediately and follow you to remote devices. Point at an option to see what it changes in the preview."
-    >
+    <SettingsPageSection pageId="sidebar">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_16rem] lg:items-start">
         <div className="lg:sticky lg:top-6 lg:order-last">
           <SidebarPreviewPanel />
@@ -79,7 +77,8 @@ export function SidebarSection(): ReactElement {
           </SettingsCard>
         </fieldset>
       </div>
-    </SettingsSection>
+      <SidebarViewsSettings />
+    </SettingsPageSection>
   );
 }
 
@@ -99,7 +98,7 @@ function SettingsItem({
         <SettingsRow
           divided={divided}
           align="start"
-          className={STACKED}
+          className={DENSE_ROW}
           label="Block order"
           description={SECTION_ORDER_DESCRIPTION}
           control={
@@ -116,7 +115,7 @@ function SettingsItem({
       <SettingsRow
         divided={divided}
         align="start"
-        className={STACKED}
+        className={DENSE_ROW}
         label="Show in rows"
         description={ROW_ELEMENTS_DESCRIPTION}
         control={<RowElementGrid form={form} className="gap-x-6 gap-y-2" />}
@@ -129,7 +128,7 @@ function SettingsItem({
       <div data-sidebar-option={row.id}>
         <SettingsRow
           divided={divided}
-          className={STACKED}
+          className={DENSE_ROW}
           label={row.label}
           description={row.description}
           control={<ChoiceControl form={form} row={row} />}

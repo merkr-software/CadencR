@@ -13,7 +13,7 @@ interface AgentStreamToolsProps {
   scrollerRef: RefObject<HTMLElement | null>;
   /** Agent tab focused: gates ⌘F search and the navigator's ⌥↑ / ⌥↓. */
   shortcutsEnabled: boolean;
-  /** Null hides the prompt rail (Settings → Interface). */
+  /** Null hides the prompt rail (Settings → Appearance → Agent transcript). */
   messageNavigator: MessageNavigatorControls | null;
   /** Block holding the active search match, or null. */
   onSearchBlockChange: (blockId: string | null) => void;

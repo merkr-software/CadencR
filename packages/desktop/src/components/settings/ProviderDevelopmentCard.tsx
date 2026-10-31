@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, RotateCcw } from "lucide-react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { useCreateProviderWorkspace } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,9 @@ import {
   CreateProviderWorkspaceDialog,
   type ProviderWorkspaceDraft,
 } from "./CreateProviderWorkspaceDialog";
-import { SettingsCard } from "./SettingsCard";
+import { SettingsGroup } from "./SettingsGroup";
+import { SettingsRow } from "./SettingsRow";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 export function ProviderDevelopmentCard(): React.JSX.Element {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -65,25 +67,23 @@ export function ProviderDevelopmentCard(): React.JSX.Element {
 
   return (
     <>
-      <SettingsCard
-        padded
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.providerConnector}
         title="Build a provider connector"
-        description="Start a code-backed local provider in a normal Cadencr workspace."
-        action={
-          <Button size="sm" onClick={() => setDialogOpen(true)}>
-            <Plus aria-hidden />
-            Add provider
-          </Button>
-        }
+        description="Bring another agent CLI into Cadencr with a code-backed local provider, built in a normal Cadencr workspace."
       >
-        <div className="flex items-start gap-2 rounded-lg bg-muted/30 px-3 py-2.5 text-xs text-muted-foreground">
-          <RotateCcw className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-          <p>
-            The scaffold tells your agent how to implement model discovery and ACP v1. Provider
-            registration is restart-gated, so restart Cadencr between changes before testing.
-          </p>
-        </div>
-      </SettingsCard>
+        <SettingsRow
+          align="start"
+          label="New provider project"
+          description="The scaffold tells your agent how to implement model discovery and ACP v1. Providers register when Cadencr starts, so restart it between changes before testing."
+          control={
+            <Button size="sm" variant="outline" onClick={() => setDialogOpen(true)}>
+              <Plus aria-hidden />
+              Add provider
+            </Button>
+          }
+        />
+      </SettingsGroup>
       {dialogOpen ? (
         <CreateProviderWorkspaceDialog
           isCreating={isPending}
