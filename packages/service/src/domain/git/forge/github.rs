@@ -3,12 +3,14 @@ use reqwest::header::ACCEPT;
 use serde::Deserialize;
 
 use super::github_repository::resolve_pull_repo;
+use super::merging::{MergeCommand, PrMergeResponse, PrMergeStatus};
 use super::provider::{
     proposal_noun, CiCheck, CiRollup, CiState, CommentThread, ForgeAuthContext, ForgeContext,
     ForgeError, ForgeProvider, ForgeUser, PrState, PrSummary, ReviewState,
 };
 
 mod comments;
+mod merge;
 mod review_threads;
 
 pub struct GitHubProvider;
@@ -94,11 +96,40 @@ impl ForgeProvider for GitHubProvider {
         let user: GitHubUser = ctx.http.request_json(request).await?;
         Ok(map_user(user))
     }
+
+    async fn merge_status(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+    ) -> Result<PrMergeStatus, ForgeError> {
+        merge::merge_status(ctx, pr).await
+    }
+
+    async fn merge(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+        command: &MergeCommand,
+        _status: &PrMergeStatus,
+    ) -> Result<PrMergeResponse, ForgeError> {
+        merge::merge(ctx, pr, command).await
+    }
+
+    async fn cancel_merge(&self, ctx: &ForgeContext, pr: &PrSummary) -> Result<(), ForgeError> {
+        merge::cancel(ctx, pr).await
+    }
 }
 
 pub(super) fn github_get(ctx: &ForgeContext, url: &str) -> reqwest::RequestBuilder {
-    ctx.http
-        .get(url)
+    github_auth(ctx, ctx.http.get(url))
+}
+
+/// The token and REST API version every GitHub request carries.
+pub(super) fn github_auth(
+    ctx: &ForgeContext,
+    builder: reqwest::RequestBuilder,
+) -> reqwest::RequestBuilder {
+    builder
         .bearer_auth(&ctx.credentials.token)
         .header(ACCEPT, "application/vnd.github+json")
         .header("x-github-api-version", "2022-11-28")

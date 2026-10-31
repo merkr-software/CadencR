@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
  * only brightens them in dark. Rings and icons keep the raw hue
  * (`PR_ICON_STYLE`): they are non-text and their bar is 3:1.
  */
-const TONE_TEXT: Record<PrIndicatorTone, string> = {
+export const TONE_TEXT: Record<PrIndicatorTone, string> = {
   ...PR_ICON_STYLE,
   blocked: "text-[color-mix(in_oklab,var(--acc-orange)_80%,var(--foreground))]",
   unresolved: "text-[color-mix(in_oklab,var(--acc-yellow)_80%,var(--foreground))]",
@@ -61,17 +61,20 @@ export function ChecksDisclosure({
   unresolvedCount,
   unresolvedFiltered,
   onToggleUnresolved,
+  reviewFact,
 }: {
   status: PrStatusSnapshot;
   unresolvedCount: number;
   unresolvedFiltered: boolean;
   onToggleUnresolved: () => void;
+  /** Replaces the coarse review-state pill once approvals are known. */
+  reviewFact?: ReactNode;
 }): ReactElement {
   const ciState = status.ci?.state ?? "none";
   const checks = status.ci?.checks ?? [];
   const [override, setOverride] = useState<boolean | null>(null);
   const open = override ?? ciState === "failing";
-  const reviewLabel = reviewStateLabel(status.pr!.review_state);
+  const reviewLabel = reviewFact ? null : reviewStateLabel(status.pr!.review_state);
 
   return (
     <>
@@ -96,8 +99,9 @@ export function ChecksDisclosure({
             {unresolvedCount} unresolved
           </Fact>
         )}
+        {reviewFact}
         {reviewLabel && <Fact tone={reviewTone(status.pr!.review_state)}>{reviewLabel}</Fact>}
-        {checks.length === 0 && unresolvedCount === 0 && !reviewLabel && (
+        {checks.length === 0 && unresolvedCount === 0 && !reviewLabel && !reviewFact && (
           <span className="text-[11.5px] text-muted-foreground">
             Nothing reported yet — no checks, no reviews, no open threads.
           </span>
@@ -167,6 +171,15 @@ function checkSummary(state: CiState, checks: readonly CiCheck[]): string {
   return `${total} ${total === 1 ? "check" : "checks"}`;
 }
 
+/** The verdict row's pill: one shape, coloured by tone. */
+export function factShellClass(tone: PrIndicatorTone): string {
+  return cn(
+    "inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[11.5px] font-medium leading-none ring-1 ring-inset",
+    TONE_TEXT[tone],
+    FACT_RING[tone],
+  );
+}
+
 /**
  * One statement about the proposal. Interactive whenever there is something
  * behind it — the whole point of the row is that the answer to "what is
@@ -193,11 +206,7 @@ function Fact({
   expanded?: boolean;
   pressed?: boolean;
 }): ReactElement {
-  const shell = cn(
-    "inline-flex h-6 items-center gap-1.5 rounded-md px-2 text-[11.5px] font-medium leading-none ring-1 ring-inset",
-    TONE_TEXT[tone],
-    FACT_RING[tone],
-  );
+  const shell = factShellClass(tone);
   if (!onClick) {
     return (
       <span className={shell}>

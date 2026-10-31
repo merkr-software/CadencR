@@ -89,7 +89,7 @@ pub(super) fn graphql_url(api_base_url: &str) -> String {
     }
 }
 
-fn split_full_name(full_name: &str) -> Result<(&str, &str), ForgeError> {
+pub(super) fn split_full_name(full_name: &str) -> Result<(&str, &str), ForgeError> {
     full_name.split_once('/').ok_or_else(|| {
         ForgeError::Response(format!(
             "GitHub returned an unusable repository: {full_name}"

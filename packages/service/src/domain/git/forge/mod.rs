@@ -7,6 +7,8 @@ mod github_repository;
 mod gitlab;
 mod http;
 pub mod image_routes;
+pub mod merge_routes;
+pub mod merging;
 mod poller;
 pub mod pr_lookup;
 mod provider;
@@ -187,16 +189,20 @@ pub(crate) mod test_support {
     use crate::domain::git::host::{GitHost, RemoteInfo};
 
     pub async fn json_fixture_server(routes: HashMap<String, Value>) -> String {
+        /// A route recorded as JSON `null` answers `404`, for lookups where
+        /// "not found" is itself the answer.
         async fn fixture(
             State(routes): State<Arc<HashMap<String, Value>>>,
             OriginalUri(uri): OriginalUri,
-        ) -> Json<Value> {
-            Json(
-                routes
-                    .get(uri.path())
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({ "error": "fixture route missing" })),
-            )
+        ) -> axum::response::Response {
+            use axum::response::IntoResponse;
+            match routes.get(uri.path()) {
+                Some(Value::Null) => axum::http::StatusCode::NOT_FOUND.into_response(),
+                Some(value) => Json(value.clone()).into_response(),
+                None => {
+                    Json(serde_json::json!({ "error": "fixture route missing" })).into_response()
+                }
+            }
         }
 
         let app = Router::new()
