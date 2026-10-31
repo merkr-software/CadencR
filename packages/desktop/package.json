@@ -129,7 +129,7 @@
     "lowlight": "^3.3.0",
     "lucide-react": "^0.563.0",
     "mermaid": "^11.16.1",
-    "msw": "^2",
+    "msw": "^3",
     "orval": "8.41.0",
     "oxlint": "^1.87.0",
     "pdfjs-dist": "^6.4.299",
