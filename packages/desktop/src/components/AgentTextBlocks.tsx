@@ -48,7 +48,7 @@ export const TextBlock = memo(function TextBlock({
   }, [content]);
 
   return (
-    <div className="group/textblock" ref={rootRef}>
+    <div className="group/textblock relative" ref={rootRef}>
       <Markdown
         content={displayContent}
         cacheKey={cacheKey}
@@ -56,7 +56,7 @@ export const TextBlock = memo(function TextBlock({
         disableCache={disableCache}
       />
       {actions && (
-        <div className="flex items-center gap-1 opacity-0 group-hover/textblock:opacity-100 transition-colors">
+        <div className="stream-hover-actions left-0 flex items-center gap-1 opacity-0 group-hover/textblock:opacity-100 transition-colors">
           <button
             type="button"
             onClick={handleCopy}

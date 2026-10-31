@@ -50,7 +50,7 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   }, [parsedContent.text]);
 
   return (
-    <div className="mt-2 mb-2 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
+    <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
       <ActionButton onClick={handleCopy} title="Copy as Markdown">
         {copied ? (
           <>

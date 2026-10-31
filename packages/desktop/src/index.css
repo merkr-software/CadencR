@@ -433,6 +433,28 @@ body > :not(#root) > *,
   }
 }
 
+/* The complement of the rule above. Where hover reveals the stream's hover
+ * actions (Copy, Retry… under a prompt or a reply), they float over the gap
+ * below their row instead of holding an invisible line in the layout — that
+ * line used to sit under every reply and every prompt, so the gap after each
+ * read far wider than the gap before it. Where the rule above forces them
+ * visible they stay in flow: they are real content there, and so do rows
+ * nested in a clipping card (`data-stream-nested`). The row must be
+ * `position: relative`; its gap below must fit the 20px line. Above the next
+ * stream row, under the stream's own overlays (loading spinner: z-20). */
+@media (hover: hover) and (min-width: 768px) {
+  .stream-hover-actions:not([data-stream-nested] *) {
+    position: absolute;
+    top: 100%;
+    z-index: 10;
+    margin: 0;
+    pointer-events: none;
+  }
+  :hover > .stream-hover-actions:not([data-stream-nested] *) {
+    pointer-events: auto;
+  }
+}
+
 /*
  * iOS Safari auto-zooms the page when you focus an editable whose font-size is
  * below 16px — that's what made the keyboard "zoom horizontally to the left of

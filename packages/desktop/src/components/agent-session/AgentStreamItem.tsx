@@ -2,8 +2,16 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AgentBlock } from "../AgentBlock";
 import type { AgentBlockData } from "@/types/agent-block";
 import { hasSenderTab } from "@/lib/agent-message-origin";
+import { shouldHideToolCall } from "@/lib/tool-display-policy";
 import { formatStreamTimestamp } from "@/lib/date-utils";
 import AgentStreamContextMenu from "./AgentStreamContextMenu";
+import {
+  ModelSwitchDivider,
+  TURN_CLOSING_SPACING,
+  TurnFooterLine,
+  TurnSummaryDivider,
+} from "../StreamDividers";
+import type { RowAnnotation } from "@/lib/agent-turn-annotations";
 import { parseGeneratedSessionReply } from "@/lib/session-reply";
 import {
   AGENT_AUTO_COLLAPSE_DELAY_MS,
@@ -18,17 +26,46 @@ interface AgentStreamItemProps {
   basePath?: string;
   toolResultMap: Map<string, AgentBlockData>;
   verbosityMode?: AgentVerbosityMode;
+  /** A model switch above the row, a finished turn's closing line under it. */
+  annotation?: RowAnnotation;
 }
 
-function BlockHeader({ block, createdAt }: { block: AgentBlockData; createdAt: string }) {
-  const isUserMessage = block.type === "user_message";
+/**
+ * "User · time" over a prompt. Replies carry no header: the model and time a
+ * turn ran on are said once, on its closing line (`TurnSummaryDivider`).
+ */
+function UserHeader({ createdAt }: { createdAt: string }) {
   return (
-    <div
-      className={`text-xs text-muted-foreground/60 mt-2 mb-0.5 ${isUserMessage ? "text-right" : ""}`}
-    >
-      <span className="font-medium">{isUserMessage ? "User" : (block.model ?? "unknown")}</span>
+    <div className="mb-0.5 text-right text-xs text-muted-foreground/60">
+      <span className="font-medium">User</span>
       {` · ${formatStreamTimestamp(createdAt)}`}
     </div>
+  );
+}
+
+/**
+ * Vertical rhythm, measured between what is visible (hover actions float over
+ * the gap on hover devices, so they never count). Work steps — cards, compact
+ * lines, markers — stack tight. Prose breathes the same on both sides. A
+ * prompt opens a turn with the widest gap, the same above its "User" line as
+ * under its bubble. The turn's closing line sits one prose gap under the turn.
+ */
+function rowSpacingClass(block: AgentBlockData): string {
+  if (block.type === "user_message") return "pt-6 pb-5";
+  if (block.type === "text" || rendersResultAsProse(block)) {
+    return "pt-3 pb-3.5";
+  }
+  if (block.type === "turn_summary") return TURN_CLOSING_SPACING;
+  return "py-0.5";
+}
+
+/**
+ * A standalone tool result row renders a sub-agent's report as prose, hover
+ * actions included — unless it is a hidden tool's error (`ToolResultContent`).
+ */
+function rendersResultAsProse(block: AgentBlockData): boolean {
+  return (
+    block.type === "tool_result" && !(block.isError && shouldHideToolCall(block.sourceToolName))
   );
 }
 
@@ -60,6 +97,7 @@ export const AgentStreamItem = memo(function AgentStreamItem({
   basePath,
   toolResultMap,
   verbosityMode = "maximal",
+  annotation,
 }: AgentStreamItemProps) {
   const [collapsedByPolicy, setCollapsedByPolicy] = useState(false);
 
@@ -115,33 +153,40 @@ export const AgentStreamItem = memo(function AgentStreamItem({
     [block.content, block.origin, block.type],
   );
   const isSessionReply = sessionReply !== null;
-  const showHeader =
-    !isSessionReply &&
-    (block.type === "text" || block.type === "user_message") &&
-    !hasSenderTab(block);
+  const showHeader = !isSessionReply && block.type === "user_message" && !hasSenderTab(block);
 
   const item = (
-    <div className="py-0.5" data-block-id={block.id}>
-      {showHeader && block.createdAt && <BlockHeader block={block} createdAt={block.createdAt} />}
-      <AgentBlock
-        block={block}
-        isStreaming={isStreaming}
-        basePath={basePath}
-        toolResultMap={toolResultMap}
-        verbosityMode={verbosityMode}
-        isCollapsedByPolicy={collapsedByPolicy}
-        onExpandedChange={handleExpandedChange}
-        sessionReply={sessionReply}
-      />
+    <div className={rowSpacingClass(block)} data-block-id={block.id}>
+      {showHeader && block.createdAt && <UserHeader createdAt={block.createdAt} />}
+      {block.type === "turn_summary" ? (
+        <TurnSummaryDivider content={block.content} footer={annotation?.footer} />
+      ) : (
+        <AgentBlock
+          block={block}
+          isStreaming={isStreaming}
+          basePath={basePath}
+          toolResultMap={toolResultMap}
+          verbosityMode={verbosityMode}
+          isCollapsedByPolicy={collapsedByPolicy}
+          onExpandedChange={handleExpandedChange}
+          sessionReply={sessionReply}
+        />
+      )}
     </div>
   );
   return (
-    <AgentStreamContextMenu
-      block={block}
-      copyContent={sessionReply?.body}
-      branchingEnabled={!isSessionReply}
-    >
-      {item}
-    </AgentStreamContextMenu>
+    <>
+      {annotation?.modelSwitch && <ModelSwitchDivider {...annotation.modelSwitch} />}
+      <AgentStreamContextMenu
+        block={block}
+        copyContent={sessionReply?.body}
+        branchingEnabled={!isSessionReply}
+      >
+        {item}
+      </AgentStreamContextMenu>
+      {annotation?.footer && block.type !== "turn_summary" && (
+        <TurnFooterLine footer={annotation.footer} />
+      )}
+    </>
   );
 });

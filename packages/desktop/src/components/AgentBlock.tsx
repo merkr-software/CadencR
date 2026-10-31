@@ -21,7 +21,6 @@ import { TaskAgentBlock } from "@/components/TaskAgentBlock";
 import { PlanBlock } from "@/components/PlanBlock";
 import { BashBlock } from "@/components/BashBlock";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
-import { TurnSummaryDivider } from "@/components/StreamDividers";
 import { TranscriptMarker } from "@/components/agent-session/TranscriptMarker";
 import { ToolSummaryBlock } from "@/components/agent-session/ToolSummaryBlock";
 import { ErrorBlock } from "@/components/ErrorBlock";
@@ -149,8 +148,6 @@ export const AgentBlock = memo(function AgentBlock({
       );
     case "user_message":
       return <UserMessageContent block={block} sessionReply={sessionReply} actions={actions} />;
-    case "turn_summary":
-      return <TurnSummaryDivider content={block.content} />;
     case "tool_summary":
       return (
         <ToolSummaryBlock
@@ -284,7 +281,8 @@ function ToolCallContent({
       controlledExpanded,
       onExpandedChange,
     );
-    if (fileChangeBlocks) return fileChangeBlocks;
+    // Same outer margin as the stream's other cards (Bash, thinking, tools).
+    if (fileChangeBlocks) return <div className="my-1">{fileChangeBlocks}</div>;
   }
   return (
     <ToolCallBlock name={block.toolName ?? "unknown"} args={block.toolArgs} basePath={basePath} />
