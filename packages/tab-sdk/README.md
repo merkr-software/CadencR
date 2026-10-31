@@ -5,27 +5,53 @@ feature-page tab, next to Agent, Terminal, Git, Editor and Browser. The tab runs
 in an isolated view with no network; everything it reads goes through a
 `MessagePort` to the Cadencr host. This package speaks that protocol for you.
 
-The contract is in Cadencr's
-[`docs/CUSTOM_TABS.md`](https://github.com/merkr-software/CadencR/blob/main/docs/CUSTOM_TABS.md).
+[Documentation](https://cadencr.com/docs/tab-sdk/) ·
+[npm](https://www.npmjs.com/package/@cadencr/tab-sdk) ·
+[Custom tab contract](https://github.com/merkr-software/CadencR/blob/main/docs/CUSTOM_TABS.md)
+
+## Install
+
+```bash
+npm install @cadencr/tab-sdk
+```
+
+The package is ESM with TypeScript declarations and no runtime dependencies.
+The core SDK works without React. For `@cadencr/tab-sdk/react`, also install
+the optional React 19 peers:
+
+```bash
+npm install react@^19 react-dom@^19
+```
+
+Create a host project with **Settings → Custom tabs → Create**. The page must
+run inside a Cadencr custom tab; an ordinary browser has no host port and
+`connect()` will time out. For isolated tests, use the [fake host](#testing).
+See the [authoring guide](https://cadencr.com/docs/libraries/#create-your-first-custom-tab)
+for the manifest and static build setup.
 
 ## Quick start
 
 ```ts
-import { connect } from "@cadencr/tab-sdk";
+import { connect, toCadencrError } from "@cadencr/tab-sdk";
+import { getGitStatus } from "@cadencr/tab-sdk/api";
 
-const cadencr = await connect();
+const output = document.createElement("pre");
+output.textContent = "Connecting…";
+document.body.append(output);
 
-console.log(cadencr.context.feature.name); // the feature this tab is open in
-cadencr.onContextChange((context) => render(context));
-
-const status = await cadencr.api.get("/api/git/status", {
-  query: { feature_id: cadencr.context.feature.id },
-});
-
-cadencr.streams.subscribe("git.status", (event) => update(event.data.payload), {
-  onResync: () => refetchEverything(),
-});
+try {
+  const client = await connect();
+  window.addEventListener("pagehide", () => client.close(), { once: true });
+  const status = await getGitStatus({ feature_id: client.context.feature.id });
+  output.textContent = JSON.stringify(status, null, 2);
+} catch (error) {
+  output.textContent = toCadencrError(error).message;
+}
 ```
+
+Declare `"permissions": ["git:read"]` in `tab.json` for this example and renew
+consent after changing permissions. Requests are scoped to the tab's own
+project and feature; use the IDs from `client.context`.
 
 `connect()` waits for the port the Cadencr preload posts to the page, performs
 the `hello` handshake and applies the Cadencr theme to `<html>` (see
@@ -43,7 +69,7 @@ function App() {
   return (
     <CadencrProvider
       fallback={<p>Connecting…</p>}
-      errorFallback={(error) => <p>Cannot reach Cadencr: {error.message}</p>}
+      errorFallback={(error) => <p role="alert">Cannot reach Cadencr: {error.message}</p>}
     >
       <Feature />
     </CadencrProvider>
@@ -56,6 +82,16 @@ function Feature() {
   return <h1>{context.feature.name}</h1>;
 }
 ```
+
+## Entry points
+
+| Import                      | Use                                                            |
+| --------------------------- | -------------------------------------------------------------- |
+| `@cadencr/tab-sdk`          | Connection, client, errors, theme helpers, and protocol types. |
+| `@cadencr/tab-sdk/api`      | Generated, typed plugin API functions.                         |
+| `@cadencr/tab-sdk/react`    | React provider and hooks.                                      |
+| `@cadencr/tab-sdk/testing`  | Fake host and fixtures.                                        |
+| `@cadencr/tab-sdk/protocol` | Wire types and version constants.                              |
 
 ## API
 
@@ -189,19 +225,25 @@ answers `hello` from its options and keeps storage, state and subscriptions in
 memory.
 
 ```ts
-import { connect } from "@cadencr/tab-sdk";
+import { expect, it } from "vitest";
+import { connect, type CadencrClient } from "@cadencr/tab-sdk";
 import { createTestHost, jsonResponse } from "@cadencr/tab-sdk/testing";
 
-const host = createTestHost({ config: { group: "directory" } });
-host.route("GET", "/api/git/status", jsonResponse(200, { files: [] }));
-
-const client = await connect({ transport: host.transport });
-client.streams.subscribe("git.status", onEvent, { onResync });
-
-host.pushStream("git.status", { domain: "git", action: "status", payload: {} });
-host.setContext({ ...host.context, pullRequest: null });
-host.reconnect(); // simulate a host reload
-expect(host.requests.map((r) => r.method)).toContain("streams.subscribe");
+it("reads from the host", async () => {
+  const host = createTestHost();
+  let client: CadencrClient | undefined;
+  try {
+    client = await connect({ transport: host.transport });
+    host.route("GET", "/api/git/status", jsonResponse(200, { files: [] }));
+    const status = await client.api.get("/api/git/status", {
+      query: { feature_id: client.context.feature.id },
+    });
+    expect(status).toEqual({ files: [] });
+  } finally {
+    client?.close();
+    host.close();
+  }
+});
 ```
 
 | `TestHost` member                                                                | Description                                                  |
@@ -215,6 +257,8 @@ expect(host.requests.map((r) => r.method)).toContain("streams.subscribe");
 | `reconnect()`, `disconnect()`, `close()`                                         | Host reload, port loss, teardown.                            |
 
 `createTabContext`, `createThemeSnapshot` and `jsonResponse` build fixtures.
+The fake host exercises the transport; service permission enforcement still
+needs validation in the desktop app.
 
 ## Protocol types
 
@@ -223,6 +267,24 @@ types and constants shared with the host: `GuestToHost`, `HostToGuest`,
 `MethodMap`, `EventMap`, `TabContext`, `ThemeSnapshot`, `API_VERSION`,
 `SUPPORTED_API_VERSIONS`, `PORT_MESSAGE_TYPE`, `ERROR_CODES`,
 `negotiateApiVersion`.
+
+## Compatibility and troubleshooting
+
+The package is versioned independently of Cadencr. The custom tab host API is
+version 1; API operations marked `proposed` can still change. Inspect
+`client.capabilities` before relying on optional host features.
+
+| Failure                     | Check                                                     |
+| --------------------------- | --------------------------------------------------------- |
+| `TIMEOUT` during connection | Run inside a custom tab, or supply a fake-host transport. |
+| `PLUGIN_API_UNSUPPORTED`    | Host and SDK need a common API version.                   |
+| `PLUGIN_SCOPE_DENIED`       | Declare the scope in `tab.json` and renew consent.        |
+| `PLUGIN_BINDING_DENIED`     | Use project/feature IDs from the tab context.             |
+| Stale data after reconnect  | Refetch a snapshot in each stream's `onResync`.           |
+
+Close subscriptions and the client when disposing of a non-React page. The
+React provider and `useStream` manage their own cleanup. The [full guide](https://cadencr.com/docs/tab-sdk/)
+covers streams, errors, and host services together.
 
 ## License
 

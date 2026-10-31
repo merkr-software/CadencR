@@ -151,6 +151,20 @@ In a linked worktree, use `pnpm dev:configure-worktree` in place of `pnpm setup:
 pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile
 ```
 
+## Libraries
+
+Build custom tabs and agent providers with the public libraries below. Each
+package follows its own semver, independent of the desktop app.
+
+| Library                | Registry                                                   | Documentation                                                            | README                                                      |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `@cadencr/tab-sdk`     | [npm](https://www.npmjs.com/package/@cadencr/tab-sdk)      | [Host API, React hooks, and testing](https://cadencr.com/docs/tab-sdk/)  | [tab-sdk](./packages/tab-sdk/README.md)                     |
+| `@cadencr/tab-kit`     | [npm](https://www.npmjs.com/package/@cadencr/tab-kit)      | [Components, theme, and Tailwind v4](https://cadencr.com/docs/tab-kit/)  | [tab-kit](./packages/tab-kit/README.md)                     |
+| `cadencr-tab-backend`  | [crates.io](https://crates.io/crates/cadencr-tab-backend)  | [Native custom tab backends](https://cadencr.com/docs/tab-backend/)      | [tab-backend](./packages/tab-backend-sdk-rs/README.md)      |
+| `cadencr-provider-sdk` | [crates.io](https://crates.io/crates/cadencr-provider-sdk) | [Agent provider command harness](https://cadencr.com/docs/provider-sdk/) | [provider-sdk](./packages/provider-plugin-sdk-rs/README.md) |
+
+Start with the [libraries overview and custom tab quick start](https://cadencr.com/docs/libraries/).
+
 ## Development
 
 | Command                                   | Purpose                                              |

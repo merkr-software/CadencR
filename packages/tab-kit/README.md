@@ -5,7 +5,40 @@ Inter UI font, and the desktop app's own React components. Use it with
 `@cadencr/tab-sdk`, which keeps the tokens in sync with the live
 Cadencr theme.
 
+[Documentation](https://cadencr.com/docs/tab-kit/) ·
+[npm](https://www.npmjs.com/package/@cadencr/tab-kit) ·
+[Custom tab quick start](https://cadencr.com/docs/libraries/#create-your-first-custom-tab)
+
+## Install
+
+In a React + Vite tab project:
+
+```bash
+npm install @cadencr/tab-kit @cadencr/tab-sdk react@^19 react-dom@^19
+npm install -D tailwindcss@^4 @tailwindcss/vite@^4
+```
+
+The package is ESM with TypeScript declarations. For TypeScript consumers,
+also install the types referenced by the component declarations:
+
+```bash
+npm install -D @types/react@^19 @types/react-dom@^19 radix-ui class-variance-authority clsx
+```
+
 ## Setup
+
+Enable Tailwind v4 in your Vite configuration (keep your existing React plugin):
+
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  base: "./",
+  plugins: [react(), tailwindcss()],
+});
+```
 
 ```css
 /* src/styles.css */
@@ -14,20 +47,35 @@ Cadencr theme.
 ```
 
 ```tsx
-import { connect } from "@cadencr/tab-sdk";
+import { CadencrProvider } from "@cadencr/tab-sdk/react";
 import { Badge, Button } from "@cadencr/tab-kit";
 import "./styles.css";
 
-await connect(); // applies the Cadencr theme to <html>
-
-<Button variant="outline">
-  Refresh <Badge variant="secondary">3</Badge>
-</Button>;
+export function App() {
+  return (
+    <CadencrProvider
+      fallback={<p>Connecting…</p>}
+      errorFallback={(error) => <p role="alert">{error.message}</p>}
+    >
+      <main className="bg-background p-4 text-foreground">
+        <Button variant="outline">
+          Refresh <Badge variant="secondary">3</Badge>
+        </Button>
+      </main>
+    </CadencrProvider>
+  );
+}
 ```
 
 The preset needs `@tailwindcss/vite` (or another Tailwind v4 integration) in
 your build. Everything else — fonts, animations, component styles — ships in
 the package; nothing is fetched at runtime.
+
+Mount `App` in your React entry point. Use `vite build --watch` to update the
+static bundle Cadencr loads; `base: "./"` keeps asset URLs relative. The
+preset registers the compiled component classes with Tailwind automatically.
+The SDK provider applies and updates the live host theme. For a non-React
+page, call `connect()` from `@cadencr/tab-sdk` instead.
 
 ## What's inside
 
@@ -88,9 +136,22 @@ utilities. Icons inherit `currentColor`.
 ### Bundling
 
 Radix, class-variance-authority, clsx, tailwind-merge and lucide-react are
-bundled; only `react` and `react-dom` are peer dependencies. For full prop
-types, also install `radix-ui`, `class-variance-authority` and `clsx` as dev
-dependencies (the declarations reference their types).
+bundled; only `react` and `react-dom` are runtime peer dependencies. See
+[Install](#install) for the declaration dependencies needed by TypeScript consumers.
+
+## Troubleshooting
+
+| Symptom                                      | Check                                                                  |
+| -------------------------------------------- | ---------------------------------------------------------------------- |
+| Missing component styles                     | Enable Tailwind v4 and import `preset.css` after `tailwindcss`.        |
+| Default colors after changing the host theme | Mount the SDK provider or call `connect()`; keep `applyTheme` enabled. |
+| Missing fonts inside Cadencr                 | Use relative asset URLs and bundle files locally.                      |
+| Cannot resolve declaration types             | Install the dev dependencies listed under Install.                     |
+
+For plain CSS, import `tokens.css` and use `var(--cadencr-background)` and
+other tokens directly. Default dark/light tokens work without a host; the
+SDK replaces them with the live theme when connected. The package follows
+its own semver, independent of the app.
 
 ## Licenses
 
