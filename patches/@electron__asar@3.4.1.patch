@@ -1,0 +1,29 @@
+--- a/lib/asar.js
++++ b/lib/asar.js
+@@ -38,7 +38,7 @@
+ exports.uncache = uncache;
+ exports.uncacheAll = uncacheAll;
+ const path = __importStar(require("path"));
+-const minimatch_1 = __importDefault(require("minimatch"));
++const minimatch_1 = require("minimatch");
+ const wrapped_fs_1 = __importDefault(require("./wrapped-fs"));
+ const filesystem_1 = require("./filesystem");
+ const disk = __importStar(require("./disk"));
+@@ -51,7 +51,7 @@
+  * @param unpackDirs - Array of directory paths previously marked as unpacked
+  */
+ function isUnpackedDir(dirPath, pattern, unpackDirs) {
+-    if (dirPath.startsWith(pattern) || (0, minimatch_1.default)(dirPath, pattern)) {
++    if (dirPath.startsWith(pattern) || (0, minimatch_1.minimatch)(dirPath, pattern)) {
+         if (!unpackDirs.includes(dirPath)) {
+             unpackDirs.push(dirPath);
+         }
+@@ -144,7 +144,7 @@
+         const shouldUnpackPath = function (relativePath, unpack, unpackDir) {
+             let shouldUnpack = false;
+             if (unpack) {
+-                shouldUnpack = (0, minimatch_1.default)(filename, unpack, { matchBase: true });
++                shouldUnpack = (0, minimatch_1.minimatch)(filename, unpack, { matchBase: true });
+             }
+             if (!shouldUnpack && unpackDir) {
+                 shouldUnpack = isUnpackedDir(relativePath, unpackDir, unpackDirs);
