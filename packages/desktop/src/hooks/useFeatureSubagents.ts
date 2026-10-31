@@ -29,14 +29,44 @@ export function useSubagentRun(
   const query = useListFeatureSubagents(featureId ?? 0, {
     query: { enabled: featureId != null && toolUseId != null, select },
   });
+  useSubagentListError(featureId, query.error);
+  return query.data;
+}
+
+const NO_RUNS: SubagentRun[] = [];
+
+/**
+ * The sub-agents of one conversation still at work, nested ones included,
+ * oldest first; background ones outlive their turn. Empty until the
+ * conversation has a session: the feature's other sessions are not its own.
+ */
+export function useRunningSubagents(
+  featureId: number | undefined,
+  sessionId: number | undefined,
+): SubagentRun[] {
+  const select = useCallback(
+    (runs: SubagentRun[]) =>
+      runs
+        .filter((run) => run.status === "running" && run.sessionId === sessionId)
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt)),
+    [sessionId],
+  );
+  const query = useListFeatureSubagents(featureId ?? 0, {
+    query: { enabled: featureId != null && sessionId != null, select },
+  });
+  useSubagentListError(featureId ?? null, query.error);
+  return query.data ?? NO_RUNS;
+}
+
+/** One toast per feature, whichever reader saw the failure. */
+function useSubagentListError(featureId: number | null, error: unknown): void {
   useEffect(() => {
-    if (query.error && featureId != null) {
-      toast.error(apiErrorMessage(query.error, "Could not load sub-agent status"), {
+    if (error && featureId != null) {
+      toast.error(apiErrorMessage(error, "Could not load sub-agent status"), {
         id: `feature-subagents-error-${featureId}`,
       });
     }
-  }, [featureId, query.error]);
-  return query.data;
+  }, [error, featureId]);
 }
 
 /**

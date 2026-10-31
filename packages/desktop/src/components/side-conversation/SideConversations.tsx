@@ -10,6 +10,7 @@ import { useSessionStatus } from "@/stores/session-status-selectors";
 import { useSideConversations, type SideConversation } from "@/stores/side-conversation-store";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import type { LiveAgentStatus } from "@/types/agent";
+import { StackSection } from "@/components/composer/ComposerStack";
 import { withoutBrief } from "./side-conversation-blocks";
 import { useSideConversationActions } from "./useSideConversationActions";
 import { useSideConversationSession } from "./useSideConversationSession";
@@ -20,8 +21,8 @@ interface SideConversationsProps {
 }
 
 /**
- * The side questions asked from this conversation (`/cadencr:side`), stacked
- * on top of the composer card: each a temporary mini-conversation that
+ * The side questions asked from this conversation (`/cadencr:side`), sections
+ * of the composer card's stack: each a temporary mini-conversation that
  * answers next to the thread without entering it, until the user keeps it as
  * a thread of its own or closes it.
  */
@@ -32,10 +33,7 @@ export const SideConversations = memo(function SideConversations({
   const conversations = useSideConversations(sourceSessionId);
   if (conversations.length === 0) return null;
   return (
-    <div
-      data-side-conversations
-      className="mx-2 flex max-h-[min(55vh,30rem)] min-h-0 flex-col divide-y divide-border/60 overflow-y-auto rounded-t-lg border border-b-0 border-border/70 bg-muted/30"
-    >
+    <>
       {conversations.map((conversation) => (
         <SideConversationPanel
           key={conversation.featureId}
@@ -44,9 +42,16 @@ export const SideConversations = memo(function SideConversations({
           cwd={cwd}
         />
       ))}
-    </div>
+    </>
   );
 });
+
+/** Where the answer stands, after the question on the folded line. */
+const SUMMARY_STATE: Record<LiveAgentStatus, string> = {
+  agent: "answering…",
+  question: "waiting for you",
+  idle: "answered",
+};
 
 /** The header and actions; the streamed answer re-renders on its own. */
 const SideConversationPanel = memo(function SideConversationPanel({
@@ -67,45 +72,48 @@ const SideConversationPanel = memo(function SideConversationPanel({
   );
   const actions = useSideConversationActions(sourceSessionId, conversation, live);
   return (
-    <section
-      aria-label={`Side question: ${conversation.question}`}
-      className="flex min-h-0 shrink-0 flex-col"
+    <StackSection
+      tone="side"
+      label={`Side question: ${conversation.question}`}
+      data-side-conversation
+      icon={<MessagesSquare />}
+      title="Side question"
+      hint={<span title={conversation.question}>{conversation.question}</span>}
+      headerClassName="pr-0"
+      summary={`${conversation.question} · ${SUMMARY_STATE[status]}`}
+      actions={
+        <>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="shrink-0 text-muted-foreground"
+            title="Keep it as a conversation of its own, listed in the sidebar"
+            onClick={() => void actions.keep()}
+            disabled={actions.keeping}
+          >
+            {actions.keeping ? (
+              <Loader2 className="size-3 animate-spin" aria-hidden />
+            ) : (
+              <ArrowUpRight className="size-3" aria-hidden />
+            )}
+            Keep as thread
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="size-6 shrink-0 text-muted-foreground"
+            aria-label={live ? "Stop and close the side question" : "Close the side question"}
+            title={live ? (joined ? "Stop and close" : "Connecting…") : "Close"}
+            onClick={actions.close}
+            disabled={live && !joined}
+          >
+            <X className="size-3.5" />
+          </Button>
+        </>
+      }
     >
-      <header className="flex items-center gap-2 py-1 pr-1 pl-3 text-[11px] text-muted-foreground">
-        <MessagesSquare className="size-3.5 shrink-0" aria-hidden />
-        <span className="shrink-0 font-medium text-foreground/80">Side question</span>
-        <span className="min-w-0 flex-1 truncate" title={conversation.question}>
-          {conversation.question}
-        </span>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="shrink-0 text-muted-foreground"
-          title="Keep it as a conversation of its own, listed in the sidebar"
-          onClick={() => void actions.keep()}
-          disabled={actions.keeping}
-        >
-          {actions.keeping ? (
-            <Loader2 className="size-3 animate-spin" aria-hidden />
-          ) : (
-            <ArrowUpRight className="size-3" aria-hidden />
-          )}
-          Keep as thread
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="size-6 shrink-0 text-muted-foreground"
-          aria-label={live ? "Stop and close the side question" : "Close the side question"}
-          title={live ? (joined ? "Stop and close" : "Connecting…") : "Close"}
-          onClick={actions.close}
-          disabled={live && !joined}
-        >
-          <X className="size-3.5" />
-        </Button>
-      </header>
       <SideAnswer featureId={conversation.featureId} cwd={cwd} status={status} />
-    </section>
+    </StackSection>
   );
 });
 
@@ -135,7 +143,7 @@ function SideAnswer({
     <div
       ref={scrollRef}
       data-rich-copy="true"
-      className="max-h-[min(40vh,22rem)] min-h-0 overflow-y-auto px-3 pb-2"
+      className="max-h-[min(40vh,22rem)] min-h-0 overflow-y-auto rounded-md bg-background/60 px-2.5 py-1"
     >
       <div ref={contentRef}>
         {displayItems.map((item) =>

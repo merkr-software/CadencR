@@ -5,14 +5,15 @@ import { hasCompactLine } from "@/lib/agent-stream-display";
 import { countSubagentToolCalls, selectSubagentActions } from "@/components/subagent-actions";
 import { useAgentSessionContext } from "@/components/agent-session/agent-session-context";
 import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
+import { useSubagentCardRef } from "@/components/agent-session/subagent-reveal";
 import {
   CardSection,
   ElapsedClock,
+  SubagentIdentity,
   SubagentMetaLine,
   SubagentPrompt,
   SubagentReportBody,
 } from "@/components/subagents/SubagentCardParts";
-import { SubagentStatusGlyph } from "@/components/subagents/SubagentStatusGlyph";
 import {
   MAX_SUBAGENT_DEPTH,
   SubagentTimeline,
@@ -55,6 +56,8 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
 }: TaskAgentBlockProps): ReactElement {
   const { featureId } = useAgentSessionContext();
   const run = useSubagentRun(featureId, block.toolUseId);
+  // Lets the composer's agent list leave this agent out while its card shows.
+  const cardRef = useSubagentCardRef(block.toolUseId);
   const { toolArgs, toolName, taskComplete } = block;
   const view = useMemo(
     () => subagentView(run, { toolArgs, toolName, taskComplete }),
@@ -80,6 +83,8 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
   return (
     <section
       data-tool-family="task"
+      ref={cardRef}
+      data-subagent-id={block.toolUseId}
       data-subagent-depth={depth}
       data-subagent-status={view.status}
       aria-label={`Sub-agent ${view.title}: ${subagentStatusSentence(view)}`}
@@ -136,11 +141,7 @@ const SubagentCardHeader = memo(function SubagentCardHeader({
       aria-label={expanded ? "Collapse sub-agent actions" : "Expand sub-agent actions"}
       className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-3 text-left text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
     >
-      <SubagentStatusGlyph status={view.status} label={subagentStatusSentence(view)} />
-      <span className="max-w-[40%] shrink-0 truncate text-[12.5px] font-medium text-foreground">
-        {view.title}
-      </span>
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">{view.description}</span>
+      <SubagentIdentity view={view} />
       <ElapsedClock view={view} />
       {canOpen && (
         <ChevronRightIcon

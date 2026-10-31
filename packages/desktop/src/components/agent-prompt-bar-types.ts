@@ -88,8 +88,10 @@ export interface AgentPromptBarProps {
   contextUsage?: ContextUsageState | null;
   /** First-prompt launch line (where the agent will work), shown atop the card. */
   launchManifest?: ReactNode;
-  /** Side questions asked from this conversation, stacked on top of the card. */
+  /** Side questions asked from this conversation, a section of the card's stack. */
   sideConversations?: ReactNode;
+  /** This conversation's armed schedules, a section of the card's stack. */
+  schedules?: ReactNode;
   /**
    * Session controls (mode, model/effort…) rendered at the start of the
    * composer card's instrument row, supplied by the session embedder.

@@ -10,8 +10,13 @@ import {
   X,
 } from "lucide-react";
 import type { Schedule } from "@/api/generated";
-import { Button } from "@/components/ui/button";
-import { ShortcutTooltip } from "@/components/ShortcutTooltip";
+import {
+  STACK_ROW_CLASS,
+  StackList,
+  StackRowActions,
+  StackRowButton,
+  StackSection,
+} from "@/components/composer/ComposerStack";
 import { useCountdownTick } from "@/hooks/useCountdownTick";
 import {
   describeRecurrence,
@@ -31,11 +36,11 @@ export interface SessionSchedulesBannerProps {
 }
 
 /**
- * What this conversation has queued, shown above the composer.
+ * What this conversation has scheduled, a section of the composer's stack.
  *
- * A conversation can now hold several schedules, but the composer is not the
- * place to manage a list: it shows the next one in full and collapses the rest
- * behind a count, so the banner stays one line tall in the common case.
+ * A conversation can hold several schedules, but the composer is not the
+ * place to manage a list: it shows the next one and folds the rest behind
+ * the header's count, so the section stays one row tall in the common case.
  */
 export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
   schedules,
@@ -50,36 +55,75 @@ export const SessionSchedulesBanner = memo(function SessionSchedulesBanner({
   if (!schedules.length) return null;
 
   return (
-    // The composer drops its top padding once the instrument row lives inside
-    // the card. This bottom gap is what keeps these cards off that edge.
-    <div className="flex flex-col gap-2 px-3 pt-2 pb-2">
-      {visible.map((schedule) => (
-        <ScheduleLine
-          key={schedule.id}
-          schedule={schedule}
-          busy={busy}
-          onEdit={onEdit}
-          onCancel={onCancel}
-          onSendNow={onSendNow}
-        />
-      ))}
-      {schedules.length > 1 && (
-        <button
-          type="button"
-          onClick={() => setExpanded((current) => !current)}
-          className="self-start px-1 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ChevronDown
-            className={cn("mr-1 inline size-3 transition-transform", expanded && "rotate-180")}
+    <StackSection
+      tone="schedule"
+      label="Scheduled messages"
+      data-composer-schedules
+      icon={<CalendarClock />}
+      title="Scheduled"
+      count={schedules.length}
+      hint="Sends to this conversation on its own"
+      summary={<NextScheduleSummary schedule={schedules[0]} />}
+      // Schedules come and go on their own (they fire; an agent sets one), and
+      // the section moves above a permission prompt and back.
+      opensOnArrival={false}
+      actions={
+        <>
+          {busy && (
+            <Loader2
+              className="size-3 shrink-0 animate-spin text-muted-foreground"
+              aria-label="Saving"
+            />
+          )}
+          {schedules.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setExpanded((current) => !current)}
+              aria-expanded={expanded}
+              className="flex shrink-0 items-center gap-1 rounded px-1 text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {expanded ? "Show less" : `${schedules.length - 1} more`}
+              <ChevronDown
+                className={cn("size-3 transition-transform", expanded && "rotate-180")}
+                aria-hidden
+              />
+            </button>
+          )}
+        </>
+      }
+    >
+      <StackList>
+        {visible.map((schedule) => (
+          <ScheduleRow
+            key={schedule.id}
+            schedule={schedule}
+            busy={busy}
+            onEdit={onEdit}
+            onCancel={onCancel}
+            onSendNow={onSendNow}
           />
-          {expanded ? "Show less" : `${schedules.length - 1} more scheduled`}
-        </button>
-      )}
-    </div>
+        ))}
+      </StackList>
+    </StackSection>
   );
 });
 
-function ScheduleLine({
+/** The next schedule in one line; it ticks like its row would. */
+function NextScheduleSummary({ schedule }: { schedule: Schedule }): ReactElement {
+  const nextRun = useMemo(
+    () => (schedule.next_run_at ? new Date(schedule.next_run_at) : null),
+    [schedule.next_run_at],
+  );
+  useCountdownTick(nextRun);
+  const verb = schedule.condition ? "Checks" : "Sends";
+  return (
+    <>
+      {nextRun ? `${verb} ${formatRelative(nextRun)}` : verb} · {scheduleTitle(schedule)}
+    </>
+  );
+}
+
+function ScheduleRow({
   schedule,
   busy,
   onEdit,
@@ -100,22 +144,25 @@ function ScheduleLine({
   const repeats = schedule.recurrence.kind !== "once";
   const condition = schedule.condition;
   const Icon = condition ? SquareTerminal : repeats ? Repeat : CalendarClock;
-  const verb = condition ? "Checks" : "Scheduled";
+  const verb = condition ? "Checks" : "Sends";
+  const when = [
+    nextRun ? formatAbsolute(nextRun) : null,
+    repeats ? describeRecurrence(schedule.recurrence) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
-      <Icon className="size-4 shrink-0 text-primary" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-1.5 text-xs">
-          <span className="font-medium text-foreground">
+    <li className={STACK_ROW_CLASS}>
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="flex min-w-0 items-baseline gap-1.5 text-xs">
+          <span className="shrink-0 font-medium text-foreground">
             {nextRun ? `${verb} ${formatRelative(nextRun)}` : verb}
           </span>
-          <span className="truncate text-muted-foreground">
-            · {nextRun ? formatAbsolute(nextRun) : ""}
-            {repeats ? ` · ${describeRecurrence(schedule.recurrence)}` : ""}
-          </span>
-        </div>
-        <p className="truncate text-xs text-muted-foreground" title={schedule.prompt}>
+          {when && <span className="truncate text-muted-foreground">· {when}</span>}
+        </span>
+        <span className="block truncate text-xs text-muted-foreground" title={schedule.prompt}>
           {condition && (
             <>
               If{" "}
@@ -124,50 +171,35 @@ function ScheduleLine({
             </>
           )}
           {scheduleTitle(schedule)}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-0.5">
-        {busy && <Loader2 className="mr-1 size-3.5 animate-spin text-muted-foreground" />}
-        <ShortcutTooltip label="Edit">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => onEdit(schedule)}
-            disabled={busy}
-            aria-label="Edit this schedule"
-          >
-            <Pencil className="size-3.5" />
-          </Button>
-        </ShortcutTooltip>
-        <ShortcutTooltip label="Send now">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={() => onSendNow(schedule)}
-            disabled={busy}
-            aria-label="Send this scheduled message now"
-          >
-            <Send className="size-3.5" />
-          </Button>
-        </ShortcutTooltip>
-        <ShortcutTooltip label={repeats ? "Delete schedule" : "Cancel"}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground hover:text-destructive"
-            onClick={() => onCancel(schedule)}
-            disabled={busy}
-            aria-label="Cancel this schedule"
-          >
-            <X className="size-3.5" />
-          </Button>
-        </ShortcutTooltip>
-      </div>
-    </div>
+        </span>
+      </span>
+      <StackRowActions>
+        <StackRowButton
+          label="Send now"
+          ariaLabel="Send this scheduled message now"
+          onClick={() => onSendNow(schedule)}
+          disabled={busy}
+        >
+          <Send className="size-3.5" />
+        </StackRowButton>
+        <StackRowButton
+          label="Edit"
+          ariaLabel="Edit this schedule"
+          onClick={() => onEdit(schedule)}
+          disabled={busy}
+        >
+          <Pencil className="size-3.5" />
+        </StackRowButton>
+        <StackRowButton
+          label={repeats ? "Delete schedule" : "Cancel"}
+          ariaLabel="Cancel this schedule"
+          onClick={() => onCancel(schedule)}
+          disabled={busy}
+          className="hover:text-destructive"
+        >
+          <X className="size-3.5" />
+        </StackRowButton>
+      </StackRowActions>
+    </li>
   );
 }

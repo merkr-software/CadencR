@@ -6,9 +6,60 @@ import {
   formatTokens,
   statusReasonLabel,
   subagentElapsedMs,
+  subagentStatusSentence,
   type SubagentView,
 } from "@/lib/subagents/subagent-presentation";
 import { cn } from "@/lib/utils";
+import { SubagentStatusGlyph } from "./SubagentStatusGlyph";
+
+/**
+ * Who a sub-agent is at a glance: status glyph, name, then its task taking
+ * the rest of the line. Shared by its card header and the composer's list of
+ * running agents, so a row reads like the card it leads to.
+ */
+export function SubagentIdentity({ view }: { view: SubagentView }): ReactElement {
+  return (
+    <>
+      <SubagentStatusGlyph status={view.status} label={subagentStatusSentence(view)} />
+      <span className="max-w-[40%] shrink-0 truncate text-[12.5px] font-medium text-foreground">
+        {view.title}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+        {view.description}
+      </span>
+    </>
+  );
+}
+
+/** The model a sub-agent runs on, titled with whether it was requested. */
+export function SubagentModelLabel({
+  view,
+  className,
+}: {
+  view: SubagentView;
+  className?: string;
+}): ReactElement | null {
+  if (!view.model) return null;
+  return (
+    <span
+      className={cn("truncate font-mono", className)}
+      title={view.modelRequested ? `Requested model ${view.model}` : `Model ${view.model}`}
+    >
+      {view.model}
+    </span>
+  );
+}
+
+/** Tags a sub-agent that keeps running after its turn ends. */
+export function SubagentBackgroundTag({ className }: { className?: string }): ReactElement {
+  return (
+    <span
+      className={cn("rounded-sm border border-border px-1 text-[10.5px] leading-[14px]", className)}
+    >
+      background
+    </span>
+  );
+}
 
 /**
  * Elapsed time, ticking once a second while the sub-agent runs. Isolated so
@@ -79,14 +130,7 @@ function metaItems(
   if (view.model) {
     items.push({
       key: "model",
-      node: (
-        <span
-          className="truncate font-mono text-foreground/80"
-          title={view.modelRequested ? `Requested model ${view.model}` : `Model ${view.model}`}
-        >
-          {view.model}
-        </span>
-      ),
+      node: <SubagentModelLabel view={view} className="text-foreground/80" />,
     });
   }
   if (view.effort) {
@@ -94,14 +138,7 @@ function metaItems(
     items.push({ key: "effort", node: <span>{effort}</span> });
   }
   if (view.background) {
-    items.push({
-      key: "background",
-      node: (
-        <span className="rounded-sm border border-border px-1 text-[10.5px] leading-[14px]">
-          background
-        </span>
-      ),
-    });
+    items.push({ key: "background", node: <SubagentBackgroundTag /> });
   }
   const actions = actionCount;
   if (actions != null && actions > 0) {

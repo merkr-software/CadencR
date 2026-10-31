@@ -7,6 +7,7 @@ import {
   forwardRef,
   memo,
   type Ref,
+  type RefObject,
 } from "react";
 import type { AgentPromptBarHandle } from "../AgentPromptBar";
 import { useGetFeatureWorkingDir } from "../../api/generated";
@@ -17,6 +18,7 @@ import { useAgentSessionScroll } from "./useAgentSessionScroll";
 import { useAgentSessionModelAndProfile } from "./useAgentSessionModelAndProfile";
 import { useAgentSessionMetaVisibility } from "./useAgentSessionMetaVisibility";
 import { useAgentSessionDisplay } from "./useAgentSessionDisplay";
+import type { StartJump } from "./agent-session-scroll-utils";
 import type { MetaBarHandle } from "./MetaBar";
 import { useAutoScrollShortcut } from "./useAutoScrollShortcut";
 import { AgentImageScope } from "@/components/AgentMarkdownImage";
@@ -39,6 +41,8 @@ import { AgentSessionProvider } from "./agent-session-context";
 import { BranchConfirmDialog } from "./BranchConfirmDialog";
 import { useAgentSessionBranchEffects } from "./useAgentSessionBranchEffects";
 import { useAgentSessionImperativeHandle } from "./useAgentSessionImperativeHandle";
+import { SubagentCards } from "./subagent-cards";
+import { SubagentLinkContext, type SubagentLink } from "./subagent-reveal";
 
 function useAgentSessionCollapsible(props: AgentSessionProps, ref: Ref<AgentSessionHandle>) {
   const { status, open: controlledOpen, onToggle, wsSessionId } = props;
@@ -131,7 +135,7 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
     onEnableAutoScroll: scroll.scrollToBottom,
   });
 
-  const { prepareJump } = scroll;
+  const { startJump } = scroll;
   const { onLoadPromptTurn } = props;
   const compactMode = verbosityMode === "compact";
   const messageNavigator = useMemo(() => {
@@ -139,17 +143,42 @@ function useAgentSessionScrollAndCatalog(props: AgentSessionProps) {
     if (!messageNavigatorEnabled || !agentTabActive || !onLoadPromptTurn) return null;
     const loadPromptTurn = (messageDbId: number): Promise<boolean> =>
       onLoadPromptTurn(messageDbId, { summaryMode, compactMode });
-    return { prepareJump, loadPromptTurn };
+    return { startJump, loadPromptTurn };
   }, [
     messageNavigatorEnabled,
     agentTabActive,
-    prepareJump,
+    startJump,
     onLoadPromptTurn,
     summaryMode,
     compactMode,
   ]);
 
   return { agentCatalog, projectPath, verbosityMode, summaryMode, messageNavigator, scroll };
+}
+
+/**
+ * The session context its transcript and composer share, and the link behind
+ * the composer's agent list: the transcript reports its cards and reveals one.
+ */
+function useAgentSessionContextValue(
+  wsSessionId: string | undefined,
+  featureId: number | undefined,
+  metaBarRef: RefObject<MetaBarHandle | null>,
+  startJump: StartJump,
+) {
+  const sendRef = useRef<((text: string) => void) | null>(null);
+  const [cards] = useState(() => new SubagentCards());
+  const subagentLink = useMemo<SubagentLink>(() => ({ cards, startJump }), [cards, startJump]);
+  const agentSessionContextValue = useMemo(
+    () => ({
+      wsSessionId: wsSessionId ?? null,
+      featureId: featureId ?? null,
+      sendPrompt: (text: string) => sendRef.current?.(text),
+      openModelPicker: () => metaBarRef.current?.openModelPicker(),
+    }),
+    [featureId, metaBarRef, wsSessionId],
+  );
+  return { sendRef, subagentLink, agentSessionContextValue };
 }
 
 function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHandle>) {
@@ -172,15 +201,11 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
   } = useAgentSessionCollapsible(props, ref);
   const { agentCatalog, projectPath, verbosityMode, summaryMode, messageNavigator, scroll } =
     useAgentSessionScrollAndCatalog(props);
-  const sendRef = useRef<((text: string) => void) | null>(null);
-  const agentSessionContextValue = useMemo(
-    () => ({
-      wsSessionId: wsSessionId ?? null,
-      featureId: props.featureId ?? null,
-      sendPrompt: (text: string) => sendRef.current?.(text),
-      openModelPicker: () => metaBarRef.current?.openModelPicker(),
-    }),
-    [metaBarRef, props.featureId, wsSessionId],
+  const { sendRef, subagentLink, agentSessionContextValue } = useAgentSessionContextValue(
+    wsSessionId,
+    props.featureId,
+    metaBarRef,
+    scroll.startJump,
   );
   const {
     isAgentWorking,
@@ -233,6 +258,7 @@ function useAgentSessionState(props: AgentSessionProps, ref: Ref<AgentSessionHan
     verbosityMode,
     summaryMode,
     messageNavigator,
+    subagentLink,
     scroll,
     isIdle,
     shouldShowPromptBar,
@@ -323,33 +349,35 @@ export const AgentSession = memo(
 
     return (
       <AgentSessionProvider value={s.agentSessionContextValue}>
-        {props.wsSessionId && <BranchConfirmDialog wsSessionId={props.wsSessionId} />}
-        <AgentSessionFrame
-          containerRef={s.containerRef}
-          headerRef={s.headerRef}
-          collapsible={props.collapsible ?? false}
-          className={props.className}
-          navAgentIndex={props.navAgentIndex}
-          maximized={props.maximized}
-          isOpen={s.isOpen}
-          isIdle={s.isIdle}
-          status={props.status}
-          blocks={props.blocks}
-          streamContent={
-            <AgentImageScope featureId={props.featureId}>{streamContent}</AgentImageScope>
-          }
-          bottomContent={bottomSection}
-          onToggle={s.handleToggle}
-          IconComponent={s.IconComponent}
-          badge={s.badge}
-          displayLabel={s.displayLabel}
-          onMarkDone={props.onMarkDone}
-          resumable={props.resumable}
-          onResume={props.onResume}
-          canDelete={props.canDelete}
-          onDelete={props.onDelete}
-          onToggleMaximize={props.onToggleMaximize}
-        />
+        <SubagentLinkContext.Provider value={s.subagentLink}>
+          {props.wsSessionId && <BranchConfirmDialog wsSessionId={props.wsSessionId} />}
+          <AgentSessionFrame
+            containerRef={s.containerRef}
+            headerRef={s.headerRef}
+            collapsible={props.collapsible ?? false}
+            className={props.className}
+            navAgentIndex={props.navAgentIndex}
+            maximized={props.maximized}
+            isOpen={s.isOpen}
+            isIdle={s.isIdle}
+            status={props.status}
+            blocks={props.blocks}
+            streamContent={
+              <AgentImageScope featureId={props.featureId}>{streamContent}</AgentImageScope>
+            }
+            bottomContent={bottomSection}
+            onToggle={s.handleToggle}
+            IconComponent={s.IconComponent}
+            badge={s.badge}
+            displayLabel={s.displayLabel}
+            onMarkDone={props.onMarkDone}
+            resumable={props.resumable}
+            onResume={props.onResume}
+            canDelete={props.canDelete}
+            onDelete={props.onDelete}
+            onToggleMaximize={props.onToggleMaximize}
+          />
+        </SubagentLinkContext.Provider>
       </AgentSessionProvider>
     );
   }),

@@ -5,6 +5,7 @@ import type { DisplayItem } from "@/types/agent-stream";
 import { ConversationSearch } from "./ConversationSearch";
 import { MessageNavigator } from "./MessageNavigator";
 import type { MessageNavigatorControls } from "./useMessageNavigator";
+import { useSubagentCardsStream } from "./subagent-reveal";
 
 interface AgentStreamToolsProps {
   items: DisplayItem[];
@@ -19,7 +20,10 @@ interface AgentStreamToolsProps {
   onSearchBlockChange: (blockId: string | null) => void;
 }
 
-/** Overlays that find and jump through the transcript: ⌘F search and the prompt rail. */
+/**
+ * What finds and jumps through the transcript: ⌘F search, the prompt rail,
+ * and the cards' link behind the composer's agent list.
+ */
 export const AgentStreamTools = memo(function AgentStreamTools({
   items,
   toolResultMap,
@@ -29,6 +33,7 @@ export const AgentStreamTools = memo(function AgentStreamTools({
   messageNavigator,
   onSearchBlockChange,
 }: AgentStreamToolsProps): ReactElement {
+  useSubagentCardsStream(items, virtuosoRef, scrollerRef);
   return (
     <>
       {shortcutsEnabled && (

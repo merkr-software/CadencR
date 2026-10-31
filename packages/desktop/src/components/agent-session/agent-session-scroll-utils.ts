@@ -64,6 +64,13 @@ export function isVerticalScrollbarPointer(el: HTMLElement, e: PointerEvent): bo
   return e.clientX >= rect.right - SCROLLBAR_HIT_TARGET_PX && e.clientX <= rect.right + 1;
 }
 
+/**
+ * Runs a programmatic jump (`run` starts it and returns its cancel) after
+ * handing it the viewport and cancelling any jump still settling. Returns
+ * that cancel, for a caller that unmounts before the session does.
+ */
+export type StartJump = (run: () => () => void) => () => void;
+
 export interface UseAgentSessionScrollResult {
   virtuosoRef: React.RefObject<VirtuosoHandle | null>;
   scrollContainerRef: ScrollRef;
@@ -77,5 +84,5 @@ export interface UseAgentSessionScrollResult {
   isLoadingOlder: boolean;
   scrollToBottom: () => void;
   /** Hand the viewport to a programmatic jump (releases bottom-stick and the anchor guard). */
-  prepareJump: () => void;
+  startJump: StartJump;
 }

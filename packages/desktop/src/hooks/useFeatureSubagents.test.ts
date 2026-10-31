@@ -1,11 +1,15 @@
-import { QueryObserver } from "@tanstack/react-query";
+// @vitest-environment happy-dom
+import { QueryClientProvider, QueryObserver } from "@tanstack/react-query";
+import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderHook } from "@/test-utils";
 import { getListFeatureSubagentsQueryKey, type SubagentRun } from "@/api/generated";
 import { queryClient } from "@/lib/queryClient";
 import {
   applySubagentRunPush,
   invalidateFeatureSubagents,
   refreshFeatureSubagentsAfterTurn,
+  useRunningSubagents,
 } from "./useFeatureSubagents";
 
 function run(status: SubagentRun["status"]): SubagentRun {
@@ -114,5 +118,32 @@ describe("sub-agent list pushes", () => {
 
   it("rejects an invalid payload", () => {
     expect(applySubagentRunPush(9, { toolUseId: "x" })).toBe(false);
+  });
+});
+
+describe("useRunningSubagents", () => {
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(QueryClientProvider, { client: queryClient }, children);
+  const at = (toolUseId: string, overrides: Partial<SubagentRun>): SubagentRun => ({
+    ...run("running"),
+    toolUseId,
+    ...overrides,
+  });
+
+  it("lists only this conversation's running sub-agents, oldest first", () => {
+    queryClient.setQueryData(getListFeatureSubagentsQueryKey(4), [
+      at("late", { startedAt: "2026-10-30T10:05:00.000Z" }),
+      at("done", { status: "completed" }),
+      at("elsewhere", { sessionId: 2 }),
+      at("early", { startedAt: "2026-10-30T09:00:00.000Z" }),
+    ]);
+    const { result } = renderHook(() => useRunningSubagents(4, 1), { wrapper });
+    expect(result.current.map((entry) => entry.toolUseId)).toEqual(["early", "late"]);
+  });
+
+  it("lists nothing before the conversation has a session", () => {
+    queryClient.setQueryData(getListFeatureSubagentsQueryKey(4), [at("other", { sessionId: 2 })]);
+    const { result } = renderHook(() => useRunningSubagents(4, undefined), { wrapper });
+    expect(result.current).toEqual([]);
   });
 });
