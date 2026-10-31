@@ -79,6 +79,7 @@ session_events! {
     PromptReceived(PromptReceivedPayload) => "prompt_received",
     StreamStatus(SessionStreamStatusPayload) => "stream_status",
     PersistenceStatus(SessionPersistenceStatusPayload) => "persistence_status",
+    SubagentUpdated(crate::domain::subagents::SubagentRun) => "subagent_updated",
 }
 
 impl From<WsSessionAction> for String {
@@ -110,6 +111,28 @@ mod tests {
         ] {
             assert!(!names.contains(legacy));
         }
+    }
+
+    #[test]
+    fn subagent_updates_round_trip_through_the_typed_contract() {
+        let run = crate::domain::subagents::SubagentRun::launched()
+            .session_id(42)
+            .tool_use_id("spawn-child")
+            .now("2026-10-31T00:00:00Z")
+            .call();
+        let event = WsSessionEvent::SubagentUpdated(run.clone());
+        let envelope = WsEnvelope::session_event(&event).unwrap();
+        assert_eq!(envelope.action, WsSessionAction::SubagentUpdated.as_str());
+        assert_eq!(envelope.payload["sessionId"], 42);
+        assert_eq!(envelope.payload["toolUseId"], "spawn-child");
+        assert_eq!(envelope.payload["status"], "running");
+        let decoded =
+            serde_json::from_value::<WsSessionEvent>(serde_json::to_value(&event).unwrap())
+                .unwrap();
+        let WsSessionEvent::SubagentUpdated(decoded) = decoded else {
+            panic!("sub-agent update must retain its canonical action");
+        };
+        assert_eq!(decoded, run);
     }
 
     #[test]

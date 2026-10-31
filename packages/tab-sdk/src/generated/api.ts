@@ -366,6 +366,13 @@ export interface AgentBlock {
   content: string;
   /** @nullable */
   createdAt?: string | null;
+  /**
+   * UTF-8 size of the complete persisted content when `content` is a
+   * bounded preview of it, so the client can say what loading it costs.
+   * @minimum 0
+   * @nullable
+   */
+  fullContentBytes?: number | null;
   id: string;
   /** @nullable */
   isError?: boolean | null;
@@ -1105,6 +1112,7 @@ export const WsSessionAction = {
   prompt_received: "prompt_received",
   stream_status: "stream_status",
   persistence_status: "persistence_status",
+  subagent_updated: "subagent_updated",
 } as const;
 
 /**
@@ -1491,6 +1499,70 @@ export interface SessionPersistenceStatusPayload {
   status: PersistenceStatusState;
 }
 
+export type SubagentRunStatus = (typeof SubagentRunStatus)[keyof typeof SubagentRunStatus];
+
+export const SubagentRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+/**
+ * One sub-agent as the desktop renders it: the transcript's sub-agent card
+ * for its carrier. `action_count` is observed by Cadencr from the
+ * sub-agent's transcript; every other field is a provider fact.
+ */
+export interface SubagentRun {
+  /**
+   * Tool calls Cadencr saw in the sub-agent's transcript.
+   * @nullable
+   */
+  actionCount?: number | null;
+  /** @nullable */
+  agentName?: string | null;
+  /** @nullable */
+  agentType?: string | null;
+  background: boolean;
+  /** @nullable */
+  childSessionId?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** `model` is what the sub-agent ran on, not just what it was asked to use. */
+  modelResolved: boolean;
+  /**
+   * Carrier of the sub-agent that launched this one, when nested.
+   * @nullable
+   */
+  parentToolUseId?: string | null;
+  /** @nullable */
+  prompt?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
+  /** @nullable */
+  resultSummary?: string | null;
+  sessionId: number;
+  startedAt: string;
+  status: SubagentRunStatus;
+  /** @nullable */
+  statusReason?: string | null;
+  /**
+   * Tool calls the provider reports the sub-agent made.
+   * @nullable
+   */
+  toolUseCount?: number | null;
+  /** The carrier tool_use id: joins the run to its transcript block. */
+  toolUseId: string;
+  /** @nullable */
+  totalTokens?: number | null;
+}
+
 /**
  * Session-domain server events, flattened beside the envelope id/domain/ref.
  */
@@ -1650,6 +1722,10 @@ export type WsSessionEvent =
   | {
       action: "persistence_status";
       payload: SessionPersistenceStatusPayload;
+    }
+  | {
+      action: "subagent_updated";
+      payload: SubagentRun;
     };
 
 export type ContentSearchParams = {

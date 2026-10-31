@@ -1,13 +1,13 @@
 //! Sub-agent run record and the pure rules that fold a patch into it.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::domain::agents::adapter::{RuntimeSubagentPatch, RuntimeSubagentStatus};
 
 /// Longest prompt kept per run; the transcript keeps the carrier's full input.
 const MAX_PROMPT_CHARS: usize = 16_000;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SubagentRunStatus {
     Running,
@@ -49,7 +49,7 @@ impl SubagentRunStatus {
 /// One sub-agent as the desktop renders it: the transcript's sub-agent card
 /// for its carrier. `action_count` is observed by Cadencr from the
 /// sub-agent's transcript; every other field is a provider fact.
-#[derive(Debug, Clone, PartialEq, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentRun {
     pub session_id: i64,

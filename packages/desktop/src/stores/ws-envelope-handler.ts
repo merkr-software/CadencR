@@ -219,7 +219,7 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.configsnapshot]: handleSessionConfigSnapshot,
   [SESSION_ACTION.ended]: handleTurnEndWithSubagents(handleTurnComplete),
   [LEGACY_SESSION_ACTION.turnComplete]: handleTurnEndWithSubagents(handleTurnComplete),
-  [LEGACY_SESSION_ACTION.subagentUpdated]: handleSubagentUpdated,
+  [SESSION_ACTION.subagent_updated]: handleSubagentUpdated,
 };
 
 function isHandledSessionAction(action: string): action is HandledSessionAction {

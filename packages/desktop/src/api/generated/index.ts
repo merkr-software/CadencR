@@ -6597,6 +6597,7 @@ export const WsSessionAction = {
   prompt_received: "prompt_received",
   stream_status: "stream_status",
   persistence_status: "persistence_status",
+  subagent_updated: "subagent_updated",
 } as const;
 
 export type WsSessionCommandOneOfAction =
@@ -7436,6 +7437,18 @@ export type WsSessionEventOneOfSevenseven = {
   payload: SessionPersistenceStatusPayload;
 };
 
+export type WsSessionEventOneOfSevennineAction =
+  (typeof WsSessionEventOneOfSevennineAction)[keyof typeof WsSessionEventOneOfSevennineAction];
+
+export const WsSessionEventOneOfSevennineAction = {
+  subagent_updated: "subagent_updated",
+} as const;
+
+export type WsSessionEventOneOfSevennine = {
+  action: WsSessionEventOneOfSevennineAction;
+  payload: SubagentRun;
+};
+
 /**
  * Session-domain server events, flattened beside the envelope id/domain/ref.
  */
@@ -7478,7 +7491,8 @@ export type WsSessionEvent =
   | WsSessionEventOneOfSevenone
   | WsSessionEventOneOfSeventhree
   | WsSessionEventOneOfSevenfive
-  | WsSessionEventOneOfSevenseven;
+  | WsSessionEventOneOfSevenseven
+  | WsSessionEventOneOfSevennine;
 
 export type GetAgentCatalogParams = {
   /**
