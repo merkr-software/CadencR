@@ -65,6 +65,9 @@ pub(super) struct IndexState {
     /// Pairing both notifications gives fresh and resumed threads one durable
     /// replay identity without counting the same response twice.
     pub(super) pending_raw_usage: super::event_usage::PendingUsageBuffer,
+    /// What each sub-agent child last reported to the registry. Outlives
+    /// `reset()` like `subagent_threads`.
+    pub(super) subagent_reports: super::event_subagent_reports::SubagentReports,
 }
 
 impl IndexState {

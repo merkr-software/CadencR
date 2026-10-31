@@ -268,6 +268,14 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .execute(&pool)
     .await
     .unwrap();
+    // The sub-agent registry the reader writes.
+    sqlx::raw_sql(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/migrations/20261030120000_subagent_runs.sql"
+    )))
+    .execute(&pool)
+    .await
+    .unwrap();
 
     sqlx::query(
         r#"CREATE TABLE agent_message_dispatches (

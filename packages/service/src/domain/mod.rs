@@ -56,6 +56,7 @@ pub mod sessions;
 pub mod settings;
 pub mod settings_allowlist;
 pub mod settings_store;
+pub mod subagents;
 pub mod terminal;
 pub mod themes;
 pub mod usage_stats;

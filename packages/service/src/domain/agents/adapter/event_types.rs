@@ -41,6 +41,11 @@ pub struct RuntimeEvent {
     /// Stable provider assistant-message identity, when the adapter exposes
     /// one. History import uses the same identity to correlate replayed usage.
     pub(super) provider_message_id: Option<String>,
+    /// Sub-agent facts this event carries (launch configuration, resolved
+    /// model, terminal status), keyed by carrier tool_use id. Adapters attach
+    /// them to the event that revealed them, or to an `Other` event when the
+    /// fact has no transcript block of its own.
+    pub(super) subagent_updates: Vec<super::subagent::RuntimeSubagentUpdate>,
 }
 
 /// Provider-neutral detail of a turn-ending result that reported failure.

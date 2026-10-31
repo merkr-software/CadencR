@@ -4,10 +4,13 @@
 //! and `/permission` on the embedded HTTP backend.
 //!
 //! `prime_snapshot` runs eagerly so pre-existing children are not mispaired;
-//! `surfaced_permissions` tracks currently pending permission ids.
+//! `surfaced_permissions` tracks currently pending permission ids. Each
+//! child's snapshot also reports its sub-agent's status (`child_status`);
+//! a finished child is retired so it is no longer polled.
 
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex as StdMutex};
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::time::Instant;
 
 use opencode_sdk_rs::{
     Message, MessagePart, MessageRole, OpenCodeClient, PendingPermission, Session,
@@ -15,75 +18,17 @@ use opencode_sdk_rs::{
 use serde_json::json;
 use tokio::sync::{mpsc, RwLock};
 
+use super::child_status::{ChildReporter, ChildSnapshot};
+use super::pending_subagents::{PendingSubagentState, PendingSubagentTasks};
 use super::subagent_permission::{
     build_request, try_auto_allow_trusted_cadencr_browser_permission,
 };
 use crate::domain::agents::acp::runtime::permissions::permission_raw_event;
 use crate::domain::agents::adapter::{
     RuntimeError, RuntimeEvent, RuntimeEventKind, RuntimeEventMetadata, RuntimePermissionRequest,
+    RuntimeSubagentUpdate,
 };
 use crate::domain::agents::opencode::stream_synthesizer::StreamSynthesizer;
-
-/// Tracks open Task/Agent tool calls waiting to be paired with a child
-/// session. Prefer an explicit `sessionId`/`task_id` binding when OpenCode
-/// surfaces one; fall back to FIFO for the race where the child appears
-/// before the tool update carrying that id.
-#[derive(Debug, Default)]
-pub struct PendingSubagentState {
-    unbound: VecDeque<String>,
-    by_child_session: HashMap<String, String>,
-}
-
-impl PendingSubagentState {
-    pub fn push_tool_call(&mut self, tool_call_id: String) {
-        if self.unbound.iter().any(|id| id == &tool_call_id)
-            || self.by_child_session.values().any(|id| id == &tool_call_id)
-        {
-            return;
-        }
-        self.unbound.push_back(tool_call_id);
-    }
-
-    /// Remember that `tool_call_id` owns `child_session_id` so absorb can
-    /// pair without relying on FIFO order. No-ops when the mapping is
-    /// unchanged or the tool call was already consumed by FIFO pairing
-    /// (avoids orphan bindings that keep the listener permanently active).
-    pub fn bind_child_session(&mut self, child_session_id: &str, tool_call_id: &str) {
-        if child_session_id.is_empty() || tool_call_id.is_empty() {
-            return;
-        }
-        if self
-            .by_child_session
-            .get(child_session_id)
-            .map(String::as_str)
-            == Some(tool_call_id)
-        {
-            return;
-        }
-        let still_pending = self.unbound.iter().any(|id| id == tool_call_id)
-            || self.by_child_session.values().any(|id| id == tool_call_id);
-        if !still_pending {
-            return;
-        }
-        self.unbound.retain(|id| id != tool_call_id);
-        self.by_child_session.retain(|_, id| id != tool_call_id);
-        self.by_child_session
-            .insert(child_session_id.to_string(), tool_call_id.to_string());
-    }
-
-    pub fn take_for_child(&mut self, child_session_id: &str) -> Option<String> {
-        if let Some(id) = self.by_child_session.remove(child_session_id) {
-            return Some(id);
-        }
-        self.unbound.pop_front()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.unbound.is_empty() && self.by_child_session.is_empty()
-    }
-}
-
-pub type PendingSubagentTasks = Arc<StdMutex<PendingSubagentState>>;
 
 /// Pending-permissions map; the adapter's `respond_permission_fallback`
 /// reads it to route a reply to `POST /permission/{id}/reply`.
@@ -108,9 +53,16 @@ pub(super) async fn poll_once(
         }
     }
     for child_id in state.known_children() {
-        if poll_child_messages(client, directory, &child_id, state, runtime_tx)
-            .await
-            .is_err()
+        if poll_child_messages(
+            client,
+            directory,
+            &child_id,
+            state,
+            pending_tasks,
+            runtime_tx,
+        )
+        .await
+        .is_err()
         {
             return Err(());
         }
@@ -123,6 +75,7 @@ async fn poll_child_messages(
     directory: &str,
     child_id: &str,
     state: &mut ListenerState,
+    pending_tasks: &PendingSubagentTasks,
     runtime_tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
 ) -> Result<(), ()> {
     let messages = match client.list_messages(child_id, Some(directory)).await {
@@ -132,11 +85,14 @@ async fn poll_child_messages(
             return Ok(());
         }
     };
-    for message in messages {
-        for event in state.handle_message(message) {
-            if runtime_tx.send(Ok(event)).await.is_err() {
-                return Err(());
-            }
+    let mut events: Vec<RuntimeEvent> = messages
+        .iter()
+        .flat_map(|message| state.handle_message(message))
+        .collect();
+    events.extend(state.report_child(child_id, &messages, pending_tasks, Instant::now()));
+    for event in events {
+        if runtime_tx.send(Ok(event)).await.is_err() {
+            return Err(());
         }
     }
     Ok(())
@@ -177,6 +133,14 @@ pub(super) struct ListenerState {
     child_to_parent: HashMap<String, String>,
     synthesizers: HashMap<String, StreamSynthesizer>,
     surfaced_permissions: HashSet<String>,
+    reporters: HashMap<String, ChildReporter>,
+    /// Finished children, no longer polled, with how many messages they held
+    /// then. One re-registers only through an explicit `task_id` binding (a
+    /// resumed task), never by FIFO.
+    retired: HashMap<String, usize>,
+    /// Resumed children whose new run has not started yet: their transcript
+    /// still ends on the previous run until the new prompt lands.
+    resumed_at: HashMap<String, usize>,
 }
 
 impl ListenerState {
@@ -187,6 +151,9 @@ impl ListenerState {
             child_to_parent: HashMap::new(),
             synthesizers: HashMap::new(),
             surfaced_permissions: HashSet::new(),
+            reporters: HashMap::new(),
+            retired: HashMap::new(),
+            resumed_at: HashMap::new(),
         }
     }
 
@@ -226,23 +193,35 @@ impl ListenerState {
         if historical.contains(&session.id) || self.child_to_parent.contains_key(&session.id) {
             return;
         }
-        let parent_tool_use_id = match pending_tasks
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.take_for_child(&session.id))
-        {
+        let retired = self.retired.contains_key(&session.id);
+        let claimed = with_pending(pending_tasks, |pending| {
+            if retired {
+                pending.take_bound_for_child(&session.id)
+            } else {
+                pending.take_for_child(&session.id)
+            }
+        })
+        .flatten();
+        let parent_tool_use_id = match claimed {
             Some(id) => id,
+            None if retired => return,
             None => {
                 tracing::warn!(child = %session.id, "OpenCode sub-agent listener: child session has no pending Task call_id to pair with");
                 return;
             }
         };
+        if let Some(message_count) = self.retired.remove(&session.id) {
+            self.resumed_at.insert(session.id.clone(), message_count);
+        }
+        with_pending(pending_tasks, |pending| {
+            pending.mark_tailed(&parent_tool_use_id)
+        });
         tracing::info!(child = %session.id, %parent_tool_use_id, "OpenCode sub-agent listener: registered child");
         self.child_to_parent
             .insert(session.id.clone(), parent_tool_use_id);
     }
 
-    fn handle_message(&mut self, message: Message) -> Vec<RuntimeEvent> {
+    fn handle_message(&mut self, message: &Message) -> Vec<RuntimeEvent> {
         if !matches!(message.role, MessageRole::Assistant) {
             return Vec::new();
         }
@@ -266,6 +245,55 @@ impl ListenerState {
             ));
         }
         output
+    }
+
+    /// What the child's snapshot says about its sub-agent, throttled; retires
+    /// the child once it finished.
+    fn report_child(
+        &mut self,
+        child_id: &str,
+        messages: &[Message],
+        pending_tasks: &PendingSubagentTasks,
+        now: Instant,
+    ) -> Option<RuntimeEvent> {
+        let tool_use_id = self.child_to_parent.get(child_id)?.clone();
+        if !self.resumed_run_started(child_id, messages.len()) {
+            return None;
+        }
+        let snapshot = ChildSnapshot::read(messages);
+        let background = with_pending(pending_tasks, |pending| pending.is_background(&tool_use_id))
+            .unwrap_or(false);
+        let finished = snapshot.is_finished();
+        let patch = self
+            .reporters
+            .entry(child_id.to_string())
+            .or_default()
+            .next(snapshot.patch(child_id, background), finished, now);
+        if finished {
+            self.child_to_parent.remove(child_id);
+            self.reporters.remove(child_id);
+            self.retired.insert(child_id.to_string(), messages.len());
+            with_pending(pending_tasks, |pending| {
+                pending.forget_background(&tool_use_id)
+            });
+            tracing::info!(child = %child_id, %tool_use_id, "OpenCode sub-agent listener: retired finished child");
+        }
+        patch.map(|patch| {
+            RuntimeEvent::subagent_signal(vec![RuntimeSubagentUpdate::new(tool_use_id, patch)])
+        })
+    }
+
+    /// False while a resumed child still holds only its previous run, whose
+    /// end must not retire it again (and lose the new run's report).
+    fn resumed_run_started(&mut self, child_id: &str, message_count: usize) -> bool {
+        match self.resumed_at.get(child_id) {
+            Some(&previous) if message_count <= previous => false,
+            Some(_) => {
+                self.resumed_at.remove(child_id);
+                true
+            }
+            None => true,
+        }
     }
 
     /// Drop dedupe ids no longer pending upstream — bounds the set.
@@ -304,6 +332,19 @@ impl ListenerState {
         let mut event = RuntimeEvent::new(metadata, RuntimeEventKind::Other);
         event.set_parent_tool_use_id(Some(parent_tool_use_id));
         Some(event)
+    }
+}
+
+fn with_pending<R>(
+    pending_tasks: &PendingSubagentTasks,
+    apply: impl FnOnce(&mut PendingSubagentState) -> R,
+) -> Option<R> {
+    match pending_tasks.lock() {
+        Ok(mut pending) => Some(apply(&mut pending)),
+        Err(error) => {
+            tracing::error!(%error, "OpenCode pending sub-agent state is poisoned");
+            None
+        }
     }
 }
 
@@ -352,6 +393,11 @@ mod tests {
             model: None,
             tokens: None,
             finished: false,
+            completed_at: None,
+            finish: None,
+            error: None,
+            variant: None,
+            error_name: None,
         }
     }
     fn perm(id: &str, session: &str) -> PendingPermission {
@@ -448,16 +494,119 @@ mod tests {
         let (mut state, queue) = primed_state();
         queue.lock().unwrap().push_tool_call("call_task".into());
         state.absorb_children(&[child("ses_child", "root")], &queue);
-        let first = state.handle_message(asst_text("ses_child", "Hello"));
-        let second = state.handle_message(asst_text("ses_child", "Hello world"));
+        let first = state.handle_message(&asst_text("ses_child", "Hello"));
+        let second = state.handle_message(&asst_text("ses_child", "Hello world"));
         assert!(!first.is_empty());
         assert_eq!(second.len(), 1, "second poll must emit only the delta");
         assert!(first
             .iter()
             .all(|e| e.parent_tool_use_id() == Some("call_task")));
         assert!(state
-            .handle_message(asst_text("ses_unknown", "stray"))
+            .handle_message(&asst_text("ses_unknown", "stray"))
             .is_empty());
+    }
+
+    fn finished_asst(sess: &str, text: &str) -> Message {
+        let mut message = asst_text(sess, text);
+        message.model = Some("anthropic/claude-haiku-5-5".into());
+        message.finish = Some("stop".into());
+        message.finished = true;
+        message
+    }
+
+    #[test]
+    fn running_child_reports_its_session_and_model() {
+        let (mut state, queue) = primed_state();
+        queue.lock().unwrap().push_tool_call("call_task".into());
+        state.absorb_children(&[child("ses_child", "root")], &queue);
+        let mut message = asst_text("ses_child", "Working");
+        message.model = Some("openai/gpt-6.1".into());
+        let event = state
+            .report_child("ses_child", &[message], &queue, std::time::Instant::now())
+            .expect("report");
+        assert!(event.is_subagent_signal_only());
+        let update = &event.subagent_updates()[0];
+        assert_eq!(update.tool_use_id, "call_task");
+        assert_eq!(update.patch.child_session_id.as_deref(), Some("ses_child"));
+        assert_eq!(update.patch.model.as_deref(), Some("openai/gpt-6.1"));
+        assert_eq!(update.patch.status, None);
+        assert!(!state.is_empty(), "still polled while running");
+        assert!(
+            queue.lock().unwrap().take_tailed("call_task"),
+            "the listener owns the child's transcript"
+        );
+    }
+
+    #[test]
+    fn finished_background_child_completes_and_is_retired() {
+        let (mut state, queue) = primed_state();
+        queue.lock().unwrap().push_tool_call("call_bg".into());
+        queue.lock().unwrap().mark_background("call_bg");
+        state.absorb_children(&[child("ses_bg", "root")], &queue);
+        let event = state
+            .report_child(
+                "ses_bg",
+                &[finished_asst("ses_bg", "Report")],
+                &queue,
+                std::time::Instant::now(),
+            )
+            .expect("report");
+        let patch = &event.subagent_updates()[0].patch;
+        assert_eq!(
+            patch.status,
+            Some(crate::domain::agents::adapter::RuntimeSubagentStatus::Completed)
+        );
+        assert_eq!(patch.result_summary.as_deref(), Some("Report"));
+        assert!(state.is_empty(), "a finished child is no longer polled");
+        assert!(!queue.lock().unwrap().is_background("call_bg"));
+    }
+
+    #[test]
+    fn retired_child_reregisters_only_through_an_explicit_binding() {
+        let (mut state, queue) = primed_state();
+        queue.lock().unwrap().push_tool_call("call_first".into());
+        state.absorb_children(&[child("ses_done", "root")], &queue);
+        let finished = [finished_asst("ses_done", "Done")];
+        let event = state
+            .report_child("ses_done", &finished, &queue, std::time::Instant::now())
+            .expect("report");
+        // Foreground: the parent's task update settles the status, and must
+        // still know the listener streamed the report.
+        assert_eq!(event.subagent_updates()[0].patch.status, None);
+        assert!(state.is_empty());
+        assert!(queue.lock().unwrap().take_tailed("call_first"));
+        // A new, unrelated Task must not be stolen by the finished child.
+        queue.lock().unwrap().push_tool_call("call_next".into());
+        state.absorb_children(&[child("ses_done", "root")], &queue);
+        assert!(state.is_empty());
+        // Resumed with `task_id`: the explicit binding re-registers it.
+        queue
+            .lock()
+            .unwrap()
+            .bind_child_session("ses_done", "call_next");
+        state.absorb_children(&[child("ses_done", "root")], &queue);
+        assert_eq!(state.child_to_parent.get("ses_done").unwrap(), "call_next");
+        // Polled before its new prompt lands, it still ends on its first run:
+        // that end must not retire it, or the new run and its report are lost.
+        let now = std::time::Instant::now();
+        assert!(state
+            .report_child("ses_done", &finished, &queue, now)
+            .is_none());
+        assert!(!state.is_empty());
+        let mut prompt = asst_text("ses_done", "Again");
+        prompt.role = MessageRole::User;
+        let resumed = [
+            finished[0].clone(),
+            prompt,
+            finished_asst("ses_done", "Again done"),
+        ];
+        assert!(state
+            .report_child("ses_done", &resumed[..2], &queue, now)
+            .is_some());
+        assert!(!state.is_empty());
+        state.report_child("ses_done", &resumed, &queue, now);
+        assert!(state.is_empty());
+        assert!(queue.lock().unwrap().take_tailed("call_next"));
     }
 
     #[tokio::test]

@@ -18,6 +18,7 @@ mod runtime_error;
 mod scheduled_wakeup;
 mod session;
 mod slash_catalog;
+mod subagents;
 pub mod updates;
 mod worktree_config;
 

@@ -1,3 +1,4 @@
+import type { AgentBlockData } from "@/components/agent-block-types";
 import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
 
 export interface SkillPresentation {
@@ -5,14 +6,35 @@ export interface SkillPresentation {
   args: string;
 }
 
+/**
+ * Tools a sub-agent calls to hand its final report back to its parent. The
+ * report is shown as the sub-agent's result, not as one of its actions.
+ */
+export const SUBAGENT_HANDBACK_TOOL_NAMES: ReadonlySet<string> = new Set(["SubagentHandback"]);
+
+/** A dispatch tool that launches a sub-agent; adapters map every provider onto these. */
+export function isSubagentToolName(name: string | undefined): boolean {
+  return name === "Task" || name === "Agent";
+}
+
+/** A tool call that launched a sub-agent (its carrier), whichever provider. */
+export function isSubagentCarrier(block: Pick<AgentBlockData, "type" | "toolName">): boolean {
+  return block.type === "tool_call" && isSubagentToolName(block.toolName);
+}
+
 const INTERNAL_TOOL_NAMES = new Set([
+  ...SUBAGENT_HANDBACK_TOOL_NAMES,
   "closeAgent",
   "close_agent",
   "create_goal",
+  "followupTask",
   "get_goal",
+  "interruptAgent",
+  "listAgents",
   "request_user_input",
   "resumeAgent",
   "sendInput",
+  "sendMessage",
   "send_input",
   "resume_agent",
   "update_goal",

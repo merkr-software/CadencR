@@ -122,6 +122,11 @@ mod tests {
             model: None,
             tokens: None,
             finished: true,
+            completed_at: None,
+            finish: None,
+            error: None,
+            variant: None,
+            error_name: None,
         }
     }
 

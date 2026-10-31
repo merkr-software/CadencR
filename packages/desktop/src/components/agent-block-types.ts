@@ -1,7 +1,7 @@
 import type { AgentMessageOrigin } from "@/api/generated";
 import type { PromptDeliveryState } from "@/types/agent";
 import { canRenderBashPreview } from "@/lib/bash-content-preview";
-import { shouldHideToolCall } from "@/lib/tool-display-policy";
+import { isSubagentToolName, shouldHideToolCall } from "@/lib/tool-display-policy";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
 
 export type BlockType =
@@ -80,7 +80,7 @@ export interface AgentBlockData {
  */
 export function rendersStandaloneToolResult(block: AgentBlockData): boolean {
   if (block.isError && shouldHideToolCall(block.sourceToolName)) return true;
-  return block.sourceToolName === "Agent" || block.sourceToolName === "Task";
+  return isSubagentToolName(block.sourceToolName);
 }
 
 /** Whether a tool call draws anything: runtime plumbing and todo updates never do. */

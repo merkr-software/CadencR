@@ -1,345 +1,152 @@
+import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
+import { ChevronRightIcon } from "lucide-react";
+import type { AgentBlockData } from "@/components/agent-block-types";
+import { hasCompactLine } from "@/components/agentStreamDisplay";
+import { countSubagentToolCalls, selectSubagentActions } from "@/components/subagent-actions";
+import { useAgentSessionContext } from "@/components/agent-session/agent-session-context";
+import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
 import {
-  memo,
-  useCallback,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactElement,
-  type WheelEvent as ReactWheelEvent,
-} from "react";
-import { ChevronRightIcon, Loader2Icon, WrenchIcon } from "lucide-react";
-import { Virtuoso, type ItemContent, type VirtuosoHandle } from "react-virtuoso";
-import { type AgentBlockData } from "@/components/AgentBlock";
-import { SubagentActionRow } from "@/components/SubagentActionRow";
+  CardSection,
+  ElapsedClock,
+  SubagentMetaLine,
+  SubagentPrompt,
+  SubagentReportBody,
+} from "@/components/subagents/SubagentCardParts";
+import { SubagentStatusGlyph } from "@/components/subagents/SubagentStatusGlyph";
 import {
-  isNestedSubagentBlock,
-  selectSubagentActions,
-  windowSubagentActions,
-} from "@/components/subagent-actions";
-import { extractTaskOutput } from "@/lib/tool-adapter";
-import { parseToolArgsObject, stringArg } from "@/lib/tool-args";
-import { useStickToBottom } from "@/hooks/useStickToBottom";
+  MAX_SUBAGENT_DEPTH,
+  SubagentTimeline,
+  type NestedSubagentRenderer,
+} from "@/components/subagents/SubagentTimeline";
+import { useSubagentRun } from "@/hooks/useFeatureSubagents";
+import {
+  subagentActionCount,
+  subagentStatusSentence,
+  subagentView,
+  type SubagentView,
+} from "@/lib/subagents/subagent-presentation";
+import { subagentChildren, subagentReportFor } from "@/lib/subagents/subagent-report";
 import { cn } from "@/lib/utils";
 
-/** Left inset for child actions under an agent tile, and per nested depth. */
-const CHILD_INDENT_PX = 24;
-/** Stop nesting TaskAgentBlock past this depth (indent and recursion). */
-const MAX_DEPTH = 4;
-/** Small timelines stay inline so expanding them does not create empty space. */
-export const MAX_INLINE_SUBAGENT_ACTIONS = 24;
-const INITIAL_VIRTUALIZED_SUBAGENT_ACTIONS = 12;
-const SCROLL_TO_END = Number.MAX_SAFE_INTEGER;
+/** Inset of a nested sub-agent card under its parent. */
+const CHILD_INDENT_PX = 16;
 
 interface TaskAgentBlockProps {
   block: AgentBlockData;
   basePath?: string;
   /** Nesting depth for left indent (parent stream = 0). */
   depth?: number;
+  /** Compact flow: the closed card keeps to its facts and latest action. */
+  compact?: boolean;
 }
 
 /**
- * Task/Agent sub-agent view: only the carrier is a bordered tool tile.
- * Child actions float underneath with left indent. Nested Task/Agent children
- * re-enter this component at depth+1 (capped). Expanding reveals the full
- * timeline (scrollable) and uncapped prose.
+ * A sub-agent the agent delegated to: who it is (agent, model, effort), its
+ * live status from the backend registry, and what it did last. Done, it also
+ * shows its report's head (except in compact flow). Opening it shows the
+ * brief, the full timeline and the report. Nested sub-agents re-enter at
+ * depth + 1.
  */
 export const TaskAgentBlock = memo(function TaskAgentBlock({
   block,
   basePath,
   depth = 0,
+  compact = false,
 }: TaskAgentBlockProps): ReactElement {
-  const children = useMemo(() => {
-    const persistedOutput = extractTaskOutput(block.toolArgs);
-    if (block.childBlocks?.length || !persistedOutput) return block.childBlocks ?? [];
-    return [
-      {
-        id: `${block.id}-persisted-output`,
-        type: "text",
-        content: persistedOutput,
-      } satisfies AgentBlockData,
-    ];
-  }, [block.childBlocks, block.id, block.toolArgs]);
-
-  const actions = useMemo(() => selectSubagentActions(children), [children]);
-  const isRunning = !block.taskComplete;
-  const [expanded, setExpanded] = useState(false);
-  const toggleExpanded = useCallback(() => setExpanded((previous) => !previous), []);
-  const expand = useCallback(() => setExpanded(true), []);
-  const hasActions = actions.length > 0;
-  const description = useMemo(
-    () => stringArg(parseToolArgsObject(block.toolArgs), "description") ?? "Subtask",
-    [block.toolArgs],
+  const { featureId } = useAgentSessionContext();
+  const run = useSubagentRun(featureId, block.toolUseId);
+  const { toolArgs, toolName, taskComplete } = block;
+  const view = useMemo(
+    () => subagentView(run, { toolArgs, toolName, taskComplete }),
+    [run, toolArgs, toolName, taskComplete],
   );
-  const nestOffset = Math.min(depth, MAX_DEPTH) * CHILD_INDENT_PX;
+  const { childBlocks, id: blockId } = block;
+  const children = useMemo(
+    () => subagentChildren({ id: blockId, childBlocks, toolArgs }),
+    [blockId, childBlocks, toolArgs],
+  );
+  const actions = useMemo(() => selectSubagentActions(children), [children]);
+  const report = useMemo(() => subagentReportFor(view, children), [children, view]);
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useCallback(() => setExpanded((previous) => !previous), []);
+  const canOpen = actions.length > 0 || !!view.prompt || !!report;
+  const nestOffset = Math.min(depth, MAX_SUBAGENT_DEPTH) * CHILD_INDENT_PX;
+  const renderNested = useCallback<NestedSubagentRenderer>(
+    (child, childDepth) => (
+      <TaskAgentBlock block={child} basePath={basePath} depth={childDepth} compact={compact} />
+    ),
+    [basePath, compact],
+  );
   return (
-    <div
-      className="my-1 min-w-0"
-      style={nestOffset > 0 ? { marginLeft: nestOffset } : undefined}
+    <section
+      data-tool-family="task"
       data-subagent-depth={depth}
+      data-subagent-status={view.status}
+      aria-label={`Sub-agent ${view.title}: ${subagentStatusSentence(view)}`}
+      className={cn(
+        "my-1 min-w-0 rounded-md border bg-(--block-task-bg)",
+        view.status === "failed"
+          ? "border-[color-mix(in_oklab,var(--acc-red)_50%,var(--border))]"
+          : "border-border",
+      )}
+      style={nestOffset > 0 ? { marginLeft: nestOffset } : undefined}
     >
-      <div
-        data-tool-family="task"
-        className="rounded-md border border-border bg-[var(--block-task-bg)]"
-      >
-        <TaskAgentHeader
-          toolName={block.toolName}
-          description={description}
-          isRunning={isRunning}
-          expanded={expanded}
-          canExpand={hasActions}
-          onToggleExpand={toggleExpanded}
-        />
-      </div>
-
-      {hasActions && (
-        <SubagentTimeline
+      <SubagentCardHeader view={view} expanded={expanded} canOpen={canOpen} onToggle={toggle} />
+      <SubagentMetaLine
+        view={view}
+        actionCount={subagentActionCount(view, {
+          shown: countSubagentToolCalls(children),
+          listed: run?.actionCount,
+        })}
+        className="px-3 pb-2 pl-[34px]"
+      />
+      {expanded ? (
+        <SubagentCardBody
+          view={view}
           actions={actions}
+          report={report}
           basePath={basePath}
           depth={depth}
-          description={description}
-          expanded={expanded}
-          isRunning={isRunning}
-          onExpand={expand}
+          renderNested={renderNested}
         />
-      )}
-    </div>
-  );
-});
-
-interface SubagentTimelineProps {
-  actions: AgentBlockData[];
-  basePath?: string;
-  depth: number;
-  description: string;
-  expanded: boolean;
-  isRunning: boolean;
-  onExpand: () => void;
-}
-
-const SubagentTimeline = memo(function SubagentTimeline(props: SubagentTimelineProps) {
-  if (props.expanded && props.actions.length > MAX_INLINE_SUBAGENT_ACTIONS) {
-    return <VirtualizedSubagentTimeline {...props} />;
-  }
-  return <InlineSubagentTimeline {...props} />;
-});
-
-function InlineSubagentTimeline({
-  actions,
-  basePath,
-  depth,
-  expanded,
-  isRunning,
-  onExpand,
-}: SubagentTimelineProps): ReactElement {
-  const { visible, hiddenCount } = windowSubagentActions(actions, expanded);
-  const lastVisibleId = visible.at(-1)?.id;
-  const { scrollRef, contentRef } = useStickToBottom(isRunning && expanded);
-  return (
-    <div
-      ref={scrollRef}
-      className={cn("min-w-0", expanded && "max-h-[28vh] overflow-y-auto")}
-      style={{ paddingLeft: CHILD_INDENT_PX }}
-    >
-      <div ref={contentRef} className="flex flex-col gap-0 pt-1">
-        {hiddenCount > 0 && (
-          <button
-            type="button"
-            onClick={onExpand}
-            className="py-0.5 text-left text-[11px] text-muted-foreground/80 transition-colors hover:text-foreground"
-          >
-            {hiddenCount} earlier action{hiddenCount === 1 ? "" : "s"}
-          </button>
-        )}
-        {visible.map((child) => (
-          <SubagentTimelineRow
-            key={child.id}
-            block={child}
-            basePath={basePath}
-            depth={depth}
-            expanded={expanded}
-            isStreaming={isRunning && child.id === lastVisibleId}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-interface VirtualizedSubagentContext {
-  basePath?: string;
-  depth: number;
-  isRunning: boolean;
-  lastIndex: number;
-}
-
-const virtualizedSubagentItemKey = (_index: number, child: AgentBlockData): string => child.id;
-
-const renderVirtualizedSubagentAction: ItemContent<AgentBlockData, VirtualizedSubagentContext> = (
-  index,
-  child,
-  context,
-) => (
-  <SubagentTimelineRow
-    block={child}
-    basePath={context.basePath}
-    depth={context.depth}
-    expanded
-    isStreaming={context.isRunning && index === context.lastIndex}
-  />
-);
-
-function VirtualizedSubagentTimeline({
-  actions,
-  basePath,
-  depth,
-  description,
-  isRunning,
-}: SubagentTimelineProps): ReactElement {
-  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const followsTailRef = useRef(isRunning);
-  const pendingEdgeRef = useRef<"start" | "end" | null>(null);
-  const onAtBottomStateChange = useCallback((atBottom: boolean): void => {
-    if (pendingEdgeRef.current === "start") {
-      if (atBottom) return;
-      pendingEdgeRef.current = null;
-    } else if (pendingEdgeRef.current === "end") {
-      if (!atBottom) return;
-      pendingEdgeRef.current = null;
-    }
-    followsTailRef.current = atBottom;
-  }, []);
-  const onTotalListHeightChanged = useCallback((): void => {
-    if (!followsTailRef.current) return;
-    // Unlike item-index scrolling, a direct offset does not retry after later
-    // measurements and override a wheel gesture that has since detached follow.
-    virtuosoRef.current?.scrollTo({ top: SCROLL_TO_END, behavior: "auto" });
-  }, []);
-  const onKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>): void => {
-    if (
-      event.target !== event.currentTarget ||
-      event.altKey ||
-      event.ctrlKey ||
-      event.metaKey ||
-      event.shiftKey ||
-      (event.key !== "Home" && event.key !== "End")
-    ) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const atStart = event.key === "Home";
-    if (atStart) {
-      if (followsTailRef.current) pendingEdgeRef.current = "start";
-      followsTailRef.current = false;
-    } else {
-      pendingEdgeRef.current = "end";
-      followsTailRef.current = true;
-    }
-    virtuosoRef.current?.scrollTo({ top: atStart ? 0 : SCROLL_TO_END, behavior: "auto" });
-  }, []);
-  const onWheel = useCallback((event: ReactWheelEvent<HTMLElement>): void => {
-    if (event.deltaY >= 0 || !followsTailRef.current) return;
-    pendingEdgeRef.current = "start";
-    followsTailRef.current = false;
-  }, []);
-  const context = useMemo<VirtualizedSubagentContext>(
-    () => ({ basePath, depth, isRunning, lastIndex: actions.length - 1 }),
-    [actions.length, basePath, depth, isRunning],
-  );
-
-  return (
-    <Virtuoso
-      ref={virtuosoRef}
-      data={actions}
-      context={context}
-      computeItemKey={virtualizedSubagentItemKey}
-      itemContent={renderVirtualizedSubagentAction}
-      initialItemCount={INITIAL_VIRTUALIZED_SUBAGENT_ACTIONS}
-      initialTopMostItemIndex={isRunning ? { index: actions.length - 1, align: "end" } : 0}
-      defaultItemHeight={24}
-      increaseViewportBy={48}
-      atBottomStateChange={onAtBottomStateChange}
-      totalListHeightChanged={onTotalListHeightChanged}
-      onKeyDown={onKeyDown}
-      onWheel={onWheel}
-      className="min-w-0 overflow-x-hidden pt-1"
-      style={{ height: "28vh", marginLeft: CHILD_INDENT_PX }}
-      role="region"
-      aria-label={`${description} actions`}
-      tabIndex={0}
-      data-testid="subagent-action-timeline"
-    />
-  );
-}
-
-const SubagentTimelineRow = memo(function SubagentTimelineRow({
-  block,
-  basePath,
-  depth,
-  expanded,
-  isStreaming,
-}: {
-  block: AgentBlockData;
-  basePath?: string;
-  depth: number;
-  expanded: boolean;
-  isStreaming: boolean;
-}): ReactElement {
-  return (
-    <div data-block-id={block.id} data-subagent-action-id={block.id}>
-      {isNestedSubagentBlock(block) && depth < MAX_DEPTH ? (
-        <TaskAgentBlock block={block} basePath={basePath} depth={depth + 1} />
       ) : (
-        <SubagentActionRow
-          block={block}
-          basePath={basePath}
-          expanded={expanded}
-          isStreaming={isStreaming}
-        />
+        <SubagentCardPeek actions={actions} report={compact ? null : report} basePath={basePath} />
       )}
-    </div>
+    </section>
   );
 });
 
-const TaskAgentHeader = memo(function TaskAgentHeader({
-  toolName,
-  description,
-  isRunning,
+const SubagentCardHeader = memo(function SubagentCardHeader({
+  view,
   expanded,
-  canExpand,
-  onToggleExpand,
+  canOpen,
+  onToggle,
 }: {
-  toolName?: string;
-  description: string;
-  isRunning: boolean;
+  view: SubagentView;
   expanded: boolean;
-  canExpand: boolean;
-  onToggleExpand: () => void;
+  canOpen: boolean;
+  onToggle: () => void;
 }): ReactElement {
-  const name = toolName ?? "Task";
   return (
     <button
       type="button"
-      disabled={!canExpand}
-      onClick={onToggleExpand}
+      disabled={!canOpen}
+      onClick={onToggle}
       aria-expanded={expanded}
       aria-label={expanded ? "Collapse sub-agent actions" : "Expand sub-agent actions"}
-      className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs disabled:cursor-default"
+      className="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-3 text-left text-xs focus-visible:ring-1 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-default"
     >
-      <WrenchIcon className="size-3 shrink-0 text-muted-foreground" aria-hidden />
-      <span className="shrink-0 font-medium text-foreground">{name}</span>
-      <span className="min-w-0 flex-1 truncate text-muted-foreground">{description}</span>
-      {isRunning && (
-        <Loader2Icon
-          className="size-3 shrink-0 animate-spin text-muted-foreground"
-          aria-label="Running"
-        />
-      )}
-      {canExpand && (
+      <SubagentStatusGlyph status={view.status} label={subagentStatusSentence(view)} />
+      <span className="max-w-[40%] shrink-0 truncate text-[12.5px] font-medium text-foreground">
+        {view.title}
+      </span>
+      <span className="min-w-0 flex-1 truncate text-muted-foreground">{view.description}</span>
+      <ElapsedClock view={view} />
+      {canOpen && (
         <ChevronRightIcon
+          aria-hidden="true"
           className={cn(
-            "ml-auto size-3 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
+            "size-3 shrink-0 text-muted-foreground transition-transform duration-150 motion-reduce:transition-none",
             expanded && "rotate-90",
           )}
         />
@@ -347,3 +154,77 @@ const TaskAgentHeader = memo(function TaskAgentHeader({
     </button>
   );
 });
+
+interface CardContentProps {
+  view: SubagentView;
+  actions: AgentBlockData[];
+  report: string | null;
+  basePath?: string;
+  depth: number;
+  renderNested: NestedSubagentRenderer;
+}
+
+/**
+ * Closed card: the sub-agent's latest action, live while it runs and its last
+ * once it ended, then the head of its report when one is passed.
+ */
+function SubagentCardPeek({
+  actions,
+  report,
+  basePath,
+}: {
+  actions: AgentBlockData[];
+  report: string | null;
+  basePath?: string;
+}): ReactElement | null {
+  const latest = actions.some(hasCompactLine);
+  if (!latest && !report) return null;
+  return (
+    <div className="flex flex-col gap-1 border-t border-border/60 py-1 pr-3 pl-[34px]">
+      {latest && (
+        <div className="flex h-6 min-w-0 items-center text-xs">
+          <span className="sr-only">Latest action: </span>
+          <CompactLatestStep blocks={actions} basePath={basePath} />
+        </div>
+      )}
+      {report && (
+        <div className="pb-1">
+          <SubagentReportBody report={report} clamp />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Opened card: the brief, every action, the report. */
+function SubagentCardBody({
+  view,
+  actions,
+  report,
+  basePath,
+  depth,
+  renderNested,
+}: CardContentProps): ReactElement {
+  return (
+    <div className="flex flex-col gap-3 border-t border-border/60 py-2.5 pr-3 pl-[34px]">
+      {view.prompt && <SubagentPrompt prompt={view.prompt} />}
+      {actions.length > 0 && (
+        <CardSection label={`Activity · ${actions.length}`}>
+          <SubagentTimeline
+            actions={actions}
+            basePath={basePath}
+            depth={depth}
+            description={view.description ?? view.title}
+            isRunning={view.status === "running"}
+            renderNested={renderNested}
+          />
+        </CardSection>
+      )}
+      {report && (
+        <CardSection label="Report">
+          <SubagentReportBody report={report} />
+        </CardSection>
+      )}
+    </div>
+  );
+}

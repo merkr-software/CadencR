@@ -103,6 +103,10 @@ pub async fn spawn_acp_runtime_session(
             .replay_suppression
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    indexer
+        .lock()
+        .expect("EventIndexer poisoned")
+        .watch_prompt_cancel(session.prompt_cancel.clone());
 
     apply_initial_permission_mode(&session, &negotiated, &config).await?;
     // Push the user-selected model and thinking effort to the agent before

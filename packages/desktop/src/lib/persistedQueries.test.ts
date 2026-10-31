@@ -27,6 +27,10 @@ describe("persistedQueries", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/projects/42/settings"))).toBe(true);
   });
 
+  it("does NOT persist the live sub-agent list", () => {
+    expect(shouldDehydrateQuery(makeQuery("/api/features/1076/subagents"))).toBe(false);
+  });
+
   it("does NOT persist agent-state (multi-MB payload)", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/features/1076/agent-state"))).toBe(false);
     expect(shouldDehydrateQuery(makeQuery("/api/features/1076/agent-state?after=foo"))).toBe(false);

@@ -397,4 +397,39 @@ mod tests {
             "duplicate Agent block emitted: {collab:?}",
         );
     }
+
+    #[test]
+    fn failed_collab_call_result_is_an_error() {
+        // v2/ThreadItem.ts `collabAgentToolCall`: no `error` field, only a
+        // `CollabAgentToolCallStatus`.
+        let mut indexes = IndexState::for_root_thread("thread_root");
+        let result = |status: &str, indexes: &mut IndexState| {
+            let events = notification_events(
+                "item/completed",
+                json!({
+                    "threadId": "thread_root",
+                    "item": {
+                        "type": "collabAgentToolCall", "id": format!("call_send_{status}"),
+                        "tool": "sendInput", "status": status, "senderThreadId": "thread_root",
+                        "receiverThreadIds": ["thread_gone"], "prompt": "continue",
+                        "model": null, "reasoningEffort": null, "agentsStates": {}
+                    }
+                }),
+                None,
+                indexes,
+            );
+            events.iter().find_map(|event| {
+                let message = event.user_message()?;
+                match &message.content[0] {
+                    crate::domain::agents::adapter::RuntimeUserContentBlock::ToolResult {
+                        is_error,
+                        ..
+                    } => Some(*is_error),
+                    _ => None,
+                }
+            })
+        };
+        assert_eq!(result("failed", &mut indexes), Some(true));
+        assert_eq!(result("completed", &mut indexes), Some(false));
+    }
 }

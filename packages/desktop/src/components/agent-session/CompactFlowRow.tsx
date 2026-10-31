@@ -153,6 +153,36 @@ function CompactFlowSteps({ steps, basePath, revealIndex }: CompactFlowStepsProp
   );
 }
 
+interface CompactLatestStepProps {
+  /** Steps in order; blocks without a compact line are skipped. */
+  blocks: AgentBlockData[];
+  basePath?: string;
+}
+
+/**
+ * The newest step of `blocks` on one line, the head of a compact run without
+ * the run: a new step scrolls in as the previous one scrolls out. A sub-agent
+ * card shows what its agent did last with it.
+ */
+export const CompactLatestStep = memo(function CompactLatestStep({
+  blocks,
+  basePath,
+}: CompactLatestStepProps) {
+  const steps = useMemo(() => blocks.filter(hasCompactLine), [blocks]);
+  const newest = steps.at(-1);
+  const { handOver, endHandOver } = useHeadHandOver(newest?.id);
+  if (!newest) return null;
+  return (
+    <CompactFlowHead
+      newest={newest}
+      entering={handOver?.enteringId === newest.id}
+      leaving={handOver ? steps.find((block) => block.id === handOver.leavingId) : undefined}
+      onHandedOver={endHandOver}
+      basePath={basePath}
+    />
+  );
+});
+
 interface HeadHandOver {
   enteringId: string;
   leavingId: string;

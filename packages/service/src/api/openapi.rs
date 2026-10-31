@@ -174,6 +174,7 @@ use crate::domain::ws_session::routes as ws_routes;
         prompt_queue_routes::update_session_queued_prompt,
         prompt_queue_routes::delete_session_queued_prompt,
         prompt_queue_routes::send_session_queued_prompt_now,
+        crate::domain::subagents::routes::list_feature_subagents,
         diff_comments_routes::list_diff_comments_handler,
         diff_comments_routes::create_diff_comment_handler,
         diff_comments_routes::update_diff_comment_handler,
@@ -308,6 +309,8 @@ use crate::domain::ws_session::routes as ws_routes;
     components(schemas(
         prompt_queue_store::QueuedPrompt,
         prompt_queue_store::QueuedPromptStatus,
+        crate::domain::subagents::SubagentRun,
+        crate::domain::subagents::SubagentRunStatus,
         crate::domain::mcp::control::side_question::SideQuestionRequest,
         crate::domain::mcp::control::side_question::SideQuestionResponse,
         prompt_queue_routes::QueuePromptRequest,

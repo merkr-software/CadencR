@@ -44,6 +44,9 @@ function isExplicitlyForbidden(url: string): boolean {
   if (NEVER_PERSIST_PREFIXES.some((p) => url.startsWith(p))) return true;
   // `/api/features/{id}/agent-state` — agent-state can be megabytes.
   if (/^\/api\/features\/[^/]+\/agent-state(?:[/?]|$)/.test(url)) return true;
+  // `/api/features/{id}/subagents` — live statuses, pushed about once a second
+  // while agents run; a restored snapshot would show dead agents running.
+  if (/^\/api\/features\/[^/]+\/subagents(?:[/?]|$)/.test(url)) return true;
   // Live process state: a restored snapshot would advertise ports for servers
   // that died while the app was closed.
   if (url.startsWith("/api/features/ports")) return true;

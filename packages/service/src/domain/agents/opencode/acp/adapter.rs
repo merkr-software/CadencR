@@ -5,6 +5,7 @@ use super::mcp_status::merge_configured_mcp_servers;
 use super::permission_reply::route_subagent_permission_reply;
 use super::prompt_usage::prompt_response_usage;
 use super::question_sidecar::QuestionSidecar;
+use super::task_completion::TaskCompletion;
 use super::tool_result_flatten::flatten_tool_result_content;
 use super::upstream_workaround::{
     spawn_side_channel_listeners, PendingSubagentState, PendingSubagentTasks, PermissionRegistry,
@@ -14,9 +15,9 @@ use crate::domain::agents::acp::runtime::provider_hooks::{
     AcpProviderHooks, PermissionFallbackOutcome,
 };
 use crate::domain::agents::adapter::{
-    RuntimeError, RuntimeEvent, RuntimeEventMetadata, RuntimeMcpServerStatus,
-    RuntimePermissionDecision, RuntimePermissionMode, RuntimePermissionResponse,
-    RuntimeSlashCommand, RuntimeUsage,
+    is_subagent_tool_name, RuntimeError, RuntimeEvent, RuntimeEventMetadata,
+    RuntimeMcpServerStatus, RuntimePermissionDecision, RuntimePermissionMode,
+    RuntimePermissionResponse, RuntimeSlashCommand, RuntimeUsage,
 };
 use crate::domain::agents::mcp_tool_names::McpToolNameResolver;
 use crate::domain::agents::opencode::questions::extract_question_answers;
@@ -182,27 +183,39 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         tool_call_id: &str,
         tool_name: &str,
         body: &Value,
-        _status: &str,
+        status: &str,
         metadata: &RuntimeEventMetadata,
         _indexer: &mut EventIndexer,
     ) -> Vec<RuntimeEvent> {
-        if !matches!(tool_name, "Task" | "Agent") {
+        if !is_subagent_tool_name(tool_name) {
             return Vec::new();
         }
-        let Some(body_text) = extract_subagent_body(body) else {
-            return Vec::new();
-        };
-        vec![synthesize_subagent_text_event(
-            metadata,
-            tool_call_id,
-            &body_text,
-        )]
+        let body_text = (status == "completed")
+            .then(|| extract_subagent_body(body))
+            .flatten();
+        let completion = TaskCompletion::read(tool_call_id, body, status, body_text.as_deref());
+        if completion.background {
+            self.with_pending(|pending| pending.mark_background(tool_call_id));
+        }
+        // A child the listener tails streams its own report (it polls again
+        // before retiring it); the completion only stands in for one it
+        // could not pair.
+        let tailed = self
+            .with_pending(|pending| pending.take_tailed(tool_call_id))
+            .unwrap_or(false);
+        let mut events: Vec<RuntimeEvent> = body_text
+            .filter(|_| !tailed)
+            .map(|text| synthesize_subagent_text_event(metadata, tool_call_id, &text))
+            .into_iter()
+            .collect();
+        if !completion.update.patch.is_empty() {
+            events.push(RuntimeEvent::subagent_signal(vec![completion.update]));
+        }
+        events
     }
     fn record_tool_call_start(&self, tool_call_id: &str, tool_name: &str) {
-        if matches!(tool_name, "Task" | "Agent") {
-            if let Ok(mut pending) = self.pending_subagent_calls.lock() {
-                pending.push_tool_call(tool_call_id.to_string());
-            }
+        if is_subagent_tool_name(tool_name) {
+            self.with_pending(|pending| pending.push_tool_call(tool_call_id.to_string()));
         }
     }
 
@@ -210,12 +223,19 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
         if !(tool_name.eq_ignore_ascii_case("task") || tool_name.eq_ignore_ascii_case("agent")) {
             return;
         }
-        let Some(child_session_id) = child_session_id_from_task_body(body) else {
-            return;
-        };
-        if let Ok(mut pending) = self.pending_subagent_calls.lock() {
-            pending.bind_child_session(child_session_id, tool_call_id);
-        }
+        let background = task_input(body)
+            .and_then(|input| input.get("background"))
+            .and_then(Value::as_bool)
+            == Some(true);
+        let child_session_id = child_session_id_from_task_body(body);
+        self.with_pending(|pending| {
+            if background {
+                pending.mark_background(tool_call_id);
+            }
+            if let Some(child_session_id) = child_session_id {
+                pending.bind_child_session(child_session_id, tool_call_id);
+            }
+        });
     }
     fn start_side_channel(
         &self,
@@ -276,10 +296,26 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     }
 }
 
+impl OpenCodeAcpAdapter {
+    /// Run `apply` on the pending sub-agent state shared with the listener.
+    fn with_pending<R>(&self, apply: impl FnOnce(&mut PendingSubagentState) -> R) -> Option<R> {
+        match self.pending_subagent_calls.lock() {
+            Ok(mut pending) => Some(apply(&mut pending)),
+            Err(error) => {
+                tracing::error!(%error, "OpenCode pending sub-agent state is poisoned");
+                None
+            }
+        }
+    }
+}
+
+fn task_input(body: &Value) -> Option<&Value> {
+    body.get("rawInput").or_else(|| body.get("toolInput"))
+}
+
 /// Child session id carried on OpenCode Task tool updates/completions.
 fn child_session_id_from_task_body(body: &Value) -> Option<&str> {
-    body.get("rawInput")
-        .or_else(|| body.get("toolInput"))
+    task_input(body)
         .and_then(|input| {
             input
                 .get("task_id")
@@ -303,7 +339,7 @@ mod tests {
     use crate::domain::agents::acp::runtime::events_stream_blocks::EventIndexer;
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::adapter::{
-        RuntimeContentBlock, RuntimeEventMetadata, RuntimeMcpServerStatus,
+        RuntimeContentBlock, RuntimeEventMetadata, RuntimeMcpServerStatus, RuntimeSubagentStatus,
     };
     use serde_json::json;
     fn metadata() -> RuntimeEventMetadata {
@@ -412,7 +448,7 @@ mod tests {
             &metadata(),
             &mut EventIndexer::default(),
         );
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
         assert_eq!(events[0].parent_tool_use_id(), Some("call_TASK_PARENT"));
         let RuntimeContentBlock::Text { text } =
             &events[0].assistant_message().expect("assistant").content[0]
@@ -420,6 +456,85 @@ mod tests {
             panic!("expected text block");
         };
         assert_eq!(text, "findings line 1\nfindings line 2");
+        assert!(events[1].is_subagent_signal_only());
+        let update = &events[1].subagent_updates()[0];
+        assert_eq!(update.tool_use_id, "call_TASK_PARENT");
+        assert_eq!(update.patch.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(update.patch.child_session_id.as_deref(), Some("ses_child"));
+        assert_eq!(
+            update.patch.result_summary.as_deref(),
+            Some("findings line 1\nfindings line 2")
+        );
+    }
+
+    #[test]
+    fn a_report_the_listener_streams_is_not_repeated() {
+        let adapter = adapter();
+        adapter.with_pending(|pending| pending.mark_tailed("call_TASK_PARENT"));
+        let body = json!({
+            "status": "completed",
+            "rawOutput": { "output": "<task_result>\nthe report\n</task_result>" }
+        });
+        let events = adapter.synthesize_tool_call_completion(
+            "call_TASK_PARENT",
+            "Task",
+            &body,
+            "completed",
+            &metadata(),
+            &mut EventIndexer::default(),
+        );
+        assert_eq!(events.len(), 1, "only the status update");
+        assert!(events[0].is_subagent_signal_only());
+        assert_eq!(
+            events[0].subagent_updates()[0]
+                .patch
+                .result_summary
+                .as_deref(),
+            Some("the report")
+        );
+    }
+
+    #[test]
+    fn failed_task_reports_metadata_without_a_text_block() {
+        let adapter = adapter();
+        let events = adapter.synthesize_tool_call_completion(
+            "call_FAILED",
+            "Task",
+            &json!({
+                "toolCallId": "call_FAILED",
+                "status": "failed",
+                "content": [{ "type": "content", "content": { "type": "text", "text": "boom" } }],
+                "rawOutput": { "error": "boom", "metadata": { "sessionId": "ses_failed" } }
+            }),
+            "failed",
+            &metadata(),
+            &mut EventIndexer::default(),
+        );
+        assert_eq!(events.len(), 1);
+        assert!(events[0].is_subagent_signal_only());
+        let patch = &events[0].subagent_updates()[0].patch;
+        assert_eq!(patch.status, None);
+        assert_eq!(patch.child_session_id.as_deref(), Some("ses_failed"));
+    }
+
+    #[test]
+    fn background_task_is_marked_for_the_listener() {
+        let adapter = adapter();
+        adapter.observe_tool_call_update(
+            "call_BG",
+            "Task",
+            &json!({ "rawInput": { "description": "d", "subagent_type": "general", "background": true } }),
+        );
+        assert!(adapter
+            .pending_subagent_calls
+            .lock()
+            .unwrap()
+            .is_background("call_BG"));
+        assert!(!adapter
+            .pending_subagent_calls
+            .lock()
+            .unwrap()
+            .is_background("call_OTHER"));
     }
     #[test]
     fn synthesize_tool_call_completion_returns_empty_for_non_subagent_or_blank_body() {
@@ -435,15 +550,15 @@ mod tests {
                 &mut idx,
             )
             .is_empty());
-        assert!(adapter
-            .synthesize_tool_call_completion(
-                "call_TASK",
-                "Task",
-                &json!({ "rawOutput": { "output": "" } }),
-                "completed",
-                &metadata(),
-                &mut idx,
-            )
-            .is_empty());
+        let blank = adapter.synthesize_tool_call_completion(
+            "call_TASK",
+            "Task",
+            &json!({ "rawOutput": { "output": "" } }),
+            "completed",
+            &metadata(),
+            &mut idx,
+        );
+        assert_eq!(blank.len(), 1, "no text block, only the completion signal");
+        assert!(blank[0].is_subagent_signal_only());
     }
 }

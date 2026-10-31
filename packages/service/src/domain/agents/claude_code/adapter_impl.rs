@@ -346,7 +346,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             None => config.env,
         };
         let options = claude_agent_sdk_rs::Options::builder()
-            .cwd(config.cwd)
+            .cwd(config.cwd.clone())
             .maybe_permission_mode(config.permission_mode.map(map_permission_mode))
             .maybe_model(model)
             .maybe_effort(config.thinking_effort)
@@ -373,6 +373,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             query,
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
+            cwd: config.cwd,
         }))
     }
 }

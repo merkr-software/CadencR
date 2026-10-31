@@ -3,10 +3,11 @@ use super::events_tool_call::{other_event, MappedUpdate};
 use super::events_tool_call_input::synthesize_input_delta_event;
 use super::events_tool_call_name::{recover_tool_name_from_update, resolve_tool_name};
 use super::events_tool_call_parent::parent_tool_use_id;
+use super::events_tool_call_subagent::{carrier_input_update, settle_carrier, TerminalToolCall};
 use super::events_tool_call_update_result::push_tool_result;
 use super::provider_hooks::AcpProviderHooks;
 use super::stream_events::stream_stop_event;
-use crate::domain::agents::adapter::RuntimeEventMetadata;
+use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventMetadata};
 use serde_json::Value;
 pub fn map_tool_call_update(
     body: &Value,
@@ -63,7 +64,9 @@ pub fn map_tool_call_update(
         metadata.clone(),
         hooks,
     ) {
-        events.push(delta_event);
+        // The input changed: a carrier's launch configuration may just have landed.
+        let updates = carrier_input_update(tool_call_id, &tool_name, body, hooks);
+        events.push(delta_event.with_subagent_updates(updates.into_iter().collect()));
     }
     push_tool_result(
         body,
@@ -76,31 +79,56 @@ pub fn map_tool_call_update(
         &mut events,
     );
     if matches!(status, "completed" | "failed") {
-        let event = stream_stop_event(
-            metadata.session_id.as_deref().unwrap_or(""),
+        let call = TerminalToolCall {
+            tool_call_id,
+            tool_name: &tool_name,
+            body,
+            status,
+        };
+        push_terminal_events(
+            &call,
             index,
             parent.as_deref(),
+            &metadata,
+            hooks,
+            indexer,
+            &mut events,
         );
-        events.push(event);
     } else if events.is_empty() {
         events.push(other_event(metadata.clone()));
     }
-    if status == "completed" {
-        let tool_name = indexer
-            .tool_name_for(tool_call_id)
-            .map(ToOwned::to_owned)
-            .unwrap_or_default();
-        let extra = hooks.synthesize_tool_call_completion(
-            tool_call_id,
-            &tool_name,
-            body,
-            status,
-            &metadata,
-            indexer,
-        );
-        events.extend(extra);
-    }
     MappedUpdate { events }
+}
+
+/// Close the tool block, then let the provider add its completion events and
+/// settle a sub-agent carrier.
+fn push_terminal_events(
+    call: &TerminalToolCall<'_>,
+    index: u64,
+    parent: Option<&str>,
+    metadata: &RuntimeEventMetadata,
+    hooks: &dyn AcpProviderHooks,
+    indexer: &mut EventIndexer,
+    events: &mut Vec<RuntimeEvent>,
+) {
+    events.push(stream_stop_event(
+        metadata.session_id.as_deref().unwrap_or(""),
+        index,
+        parent,
+    ));
+    let recorded_name = indexer
+        .tool_name_for(call.tool_call_id)
+        .map(ToOwned::to_owned)
+        .unwrap_or_default();
+    let extra = hooks.synthesize_tool_call_completion(
+        call.tool_call_id,
+        &recorded_name,
+        call.body,
+        call.status,
+        metadata,
+        indexer,
+    );
+    settle_carrier(call, indexer, extra, events);
 }
 #[cfg(test)]
 mod tests {
@@ -498,6 +526,49 @@ mod tests {
         for event in &result.events {
             assert_eq!(event.parent_tool_use_id(), Some("task-parent"));
         }
+    }
+
+    #[test]
+    fn carrier_updates_configure_then_settle_the_sub_agent() {
+        use crate::domain::agents::adapter::RuntimeSubagentStatus;
+        let mut idx = EventIndexer::default();
+        idx.record_tool_name("agent-1", "Agent");
+        let _ = idx.index_for_tool("agent-1");
+        let running = map_tool_call_update(
+            &json!({
+                "toolCallId": "agent-1",
+                "status": "in_progress",
+                "rawInput": { "description": "Explore", "prompt": "Map auth", "subagent_type": "explore" }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let configured = running
+            .events
+            .iter()
+            .flat_map(|event| event.subagent_updates())
+            .next()
+            .expect("launch configuration");
+        assert_eq!(configured.patch.agent_type.as_deref(), Some("explore"));
+        assert_eq!(configured.patch.status, None);
+
+        // Standard ACP: a completed update with neither content nor rawOutput.
+        let done = map_tool_call_update(
+            &json!({ "toolCallId": "agent-1", "status": "completed" }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let stop = done.events.last().expect("stop event");
+        assert!(matches!(
+            stop.stream_event(),
+            Some(RuntimeStreamEvent::ContentBlockStop { .. })
+        ));
+        assert_eq!(
+            stop.subagent_updates()[0].patch.status,
+            Some(RuntimeSubagentStatus::Completed)
+        );
     }
 
     #[test]
