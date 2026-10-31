@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ComponentProps, type ReactNode } from "react";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { MinusIcon, XIcon } from "lucide-react";
@@ -25,28 +25,52 @@ export function tabCloseAction(def: FeatureTabDef, isRootPane: boolean): TabClos
   return isRootPane ? null : "dock";
 }
 
+/** Where a tab tooltip opens, for triggers outside the strip (see `PopPaneRail`). */
+type TabTooltipPlacement = Pick<
+  ComponentProps<typeof ShortcutTooltip>,
+  "above" | "toLeft" | "toRight"
+>;
+
 function BoundTabTooltip({
   label,
   shortcutId,
+  placement,
   children,
 }: {
   label: string;
   shortcutId: ShortcutId;
+  placement?: TabTooltipPlacement;
   children: ReactNode;
 }): ReactNode {
   const keys = useShortcutKeys(shortcutId);
   return (
-    <ShortcutTooltip label={label} keys={keys}>
+    <ShortcutTooltip label={label} keys={keys} {...placement}>
       {children}
     </ShortcutTooltip>
   );
 }
 
 /** Tab tooltip: shows the tab's live registry binding when it has one. */
-function TabTooltip({ def, children }: { def: FeatureTabDef; children: ReactNode }): ReactNode {
-  if (!def.shortcutId) return <ShortcutTooltip label={def.label}>{children}</ShortcutTooltip>;
+export function TabTooltip({
+  def,
+  label = def.label,
+  placement,
+  children,
+}: {
+  def: FeatureTabDef;
+  label?: string;
+  placement?: TabTooltipPlacement;
+  children: ReactNode;
+}): ReactNode {
+  if (!def.shortcutId) {
+    return (
+      <ShortcutTooltip label={label} {...placement}>
+        {children}
+      </ShortcutTooltip>
+    );
+  }
   return (
-    <BoundTabTooltip label={def.label} shortcutId={def.shortcutId}>
+    <BoundTabTooltip label={label} shortcutId={def.shortcutId} placement={placement}>
       {children}
     </BoundTabTooltip>
   );

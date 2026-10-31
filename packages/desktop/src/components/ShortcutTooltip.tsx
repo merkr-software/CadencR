@@ -25,6 +25,8 @@ interface ShortcutTooltipProps {
    * `above`/`alignLeft`/`alignRight`.
    */
   toRight?: boolean;
+  /** Render the bubble to the left of the trigger (a rail on the right edge). */
+  toLeft?: boolean;
   /** Additional class name for the wrapper div */
   className?: string;
   /**
@@ -50,6 +52,7 @@ export function ShortcutTooltip({
   alignLeft,
   above,
   toRight,
+  toLeft,
   className,
   disabled,
 }: ShortcutTooltipProps) {
@@ -83,7 +86,7 @@ export function ShortcutTooltip({
     handleMouseEnter();
   }
 
-  const side = toRight ? "right" : above ? "top" : "bottom";
+  const side = toRight ? "right" : toLeft ? "left" : above ? "top" : "bottom";
   const align = alignRight ? "end" : alignLeft ? "start" : "center";
 
   return (
