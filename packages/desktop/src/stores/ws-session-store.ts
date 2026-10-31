@@ -265,7 +265,6 @@ function buildWsSessionStore(
     ...createWsSessionSimpleActions({
       ctx,
       sendRaw,
-      sourceKey,
       planRestorePrefix: PLAN_RESTORE_PREFIX,
     }),
   };

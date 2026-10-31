@@ -34,7 +34,6 @@ import {
   handleGateClosed,
   handleInitialized,
   handleMcpServers,
-  handleMessage,
   handlePermissionRequest,
   handlePromptReceived,
   handleCanonicalUserMessage,
@@ -170,8 +169,13 @@ const ignoreSessionAction: SessionActionHandler = () => {};
  * Replaces the three hand-mirrored string switches this file used to chain.
  * Exhaustive over `SessionActionName`, so adding a backend action to the
  * contract fails the type-check until it is handled (or explicitly ignored).
+ * `session.message` is the one exception: the socket handler coalesces every
+ * stream delta (`ws-session-socket-handler.ts`), so none reaches this table.
  */
-type HandledSessionAction = SessionActionName | LegacySessionActionName;
+type HandledSessionAction = Exclude<
+  SessionActionName | LegacySessionActionName,
+  typeof SESSION_ACTION.message
+>;
 
 const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler> = {
   [SESSION_ACTION.initialized]: handleInitialized,
@@ -185,7 +189,6 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.branchneeds_confirm]: ignoreSessionAction,
   [SESSION_ACTION.runtime_session_id]: handleRuntimeSessionId,
   [SESSION_ACTION.mcp_servers]: handleMcpServers,
-  [SESSION_ACTION.message]: handleMessage,
   [SESSION_ACTION.user_message]: handleCanonicalUserMessage,
   [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
