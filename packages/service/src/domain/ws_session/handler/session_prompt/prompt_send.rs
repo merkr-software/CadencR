@@ -287,7 +287,7 @@ async fn resolve_prompt_profile_update(
     let Some(profile_name) = selected_profile.as_deref() else {
         return Ok(None);
     };
-    let update = resolve_provider_profile(app_state, &provider, profile_name, &cwd).await?;
+    let update = resolve_provider_profile(&provider, profile_name, &cwd).await?;
     {
         let sessions = sdk_sessions.lock().await;
         if let Some(handle) = sessions.get(&db_session_id) {

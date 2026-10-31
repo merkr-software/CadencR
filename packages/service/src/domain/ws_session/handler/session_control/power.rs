@@ -129,8 +129,7 @@ pub(crate) async fn handle_suspend(
         .await;
     }
     WsSessionPersistence::mark_paused_static(&app_state.write_pool, db_session_id).await;
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
+    app_state.session_status_tx.broadcast(
         db_session_id,
         feature_id,
         crate::domain::session_status::AgentStatus::Idle,

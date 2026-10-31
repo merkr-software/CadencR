@@ -15,6 +15,7 @@ use crate::domain::ws_session::protocol::{
     permission_request_envelope, PermissionRequestPayload, WsEnvelope,
 };
 use crate::domain::ws_session::protocol::{SessionCompactingPayload, WsSessionEvent};
+use crate::domain::ws_session::runtime::application::mark_awaiting_user;
 use axum::extract::ws::Message;
 use tracing::{debug, error, info};
 impl StreamReaderTask {
@@ -165,7 +166,7 @@ impl StreamReaderTask {
         let pending = question_payload
             .map(PendingUserInput::Question)
             .unwrap_or(PendingUserInput::Permission(payload));
-        WsSessionPersistence::mark_awaiting_user_static(
+        mark_awaiting_user(
             &self.app_state,
             self.db_session_id,
             self.feature_id,

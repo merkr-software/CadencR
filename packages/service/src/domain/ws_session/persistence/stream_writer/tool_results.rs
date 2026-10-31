@@ -1,5 +1,9 @@
-impl WsSessionPersistence {
-    async fn persist_user_tool_results(
+use super::super::{TranscriptPersistenceError, INSERT_MESSAGE_SQL};
+use super::TranscriptWriter;
+use crate::domain::agents::adapter::{RuntimeUserContentBlock, RuntimeUserMessage};
+
+impl TranscriptWriter {
+    pub(super) async fn persist_user_tool_results(
         &self,
         session_id: i64,
         message: &RuntimeUserMessage,
@@ -65,8 +69,14 @@ impl WsSessionPersistence {
 
 #[cfg(test)]
 mod tool_result_identity_tests {
+    use super::super::events::session_events_tests;
     use super::*;
+    use crate::domain::agents::adapter::RuntimeEvent;
     use crate::domain::agents::adapter::{RuntimeEventKind, RuntimeEventMetadata};
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
+    use crate::domain::ws_session::persistence::{
+        raw_event_with_agent_message_id, PersistedEventRef,
+    };
     use serde_json::json;
 
     #[tokio::test]

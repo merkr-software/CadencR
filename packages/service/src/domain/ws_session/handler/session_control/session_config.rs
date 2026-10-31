@@ -132,7 +132,8 @@ async fn active_query(
     app_state: &AppState,
     db_session_id: i64,
 ) -> Option<(RuntimeSessionHandle, i64)> {
-    let sessions = super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+    let sessions =
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sessions = sessions.lock().await;
     let handle = sessions.get(&db_session_id)?;
     let QueryState::Active { query, .. } = &handle.state else {

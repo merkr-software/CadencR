@@ -1,3 +1,4 @@
+use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsContext;
 use std::sync::Arc;
 
 use crate::app_state::AppState;
@@ -148,7 +149,10 @@ async fn runtime_options(
         .map_err(AppError::BadRequest)?;
     let claude_profile =
         crate::domain::ws_session::runtime::session_runtime_config::apply_provider_settings(
-            app_state,
+            &RuntimeSettingsContext::builder()
+                .read_pool(&app_state.read_pool)
+                .write_pool(&app_state.write_pool)
+                .build(),
             project_id,
             row.feature_id,
             row.id,

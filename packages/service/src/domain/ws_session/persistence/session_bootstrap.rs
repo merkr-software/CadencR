@@ -1,28 +1,9 @@
+//! Bind a feature to one durable session identity before acquiring its runtime.
+
+use super::WsSessionPersistence;
+use tracing::{debug, error};
+
 impl WsSessionPersistence {
-    pub fn new(write_pool: SqlitePool, feature_id: i64) -> Self {
-        Self::with_session_id(write_pool, feature_id, None)
-    }
-
-    /// Create a persistence instance with an already-known session DB id.
-    pub fn with_session_id(
-        write_pool: SqlitePool,
-        feature_id: i64,
-        session_db_id: Option<i64>,
-    ) -> Self {
-        Self {
-            write_pool,
-            session_db_id,
-            feature_id,
-            current_models: HashMap::new(),
-            pending_tool_inputs: HashMap::new(),
-            pending_tool_row_ids: HashMap::new(),
-            pending_mergeable_blocks: HashMap::new(),
-            streamed_assistant_content: HashSet::new(),
-            transcript: Default::default(),
-            file_change_marked: false,
-        }
-    }
-
     /// Ensure an agent_sessions row exists for this feature.
     #[cfg(test)]
     pub async fn find_or_create_session(
@@ -54,27 +35,6 @@ impl WsSessionPersistence {
     ) -> Option<i64> {
         self.ensure_session(model, permission_mode, access_mode, false)
             .await
-    }
-
-    pub async fn reopen_session(
-        &self,
-        id: i64,
-        permission_mode: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        let result = sqlx::query(
-            "UPDATE agent_sessions
-             SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
-                 permission_mode = COALESCE(?, permission_mode)
-             WHERE id = ?",
-        )
-        .bind(permission_mode)
-        .bind(id)
-        .execute(&self.write_pool)
-        .await?;
-        if result.rows_affected() == 0 {
-            return Err(sqlx::Error::RowNotFound);
-        }
-        Ok(())
     }
 
     async fn ensure_session(
@@ -162,94 +122,15 @@ impl WsSessionPersistence {
         );
         Some(id)
     }
-
-    /// Persist a canonical user prompt. A repeated UUID returns the existing
-    /// row with `inserted = false`; callers must not dispatch that retry to the
-    /// provider again.
-    #[cfg(test)]
-    pub async fn persist_user_message(
-        &self,
-        text: &str,
-        message_uuid: uuid::Uuid,
-    ) -> Result<
-        crate::domain::sessions::user_messages::PersistedUserMessage,
-        crate::domain::sessions::user_messages::PersistUserMessageError,
-    > {
-        self.persist_user_message_with_delivery(text, message_uuid, None)
-            .await
-    }
-
-    pub async fn persist_user_message_with_delivery(
-        &self,
-        text: &str,
-        message_uuid: uuid::Uuid,
-        delivery_state: Option<&str>,
-    ) -> Result<
-        crate::domain::sessions::user_messages::PersistedUserMessage,
-        crate::domain::sessions::user_messages::PersistUserMessageError,
-    > {
-        let session_id = self.session_db_id.ok_or(
-            crate::domain::sessions::user_messages::PersistUserMessageError::MissingSessionId,
-        )?;
-        let mut connection = self.write_pool.acquire().await?;
-        crate::domain::sessions::user_messages::persist_user_message(
-            &mut connection,
-            crate::domain::sessions::user_messages::NewUserMessage {
-                session_id,
-                content: text,
-                message_uuid,
-                delivery_state,
-            },
-        )
-        .await
-    }
-
-    pub async fn persist_prompt_user_message(
-        &self,
-        text: &str,
-        message_uuid: uuid::Uuid,
-        delivery_state: Option<&str>,
-    ) -> Result<
-        crate::domain::sessions::user_messages::PersistedUserMessage,
-        crate::domain::sessions::user_messages::PersistUserMessageError,
-    > {
-        let session_id = self.session_db_id.ok_or(
-            crate::domain::sessions::user_messages::PersistUserMessageError::MissingSessionId,
-        )?;
-        let mut tx = self.write_pool.begin().await?;
-        let message = crate::domain::sessions::user_messages::persist_user_message(
-            &mut tx,
-            crate::domain::sessions::user_messages::NewUserMessage {
-                session_id,
-                content: text,
-                message_uuid,
-                delivery_state,
-            },
-        )
-        .await?;
-        sqlx::query(
-            "INSERT INTO agent_message_dispatches (message_id, status)
-             VALUES (?, 'pending') ON CONFLICT(message_id) DO NOTHING",
-        )
-        .bind(message.id)
-        .execute(&mut *tx)
-        .await?;
-        // Only the first delivery of a prompt counts: a retry reuses its UUID.
-        if message.inserted {
-            crate::domain::usage_stats::repository::count_user_message(&mut *tx, session_id)
-                .await?;
-        }
-        tx.commit().await?;
-        Ok(message)
-    }
 }
 
 #[cfg(test)]
-mod session_bootstrap_tests {
+pub(super) mod session_bootstrap_tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::SqlitePool;
 
-    async fn setup_test_db() -> SqlitePool {
+    pub(in super::super) async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .connect("sqlite::memory:")
             .await
@@ -510,50 +391,5 @@ mod session_bootstrap_tests {
                 .unwrap();
 
         assert_eq!(row.0, None);
-    }
-
-    #[tokio::test]
-    async fn test_persist_user_message_uses_user_message_type() {
-        let pool = setup_test_db().await;
-        let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        p.find_or_create_session(None, None).await;
-
-        p.persist_user_message("Hello world", uuid::Uuid::new_v4())
-            .await
-            .unwrap();
-
-        let row: (String, String, String) = sqlx::query_as(
-            "SELECT role, content, message_type FROM agent_messages WHERE session_id = ?",
-        )
-        .bind(p.session_db_id.unwrap())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(row.0, "user");
-        assert_eq!(row.1, "Hello world");
-        assert_eq!(row.2, "user_message");
-    }
-
-    #[tokio::test]
-    async fn test_with_session_id_persists_user_message_without_find_or_create() {
-        let pool = setup_test_db().await;
-        let id: (i64,) = sqlx::query_as(
-            "INSERT INTO agent_sessions (feature_id, agent_type, status) VALUES (1, 'session', 'running') RETURNING id",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(id.0));
-        p.persist_user_message("hello from with_session_id", uuid::Uuid::new_v4())
-            .await
-            .unwrap();
-
-        let row: (String,) =
-            sqlx::query_as("SELECT content FROM agent_messages WHERE session_id = ?")
-                .bind(id.0)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(row.0, "hello from with_session_id");
     }
 }

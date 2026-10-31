@@ -1,3 +1,4 @@
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 use axum::extract::ws::Message;
 use tracing::{error, info};
 
@@ -37,7 +38,7 @@ pub(crate) async fn handle_mode_set(
     // the mode of a conversation started on a remote device). Operate on the
     // owning map so the change reaches the running CLI, not just our viewer.
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
     let mut sessions = sdk_sessions.lock().await;
@@ -210,7 +211,10 @@ async fn rearm_claude_bypass_session(
 ) {
     let runtime_session_id = persist_and_close_query(
         &query,
-        app_state,
+        &RuntimeCloseContext::builder()
+            .pool(&app_state.write_pool)
+            .feature_senders(&app_state.ws_feature_senders)
+            .build(),
         db_session_id,
         &handle.runtime_provider,
         handle.feature_id,

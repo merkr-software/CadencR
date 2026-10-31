@@ -286,8 +286,7 @@ impl StreamReaderTask {
             "provider reports finished session; reconciling completion"
         );
         WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
-        WsSessionPersistence::broadcast_session_status(
-            &self.session_status_tx,
+        self.session_status_tx.broadcast(
             self.db_session_id,
             self.feature_id,
             AgentStatus::Idle,

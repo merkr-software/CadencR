@@ -5,7 +5,6 @@
 use crate::domain::ws_session::protocol::{BranchNeedsConfirmPayload, WsSessionEvent};
 use tracing::{info, warn};
 
-use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::{BranchRewoundPayload, WsEnvelope};
 use super::super::helpers::send_error;
 use super::super::types::{SdkSessions, WsSender};
@@ -123,8 +122,7 @@ async fn finish_rewind(
 ) {
     persist_rewind_draft(app_state, db_session_id, inputs).await;
 
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
+    app_state.session_status_tx.broadcast(
         db_session_id,
         inputs.feature_id,
         AgentStatus::Idle,

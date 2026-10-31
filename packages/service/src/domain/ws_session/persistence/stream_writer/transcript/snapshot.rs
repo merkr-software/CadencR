@@ -1,7 +1,11 @@
-use super::*;
+use super::super::{MergeableMessageType, TranscriptWriter};
+use super::{ExpectedContent, TranscriptPersistenceError};
+use crate::domain::agents::adapter::{
+    RuntimeAssistantMessage, RuntimeContentBlock, RuntimeStreamScope,
+};
 
-impl WsSessionPersistence {
-    pub(in super::super) fn prepare_assistant_snapshot(
+impl TranscriptWriter {
+    pub(super) fn prepare_assistant_snapshot(
         &mut self,
         scope: &RuntimeStreamScope,
         message: &RuntimeAssistantMessage,
@@ -31,7 +35,7 @@ impl WsSessionPersistence {
         Ok(())
     }
 
-    pub(super) fn validate_assistant_snapshot(
+    fn validate_assistant_snapshot(
         &self,
         scope: &RuntimeStreamScope,
         message: &RuntimeAssistantMessage,
@@ -70,6 +74,10 @@ impl WsSessionPersistence {
 mod tests {
     use super::super::test_helpers::*;
     use super::*;
+    use crate::domain::agents::adapter::RuntimeStreamEvent;
+    use crate::domain::ws_session::persistence::{
+        TranscriptPersistenceStatus, WsSessionPersistence,
+    };
     #[tokio::test]
     async fn partial_snapshot_never_overwrites_other_block_types_or_claims_recovery() {
         let pool = setup_test_db().await;

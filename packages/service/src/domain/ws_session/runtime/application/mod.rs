@@ -7,8 +7,13 @@ pub(crate) use control_dispatch::{
 };
 
 mod permission;
+mod permission_context;
 mod permission_pending;
 mod permission_user_message;
 pub(crate) use permission::respond_permission;
+pub(crate) use permission_context::PermissionContext;
+
+mod pending_gate;
+pub(crate) use pending_gate::{mark_agent_resumed, mark_awaiting_user};
 
 mod prompt_outcome;

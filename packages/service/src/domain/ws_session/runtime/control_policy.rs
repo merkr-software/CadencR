@@ -1,5 +1,5 @@
 use super::state::{QueryState, SdkHandle, SdkSessions};
-use crate::app_state::AppState;
+use super::turns::ActiveTurnRegistry;
 use crate::domain::agents::adapter::{RuntimeConfigOverrides, RuntimePermissionMode};
 
 /// Point a handle at `overrides`: its next spawn, and a respawn of its live
@@ -73,14 +73,13 @@ pub(in crate::domain::ws_session) async fn session_is_active(
 /// a legacy Pending candidate is passed by an adapter or test.
 pub(in crate::domain::ws_session) async fn resolve_owner_sessions(
     own: &SdkSessions,
-    app_state: &AppState,
+    active_turns: &ActiveTurnRegistry,
     db_session_id: i64,
 ) -> SdkSessions {
     if session_is_active(own, db_session_id).await {
         own.clone()
     } else {
-        app_state
-            .active_turns
+        active_turns
             .owner_sessions(db_session_id)
             .await
             .unwrap_or_else(|| own.clone())

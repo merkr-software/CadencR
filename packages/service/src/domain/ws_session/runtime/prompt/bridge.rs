@@ -12,13 +12,12 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::mcp::trusted::is_trusted_cadencr_browser_tool_name;
 use crate::domain::permission_bridge;
-use crate::domain::ws_session::persistence::{
-    PendingUserInput, PendingUserInputKind, WsSessionPersistence,
-};
+use crate::domain::ws_session::persistence::{PendingUserInput, PendingUserInputKind};
 use crate::domain::ws_session::protocol::{
     permission_request_envelope, PermissionDecision, PermissionRequestPayload, SessionErrorPayload,
     WsEnvelope,
 };
+use crate::domain::ws_session::runtime::application::{mark_agent_resumed, mark_awaiting_user};
 
 use super::super::post_plan_mode::transition_session_to_post_plan_mode;
 use super::super::state::SdkSessions;
@@ -102,7 +101,7 @@ impl WsBridgeCanUseTool {
 
         let enriched_input = self.attach_plan_to_exit_block(request).await;
         let payload = self.plan_permission_payload(request, enriched_input);
-        WsSessionPersistence::mark_awaiting_user_static(
+        mark_awaiting_user(
             &self.app_state,
             self.db_session_id,
             self.feature_id,
@@ -122,7 +121,7 @@ impl WsBridgeCanUseTool {
                         "permission response request_id mismatch, applying latest response",
                     );
                 }
-                WsSessionPersistence::mark_agent_resumed_static(
+                mark_agent_resumed(
                     &self.write_pool,
                     &self.session_status_tx,
                     self.db_session_id,
@@ -137,7 +136,7 @@ impl WsBridgeCanUseTool {
                 self.apply_exit_plan_decision(request, response).await
             }
             None => {
-                WsSessionPersistence::mark_agent_resumed_static(
+                mark_agent_resumed(
                     &self.write_pool,
                     &self.session_status_tx,
                     self.db_session_id,
@@ -345,7 +344,7 @@ impl WsBridgeCanUseTool {
             .as_ref()
             .map(PendingUserInput::Question)
             .unwrap_or(PendingUserInput::Permission(&payload));
-        WsSessionPersistence::mark_awaiting_user_static(
+        mark_awaiting_user(
             &self.app_state,
             self.db_session_id,
             self.feature_id,

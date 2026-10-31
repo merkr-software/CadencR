@@ -2,13 +2,13 @@ use super::super::output::{CommandError, OutputTarget, SessionOutput};
 use super::super::prompt::{
     persist_and_publish_user_message, CanonicalUserMessageMode, CanonicalUserMessageRequest,
 };
-use crate::app_state::AppState;
+use super::permission_context::PermissionMessageContext;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::sessions::user_messages::canonical_user_message_uuid;
 use crate::domain::ws_session::question_answers::format_answers_plain_text;
 
 pub(super) async fn persist_question_answer(
-    app_state: &AppState,
+    context: &PermissionMessageContext<'_>,
     output: &SessionOutput,
     feature_id: i64,
     session_id: i64,
@@ -25,8 +25,8 @@ pub(super) async fn persist_question_answer(
         }
     };
     let result = persist_and_publish_user_message(CanonicalUserMessageRequest {
-        pool: &app_state.write_pool,
-        feature_senders: &app_state.ws_feature_senders,
+        pool: context.pool,
+        feature_senders: context.feature_senders,
         owner: output.recipient(),
         feature_id,
         session_id,
@@ -43,8 +43,8 @@ pub(super) async fn persist_question_answer(
                 warnings.push(CommandError::new("USER_MESSAGE_DELIVERY_FAILED", error));
             }
             if outcome.message.inserted {
-                app_state
-                    .feature_events_tx
+                context
+                    .feature_events
                     .emit(feature_id, None, FeatureEventAction::Reordered);
             }
         }

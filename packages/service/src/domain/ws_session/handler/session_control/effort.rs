@@ -114,7 +114,7 @@ async fn session_model(
     db_session_id: i64,
 ) -> Result<(String, Option<String>), EffortChangeError> {
     let owner_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sessions = owner_sessions.lock().await;
     let handle = sessions
         .get(&db_session_id)
@@ -137,7 +137,7 @@ async fn apply_session_effort(
 ) -> Result<i64, EffortChangeError> {
     // Reach the map that owns the live runtime, not just this viewer.
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
     let (active_query, feature_id): (Option<RuntimeSessionHandle>, i64) = {

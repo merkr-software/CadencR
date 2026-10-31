@@ -35,7 +35,7 @@ pub(crate) async fn handle_runtime_overrides_set(
         );
     };
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, session_id).await;
     let sdk_sessions = &effective_sessions;
     let Some(patch) = payload.runtime_overrides.as_object() else {
         return send_error(

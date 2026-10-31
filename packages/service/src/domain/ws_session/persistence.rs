@@ -1,18 +1,12 @@
 //! Database persistence for WebSocket sessions.
 //!
-//! Mirrors the logic in `SessionPersistence.ts` (Effect service) but implemented
-//! in Rust using sqlx. Transcript errors propagate independently from live
-//! event forwarding, with bounded recovery from complete assistant messages.
+//! Session identity and lifecycle storage are separate from stream transcript
+//! writing. Transcript errors propagate independently from live event forwarding,
+//! with bounded recovery from complete assistant messages.
 
 use sqlx::SqlitePool;
-use std::collections::{HashMap, HashSet};
-use tracing::{debug, error};
 
-use crate::domain::agents::adapter::{
-    is_file_change_tool_name, RuntimeAssistantMessage, RuntimeContentBlock, RuntimeContentDelta,
-    RuntimeEvent, RuntimeStreamEvent, RuntimeStreamScope, RuntimeToolInputBuffer,
-    RuntimeUserContentBlock, RuntimeUserMessage,
-};
+use crate::domain::agents::adapter::RuntimeEvent;
 
 const INSERT_MESSAGE_SQL: &str =
     "INSERT INTO agent_messages (session_id, role, content, message_type, tool_name, tool_use_id, parent_tool_use_id, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
@@ -51,73 +45,69 @@ pub struct PersistedMessageRef {
     pub id: i64,
 }
 
-mod transcript;
-pub use transcript::{TranscriptPersistenceError, TranscriptPersistenceStatus};
+mod stream_writer;
+pub use stream_writer::transcript::{TranscriptPersistenceError, TranscriptPersistenceStatus};
+pub(crate) use stream_writer::{result_output_text, strip_duplicated_bash_output};
 
 mod event_identity;
 pub use event_identity::{raw_event_with_agent_message_id, PersistedEventRef};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MergeableMessageType {
-    Text,
-    Thinking,
-}
+mod message_store;
+mod pending_user_gate;
+mod pending_user_input;
+mod session_archiving;
+mod session_bootstrap;
+mod session_cleanup;
+mod session_configuration;
+mod session_error_messages;
+mod session_queries;
+mod session_state;
+mod user_messages;
+pub use pending_user_gate::{PendingUserInput, PendingUserInputKind};
 
-impl MergeableMessageType {
-    fn db_value(self) -> &'static str {
-        match self {
-            Self::Text => "text",
-            Self::Thinking => "thinking",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct PendingMergeableBlock {
-    row_id: i64,
-    message_type: MergeableMessageType,
-}
-
+/// Session database identity and lifecycle, with a private stream transcript writer.
 pub struct WsSessionPersistence {
     write_pool: SqlitePool,
     session_db_id: Option<i64>,
     feature_id: i64,
-    current_models: HashMap<RuntimeStreamScope, String>,
-    /// (runtime stream scope, block_index) -> partial JSON being accumulated
-    pending_tool_inputs: HashMap<(RuntimeStreamScope, u64), RuntimeToolInputBuffer>,
-    /// (runtime stream scope, block_index) -> agent_messages.id for the tool_call row
-    pending_tool_row_ids: HashMap<(RuntimeStreamScope, u64), i64>,
-    /// (runtime stream scope, block_index) -> merged text/thinking row metadata
-    pending_mergeable_blocks: HashMap<(RuntimeStreamScope, u64), PendingMergeableBlock>,
-    /// Runtime stream scopes whose current message cycle streamed text/thinking
-    /// (via `message_start` … content deltas). Used to decide whether a full
-    /// assistant message's text was already persisted live, so the
-    /// reconciliation fallback only writes text that was NOT streamed and never
-    /// double-writes a normal turn. Reset per cycle on `message_start` and
-    /// consumed when the full assistant message is reconciled.
-    streamed_assistant_content: HashSet<RuntimeStreamScope>,
-    transcript: transcript::TranscriptDurability,
-    file_change_marked: bool,
+    writer: stream_writer::TranscriptWriter,
 }
 
-include!("persistence/session_bootstrap.rs");
-include!("persistence/session_tool_input_buffer.rs");
-include!("persistence/session_mergeable_blocks.rs");
-include!("persistence/session_events/compact.rs");
-include!("persistence/session_events.rs");
-include!("persistence/session_tool_results.rs");
-// session_events' `#[cfg(test)]` suite is too large to keep inline under the
-// 400-line cap; its overflow tests are split into these two included files
-// (same flat module scope as session_events via `include!`).
-include!("persistence/session_events_compact_tests.rs");
-include!("persistence/session_events_reconcile_tests.rs");
-include!("persistence/session_error_messages.rs");
-include!("persistence/session_tool_reconciliation.rs");
-include!("persistence/session_tool_output_dedup.rs");
-include!("persistence/session_subagents.rs");
-include!("persistence/session_queries.rs");
-include!("persistence/session_state.rs");
-include!("persistence/pending_user_input.rs");
-include!("persistence/pending_user_gate.rs");
-include!("persistence/session_archiving.rs");
-include!("persistence/session_cleanup.rs");
+impl WsSessionPersistence {
+    pub fn new(write_pool: SqlitePool, feature_id: i64) -> Self {
+        Self::with_session_id(write_pool, feature_id, None)
+    }
+
+    pub fn with_session_id(
+        write_pool: SqlitePool,
+        feature_id: i64,
+        session_db_id: Option<i64>,
+    ) -> Self {
+        Self {
+            writer: stream_writer::TranscriptWriter::new(write_pool.clone()),
+            write_pool,
+            session_db_id,
+            feature_id,
+        }
+    }
+
+    pub async fn persist_runtime_event(
+        &mut self,
+        event: &RuntimeEvent,
+    ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
+        self.writer
+            .persist_runtime_event(self.session_db_id, event)
+            .await
+    }
+
+    pub fn current_model_for_event(&self, event: &RuntimeEvent) -> Option<&str> {
+        self.writer.current_model_for_event(event)
+    }
+
+    pub fn take_transcript_status_change(
+        &mut self,
+        terminal: bool,
+    ) -> Option<TranscriptPersistenceStatus> {
+        self.writer.take_transcript_status_change(terminal)
+    }
+}

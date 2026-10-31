@@ -6,6 +6,7 @@ use super::stream_reader_resume::pending_options;
 use super::stream_reader_task::StreamReaderTask;
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 
 pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
     // Delivery selection acquires its lease under this same per-session lock.
@@ -43,7 +44,10 @@ pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
     handle.runtime_control_endpoint = runtime.runtime_control_endpoint();
     let resume_id = persist_and_close_runtime(
         runtime.as_mut(),
-        &task.app_state,
+        &RuntimeCloseContext::builder()
+            .pool(&task.write_pool)
+            .feature_senders(&task.feature_senders)
+            .build(),
         task.db_session_id,
         &task.runtime_provider,
         task.feature_id,
@@ -54,13 +58,8 @@ pub(super) async fn retire_unobserved_runtime(task: &StreamReaderTask) -> bool {
     // A later command takes the Pending path and resumes in a fresh process.
     handle.state = QueryState::Pending(pending_options(handle, resume_id));
     WsSessionPersistence::mark_completed_static(&task.write_pool, task.db_session_id).await;
-    WsSessionPersistence::broadcast_session_status(
-        &task.session_status_tx,
-        task.db_session_id,
-        task.feature_id,
-        AgentStatus::Idle,
-        None,
-    );
+    task.session_status_tx
+        .broadcast(task.db_session_id, task.feature_id, AgentStatus::Idle, None);
     true
 }
 

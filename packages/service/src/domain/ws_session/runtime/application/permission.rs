@@ -9,9 +9,9 @@ use super::super::prompt::PermissionResponse;
 use super::super::state::{QueryState, SdkSessions};
 use crate::domain::ws_session::protocol::*;
 
+use super::permission_context::PermissionContext;
 use super::permission_pending::clear_answered_gate_preserving_replacement;
 use super::permission_user_message::persist_question_answer;
-use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
     RuntimePermissionResponse, RuntimePermissionResponseKind, RuntimeSessionHandle,
 };
@@ -65,7 +65,7 @@ async fn lookup_active_permission_handle(
 
 async fn finish_accepted_runtime_permission(
     output: &CommandOutput,
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     db_session_id: i64,
     feature_id: i64,
     permission_kind: RuntimePermissionResponseKind,
@@ -92,7 +92,7 @@ async fn finish_accepted_runtime_permission(
     let mut warnings = Vec::new();
     let has_pending_gate = if denial_completes_session {
         if let Err(error) = WsSessionPersistence::try_clear_all_pending_user_input_static(
-            &app_state.write_pool,
+            context.write_pool,
             db_session_id,
         )
         .await
@@ -102,7 +102,7 @@ async fn finish_accepted_runtime_permission(
         false
     } else {
         match clear_answered_gate_preserving_replacement(
-            &app_state.write_pool,
+            context.write_pool,
             db_session_id,
             &payload.request_id,
         )
@@ -118,8 +118,7 @@ async fn finish_accepted_runtime_permission(
     output.permission_accepted();
     if denial_completes_session {
         if let Err(error) =
-            WsSessionPersistence::try_mark_completed_static(&app_state.write_pool, db_session_id)
-                .await
+            WsSessionPersistence::try_mark_completed_static(context.write_pool, db_session_id).await
         {
             warnings.push(accepted_persistence_warning(error));
         }
@@ -134,7 +133,7 @@ async fn finish_accepted_runtime_permission(
     }
     warnings.extend(
         persist_question_answer(
-            app_state,
+            &context.answer_messages(),
             &output.recipient,
             feature_id,
             db_session_id,
@@ -144,7 +143,7 @@ async fn finish_accepted_runtime_permission(
         .await,
     );
     if !has_pending_gate {
-        app_state.session_status_tx.broadcast_gate_resolved(
+        context.session_status.broadcast_gate_resolved(
             db_session_id,
             feature_id,
             &payload.request_id,
@@ -162,7 +161,7 @@ async fn send_permission_channel_response(
     permission_tx: tokio::sync::mpsc::Sender<PermissionResponse>,
     payload: PermissionRespondPayload,
     output: &CommandOutput,
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     feature_id: i64,
     db_session_id: i64,
     answer_to_persist: Option<serde_json::Value>,
@@ -184,7 +183,7 @@ async fn send_permission_channel_response(
         .map_err(|_| CommandError::new("CHANNEL_ERROR", "Permission channel closed"))?;
     output.permission_accepted();
     let warnings = persist_question_answer(
-        app_state,
+        &context.answer_messages(),
         &output.recipient,
         feature_id,
         db_session_id,
@@ -197,12 +196,12 @@ async fn send_permission_channel_response(
 
 async fn resolve_permission_runtime(
     sdk_sessions: &SdkSessions,
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     db_session_id: i64,
 ) -> Result<ResolvedPermissionRuntime, CommandError> {
     let effective_sessions = super::super::control_policy::resolve_owner_sessions(
         sdk_sessions,
-        app_state,
+        context.active_turns,
         db_session_id,
     )
     .await;
@@ -225,7 +224,7 @@ async fn respond_runtime_permission(
     runtime: &ResolvedPermissionRuntime,
     payload: &PermissionRespondPayload,
     db_session_id: i64,
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     output: &CommandOutput,
 ) -> Result<RuntimePermissionOutcome, CommandError> {
     let runtime_response = RuntimePermissionResponse {
@@ -245,7 +244,7 @@ async fn respond_runtime_permission(
         if let Err(error) = transition_session_to_post_plan_mode(
             &runtime.sdk_sessions,
             db_session_id,
-            &app_state.write_pool,
+            context.write_pool,
             &output.recipient,
         )
         .await
@@ -276,7 +275,7 @@ pub(crate) struct PermissionResponseOutcome {
 }
 
 pub(crate) async fn respond_permission(
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     sdk_sessions: &SdkSessions,
     payload: PermissionRespondPayload,
     output: &CommandOutput,
@@ -295,12 +294,12 @@ pub(crate) async fn respond_permission(
         .session_id
         .parse::<i64>()
         .map_err(|_| CommandError::new("INVALID_SESSION_ID", "Invalid session_id"))?;
-    app_state
+    context
         .pending_gates
-        .ensure_loaded(&app_state.read_pool, session_id)
+        .ensure_loaded(context.read_pool, session_id)
         .await
         .map_err(|error| CommandError::new("DB_ERROR", error))?;
-    app_state
+    context
         .pending_gates
         .claim(session_id, &payload.request_id)
         .await
@@ -311,35 +310,32 @@ pub(crate) async fn respond_permission(
             )
         })?;
     let request_id = payload.request_id.clone();
-    let result = respond_claimed(app_state, sdk_sessions, payload, output, session_id).await;
+    let result = respond_claimed(context, sdk_sessions, payload, output, session_id).await;
     if result.is_ok() {
-        app_state
+        context
             .pending_gates
             .complete(session_id, &request_id)
             .await;
     } else {
-        app_state
-            .pending_gates
-            .release(session_id, &request_id)
-            .await;
+        context.pending_gates.release(session_id, &request_id).await;
     }
     result
 }
 
 async fn respond_claimed(
-    app_state: &AppState,
+    context: &PermissionContext<'_>,
     sdk_sessions: &SdkSessions,
     payload: PermissionRespondPayload,
     output: &CommandOutput,
     db_session_id: i64,
 ) -> Result<PermissionResponseOutcome, CommandError> {
-    let runtime = resolve_permission_runtime(sdk_sessions, app_state, db_session_id).await?;
+    let runtime = resolve_permission_runtime(sdk_sessions, context, db_session_id).await?;
     let answer = payload.updated_input.clone();
-    match respond_runtime_permission(&runtime, &payload, db_session_id, app_state, output).await? {
+    match respond_runtime_permission(&runtime, &payload, db_session_id, context, output).await? {
         RuntimePermissionOutcome::Accepted(kind) => {
             finish_accepted_runtime_permission(
                 output,
-                app_state,
+                context,
                 db_session_id,
                 runtime.active.feature_id,
                 kind,
@@ -353,7 +349,7 @@ async fn respond_claimed(
                 runtime.active.permission_tx,
                 payload,
                 output,
-                app_state,
+                context,
                 runtime.active.feature_id,
                 db_session_id,
                 answer,
@@ -366,6 +362,7 @@ async fn respond_claimed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_state::AppState;
     use crate::domain::agents::adapter::{
         AgentRuntimeSession, RuntimeError, RuntimeMessageRx, RuntimePermissionMode,
     };
@@ -378,6 +375,18 @@ mod tests {
         Arc,
     };
     use tokio::sync::{mpsc, RwLock};
+
+    fn context(state: &AppState) -> PermissionContext<'_> {
+        PermissionContext::builder()
+            .read_pool(&state.read_pool)
+            .write_pool(&state.write_pool)
+            .pending_gates(&state.pending_gates)
+            .active_turns(&state.active_turns)
+            .session_status(&state.session_status_tx)
+            .feature_senders(&state.ws_feature_senders)
+            .feature_events(&state.feature_events_tx)
+            .build()
+    }
 
     struct PermissionRuntime {
         calls: Arc<AtomicUsize>,
@@ -457,18 +466,91 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn focused_context_accepts_and_tombstones_without_app_state() {
+        use crate::domain::feature_events::FeatureEventBroadcaster;
+        use crate::domain::gate_registry::{GateClaimError, GateKind, GateRegistry, PendingGate};
+        use crate::domain::session_status::SessionStatusBroadcaster;
+        use crate::domain::ws_session::runtime::turns::ActiveTurnRegistry;
+        use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, pending_permission TEXT, pending_questions TEXT); INSERT INTO agent_sessions VALUES (7, '{\"request_id\":\"gate-1\"}', NULL);")
+            .execute(&pool).await.unwrap();
+        let gates = GateRegistry::new();
+        gates
+            .register(
+                7,
+                PendingGate {
+                    request_id: "gate-1".into(),
+                    kind: GateKind::Permission,
+                    payload: serde_json::json!({"request_id": "gate-1"}),
+                },
+            )
+            .await;
+        let turns = ActiveTurnRegistry::new();
+        let status = SessionStatusBroadcaster::new(tokio::sync::broadcast::channel(8).0);
+        let events = FeatureEventBroadcaster::new(tokio::sync::broadcast::channel(8).0);
+        let senders = WsFeatureSenderRegistry::new();
+        let context = PermissionContext::builder()
+            .read_pool(&pool)
+            .write_pool(&pool)
+            .pending_gates(&gates)
+            .active_turns(&turns)
+            .session_status(&status)
+            .feature_senders(&senders)
+            .feature_events(&events)
+            .build();
+        let owner = super::super::super::state::new_sdk_sessions();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut handle = make_in_place_effort_handle(1);
+        handle.state = QueryState::Active {
+            query: Arc::new(RwLock::new(Box::new(PermissionRuntime {
+                calls: calls.clone(),
+            }))),
+            permission_tx: mpsc::channel(1).0,
+        };
+        owner.lock().await.insert(7, handle);
+        turns.begin_turn(7, &owner).await;
+        let candidate = super::super::super::state::new_sdk_sessions();
+        let payload = serde_json::from_value(serde_json::json!({
+            "session_id": "7", "request_id": "gate-1", "decision": "allow_once"
+        }))
+        .unwrap();
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+        let outcome = respond_permission(&context, &candidate, payload, &output)
+            .await
+            .unwrap();
+        assert!(outcome.warnings.is_empty());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            gates.claim(7, "gate-1").await,
+            Err(GateClaimError::AlreadyClaimed)
+        );
+        let pending: Option<String> =
+            sqlx::query_scalar("SELECT pending_permission FROM agent_sessions WHERE id = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(pending, None);
+        assert!(Arc::ptr_eq(&turns.owner_sessions(7).await.unwrap(), &owner));
+    }
+
+    #[tokio::test]
     async fn headless_permission_acceptance_persists_one_answer_and_rejects_duplicate() {
         let (state, sessions, payload, calls) = fixture(false).await;
         let output = CommandOutput {
             recipient: SessionOutput::headless(),
             correlation_id: String::new(),
         };
-        let outcome = respond_permission(&state, &sessions, payload.clone(), &output)
+        let outcome = respond_permission(&context(&state), &sessions, payload.clone(), &output)
             .await
             .unwrap();
         assert!(outcome.warnings.is_empty());
         assert_eq!(
-            respond_permission(&state, &sessions, payload.clone(), &output)
+            respond_permission(&context(&state), &sessions, payload.clone(), &output)
                 .await
                 .unwrap_err()
                 .code,

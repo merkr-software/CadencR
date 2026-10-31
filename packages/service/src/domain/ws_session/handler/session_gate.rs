@@ -171,13 +171,9 @@ pub(super) async fn clear_persisted_gate_and_notify(
 
     WsSessionPersistence::clear_all_pending_user_input_static(&app_state.write_pool, db_session_id)
         .await;
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
-        db_session_id,
-        row.feature_id,
-        AgentStatus::Idle,
-        None,
-    );
+    app_state
+        .session_status_tx
+        .broadcast(db_session_id, row.feature_id, AgentStatus::Idle, None);
     send_gate_closed(sender, db_session_id, request_id, reason, ref_id);
     Ok(true)
 }
@@ -208,9 +204,12 @@ async fn deny_runtime_gate(
     request_id: &str,
     app_state: &AppState,
 ) -> Result<Option<GateRuntimeGuard>, RuntimeError> {
-    let owner =
-        super::session_control::resolve_owner_sessions(sdk_sessions, app_state, db_session_id)
-            .await;
+    let owner = super::session_control::resolve_owner_sessions(
+        sdk_sessions,
+        &app_state.active_turns,
+        db_session_id,
+    )
+    .await;
     let Some(target) = active_runtime(&owner, db_session_id).await else {
         return Ok(None);
     };

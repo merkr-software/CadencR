@@ -1,5 +1,9 @@
-impl WsSessionPersistence {
-    async fn reconcile_tool_call_content(
+use super::super::TranscriptPersistenceError;
+use super::TranscriptWriter;
+use crate::domain::agents::adapter::{RuntimeAssistantMessage, RuntimeContentBlock};
+
+impl TranscriptWriter {
+    pub(super) async fn reconcile_tool_call_content(
         &self,
         session_id: i64,
         message: &RuntimeAssistantMessage,
@@ -29,11 +33,11 @@ impl WsSessionPersistence {
 
 #[cfg(test)]
 mod session_tool_reconciliation_tests {
-    use super::*;
     use crate::domain::agents::adapter::{
         RuntimeAssistantMessage, RuntimeContentBlock, RuntimeEvent, RuntimeEventKind,
         RuntimeEventMetadata, RuntimeStreamEvent,
     };
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::{Row, SqlitePool};
 

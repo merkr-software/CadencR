@@ -1,90 +1,77 @@
+use super::super::PersistedMessageRef;
+use super::super::TranscriptPersistenceError;
+use super::TranscriptWriter;
+use crate::domain::agents::adapter::{RuntimeStreamScope, RuntimeToolInputBuffer};
+
+impl TranscriptWriter {
+    pub(super) async fn persist_tool_input_delta(
+        &mut self,
+        stream_scope: &RuntimeStreamScope,
+        index: u64,
+        partial_json: &str,
+    ) -> Result<Option<PersistedMessageRef>, TranscriptPersistenceError> {
+        let key = (stream_scope.clone(), index);
+        let parsed = self
+            .pending_tool_inputs
+            .get_mut(&key)
+            .and_then(|buffer| buffer.apply_delta(partial_json));
+
+        let Some(row_id) = self.pending_tool_row_ids.get(&key).copied() else {
+            return Ok(None);
+        };
+        if let Some(parsed) = parsed {
+            let content = serde_json::to_string(&parsed).unwrap_or_default();
+            let result = sqlx::query("UPDATE agent_messages SET content = ? WHERE id = ?")
+                .bind(&content)
+                .bind(row_id)
+                .execute(&self.write_pool)
+                .await;
+            if result?.rows_affected() != 1 {
+                return Err(TranscriptPersistenceError::MissingRow(row_id));
+            }
+        }
+        Ok(Some(PersistedMessageRef { id: row_id }))
+    }
+
+    pub(super) async fn flush_tool_input_buffer(
+        &self,
+        key: &(RuntimeStreamScope, u64),
+        buffer: RuntimeToolInputBuffer,
+    ) -> Result<(), TranscriptPersistenceError> {
+        if buffer.accumulated().is_empty() {
+            return Ok(());
+        }
+        let Some(&row_id) = self.pending_tool_row_ids.get(key) else {
+            return Ok(());
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(buffer.accumulated()) else {
+            return Ok(());
+        };
+        let is_trivial_object = parsed.as_object().map_or(false, |obj| obj.is_empty());
+        if is_trivial_object {
+            return Ok(());
+        }
+        let content = serde_json::to_string(&parsed).unwrap_or_default();
+        let result = sqlx::query("UPDATE agent_messages SET content = ? WHERE id = ?")
+            .bind(&content)
+            .bind(row_id)
+            .execute(&self.write_pool)
+            .await;
+        if result?.rows_affected() != 1 {
+            return Err(TranscriptPersistenceError::MissingRow(row_id));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
-mod session_events_compact_tests {
-    use super::session_events_tests::{setup_test_db, stream_event};
-    use super::*;
+mod tests {
+    use super::super::events::session_events_tests::{setup_test_db, stream_event};
     use crate::domain::agents::adapter::{
-        RuntimeCompactMetadata, RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent,
-        RuntimeEventKind, RuntimeEventMetadata, RuntimeStreamEvent,
+        RuntimeContentBlock, RuntimeContentDelta, RuntimeStreamEvent,
     };
-    use sqlx::Row;
-
-    #[tokio::test]
-    async fn content_block_start_reuses_existing_tool_call_row() {
-        let pool = setup_test_db().await;
-        sqlx::query(
-            "INSERT INTO agent_messages
-             (session_id, role, content, message_type, tool_name, tool_use_id)
-             VALUES (1, 'assistant', '{}', 'tool_call', 'ExitPlanMode', 'tool_existing')",
-        )
-        .execute(&pool)
-        .await
-        .expect("insert existing row");
-        let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-
-        persistence
-            .persist_runtime_event(&stream_event(
-                "thread",
-                None,
-                RuntimeStreamEvent::ContentBlockStart {
-                    index: 0,
-                    block: RuntimeContentBlock::ToolUse {
-                        id: "tool_existing".to_string(),
-                        name: "ExitPlanMode".to_string(),
-                        input: serde_json::json!({ "plan": "ready" }),
-                    },
-                },
-            ))
-            .await
-            .expect("persist runtime event");
-
-        let row: (i64, String) = sqlx::query_as(
-            "SELECT COUNT(*), MAX(content) FROM agent_messages
-             WHERE session_id = 1 AND tool_use_id = 'tool_existing'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("fetch row summary");
-        assert_eq!(row, (1, r#"{"plan":"ready"}"#.to_string()));
-    }
-
-    #[tokio::test]
-    async fn content_block_start_preserves_existing_enriched_tool_call_row() {
-        let pool = setup_test_db().await;
-        sqlx::query(
-            "INSERT INTO agent_messages
-             (session_id, role, content, message_type, tool_name, tool_use_id)
-             VALUES (1, 'assistant', '{\"command\":\"x\",\"plan\":\"ready\"}', 'tool_call', 'ExitPlanMode', 'tool_existing')",
-        )
-        .execute(&pool)
-        .await
-        .expect("insert enriched row");
-        let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-
-        persistence
-            .persist_runtime_event(&stream_event(
-                "thread",
-                None,
-                RuntimeStreamEvent::ContentBlockStart {
-                    index: 0,
-                    block: RuntimeContentBlock::ToolUse {
-                        id: "tool_existing".to_string(),
-                        name: "ExitPlanMode".to_string(),
-                        input: serde_json::json!({ "command": "x" }),
-                    },
-                },
-            ))
-            .await
-            .expect("persist runtime event");
-
-        let row: (i64, String) = sqlx::query_as(
-            "SELECT COUNT(*), MAX(content) FROM agent_messages
-             WHERE session_id = 1 AND tool_use_id = 'tool_existing'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("fetch row summary");
-        assert_eq!(row, (1, r#"{"command":"x","plan":"ready"}"#.to_string()));
-    }
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
+    use sqlx::{Row, SqlitePool};
 
     #[tokio::test]
     async fn tool_json_deltas_support_chunked_replacement_snapshots() {
@@ -262,122 +249,73 @@ mod session_events_compact_tests {
         );
     }
 
+    async fn fetch_tool_call_content(pool: &SqlitePool, tool_use_id: &str) -> String {
+        sqlx::query("SELECT content FROM agent_messages WHERE tool_use_id = ?")
+            .bind(tool_use_id)
+            .fetch_one(pool)
+            .await
+            .expect("fetch tool_call row")
+            .get::<String, _>("content")
+    }
+
     #[tokio::test]
-    async fn bash_output_deltas_preserve_command_input() {
+    async fn tool_json_deltas_recover_from_anthropic_fragmentation() {
         let pool = setup_test_db().await;
         let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
 
         persistence
             .persist_runtime_event(&stream_event(
-                "thread",
+                "ses_1",
                 None,
                 RuntimeStreamEvent::ContentBlockStart {
                     index: 0,
                     block: RuntimeContentBlock::ToolUse {
-                        id: "cmd".to_string(),
-                        name: "Bash".to_string(),
-                        input: serde_json::json!({
-                            "command": "printf hi",
-                            "status": "running"
-                        }),
+                        id: "tool_edit_1".to_string(),
+                        name: "Edit".to_string(),
+                        input: serde_json::json!({}),
                     },
                 },
             ))
             .await
             .expect("persist runtime event");
+
+        for fragment in [
+            r#"{"file_path":"#,
+            r#""/foo.ts","#,
+            r#""old_string":"a","new_string":"b"}"#,
+        ] {
+            persistence
+                .persist_runtime_event(&stream_event(
+                    "ses_1",
+                    None,
+                    RuntimeStreamEvent::ContentBlockDelta {
+                        index: 0,
+                        delta: RuntimeContentDelta::InputJson {
+                            partial_json: fragment.to_string(),
+                        },
+                    },
+                ))
+                .await
+                .expect("persist runtime event");
+        }
+
         persistence
             .persist_runtime_event(&stream_event(
-                "thread",
+                "ses_1",
                 None,
-                RuntimeStreamEvent::ContentBlockDelta {
-                    index: 0,
-                    delta: RuntimeContentDelta::InputJson {
-                        partial_json: serde_json::json!({ "output": "hi" }).to_string(),
-                    },
-                },
+                RuntimeStreamEvent::ContentBlockStop { index: 0 },
             ))
             .await
             .expect("persist runtime event");
 
-        let row = sqlx::query(
-            "SELECT content FROM agent_messages WHERE session_id = 1 AND tool_use_id = 'cmd'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("fetch bash row");
-
-        assert_eq!(
-            serde_json::from_str::<serde_json::Value>(&row.get::<String, _>("content"))
-                .expect("valid json"),
-            serde_json::json!({
-                "command": "printf hi",
-                "status": "running",
-                "output": "hi"
-            })
-        );
-    }
-
-    fn compact_boundary_event(metadata: Option<RuntimeCompactMetadata>) -> RuntimeEvent {
-        RuntimeEvent::new(
-            RuntimeEventMetadata {
-                session_id: Some("sess".to_string()),
-                usage: None,
-                context_window: None,
-                raw: serde_json::json!({}),
-            },
-            RuntimeEventKind::CompactBoundary { metadata },
-        )
-    }
-
-    #[tokio::test]
-    async fn compact_boundary_sets_was_compacted_and_stores_metadata() {
-        let pool = setup_test_db().await;
-        let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-
-        persistence
-            .persist_runtime_event(&compact_boundary_event(Some(RuntimeCompactMetadata {
-                trigger: Some("auto".to_string()),
-                pre_tokens: Some(90_000),
-            })))
-            .await
-            .expect("persist runtime event");
-
-        let session_row = sqlx::query("SELECT was_compacted FROM agent_sessions WHERE id = 1")
-            .fetch_one(&pool)
-            .await
-            .expect("fetch session row");
-        assert_eq!(session_row.get::<i64, _>("was_compacted"), 1);
-
-        let message_row =
-            sqlx::query("SELECT content, message_type FROM agent_messages WHERE session_id = 1")
-                .fetch_one(&pool)
-                .await
-                .expect("fetch message row");
-        assert_eq!(
-            message_row.get::<String, _>("message_type"),
-            "compact_divider"
-        );
-        let content = message_row.get::<String, _>("content");
+        let content = fetch_tool_call_content(&pool, "tool_edit_1").await;
         assert_eq!(
             serde_json::from_str::<serde_json::Value>(&content).expect("valid json"),
-            serde_json::json!({ "trigger": "auto", "pre_tokens": 90_000 })
+            serde_json::json!({
+                "file_path": "/foo.ts",
+                "old_string": "a",
+                "new_string": "b",
+            })
         );
-    }
-
-    #[tokio::test]
-    async fn compact_boundary_without_metadata_stores_empty_content() {
-        let pool = setup_test_db().await;
-        let mut persistence = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
-
-        persistence
-            .persist_runtime_event(&compact_boundary_event(None))
-            .await
-            .expect("persist runtime event");
-
-        let message_row = sqlx::query("SELECT content FROM agent_messages WHERE session_id = 1")
-            .fetch_one(&pool)
-            .await
-            .expect("fetch message row");
-        assert_eq!(message_row.get::<String, _>("content"), "");
     }
 }

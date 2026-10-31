@@ -1,5 +1,9 @@
-use super::*;
+use super::{MergeableMessageType, PendingMergeableBlock, TranscriptWriter};
+use crate::domain::agents::adapter::{
+    RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent, RuntimeStreamEvent, RuntimeStreamScope,
+};
 use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
 
 const MAX_TRACKED_BLOCKS: usize = 4096;
 const MAX_DAMAGED_SCOPES: usize = 256;
@@ -126,7 +130,7 @@ impl TranscriptDurability {
         self.expected.retain(|(row_scope, _), _| row_scope != scope);
     }
 
-    pub(super) fn record_failure(&mut self, event: &RuntimeEvent) {
+    fn record_failure(&mut self, event: &RuntimeEvent) {
         let repairable = matches!(
             event.stream_event(),
             Some(
@@ -151,7 +155,7 @@ impl TranscriptDurability {
         }
     }
 
-    pub(super) fn finish_scope(&mut self, scope: &RuntimeStreamScope) {
+    fn finish_scope(&mut self, scope: &RuntimeStreamScope) {
         if self.damaged.contains(scope) {
             return;
         }
@@ -159,16 +163,16 @@ impl TranscriptDurability {
         self.expected.retain(|(row_scope, _), _| row_scope != scope);
     }
 
-    pub(super) fn repaired(&mut self, scope: &RuntimeStreamScope) {
+    fn repaired(&mut self, scope: &RuntimeStreamScope) {
         self.damaged.remove(scope);
         self.rows.retain(|(row_scope, _), _| row_scope != scope);
         self.expected.retain(|(row_scope, _), _| row_scope != scope);
     }
 }
 
-impl WsSessionPersistence {
+impl TranscriptWriter {
     /// Emit changes only. Successful unrelated writes never claim recovery.
-    pub fn take_transcript_status_change(
+    pub(in super::super) fn take_transcript_status_change(
         &mut self,
         terminal: bool,
     ) -> Option<TranscriptPersistenceStatus> {
@@ -204,9 +208,11 @@ mod snapshot;
 
 #[cfg(test)]
 mod test_helpers {
-    pub(super) use super::super::session_events_tests::{setup_test_db, stream_event};
+    pub(super) use super::super::events::session_events_tests::{setup_test_db, stream_event};
     use super::*;
+    use crate::domain::agents::adapter::RuntimeAssistantMessage;
     use crate::domain::agents::adapter::{RuntimeEventKind, RuntimeEventMetadata};
+    use sqlx::SqlitePool;
     pub(super) fn result(scope: &str) -> RuntimeEvent {
         RuntimeEvent::new(
             RuntimeEventMetadata {
@@ -290,6 +296,7 @@ mod test_helpers {
 mod tests {
     use super::test_helpers::*;
     use super::*;
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
     #[tokio::test]
     async fn healthy_stream_only_turn_releases_recovery_metadata() {
         let pool = setup_test_db().await;
@@ -297,11 +304,11 @@ mod tests {
         p.persist_runtime_event(&text_start("root", 0, "saved"))
             .await
             .unwrap();
-        assert_eq!(p.transcript.expected.len(), 1);
+        assert_eq!(p.writer.transcript.expected.len(), 1);
         p.persist_runtime_event(&result("root")).await.unwrap();
         assert_eq!(p.take_transcript_status_change(true), None);
-        assert!(p.transcript.expected.is_empty());
-        assert!(p.transcript.rows.is_empty());
+        assert!(p.writer.transcript.expected.is_empty());
+        assert!(p.writer.transcript.rows.is_empty());
     }
 
     #[tokio::test]
@@ -339,7 +346,8 @@ mod tests {
         let mut p = WsSessionPersistence::with_session_id(pool.clone(), 1, Some(1));
         let old_scope = RuntimeStreamScope::new(Some("old"), None);
         for index in 0..MAX_TRACKED_BLOCKS as u64 {
-            p.transcript
+            p.writer
+                .transcript
                 .observe_start(&old_scope, index, MergeableMessageType::Text, "old")
                 .unwrap();
         }
@@ -347,7 +355,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(contents(&pool).await[0].1, "saved");
-        assert_eq!(p.transcript.expected.len(), MAX_TRACKED_BLOCKS);
+        assert_eq!(p.writer.transcript.expected.len(), MAX_TRACKED_BLOCKS);
         assert_eq!(p.take_transcript_status_change(false), None);
         fail_statement(&pool, "UPDATE").await;
         assert!(p

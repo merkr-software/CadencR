@@ -66,7 +66,9 @@ pub fn raw_event_with_agent_message_id(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::domain::ws_session::persistence::{
+        raw_event_with_agent_message_id, PersistedEventRef,
+    };
     use serde_json::json;
 
     #[test]

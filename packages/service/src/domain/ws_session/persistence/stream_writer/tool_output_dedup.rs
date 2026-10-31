@@ -1,3 +1,6 @@
+use super::TranscriptWriter;
+use sqlx::SqlitePool;
+
 // Drops streamed command output from a `tool_call` row once the matching
 // `tool_result` has landed.
 //
@@ -30,12 +33,14 @@ const DUPLICATED_OUTPUT_KEYS: [&str; 3] = ["output", "aggregatedOutput", "stdout
 /// or content that isn't JSON at all — *is* the output.
 pub(crate) fn result_output_text(content: &str) -> Option<String> {
     match serde_json::from_str::<serde_json::Value>(content) {
-        Ok(serde_json::Value::Object(map)) => DUPLICATED_OUTPUT_KEYS.iter().find_map(|key| {
-            match map.get(*key) {
-                Some(serde_json::Value::String(text)) if !text.is_empty() => Some(text.clone()),
-                _ => None,
-            }
-        }),
+        Ok(serde_json::Value::Object(map)) => {
+            DUPLICATED_OUTPUT_KEYS
+                .iter()
+                .find_map(|key| match map.get(*key) {
+                    Some(serde_json::Value::String(text)) if !text.is_empty() => Some(text.clone()),
+                    _ => None,
+                })
+        }
         _ if content.trim().is_empty() => None,
         _ => Some(content.to_string()),
     }
@@ -94,11 +99,11 @@ pub(crate) fn strip_duplicated_bash_output(
     serde_json::to_string(&value).ok()
 }
 
-impl WsSessionPersistence {
+impl TranscriptWriter {
     /// Strip the now-redundant output copy from the tool_call paired with
     /// `tool_use_id`. Best-effort: a failure here costs disk space, never
     /// correctness, so it logs and moves on rather than failing the turn.
-    async fn drop_duplicated_tool_call_output(
+    pub(super) async fn drop_duplicated_tool_call_output(
         pool: &SqlitePool,
         session_id: i64,
         tool_use_id: &str,
@@ -118,7 +123,11 @@ impl WsSessionPersistence {
         let existing = match existing {
             Ok(existing) => existing,
             Err(error) => {
-                tracing::warn!(session_id, tool_use_id, "failed to load Bash tool_call: {error}");
+                tracing::warn!(
+                    session_id,
+                    tool_use_id,
+                    "failed to load Bash tool_call: {error}"
+                );
                 return;
             }
         };
@@ -340,15 +349,9 @@ mod session_tool_output_dedup_tests {
             .unwrap();
 
         assert!(
-            !store_stripped_if_unchanged(
-                &pool,
-                1,
-                &stripped,
-                &old,
-                "partial output complete"
-            )
-            .await
-            .unwrap()
+            !store_stripped_if_unchanged(&pool, 1, &stripped, &old, "partial output complete")
+                .await
+                .unwrap()
         );
         let stored: String = sqlx::query_scalar("SELECT content FROM agent_messages WHERE id = 1")
             .fetch_one(&pool)

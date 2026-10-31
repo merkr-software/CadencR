@@ -2,7 +2,7 @@ use super::super::helpers::{send_error, send_warning};
 use super::super::types::{SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::{PermissionRespondPayload, WsEnvelope};
-use crate::domain::ws_session::runtime::application::respond_permission;
+use crate::domain::ws_session::runtime::application::{respond_permission, PermissionContext};
 use crate::domain::ws_session::runtime::output::CommandOutput;
 
 pub(crate) async fn handle_permission_respond(
@@ -22,7 +22,16 @@ pub(crate) async fn handle_permission_respond(
         recipient: sender.clone().into(),
         correlation_id: envelope.id.clone(),
     };
-    match respond_permission(app_state, sdk_sessions, payload, &output).await {
+    let context = PermissionContext::builder()
+        .read_pool(&app_state.read_pool)
+        .write_pool(&app_state.write_pool)
+        .pending_gates(&app_state.pending_gates)
+        .active_turns(&app_state.active_turns)
+        .session_status(&app_state.session_status_tx)
+        .feature_senders(&app_state.ws_feature_senders)
+        .feature_events(&app_state.feature_events_tx)
+        .build();
+    match respond_permission(&context, sdk_sessions, payload, &output).await {
         Ok(outcome) => {
             for warning in outcome.warnings {
                 send_warning(sender, &envelope.id, warning.code, &warning.message);

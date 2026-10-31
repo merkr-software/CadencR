@@ -7,6 +7,7 @@ use crate::domain::agents::runtime_overrides::{self, RestoreOptions};
 use crate::domain::settings;
 use crate::domain::ws_session::handler::session_runtime_config;
 use crate::domain::ws_session::persistence::{SessionRow, WsSessionPersistence};
+use crate::domain::ws_session::runtime::session_runtime_config::RuntimeSettingsContext;
 
 pub(super) struct ResolvedProfileConfig {
     pub effective_profile: Option<String>,
@@ -80,7 +81,10 @@ pub(super) async fn resolve(
     .await
     .map_err(|error| ("PROFILE_ERROR", error))?;
     let profile = session_runtime_config::apply_provider_settings(
-        app_state,
+        &RuntimeSettingsContext::builder()
+            .read_pool(&app_state.read_pool)
+            .write_pool(&app_state.write_pool)
+            .build(),
         project_id,
         feature_id,
         db_session_id,

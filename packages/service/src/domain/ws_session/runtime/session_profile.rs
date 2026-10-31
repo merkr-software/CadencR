@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use crate::app_state::AppState;
 use crate::domain::agents::providers::runtime_adapter;
 use crate::domain::ws_session::protocol::PromptSendPayload;
 
@@ -22,7 +21,6 @@ pub(in crate::domain::ws_session) fn prompt_profile(payload: &PromptSendPayload)
 }
 
 pub(in crate::domain::ws_session) async fn resolve_provider_profile(
-    _app_state: &AppState,
     provider: &str,
     profile: &str,
     cwd: &std::path::Path,

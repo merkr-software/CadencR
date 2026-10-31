@@ -200,8 +200,7 @@ async fn run_local(
         let result = run_cadencr_managed_user_shell(request).await;
         app_state.user_shell_runs.unregister(session_id).await;
         WsSessionPersistence::mark_paused_static(&app_state.write_pool, session_id).await;
-        WsSessionPersistence::broadcast_session_status(
-            &app_state.session_status_tx,
+        app_state.session_status_tx.broadcast(
             session_id,
             feature_id,
             crate::domain::session_status::AgentStatus::Idle,
@@ -235,7 +234,9 @@ async fn resolve_target(
     session_id: i64,
 ) -> Option<UserShellTarget> {
     let effective = crate::domain::ws_session::runtime::control_policy::resolve_owner_sessions(
-        local, app_state, session_id,
+        local,
+        &app_state.active_turns,
+        session_id,
     )
     .await;
     target_from_sessions(&effective, session_id).await
