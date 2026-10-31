@@ -9,7 +9,6 @@ export const LEGACY_SESSION_ACTION = {
   codexPermissionModeChanged: "codex_permission_mode.changed",
   compactOk: "compact.ok",
   turnComplete: "turn_complete",
-  subagentUpdated: "subagent_updated",
 } as const;
 
 export type LegacySessionActionName =

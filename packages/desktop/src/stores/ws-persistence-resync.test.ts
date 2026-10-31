@@ -8,7 +8,10 @@ import { resyncMessagesOnReconnect, resyncRecoveredPersistence } from "./ws-sess
 import { repairRecoveredPersistence } from "./ws-persistence-resync";
 
 const api = vi.hoisted(() => ({ getFeatureAgentState: vi.fn() }));
-vi.mock("@/api/generated", () => ({ getFeatureAgentState: api.getFeatureAgentState }));
+vi.mock("@/api/generated", () => ({
+  getFeatureAgentState: api.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
+}));
 vi.mock("@/hooks/useFeatureAgentState", () => ({
   serverBlocksToAgentBlocks: (blocks: AgentBlockData[]) => blocks,
 }));

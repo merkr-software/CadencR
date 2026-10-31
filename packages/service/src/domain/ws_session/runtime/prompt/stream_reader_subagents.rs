@@ -10,7 +10,7 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::subagents::repository::{self, SubagentChange};
 use crate::domain::subagents::SubagentRun;
-use crate::domain::ws_session::protocol::WsEnvelope;
+use crate::domain::ws_session::protocol::{WsEnvelope, WsSessionEvent};
 
 /// How a turn ended, which decides what becomes of sub-agents bound to it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,7 +114,7 @@ impl StreamReaderTask {
 
     async fn publish_subagent_change(&self, change: &SubagentChange) {
         match repository::apply_change(&self.write_pool, self.db_session_id, change).await {
-            Ok(Some(run)) => self.send_subagent_updated(&run).await,
+            Ok(Some(run)) => self.send_subagent_updated(run).await,
             Ok(None) => {}
             Err(error) => error!(
                 self.db_session_id,
@@ -125,9 +125,9 @@ impl StreamReaderTask {
         }
     }
 
-    async fn send_subagent_updated(&self, run: &SubagentRun) {
-        let payload = serde_json::to_value(run).expect("sub-agent run serializes");
-        let envelope = WsEnvelope::new("session", "subagent_updated", payload);
+    async fn send_subagent_updated(&self, run: SubagentRun) {
+        let envelope = WsEnvelope::session_event(&WsSessionEvent::SubagentUpdated(run))
+            .expect("sub-agent run serializes");
         let _ = self
             .send_and_mirror(Message::Text(String::from(envelope).into()))
             .await;

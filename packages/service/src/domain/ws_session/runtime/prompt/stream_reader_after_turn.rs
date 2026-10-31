@@ -40,7 +40,7 @@ impl StreamReaderTask {
 
     async fn refresh_mcp_servers_after_turn(&self) -> Result<(), ()> {
         let result = refresh_mcp_servers_for_active_session(
-            &self.output,
+            &self.sender,
             &self.sdk_sessions,
             self.db_session_id,
         )
