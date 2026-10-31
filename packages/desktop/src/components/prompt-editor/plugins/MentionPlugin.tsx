@@ -8,10 +8,9 @@ import {
   getTriggerMatch,
   replaceTriggerWithNode,
   usePopoverKeyboardCommands,
-  useEditorAnchorRect,
-  CursorPopover,
+  useComposerPopoverAnchor,
+  AnchoredPopover,
 } from "./trigger-utils";
-import { slashCommandPopoverMaxHeight } from "@/components/SlashCommandPopover";
 
 interface MentionPluginProps {
   projectId: number | undefined;
@@ -74,19 +73,19 @@ export function MentionPlugin({ projectId, featureId }: MentionPluginProps) {
     listId,
   );
   const popoverOpen = mention.isOpen && mention.filteredItems.length > 0;
-  const anchorRect = useEditorAnchorRect(editor, popoverOpen);
+  const popoverAnchor = useComposerPopoverAnchor(editor, popoverOpen);
 
-  if (!popoverOpen || !anchorRect) return null;
+  if (!popoverOpen || !popoverAnchor) return null;
 
   return (
-    <CursorPopover cursorRect={anchorRect} matchWidth>
+    <AnchoredPopover anchor={popoverAnchor}>
       <FileMentionPopover
         listId={listId}
         items={mention.filteredItems}
         selectedIndex={mention.selectedIndex}
         onSelect={handleSelect}
-        maxHeight={slashCommandPopoverMaxHeight(anchorRect.top)}
+        maxHeight={popoverAnchor.maxHeight}
       />
-    </CursorPopover>
+    </AnchoredPopover>
   );
 }

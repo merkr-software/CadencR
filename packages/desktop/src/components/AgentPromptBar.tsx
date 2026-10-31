@@ -157,8 +157,9 @@ function PromptComposer({
             />
           ) : null}
           {state.text === "?" && (
-            // A lone "?" asks how the composer works: answer in place.
-            <div className="mx-2 rounded-t-lg border border-b-0 border-border/70 bg-popover">
+            // A lone "?" asks how the composer works: answer in place. Like the
+            // skill wizard, it scrolls before the card below gives up room.
+            <div className="mx-2 min-h-16 shrink-[100] overflow-y-auto rounded-t-lg border border-b-0 border-border/70 bg-popover">
               <ComposerHelp />
             </div>
           )}

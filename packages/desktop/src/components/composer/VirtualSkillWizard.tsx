@@ -100,9 +100,11 @@ function ReadyWizard({
         data-keys-active={focus.active || undefined}
         aria-label={`Configure /${skill.command}`}
         // The focused-card border: one of wizard and card owns the keys at a time.
+        // Short of room (a phone keyboard), the wizard scrolls before the card
+        // below shrinks: crushed, the card hid the prompt being typed.
         className={cn(
           TRAY,
-          "@container flex flex-col gap-2 px-2.5 pt-2.5 pb-2.5 transition-colors duration-150",
+          "@container flex min-h-16 shrink-[100] flex-col gap-2 overflow-y-auto px-2.5 pt-2.5 pb-2.5 transition-colors duration-150",
           focus.active && "border-[var(--composer-focus-border)] bg-muted/45",
         )}
       >

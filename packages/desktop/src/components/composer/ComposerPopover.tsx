@@ -7,6 +7,9 @@ export function composerOptionId(listId: string, index: number): string {
   return `${listId}-opt-${index}`;
 }
 
+/** Tallest a typeahead list grows; less when the room above the prompt is short. */
+export const COMPOSER_POPOVER_MAX_HEIGHT = 300;
+
 interface ComposerPopoverProps {
   /** Listbox id — the editor's `aria-controls` / `aria-activedescendant` point here. */
   listId: string;
@@ -37,7 +40,14 @@ const DEFAULT_HINTS = [
  */
 export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
   function ComposerPopover(
-    { listId, label, maxHeight = 300, status, hints = DEFAULT_HINTS, children },
+    {
+      listId,
+      label,
+      maxHeight = COMPOSER_POPOVER_MAX_HEIGHT,
+      status,
+      hints = DEFAULT_HINTS,
+      children,
+    },
     ref,
   ) {
     return (
@@ -64,9 +74,10 @@ export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
             children
           )}
         </div>
+        {/* Keyboard hints mean nothing to a finger: the room goes to the list. */}
         <div
           aria-hidden
-          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
+          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden"
         >
           {hints.map(([keys, hintLabel]) => (
             <span key={hintLabel} className="inline-flex items-center gap-1">
