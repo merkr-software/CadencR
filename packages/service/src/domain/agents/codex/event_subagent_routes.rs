@@ -8,8 +8,7 @@
 
 mod ancestry;
 
-use ancestry::subagent_spawn_source;
-pub(super) use ancestry::{lineage_error, thread_spawn_parent};
+pub(super) use ancestry::{lineage_error, subagent_spawn_source, thread_spawn_parent};
 use serde_json::Value;
 
 use super::event_json::runtime_stream_event;
@@ -225,13 +224,15 @@ mod tests {
             indexes.subagent_parent_tool_use_id("thread_quality"),
             Some("call_quality")
         );
+        // Only the child's own sub-agent fact, never a root result.
         assert!(notification_events(
             "turn/completed",
             json!({ "threadId": "thread_reuse" }),
             None,
             &mut indexes,
         )
-        .is_empty());
+        .iter()
+        .all(crate::domain::agents::adapter::RuntimeEvent::is_subagent_signal_only));
     }
 
     #[test]
@@ -258,7 +259,9 @@ mod tests {
         );
 
         assert!(
-            activity.is_empty(),
+            activity
+                .iter()
+                .all(crate::domain::agents::adapter::RuntimeEvent::is_subagent_signal_only),
             "raw spawn already emitted the Agent block"
         );
         assert_eq!(
@@ -332,7 +335,11 @@ mod tests {
             "thread_spawn":{"parent_thread_id":"root","agent_path":"/root/reviewer"}
         }}}});
         let events = notification_events("thread/started", params.clone(), None, &mut indexes);
-        assert_eq!(events.len(), 1);
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[1].subagent_updates()[0].tool_use_id,
+            "codex-agent-child"
+        );
         assert_eq!(
             indexes.subagent_parent_tool_use_id("child"),
             Some("codex-agent-child")

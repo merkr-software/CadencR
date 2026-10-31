@@ -59,6 +59,7 @@ import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-ses
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId, mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
 import { isServiceStopMarker } from "@/lib/agent-message-origin";
+import { invalidateFeatureSubagents } from "@/hooks/useFeatureSubagents";
 
 const reconnectResyncs = new Map<string, Promise<void>>();
 
@@ -87,6 +88,8 @@ async function performMessageResync(
   const featureId = target?.featureId ?? session.featureId;
   const sessionDbId = target?.sessionDbId ?? session.sessionDbId;
   if (!featureId || !sessionDbId) return;
+  // Sub-agent pushes sent while disconnected are gone too.
+  invalidateFeatureSubagents(featureId);
   const cursor = target?.cursor ?? session.lastAppliedMessageId ?? 0;
   const fetchCursor = target ? cursor : reconnectFetchCursor(session.blocks, cursor);
   const revisionCursor = session.lastAppliedContentRevision ?? 0;

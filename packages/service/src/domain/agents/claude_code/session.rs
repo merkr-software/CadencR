@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use super::events::normalize_event;
 use super::prompt_receipts::ClaudePromptReceipts;
+use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
@@ -15,6 +15,9 @@ pub struct ClaudeCodeSession {
     pub(super) query: claude_agent_sdk_rs::Query,
     pub(super) turn_control: std::sync::Arc<tokio::sync::Mutex<()>>,
     pub(super) prompt_receipts: std::sync::Arc<ClaudePromptReceipts>,
+    /// Working directory the CLI runs in; custom agent definitions resolve
+    /// from it.
+    pub(super) cwd: std::path::PathBuf,
 }
 
 impl ClaudeCodeSession {
@@ -24,6 +27,7 @@ impl ClaudeCodeSession {
             query,
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
+            cwd: std::path::PathBuf::new(),
         }
     }
 }
@@ -115,6 +119,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         let mut source_rx = self.query.take_message_rx();
         let (tx, rx) = mpsc::channel(64);
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
+        let mut subagents = ClaudeSubagentState::new(&self.cwd);
 
         tokio::spawn(async move {
             'messages: while let Some(msg) = source_rx.recv().await {
@@ -131,7 +136,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
                         if is_unmatched_replay_user_message(&sdk_msg) {
                             continue;
                         }
-                        let mapped = normalize_event(sdk_msg);
+                        let mapped = subagents.normalize(sdk_msg).await;
                         for event in
                             acknowledge_response_start_prompt_receipts(&mapped, &prompt_receipts)
                         {

@@ -17,6 +17,10 @@ use crate::domain::agents::adapter::{
 };
 
 use super::events_stream_blocks::EventIndexer;
+use super::tool_result_flatten::unwrap_text_block;
+pub(crate) use super::tool_result_flatten::{
+    flatten_tool_result_content_with, unwrap_nested_text_block,
+};
 
 /// Outcome of a provider-side fallback permission response. See the doc on
 /// `AcpProviderHooks::respond_permission_fallback`.
@@ -323,12 +327,14 @@ pub trait AcpProviderHooks: Send + Sync {
         false
     }
 
-    /// Provider opt-in: append extra events to a completed `tool_call_update`.
-    /// Returns events the runtime splices into the mapped update's event list
-    /// — used by OpenCode to emit a synthetic `AssistantMessage` carrying the
-    /// sub-agent's final text under `parent_tool_use_id`. Each returned event
-    /// must already carry its own `parent_tool_use_id`; the runtime does not
-    /// stamp on top of these.
+    /// Provider opt-in: append extra events to a terminal (`completed` /
+    /// `failed`) `tool_call_update` — OpenCode emits a synthetic
+    /// `AssistantMessage` with the sub-agent's final text under
+    /// `parent_tool_use_id`. Each event must carry its own
+    /// `parent_tool_use_id`; the runtime does not stamp on top of these.
+    /// Sub-agent signal events (`RuntimeEvent::subagent_signal`) are folded
+    /// into the call's terminal event after the generic carrier patch, so a
+    /// provider's status/metadata wins (see `events_tool_call_subagent`).
     fn synthesize_tool_call_completion(
         &self,
         _tool_call_id: &str,
@@ -389,29 +395,4 @@ pub trait AcpProviderHooks: Send + Sync {
     /// Default implementation is a no-op so non-opencode ACP providers
     /// don't have to opt in.
     async fn record_available_commands(&self, _cwd: &Path, _commands: Vec<RuntimeSlashCommand>) {}
-}
-
-pub(crate) fn flatten_tool_result_content_with<'a>(
-    blocks: &'a [Value],
-    unwrap_text: impl Fn(&'a Value) -> Option<&'a str>,
-) -> Value {
-    if blocks.is_empty() {
-        return serde_json::json!(blocks);
-    }
-    let mut texts = Vec::with_capacity(blocks.len());
-    for block in blocks {
-        let Some(text) = unwrap_text(block) else {
-            return serde_json::json!(blocks);
-        };
-        texts.push(text);
-    }
-    Value::String(texts.join("\n"))
-}
-
-fn unwrap_text_block(block: &Value) -> Option<&str> {
-    let kind = block.get("type").and_then(Value::as_str)?;
-    match kind {
-        "text" => block.get("text").and_then(Value::as_str),
-        _ => None,
-    }
 }

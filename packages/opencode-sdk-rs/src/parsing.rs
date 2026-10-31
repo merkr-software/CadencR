@@ -86,7 +86,28 @@ pub fn parse_message_from(payload: &Value) -> Option<Message> {
         model: maybe_model(candidate),
         tokens,
         finished: message_finished(candidate),
+        completed_at: maybe_timestamp(candidate, &["completed_at"], &["time", "completed"]),
+        finish: maybe_string(candidate, &["finish"]),
+        error: message_error(candidate),
+        error_name: candidate
+            .get("error")
+            .and_then(|error| error.get("name"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        variant: maybe_string(candidate, &["variant"]),
     })
+}
+
+/// OpenCode `MessageV2.Assistant.error`: a `NamedError` (`{name, data}`).
+fn message_error(value: &Value) -> Option<String> {
+    let error = value.get("error").filter(|error| !error.is_null())?;
+    error
+        .get("data")
+        .and_then(|data| data.get("message"))
+        .and_then(Value::as_str)
+        .or_else(|| error.get("name").and_then(Value::as_str))
+        .or_else(|| error.as_str())
+        .map(ToOwned::to_owned)
 }
 
 fn maybe_model(value: &Value) -> Option<String> {
@@ -201,7 +222,39 @@ mod tests {
         .unwrap();
 
         assert!(message.finished);
+        assert_eq!(message.completed_at.as_deref(), Some("456"));
+        assert_eq!(message.finish.as_deref(), Some("stop"));
+        assert_eq!(message.error, None);
     }
+
+    #[test]
+    fn parse_message_from_reads_variant_and_named_error() {
+        // `MessageV2.Assistant` with an `APIError` NamedError (opencode 1.19).
+        let message = parse_message_from(&json!({
+            "info": {
+                "id": "msg_2",
+                "sessionID": "ses_child",
+                "role": "assistant",
+                "providerID": "anthropic",
+                "modelID": "claude-haiku-5-5",
+                "variant": "high",
+                "error": { "name": "APIError", "data": { "message": "rate limited", "isRetryable": false } },
+                "time": { "created": 10, "completed": 20 }
+            }
+        }))
+        .unwrap();
+        assert_eq!(message.variant.as_deref(), Some("high"));
+        assert_eq!(message.error.as_deref(), Some("rate limited"));
+        assert_eq!(message.error_name.as_deref(), Some("APIError"));
+        assert_eq!(message.finish, None);
+        let aborted = parse_message_from(&json!({
+            "id": "msg_3", "sessionID": "ses_child", "role": "assistant",
+            "error": { "name": "MessageAbortedError", "data": {} }
+        }))
+        .unwrap();
+        assert_eq!(aborted.error.as_deref(), Some("MessageAbortedError"));
+    }
+
     #[test]
     fn cache_only_tokens_are_preserved() {
         let message = parse_message_from(&json!({

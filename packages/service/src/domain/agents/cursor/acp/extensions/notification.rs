@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventMetadata};
 
+use super::super::subagent::{subagent_type, task_notification_update};
 use super::assistant_tool_event;
 
 pub(super) fn events(
@@ -21,7 +22,8 @@ pub(super) fn events(
             "Agent",
             task_input(params),
             metadata,
-        )]),
+        )
+        .with_subagent_updates(task_notification_update(params).into_iter().collect())]),
         "cursor/generate_image" => Some(vec![assistant_tool_event(
             params,
             "GenerateImage",
@@ -66,7 +68,7 @@ fn task_input(params: &Value) -> Value {
     json!({
         "description": params.get("description"),
         "prompt": params.get("prompt"),
-        "subagentType": params.get("subagentType"),
+        "subagentType": subagent_type(params.get("subagentType")),
         "model": params.get("model"),
         "agentId": params.get("agentId"),
         "durationMs": params.get("durationMs"),
@@ -97,7 +99,7 @@ mod tests {
 
         let tasks = events(
             "cursor/task",
-            &json!({ "toolCallId": "task-1", "description": "Explore" }),
+            &json!({ "toolCallId": "task-1", "description": "Explore", "model": "composer-2.5" }),
             RuntimeEventMetadata {
                 raw: json!({ "type": "acp_extension", "method": "cursor/task" }),
                 ..RuntimeEventMetadata::default()
@@ -117,5 +119,34 @@ mod tests {
             "Explore"
         );
         assert_eq!(raw["acp"]["type"], "acp_extension");
+        let update = &tasks[0].subagent_updates()[0];
+        assert_eq!(update.tool_use_id, "task-1");
+        assert_eq!(update.patch.model.as_deref(), Some("composer-2.5"));
+        assert!(update.patch.model_resolved);
+    }
+
+    #[test]
+    fn task_notification_normalizes_custom_subagent_types() {
+        // cursor-agent 2026.10.22 sends `{custom: name}` for user-defined agents.
+        let tasks = events(
+            "cursor/task",
+            &json!({ "toolCallId": "task-2", "subagentType": { "custom": "reviewer" } }),
+            RuntimeEventMetadata::default(),
+        )
+        .expect("known extension");
+        let RuntimeContentBlock::ToolUse { input, .. } =
+            &tasks[0].assistant_message().unwrap().content[0]
+        else {
+            panic!("expected tool use");
+        };
+        assert_eq!(input["subagentType"], "reviewer");
+        // No real tool call id: the synthetic "Agent" id gets no sub-agent fact.
+        let anonymous = events(
+            "cursor/task",
+            &json!({ "description": "Explore" }),
+            RuntimeEventMetadata::default(),
+        )
+        .expect("known extension");
+        assert!(anonymous[0].subagent_updates().is_empty());
     }
 }

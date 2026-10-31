@@ -1,8 +1,6 @@
 import type { AgentBlockData } from "@/components/AgentBlock";
 import { isCountableTool } from "@/components/agentStreamSummary";
-
-/** Collapsed sub-agent view keeps only the newest actions visible. */
-export const MAX_COLLAPSED_SUBAGENT_ACTIONS = 5;
+import { isSubagentCarrier } from "@/lib/tool-display-policy";
 
 /**
  * Blocks that read as a sub-agent "action" in the minimal timeline: tool calls,
@@ -19,25 +17,13 @@ export function selectSubagentActions(blocks: AgentBlockData[]): AgentBlockData[
   return blocks.filter(isSubagentAction);
 }
 
-export function windowSubagentActions(
-  actions: AgentBlockData[],
-  expanded: boolean,
-): { visible: AgentBlockData[]; hiddenCount: number } {
-  if (expanded || actions.length <= MAX_COLLAPSED_SUBAGENT_ACTIONS) {
-    return { visible: actions, hiddenCount: 0 };
-  }
-  return {
-    visible: actions.slice(-MAX_COLLAPSED_SUBAGENT_ACTIONS),
-    hiddenCount: actions.length - MAX_COLLAPSED_SUBAGENT_ACTIONS,
-  };
+/** Tool calls the sub-agent made, counted like the timeline lists them. */
+export function countSubagentToolCalls(blocks: readonly AgentBlockData[]): number {
+  return blocks.reduce((count, block) => count + (isCountableTool(block) ? 1 : 0), 0);
 }
 
 export function isNestedSubagentBlock(block: AgentBlockData): boolean {
-  return (
-    block.type === "tool_call" &&
-    (block.toolName === "Task" || block.toolName === "Agent") &&
-    block.childBlocks !== undefined
-  );
+  return isSubagentCarrier(block) && block.childBlocks !== undefined;
 }
 
 /** Collapse multiline assistant text to a single scannable preview. */

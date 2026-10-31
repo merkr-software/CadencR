@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   getFeatureAgentState: apiMocks.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
 }));
 
 vi.mock("@/hooks/useFeatureAgentState", () => ({

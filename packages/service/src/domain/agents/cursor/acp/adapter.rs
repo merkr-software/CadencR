@@ -6,6 +6,7 @@ use agent_client_protocol::schema::v1::SessionConfigOption;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::domain::agents::acp::runtime::events_stream_blocks::EventIndexer;
 use crate::domain::agents::acp::runtime::provider_hooks::{
     AcpExtensionRequest, AcpProviderHooks, AcpServerRequestResolution,
 };
@@ -21,6 +22,7 @@ use super::extensions;
 use super::model_config::{catalog_model_encodes_effort, lock_mutex, CursorModelConfigState};
 use super::normalize::{canonical_tool_name, derive_permission_tool_input, normalize_tool_input};
 use super::permission_policy;
+use super::subagent;
 
 const AUTH_TIMEOUT: Duration = Duration::from_secs(60);
 
@@ -220,6 +222,18 @@ impl AcpProviderHooks for CursorAcpAdapter {
     async fn record_available_commands(&self, cwd: &Path, commands: Vec<RuntimeSlashCommand>) {
         crate::domain::agents::cursor::commands::record_snapshot(&cwd.to_string_lossy(), commands)
             .await;
+    }
+
+    fn synthesize_tool_call_completion(
+        &self,
+        tool_call_id: &str,
+        tool_name: &str,
+        body: &Value,
+        _status: &str,
+        _metadata: &RuntimeEventMetadata,
+        _indexer: &mut EventIndexer,
+    ) -> Vec<RuntimeEvent> {
+        subagent::completion_events(tool_call_id, tool_name, body)
     }
 }
 

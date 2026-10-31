@@ -17,8 +17,9 @@ use opencode_sdk_rs::OpenCodeClient;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
+use super::pending_subagents::PendingSubagentTasks;
 use super::root_usage_listener::{self, RootUsageState};
-use super::subagent_listener::{self, ListenerState, PendingSubagentTasks, PermissionRegistry};
+use super::subagent_listener::{self, ListenerState, PermissionRegistry};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
 
 const POLL_INTERVAL: Duration = Duration::from_millis(500);

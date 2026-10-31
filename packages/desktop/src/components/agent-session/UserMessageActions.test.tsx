@@ -28,7 +28,7 @@ import { AgentSessionProvider } from "./agent-session-context";
 import { UserMessageActions } from "./UserMessageActions";
 import { UserMessageBlock } from "../UserMessageBlock";
 
-const NOOP_ACTIONS = { sendPrompt: vi.fn(), openModelPicker: vi.fn() };
+const NOOP_ACTIONS = { featureId: 1, sendPrompt: vi.fn(), openModelPicker: vi.fn() };
 
 function renderActions(block: AgentBlockData, wsSessionId: string | null = "ws-feature-1") {
   return render(

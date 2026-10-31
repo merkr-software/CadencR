@@ -1,6 +1,6 @@
 import type { AgentBlockData } from "./AgentBlock";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
-import { shouldHideToolCall } from "@/lib/tool-display-policy";
+import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy";
 
 /** Options controlling how turns collapse into recaps. */
 export interface CollapseOptions {
@@ -136,36 +136,43 @@ function emitSegment(result: AgentBlockData[], segment: Segment, active: boolean
     return;
   }
 
-  const tools = segment.body.filter(isCountableTool);
+  // Sub-agents stay visible as their own cards: a recap chip would hide who
+  // ran, on what, and how it ended.
+  const isRecapTool = (block: AgentBlockData): boolean =>
+    isCountableTool(block) && !isSubagentCarrier(block);
+  const tools = segment.body.filter(isRecapTool);
   const finalText = findFinalText(segment.body);
-  const unresolvedMessages = segment.body.filter(
-    (block) =>
-      block.type === "user_message" &&
-      block.promptDeliveryState !== undefined &&
-      block.promptDeliveryState !== "received_agent",
+  const kept = new Set(
+    segment.body.filter(
+      (block) =>
+        block === finalText ||
+        isSubagentCarrier(block) ||
+        (block.type === "user_message" &&
+          block.promptDeliveryState !== undefined &&
+          block.promptDeliveryState !== "received_agent"),
+    ),
   );
-  const unresolvedMessageSet = new Set(unresolvedMessages);
   if (tools.length === 0) {
-    // No countable tools — nothing to recap; keep just the closing message.
-    result.push(
-      ...segment.body.filter((block) => block === finalText || unresolvedMessageSet.has(block)),
-    );
+    // No countable tools — nothing to recap; keep the closing message and
+    // whatever must stay visible.
+    result.push(...segment.body.filter((block) => kept.has(block)));
     return;
   }
 
-  // Recap header carries the turn's detail (everything but the final message) on
+  // Recap header carries the turn's detail (everything not kept visible) on
   // `childBlocks`; the renderer reveals it inline via an animated collapsible.
   // The closing message always stays visible below the recap.
-  const detail = finalText ? segment.body.filter((block) => block !== finalText) : segment.body;
-  const hiddenDetail = detail.filter((block) => !unresolvedMessageSet.has(block));
-  const summary = makeToolSummaryBlock(tools, hiddenDetail);
+  const summary = makeToolSummaryBlock(
+    tools,
+    segment.body.filter((block) => !kept.has(block)),
+  );
   let emittedSummary = false;
   for (const block of segment.body) {
-    if (!emittedSummary && isCountableTool(block)) {
+    if (!emittedSummary && isRecapTool(block)) {
       result.push(summary);
       emittedSummary = true;
     }
-    if (block === finalText || unresolvedMessageSet.has(block)) result.push(block);
+    if (kept.has(block)) result.push(block);
   }
 }
 
@@ -173,6 +180,7 @@ function emitSegment(result: AgentBlockData[], segment: Segment, active: boolean
  * "Summary mode" display transform. Collapses each *finished* turn's tool calls
  * into a single `tool_summary` recap block, followed by only the turn's final
  * text — so the history reads as "user message → recap → final answer". The
+ * sub-agents the turn launched keep their cards in place. The
  * recap carries the turn's detail on `childBlocks`, which the renderer reveals
  * inline via an animated collapsible (row count is unchanged by expansion). The
  * in-flight turn streams normally and folds to a recap the moment it ends (see

@@ -1,5 +1,6 @@
 import type { AgentBlockData } from "@/components/AgentBlock";
 import { isFileChangeTool, isTaskTodoTool, normalizeToolName } from "@/lib/tool-adapter";
+import { isSubagentToolName } from "@/lib/tool-display-policy";
 
 interface ToolBlockState {
   toolUseIdToBlock: Map<string, AgentBlockData>;
@@ -27,7 +28,7 @@ export function createToolUseBlock(
     toolUseId,
     parentToolUseId,
     createdAt,
-    ...(toolName === "Task" || toolName === "Agent" ? { childBlocks: [] } : {}),
+    ...(isSubagentToolName(toolName) ? { childBlocks: [] } : {}),
   };
   state.toolUseIdToBlock.set(toolUseId, block);
   return block;

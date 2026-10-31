@@ -151,8 +151,12 @@ mod tests {
             indexes.subagent_parent_tool_use_id("grandchild"),
             Some("codex-agent-grandchild")
         );
+        let transcript: Vec<_> = events
+            .iter()
+            .filter(|event| !event.is_subagent_signal_only())
+            .collect();
         assert_eq!(
-            events.last().unwrap().parent_tool_use_id(),
+            transcript.last().unwrap().parent_tool_use_id(),
             Some("codex-agent-sibling")
         );
         assert!(lifecycle.children.contains_key("grandchild"));
