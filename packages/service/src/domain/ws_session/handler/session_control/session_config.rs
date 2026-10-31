@@ -3,11 +3,11 @@
 //! The desktop consumes these actions as a thin provider-neutral renderer over
 //! opaque option ids and authoritative runtime snapshots.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use axum::extract::ws::Message;
 
 use super::super::super::protocol::{
     SessionActionPayload, SessionConfigSetPayload, SessionConfigSnapshotPayload, WsEnvelope,
-    WsSessionAction,
 };
 use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkSessions, WsSender};
@@ -52,11 +52,10 @@ pub(in crate::domain::ws_session::handler) async fn handle_session_config_get(
     };
     let reply = WsEnvelope::session_reply(
         &envelope.id,
-        WsSessionAction::ConfigSnapshot,
-        SessionConfigSnapshotPayload {
+        &WsSessionEvent::ConfigSnapshot(SessionConfigSnapshotPayload {
             session_id: payload.session_id,
             config,
-        },
+        }),
     )
     .expect("session config snapshot should serialize");
     let _ = sender.send(Message::Text(String::from(reply).into()));
@@ -120,11 +119,10 @@ pub(in crate::domain::ws_session::handler) async fn handle_session_config_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ConfigSnapshot,
-        SessionConfigSnapshotPayload {
+        &WsSessionEvent::ConfigSnapshot(SessionConfigSnapshotPayload {
             session_id: payload.session_id,
             config,
-        },
+        }),
     )
     .await;
 }
@@ -134,7 +132,8 @@ async fn active_query(
     app_state: &AppState,
     db_session_id: i64,
 ) -> Option<(RuntimeSessionHandle, i64)> {
-    let sessions = super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+    let sessions =
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sessions = sessions.lock().await;
     let handle = sessions.get(&db_session_id)?;
     let QueryState::Active { query, .. } = &handle.state else {
@@ -167,12 +166,12 @@ mod tests {
         RuntimeSessionConfigKind, RuntimeSessionConfigOption, RuntimeSessionConfigSnapshot,
         RuntimeSessionConfigValue,
     };
-    use crate::domain::ws_session::handler::new_sdk_sessions;
     use crate::domain::ws_session::handler::tests::support::{
         make_active_handle, make_test_app_state,
     };
     use crate::domain::ws_session::handler::types::QueryState;
     use crate::domain::ws_session::protocol::{SessionConfigSnapshotPayload, WsEnvelope};
+    use crate::domain::ws_session::runtime::state::new_sdk_sessions;
 
     struct ConfigSession {
         snapshot: Arc<RwLock<RuntimeSessionConfigSnapshot>>,

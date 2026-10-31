@@ -103,13 +103,14 @@ async fn handle_active_runtime_compact(
     db_session_id: i64,
     app_state: Option<&AppState>,
 ) {
-    let was_running = match begin_compact(sdk_sessions, db_session_id, app_state).await {
-        Ok(running) => running,
-        Err(error) => {
-            send_error(sender, envelope_id, "COMPACT_REJECTED", &error);
-            return;
-        }
-    };
+    let (was_running, reservation) =
+        match begin_compact(sdk_sessions, db_session_id, app_state).await {
+            Ok(running) => running,
+            Err(error) => {
+                send_error(sender, envelope_id, "COMPACT_REJECTED", &error);
+                return;
+            }
+        };
     let query =
         resolve_compact_runtime(envelope_id, sender, sdk_sessions, db_session_id, app_state).await;
     let succeeded = if let Some(query) = query {
@@ -129,6 +130,7 @@ async fn handle_active_runtime_compact(
         app_state,
         succeeded,
         was_running,
+        reservation,
     )
     .await;
     if succeeded {
@@ -175,8 +177,7 @@ async fn resolve_compact_runtime(
 fn send_compact_started(sender: &WsSender, envelope_id: &str) -> Result<(), String> {
     let reply = WsEnvelope::session_reply(
         envelope_id,
-        WsSessionAction::CompactStarted,
-        serde_json::Value::Null,
+        &WsSessionEvent::CompactStarted(SessionCompactStartedPayload),
     )
     .expect("compact started payload should serialize");
     sender
@@ -267,6 +268,7 @@ mod tests {
 
     fn handle_for_provider(provider: &str, state: QueryState) -> SdkHandle {
         SdkHandle {
+            identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state,
             feature_id: 1,
             runtime_provider: provider.to_string(),

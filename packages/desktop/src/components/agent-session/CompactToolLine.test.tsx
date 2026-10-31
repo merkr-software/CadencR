@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@/test-utils";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { CompactToolLine } from "./CompactToolLine";
 
 function toolCall(overrides: Partial<AgentBlockData> = {}): AgentBlockData {

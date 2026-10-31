@@ -141,6 +141,8 @@ pub async fn delete_feature_handler(
         debug!(%error, feature_id = id, "no neovim to stop before feature deletion");
     }
     service::delete_feature(&state.write_pool, &state.read_pool, id).await?;
+    let runtime_cleanup = state.session_runtimes.retire_feature(id).await;
+    state.persistence_health.forget_feature(id).await;
     // Its custom tabs' backends stop now, not when their leases lapse.
     state.plugin_tab_presence.release_features(&[id]);
     state
@@ -150,6 +152,11 @@ pub async fn delete_feature_handler(
     state
         .feature_events_tx
         .emit(id, None, FeatureEventAction::Deleted);
+    if let Err(error) = runtime_cleanup {
+        return Err(crate::error::AppError::Internal(format!(
+            "Feature was deleted, but runtime cleanup failed: {error}"
+        )));
+    }
     Ok(Json(SuccessResponse { success: true }))
 }
 

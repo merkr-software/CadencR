@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { render, screen } from "@/test-utils";
 import { fireEvent } from "@testing-library/react";
 import { ToolSummaryBlock } from "./ToolSummaryBlock";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 function makeToolBlock(id: string): AgentBlockData {
   return {

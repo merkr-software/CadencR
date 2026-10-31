@@ -1,7 +1,7 @@
 import { memo, type ReactElement, type RefObject } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { ConversationSearch } from "./ConversationSearch";
 import { MessageNavigator } from "./MessageNavigator";
 import type { MessageNavigatorControls } from "./useMessageNavigator";

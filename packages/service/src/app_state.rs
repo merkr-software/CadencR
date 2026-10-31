@@ -27,7 +27,8 @@ use crate::domain::schedules::models::ScheduleRanEvent;
 use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::terminal::service::PtyManager;
 use crate::domain::workflow::worktree::WorktreeSetupRegistry;
-use crate::domain::ws_session::handler::{new_sdk_sessions, ActiveTurnRegistry};
+use crate::domain::ws_session::persistence_health::SessionPersistenceHealth;
+use crate::domain::ws_session::runtime::{turns::ActiveTurnRegistry, SessionRuntimeRegistry};
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 use crate::domain::ws_session::user_shell_runs::UserShellRunRegistry;
 use crate::remote::{RemoteConfig, RemoteController};
@@ -195,10 +196,11 @@ pub struct AppState {
     /// Maps feature_id → active WS senders. Lets HTTP handlers push WS
     /// envelopes (e.g. auto-naming events) without holding a socket ref.
     pub ws_feature_senders: WsFeatureSenderRegistry,
-    /// Maps `agent_sessions.id` → the connection driving its live turn. Lets a
-    /// remote client answer a permission/question/plan against the host's live
-    /// query, and carries the server-stamped turn start for synced timers.
+    /// Logical turn generation and interruption identity for each runtime.
+    /// Resolves the service-owned cell for cross-client controls.
     pub active_turns: Arc<ActiveTurnRegistry>,
+    /// Latest transcript durability transitions, shared by all viewers.
+    pub persistence_health: Arc<SessionPersistenceHealth>,
     /// In-flight Cadencr-managed `!` commands, keyed by agent session.
     pub user_shell_runs: Arc<UserShellRunRegistry>,
     /// In-flight worktree setup commands and recovery claims, keyed by feature.
@@ -207,11 +209,8 @@ pub struct AppState {
     /// Process-global pending gate registry. Both human WebSocket responses and
     /// MCP parent responses atomically claim the same entry, so first answer wins.
     pub pending_gates: Arc<GateRegistry>,
-    /// Runtime-session owner map for turns started by internal MCP control
-    /// endpoints when no frontend WebSocket connection currently owns the
-    /// target session. Kept strongly referenced so `active_turns` weak entries
-    /// remain valid for follow-up delegation.
-    pub mcp_control_sessions: crate::domain::ws_session::handler::SdkSessions,
+    /// Authoritative live runtime cell for each persisted session.
+    pub(crate) session_runtimes: Arc<SessionRuntimeRegistry>,
     /// Active explicit auto-rename requests keyed by feature_id. Prevents
     /// duplicate model runs racing to update the same title.
     pub auto_name_runs: Arc<FeatureRunRegistry>,
@@ -345,10 +344,11 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),
-            mcp_control_sessions: new_sdk_sessions(),
+            session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),
@@ -437,10 +437,11 @@ impl AppState {
             push_sessions: Arc::new(PushSessionRegistry::new()),
             ws_feature_senders: WsFeatureSenderRegistry::new(),
             active_turns: Arc::new(ActiveTurnRegistry::new()),
+            persistence_health: Arc::new(SessionPersistenceHealth::default()),
             user_shell_runs: Arc::new(UserShellRunRegistry::new()),
             worktree_setup_runs: WorktreeSetupRegistry::new(),
             pending_gates: Arc::new(GateRegistry::new()),
-            mcp_control_sessions: new_sdk_sessions(),
+            session_runtimes: Arc::new(SessionRuntimeRegistry::new()),
             auto_name_runs: Arc::new(FeatureRunRegistry::new()),
             lsp_sessions: LspRegistry::new(),
             lsp_crashes: CrashTracker::new(),

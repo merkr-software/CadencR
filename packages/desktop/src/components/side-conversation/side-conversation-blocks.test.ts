@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { withoutBrief } from "./side-conversation-blocks";
 
 const block = (id: string, type: AgentBlockData["type"], generated = false): AgentBlockData => ({

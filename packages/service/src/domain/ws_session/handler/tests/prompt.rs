@@ -134,7 +134,7 @@ async fn public_replay_flag_is_ignored_and_legacy_prompt_gets_canonical_identity
 
 #[test]
 fn first_prompt_spawn_path_releases_sdk_session_lock_before_awaits() {
-    let source = include_str!("../session_prompt/prompt_send.rs");
+    let source = include_str!("../session_prompt/prompt_send_pending.rs");
     let drop_index = source
         .find("drop(sessions);")
         .expect("pending spawn path should explicitly release sdk_sessions");
@@ -275,6 +275,11 @@ async fn test_prompt_send_steers_turn_owned_by_another_connection_without_spawni
             }))),
             permission_tx,
         };
+        handle.spawned_model = handle.desired_model.clone();
+        handle.spawned_permission_mode = handle.desired_permission_mode.clone();
+        handle.spawned_access_mode = handle.desired_access_mode.clone();
+        handle.spawned_thinking_effort = handle.desired_thinking_effort.clone();
+        handle.spawned_claude_profile = handle.desired_claude_profile.clone();
     }
     // Register A as the turn's owner in the global registry (as mark_agent_running does).
     app_state

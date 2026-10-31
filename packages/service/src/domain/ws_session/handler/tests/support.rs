@@ -435,11 +435,32 @@ pub(crate) async fn init_session_and_get_response(
     }
 }
 
+pub(crate) async fn assert_next_persistence_status(
+    rx: &mut mpsc::UnboundedReceiver<Message>,
+    expected: PersistenceStatusState,
+) {
+    let message = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+        .await
+        .expect("timed out waiting for transcript durability snapshot")
+        .expect("session channel closed before durability snapshot");
+    let Message::Text(text) = message else {
+        panic!("expected text status message")
+    };
+    let envelope: WsEnvelope = serde_json::from_str(&text).unwrap();
+    assert_eq!(envelope.domain, "session");
+    assert_eq!(envelope.action, "persistence_status");
+    let payload: SessionPersistenceStatusPayload =
+        serde_json::from_value(envelope.payload).unwrap();
+    assert_eq!(payload.status, expected);
+    assert!(!payload.message.is_empty());
+}
+
 /// Helper: insert an SdkHandle with QueryState::Active using a test stub Query.
 pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) -> SdkHandle {
     let query = Query::new_test_stub(session_id);
     let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ClaudeCodeSession::from_query(query)))),
             permission_tx,
@@ -483,6 +504,7 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
 pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
     let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
     SdkHandle {
+        identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(InPlaceEffortSession::new()))),
             permission_tx,

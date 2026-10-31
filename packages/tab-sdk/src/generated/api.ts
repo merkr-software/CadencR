@@ -366,6 +366,13 @@ export interface AgentBlock {
   content: string;
   /** @nullable */
   createdAt?: string | null;
+  /**
+   * UTF-8 size of the complete persisted content when `content` is a
+   * bounded preview of it, so the client can say what loading it costs.
+   * @minimum 0
+   * @nullable
+   */
+  fullContentBytes?: number | null;
   id: string;
   /** @nullable */
   isError?: boolean | null;
@@ -1049,19 +1056,34 @@ export interface WorkingDirResponse {
 }
 
 /**
- * Authoritative list of session-domain server → client action names.
- *
- * Keep backend emitters and the generated frontend contract on this enum
- * instead of retyping bare strings at each call site.
+ * Envelope — every message in both directions uses this shape.
+ */
+export interface WsEnvelope {
+  action: string;
+  domain: string;
+  id: string;
+  payload: unknown;
+  /** @nullable */
+  ref?: string | null;
+}
+
+/**
+ * Canonical session-domain server action names. Legacy aliases are separate.
  */
 export type WsSessionAction = (typeof WsSessionAction)[keyof typeof WsSessionAction];
 
 export const WsSessionAction = {
   initialized: "initialized",
+  acknowledged: "acknowledged",
+  compacting: "compacting",
+  featurerenamed: "feature.renamed",
+  featureautonaming: "feature.autonaming",
+  branchneeds_confirm: "branch.needs_confirm",
   message: "message",
   usage_update: "usage_update",
   ended: "ended",
   error: "error",
+  warning: "warning",
   deleted: "deleted",
   cleared: "cleared",
   lifecycle: "lifecycle",
@@ -1089,7 +1111,622 @@ export const WsSessionAction = {
   permissionrequest: "permission.request",
   prompt_received: "prompt_received",
   stream_status: "stream_status",
+  persistence_status: "persistence_status",
+  subagent_updated: "subagent_updated",
 } as const;
+
+/**
+ * User-authored overrides layered over a provider profile's native config.
+ * `None` means inherit; notably, `Some(false)` is an explicit fast-mode
+ * override and must never be collapsed into inheritance.
+ */
+export interface RuntimeConfigOverrides {
+  /** @nullable */
+  fast_mode?: boolean | null;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+export interface SessionInitializedPayload {
+  /** @nullable */
+  access_mode?: string | null;
+  /** @nullable */
+  codex_permission_mode?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  context_window?: number | null;
+  fast_mode?: boolean;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  input_tokens?: number | null;
+  /** @nullable */
+  model?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  output_tokens?: number | null;
+  /**
+   * Permission mode the session will run with — the requested one when the
+   * provider supports it, else the provider default. `None` for providers
+   * that negotiate permissions themselves (installed ACP).
+   * @nullable
+   */
+  permission_mode?: string | null;
+  /** @nullable */
+  profile?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  runtime_overrides: RuntimeConfigOverrides;
+  session_id: string;
+  supports_prompt_receipts?: boolean;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+export interface SessionAcknowledgedPayload {
+  action: string;
+}
+
+export interface SessionCompactingPayload {
+  active: boolean;
+}
+
+export interface FeatureRenamedPayload {
+  feature_id: number;
+  title: string;
+}
+
+/**
+ * Server → Client: auto-naming is starting or finished for a feature.
+ * Frontend replaces the title with a skeleton while `in_progress: true`.
+ */
+export interface FeatureAutoNamingPayload {
+  feature_id: number;
+  in_progress: boolean;
+}
+
+export interface BranchNeedsConfirmPayload {
+  kind: string;
+  messageId: number;
+  reason: string;
+  sessionId: string;
+}
+
+export interface SessionMessagePayload {
+  blocks: unknown[];
+  /**
+   * Per-stream monotonic sequence number stamped by the stream reader so a
+   * client can detect a dropped envelope (a gap) and resync from the DB
+   * instead of silently rendering a truncated message. `None` on
+   * non-streamed `session.message` emitters.
+   * @minimum 0
+   * @nullable
+   */
+  seq?: number | null;
+}
+
+export interface SessionUsageUpdatePayload {
+  /**
+   * Authoritative context window for the active model. `None` means
+   * "unknown until the provider reports one" — distinct from 0.
+   *
+   * Each update carries the sender's *complete* usage snapshot, so an absent
+   * window means the window is currently unknown — not "unchanged". Clients
+   * must not fall back to one they saw earlier: that is how a retracted
+   * window (a mid-session model switch) would keep scaling the bar by a
+   * model that is no longer running.
+   * @minimum 0
+   * @nullable
+   */
+  context_window?: number | null;
+  /** @minimum 0 */
+  input_tokens: number;
+  /** @minimum 0 */
+  output_tokens: number;
+}
+
+export interface SessionEndedPayload {
+  reason: string;
+  /**
+   * Canonical message UUIDs whose prompt receipts were emitted during this turn. Repeating them on the
+   * terminal envelope lets clients reconcile a missed transient
+   * `prompt_received` without leaving a delivered steer pending forever.
+   */
+  received_prompt_message_uuids?: string[];
+}
+
+export interface SessionErrorPayload {
+  code: string;
+  message: string;
+  /**
+   * Optional context carrying the permission-mode wire id involved in
+   * the failure. Set only for mode-related rejections (e.g.
+   * `MODE_REJECTED_BY_CLI`) so the FE can advance past the rejected
+   * mode in the cycle without re-querying state.
+   * @nullable
+   */
+  mode?: string | null;
+  /**
+   * Prompt receipts observed before a terminal stream failure. Clients mark
+   * these received before failing any remaining pending prompts.
+   */
+  received_prompt_message_uuids?: string[];
+  /**
+   * Delay requested after a transient rate-limit response. Clients use this
+   * instead of immediately feeding a reconnect storm.
+   * @minimum 0
+   * @nullable
+   */
+  retry_after_ms?: number | null;
+}
+
+/**
+ * Non-terminal local warning after the provider accepted work. Receiving this
+ * event must preserve the live turn, pending receipts, and permission state.
+ */
+export interface SessionWarningPayload {
+  code: string;
+  message: string;
+}
+
+export interface SessionDeletedPayload {
+  session_id: string;
+}
+
+export interface SessionClearedPayload {
+  /** @nullable */
+  previous_session_id?: string | null;
+  session_id: string;
+}
+
+/**
+ * Discriminant for `SessionLifecyclePayload`.
+ *
+ * Currently only carries OS-power-driven transitions. `SuspendRequested` is
+ * emitted after the WS handler has captured the runtime session id and
+ * interrupted the live process in response to a `session.suspend` envelope
+ * (driven by Electron's `powerMonitor.suspend`); `Resumed` is the matching
+ * acknowledgement after `session.resume`. The frontend turn-lifecycle state
+ * machine consumes these via `ws-envelope-handler` — UI never flips on the
+ * raw OS event, only on this backend-confirmed envelope (see
+ * `no-optimistic-updates.md`).
+ */
+export type SessionLifecycleKind = (typeof SessionLifecycleKind)[keyof typeof SessionLifecycleKind];
+
+export const SessionLifecycleKind = {
+  suspend_requested: "suspend_requested",
+  resumed: "resumed",
+} as const;
+
+/**
+ * Server → Client: a lifecycle transition driven outside the normal turn
+ * flow (today: OS suspend/resume). Provider-neutral — every adapter emits
+ * the same shape and the frontend renders the same banner regardless of
+ * which provider is active.
+ */
+export interface SessionLifecyclePayload {
+  kind: SessionLifecycleKind;
+  session_id: string;
+}
+
+export interface RetryWorktreeSetupOkPayload {
+  feature_id: number;
+}
+
+export interface McpServerStatusPayload {
+  name: string;
+  status: string;
+}
+
+export interface SessionMcpServersPayload {
+  mcp_servers: McpServerStatusPayload[];
+}
+
+export interface HistoryResultPayload {
+  entries: string[];
+}
+
+export interface HistoryAddedPayload {
+  added: boolean;
+}
+
+export interface DraftResultPayload {
+  /** @nullable */
+  draft?: string | null;
+}
+
+export interface DraftSavedPayload {
+  success: boolean;
+}
+
+export interface ModeChangedPayload {
+  mode: string;
+}
+
+export interface ProviderSetOkPayload {
+  /** @nullable */
+  access_mode?: string | null;
+  /** @nullable */
+  codex_permission_mode?: string | null;
+  fast_mode: boolean;
+  /**
+   * Always sent alongside the provider: the frontend stores the pair
+   * atomically and cannot accept a half-update.
+   */
+  model: string;
+  /** @nullable */
+  profile?: string | null;
+  provider: string;
+  runtime_overrides: RuntimeConfigOverrides;
+  supports_prompt_receipts: boolean;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+/**
+ * @nullable
+ */
+export type SessionCompactStartedPayload = null;
+
+export interface ModelSetOkPayload {
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  context_window?: number | null;
+  model: string;
+  /**
+   * The provider that owns `model`. Present so the frontend never has to
+   * pair a model id with a separately-tracked provider.
+   */
+  provider: string;
+}
+
+export interface EffortSetOkPayload {
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+export interface RuntimeSessionConfigSelectOption {
+  _meta?: unknown;
+  /** @nullable */
+  description?: string | null;
+  name: string;
+  value: string;
+}
+
+export interface RuntimeSessionConfigSelectGroup {
+  _meta?: unknown;
+  id: string;
+  name: string;
+  options: RuntimeSessionConfigSelectOption[];
+}
+
+export type RuntimeSessionConfigChoices =
+  | {
+      layout: "ungrouped";
+      options: RuntimeSessionConfigSelectOption[];
+    }
+  | {
+      groups: RuntimeSessionConfigSelectGroup[];
+      layout: "grouped";
+    };
+
+export type RuntimeSessionConfigKind =
+  | {
+      choices: RuntimeSessionConfigChoices;
+      current_value: string;
+      type: "select";
+    }
+  | {
+      current_value: boolean;
+      type: "boolean";
+    };
+
+export type RuntimeSessionConfigOption = RuntimeSessionConfigKind & {
+  _meta?: unknown;
+  /**
+   * ACP semantic category (`model`, `thought_level`, custom `_...`, etc.).
+   * Kept as an opaque string so newer protocol categories round-trip.
+   * @nullable
+   */
+  category?: string | null;
+  /** @nullable */
+  description?: string | null;
+  id: string;
+  name: string;
+};
+
+export interface RuntimeSessionConfigSnapshot {
+  options: RuntimeSessionConfigOption[];
+}
+
+export interface SessionConfigSnapshotPayload {
+  config: RuntimeSessionConfigSnapshot;
+  session_id: string;
+}
+
+export interface FastModeSetOkPayload {
+  enabled: boolean;
+}
+
+export interface RuntimeEffectiveConfig {
+  fast_mode: boolean;
+  /** @nullable */
+  model?: string | null;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+export interface ProfileChangedPayload {
+  effective?: null | RuntimeEffectiveConfig;
+  /** @nullable */
+  model?: string | null;
+  profile: string;
+  provider: string;
+}
+
+export interface RuntimeOverridesChangedPayload {
+  effective: RuntimeEffectiveConfig;
+  runtime_overrides: RuntimeConfigOverrides;
+}
+
+export interface RuntimeSessionIdPayload {
+  runtime_session_id: string;
+}
+
+/**
+ * Transcript durability is independent of provider-stream and turn health.
+ */
+export type PersistenceStatusState =
+  (typeof PersistenceStatusState)[keyof typeof PersistenceStatusState];
+
+export const PersistenceStatusState = {
+  degraded: "degraded",
+  recovered: "recovered",
+  failed: "failed",
+} as const;
+
+export interface SessionPersistenceStatusPayload {
+  message: string;
+  status: PersistenceStatusState;
+}
+
+export type SubagentRunStatus = (typeof SubagentRunStatus)[keyof typeof SubagentRunStatus];
+
+export const SubagentRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+/**
+ * One sub-agent as the desktop renders it: the transcript's sub-agent card
+ * for its carrier. `action_count` is observed by Cadencr from the
+ * sub-agent's transcript; every other field is a provider fact.
+ */
+export interface SubagentRun {
+  /**
+   * Tool calls Cadencr saw in the sub-agent's transcript.
+   * @nullable
+   */
+  actionCount?: number | null;
+  /** @nullable */
+  agentName?: string | null;
+  /** @nullable */
+  agentType?: string | null;
+  background: boolean;
+  /** @nullable */
+  childSessionId?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** `model` is what the sub-agent ran on, not just what it was asked to use. */
+  modelResolved: boolean;
+  /**
+   * Carrier of the sub-agent that launched this one, when nested.
+   * @nullable
+   */
+  parentToolUseId?: string | null;
+  /** @nullable */
+  prompt?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
+  /** @nullable */
+  resultSummary?: string | null;
+  sessionId: number;
+  startedAt: string;
+  status: SubagentRunStatus;
+  /** @nullable */
+  statusReason?: string | null;
+  /**
+   * Tool calls the provider reports the sub-agent made.
+   * @nullable
+   */
+  toolUseCount?: number | null;
+  /** The carrier tool_use id: joins the run to its transcript block. */
+  toolUseId: string;
+  /** @nullable */
+  totalTokens?: number | null;
+}
+
+/**
+ * Session-domain server events, flattened beside the envelope id/domain/ref.
+ */
+export type WsSessionEvent =
+  | {
+      action: "initialized";
+      payload: SessionInitializedPayload;
+    }
+  | {
+      action: "acknowledged";
+      payload: SessionAcknowledgedPayload;
+    }
+  | {
+      action: "compacting";
+      payload: SessionCompactingPayload;
+    }
+  | {
+      action: "feature.renamed";
+      payload: FeatureRenamedPayload;
+    }
+  | {
+      action: "feature.autonaming";
+      payload: FeatureAutoNamingPayload;
+    }
+  | {
+      action: "branch.needs_confirm";
+      payload: BranchNeedsConfirmPayload;
+    }
+  | {
+      action: "message";
+      payload: SessionMessagePayload;
+    }
+  | {
+      action: "usage_update";
+      payload: SessionUsageUpdatePayload;
+    }
+  | {
+      action: "ended";
+      payload: SessionEndedPayload;
+    }
+  | {
+      action: "error";
+      payload: SessionErrorPayload;
+    }
+  | {
+      action: "warning";
+      payload: SessionWarningPayload;
+    }
+  | {
+      action: "deleted";
+      payload: SessionDeletedPayload;
+    }
+  | {
+      action: "cleared";
+      payload: SessionClearedPayload;
+    }
+  | {
+      action: "lifecycle";
+      payload: SessionLifecyclePayload;
+    }
+  | {
+      action: "retry_worktree_setup.ok";
+      payload: RetryWorktreeSetupOkPayload;
+    }
+  | {
+      action: "gate.closed";
+      payload: GateClosedPayload;
+    }
+  | {
+      action: "mcp_servers";
+      payload: SessionMcpServersPayload;
+    }
+  | {
+      action: "user_message";
+      payload: UserMessagePayload;
+    }
+  | {
+      action: "history.result";
+      payload: HistoryResultPayload;
+    }
+  | {
+      action: "history.added";
+      payload: HistoryAddedPayload;
+    }
+  | {
+      action: "draft.result";
+      payload: DraftResultPayload;
+    }
+  | {
+      action: "draft.saved";
+      payload: DraftSavedPayload;
+    }
+  | {
+      action: "access_mode.changed";
+      payload: ModeChangedPayload;
+    }
+  | {
+      action: "provider.set.ok";
+      payload: ProviderSetOkPayload;
+    }
+  | {
+      action: "compact.started";
+      payload: SessionCompactStartedPayload;
+    }
+  | {
+      action: "model.set.ok";
+      payload: ModelSetOkPayload;
+    }
+  | {
+      action: "effort.set.ok";
+      payload: EffortSetOkPayload;
+    }
+  | {
+      action: "config.snapshot";
+      payload: SessionConfigSnapshotPayload;
+    }
+  | {
+      action: "fast_mode.set.ok";
+      payload: FastModeSetOkPayload;
+    }
+  | {
+      action: "mode.changed";
+      payload: ModeChangedPayload;
+    }
+  | {
+      action: "profile.changed";
+      payload: ProfileChangedPayload;
+    }
+  | {
+      action: "runtime_overrides.changed";
+      payload: RuntimeOverridesChangedPayload;
+    }
+  | {
+      action: "branch.rewound";
+      payload: BranchRewoundPayload;
+    }
+  | {
+      action: "branch.forked";
+      payload: BranchForkedPayload;
+    }
+  | {
+      action: "runtime_session_id";
+      payload: RuntimeSessionIdPayload;
+    }
+  | {
+      action: "permission.request";
+      payload: PermissionRequestPayload;
+    }
+  | {
+      action: "prompt_received";
+      payload: PromptReceivedPayload;
+    }
+  | {
+      action: "stream_status";
+      payload: SessionStreamStatusPayload;
+    }
+  | {
+      action: "persistence_status";
+      payload: SessionPersistenceStatusPayload;
+    }
+  | {
+      action: "subagent_updated";
+      payload: SubagentRun;
+    };
 
 export type ContentSearchParams = {
   project_id: number;

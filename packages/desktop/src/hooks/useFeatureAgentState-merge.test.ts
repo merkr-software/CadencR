@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBlock } from "../api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import {
   applyToolCallUpdates,

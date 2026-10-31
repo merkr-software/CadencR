@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { AgentBlock, buildToolResultMap } from "./AgentBlock";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 // Mock InlineDiffBlock to avoid complex diff rendering
 vi.mock("./InlineDiffBlock", () => ({

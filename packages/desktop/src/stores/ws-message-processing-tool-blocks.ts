@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isFileChangeTool, isTaskTodoTool, normalizeToolName } from "@/lib/tool-adapter";
 import { isSubagentToolName } from "@/lib/tool-display-policy";
 

@@ -1,4 +1,6 @@
-use tracing::{debug, info};
+use tracing::info;
+
+use super::prompt_send_pending::spawn_pending_prompt;
 
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
@@ -10,22 +12,23 @@ use super::super::session_profile::{
     validate_resume_profile_state, SessionProfileUpdate,
 };
 use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
-use super::prompt_followup::{handle_followup_prompt, FollowupPromptContext};
-use super::prompt_pending::{handle_pending_prompt, PendingPromptContext};
-use super::prompt_runtime_config::{
-    apply_respawn_if_needed, dispatch_changes, log_dispatch_decision, notify_deferred_respawn,
-};
-use super::prompt_selection_sync::{self, StoredSelection};
 use super::prompt_send_entry::{report_prompt_result, PromptedSelection};
 use super::prompt_validation;
+use crate::domain::ws_session::runtime::prompt::prompt_followup::{
+    handle_followup_prompt, FollowupPromptContext,
+};
+use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::{
+    apply_respawn_if_needed, dispatch_changes, log_dispatch_decision, notify_deferred_respawn,
+};
+use crate::domain::ws_session::runtime::prompt::prompt_selection_sync::{self, StoredSelection};
 
-pub(super) struct PreparedPrompt {
+pub(in crate::domain::ws_session) struct PreparedPrompt {
     pub payload: PromptSendPayload,
     pub db_session_id: i64,
     pub profile_update: Option<SessionProfileUpdate>,
 }
 
-pub(super) async fn prepare_prompt(
+pub(in crate::domain::ws_session) async fn prepare_prompt(
     envelope: &WsEnvelope,
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
@@ -64,7 +67,7 @@ pub(super) async fn prepare_prompt(
     })
 }
 
-pub(super) async fn dispatch_local_phase(
+pub(in crate::domain::ws_session) async fn dispatch_local_phase(
     envelope: &WsEnvelope,
     sender: &WsSender,
     sdk_sessions: &SdkSessions,
@@ -94,6 +97,7 @@ pub(super) async fn dispatch_local_phase(
         let selection = PromptedSelection::of(handle);
         let context = build_followup_context(
             query.clone(),
+            handle.identity.begin_delivery(),
             handle.feature_id,
             db_session_id,
             handle.runtime_provider.clone(),
@@ -110,7 +114,7 @@ pub(super) async fn dispatch_local_phase(
     Some(payload)
 }
 
-pub(super) async fn dispatch_owner_phase(
+pub(in crate::domain::ws_session) async fn dispatch_owner_phase(
     envelope: &WsEnvelope,
     sender: &WsSender,
     app_state: &AppState,
@@ -159,8 +163,9 @@ pub(super) async fn dispatch_owner_phase(
 /// connection's map (Phase 2) — so the turn's timer/owner re-stamp keeps a
 /// single source of truth.
 #[allow(clippy::too_many_arguments)]
-fn build_followup_context(
+pub(super) fn build_followup_context(
     query: RuntimeSessionHandle,
+    delivery_lease: crate::domain::ws_session::runtime::state::RuntimeDeliveryLease,
     feature_id: i64,
     db_session_id: i64,
     provider_id: String,
@@ -171,11 +176,12 @@ fn build_followup_context(
 ) -> FollowupPromptContext {
     FollowupPromptContext {
         query,
+        delivery_lease: Some(delivery_lease),
         feature_id,
         db_session_id,
         write_pool: app_state.write_pool.clone(),
         session_status_tx: app_state.session_status_tx.clone(),
-        sender: sender.clone(),
+        sender: sender.clone().into(),
         ws_feature_senders: app_state.ws_feature_senders.clone(),
         feature_events_tx: app_state.feature_events_tx.clone(),
         envelope_id,
@@ -204,7 +210,7 @@ async fn owner_prompt_target(
     envelope_id: &str,
     profile_update: Option<&SessionProfileUpdate>,
 ) -> Option<OwnerPromptTarget> {
-    let (query, feature_id, provider_id, selection) = {
+    let (query, delivery_lease, feature_id, provider_id, selection) = {
         let mut sessions = owner.lock().await;
         let handle = sessions.get_mut(&db_session_id)?;
         // An idle runtime still on another model respawns before taking the
@@ -222,6 +228,7 @@ async fn owner_prompt_target(
         match &handle.state {
             QueryState::Active { query, .. } => (
                 query.clone(),
+                handle.identity.begin_delivery(),
                 handle.feature_id,
                 handle.runtime_provider.clone(),
                 PromptedSelection::of(handle),
@@ -236,6 +243,7 @@ async fn owner_prompt_target(
     Some(OwnerPromptTarget::Followup(
         build_followup_context(
             query,
+            delivery_lease,
             feature_id,
             db_session_id,
             provider_id,
@@ -246,77 +254,6 @@ async fn owner_prompt_target(
         ),
         selection,
     ))
-}
-
-/// First prompt (or respawn after a config change): take the stored spawn
-/// options off this connection's `Pending` handle and start the runtime.
-pub(super) async fn spawn_pending_prompt(
-    envelope: &WsEnvelope,
-    sender: &WsSender,
-    sdk_sessions: &SdkSessions,
-    app_state: &AppState,
-    db_session_id: i64,
-    payload: PromptSendPayload,
-) {
-    let mut sessions = sdk_sessions.lock().await;
-    let Some(handle) = sessions.get_mut(&db_session_id) else {
-        send_error(
-            sender,
-            &envelope.id,
-            "SESSION_NOT_FOUND",
-            &format!("Session {db_session_id} not found. Send session.init first."),
-        );
-        return;
-    };
-    let selection = PromptedSelection::of(handle);
-    let spawned_model = handle.desired_model.clone();
-    let spawned_thinking_effort = handle.desired_thinking_effort.clone();
-    let config = handle.config.clone();
-    let feature_id = handle.feature_id;
-    let provider_id = handle.runtime_provider.clone();
-    // Sequential per-connection dispatch guarantees the handle is still
-    // `Pending` here (we only reach Phase 3 when Phase 1 saw `Pending`). The
-    // handle keeps its copy: a dispatch that fails before the runtime is
-    // registered leaves it `Pending`, and the next prompt must spawn from these
-    // options, not from empty ones that drop the model, mode and profile.
-    let mut options = match &handle.state {
-        QueryState::Pending(opts) => opts.clone(),
-        _ => unreachable!("handle was Pending in phase 1 and dispatch is sequential"),
-    };
-
-    // Use the runtime session ID captured at init time for --resume.
-    if options.resume_session_id.is_none() {
-        if let Some(runtime_sid) = handle.resume_session_id.take() {
-            info!(db_session_id, runtime_session_id = %runtime_sid, "resuming previous runtime session");
-            options.resume_session_id = Some(runtime_sid);
-        } else {
-            debug!(
-                db_session_id,
-                feature_id, "no runtime_session_id found, spawning fresh"
-            );
-        }
-    }
-    let context = PendingPromptContext {
-        envelope_id: envelope.id.clone(),
-        sender: sender.clone(),
-        sdk_sessions: sdk_sessions.clone(),
-        app_state: app_state.clone(),
-        db_session_id,
-        feature_id,
-        provider_id,
-        spawned_model,
-        spawned_thinking_effort,
-        config,
-        options,
-        payload,
-        permission_tx: None,
-        internal_replay: false,
-        wait_for_delivery: false,
-    };
-    drop(sessions);
-    // Persist user message in the pending helper after releasing sdk_sessions.
-    let result = handle_pending_prompt(context).await;
-    report_prompt_result(sender, &envelope.id, selection, result);
 }
 
 async fn resolve_prompt_profile_update(
@@ -350,7 +287,7 @@ async fn resolve_prompt_profile_update(
     let Some(profile_name) = selected_profile.as_deref() else {
         return Ok(None);
     };
-    let update = resolve_provider_profile(app_state, &provider, profile_name, &cwd).await?;
+    let update = resolve_provider_profile(&provider, profile_name, &cwd).await?;
     {
         let sessions = sdk_sessions.lock().await;
         if let Some(handle) = sessions.get(&db_session_id) {

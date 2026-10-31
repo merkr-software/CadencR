@@ -1,3 +1,4 @@
+import { installSessionPresentationEffects } from "./ws-session-store";
 // @vitest-environment happy-dom
 /**
  * Delivery of prompts that cannot leave immediately (issue #251): the
@@ -6,6 +7,9 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useWsSessionStore } from "./ws-session-store";
+import { createWsSessionStore } from "./ws-session-store";
+import { createStore } from "zustand/vanilla";
+import { createSessionEnvelope } from "@/lib/ws-envelope";
 import { forceReconnectAll } from "@/lib/ws-reconnect";
 
 // --- Mock WebSocket (same shape as ws-session-store.test.ts) ---
@@ -78,7 +82,10 @@ function sentActions(ws: MockWebSocket): string[] {
   });
 }
 
+let disposePresentation: () => void;
+
 beforeEach(() => {
+  disposePresentation = installSessionPresentationEffects({ onUserPromptDispatched: vi.fn() });
   MockWebSocket.reset();
   useWsSessionStore.setState({ sessions: {} });
   vi.stubGlobal("WebSocket", MockWebSocket);
@@ -86,6 +93,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  disposePresentation();
   const store = useWsSessionStore.getState();
   for (const sessionId of Object.keys(store.sessions)) {
     store.disconnect(sessionId);
@@ -261,8 +269,8 @@ describe("ws-session queued prompt delivery", () => {
     const ws = getWs();
     ws.readyState = MockWebSocket.CLOSED;
     store.initSession("s1", { cwd: "/repo", featureId: 7 });
-    const { initRequestId, outboundQueue } = useWsSessionStore.getState().sessions.s1;
-    expect(outboundQueue.map((envelope) => envelope.id)).toEqual([initRequestId]);
+    const { initRequestId } = useWsSessionStore.getState().sessions.s1;
+    expect(ws.sent).not.toContainEqual(expect.stringContaining(initRequestId ?? "missing-init"));
 
     ws.fireEvent("close", { code: 1006 });
 
@@ -283,7 +291,6 @@ describe("ws-session queued prompt delivery", () => {
     const delivery = track(useWsSessionStore.getState().deliverPrompt("s1", "hello"));
     await tick();
     expect(delivery.outcome).toBe("pending");
-    expect(useWsSessionStore.getState().sessions.s1.outboundQueue).toHaveLength(1);
 
     useWsSessionStore.getState().connect("s1");
     await tick();
@@ -308,5 +315,117 @@ describe("ws-session queued prompt delivery", () => {
     await tick();
 
     expect(delivery.outcome).toBeInstanceOf(Error);
+  });
+});
+
+describe("store-owned transport resources", () => {
+  it("keeps the surviving store reconnectable after another releases the same session id", async () => {
+    const creator = createWsSessionStore({ onUserPromptDispatched: vi.fn() });
+    const first = createStore(creator);
+    const second = createStore(creator);
+    first.getState().connect("same-session");
+    second.getState().connect("same-session");
+    const secondWs = getWs();
+    await tick();
+    secondWs.readyState = MockWebSocket.CLOSED;
+    secondWs.fireEvent("close", { code: 1000 });
+    first.getState().release("same-session");
+
+    forceReconnectAll();
+    await tick();
+
+    expect(MockWebSocket.instances).toHaveLength(3);
+    expect(getWs()).not.toBe(secondWs);
+    expect(second.getState().sessions["same-session"].isConnected).toBe(true);
+    expect(first.getState().sessions["same-session"]).toBeUndefined();
+    second.getState().release("same-session");
+  });
+
+  it("isolates queued deliveries for matching session and message identities", async () => {
+    const onUserPromptDispatched = vi.fn();
+    const creator = createWsSessionStore({ onUserPromptDispatched });
+    const first = createStore(creator);
+    const second = createStore(creator);
+    first.getState().connect("same-session");
+    const firstWs = getWs();
+    second.getState().connect("same-session");
+    const secondWs = getWs();
+    await tick();
+    first.getState().initSession("same-session", { cwd: "/repo", featureId: 7 });
+    second.getState().initSession("same-session", { cwd: "/repo", featureId: 7 });
+
+    const messageUuid = "63f395ef-6b84-4567-868f-63acc34d8ed0";
+    const firstDelivery = track(
+      first.getState().deliverPrompt("same-session", "first", { messageUuid }),
+    );
+    const secondDelivery = track(
+      second.getState().deliverPrompt("same-session", "second", { messageUuid }),
+    );
+    const visible = second.getState().sessions["same-session"];
+    expect(visible).not.toHaveProperty("conn");
+    expect(visible).not.toHaveProperty("pendingWsRequests");
+    expect(visible).not.toHaveProperty("outboundQueue");
+
+    first.getState().release("same-session");
+    await tick();
+    expect(firstDelivery.outcome).toBeInstanceOf(Error);
+    expect(secondDelivery.outcome).toBe("pending");
+    expect(secondWs.readyState).toBe(MockWebSocket.OPEN);
+    expect(firstWs.readyState).toBe(MockWebSocket.CLOSED);
+    expect(sentActions(firstWs)).not.toContain("session.destroy");
+
+    secondWs.simulateMessage({
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "server-session" },
+    });
+    await tick();
+    expect(secondDelivery.outcome).toBe("delivered");
+    const sentPrompt = secondWs.sent.find((raw) => raw.includes("prompt.send"));
+    expect(sentPrompt).toContain("second");
+    expect(sentPrompt).not.toContain("first");
+    // Replaying a queued prompt is not a second user dispatch.
+    expect(onUserPromptDispatched).toHaveBeenCalledTimes(2);
+    expect(onUserPromptDispatched).toHaveBeenNthCalledWith(1, 7);
+    expect(onUserPromptDispatched).toHaveBeenNthCalledWith(2, 7);
+    second.getState().release("same-session");
+  });
+
+  it("isolates correlated replies and rejects only the closing store's pending request", async () => {
+    const creator = createWsSessionStore({ onUserPromptDispatched: vi.fn() });
+    const first = createStore(creator);
+    const second = createStore(creator);
+    first.getState().connect("same-session");
+    const firstWs = getWs();
+    second.getState().connect("same-session");
+    const secondWs = getWs();
+    await tick();
+    const envelope = createSessionEnvelope("retry_worktree_setup", { feature_id: 7 });
+    const firstRequest = first.getState().sendRequest("same-session", envelope);
+    let secondSettled = false;
+    const secondRequest = second.getState().sendRequest("same-session", envelope);
+    void secondRequest.then(() => {
+      secondSettled = true;
+    });
+
+    first.getState().release("same-session");
+    await expect(firstRequest).resolves.toBeNull();
+    expect(secondSettled).toBe(false);
+    // A callback retained by the released socket cannot reach the other store.
+    firstWs.simulateMessage({
+      domain: "session",
+      action: "acknowledged",
+      ref: envelope.id,
+      payload: { stale: true },
+    });
+    expect(secondSettled).toBe(false);
+    secondWs.simulateMessage({
+      domain: "session",
+      action: "acknowledged",
+      ref: envelope.id,
+      payload: { accepted: true },
+    });
+    await expect(secondRequest).resolves.toEqual({ accepted: true });
+    second.getState().release("same-session");
   });
 });

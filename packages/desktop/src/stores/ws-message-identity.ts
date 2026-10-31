@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 
 /** Accept only positive, safe SQLite row ids at the live-event boundary. */
 export function messageDbId(value: unknown): number | undefined {

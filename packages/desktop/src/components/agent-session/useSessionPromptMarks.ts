@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useListSessionPrompts } from "@/api/generated";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { DisplayItem } from "@/types/agent-stream";
 import { toastError } from "@/lib/api-errors";
 import {
   collectLoadedMarks,

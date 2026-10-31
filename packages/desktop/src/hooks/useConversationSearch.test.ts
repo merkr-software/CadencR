@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { createRef } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { useConversationSearch } from "./useConversationSearch";
 
 function row(id: string, content: string): DisplayItem {

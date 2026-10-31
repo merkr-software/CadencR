@@ -2,7 +2,7 @@ import { recordDiagnosticEvent } from "@/lib/renderer-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { FollowOutputCallback, VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
 import { subscribeResize } from "@/lib/resize-coordinator";

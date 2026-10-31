@@ -5,7 +5,7 @@
  * but never touch Zustand or the DOM.
  */
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 
 export { createStreamingState, isRecord, processSdkMessage } from "./ws-message-processing-core";

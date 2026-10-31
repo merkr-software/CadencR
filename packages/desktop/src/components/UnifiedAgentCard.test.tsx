@@ -1,6 +1,6 @@
 import { render } from "@/test-utils";
 import type { UnifiedAgentEntry } from "@/api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry } from "@/stores/ws-session-types";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -121,6 +121,25 @@ describe("UnifiedAgentCard ws-session hydration", () => {
     // WS turn events arrive.
     expect(session?.lifecycle).toEqual({ phase: "active" });
     expect(session?.currentSelection).toEqual({ providerId: "codex_cli", modelId: "model-a" });
+  });
+
+  it("preserves an empty session while its initial connection is opening", () => {
+    const opening = { ...createSessionEntry(), isConnecting: true };
+    useWsSessionStore.setState({ sessions: { "ws-feature-7": opening } });
+
+    render(
+      <UnifiedAgentCard
+        entry={makeEntry({ status: "running", model: "stale-model", runtimeProvider: "codex_cli" })}
+        index={0}
+        isActive={false}
+        onActivate={vi.fn()}
+        onExcludeAgent={vi.fn()}
+      />,
+    );
+
+    expect(useWsSessionStore.getState().sessions["ws-feature-7"]).toBe(opening);
+    expect(opening.persistedLoaded).toBe(false);
+    expect(opening.currentSelection).toBeNull();
   });
 
   it("does not overwrite live WS state when the session is already loaded", () => {

@@ -6,6 +6,7 @@ mod error;
 mod event;
 mod event_types;
 mod permission;
+mod prompt_attachments;
 mod session;
 mod session_config;
 mod subagent;
@@ -53,3 +54,8 @@ pub use subagent::{
 };
 pub(crate) use tool_input::{is_file_change_tool_name, RuntimeToolInputBuffer};
 pub use user_shell::RuntimeUserShellStrategy;
+
+pub use prompt_attachments::RuntimePromptAttachment;
+pub(crate) use prompt_attachments::{
+    decode_text as decode_prompt_attachment_text, default_prompt_attachment_block,
+};

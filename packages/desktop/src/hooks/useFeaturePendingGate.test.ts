@@ -4,6 +4,9 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { queryClient } from "@/lib/queryClient";
+import { toast } from "sonner";
+import type { FeatureRespondGateResponse } from "@/api/generated";
 
 const getPendingGate = vi.hoisted(() => vi.fn());
 const respondGate = vi.hoisted(() => vi.fn());
@@ -17,7 +20,7 @@ vi.mock("@/api/generated", async () => {
   };
 });
 
-vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+vi.mock("sonner", () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));
 
 import { useFeaturePendingGate } from "@/hooks/useFeaturePendingGate";
 
@@ -32,10 +35,57 @@ function wrapper() {
 
 describe("useFeaturePendingGate", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.clearAllMocks();
     getPendingGate.mockReset();
     respondGate.mockReset();
     useSessionStatusStore.setState({ bySession: {} });
   });
+
+  it.each([undefined, [], ["The permission was accepted, but saving its receipt failed."]])(
+    "keeps the accepted response successful and displays returned warnings %j",
+    async (warnings) => {
+      getPendingGate.mockResolvedValue({
+        session_id: 1,
+        request_id: "req-1",
+        kind: "permission",
+        payload: {},
+      });
+      const response = {
+        request_id: "req-1",
+        resolved: true,
+        ...(warnings === undefined ? {} : { warnings }),
+      } satisfies FeatureRespondGateResponse;
+      respondGate.mockResolvedValue(response);
+      const invalidate = vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue();
+      const statuses = useSessionStatusStore.getState().bySession;
+      const { result } = renderHook(() => useFeaturePendingGate({ featureId: 10, enabled: true }), {
+        wrapper: wrapper(),
+      });
+      await waitFor(() => expect(result.current.gate?.request_id).toBe("req-1"));
+
+      result.current.respond({ type: "permission", action: "allow_once" });
+
+      await waitFor(() => expect(invalidate).toHaveBeenCalledOnce());
+      await waitFor(() => expect(result.current.isSubmitting).toBe(false));
+      expect(respondGate).toHaveBeenCalledExactlyOnceWith(10, {
+        request_id: "req-1",
+        decision: { type: "permission", action: "allow_once" },
+      });
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ["/api/features", 10, "pending-gate"],
+      });
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(toast.warning).toHaveBeenCalledTimes(warnings?.length ?? 0);
+      if (warnings?.length) {
+        expect(toast.warning).toHaveBeenCalledWith(warnings[0], {
+          id: "pending-gate-warning:10:req-1:0",
+        });
+      }
+      expect(result.current.isError).toBe(false);
+      expect(useSessionStatusStore.getState().bySession).toBe(statuses);
+    },
+  );
 
   it("refetches when the live pending request id changes", async () => {
     getPendingGate

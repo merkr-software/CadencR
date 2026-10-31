@@ -21,6 +21,19 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     db_session_id: i64,
     app_state: &AppState,
 ) -> Option<RuntimeSessionHandle> {
+    let _launch = app_state.session_runtimes.claim_spawn(db_session_id).await;
+    if WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id)
+        .await
+        .is_none()
+    {
+        send_error(
+            sender,
+            envelope_id,
+            "SESSION_NOT_FOUND",
+            "Session no longer exists",
+        );
+        return None;
+    }
     let mut spawn = match pending_spawn_config(sdk_sessions, db_session_id, sender, app_state).await
     {
         PendingCompactSpawnResult::Ready(spawn) => spawn,
@@ -46,7 +59,6 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     let adapter = match runtime_adapter(&spawn.provider_id) {
         Some(adapter) => adapter,
         None => {
-            clear_compact_spawn_pending(sdk_sessions, db_session_id).await;
             send_error(
                 sender,
                 envelope_id,
@@ -69,7 +81,6 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     let mut runtime_session = match adapter.spawn(Value::Null, spawn_options).await {
         Ok(session) => session,
         Err(error) => {
-            clear_compact_spawn_pending(sdk_sessions, db_session_id).await;
             send_error(sender, envelope_id, "SDK_SPAWN_ERROR", &error.to_string());
             return None;
         }
@@ -107,7 +118,7 @@ pub(super) async fn spawn_pending_runtime_for_compact(
         spawn.feature_id,
         message_rx,
         Some(std::sync::Arc::downgrade(&query)),
-        sender.clone(),
+        sender.clone().into(),
         app_state.ws_feature_senders.clone(),
         app_state.write_pool.clone(),
         app_state.session_status_tx.clone(),
@@ -123,6 +134,7 @@ pub(super) async fn spawn_pending_runtime_for_compact(
 
 struct PendingCompactSpawn {
     feature_id: i64,
+    handle_identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity,
     provider_id: String,
     permission_tx: mpsc::Sender<PermissionResponse>,
     spawned_model: Option<String>,
@@ -162,7 +174,7 @@ async fn pending_spawn_config(
     let spawned_model = handle.desired_model.clone();
     let bridge = WsBridgeCanUseTool {
         app_state: app_state.clone(),
-        sender: sender.clone(),
+        sender: sender.clone().into(),
         feature_senders: app_state.ws_feature_senders.clone(),
         response_rx: Arc::new(Mutex::new(permission_rx)),
         feature_id: handle.feature_id,
@@ -173,6 +185,7 @@ async fn pending_spawn_config(
     };
     PendingCompactSpawnResult::Ready(PendingCompactSpawn {
         feature_id: handle.feature_id,
+        handle_identity: handle.identity.clone(),
         provider_id: handle.runtime_provider.clone(),
         permission_tx,
         spawned_model: spawned_model.clone(),
@@ -213,6 +226,9 @@ async fn activate_spawned_runtime(
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         return false;
     };
+    if !handle.identity.same_instance(&spawn.handle_identity) {
+        return false;
+    }
     if !handle.manual_compact_spawn_pending.load(Ordering::SeqCst) {
         return false;
     }
@@ -233,13 +249,4 @@ async fn activate_spawned_runtime(
     handle.runtime_control_endpoint = runtime_control_endpoint;
     handle.resume_session_id = None;
     true
-}
-
-async fn clear_compact_spawn_pending(sdk_sessions: &SdkSessions, db_session_id: i64) {
-    let sessions = sdk_sessions.lock().await;
-    if let Some(handle) = sessions.get(&db_session_id) {
-        handle
-            .manual_compact_spawn_pending
-            .store(false, Ordering::SeqCst);
-    }
 }

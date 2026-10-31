@@ -4,7 +4,7 @@ import { useHotkeys } from "@tanstack/react-hotkeys";
 import { invokeRegisteredHotkey } from "@/test/hotkeys";
 import React, { useState } from "react";
 import { ToolPermissionPrompt } from "./ToolPermissionPrompt";
-import type { PendingPermission } from "./ToolPermissionPrompt";
+import type { PendingPermission } from "@/types/agent-permission";
 
 vi.mock("@tanstack/react-hotkeys", () => ({ useHotkeys: vi.fn() }));
 

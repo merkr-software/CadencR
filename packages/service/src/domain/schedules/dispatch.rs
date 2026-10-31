@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 use super::models::{Schedule, TargetKind};
 use crate::app_state::AppState;
-use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt_with_message_uuid;
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
 
 /// Deadlock backstop on one delivery, not a latency budget.
@@ -94,7 +94,7 @@ pub(super) async fn deliver_prompt(
         Some(message_uuid(schedule.id, occurrence)),
     );
     match tokio::time::timeout(DISPATCH_TIMEOUT, dispatch).await {
-        Ok(result) => result,
+        Ok(result) => result.map(|outcome| outcome.delivery_confirmed()),
         Err(_) => Err(AppError::Internal(format!(
             "delivering schedule {} timed out after {}s",
             schedule.id,

@@ -1,4 +1,5 @@
 import type { StoreApi } from "zustand";
+import { toast } from "sonner";
 import { createEnvelope, parseEnvelope } from "@/lib/ws-envelope";
 import { getWsProtocols, getWsUrl } from "@/lib/ws-url";
 import {
@@ -23,32 +24,11 @@ const APP_WS_SOURCE = "app-ws";
 
 type SessionStatusSet = StoreApi<SessionStatusState>["setState"];
 type SessionStatusGet = StoreApi<SessionStatusState>["getState"];
-type IntentionalCloseWebSocket = WebSocket & {
-  __intentionalClose?: () => void;
-};
-
-function registerAppWsReconnector(set: SessionStatusSet, get: SessionStatusGet): void {
-  registerReconnector(
-    APP_WS_SOURCE,
-    () => {
-      const live = get().ws;
-      if (live && live.readyState !== WebSocket.CLOSED) {
-        (live as IntentionalCloseWebSocket).__intentionalClose?.();
-        live.close();
-      }
-      set({ ws: null, isConnected: false });
-      get().connect();
-    },
-    { onManualRequired: reportManualReconnectRequired },
-  );
-}
-
 interface AppWsConnection {
   ws: WebSocket;
   set: SessionStatusSet;
-  get: SessionStatusGet;
   dispatchEnvelope: EnvelopeDispatcher;
-  intentionalClose: boolean;
+  isCurrent: () => boolean;
   unsubscribeForgeVisibility: () => void;
 }
 
@@ -56,7 +36,7 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   const { ws, set } = connection;
   resetReconnectState(APP_WS_SOURCE);
   resetServerClock();
-  set({ isConnected: true });
+  set((state) => ({ isConnected: true, connectionEpoch: state.connectionEpoch + 1 }));
   useConnectionStatusStore.getState().reportSource(APP_WS_SOURCE, "connected");
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.session_status", {})));
   ws.send(JSON.stringify(createEnvelope("app", "subscribe.feature_events", {})));
@@ -86,31 +66,11 @@ function handleAppWsOpen(connection: AppWsConnection): void {
   }
 }
 
-function handleAppWsClose(connection: AppWsConnection, event: CloseEvent): void {
-  const { ws, set, get, intentionalClose } = connection;
-  clearStorageMaintenanceStatus();
-  connection.unsubscribeForgeVisibility();
-  if (get().ws === ws) set({ isConnected: false, ws: null });
-  if (intentionalClose) {
-    useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
-    return;
-  }
+function handleAppWsError(connection: AppWsConnection): void {
+  connection.set({ isConnected: false });
   useConnectionStatusStore
     .getState()
-    .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket dropped");
-  scheduleReconnect(APP_WS_SOURCE, () => get().connect(), {
-    minimumDelayMs: event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
-  });
-}
-
-function handleAppWsError(connection: AppWsConnection): void {
-  const { ws, set, get, intentionalClose } = connection;
-  if (get().ws === ws) set({ isConnected: false });
-  if (!intentionalClose) {
-    useConnectionStatusStore
-      .getState()
-      .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket error");
-  }
+    .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket error");
 }
 
 function handleAppWsMessage(connection: AppWsConnection, event: MessageEvent): void {
@@ -128,57 +88,118 @@ function handleAppWsMessage(connection: AppWsConnection, event: MessageEvent): v
     );
   } catch (error) {
     console.error("[session-status] dispatchEnvelope error:", error);
+    toast.error("Background update failed", {
+      id: "app-socket-dispatch-error",
+      description: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
-function attachAppWsListeners(connection: AppWsConnection): void {
-  connection.ws.addEventListener("open", () => handleAppWsOpen(connection));
-  connection.ws.addEventListener("close", (event) => handleAppWsClose(connection, event));
-  connection.ws.addEventListener("error", () => handleAppWsError(connection));
-  connection.ws.addEventListener("message", (event) => handleAppWsMessage(connection, event));
-}
-
-export function createAppWsConnect(
+/** The socket and its cleanup belong to this controller, never observable UI state. */
+export function createAppWsConnection(
   set: SessionStatusSet,
   get: SessionStatusGet,
   dispatchEnvelope: EnvelopeDispatcher,
-): () => void {
-  return function connect(): void {
-    registerAppWsReconnector(set, get);
-    const existing = get().ws;
+): Pick<
+  SessionStatusState,
+  "connect" | "disconnect" | "subscribeFileWatcher" | "subscribeGitStatus"
+> {
+  let current: AppWsConnection | null = null;
+  const retireCurrent = (): void => {
+    const previous = current;
+    current = null;
+    if (!previous) return;
+    previous.unsubscribeForgeVisibility();
+    clearStorageMaintenanceStatus();
+    previous.ws.close();
+  };
+  const connect = (): void => {
+    registerReconnector(
+      APP_WS_SOURCE,
+      () => {
+        retireCurrent();
+        set({ isConnected: false });
+        get().connect();
+      },
+      { onManualRequired: reportManualReconnectRequired },
+    );
     if (
-      existing &&
-      (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)
-    ) {
+      current &&
+      (current.ws.readyState === WebSocket.OPEN || current.ws.readyState === WebSocket.CONNECTING)
+    )
       return;
-    }
+    retireCurrent();
     const protocols = getWsProtocols();
     const ws = new WebSocket(getWsUrl(), protocols.length ? protocols : undefined);
     const connection: AppWsConnection = {
       ws,
       set,
-      get,
       dispatchEnvelope,
-      intentionalClose: false,
+      isCurrent: () => current === connection,
       unsubscribeForgeVisibility: () => {},
     };
-    attachAppWsListeners(connection);
-    (ws as IntentionalCloseWebSocket).__intentionalClose = () => {
-      connection.intentionalClose = true;
-    };
-    set({ ws });
+    current = connection;
+    ws.addEventListener("open", () => {
+      if (connection.isCurrent()) handleAppWsOpen(connection);
+    });
+    ws.addEventListener("message", (event) => {
+      if (connection.isCurrent()) handleAppWsMessage(connection, event);
+    });
+    ws.addEventListener("error", () => {
+      if (connection.isCurrent()) handleAppWsError(connection);
+    });
+    ws.addEventListener("close", (event) => {
+      if (!connection.isCurrent()) return;
+      current = null;
+      connection.unsubscribeForgeVisibility();
+      clearStorageMaintenanceStatus();
+      set({ isConnected: false });
+      useConnectionStatusStore
+        .getState()
+        .reportSource(APP_WS_SOURCE, "reconnecting", "App WebSocket dropped");
+      scheduleReconnect(APP_WS_SOURCE, () => get().connect(), {
+        minimumDelayMs:
+          event.code === 1006 || event.code === 1013 ? WS_RATE_LIMIT_RETRY_MS : undefined,
+      });
+    });
+  };
+  return {
+    connect,
+    disconnect() {
+      unregisterReconnector(APP_WS_SOURCE);
+      retireCurrent();
+      useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
+      set({ isConnected: false });
+    },
+    subscribeFileWatcher(projectId, featureId) {
+      const connection = current;
+      if (!connection || connection.ws.readyState !== WebSocket.OPEN) return;
+      connection.ws.send(
+        JSON.stringify(
+          createEnvelope("app", "subscribe.file_watcher", {
+            project_id: projectId,
+            feature_id: featureId,
+          }),
+        ),
+      );
+    },
+    subscribeGitStatus: (featureId) => subscribeGitStatus(current, featureId),
   };
 }
 
-export function createAppWsDisconnect(set: SessionStatusSet, get: SessionStatusGet): () => void {
-  return function disconnect(): void {
-    unregisterReconnector(APP_WS_SOURCE);
-    useConnectionStatusStore.getState().clearSource(APP_WS_SOURCE);
-    const ws = get().ws;
-    if (ws) {
-      (ws as IntentionalCloseWebSocket).__intentionalClose?.();
-      ws.close();
+function subscribeGitStatus(connection: AppWsConnection | null, featureId: number): () => void {
+  if (!connection || connection.ws.readyState !== WebSocket.OPEN) return () => {};
+  connection.ws.send(
+    JSON.stringify(createEnvelope("app", "subscribe.git_status", { feature_id: featureId })),
+  );
+  let unsubscribed = false;
+  return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
+    if (connection.isCurrent() && connection.ws.readyState === WebSocket.OPEN) {
+      connection.ws.send(
+        JSON.stringify(createEnvelope("app", "unsubscribe.git_status", { feature_id: featureId })),
+      );
     }
-    set({ ws: null, isConnected: false });
   };
 }

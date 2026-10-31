@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PermissionDecisionValue, PermissionOption } from "./ToolPermissionPrompt";
+import type { PermissionDecisionValue, PermissionOption } from "@/types/agent-permission";
 
 interface ToolPermissionActionsArgs {
   isSubmitting: boolean;

@@ -1,6 +1,7 @@
 import { updateQuestionDraft, useQuestionDraftStore } from "./question-drafts";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { installSessionIntegration } from "@/lib/session-integration";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry } from "@/stores/ws-session-types";
 import { queryClient } from "@/lib/queryClient";
@@ -50,7 +51,7 @@ describe("session status lifecycle sync", () => {
     useSessionStatusStore.getState().disconnect();
     useSessionStatusStore.setState({
       bySession: {},
-      ws: null,
+      connectionEpoch: 0,
       isConnected: false,
       hasSnapshot: false,
       epoch: null,
@@ -253,6 +254,44 @@ describe("session status lifecycle sync", () => {
     expect(updated.lifecycle.phase).toBe("active");
     expect(updated.turnTiming.startedAt).toBe(40_000);
     expect(updated.turnTiming.segmentStartedAt).toBe(40_000);
+  });
+
+  it("observes the clock before unchanged updates re-anchor timing and preserves no-op identities", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(100_000);
+    vi.stubGlobal("WebSocket", MockWebSocket);
+    const session = {
+      ...createSessionEntry(),
+      sessionDbId: 21,
+      lifecycle: { phase: "active" } as const,
+      turnTiming: startTurnTiming(93_000),
+    };
+    useWsSessionStore.setState({ sessions: { s21: session } });
+    const bySession = {
+      21: { status: "agent", kind: null, featureId: 2, seq: 1, turnStartedAtMs: 93_000 },
+    } as const;
+    useSessionStatusStore.setState({ bySession });
+    useSessionStatusStore.getState().connect();
+    const ws = MockWebSocket.instances.at(-1)!;
+    const payload = {
+      session_id: 21,
+      feature_id: 2,
+      status: "agent",
+      seq: 2,
+      turn_started_at_ms: 93_000,
+      server_now_ms: 103_000,
+    };
+    ws.simulateMessage({ domain: "app", action: "session_status.update", payload });
+    expect(useSessionStatusStore.getState().bySession).toBe(bySession);
+    const anchored = useWsSessionStore.getState().sessions;
+    expect(anchored.s21.turnTiming.startedAt).toBe(90_000);
+    ws.simulateMessage({
+      domain: "app",
+      action: "session_status.update",
+      payload: { ...payload, seq: 3 },
+    });
+    expect(useSessionStatusStore.getState().bySession).toBe(bySession);
+    expect(useWsSessionStore.getState().sessions).toBe(anchored);
   });
 
   it("anchors a conversation opened mid-turn to the turn start it already knows", () => {
@@ -604,3 +643,10 @@ describe("session status lifecycle sync", () => {
     invalidateSpy.mockRestore();
   });
 });
+
+// Exercise the same explicit composition that production installs before mounting.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => disposeSessionIntegration());

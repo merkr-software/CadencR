@@ -29,7 +29,7 @@ pub(crate) async fn handle_profile_set(
     }
 
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
     let (feature_id, provider, model, current_profile, cwd, overrides) = {
         let sessions = sdk_sessions.lock().await;
@@ -52,7 +52,7 @@ pub(crate) async fn handle_profile_set(
         )
     };
 
-    let update = match resolve_provider_profile(app_state, &provider, profile, &cwd).await {
+    let update = match resolve_provider_profile(&provider, profile, &cwd).await {
         Ok(update) => update,
         Err(error) => {
             send_error(sender, &envelope.id, "PROFILE_ERROR", &error);
@@ -108,8 +108,7 @@ pub(crate) async fn handle_profile_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::ProfileChanged,
-        ProfileChangedPayload {
+        &WsSessionEvent::ProfileChanged(ProfileChangedPayload {
             provider,
             model: effective
                 .as_ref()
@@ -117,7 +116,7 @@ pub(crate) async fn handle_profile_set(
                 .or(model),
             profile: update.name,
             effective,
-        },
+        }),
     )
     .await;
 }

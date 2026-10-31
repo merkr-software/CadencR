@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { buildToolChips } from "@/components/agentStreamToolChips";
 import { NumStat } from "@/components/NumStat";
 import { TOOL_ACCENT_CLASSES } from "@/lib/tool-accent";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { suppressAutoScrollPin } from "@/lib/agent-scroll-suppression";
 import { AgentStreamItem } from "./AgentStreamItem";

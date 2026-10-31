@@ -1,7 +1,8 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
@@ -25,6 +26,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>): void => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string): SessionEntry => state.sessions[sessionId],
   };
 }
@@ -630,6 +632,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 
@@ -666,6 +669,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 

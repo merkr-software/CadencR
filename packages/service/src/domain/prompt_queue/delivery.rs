@@ -1,8 +1,8 @@
 //! Delivering queued prompts: one per finished turn, or on demand.
 
 use crate::app_state::AppState;
-use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt_with_message_uuid;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt_with_message_uuid;
 use crate::error::AppError;
 
 use super::store::{self, QueuedPrompt};
@@ -118,4 +118,5 @@ async fn deliver_claimed(state: &AppState, prompt: &QueuedPrompt) -> Result<(), 
         Some(message_uuid),
     )
     .await
+    .map(|outcome| outcome.delivery_confirmed())
 }

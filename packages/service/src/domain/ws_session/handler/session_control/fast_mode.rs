@@ -139,7 +139,7 @@ pub(super) async fn apply_fast_mode_change(
     enabled: bool,
 ) -> Result<i64, FastModeChangeError> {
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
 
     let validation_snapshot = if enabled {
         let sessions = effective_sessions.lock().await;
@@ -240,8 +240,7 @@ pub(super) async fn send_fast_mode_set_ok(
         sender,
         envelope_id,
         feature_id,
-        WsSessionAction::FastModeSetOk,
-        FastModeSetOkPayload { enabled },
+        &WsSessionEvent::FastModeSetOk(FastModeSetOkPayload { enabled }),
     )
     .await;
 }

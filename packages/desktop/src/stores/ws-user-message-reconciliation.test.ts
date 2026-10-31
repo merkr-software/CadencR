@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { promptImageSrc, resetPromptBlobCacheForTest } from "@/lib/prompt-image-cache";
 import { buildUserMessageContent, parseUserMessageContent } from "@/types/agent-types";
 import {

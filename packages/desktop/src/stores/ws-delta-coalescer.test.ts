@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { useWsSessionStore } from "./ws-session-store";
+import { createStore } from "zustand/vanilla";
+import { createWsSessionStore, useWsSessionStore } from "./ws-session-store";
 import { setDeltaFlushScheduler } from "./ws-delta-scheduler";
 
 // --- Minimal mock WebSocket (mirrors ws-session-store.test.ts) ---
@@ -86,6 +87,30 @@ afterEach(() => {
 });
 
 describe("stream-delta coalescing", () => {
+  it("keeps same-id sessions' buffered output separate when one store releases", async () => {
+    const scheduled: Array<() => void> = [];
+    setDeltaFlushScheduler((flush) => scheduled.push(flush));
+    const creator = createWsSessionStore({ onUserPromptDispatched: vi.fn() });
+    const first = createStore(creator);
+    const second = createStore(creator);
+    first.getState().connect("same-session");
+    const firstWs = MockWebSocket.instances.at(-1)!;
+    second.getState().connect("same-session");
+    const secondWs = MockWebSocket.instances.at(-1)!;
+    await tick();
+    firstWs.simulateMessage(textDelta("first store output"));
+    secondWs.simulateMessage(textDelta("second store output"));
+    first.getState().release("same-session");
+
+    for (const flush of scheduled) flush();
+
+    expect(first.getState().sessions["same-session"]).toBeUndefined();
+    expect(second.getState().sessions["same-session"].blocks.map((block) => block.content)).toEqual(
+      ["second store output"],
+    );
+    second.getState().release("same-session");
+  });
+
   it("a burst of N deltas produces exactly one store commit", async () => {
     const ws = await connected();
 

@@ -1,9 +1,6 @@
-import {
-  countRenderableDisplayRows,
-  leadingCompactFlowBlock,
-  type DisplayRowMode,
-} from "@/components/agentStreamDisplay";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import { countRenderableDisplayRows, leadingCompactFlowBlock } from "@/lib/agent-stream-display";
+import type { DisplayRowMode } from "@/types/agent-stream";
+import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { updateSession, type SessionEntry } from "./ws-session-types";

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import { AgentStream } from "./AgentStream";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 const virtuosoState = vi.hoisted(() => ({
   firstItemIndex: undefined as number | undefined,

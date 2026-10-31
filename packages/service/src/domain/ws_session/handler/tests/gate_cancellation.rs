@@ -101,6 +101,10 @@ async fn cancel_with_waiting_reply(automatic: bool) {
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     app_state.active_turns.begin_turn(1, &sessions).await;
+    app_state
+        .session_runtimes
+        .bind_feature(1, 1, &sessions)
+        .await;
     let reply_uuid = uuid::Uuid::new_v4();
     if automatic {
         sqlx::raw_sql("INSERT INTO agent_messages (id, session_id, role, content, message_type) VALUES (1, 2, 'user', 'do QA', 'user_message'), (2, 2, 'assistant', 'AUTOREPLY350', 'text'); INSERT INTO agent_session_reply_waits (id, requester_session_id, responder_session_id, request_message_id, kind, status, armed_at) VALUES (1, 1, 2, 1, 'message', 'armed', datetime('now'));")
@@ -282,6 +286,7 @@ async fn full_turn_prompt_remains_cancellable(close_gate: bool) {
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;
+    state.session_runtimes.bind_feature(1, 1, &sessions).await;
     let prompt = tokio::spawn(async move {
         query
             .read()
@@ -399,11 +404,18 @@ async fn followup_stop_and_queued_runtime_writer_do_not_deadlock() {
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;
+    state.session_runtimes.bind_feature(1, 1, &sessions).await;
     let prompt_state = state.clone();
     let prompt = tokio::spawn(async move {
-        session_prompt::dispatch_control_prompt(&prompt_state, 1, 1, "steer during turn", true)
-            .await
-            .unwrap()
+        crate::domain::ws_session::runtime::application::dispatch_control_prompt(
+            &prompt_state,
+            1,
+            1,
+            "steer during turn",
+            true,
+        )
+        .await
+        .unwrap()
     });
     assert_eq!(
         timeout(Duration::from_secs(2), event_rx.recv())

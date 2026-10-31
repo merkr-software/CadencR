@@ -1,3 +1,7 @@
+use super::SessionRow;
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+
 impl WsSessionPersistence {
     pub async fn try_get_session_row(
         pool: &SqlitePool,

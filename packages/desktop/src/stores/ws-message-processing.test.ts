@@ -4,7 +4,7 @@ import {
   injectPlanIntoBlocks,
   processSdkMessage,
 } from "./ws-message-processing";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 describe("injectPlanIntoBlocks", () => {
   const textBlock: AgentBlockData = { id: "1", type: "text", content: "hello" };

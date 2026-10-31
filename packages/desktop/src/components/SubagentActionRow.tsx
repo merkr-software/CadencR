@@ -7,7 +7,7 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { Markdown } from "@/components/Markdown";
 import { NumStat } from "@/components/NumStat";
 import { thinkingPreview } from "@/components/ThinkingBlock";

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SessionPrompt } from "@/api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import {
   adjacentMarkIndex,
   collectLoadedMarks,

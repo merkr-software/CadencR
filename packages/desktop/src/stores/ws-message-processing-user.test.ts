@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createStreamingState, type ParserSignals } from "./ws-message-processing";
 import { processUserMessage } from "./ws-message-processing-user";
 import { applyBlockContentBudget } from "@/lib/block-content-budget";

@@ -1,7 +1,7 @@
 import { memo, type ComponentType, type ReactElement, type ReactNode, type RefObject } from "react";
 import type { LucideProps } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { LiveAgentStatus } from "@/types/agent";
 import type { AgentSessionProps } from "./types";
 import { CollapsibleHeader } from "./CollapsibleHeader";

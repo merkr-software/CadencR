@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-vi.mock("@/api/generated", () => ({
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
   useGetFeatureAgentState: vi.fn(() => ({ data: undefined, isLoading: false })),
   getGetFeatureQueryKey: (id: number) => ["features", "detail", id],
   getGetFeatureSettingsQueryKey: (id: number) => ["features", "settings", id],
@@ -19,6 +20,7 @@ import { useWebSocketSession } from "./useWebSocketSession";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { installSessionIntegration } from "@/lib/session-integration";
 
 // --- Mock WebSocket ---
 
@@ -76,7 +78,7 @@ beforeEach(() => {
   MockWebSocket.reset();
   // Reset Zustand store between tests
   useWsSessionStore.setState({ sessions: {} });
-  useSessionStatusStore.setState({ bySession: {}, ws: null, isConnected: false });
+  useSessionStatusStore.setState({ bySession: {}, connectionEpoch: 0, isConnected: false });
   vi.stubGlobal("WebSocket", MockWebSocket);
   vi.stubGlobal("window", { ...globalThis.window });
 });
@@ -2981,3 +2983,10 @@ describe("useWebSocketSession", () => {
     expect(result.current.loadOlderMessages).toBe(before.loadOlderMessages);
   });
 });
+
+// Exercise the same explicit composition that production installs before mounting.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => disposeSessionIntegration());

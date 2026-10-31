@@ -1,5 +1,5 @@
-import type { AgentQuestion } from "@/components/AgentQuestionDrawer";
-import { parseAskUserQuestions } from "@/components/AgentQuestionDrawer";
+import type { AgentQuestion } from "@/types/agent-question";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import {
   parseClearedPayload,
   parseCompactingPayload,

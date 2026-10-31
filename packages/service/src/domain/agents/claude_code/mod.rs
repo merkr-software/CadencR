@@ -2,6 +2,7 @@ mod adapter_impl;
 mod auto_mode;
 mod background_agents;
 mod branching;
+mod bypass_permissions;
 mod catalog;
 mod context_windows;
 pub mod custom_models;

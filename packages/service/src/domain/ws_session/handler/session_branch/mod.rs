@@ -7,6 +7,7 @@
 //! live entirely behind the `SessionBranching` capability; nothing here branches
 //! on provider identity.
 
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 mod fork;
 mod fork_db;
 mod rewind;
@@ -15,31 +16,17 @@ mod rewind_state;
 pub(crate) use fork::handle_fork;
 pub(crate) use rewind::handle_rewind;
 
-use axum::extract::ws::Message;
-use serde::Deserialize;
-use serde::Serialize;
 use tracing::warn;
 
 use super::super::persistence::WsSessionPersistence;
-use super::super::protocol::{WsEnvelope, WsSessionAction};
+use super::super::protocol::{BranchPayload, WsEnvelope};
 use super::helpers::{parse_session_id, persist_and_close_query, send_error};
-use super::session_control::resolve_owner_sessions;
+use super::session_control::{reply_and_broadcast, resolve_owner_sessions};
 use super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{BranchContext, RuntimeSpawnConfig};
 use crate::domain::agents::providers::runtime_adapter;
 use crate::error::AppError;
-
-/// Inbound payload shared by `branch.rewind` and `branch.fork`.
-#[derive(Debug, Deserialize)]
-pub(super) struct BranchPayload {
-    pub session_id: String,
-    pub message_id: i64,
-    /// Rewind only: the user has acknowledged that uncommitted changes since the
-    /// checkpoint will be discarded. Ignored by fork.
-    #[serde(default)]
-    pub confirm_discard: bool,
-}
 
 /// Resolved, validated inputs for a branch operation.
 pub(super) struct BranchInputs {
@@ -278,7 +265,8 @@ pub(super) async fn stop_live_turn(
     app_state: &AppState,
     db_session_id: i64,
 ) {
-    let effective = resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+    let effective =
+        resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let mut sessions = effective.lock().await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         return;
@@ -289,7 +277,10 @@ pub(super) async fn stop_live_turn(
         WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
         persist_and_close_query(
             query,
-            app_state,
+            &RuntimeCloseContext::builder()
+                .pool(&app_state.write_pool)
+                .feature_senders(&app_state.ws_feature_senders)
+                .build(),
             db_session_id,
             &handle.runtime_provider,
             handle.feature_id,
@@ -335,31 +326,6 @@ pub(super) async fn current_runtime_session_id(
             None
         }
     }
-}
-
-/// Send the originating client a typed reply, then broadcast the same change to
-/// the other devices viewing this feature so they reload.
-pub(super) async fn reply_and_broadcast<P: Serialize>(
-    app_state: &AppState,
-    sender: &WsSender,
-    envelope_id: &str,
-    feature_id: i64,
-    action: WsSessionAction,
-    payload: P,
-) {
-    let reply = WsEnvelope::session_reply(envelope_id, action, &payload)
-        .expect("session branch reply payload should serialize");
-    let _ = sender.send(Message::Text(String::from(reply).into()));
-    let broadcast = WsEnvelope::session_event(action, payload)
-        .expect("session branch broadcast payload should serialize");
-    app_state
-        .ws_feature_senders
-        .broadcast_others(
-            feature_id,
-            sender,
-            &Message::Text(String::from(broadcast).into()),
-        )
-        .await;
 }
 
 #[cfg(test)]

@@ -26,7 +26,7 @@ import {
   type SelectionSnapshot,
 } from "@/lib/selection-to-markdown";
 import { ClipboardCopyIcon, FileTextIcon, GitBranchIcon, RotateCcwIcon } from "lucide-react";
-import { type AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { useMessageBranchActions } from "./use-message-branch-actions";
 import { useTouchSafeTriggerProps } from "@/hooks/useTouchSafeTriggerProps";
 import { COPY_AS_FORMATS } from "./CopyAsMenu";

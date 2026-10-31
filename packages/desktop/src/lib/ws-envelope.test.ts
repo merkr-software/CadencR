@@ -13,11 +13,11 @@ import {
 describe("ws-envelope", () => {
   describe("createEnvelope", () => {
     it("produces valid envelope with id, domain, action, payload", () => {
-      const env = createEnvelope("session", "init", { model: "opus" });
+      const env = createEnvelope("app", "subscribe.session_status", {});
       expect(env.id).toBeDefined();
-      expect(env.domain).toBe("session");
-      expect(env.action).toBe("init");
-      expect(env.payload).toEqual({ model: "opus" });
+      expect(env.domain).toBe("app");
+      expect(env.action).toBe("subscribe.session_status");
+      expect(env.payload).toEqual({});
     });
   });
 
@@ -39,14 +39,65 @@ describe("ws-envelope", () => {
       expect(() => parseEnvelope("not json")).toThrow();
     });
 
+    it("accepts a null reply reference as an uncorrelated envelope", () => {
+      const value = {
+        id: "a",
+        domain: "session",
+        action: "compact.started",
+        ref: null,
+        payload: null,
+      };
+      expect(parseEnvelope(JSON.stringify(value))).toEqual({ ...value, ref: undefined });
+    });
+
+    it.each([
+      null,
+      [],
+      {},
+      { domain: "session", action: "message", payload: {} },
+      { id: "a", action: "message", payload: {} },
+      { id: "a", domain: "session", payload: {} },
+      { id: "", domain: "session", action: "message", payload: {} },
+      { id: 1, domain: "session", action: "message", payload: {} },
+      { id: "a", domain: true, action: "message", payload: {} },
+      { id: "a", domain: "session", action: 1, payload: {} },
+      { id: "a", domain: "session", action: "message", ref: 12, payload: {} },
+      { id: "a", domain: "session", action: "message", ref: {}, payload: {} },
+      { id: "a", domain: "session", action: "message", ref: [], payload: {} },
+      { id: "a", domain: "session", action: "message" },
+    ])("rejects malformed envelope %j", (value) => {
+      expect(() => parseEnvelope(JSON.stringify(value))).toThrow();
+    });
+
+    it.each([
+      null,
+      [],
+      ["opaque", { provider: true }],
+      "raw provider event",
+      17,
+      false,
+      {
+        nested: { provider_extension: [null, { future: "value" }] },
+      },
+    ])("preserves opaque payload %j and future domain/action strings", (payload) => {
+      const value = {
+        id: "future-id",
+        domain: "future.domain",
+        action: "future.action",
+        ref: "request",
+        payload,
+      };
+      expect(parseEnvelope(JSON.stringify(value))).toEqual(value);
+    });
+
     it("throws on missing domain", () => {
       const raw = JSON.stringify({ id: "a", domain: "", action: "init", payload: {} });
-      expect(() => parseEnvelope(raw)).toThrow("missing domain or action");
+      expect(() => parseEnvelope(raw)).toThrow();
     });
 
     it("throws on missing action", () => {
       const raw = JSON.stringify({ id: "a", domain: "session", action: "", payload: {} });
-      expect(() => parseEnvelope(raw)).toThrow("missing domain or action");
+      expect(() => parseEnvelope(raw)).toThrow();
     });
   });
 

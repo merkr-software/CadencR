@@ -1,7 +1,8 @@
+use crate::domain::ws_session::protocol::{ModeChangedPayload, WsSessionEvent};
 use tracing::error;
 
 use super::super::super::persistence::WsSessionPersistence;
-use super::super::super::protocol::{AccessModeSetPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{AccessModeSetPayload, WsEnvelope};
 use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
@@ -79,8 +80,9 @@ pub(crate) async fn handle_access_mode_set(
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::AccessModeChanged,
-        serde_json::json!({ "mode": mode_wire }),
+        &WsSessionEvent::AccessModeChanged(ModeChangedPayload {
+            mode: mode_wire.into(),
+        }),
     )
     .await;
 }
@@ -107,7 +109,7 @@ async fn resolve_target(
         None
     })?;
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let feature_id = validate_session(sender, &effective_sessions, ref_id, db_session_id).await?;
     Some((effective_sessions, db_session_id, feature_id))
 }

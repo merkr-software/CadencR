@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen } from "@/test-utils";
 import React from "react";
 
@@ -76,6 +76,18 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { Route } from "./__root";
+import { cleanup } from "@testing-library/react";
+import { installSessionIntegration } from "@/lib/session-integration";
+
+// These fixtures mount the route without main.tsx's application composition.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => {
+  cleanup();
+  disposeSessionIntegration();
+});
 
 function RootLayout() {
   const Component = (Route as unknown as { options: { component: React.ComponentType } }).options

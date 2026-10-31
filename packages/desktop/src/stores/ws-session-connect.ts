@@ -29,7 +29,6 @@ interface ConnectSessionDeps {
   ctx: StoreAccessors;
   socketDeps: SocketHandlerDeps;
   sourceKey: (sessionId: string) => string;
-  rejectPendingRequests: (session: SessionEntry) => void;
   forceReconnectSession: (sessionId: string) => void;
   reinitOnReconnect: (sessionId: string) => void;
   flushOutboundQueue: (sessionId: string) => void;
@@ -43,8 +42,10 @@ interface SessionConnectionContext {
 }
 
 function isCurrentConnection(context: SessionConnectionContext): boolean {
-  const { get } = context.deps.ctx;
-  return get().sessions[context.sessionId]?.conn === context.connection;
+  return (
+    context.connection !== null &&
+    context.deps.ctx.transport.get(context.sessionId)?.conn === context.connection
+  );
 }
 
 function handleConnectionOpen(context: SessionConnectionContext): void {
@@ -52,10 +53,10 @@ function handleConnectionOpen(context: SessionConnectionContext): void {
   const { ctx, reinitOnReconnect, flushOutboundQueue } = context.deps;
   const { get, set } = ctx;
   resetReconnectState(context.reconnectKey);
-  set(updateSession(get(), context.sessionId, { isConnected: true }));
+  set(updateSession(get(), context.sessionId, { isConnected: true, isConnecting: false }));
   useConnectionStatusStore.getState().reportSource(context.reconnectKey, "connected");
-  // The backend's session map is per-connection, so replay init before
-  // delivering prompts and responses queued while the socket was down.
+  // Rebind this viewer to the service-owned session before delivering prompts
+  // and responses queued while the socket was down.
   reinitOnReconnect(context.sessionId);
   flushOutboundQueue(context.sessionId);
   // Catch up on agent output streamed while the client was disconnected.
@@ -67,9 +68,12 @@ function handleConnectionOpen(context: SessionConnectionContext): void {
  * still-queued prompt re-run it once the transport is back. One still parked
  * in the outbound queue is replayed on reconnect, so it stays in flight.
  */
-export function initRequestIdAfterDrop(session: SessionEntry | undefined): string | null {
+export function initRequestIdAfterDrop(
+  session: SessionEntry | undefined,
+  outboundQueue: readonly { id: string }[],
+): string | null {
   const id = session?.initRequestId ?? null;
-  return id !== null && session?.outboundQueue.some((envelope) => envelope.id === id) ? id : null;
+  return id !== null && outboundQueue.some((envelope) => envelope.id === id) ? id : null;
 }
 
 function handleConnectionClose(
@@ -78,12 +82,14 @@ function handleConnectionClose(
   event: CloseEvent,
 ): void {
   if (!isCurrentConnection(context) || intentional) return;
-  const { ctx, rejectPendingRequests } = context.deps;
+  const { ctx } = context.deps;
   const { get, set } = ctx;
   // Apply buffered tokens before the connection error so transcript order is stable.
   flushStreamDeltas(ctx, context.sessionId);
   const session = get().sessions[context.sessionId];
-  if (session) rejectPendingRequests(session);
+  ctx.transport.rejectPendingRequests(context.sessionId);
+  const transport = ctx.transport.ensure(context.sessionId);
+  transport.conn = null;
   const wasRunning = session != null && isTurnActive(session.lifecycle);
   const alreadyReportedReconnect = session?.blocks.at(-1)?.errorCode === WS_RECONNECTING_CODE;
   const closedDerived =
@@ -97,9 +103,9 @@ function handleConnectionClose(
   if (retryAfterMs != null && !isRateLimited()) notifyRateLimited(retryAfterMs);
   set(
     updateSession(get(), context.sessionId, {
-      conn: null,
       isConnected: false,
-      initRequestId: initRequestIdAfterDrop(session),
+      isConnecting: false,
+      initRequestId: initRequestIdAfterDrop(session, transport.outboundQueue),
       // Session IDs are stable across transport hiccups; onOpen replays init.
       lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
         type: "connection_lost",
@@ -130,16 +136,18 @@ function handleConnectionClose(
 
 function handleConnectionError(context: SessionConnectionContext, intentional: boolean): void {
   if (!isCurrentConnection(context) || intentional) return;
-  const { ctx, rejectPendingRequests } = context.deps;
+  const { ctx } = context.deps;
   const { get, set } = ctx;
   flushStreamDeltas(ctx, context.sessionId);
   const session = get().sessions[context.sessionId];
-  if (session) rejectPendingRequests(session);
+  ctx.transport.rejectPendingRequests(context.sessionId);
+  const transport = ctx.transport.ensure(context.sessionId);
+  transport.conn = null;
   set(
     updateSession(get(), context.sessionId, {
-      conn: null,
       isConnected: false,
-      initRequestId: initRequestIdAfterDrop(session),
+      isConnecting: false,
+      initRequestId: initRequestIdAfterDrop(session, transport.outboundQueue),
       // Session IDs are stable across transport hiccups; onOpen replays init.
       lifecycle: transitionTurn(session?.lifecycle ?? createSessionEntry().lifecycle, {
         type: "turn_errored",
@@ -175,7 +183,8 @@ export function connectSession(deps: ConnectSessionDeps, sessionId: string): voi
   const { ctx, sourceKey, forceReconnectSession } = deps;
   const { get, set } = ctx;
   const existing = get().sessions[sessionId];
-  if (existing?.conn && (existing.conn.isOpen() || existing.conn.isConnecting())) {
+  const transport = ctx.transport.ensure(sessionId);
+  if (transport.conn && (transport.conn.isOpen() || transport.conn.isConnecting())) {
     return;
   }
 
@@ -194,13 +203,15 @@ export function connectSession(deps: ConnectSessionDeps, sessionId: string): voi
   };
   const conn = createSessionConnection(context);
   context.connection = conn;
+  transport.conn = conn;
 
   set({
     sessions: {
       ...get().sessions,
       [sessionId]: {
         ...entry,
-        conn,
+        isConnected: false,
+        isConnecting: true,
         streamingState: existing?.streamingState ?? entry.streamingState,
       },
     },

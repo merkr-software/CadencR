@@ -1,5 +1,5 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { DEFAULT_BASH_LINES } from "@/components/BashBlock";
 import { extractBashCommand, extractBashOutput, extractBashResultOutput } from "@/lib/tool-adapter";
 

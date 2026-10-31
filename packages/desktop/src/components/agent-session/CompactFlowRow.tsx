@@ -1,7 +1,7 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { ChevronRightIcon } from "lucide-react";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import { hasCompactLine } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import { hasCompactLine } from "@/lib/agent-stream-display";
 import { suppressAutoScrollPin } from "@/lib/agent-scroll-suppression";
 import { cn } from "@/lib/utils";
 import { animationsDisabled } from "@/lib/animations/animations-disabled";

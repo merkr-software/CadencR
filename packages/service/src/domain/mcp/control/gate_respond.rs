@@ -1,4 +1,4 @@
-use axum::extract::{ws::Message, State};
+use axum::extract::State;
 use axum::{routing::post, Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::error;
@@ -8,7 +8,9 @@ use super::gate_notify::linked_parent;
 use super::gate_policy::{authorize_decision, GateDecision};
 use super::scope::{resolve_session_scope, SessionScope};
 use crate::app_state::AppState;
-use crate::domain::ws_session::protocol::{PermissionRespondPayload, WsEnvelope};
+use crate::domain::ws_session::protocol::PermissionRespondPayload;
+use crate::domain::ws_session::runtime::application::{respond_permission, PermissionContext};
+use crate::domain::ws_session::runtime::output::{CommandOutput, SessionOutput};
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -71,7 +73,7 @@ pub(super) async fn respond_gate_handler(
 async fn respond_authorized(
     state: &AppState,
     request: &RespondGateRequest,
-) -> Result<(), AppError> {
+) -> Result<Vec<String>, AppError> {
     require_linked_parent(state, request.source_session_id, request.session_id).await?;
     let payload = authorize_decision(
         state,
@@ -88,10 +90,10 @@ async fn finish_response(
     source: SessionScope,
     target: SessionScope,
     request: RespondGateRequest,
-    response: Result<(), AppError>,
+    response: Result<Vec<String>, AppError>,
     started_at: std::time::Instant,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let mut warnings = Vec::new();
+    let mut warnings = response.as_ref().ok().cloned().unwrap_or_default();
     let primary_error = response.as_ref().err().map(ToString::to_string);
     let audit_error = primary_error
         .clone()
@@ -139,49 +141,33 @@ pub(crate) async fn dispatch_permission_response(
     state: &AppState,
     session_id: i64,
     payload: PermissionRespondPayload,
-) -> Result<(), AppError> {
+) -> Result<Vec<String>, AppError> {
     let sessions = state
         .active_turns
         .owner_sessions(session_id)
         .await
         .ok_or_else(|| AppError::Conflict("target session has no live turn owner".into()))?;
-    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<Message>();
-    let envelope = WsEnvelope::new(
-        "session",
-        "permission.respond",
-        serde_json::to_value(payload).map_err(|cause| AppError::Internal(cause.to_string()))?,
-    );
-    crate::domain::ws_session::handler::handle_permission_respond(
-        envelope, &sender, &sessions, state,
-    )
-    .await;
-    drop(sender);
-    let response = receiver.try_recv().map_err(|cause| {
-        AppError::Internal(format!(
-            "permission response produced no acknowledgement: {cause}"
-        ))
-    })?;
-    response_result(response)
-}
-
-fn response_result(response: Message) -> Result<(), AppError> {
-    let Message::Text(text) = response else {
-        return Err(AppError::Internal(
-            "unexpected permission acknowledgement".into(),
-        ));
+    let output = CommandOutput {
+        recipient: SessionOutput::headless(),
+        correlation_id: String::new(),
     };
-    let value: serde_json::Value =
-        serde_json::from_str(&text).map_err(|cause| AppError::Internal(cause.to_string()))?;
-    if value.get("action").and_then(serde_json::Value::as_str) != Some("error") {
-        return Ok(());
-    }
-    Err(AppError::Conflict(
-        value
-            .pointer("/payload/message")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("gate response rejected")
-            .into(),
-    ))
+    let context = PermissionContext::builder()
+        .read_pool(&state.read_pool)
+        .write_pool(&state.write_pool)
+        .pending_gates(&state.pending_gates)
+        .active_turns(&state.active_turns)
+        .session_status(&state.session_status_tx)
+        .feature_senders(&state.ws_feature_senders)
+        .feature_events(&state.feature_events_tx)
+        .build();
+    let outcome = respond_permission(&context, &sessions, payload, &output)
+        .await
+        .map_err(|error| AppError::Conflict(error.message))?;
+    Ok(outcome
+        .warnings
+        .into_iter()
+        .map(|warning| format!("{}: {}", warning.code, warning.message))
+        .collect())
 }
 
 async fn audit_response(
@@ -254,7 +240,7 @@ mod tests {
             source,
             target,
             request,
-            Ok(()),
+            Ok(Vec::new()),
             std::time::Instant::now(),
         )
         .await
