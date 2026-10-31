@@ -32,8 +32,8 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^22.10.0",
     "knip": "^6.41.0",
-    "oxfmt": "^0.72.0",
-    "oxlint": "^1.87.0",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.7.0",
     "vitest": "4.1.12"
