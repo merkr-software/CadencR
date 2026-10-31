@@ -34,6 +34,15 @@ pub(crate) fn validate(
             "--descriptor is not used for custom tabs",
         ));
     }
+    validate_folder(folder, run_backend).map(|(_, message)| Some(message))
+}
+
+/// [`validate`] without the argument check: the valid manifest and the
+/// report line, for `--kind plugin` members too.
+pub(crate) fn validate_folder(
+    folder: &Path,
+    run_backend: bool,
+) -> Result<(TabManifest, String), Diagnostic> {
     let report = inspect_tab_folder(folder);
     let Some(manifest) = report.valid_manifest() else {
         return Err(operation_error(FAILED, report.findings.describe_errors()));
@@ -63,7 +72,7 @@ pub(crate) fn validate(
     if let Some(note) = backend_conformance(&report.directory, manifest, run_backend)? {
         message.push_str(&note);
     }
-    Ok(Some(message))
+    Ok((manifest.clone(), message))
 }
 
 /// Run this platform's backend binary through

@@ -30,6 +30,7 @@ pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
             PluginKind::Provider => validate_provider(folder, descriptor.as_deref()),
             PluginKind::Theme => crate::theme::validate(folder, descriptor.as_deref()),
             PluginKind::Tab => crate::tab::validate(folder, descriptor.as_deref(), !no_run),
+            PluginKind::Plugin => crate::plugin::validate(folder, descriptor.as_deref(), !no_run),
         },
         Command::Registry(registry) => run_registry(&registry.command),
     }
@@ -46,18 +47,26 @@ fn validate_provider(
             "provider validation requires --descriptor",
         )
     })?;
-    cadencr_plugin_core::validate_plugin_folder(folder, descriptor)
-        .map(|_| {
-            Some(format!(
-                "valid local provider structure: {} (publication completeness and theme assets not checked)",
-                folder.display()
-            ))
-        })
-        .map_err(|error| Diagnostic {
-            code: error.code(),
-            message: error.to_string(),
-            exit_code: 1,
-        })
+    validate_provider_folder(folder, descriptor).map(|_| Some(provider_message(folder)))
+}
+
+/// The local provider-structure check, for `--kind plugin` members too.
+pub(crate) fn validate_provider_folder(
+    folder: &Path,
+    descriptor: &Path,
+) -> Result<cadencr_plugin_core::ValidatedPluginFolder, Diagnostic> {
+    cadencr_plugin_core::validate_plugin_folder(folder, descriptor).map_err(|error| Diagnostic {
+        code: error.code(),
+        message: error.to_string(),
+        exit_code: 1,
+    })
+}
+
+pub(crate) fn provider_message(folder: &Path) -> String {
+    format!(
+        "valid local provider structure: {} (publication completeness and theme assets not checked)",
+        folder.display()
+    )
 }
 
 fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic> {

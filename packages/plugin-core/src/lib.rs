@@ -1,9 +1,11 @@
 //! Shared, side-effect-free contracts for inspecting Cadencr provider plugins.
 //!
 //! Validation reads bounded local files but never executes provider code. This
-//! contracts support provider, declarative theme and custom-tab content. Validation does
+//! contracts support provider, declarative theme and custom-tab content, and
+//! multi-export plugins that bundle several of them. Validation does
 //! not constitute publication approval.
 
+pub mod plugin;
 pub mod tab;
 pub mod theme;
 
