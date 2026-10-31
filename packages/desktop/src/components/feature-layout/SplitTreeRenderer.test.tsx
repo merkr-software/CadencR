@@ -51,7 +51,10 @@ vi.mock("@/components/ui/resizable", () => ({
     if (onResize) reportPanelSize = onResize;
     return children;
   },
-  ResizableHandle: (): null => null,
+  // Like the library's Separator: `aria-disabled` only while disabled.
+  ResizableHandle: ({ disabled }: { disabled?: boolean }): ReactNode => (
+    <div data-testid="handle" aria-disabled={disabled || undefined} />
+  ),
 }));
 
 const FEATURE_ID = 3;
@@ -152,6 +155,16 @@ describe("SplitTreeRenderer", () => {
 
       act(() => useFeatureLayoutStore.getState().setFocusedPane(FEATURE_ID, "root"));
       expect(resizePanel).toHaveBeenLastCalledWith("40px");
+    });
+
+    it("disables its resize handle while folded and enables it once open", () => {
+      seed("root");
+      const view = renderSplit(popSplit);
+      const handle = view.getByTestId("handle");
+      expect(handle.getAttribute("aria-disabled")).toBe("true");
+
+      focus("term");
+      expect(handle.hasAttribute("aria-disabled")).toBe(false);
     });
 
     it("folds again when the group lays the folded panel out at another size", () => {

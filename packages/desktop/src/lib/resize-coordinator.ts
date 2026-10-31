@@ -136,6 +136,8 @@ function onDocumentPointerDown(e: PointerEvent): void {
   if (e.pointerType === "mouse" && e.button > 0) return;
   let hit: HTMLElement | undefined;
   for (const handle of handles) {
+    // A disabled handle (a folded pop pane's) never starts a drag.
+    if (handle.getAttribute("aria-disabled") === "true") continue;
     if (isPointerNearHandle(e, handle)) {
       hit = handle;
       break;

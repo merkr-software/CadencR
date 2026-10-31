@@ -28,6 +28,7 @@
 @import "./unified-agents.css";
 @import "./command-palette.css";
 @import "./composer.css";
+@import "./feature-panes.css";
 @import "./command-palette-panels.css";
 
 /* Reveal-on-hover only where hover actually exists. On touch devices (no hover)

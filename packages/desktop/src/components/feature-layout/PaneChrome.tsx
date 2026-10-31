@@ -127,19 +127,45 @@ export function PaneChrome({
               </div>
             )}
             {!isRoot && splitsEnabled && slot && (
-              <div className="ml-auto flex shrink-0 items-center pr-1">
+              <div data-pop-toggle-slot className="ml-auto flex shrink-0 items-center pr-1">
                 <PopPaneToggle slot={slot} pop={slot.pops} onToggle={onTogglePop} />
               </div>
             )}
           </PaneTabStrip>
         )}
-        {/* Folded pop pane: the body stays mounted (its host keeps the tab
-            content) but hidden, so the content sees no size and skips reflowing. */}
-        <div className={cn("relative min-h-0 flex-1 overflow-hidden", popCollapsed && "hidden")}>
-          <div ref={contentRef} className="h-full w-full" />
-          {splitsEnabled && <PaneEdgeDropZones paneId={leaf.id} />}
-        </div>
+        <PaneBody
+          paneId={leaf.id}
+          hidden={popCollapsed}
+          splitsEnabled={splitsEnabled}
+          contentRef={contentRef}
+        />
       </div>
+    </div>
+  );
+}
+
+/**
+ * The tab content host. A folded pop pane's body stays mounted (its host keeps
+ * the tab content) but hidden, so the content sees no size and skips reflowing.
+ */
+function PaneBody({
+  paneId,
+  hidden,
+  splitsEnabled,
+  contentRef,
+}: {
+  paneId: string;
+  hidden: boolean;
+  splitsEnabled: boolean;
+  contentRef: PaneChromeProps["contentRef"];
+}): ReactNode {
+  return (
+    <div
+      data-pane-body
+      className={cn("relative min-h-0 flex-1 overflow-hidden", hidden && "hidden")}
+    >
+      <div ref={contentRef} className="h-full w-full" />
+      {splitsEnabled && <PaneEdgeDropZones paneId={paneId} />}
     </div>
   );
 }
