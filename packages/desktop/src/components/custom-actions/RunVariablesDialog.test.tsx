@@ -35,7 +35,9 @@ describe("RunVariablesDialog", () => {
   it("keeps Run disabled until every value is filled, then saves and runs", async () => {
     render(<RunVariablesDialogHost />);
     act(() =>
-      useCustomActionsUiStore.getState().openVariablesPrompt({ target, values: { ENV: "prod" } }),
+      useCustomActionsUiStore
+        .getState()
+        .openVariablesPrompt({ target, values: { ENV: "prod" }, showOutput: false }),
     );
 
     const run = screen.getByRole("button", { name: "Run" });
@@ -52,6 +54,7 @@ describe("RunVariablesDialog", () => {
         target,
         { ENV: "prod", REGION: "eu" },
         { ENV: "prod" },
+        false,
       ),
     );
     await waitFor(() => expect(useCustomActionsUiStore.getState().pendingVariables).toBeNull());

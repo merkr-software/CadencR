@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import {
   ChevronDownIcon,
   Loader2Icon,
@@ -18,7 +18,9 @@ import { useShortcutKeys } from "@/hooks/useShortcutLabel";
 import type { CustomActionRunState } from "@/lib/custom-actions/run-state";
 import { cn } from "@/lib/utils";
 import { useCustomActionsUiStore } from "@/stores/custom-actions-ui-store";
+import { CustomActionDetails } from "./CustomActionDetails";
 import { CustomActionsMenu } from "./CustomActionsMenu";
+import { DeleteCustomActionDialog } from "./DeleteCustomActionDialog";
 import { MobileCustomActionsSheet } from "./MobileCustomActionsSheet";
 import { useCustomActionsLauncher } from "./useCustomActionsLauncher";
 
@@ -43,7 +45,8 @@ interface CustomActionsLauncherProps {
  * The header's custom-action control, shaped like the Git button: the
  * primary half runs the selected action (or stops it while it runs), the
  * chevron opens the menu of every action. One mark on the chevron speaks for
- * all of them, and only when something runs or failed.
+ * all of them, and only when something runs or failed. The menu is also
+ * where an action's output, runs and settings live (its details page).
  */
 export function CustomActionsLauncher({
   featureId,
@@ -51,30 +54,60 @@ export function CustomActionsLauncher({
 }: CustomActionsLauncherProps): ReactElement | null {
   const isMobile = useIsMobile();
   const { data: actions = [], isPending } = useFeatureCustomActions(projectId, featureId);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const menu = useLauncherMenu(featureId, actions);
+  const [deleting, setDeleting] = useState<CustomAction | null>(null);
   const launcher = useCustomActionsLauncher({
     actions,
     featureId,
     projectId,
-    openMenu: () => setMenuOpen(true),
+    openMenu: menu.showList,
     bindKeys: !isMobile,
   });
 
-  if (isPending) return null;
+  // Outside the early returns: deleting the last action empties the list
+  // while its confirmation still shows.
+  const deleteDialog = deleting && (
+    <DeleteCustomActionDialog action={deleting} onClose={() => setDeleting(null)} />
+  );
+  if (isPending) return deleteDialog;
+  const detailsProps = menu.details && {
+    actions,
+    action: menu.details,
+    featureId,
+    projectId,
+    onBack: menu.showList,
+    onShowAction: menu.showDetails,
+    onLeave: menu.close,
+    onDelete: setDeleting,
+  };
   if (isMobile) {
-    if (actions.length === 0) return null;
+    if (actions.length === 0) return deleteDialog;
     return (
-      <MobileCustomActionsSheet
-        actions={actions}
-        featureId={featureId}
-        projectId={projectId}
-        aggregate={launcher.aggregate}
-        open={menuOpen}
-        onOpenChange={setMenuOpen}
-      />
+      <>
+        <MobileCustomActionsSheet
+          actions={actions}
+          featureId={featureId}
+          projectId={projectId}
+          aggregate={launcher.aggregate}
+          open={menu.open}
+          onOpenChange={menu.setOpen}
+          onShowDetails={menu.showDetails}
+          details={
+            detailsProps && <CustomActionDetails {...detailsProps} outputClassName="h-[42svh]" />
+          }
+        />
+        {deleteDialog}
+      </>
     );
   }
-  if (actions.length === 0) return <NewActionButton projectId={projectId} />;
+  if (actions.length === 0) {
+    return (
+      <>
+        <NewActionButton projectId={projectId} />
+        {deleteDialog}
+      </>
+    );
+  }
   return (
     <div className="inline-flex items-center">
       {launcher.primary && (
@@ -85,20 +118,85 @@ export function CustomActionsLauncher({
           onTrigger={launcher.primary.trigger}
         />
       )}
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+      <Popover open={menu.open} onOpenChange={menu.setOpen}>
         <MenuTrigger aggregate={launcher.aggregate} />
-        <PopoverContent align="end" className="w-96 p-0">
-          <CustomActionsMenu
-            actions={actions}
-            selected={launcher.selected}
-            featureId={featureId}
-            projectId={projectId}
-            onDone={() => setMenuOpen(false)}
-          />
+        <PopoverContent
+          align="end"
+          className={cn("p-0", detailsProps ? "w-[min(40rem,calc(100vw-2rem))]" : "w-96")}
+          // Opened from another conversation (a toast's "Show output"), the
+          // page mounting under it focuses the composer. A click outside and
+          // Esc still close it.
+          onFocusOutside={(event) => {
+            if (menu.openedBeforeMount) event.preventDefault();
+          }}
+          onEscapeKeyDown={(event) => {
+            // Esc steps back to the list before it closes the menu.
+            if (!detailsProps) return;
+            event.preventDefault();
+            menu.showList();
+          }}
+        >
+          {detailsProps ? (
+            <CustomActionDetails {...detailsProps} outputClassName="h-[min(22rem,50vh)]" />
+          ) : (
+            <CustomActionsMenu
+              actions={actions}
+              selected={launcher.selected}
+              featureId={featureId}
+              projectId={projectId}
+              onDone={menu.close}
+              onShowDetails={menu.showDetails}
+            />
+          )}
         </PopoverContent>
       </Popover>
+      {deleteDialog}
     </div>
   );
+}
+
+/** Launchers mounted per conversation, to tell a remount from leaving it. */
+const mountedLaunchers = new Map<number, number>();
+
+/**
+ * The menu's open state lives in the store, so the shortcuts, the palette
+ * and a finished run's "Show output" can open it on an action's details.
+ */
+function useLauncherMenu(featureId: number, actions: readonly CustomAction[]) {
+  const menu = useCustomActionsUiStore((state) =>
+    state.menu?.featureId === featureId ? state.menu : null,
+  );
+  const open = menu != null;
+  // Open before this launcher mounted: asked from another conversation.
+  const [openedBeforeMount, setOpenedBeforeMount] = useState(open);
+  if (openedBeforeMount && !open) setOpenedBeforeMount(false);
+  useEffect(() => {
+    mountedLaunchers.set(featureId, (mountedLaunchers.get(featureId) ?? 0) + 1);
+    return () => {
+      mountedLaunchers.set(featureId, (mountedLaunchers.get(featureId) ?? 1) - 1);
+      // Leaving the conversation closes its menu, so coming back doesn't
+      // reopen it. Deferred, as a StrictMode remount follows at once.
+      queueMicrotask(() => {
+        if ((mountedLaunchers.get(featureId) ?? 0) > 0) return;
+        const store = useCustomActionsUiStore.getState();
+        if (store.menu?.featureId === featureId) store.closeMenu();
+      });
+    };
+  }, [featureId]);
+  // An action deleted (or no longer offered) while shown falls back to the list.
+  const details = actions.find((action) => action.id === menu?.actionId) ?? null;
+  const store = useCustomActionsUiStore.getState;
+  const showList = (): void => store().openMenu(featureId, null);
+  const close = (): void => store().closeMenu();
+  return {
+    open,
+    openedBeforeMount,
+    details,
+    setOpen: (next: boolean): void => (next ? showList() : close()),
+    showList,
+    showDetails: (actionId: number): void => store().openMenu(featureId, actionId),
+    close,
+  };
 }
 
 function PrimaryButton({

@@ -29,8 +29,8 @@ pub enum Wait {
     /// [`TIMER_WAIT`].
     ForExit,
     /// A manual "Run now": reports as soon as the run has started. Its output
-    /// streams into the conversation's Actions tab, and an HTTP request must not
-    /// hang on a command that may never exit.
+    /// streams into the action's page in the conversation's launcher menu,
+    /// and an HTTP request must not hang on a command that may never exit.
     ForStart,
 }
 
@@ -75,7 +75,7 @@ async fn run(state: &AppState, schedule: &Schedule, wait: Wait) -> Result<i64, S
 }
 
 /// Poll the run until it ends. `Ok` for exit 0 or a run still going at
-/// `deadline` (it started; its output is in the Actions tab), `Err` otherwise.
+/// `deadline` (it started; its output is on the action's page), `Err` otherwise.
 async fn wait_for_exit(state: &AppState, run_id: i64, deadline: Duration) -> Result<(), String> {
     let started = Instant::now();
     loop {

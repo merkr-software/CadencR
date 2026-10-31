@@ -1,7 +1,8 @@
-import type { ReactElement } from "react";
+import type { KeyboardEvent, ReactElement } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
   CalendarClockIcon,
+  ChevronRightIcon,
   ListVideoIcon,
   PencilIcon,
   PlusIcon,
@@ -20,7 +21,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { launchCustomAction, showCustomActionOutput } from "@/lib/custom-actions/launch";
+import { launchCustomAction } from "@/lib/custom-actions/launch";
 import { runStateText } from "@/lib/custom-actions/run-state";
 import { formatCombo } from "@/lib/shortcuts/format";
 import { useResolvedShortcut } from "@/lib/shortcuts/overrides";
@@ -36,6 +37,13 @@ interface CustomActionsMenuProps {
   featureId: number;
   projectId: number;
   onDone: () => void;
+  /** Turn the menu to an action's page: output, runs and settings. */
+  onShowDetails: (actionId: number) => void;
+}
+
+/** cmdk item value of an action row, unique even when two share a name. */
+function itemValue(action: CustomAction): string {
+  return `${action.name} ${action.id}`;
 }
 
 /** ⌥⌘N for the action at `index`, following the user's binding of ⌥⌘1–9. */
@@ -46,15 +54,29 @@ function useDigitShortcut(): (index: number) => string[] | null {
 
 /**
  * The launcher's menu: type to filter, Enter runs. Each row says what its
- * action last did in this conversation; picking a running background action
- * shows its output instead of starting it twice.
+ * action last did in this conversation; its chevron (or → on the highlighted
+ * row) opens the action's page. Picking a running background action shows
+ * its output instead of starting it twice.
  */
 export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
-  const { actions, featureId, projectId, onDone } = props;
+  const { actions, featureId, projectId, onDone, onShowDetails } = props;
   const digitKeys = useDigitShortcut();
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== "ArrowRight" || !(event.target instanceof HTMLInputElement)) return;
+    const input = event.target;
+    if (input.selectionStart !== input.value.length) return;
+    // Read from the DOM rather than mirrored in state: cmdk moves the
+    // highlight on every keystroke and pointer move.
+    const row = event.currentTarget.querySelector<HTMLElement>(
+      '[data-action-id][aria-selected="true"]',
+    );
+    if (!row) return;
+    event.preventDefault();
+    onShowDetails(Number(row.dataset.actionId));
+  };
   return (
-    <Command loop>
-      <CommandInput placeholder="Run an action…" aria-label="Filter actions" />
+    <Command loop onKeyDown={onKeyDown}>
+      <CommandInput autoFocus placeholder="Run an action…" aria-label="Filter actions" />
       <CommandList className="max-h-[min(30rem,70vh)]">
         <CommandEmpty>No action matches.</CommandEmpty>
         {actions.length > 0 && (
@@ -64,8 +86,11 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
               return (
                 <CommandItem
                   key={action.id}
-                  value={`${action.name} ${action.id}`}
+                  value={itemValue(action)}
+                  data-action-id={action.id}
                   keywords={[action.command]}
+                  className="pr-1"
+                  aria-keyshortcuts="ArrowRight"
                   onSelect={() => {
                     onDone();
                     activateAction(action, featureId, projectId);
@@ -78,6 +103,20 @@ export function CustomActionsMenu(props: CustomActionsMenuProps): ReactElement {
                     {action.run_in_terminal ? "Terminal" : runStateText(action.last_run)}
                   </span>
                   {keys && <KbdShortcut keys={keys} variant="inline-sm" />}
+                  {/* A pointer shortcut only: an option holds no control of its
+                      own, and the keyboard has → for the same page. */}
+                  <span
+                    aria-hidden
+                    data-testid={`details-${action.id}`}
+                    title="Output, runs and settings (→)"
+                    className="-my-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-sm text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onShowDetails(action.id);
+                    }}
+                  >
+                    <ChevronRightIcon className="size-3.5" />
+                  </span>
                 </CommandItem>
               );
             })}
@@ -97,6 +136,7 @@ function MenuCommands({
   featureId,
   projectId,
   onDone,
+  onShowDetails,
 }: CustomActionsMenuProps): ReactElement {
   const navigate = useNavigate();
   const openScheduleEditor = useOpenScheduleEditorForAction();
@@ -112,11 +152,11 @@ function MenuCommands({
     <CommandGroup>
       {actions.length > 0 && (
         <CommandItem
-          value="show runs"
-          onSelect={then(() => showCustomActionOutput(featureId, selected?.id ?? actions[0].id))}
+          value="output runs details"
+          onSelect={() => onShowDetails(selected?.id ?? actions[0].id)}
         >
           <ListVideoIcon />
-          Show runs
+          Output and runs of {(selected ?? actions[0]).name}
         </CommandItem>
       )}
       {selected && selected.variable_names.length > 0 && (

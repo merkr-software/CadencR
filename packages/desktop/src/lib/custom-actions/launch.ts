@@ -14,6 +14,7 @@ import { invalidateCustomActionRunQueries } from "@/lib/custom-action-queries";
 import { queryClient } from "@/lib/queryClient";
 import { STOPPED_EXIT_CODE } from "./run-state";
 import { useTerminalStore } from "@/hooks/useTerminalState";
+import { isViewingFeature } from "@/lib/notify-agent-done";
 import { activateFeatureTab } from "@/stores/feature-layout-store";
 import {
   useCustomActionsUiStore,
@@ -41,12 +42,15 @@ async function storedVariables(target: CustomActionLaunchTarget): Promise<Record
  *
  * An action whose `${VAR}`s are not all set for this conversation asks for
  * them first (and so does `promptVariables`, the "Run with…" gesture), so a
- * run never starts only to fail on a missing value.
+ * run never starts only to fail on a missing value. `showOutput` means the
+ * gesture came from the action's page in the launcher menu: the menu closes
+ * under the variables dialog and comes back on that page once the run starts.
  */
 export async function launchCustomAction(
   target: CustomActionLaunchTarget,
-  options: { promptVariables?: boolean } = {},
+  options: { promptVariables?: boolean; showOutput?: boolean } = {},
 ): Promise<void> {
+  const showOutput = options.showOutput ?? false;
   const { action } = target;
   if (action.variable_names.length > 0) {
     let values: Record<string, string>;
@@ -57,11 +61,13 @@ export async function launchCustomAction(
       return;
     }
     if (options.promptVariables || missingVariables(action.variable_names, values).length > 0) {
-      useCustomActionsUiStore.getState().openVariablesPrompt({ target, values });
+      const store = useCustomActionsUiStore.getState();
+      if (showOutput) store.closeMenu();
+      store.openVariablesPrompt({ target, values, showOutput });
       return;
     }
   }
-  await startCustomAction(target);
+  await startCustomAction(target, showOutput);
 }
 
 /** Save the values typed in the variables dialog, then run. */
@@ -69,6 +75,7 @@ export async function saveVariablesAndLaunch(
   target: CustomActionLaunchTarget,
   values: Record<string, string>,
   stored: Record<string, string>,
+  showOutput = false,
 ): Promise<void> {
   const changed = Object.entries(values).filter(([name, value]) => stored[name] !== value);
   await Promise.all(
@@ -85,10 +92,13 @@ export async function saveVariablesAndLaunch(
       feature_id: target.featureId,
     }),
   });
-  await startCustomAction(target);
+  await startCustomAction(target, showOutput);
 }
 
-async function startCustomAction(target: CustomActionLaunchTarget): Promise<void> {
+async function startCustomAction(
+  target: CustomActionLaunchTarget,
+  showOutput: boolean,
+): Promise<void> {
   const { action, featureId, projectId } = target;
   const store = useCustomActionsUiStore.getState();
   store.setStarting(action.id, featureId, true);
@@ -101,8 +111,8 @@ async function startCustomAction(target: CustomActionLaunchTarget): Promise<void
       return;
     }
     const { run_id: runId } = await runCustomAction(action.id, { feature_id: featureId });
-    store.trackRun(runId, { actionId: action.id, actionName: action.name, featureId });
-    store.showInRunsTab(featureId, action.id);
+    store.trackRun(runId, { actionId: action.id, actionName: action.name, featureId, projectId });
+    if (showOutput) store.openMenu(featureId, action.id);
     invalidateCustomActionRunQueries({ queryClient, projectId, actionId: action.id, featureId });
   } catch (error) {
     toast.error(`${action.name} did not start: ${apiErrorMessage(error, "unknown error")}`);
@@ -123,10 +133,31 @@ export async function stopCustomActionRun(
   }
 }
 
-/** Bring a conversation's Actions tab forward on an action's output. */
-export function showCustomActionOutput(featureId: number, actionId: number): void {
-  useCustomActionsUiStore.getState().showInRunsTab(featureId, actionId);
-  activateFeatureTab(featureId, "runs");
+/**
+ * Open a conversation's launcher menu on an action's details: its output,
+ * runs and settings. From another conversation (a toast), go there first.
+ */
+export function showCustomActionOutput(target: {
+  featureId: number;
+  projectId: number;
+  actionId: number;
+}): void {
+  const { featureId, projectId, actionId } = target;
+  useCustomActionsUiStore.getState().openMenu(featureId, actionId);
+  if (isViewingFeature(featureId)) return;
+  // Imported lazily: the router pulls in every route this module is reachable
+  // from, and the navigation helper the session stores.
+  Promise.all([import("@/router"), import("@/components/project-feature-navigation")])
+    .then(([{ router }, { navigateToFeatureIdOrHome }]) =>
+      navigateToFeatureIdOrHome(router.navigate, projectId, featureId),
+    )
+    .catch((error: unknown) => {
+      const store = useCustomActionsUiStore.getState();
+      if (store.menu?.featureId === featureId) store.closeMenu();
+      toast.error("Could not open the conversation", {
+        description: apiErrorMessage(error, "navigation failed"),
+      });
+    });
 }
 
 /**
@@ -139,7 +170,7 @@ export async function announceFinishedRun(runId: number): Promise<void> {
   if (!tracked) return;
   const showOutput = {
     label: "Show output",
-    onClick: () => showCustomActionOutput(tracked.featureId, tracked.actionId),
+    onClick: () => showCustomActionOutput(tracked),
   };
   try {
     const runs = await getCustomActionRuns(tracked.actionId, {

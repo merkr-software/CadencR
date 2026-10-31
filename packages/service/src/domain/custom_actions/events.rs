@@ -2,7 +2,7 @@
 //!
 //! Actions are edited and runs progress over plain HTTP and in detached
 //! background tasks (a schedule, another device), so without a push the header
-//! status and the Actions tab only caught up on their next poll. Every change is
+//! status and the run output only caught up on their next poll. Every change is
 //! broadcast as a bare hint on `custom_action_events_tx`; clients re-fetch the
 //! queries it names. No `seq`/snapshot: a lagged client gets an empty payload
 //! and re-fetches everything.
