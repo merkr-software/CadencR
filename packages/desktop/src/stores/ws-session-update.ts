@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { SessionEntry, WsSessionStore } from "./ws-session-types";
 import { clearQuestionDraft } from "./question-drafts";
 import { createIdleTurnLifecycle, type TurnLifecycle } from "./ws-turn-lifecycle";

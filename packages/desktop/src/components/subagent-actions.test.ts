@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import {
   firstSubagentMarkdownLine,
   isNestedSubagentBlock,

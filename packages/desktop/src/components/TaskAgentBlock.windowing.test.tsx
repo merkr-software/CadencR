@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, createTestQueryClient, fireEvent, render, screen, waitFor } from "@/test-utils";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { getListFeatureSubagentsQueryKey, type SubagentRun } from "@/api/generated";
 import { AgentSessionProvider } from "@/components/agent-session/agent-session-context";
 

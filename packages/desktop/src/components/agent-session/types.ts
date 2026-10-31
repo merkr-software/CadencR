@@ -1,12 +1,12 @@
 import type { Loader2Icon } from "lucide-react";
-import type { AgentBlockData } from "../AgentBlock";
-import type { DisplayRowMode } from "../agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import type { AgentType } from "../../types/agent-types";
 import type { PromptAttachmentPayload } from "../../types/agent-types";
-import type { AgentQuestion, AgentQuestionAnswers } from "../AgentQuestionDrawer";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
-import type { PendingPermission } from "../ToolPermissionPrompt";
+import type { PendingPermission } from "@/types/agent-permission";
 // `AgentSession` is a live UI consumer — it reads the canonical 3-value
 // status pushed by the backend. Workflow-level lifecycle decisions live
 // elsewhere (and use the legacy `AgentStatus`).

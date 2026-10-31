@@ -1,13 +1,6 @@
 /**
- * Stream-loss recovery for the WS session store.
- *
- * Agent output only streams over the WebSocket while it is open, but the
- * backend always persists it first. That gap between "persisted" and
- * "delivered" is the single failure class every recovery layer below guards:
- * a dropped envelope or a slept socket must never leave the user staring at
- * text that silently stopped mid-message. There are FOUR layers, each scoped
- * to a different failure shape and firing at a different moment:
- *
+ * Stream-loss recovery. Separate persistence recovery replaces captured unsaved
+ * copies only after confirmed repair and a complete, unchanged, idle snapshot.
  *   1. Orphan-delta synthesis  — live, in-turn, zero-network.
  *      `ws-message-processing-stream.ts` `processContentBlockDelta`. When a
  *      `content_block_delta` arrives for an index whose `content_block_start`
@@ -15,13 +8,11 @@
  *      couldn't render), it synthesises the block from the first surviving
  *      delta so this and every later chunk render. Repairs one in-flight block
  *      instantly with no DB round-trip.
- *
  *   2. Seq-gap detection       — mid-turn trigger. `trackStreamSeq` (below).
  *      Every `session.message` carries a per-stream monotonic `seq`; a skip
  *      means a whole envelope was dropped in transit. It reacts two ways:
  *      fires layer 3 *immediately* (surface any wholly-missed message now, not
  *      hours later on a long/background turn) and arms layer 4 for the turn end.
- *
  *   3. Canonical resync        — reconnect / manual / gap. `resyncMessagesOnReconnect`.
  *      Pulls every persisted row after the last server-confirmed cursor and
  *      appends the ones we lack, upserted by message UUID / DB id. Triggered by
@@ -29,7 +20,6 @@
  *      "Sync from CLI" action, or a layer-2 gap. Append-ONLY: it cannot fix a
  *      block we already hold whose deltas were truncated, because that block
  *      is already present — that is layer 4's job.
- *
  *   4. Post-turn tail repair    — turn-end. `repairPersistedBlocksAfterTurn` +
  *      `repairBlockTree`. Runs at `turn_complete` when layer 2 saw a gap
  *      (`tailRepairNeeded`). With no more deltas racing in, the DB transcript is
@@ -53,15 +43,31 @@
 import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
 import { applyToolCallUpdates } from "@/hooks/useFeatureAgentState-merge";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { blocksPatchWithDerived, type StreamingState } from "./ws-message-processing";
 import { updateSession, WS_RECONNECTING_CODE, type ResyncTarget } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId, mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
 import { isServiceStopMarker } from "@/lib/agent-message-origin";
 import { invalidateFeatureSubagents } from "@/hooks/useFeatureSubagents";
+import {
+  capturePersistenceRepair,
+  removeRepairedSyntheticTail,
+} from "./ws-persistence-repair-plan";
 
 const reconnectResyncs = new Map<string, Promise<void>>();
+
+/** One guarded cold repair; an active/racing turn retries at its next completion. */
+export async function resyncRecoveredPersistence(
+  ctx: StoreAccessors,
+  sessionId: string,
+): Promise<void> {
+  await reconnectResyncs.get(sessionId);
+  const session = ctx.get().sessions[sessionId];
+  if (session && capturePersistenceRepair(session)) {
+    await performMessageResync(ctx, sessionId, undefined, true);
+  }
+}
 
 export function resyncMessagesOnReconnect(
   ctx: StoreAccessors,
@@ -82,6 +88,7 @@ async function performMessageResync(
   ctx: StoreAccessors,
   sessionId: string,
   target?: ResyncTarget,
+  repairPersistence = false,
 ): Promise<void> {
   const session = ctx.get().sessions[sessionId];
   if (!session) return;
@@ -93,19 +100,25 @@ async function performMessageResync(
   const cursor = target?.cursor ?? session.lastAppliedMessageId ?? 0;
   const fetchCursor = target ? cursor : reconnectFetchCursor(session.blocks, cursor);
   const revisionCursor = session.lastAppliedContentRevision ?? 0;
+  const persistenceRepair = repairPersistence ? capturePersistenceRepair(session) : null;
   const pages = await drainResyncPages({
     featureId,
     sessionDbId,
-    fetchCursor,
+    fetchCursor: persistenceRepair ? Math.min(fetchCursor, persistenceRepair.cursor) : fetchCursor,
     revisionCursor,
-    fullSnapshot: !target && fetchCursor === 0,
+    fullSnapshot: !persistenceRepair && !target && fetchCursor === 0,
   });
   if (!pages) return;
   const current = ctx.get().sessions[sessionId];
   if (!current) return;
   const idPatch = current.sessionDbId === sessionDbId ? {} : { sessionDbId };
   const currentWithUpdates = applyToolCallUpdates(
-    current.blocks,
+    removeRepairedSyntheticTail(
+      current,
+      persistenceRepair,
+      pages.blocks,
+      pages.complete && pages.settled,
+    ),
     pages.toolCallUpdates,
     pages.truncatedToolCallUpdateIds,
   );
@@ -164,6 +177,8 @@ interface DrainedResyncPages {
   truncatedToolCallUpdateIds: Set<string>;
   messageCursor: number;
   revisionCursor: number;
+  complete: boolean;
+  settled: boolean;
 }
 
 async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResyncPages | null> {
@@ -173,6 +188,9 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
   const toolCallUpdates: Record<string, string | null> = {};
   const truncatedToolCallUpdateIds = new Set<string>();
   let firstPage = true;
+  let settled = true;
+  let complete = false;
+  let incremental = true;
 
   while (true) {
     const data =
@@ -186,6 +204,8 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
       (candidate) => candidate.sessionDbId === request.sessionDbId,
     );
     if (!serverSession) return null;
+    settled &&= ["idle", "completed", "error"].includes(serverSession.status);
+    incremental &&= serverSession.isIncremental === true;
     firstPage = false;
 
     blocks = mergeCanonicalBlocks(
@@ -210,7 +230,13 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
       serverSession.hasMoreContentRevisions && nextRevisionCursor > revisionCursor;
     messageCursor = nextMessageCursor;
     revisionCursor = nextRevisionCursor;
-    if (!continueMessages && !continueRevisions) break;
+    if (!continueMessages && !continueRevisions) {
+      complete =
+        incremental &&
+        !serverSession.hasMoreIncrementalMessages &&
+        !serverSession.hasMoreContentRevisions;
+      break;
+    }
   }
 
   return {
@@ -219,6 +245,8 @@ async function drainResyncPages(request: ResyncPageRequest): Promise<DrainedResy
     truncatedToolCallUpdateIds,
     messageCursor,
     revisionCursor,
+    complete,
+    settled,
   };
 }
 

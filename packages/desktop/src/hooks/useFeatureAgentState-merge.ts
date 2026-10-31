@@ -6,7 +6,7 @@
  */
 
 import type { AgentBlock } from "../api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { applyBlockContentBudget, clampJsonText, clampText } from "@/lib/block-content-budget";
 import { isSubagentToolName } from "@/lib/tool-display-policy";
 import {

@@ -7,10 +7,7 @@ import { AgentQuestionHeader } from "./agent-question/AgentQuestionHeader";
 import { AgentQuestionOptionList } from "./agent-question/AgentQuestionOptionList";
 import { useAgentQuestionForm } from "./agent-question/useAgentQuestionForm";
 import { useAgentQuestionShortcuts } from "./agent-question/useAgentQuestionShortcuts";
-import type { AgentQuestion, AgentQuestionAnswers } from "./agent-question/types";
-
-export { parseAskUserQuestions } from "./agent-question/parse-questions";
-export type { AgentQuestion, AgentQuestionAnswers } from "./agent-question/types";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 
 interface AgentQuestionDrawerProps {
   /** The questions to display */

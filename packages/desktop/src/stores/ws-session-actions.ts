@@ -2,7 +2,7 @@ import { createPermissionRespond, createPromptSend, type WsEnvelope } from "@/li
 import { getFeatureAgentState } from "@/api/generated";
 import { AGENT_STATE_OLDER_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import { blocksPatchWithDerived } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { markLastPlanBlock, type PersistedStatePayload, updateSession } from "./ws-session-types";

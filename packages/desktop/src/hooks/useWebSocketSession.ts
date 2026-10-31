@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useMemo } from "react";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 import { useGetFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
@@ -16,9 +16,9 @@ import {
   type PendingPlanApproval,
 } from "@/stores/ws-session-store";
 import type { RuntimeSelection } from "@/shared/models";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
-import type { PermissionDecisionValue } from "@/components/ToolPermissionPrompt";
-import type { AgentQuestion, AgentQuestionAnswers } from "@/components/AgentQuestionDrawer";
+import type { PendingPermission } from "@/types/agent-permission";
+import type { PermissionDecisionValue } from "@/types/agent-permission";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { GateCloseReason, PromptDispatchOptions, SessionConfig } from "@/lib/ws-envelope";
 import { normalizeContextWindow, type ContextUsageState } from "@/types/agent";
 import type { LiveAgentStatus } from "@/types/agent";
@@ -31,7 +31,7 @@ import { createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing"
 import { useSessionStatus } from "@/stores/session-status-selectors";
 import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import { parseAccessMode, type AccessMode } from "@/types/access-mode";
 import { parsePermissionMode } from "@/types/permission-mode";
 import type { McpServerStatus, SessionEntry } from "@/stores/ws-session-types";

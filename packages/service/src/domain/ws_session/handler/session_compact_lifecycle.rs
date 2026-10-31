@@ -1,9 +1,23 @@
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use super::{SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+
+pub(super) struct CompactReservation {
+    pending: Arc<AtomicBool>,
+    armed: bool,
+}
+
+impl Drop for CompactReservation {
+    fn drop(&mut self) {
+        if self.armed {
+            self.pending.store(false, Ordering::SeqCst);
+        }
+    }
+}
 
 /// Reserve the owner and running status before any asynchronous runtime spawn.
 /// The pending flag also blocks steering until the compaction RPC is accepted.
@@ -11,7 +25,7 @@ pub(super) async fn begin_compact(
     sdk_sessions: &SdkSessions,
     session_id: i64,
     app_state: Option<&AppState>,
-) -> Result<bool, String> {
+) -> Result<(bool, CompactReservation), String> {
     let sessions = sdk_sessions.lock().await;
     let handle = sessions.get(&session_id).ok_or("Session not found")?;
     if handle
@@ -20,6 +34,10 @@ pub(super) async fn begin_compact(
     {
         return Err("Manual compaction is already starting for this session".into());
     }
+    let reservation = CompactReservation {
+        pending: handle.manual_compact_spawn_pending.clone(),
+        armed: true,
+    };
     let was_running = app_state.is_some_and(|state| state.session_status_tx.is_busy(session_id));
     if let Some(state) = app_state {
         super::session_prompt::mark_agent_running(
@@ -32,7 +50,7 @@ pub(super) async fn begin_compact(
         )
         .await;
     }
-    Ok(was_running)
+    Ok((was_running, reservation))
 }
 
 pub(super) async fn finish_compact_start(
@@ -41,15 +59,20 @@ pub(super) async fn finish_compact_start(
     app_state: Option<&AppState>,
     succeeded: bool,
     was_running: bool,
+    mut reservation: CompactReservation,
 ) {
     let feature_id = {
         let sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get(&session_id) else {
             return;
         };
+        if !Arc::ptr_eq(&handle.manual_compact_spawn_pending, &reservation.pending) {
+            return;
+        }
         handle
             .manual_compact_spawn_pending
             .store(false, Ordering::SeqCst);
+        reservation.armed = false;
         handle.feature_id
     };
     if let Some(state) = app_state {

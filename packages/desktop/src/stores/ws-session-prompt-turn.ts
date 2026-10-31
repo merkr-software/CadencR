@@ -1,6 +1,6 @@
 import { getFeatureAgentState } from "@/api/generated";
 import { serverBlocksToAgentBlocks } from "@/hooks/useFeatureAgentState";
-import type { DisplayRowMode } from "@/components/agentStreamDisplay";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { blockMessageDbId } from "./ws-message-identity";
 import { prependHistoryBlocks } from "./ws-session-prepend";

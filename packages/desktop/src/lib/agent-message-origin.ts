@@ -1,5 +1,5 @@
 import type { AgentMessageOrigin } from "@/api/generated";
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { parseGeneratedSessionGate } from "@/lib/session-gate";
 import { parseGeneratedSessionReply } from "@/lib/session-reply";
 

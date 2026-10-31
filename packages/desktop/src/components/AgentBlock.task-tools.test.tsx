@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@/test-utils";
-import { AgentBlock, type AgentBlockData } from "./AgentBlock";
+import { AgentBlock } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 function makeTaskToolBlock(toolName: "TaskCreate" | "TaskUpdate"): AgentBlockData {
   return {

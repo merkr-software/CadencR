@@ -3,7 +3,7 @@ import type { PromptDispatchOptions, WsEnvelope } from "@/lib/ws-envelope";
 import { createAccessModeSet, createModeSet, createPromptSend } from "@/lib/ws-envelope";
 import type { QueuedPrompt } from "./ws-session-types";
 import { blocksPatchWithDerived } from "./ws-block-mutations";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { getProviderModes } from "@/lib/provider-modes";
 import { providerAccessModeConfig } from "@/lib/provider-access-modes";
 export { buildSlashCommandsKey } from "@/lib/slash-command-key";

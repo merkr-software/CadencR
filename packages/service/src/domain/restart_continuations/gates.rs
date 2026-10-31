@@ -31,13 +31,9 @@ pub(super) async fn clear_dead_gate(
         .pending_gates
         .complete(session_id, &payload.request_id)
         .await;
-    WsSessionPersistence::broadcast_session_status(
-        &state.session_status_tx,
-        session_id,
-        feature_id,
-        AgentStatus::Idle,
-        None,
-    );
+    state
+        .session_status_tx
+        .broadcast(session_id, feature_id, AgentStatus::Idle, None);
     Ok(true)
 }
 

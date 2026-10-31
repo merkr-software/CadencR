@@ -1,5 +1,5 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
-import { isCountableTool } from "@/components/agentStreamSummary";
+import type { AgentBlockData } from "@/types/agent-block";
+import { isCountableTool } from "@/lib/agent-stream-summary";
 import { isSubagentCarrier } from "@/lib/tool-display-policy";
 
 /**

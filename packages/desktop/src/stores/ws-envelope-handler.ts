@@ -1,23 +1,24 @@
-import { handleRuntimeOverridesChanged } from "./ws-envelope-runtime-handlers";
+import {
+  handleRuntimeOverridesChanged,
+  handleRuntimeSessionId,
+  handleSessionConfigSnapshot,
+  handleAccessModeChanged,
+  handleModeChanged,
+  handleEffortSetOk,
+} from "./ws-envelope-runtime-handlers";
 import type { SlashCommand } from "@/lib/slash-command";
 import { promptCommandPolicyFromPayload } from "@/lib/prompt-command-policy";
 import { invalidateFeatureQueries } from "@/lib/featureUpdated";
-import { queryClient } from "@/lib/queryClient";
-import { getWorkspaceSettingsQueryKey } from "@/api/settings";
 import {
-  parseRuntimeSessionIdPayload,
   parseCommandsListPayload,
   parseFeatureAutoNamingPayload,
   parseFeatureRenamePayload,
   parseFeatureUpdatedPayload,
-  parseEffortPayload,
   parseFastModePayload,
   parseLifecyclePayload,
-  parseModePayload,
   parseModelPayload,
   parseProviderPayload,
   parseProfilePayload,
-  parseSessionConfigSnapshotPayload,
 } from "./ws-envelope-payload";
 import { normalizeContextWindow } from "@/types/agent";
 import { truncateBlocksAtMessage } from "./ws-session-branch";
@@ -27,8 +28,6 @@ import { isRecord } from "./ws-message-processing";
 import { parseAccessMode } from "@/types/access-mode";
 import { createSessionConfigState, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
-import { providerAcceptsMode } from "@/lib/provider-modes";
-import { parsePermissionMode } from "@/types/permission-mode";
 import type { StoreAccessors } from "./ws-envelope-types";
 import {
   handleCleared,
@@ -42,15 +41,21 @@ import {
   handleCanonicalUserMessage,
 } from "./ws-envelope-session-handlers";
 import { handleError } from "./ws-envelope-error-handler";
+import { handleWarning } from "./ws-envelope-warning-handler";
+import { handlePersistenceStatus } from "./ws-persistence-status";
 import {
   handleStreamStatus,
   handleTurnComplete,
   handleUsageUpdate,
 } from "./ws-envelope-turn-handlers";
-import { SESSION_ACTION, type SessionActionName } from "./ws-session-action-names";
+import {
+  SESSION_ACTION,
+  LEGACY_SESSION_ACTION,
+  type SessionActionName,
+  type LegacySessionActionName,
+} from "./ws-session-action-names";
 import { handleSubagentUpdated, handleTurnEndWithSubagents } from "./ws-subagent-handlers";
 import { discardStreamDeltas } from "./ws-delta-coalescer";
-import { SESSION_CLOSED_BEFORE_DELIVERY, failPromptDelivery } from "./ws-session-prompt-delivery";
 export type { StoreAccessors } from "./ws-envelope-types";
 
 // Main envelope handler
@@ -60,12 +65,14 @@ export function handleEnvelope(
   sessionId: string,
   envelope: { domain: string; action: string; ref?: string; payload: unknown },
 ): void {
+  // A warning may reference an accepted command, but never resolves its reply.
+  const isWarning = envelope.domain === "session" && envelope.action === SESSION_ACTION.warning;
   // Resolve pending request-response callbacks
-  if (envelope.ref) {
-    const session = ctx.get().sessions[sessionId];
-    const cb = session?.pendingWsRequests.get(envelope.ref);
+  if (envelope.ref && !isWarning) {
+    const transport = ctx.transport.get(sessionId);
+    const cb = transport?.pendingWsRequests.get(envelope.ref);
     if (cb) {
-      session.pendingWsRequests.delete(envelope.ref);
+      transport?.pendingWsRequests.delete(envelope.ref);
       cb(envelope.payload);
       // Most correlated replies contain request-only acknowledgements. Runtime
       // override replies are different: the payload is also the canonical
@@ -73,7 +80,7 @@ export function handleEnvelope(
       // resolving the request rather than waiting for a separate broadcast.
       if (
         envelope.domain !== "session" ||
-        envelope.action !== SESSION_ACTION.runtimeOverridesChanged
+        envelope.action !== SESSION_ACTION.runtime_overrideschanged
       ) {
         return;
       }
@@ -161,59 +168,70 @@ const ignoreSessionAction: SessionActionHandler = () => {};
  * Exhaustive over `SessionActionName`, so adding a backend action to the
  * contract fails the type-check until it is handled (or explicitly ignored).
  */
-const SESSION_ACTION_HANDLERS: Record<SessionActionName, SessionActionHandler> = {
+type HandledSessionAction = SessionActionName | LegacySessionActionName;
+
+const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler> = {
   [SESSION_ACTION.initialized]: handleInitialized,
-  [SESSION_ACTION.runtimeSessionId]: handleRuntimeSessionId,
-  [SESSION_ACTION.mcpServers]: handleMcpServers,
+  // Correlated command replies are consumed by pendingWsRequests above.
+  [SESSION_ACTION.acknowledged]: ignoreSessionAction,
+  [SESSION_ACTION.retry_worktree_setupok]: ignoreSessionAction,
+  [SESSION_ACTION.historyresult]: ignoreSessionAction,
+  [SESSION_ACTION.historyadded]: ignoreSessionAction,
+  [SESSION_ACTION.draftresult]: ignoreSessionAction,
+  [SESSION_ACTION.draftsaved]: ignoreSessionAction,
+  [SESSION_ACTION.branchneeds_confirm]: ignoreSessionAction,
+  [SESSION_ACTION.runtime_session_id]: handleRuntimeSessionId,
+  [SESSION_ACTION.mcp_servers]: handleMcpServers,
   [SESSION_ACTION.message]: handleMessage,
-  [SESSION_ACTION.userMessage]: handleCanonicalUserMessage,
-  [SESSION_ACTION.permissionRequest]: handlePermissionRequest,
+  [SESSION_ACTION.user_message]: handleCanonicalUserMessage,
+  [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
+  [SESSION_ACTION.warning]: handleWarning,
   [SESSION_ACTION.compacting]: handleCompacting,
-  [SESSION_ACTION.accessModeChanged]: handleAccessModeChanged,
-  [SESSION_ACTION.legacyCodexPermissionModeChanged]: handleAccessModeChanged,
-  [SESSION_ACTION.modeChanged]: handleModeChanged,
-  [SESSION_ACTION.providerSetOk]: handleProviderSetOk,
-  [SESSION_ACTION.modelSetOk]: handleModelSetOk,
-  [SESSION_ACTION.effortSetOk]: handleEffortSetOk,
-  [SESSION_ACTION.fastModeSetOk]: handleFastModeSetOk,
-  [SESSION_ACTION.profileChanged]: handleProfileChanged,
-  [SESSION_ACTION.runtimeOverridesChanged]: handleRuntimeOverridesChanged,
-  [SESSION_ACTION.compactStarted]: handleCompactStarted,
-  [SESSION_ACTION.compactOk]: handleCompactOk,
+  [SESSION_ACTION.access_modechanged]: handleAccessModeChanged,
+  [LEGACY_SESSION_ACTION.codexPermissionModeChanged]: handleAccessModeChanged,
+  [SESSION_ACTION.modechanged]: handleModeChanged,
+  [SESSION_ACTION.providersetok]: handleProviderSetOk,
+  [SESSION_ACTION.modelsetok]: handleModelSetOk,
+  [SESSION_ACTION.effortsetok]: handleEffortSetOk,
+  [SESSION_ACTION.fast_modesetok]: handleFastModeSetOk,
+  [SESSION_ACTION.profilechanged]: handleProfileChanged,
+  [SESSION_ACTION.runtime_overrideschanged]: handleRuntimeOverridesChanged,
+  [SESSION_ACTION.compactstarted]: handleCompactStarted,
+  [LEGACY_SESSION_ACTION.compactOk]: handleCompactOk,
   [SESSION_ACTION.cleared]: handleCleared,
   [SESSION_ACTION.deleted]: handleDeleted,
-  [SESSION_ACTION.usageUpdate]: handleUsageUpdate,
-  [SESSION_ACTION.streamStatus]: handleStreamStatus,
-  [SESSION_ACTION.promptReceived]: handlePromptReceived,
+  [SESSION_ACTION.usage_update]: handleUsageUpdate,
+  [SESSION_ACTION.stream_status]: handleStreamStatus,
+  [SESSION_ACTION.persistence_status]: handlePersistenceStatus,
+  [SESSION_ACTION.prompt_received]: handlePromptReceived,
   [SESSION_ACTION.lifecycle]: handleLifecyclePayload,
-  [SESSION_ACTION.gateClosed]: handleGateClosed,
-  [SESSION_ACTION.featureRenamed]: handleFeatureRenamed,
-  [SESSION_ACTION.featureAutonaming]: handleFeatureAutoNaming,
+  [SESSION_ACTION.gateclosed]: handleGateClosed,
+  [SESSION_ACTION.featurerenamed]: handleFeatureRenamed,
+  [SESSION_ACTION.featureautonaming]: handleFeatureAutoNaming,
   // Broadcast from another device's rewind (the originator handled its own
   // reply via sendRequest). Mirror the conversation truncation locally.
-  [SESSION_ACTION.branchRewound]: handleBranchRewoundBroadcast,
+  [SESSION_ACTION.branchrewound]: handleBranchRewoundBroadcast,
   // A fork on another device creates a new feature; that device's sidebar
   // refreshes via the `feature.created` broadcast, so this ref-less
   // `branch.forked` broadcast needs no per-session handling here.
-  [SESSION_ACTION.branchForked]: ignoreSessionAction,
-  [SESSION_ACTION.configSnapshot]: handleSessionConfigSnapshot,
+  [SESSION_ACTION.branchforked]: ignoreSessionAction,
+  [SESSION_ACTION.configsnapshot]: handleSessionConfigSnapshot,
   [SESSION_ACTION.ended]: handleTurnEndWithSubagents(handleTurnComplete),
-  [SESSION_ACTION.turnComplete]: handleTurnEndWithSubagents(handleTurnComplete),
-  [SESSION_ACTION.subagentUpdated]: handleSubagentUpdated,
+  [LEGACY_SESSION_ACTION.turnComplete]: handleTurnEndWithSubagents(handleTurnComplete),
+  [SESSION_ACTION.subagent_updated]: handleSubagentUpdated,
 };
+
+function isHandledSessionAction(action: string): action is HandledSessionAction {
+  return Object.hasOwn(SESSION_ACTION_HANDLERS, action);
+}
 
 function handleSessionAction(
   ctx: StoreAccessors,
   sessionId: string,
   envelope: { action: string; payload: unknown },
 ): void {
-  // Typed `| undefined` (rather than leaning on the cast) so the guard below
-  // reads as the load-bearing runtime check it is: `envelope.action` is an
-  // arbitrary wire string, not necessarily a known `SessionActionName`.
-  const handler: SessionActionHandler | undefined =
-    SESSION_ACTION_HANDLERS[envelope.action as SessionActionName];
-  if (!handler) {
+  if (!isHandledSessionAction(envelope.action)) {
     // Never drop a session envelope silently: an unknown action means the FE
     // contract has drifted from the backend emit sites (or a typo shipped).
     // Surface it so the mismatch is diagnosable instead of a feature quietly
@@ -221,7 +239,7 @@ function handleSessionAction(
     console.warn("[ws-session] unknown session action; dropping envelope", envelope.action);
     return;
   }
-  handler(ctx, sessionId, envelope.payload);
+  SESSION_ACTION_HANDLERS[envelope.action](ctx, sessionId, envelope.payload);
 }
 
 function handleBranchRewoundBroadcast(
@@ -231,63 +249,6 @@ function handleBranchRewoundBroadcast(
 ): void {
   if (!isRecord(payload) || typeof payload.messageId !== "number") return;
   truncateBlocksAtMessage(ctx.get, ctx.set, sessionId, payload.messageId);
-}
-
-function handleRuntimeSessionId(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseRuntimeSessionIdPayload(payload);
-  const sessionIdValue = p?.runtime_session_id;
-  if (sessionIdValue && sessionIdValue !== ctx.getSession(sessionId).runtimeSessionId) {
-    ctx.set(
-      updateSession(ctx.get(), sessionId, {
-        runtimeSessionId: sessionIdValue,
-        ...createSessionConfigState(),
-      }),
-    );
-  }
-}
-
-function handleSessionConfigSnapshot(
-  ctx: StoreAccessors,
-  sessionId: string,
-  payload: unknown,
-): void {
-  const snapshot = parseSessionConfigSnapshotPayload(payload);
-  if (!snapshot) {
-    console.warn("[ws-session] invalid config.snapshot broadcast", payload);
-    return;
-  }
-  ctx.set(
-    updateSession(ctx.get(), sessionId, {
-      sessionConfig: snapshot.config,
-      sessionConfigLoading: false,
-      sessionConfigSupported: true,
-      sessionConfigError: null,
-      pendingSessionConfigId: null,
-    }),
-  );
-}
-
-function handleAccessModeChanged(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseModePayload(payload);
-  if (p?.mode) {
-    ctx.set(
-      updateSession(ctx.get(), sessionId, {
-        accessMode: parseAccessMode(p.mode),
-      }),
-    );
-  }
-}
-
-function handleModeChanged(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseModePayload(payload);
-  const session = p?.mode ? ctx.getSession(sessionId) : null;
-  const parsedMode = p?.mode ? parsePermissionMode(p.mode) : null;
-  if (!parsedMode || !session) return;
-  const providerId = session.currentSelection?.providerId;
-  if (providerId == null) return;
-  if (providerAcceptsMode(providerId, parsedMode)) {
-    ctx.set(updateSession(ctx.get(), sessionId, { permissionMode: parsedMode }));
-  }
 }
 
 function handleProviderSetOk(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
@@ -348,15 +309,6 @@ function handleModelSetOk(ctx: StoreAccessors, sessionId: string, payload: unkno
   );
 }
 
-function handleEffortSetOk(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseEffortPayload(payload);
-  const previous = ctx.get().sessions[sessionId]?.currentThinkingEffort;
-  ctx.set(updateSession(ctx.get(), sessionId, { currentThinkingEffort: p?.thinking_effort }));
-  if (p?.thinking_effort !== previous) {
-    void queryClient.invalidateQueries({ queryKey: getWorkspaceSettingsQueryKey() });
-  }
-}
-
 function handleFastModeSetOk(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const parsed = parseFastModePayload(payload);
   if (!parsed) return;
@@ -409,10 +361,8 @@ function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
 }
 
 function handleDeleted(ctx: StoreAccessors, sessionId: string): void {
-  discardStreamDeltas(sessionId);
-  failPromptDelivery(sessionId, SESSION_CLOSED_BEFORE_DELIVERY);
-  const del = ctx.get().sessions[sessionId];
-  if (del?.conn) del.conn.close();
+  discardStreamDeltas(ctx, sessionId);
+  ctx.transport.remove(sessionId);
   const { [sessionId]: _, ...rest } = ctx.get().sessions;
   ctx.set({ sessions: rest });
 }

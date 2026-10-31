@@ -42,7 +42,8 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
         &self,
         request: claude_agent_sdk_rs::PermissionRequest,
     ) -> claude_agent_sdk_rs::PermissionResult {
-        match self
+        let is_question = request.tool_name == "AskUserQuestion";
+        let result = self
             .inner
             .can_use_tool(RuntimeToolPermissionRequest {
                 tool_name: request.tool_name,
@@ -57,8 +58,13 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
                 decision_reason: request.decision_reason,
                 input: request.input,
             })
-            .await
-        {
+            .await;
+        let result = if is_question {
+            super::question_answers::normalize_result(result)
+        } else {
+            result
+        };
+        match result {
             RuntimeToolPermissionResult::Allow {
                 updated_input,
                 updated_permissions,
@@ -429,5 +435,45 @@ mod tests {
             map_permission_mode(RuntimePermissionMode::DontAsk),
             claude_agent_sdk_rs::PermissionMode::DontAsk
         );
+    }
+    struct EchoPermission;
+    #[async_trait::async_trait]
+    impl crate::domain::agents::adapter::RuntimeToolPermissionHandler for EchoPermission {
+        async fn can_use_tool(
+            &self,
+            request: crate::domain::agents::adapter::RuntimeToolPermissionRequest,
+        ) -> crate::domain::agents::adapter::RuntimeToolPermissionResult {
+            crate::domain::agents::adapter::RuntimeToolPermissionResult::Allow {
+                updated_input: request.input,
+                updated_permissions: None,
+                tool_use_id: Some(request.tool_use_id),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sdk_callback_normalizes_only_question_answers_at_provider_boundary() {
+        let adapter = super::ClaudeCanUseToolAdapter {
+            inner: std::sync::Arc::new(EchoPermission),
+        };
+        for (tool_name, expected_answers) in [
+            ("AskUserQuestion", json!({"Color?": "Blue, Green"})),
+            ("AnotherTool", json!([["Blue", "Green"]])),
+        ] {
+            let result = claude_agent_sdk_rs::CanUseTool::can_use_tool(&adapter, claude_agent_sdk_rs::PermissionRequest {
+                tool_name: tool_name.into(), input: json!({"questions":[{"question":"Color?"}],"answers":[["Blue","Green"]]}),
+                tool_use_id: "tool-1".into(), agent_id: None, suggestions: None, blocked_path: None, decision_reason: None,
+            }).await;
+            let claude_agent_sdk_rs::PermissionResult::Allow {
+                updated_input,
+                tool_use_id,
+                ..
+            } = result
+            else {
+                panic!("accepted")
+            };
+            assert_eq!(updated_input["answers"], expected_answers);
+            assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        }
     }
 }

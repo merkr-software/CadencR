@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { blockMessageDbId } from "@/stores/ws-user-message-reconciliation";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { useAgentSessionContext } from "./agent-session-context";
 
 export interface MessageBranchActions {

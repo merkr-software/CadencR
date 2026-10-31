@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import type { PendingPlanApproval } from "@/stores/ws-session-types";
-import type { PendingPermission } from "./ToolPermissionPrompt";
-import type { AgentQuestion } from "./AgentQuestionDrawer";
+import type { PendingPermission } from "@/types/agent-permission";
+import type { AgentQuestion } from "@/types/agent-question";
 
 const PROMPT_TYPING_IDLE_MS = 1000;
 

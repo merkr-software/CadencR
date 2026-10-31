@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@/test-utils";
 import { describe, expect, it, vi } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 // The shared setup renders every Virtuoso item. This regression deliberately
 // uses the real library to prove a 1,000-action expansion mounts a bounded DOM.

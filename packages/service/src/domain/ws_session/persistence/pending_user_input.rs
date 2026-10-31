@@ -1,27 +1,11 @@
-// Central persistence + broadcast API for "pending user input" gates.
-//
-// An agent turn can be paused on two kinds of user-input gates, each backed
-// by its own column on `agent_sessions`:
-//
-// - PendingUserInputKind::Permission   → pending_permission
-// - PendingUserInputKind::Question     → pending_questions
-//
-// This module is the single entry point for writing/clearing those columns.
-// Every "askUser" broadcast must be preceded by a DB write, and every
-// "agent"/"none" broadcast must be preceded by a DB clear — otherwise a
-// broadcast-lag recovery in ws_session/handler/app.rs reads the DB and
-// resurrects stale state.
-//
-// The two paired helpers (mark_awaiting_user_static and
-// mark_agent_resumed_static) encode that ordering: DB first, broadcast
-// second. Callers never write to a pending_* column directly.
-//
-// NOTE: this file is `include!`'d into ws_session/persistence.rs, so it may
-// not have top-level `use` statements. It relies on imports in the parent.
+//! Database storage for pending user-input gates.
+
+use super::{PendingUserInput, PendingUserInputKind, WsSessionPersistence};
+use sqlx::SqlitePool;
+use tracing::error;
 
 impl WsSessionPersistence {
     /// Persist a pending user-input gate to its column. Does NOT broadcast.
-    /// Prefer `mark_awaiting_user_static` which pairs write + broadcast.
     pub async fn set_pending_user_input_static(
         pool: &SqlitePool,
         session_id: i64,
@@ -53,8 +37,7 @@ impl WsSessionPersistence {
         }
     }
 
-    /// NULL out a single pending-input column. Does NOT broadcast. Prefer
-    /// `mark_agent_resumed_static` which pairs clear + broadcast.
+    /// NULL out a single pending-input column. Does NOT broadcast.
     pub async fn clear_pending_user_input_static(
         pool: &SqlitePool,
         session_id: i64,
@@ -81,24 +64,19 @@ impl WsSessionPersistence {
     /// (e.g. `session_control::handle_permission_respond` after any
     /// Allow/Deny, and `session_init` reconnect cleanup).
     pub async fn clear_all_pending_user_input_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET \
-                pending_permission = NULL, \
-                pending_questions = NULL \
-             WHERE id = ?",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await
-        {
-            error!(
-                error = %e,
-                session_db_id = session_id,
-                "failed to clear all pending user input",
-            );
+        if let Err(e) = Self::try_clear_all_pending_user_input_static(pool, session_id).await {
+            error!(error = %e, session_db_id = session_id, "failed to clear all pending user input");
         }
     }
 
+    pub(crate) async fn try_clear_all_pending_user_input_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET pending_permission = NULL, pending_questions = NULL WHERE id = ?")
+            .bind(session_id).execute(pool).await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -163,10 +141,7 @@ mod pending_user_input_tests {
             PendingUserInputKind::Permission.column(),
             "pending_permission",
         );
-        assert_eq!(
-            PendingUserInputKind::Question.column(),
-            "pending_questions",
-        );
+        assert_eq!(PendingUserInputKind::Question.column(), "pending_questions",);
     }
 
     #[tokio::test]
@@ -263,146 +238,22 @@ mod pending_user_input_tests {
         assert!(column(&pool, id, "pending_questions").await.is_none());
     }
 
-    fn test_broadcaster() -> (
-        crate::domain::session_status::SessionStatusBroadcaster,
-        tokio::sync::broadcast::Receiver<crate::domain::session_status::SessionStatusEvent>,
-    ) {
-        let (tx, rx) = tokio::sync::broadcast::channel(16);
-        let bc = crate::domain::session_status::SessionStatusBroadcaster::new(tx);
-        (bc, rx)
-    }
-
     #[tokio::test]
-    async fn mark_awaiting_user_writes_db_before_broadcasting() {
-        use crate::domain::session_status::{AgentStatus, PendingKind};
-        let pool = setup_pool().await;
-        let id = insert_session(&pool).await;
-        let state = crate::app_state::AppState::with_pool(pool.clone());
-        let mut rx = state.session_status_tx.subscribe();
-        let payload = sample_permission_payload();
-
-        WsSessionPersistence::mark_awaiting_user_static(
-            &state,
-            id,
-            42,
-            &PendingUserInput::Permission(&payload),
-        )
-        .await;
-
-        // DB must be set by the time the broadcast is observable.
-        assert!(column(&pool, id, "pending_permission").await.is_some());
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.session_id, id);
-        assert_eq!(event.feature_id, 42);
-        assert_eq!(event.status, AgentStatus::Question);
-        assert_eq!(event.kind, Some(PendingKind::Permission));
-        assert_eq!(event.request_id.as_deref(), Some(payload.request_id.as_str()));
-        assert!(event.seq > 0);
-    }
-
-    #[tokio::test]
-    async fn mark_awaiting_user_propagates_kind_for_question() {
-        use crate::domain::session_status::PendingKind;
-        let pool = setup_pool().await;
-        let id = insert_session(&pool).await;
-        let state = crate::app_state::AppState::with_pool(pool.clone());
-        let mut rx = state.session_status_tx.subscribe();
-        let question = serde_json::json!({"tool_name": "AskUserQuestion", "request_id": "q1"});
-        WsSessionPersistence::mark_awaiting_user_static(
-            &state,
-            id,
-            1,
-            &PendingUserInput::Question(&question),
-        )
-        .await;
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.kind, Some(PendingKind::Question));
-        assert_eq!(event.request_id.as_deref(), Some("q1"));
-    }
-
-    #[tokio::test]
-    async fn ask_user_question_payload_is_registered_as_question_defensively() {
-        let pool = setup_pool().await;
-        let id = insert_session(&pool).await;
-        let state = crate::app_state::AppState::with_pool(pool);
-        let mut rx = state.session_status_tx.subscribe();
-        let mut payload = sample_permission_payload();
-        payload.tool_name = "AskUserQuestion".into();
-        payload.tool_input = serde_json::json!({
-            "question": "Which provider?",
-            "options": ["Claude", "OpenCode"]
-        });
-
-        WsSessionPersistence::mark_awaiting_user_static(
-            &state,
-            id,
-            1,
-            &PendingUserInput::Permission(&payload),
-        )
-        .await;
-
-        let gate = state.pending_gates.latest_open(id).await.unwrap();
-        assert_eq!(gate.kind, crate::domain::gate_registry::GateKind::Question);
-        assert_eq!(gate.payload["tool_input"]["question"], "Which provider?");
-
-        let event = rx.recv().await.unwrap();
-        assert_eq!(
-            event.kind,
-            Some(crate::domain::session_status::PendingKind::Question)
+    async fn try_clear_reports_failed_write_without_claiming_gate_removed() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, pending_permission TEXT, pending_questions TEXT); INSERT INTO agent_sessions VALUES (7, 'permission', 'question'); CREATE TRIGGER reject_clear BEFORE UPDATE ON agent_sessions BEGIN SELECT RAISE(FAIL, 'storage unavailable'); END;")
+            .execute(&pool).await.unwrap();
+        assert!(
+            WsSessionPersistence::try_clear_all_pending_user_input_static(&pool, 7)
+                .await
+                .is_err()
         );
-    }
-
-    #[tokio::test]
-    async fn mark_agent_resumed_clears_db_before_broadcasting() {
-        use crate::domain::session_status::AgentStatus;
-        let pool = setup_pool().await;
-        let id = insert_session(&pool).await;
-        let (bc, mut rx) = test_broadcaster();
-        let payload = sample_permission_payload();
-
-        WsSessionPersistence::set_pending_user_input_static(
-            &pool,
-            id,
-            &PendingUserInput::Permission(&payload),
+        let row: (String, String) = sqlx::query_as(
+            "SELECT pending_permission, pending_questions FROM agent_sessions WHERE id = 7",
         )
-        .await;
-
-        WsSessionPersistence::mark_agent_resumed_static(
-            &pool,
-            &bc,
-            id,
-            42,
-            PendingUserInputKind::Permission,
-            AgentStatus::Agent,
-        )
-        .await;
-
-        assert!(column(&pool, id, "pending_permission").await.is_none());
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.feature_id, 42);
-        assert_eq!(event.status, AgentStatus::Agent);
-    }
-
-    #[tokio::test]
-    async fn mark_agent_resumed_supports_deny_path() {
-        use crate::domain::session_status::{AgentStatus, PendingKind};
-        let pool = setup_pool().await;
-        let id = insert_session(&pool).await;
-        let (bc, mut rx) = test_broadcaster();
-        bc.broadcast_gate(id, 1, PendingKind::Permission, "req-1".into());
-
-        WsSessionPersistence::mark_agent_resumed_static(
-            &pool,
-            &bc,
-            id,
-            1,
-            PendingUserInputKind::Permission,
-            AgentStatus::Idle,
-        )
-        .await;
-
-        rx.recv().await.unwrap();
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.status, AgentStatus::Idle);
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row, ("permission".into(), "question".into()));
     }
 }

@@ -32,6 +32,7 @@ import {
   parseAgentVerbosityMode,
 } from "@/lib/agent-verbosity";
 import { AgentSessionComposer } from "./AgentSessionComposer";
+import { AgentSessionPersistenceNotice } from "./AgentSessionPersistenceNotice";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
 import { AgentSessionProvider } from "./agent-session-context";
@@ -283,38 +284,41 @@ export const AgentSession = memo(
     );
 
     const bottomSection = (
-      <AgentSessionComposer
-        sessionProps={props}
-        promptBarRef={s.promptBarRef}
-        metaBarRef={s.metaBarRef}
-        onSend={s.handleSend}
-        onToggleAutoScroll={s.scroll.scrollToBottom}
-        onCollapse={s.handleCollapse}
-        shouldShowPromptBar={s.shouldShowPromptBar}
-        hasMeta={s.hasMeta}
-        showAutoScrollChip={s.showAutoScrollChip}
-        autoScrollEnabled={s.scroll.autoScrollEnabled}
-        showWorktreeChip={s.showWorktreeChip}
-        activeProviderId={s.model.activeProviderId}
-        models={s.model.visibleModels}
-        providers={s.visibleProviders}
-        canChangeProvider={s.model.canChangeProvider}
-        supportedThinkingEfforts={s.model.supportedThinkingEfforts}
-        supportsFastMode={s.model.supportsFastMode}
-        isFastModePending={s.isFastModePending}
-        onFastModeChange={s.handleFastModeChange}
-        projectPath={s.projectPath}
-        isAgentWorking={s.isAgentWorking}
-        agentTabActive={props.agentTabActive ?? true}
-        collapsible={props.collapsible ?? false}
-        showClaudeProfileSelector={s.showClaudeProfileSelector}
-        claudeProfile={s.profile.selectedClaudeProfile}
-        claudeProfiles={s.profile.claudeProfiles}
-        claudeProfilesLoading={s.profile.claudeProfilesLoading}
-        claudeProfilesError={s.profile.claudeProfilesError}
-        onClaudeProfileChange={s.profile.handleClaudeProfileChange}
-        activeClaudeProfile={s.profile.activeClaudeProfile}
-      />
+      <>
+        <AgentSessionPersistenceNotice sessionId={props.wsSessionId} />
+        <AgentSessionComposer
+          sessionProps={props}
+          promptBarRef={s.promptBarRef}
+          metaBarRef={s.metaBarRef}
+          onSend={s.handleSend}
+          onToggleAutoScroll={s.scroll.scrollToBottom}
+          onCollapse={s.handleCollapse}
+          shouldShowPromptBar={s.shouldShowPromptBar}
+          hasMeta={s.hasMeta}
+          showAutoScrollChip={s.showAutoScrollChip}
+          autoScrollEnabled={s.scroll.autoScrollEnabled}
+          showWorktreeChip={s.showWorktreeChip}
+          activeProviderId={s.model.activeProviderId}
+          models={s.model.visibleModels}
+          providers={s.visibleProviders}
+          canChangeProvider={s.model.canChangeProvider}
+          supportedThinkingEfforts={s.model.supportedThinkingEfforts}
+          supportsFastMode={s.model.supportsFastMode}
+          isFastModePending={s.isFastModePending}
+          onFastModeChange={s.handleFastModeChange}
+          projectPath={s.projectPath}
+          isAgentWorking={s.isAgentWorking}
+          agentTabActive={props.agentTabActive ?? true}
+          collapsible={props.collapsible ?? false}
+          showClaudeProfileSelector={s.showClaudeProfileSelector}
+          claudeProfile={s.profile.selectedClaudeProfile}
+          claudeProfiles={s.profile.claudeProfiles}
+          claudeProfilesLoading={s.profile.claudeProfilesLoading}
+          claudeProfilesError={s.profile.claudeProfilesError}
+          onClaudeProfileChange={s.profile.handleClaudeProfileChange}
+          activeClaudeProfile={s.profile.activeClaudeProfile}
+        />
+      </>
     );
 
     return (

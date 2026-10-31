@@ -4,8 +4,8 @@ import type { VirtuosoHandle } from "react-virtuoso";
 import { toast } from "sonner";
 import { act, fireEvent, render, screen } from "@/test-utils";
 import type { SessionPrompt } from "@/api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { MessageNavigator } from "./MessageNavigator";
 
 const promptsQuery = vi.hoisted(() => ({

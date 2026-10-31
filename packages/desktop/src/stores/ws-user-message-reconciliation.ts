@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { applyBlockContentBudget } from "@/lib/block-content-budget";
 import { normalizeMessageUuid } from "@/lib/message-uuid";
 import { isFileChangeTool } from "@/lib/tool-adapter";

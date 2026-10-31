@@ -1,5 +1,4 @@
 import { useEffect } from "react";
-import { createEnvelope } from "@/lib/ws-envelope";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusStore";
 
@@ -27,33 +26,14 @@ import { selectGitWatcherEpoch, useGitStatusStore } from "@/stores/useGitStatusS
  * worktreeStatus fields.
  */
 export function useGitStatusSubscription(featureId: number | null | undefined): void {
-  // Only re-run when the connection state, feature_id, or watcher epoch
-  // flips. Reading `ws` directly would force a re-subscribe on every store
-  // mutation; narrow selectors keep the subscription stable otherwise.
-  const ws = useSessionStatusStore((s) => s.ws);
   const isConnected = useSessionStatusStore((s) => s.isConnected);
+  const connectionEpoch = useSessionStatusStore((s) => s.connectionEpoch);
+  const subscribeGitStatus = useSessionStatusStore((s) => s.subscribeGitStatus);
   const watcherEpoch = useGitStatusStore(selectGitWatcherEpoch(featureId));
 
   useEffect(() => {
-    if (featureId == null) return;
-    if (!ws || !isConnected || ws.readyState !== WebSocket.OPEN) return;
-
-    ws.send(
-      JSON.stringify(createEnvelope("app", "subscribe.git_status", { feature_id: featureId })),
-    );
-
-    return () => {
-      // Use the WS captured at effect-setup time — the cleanup runs on
-      // unmount/feature change, the store may already point at a fresh
-      // socket, but we want to drop the subscription on the *old* one.
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
-          JSON.stringify(
-            createEnvelope("app", "unsubscribe.git_status", { feature_id: featureId }),
-          ),
-        );
-      }
-    };
+    if (featureId == null || !isConnected) return;
+    return subscribeGitStatus(featureId);
     // `watcherEpoch` is in the deps on purpose — see the docblock above.
-  }, [ws, isConnected, featureId, watcherEpoch]);
+  }, [isConnected, connectionEpoch, subscribeGitStatus, featureId, watcherEpoch]);
 }

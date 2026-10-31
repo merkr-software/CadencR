@@ -3,7 +3,7 @@ import { forwardRef, useImperativeHandle, useRef, useState, type ForwardedRef } 
 import userEvent from "@testing-library/user-event";
 import { act, fireEvent, render, screen, waitFor } from "@/test-utils";
 import { AgentSession } from "./AgentSession";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { toast } from "sonner";
 
 // PromptEditor renders a contenteditable surface backed by CodeMirror, which

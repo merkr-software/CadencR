@@ -8,9 +8,10 @@
 //! first-class view + sidebar entry, so the originating client can navigate
 //! straight to it.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use tracing::info;
 
-use super::super::super::protocol::{BranchForkedPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{BranchForkedPayload, WsEnvelope};
 use super::super::helpers::send_error;
 use super::super::types::{SdkSessions, WsSender};
 use super::fork_db::create_forked_feature;
@@ -89,14 +90,13 @@ pub(crate) async fn handle_fork(
         sender,
         &envelope.id,
         inputs.feature_id,
-        WsSessionAction::BranchForked,
-        BranchForkedPayload {
+        &WsSessionEvent::BranchForked(BranchForkedPayload {
             source_session_id: db_session_id.to_string(),
             new_session_id: fork.new_session_id.to_string(),
             new_feature_id: fork.new_feature_id,
             project_id: fork.project_id,
             draft_text: inputs.message_text.clone(),
-        },
+        }),
     )
     .await;
 }

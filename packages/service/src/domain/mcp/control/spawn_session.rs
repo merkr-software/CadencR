@@ -13,8 +13,8 @@ use crate::app_state::AppState;
 use crate::domain::feature_events::FeatureEventAction;
 use crate::domain::features::models::FeatureStatus;
 use crate::domain::features::service::{create_feature_with_worktree, update_status};
-use crate::domain::ws_session::handler::session_prompt::dispatch_control_prompt;
-use crate::domain::ws_session::handler::session_prompt::publish_user_message;
+use crate::domain::ws_session::runtime::application::dispatch_control_prompt;
+use crate::domain::ws_session::runtime::prompt::publish_user_message;
 use crate::error::AppError;
 
 #[derive(Debug, Deserialize)]
@@ -289,6 +289,7 @@ async fn dispatch_initial_message(
     Ok(
         dispatch_control_prompt(state, feature_id, session_id, &initial_message, true)
             .await
+            .map(|outcome| outcome.delivery_confirmed())
             .err()
             .map(|error| error.to_string()),
     )

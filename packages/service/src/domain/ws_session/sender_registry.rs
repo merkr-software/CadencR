@@ -1,3 +1,4 @@
+use crate::domain::ws_session::runtime::output::{OutputTarget, SessionOutput};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -53,7 +54,31 @@ impl WsFeatureSenderRegistry {
         feature_id: i64,
         owner: mpsc::UnboundedSender<Message>,
     ) -> mpsc::UnboundedSender<Message> {
+        self.forwarding_sender(feature_id, owner)
+    }
+
+    /// Forward legacy workflow progress to feature viewers, with an optional
+    /// initiating socket. This is an outbound adapter, never a command reply.
+    pub(crate) fn feature_output_sender(
+        &self,
+        feature_id: i64,
+        owner: &impl OutputTarget,
+    ) -> mpsc::UnboundedSender<Message> {
+        let output = owner
+            .recipient()
+            .cloned()
+            .map(SessionOutput::from)
+            .unwrap_or_default();
+        self.forwarding_sender(feature_id, output)
+    }
+
+    fn forwarding_sender(
+        &self,
+        feature_id: i64,
+        owner: impl Into<SessionOutput>,
+    ) -> mpsc::UnboundedSender<Message> {
         let registry = self.clone();
+        let owner = owner.into();
         let (sender, mut receiver) = mpsc::unbounded_channel();
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {
@@ -188,14 +213,21 @@ impl WsFeatureSenderRegistry {
     /// move `msg` without a clone; with only the owner registered this is a
     /// plain send. Returns `true` when the owner socket is gone, so callers can
     /// stop a loop exactly as a bare `send().is_err()` would.
-    pub async fn send_and_mirror(
+    pub(crate) async fn send_and_mirror(
         &self,
         feature_id: i64,
-        owner: &mpsc::UnboundedSender<Message>,
+        owner: &impl OutputTarget,
         msg: Message,
     ) -> bool {
-        self.broadcast_others(feature_id, owner, &msg).await;
-        owner.send(msg).is_err()
+        if let Some(recipient) = owner.recipient() {
+            self.broadcast_others(feature_id, recipient, &msg).await;
+            return recipient.send(msg).is_err();
+        }
+        self.notify_observers(feature_id, &msg);
+        for sender in self.get_senders(feature_id).await {
+            let _ = sender.send(msg.clone());
+        }
+        false
     }
 }
 
@@ -360,5 +392,28 @@ mod tests {
         drop(rx);
         registry.notify_observers(7, &Message::Text("keep".into()));
         assert_eq!(registry.observers.count.load(Ordering::Acquire), 0);
+    }
+    #[tokio::test]
+    async fn headless_progress_forwarder_reaches_current_and_later_viewers_once() {
+        let registry = WsFeatureSenderRegistry::new();
+        let (first, mut first_rx) = mpsc::unbounded_channel();
+        registry.register(1, first).await;
+        let progress = registry.feature_output_sender(1, &SessionOutput::headless());
+        progress.send(Message::Text("first".into())).unwrap();
+        let event = tokio::time::timeout(std::time::Duration::from_secs(1), first_rx.recv())
+            .await
+            .unwrap();
+        assert!(matches!(event, Some(Message::Text(text)) if text.as_str() == "first"));
+        assert!(first_rx.try_recv().is_err());
+        let (later, mut later_rx) = mpsc::unbounded_channel();
+        registry.register(1, later).await;
+        progress.send(Message::Text("later".into())).unwrap();
+        for receiver in [&mut first_rx, &mut later_rx] {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
+                .await
+                .unwrap();
+            assert!(matches!(event, Some(Message::Text(text)) if text.as_str() == "later"));
+            assert!(receiver.try_recv().is_err());
+        }
     }
 }

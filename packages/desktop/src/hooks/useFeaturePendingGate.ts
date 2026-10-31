@@ -64,7 +64,12 @@ export function useFeaturePendingGate({
     onError: (error: unknown) => {
       toast.error(apiErrorMessage(error, "Could not answer pending request"));
     },
-    onSuccess: async () => {
+    onSuccess: async (response) => {
+      for (const [index, warning] of (response.warnings ?? []).entries()) {
+        toast.warning(warning, {
+          id: `pending-gate-warning:${featureId}:${response.request_id}:${index}`,
+        });
+      }
       await queryClient.invalidateQueries({
         queryKey: ["/api/features", featureId, "pending-gate"],
       });

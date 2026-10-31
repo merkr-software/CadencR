@@ -1,5 +1,6 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
@@ -22,6 +23,7 @@ function createCtx(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>) => {
       state = { ...state, ...partial } as WsSessionStore;
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string) => state.sessions[sessionId],
   };
 }

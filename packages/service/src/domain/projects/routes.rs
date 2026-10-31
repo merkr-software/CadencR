@@ -43,6 +43,9 @@ pub async fn delete_project_handler(
     Path(id): Path<i64>,
 ) -> Result<Json<SuccessResponse>, AppError> {
     let feature_ids = service::delete_project(&state.write_pool, id).await?;
+    for feature_id in &feature_ids {
+        state.persistence_health.forget_feature(*feature_id).await;
+    }
     state.plugin_tab_presence.release_features(&feature_ids);
     state
         .session_status_tx

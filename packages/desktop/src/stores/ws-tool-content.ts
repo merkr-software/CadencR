@@ -1,4 +1,4 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { parseToolArgsObject } from "@/lib/tool-args";
 import { isFileChangeTool } from "@/lib/tool-adapter";
 import {
