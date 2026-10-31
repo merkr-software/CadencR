@@ -15,7 +15,6 @@ import { ROOT_LEAF_ID, type TabKind } from "@/stores/feature-layout-schema";
 import {
   activateFeatureTab,
   findPaneContaining,
-  isTabVisible,
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
 import { useEditorStore } from "@/stores/editor-store";
@@ -191,7 +190,7 @@ export function useFeatureBlockTabs(args: {
   data: ReturnType<typeof useSessionFeatureData>;
   controls: ReturnType<typeof useSessionControls>;
   refs: ReturnType<typeof useSessionRefs>;
-  layoutState: Parameters<typeof isTabVisible>[0];
+  agentVisible: boolean;
   tabReady: NonAgentTabReadiness;
   hotkeysEnabled: boolean;
   sendFromGitTab: (message: string) => void;
@@ -206,7 +205,7 @@ export function useFeatureBlockTabs(args: {
     data: args.data,
     controls: args.controls,
     refs: args.refs,
-    agentVisible: isTabVisible(args.layoutState, "agent"),
+    agentVisible: args.agentVisible,
     tabReady: args.tabReady,
     hotkeysEnabled: args.hotkeysEnabled,
     sendFromGitTab: args.sendFromGitTab,

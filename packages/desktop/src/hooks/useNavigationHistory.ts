@@ -103,3 +103,13 @@ function restore(
     search: target.tab ? { ...target.search, focusTab: target.tab } : target.search,
   });
 }
+
+/**
+ * Mounts `useNavigationHistory` in a leaf of its own: it reads the focused tab,
+ * which changes on every pane focus, and in the root layout's hooks that
+ * re-rendered the whole app (sidebar, dialogs, workspace) each time.
+ */
+export function NavigationHistoryTracker(): null {
+  useNavigationHistory();
+  return null;
+}

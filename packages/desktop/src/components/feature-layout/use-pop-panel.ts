@@ -95,51 +95,87 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
   );
   // The child that popped at the last layout, and whether it was folded.
   const popped = useRef<{ index: 0 | 1; folded: boolean } | null>(null);
-  // A fresh object per slide: folding again mid-slide restarts the timer.
-  const [slide, setSlide] = useState<{ px: number } | null>(null);
-  // The running slide's open size, for effects and callbacks between renders.
+  // The running slide's open size, which the pane holds.
+  const [slidingPx, setSlidingPx] = useState<number | null>(null);
+  // The same, for effects and callbacks between renders.
   const slideRef = useRef<number | null>(null);
+  // Ends the running slide once its transition has run.
+  const slideEnd = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [foldedPx, setFoldedPx] = useState(DEFAULT_FOLDED_PX);
   const foldedSize = `${foldedPx}px`;
   const onFoldedSize = useCallback((px: number): void => {
     if (px > 0) setFoldedPx(Math.ceil(px));
   }, []);
 
+  const endSlide = useCallback((): void => {
+    clearTimeout(slideEnd.current);
+    slideRef.current = null;
+    setSlidingPx(null);
+  }, []);
+  // Timed from the resize that starts the transition, not from the toggle.
+  const endSlideAfterMotion = useCallback((): void => {
+    clearTimeout(slideEnd.current);
+    slideEnd.current = setTimeout(endSlide, POP_MOTION_MS);
+  }, [endSlide]);
+  useEffect(() => () => clearTimeout(slideEnd.current), []);
+
   useLayoutEffect(() => {
     const last = popped.current;
     popped.current = index === null ? null : { index, folded };
     // A pane that stops popping while folded (unpinned, or its sibling
-    // flagged instead) opens at its share again.
-    if (last?.folded && last.index !== index) {
+    // flagged instead) opens at its share again — so does one stopping
+    // mid-slide, whose deferred resize the cleanup just cancelled.
+    if (last && last.index !== index && (last.folded || slideRef.current !== null)) {
       panelRefs[last.index].current?.resize(`${split.sizes?.[last.index] ?? 50}%`);
     }
     const panel = index === null ? null : panelRefs[index].current;
-    if (share === null || !panel) return;
-    // A native view turned up mid-slide: it is not clipped, so stop holding.
-    if (!canSlide && slideRef.current !== null) {
-      slideRef.current = null;
-      setSlide(null);
+    if (share === null || !panel) {
+      if (slideRef.current !== null) endSlide();
+      return;
     }
+    // A native view turned up mid-slide: it is not clipped, so stop holding.
+    if (!canSlide && slideRef.current !== null) endSlide();
     const toggled = last?.index === index && last.folded !== folded;
     const animate = toggled && canSlide && !animationsDisabled();
     // Reversed mid-slide, the panel measures mid-transition: keep the open
     // size the running slide holds.
     const openPx = animate ? (slideRef.current ?? openPixels(panel.getSize(), folded, share)) : 0;
-    panel.resize(folded ? `${foldedPx}px` : `${share}%`);
-    if (openPx <= foldedPx) return;
-    // Set before paint: the slide's first frame already holds the pane.
+    const target = folded ? `${foldedPx}px` : `${share}%`;
+    if (openPx <= foldedPx) {
+      panel.resize(target);
+      // A slide whose deferred resize this re-run cancelled still has to end.
+      if (slideRef.current !== null) endSlideAfterMotion();
+      return;
+    }
+    // Set before paint: the slide's first frame already holds the pane. A
+    // slide reversed midway waits for its new resize to time its end.
     slideRef.current = Math.round(openPx);
-    setSlide({ px: slideRef.current });
-  }, [index, folded, share, foldedPx, canSlide, panelRefs, split.sizes]);
-
-  useEffect(() => {
-    if (slide === null) return;
-    const timer = setTimeout(() => {
-      slideRef.current = null;
-      setSlide(null);
-    }, POP_MOTION_MS);
-    return () => clearTimeout(timer);
-  }, [slide]);
+    setSlidingPx(slideRef.current);
+    clearTimeout(slideEnd.current);
+    // Move two frames later, not in this commit. A focus change re-renders
+    // whatever follows the focused tab, and a transition is timed from its
+    // frame's vsync: the first frame after that work still carries the vsync
+    // from before it, so a transition started there (or here) is mostly spent
+    // when it first paints and the pane snaps. The held pane shows no change
+    // meanwhile. Re-run first (focus flips back), the effect resizes itself.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        panel.resize(target);
+        endSlideAfterMotion();
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [
+    index,
+    folded,
+    share,
+    foldedPx,
+    canSlide,
+    panelRefs,
+    split.sizes,
+    endSlide,
+    endSlideAfterMotion,
+  ]);
 
   const onResize = useCallback(
     (size: PanelSize): void => {
@@ -150,7 +186,6 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
     },
     [index, folded, foldedPx, panelRefs],
   );
-  const slidingPx = slide?.px ?? null;
   return {
     index,
     folded,

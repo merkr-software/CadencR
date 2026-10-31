@@ -1,5 +1,6 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
+import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
 import { AppWindowControls } from "@/components/AppWindowControls";
 import { CustomActionEditorHost } from "@/components/custom-actions/CustomActionEditorDialog";
@@ -58,6 +59,7 @@ function RootLayout() {
           <SuspendedBanner />
           <GlobalOperationToasts />
           <ManagedThemeRegistry />
+          <NavigationHistoryTracker />
           <NotchChannelBridge />
           <CustomActionEditorHost />
           <RunVariablesDialogHost />
