@@ -34,8 +34,8 @@ export function CustomActionsSettingsSection(): ReactElement {
         <>
           Commands you run often in a conversation's working copy: tests, linters, deploys, dev
           servers. Each project's header lists its own actions, then the global ones, in the order
-          below. Run them from the header launcher, the Actions tab, or{" "}
-          <ResolvedKbdChord shortcutId="custom-action-run-1-9" />.
+          below. Run them from the header launcher, where each action also has a page with its
+          output, runs and settings, or <ResolvedKbdChord shortcutId="custom-action-run-1-9" />.
         </>
       }
     >

@@ -77,7 +77,6 @@ const NO_TABS_READY = {
   terminal: false,
   browser: false,
   preview: false,
-  runs: false,
 };
 const ALL_TABS_READY = {
   editor: true,
@@ -85,7 +84,6 @@ const ALL_TABS_READY = {
   terminal: true,
   browser: true,
   preview: true,
-  runs: true,
 };
 
 // Two timer rounds drive the full reveal: round one fires the agent-first gate

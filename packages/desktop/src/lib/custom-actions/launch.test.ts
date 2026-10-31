@@ -8,6 +8,7 @@ import {
   launchCustomAction,
   missingVariables,
   saveVariablesAndLaunch,
+  showCustomActionOutput,
 } from "./launch";
 
 const api = vi.hoisted(() => ({
@@ -21,6 +22,8 @@ const api = vi.hoisted(() => ({
 const toast = vi.hoisted(() => Object.assign(vi.fn(), { success: vi.fn(), error: vi.fn() }));
 const sendToTerminal = vi.hoisted(() => vi.fn());
 const activateFeatureTab = vi.hoisted(() => vi.fn());
+const viewing = vi.hoisted(() => ({ featureId: 2 }));
+const router = vi.hoisted(() => ({ navigate: vi.fn() }));
 
 vi.mock("sonner", () => ({ toast }));
 vi.mock("@/api/generated", () => ({
@@ -42,6 +45,17 @@ vi.mock("@/hooks/useTerminalState", () => ({
   useTerminalStore: { getState: () => ({ sendToTerminal }) },
 }));
 vi.mock("@/stores/feature-layout-store", () => ({ activateFeatureTab }));
+vi.mock("@/lib/notify-agent-done", () => ({
+  isViewingFeature: (featureId: number) => featureId === viewing.featureId,
+}));
+vi.mock("@/router", () => ({ router }));
+vi.mock("@/components/project-feature-navigation", () => ({
+  navigateToFeatureIdOrHome: (
+    navigate: typeof router.navigate,
+    projectId: number,
+    featureId: number,
+  ) => navigate({ projectId, featureId }),
+}));
 
 function action(overrides: Partial<CustomAction> = {}): CustomAction {
   return {
@@ -66,7 +80,12 @@ describe("launchCustomAction", () => {
     api.storedVariables = [];
     const { queryClient } = await import("@/lib/queryClient");
     queryClient.clear();
-    useCustomActionsUiStore.setState({ pendingVariables: null, trackedRuns: {}, starting: {} });
+    useCustomActionsUiStore.setState({
+      pendingVariables: null,
+      trackedRuns: {},
+      starting: {},
+      menu: null,
+    });
   });
 
   it("lists variables without a value, blanks included", () => {
@@ -85,6 +104,26 @@ describe("launchCustomAction", () => {
     expect(api.runCustomAction).toHaveBeenCalledWith(5, { feature_id: 2 });
     expect(useCustomActionsUiStore.getState().trackedRuns[21]).toMatchObject({ actionId: 5 });
     expect(useCustomActionsUiStore.getState().starting).toEqual({});
+  });
+
+  it("reopens the action's details once a run asked from them starts", async () => {
+    await launchCustomAction(
+      { action: action({ variable_names: [] }), featureId: 2, projectId: 1 },
+      { showOutput: true },
+    );
+    expect(useCustomActionsUiStore.getState().menu).toEqual({ featureId: 2, actionId: 5 });
+  });
+
+  it("closes the menu under the variables dialog, carrying the details request", async () => {
+    api.storedVariables = [{ var_name: "ENV", value: "staging" }];
+    useCustomActionsUiStore.getState().openMenu(2, 5);
+    await launchCustomAction(
+      { action: action(), featureId: 2, projectId: 1 },
+      { promptVariables: true, showOutput: true },
+    );
+    const prompt = useCustomActionsUiStore.getState().pendingVariables;
+    expect(prompt).toMatchObject({ values: { ENV: "staging" }, showOutput: true });
+    expect(useCustomActionsUiStore.getState().menu).toBeNull();
   });
 
   it("saves only edited values before running", async () => {
@@ -127,10 +166,34 @@ describe("launchCustomAction", () => {
   it("announces the end of a run started here, once", async () => {
     useCustomActionsUiStore
       .getState()
-      .trackRun(21, { actionId: 5, actionName: "Deploy", featureId: 2 });
+      .trackRun(21, { actionId: 5, actionName: "Deploy", featureId: 2, projectId: 1 });
     await announceFinishedRun(21);
     await announceFinishedRun(21);
     expect(toast.success).toHaveBeenCalledOnce();
     expect(toast.success).toHaveBeenCalledWith("Deploy passed", expect.anything());
+  });
+
+  it("opens the menu on the action's details from the finished-run toast", async () => {
+    useCustomActionsUiStore
+      .getState()
+      .trackRun(21, { actionId: 5, actionName: "Deploy", featureId: 2, projectId: 1 });
+    await announceFinishedRun(21);
+    const options = toast.success.mock.calls[0]?.[1] as { action: { onClick: () => void } };
+    options.action.onClick();
+    expect(useCustomActionsUiStore.getState().menu).toEqual({ featureId: 2, actionId: 5 });
+  });
+
+  it("opens the details in place when the conversation is already shown", () => {
+    showCustomActionOutput({ featureId: 2, projectId: 1, actionId: 5 });
+    expect(useCustomActionsUiStore.getState().menu).toEqual({ featureId: 2, actionId: 5 });
+    expect(router.navigate).not.toHaveBeenCalled();
+  });
+
+  it("goes to another conversation to show its action's details", async () => {
+    showCustomActionOutput({ featureId: 3, projectId: 1, actionId: 5 });
+    expect(useCustomActionsUiStore.getState().menu).toEqual({ featureId: 3, actionId: 5 });
+    await vi.waitFor(() =>
+      expect(router.navigate).toHaveBeenCalledWith({ projectId: 1, featureId: 3 }),
+    );
   });
 });

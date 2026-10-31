@@ -84,7 +84,7 @@ CadencR must remain running to dispatch scheduled work. It is not a hosted cron 
 
 ## Prompt schedule or custom action?
 
-A schedule can either **send a prompt** or **run a custom action**. Choose **Run a custom action** in the editor, then the project, the action and the conversation whose working copy it runs in. It uses the same recurrence rules, pause and run now; a run that exits non-zero, or cannot start (a missing worktree or `${VAR}` value), is recorded as failed with the reason, and its output is in the conversation's Actions tab. Conditions apply to prompts only.
+A schedule can either **send a prompt** or **run a custom action**. Choose **Run a custom action** in the editor, then the project, the action and the conversation whose working copy it runs in. It uses the same recurrence rules, pause and run now; a run that exits non-zero, or cannot start (a missing worktree or `${VAR}` value), is recorded as failed with the reason, and its output is on the action's page in the conversation's launcher menu. Conditions apply to prompts only.
 
 Use a prompt when an agent should inspect context and decide what to do; use a [custom action](../custom-actions/) for a known command. Schedules created by earlier versions on an action's popover were moved here, as interval schedules of at least one minute.
 

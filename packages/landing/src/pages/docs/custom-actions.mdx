@@ -1,18 +1,18 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Custom actions"
-description: "Reusable shell commands you run from a conversation's header, the command palette or a shortcut, with per-conversation variables, an Actions tab for their output, and schedules."
+description: "Reusable shell commands you run from a conversation's header, the command palette or a shortcut, with per-conversation variables, their output and runs in the launcher's menu, and schedules."
 lastReviewed: "2026-10-30"
 version: "0.16.0"
 ---
 
 import DocCallout from "@/components/docs/DocCallout.astro";
 
-Custom actions are **shell commands you run often** in a conversation's working copy: tests, linters, deploys, dev servers. You define them once, for one project or for every project, and run them from the conversation header, the command palette or a keyboard shortcut. Their output lands in the conversation's **Actions** tab.
+Custom actions are **shell commands you run often** in a conversation's working copy: tests, linters, deploys, dev servers. You define them once, for one project or for every project, and run them from the conversation header, the command palette or a keyboard shortcut. Their output, runs and settings live in the launcher's menu.
 
 <DocCallout title="One-line mental model" variant="tip">
   A custom action is a shell command template. Its `${VARIABLES}` are filled in per conversation,
-  its output lives in the Actions tab, and the header always shows the one you ran last.
+  its output lives in the launcher's menu, and the header always shows the one you ran last.
 </DocCallout>
 
 ## Running an action
@@ -26,13 +26,15 @@ The header's **launcher** sits next to the Git button and works the same way:
 
 The chevron carries a single dot for all actions: orange while one runs, red when the last run of one failed. Passing, stopped and never-run actions add nothing.
 
-Picking an action that is already running in the background shows its output instead of starting it twice. On phones the launcher is a single button that opens a sheet where each action can be run or stopped.
+Picking an action that is already running in the background shows its output instead of starting it twice. On phones the launcher is a single button that opens a sheet where each action can be run or stopped, with the same page per action as on the desktop.
 
-## The Actions tab
+## An action's page
 
-Background runs write their output to the conversation's **Actions** tab, which appears once the project has actions. The left column lists the actions with their latest outcome; the right side shows the chosen action's output, live while it runs, with **Stop** / **Run again** and a picker for its last 20 runs (when, manual or scheduled, how it ended).
+Each row of the launcher's list ends with a chevron: click it, or press → on the highlighted row, to turn the menu to that action's page. **Output and runs of _name_** in the list opens it for the selected action, and so does picking an action that runs in the background.
 
-When a run you started finishes, a notification says whether it passed, failed or was stopped, with a **Show output** button. Runs started by a schedule or on another device update the launcher and the Actions tab without notifying you.
+The page shows the command, then the action's output in this conversation, live while it runs, with **Stop** / **Run again**, **Run with…** and a picker for its last 20 runs (when, manual or scheduled, how it ended). **Edit**, **Schedule…** and **Delete** sit next to the action's name, which is also a picker to switch to another action. The back arrow, or Esc, returns to the list.
+
+When a run you started finishes, a notification says whether it passed, failed or was stopped, with a **Show output** button that opens the action's page (in its conversation, if you moved to another one). Runs started by a schedule or on another device update the launcher without notifying you.
 
 ## Background or terminal
 
@@ -40,7 +42,7 @@ Each action runs one of two ways:
 
 | Mode                  | What happens                                                                                                                     |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **In the background** | The service runs the command; output and status go to the Actions tab. Stop sends Ctrl-C, then kills it after 3 seconds.         |
+| **In the background** | The service runs the command; output and status go to the action's page. Stop sends Ctrl-C, then kills it after 3 seconds.       |
 | **In a terminal**     | The command is typed into a new terminal split and the Terminal tab comes forward. Use it for dev servers and interactive tools. |
 
 Either way the command runs through your login shell in the conversation's worktree (or the project directory when the conversation has none). There is no timeout: a command runs until it exits or you stop it.
@@ -54,7 +56,7 @@ gh pr view ${PR_ID} --json comments
 pnpm --filter ${PACKAGE} test
 ```
 
-Values are kept **per conversation**, so one "Run tests" action can use `PACKAGE=desktop` in one conversation and `PACKAGE=service` in another. The first time you run an action whose values are missing, CadencR asks for them; **Run** stays disabled until each one is filled. After that the remembered values are used directly. To change them, choose **Run _name_ with…** in the launcher's list or **Run with…** in the Actions tab.
+Values are kept **per conversation**, so one "Run tests" action can use `PACKAGE=desktop` in one conversation and `PACKAGE=service` in another. The first time you run an action whose values are missing, CadencR asks for them; **Run** stays disabled until each one is filled. After that the remembered values are used directly. To change them, choose **Run _name_ with…** in the launcher's list or **Run with…** on the action's page.
 
 There are no implicit variables: the action already runs in the worktree, so use `$(pwd)` or `git rev-parse --abbrev-ref HEAD` when you need the path or the branch.
 
@@ -65,7 +67,7 @@ Actions are managed in two places:
 - **Settings → Custom actions** lists the actions shared by **all projects**, and any one project's own actions.
 - **Project settings → Custom actions** lists that project's actions.
 
-In a conversation's header, a project's own actions come first, then the global ones, each in the order set in these lists. Drag a row by its grip to reorder it, or use **Move up / Move down** in its menu. **New action** is also in the launcher's list and the Actions tab.
+In a conversation's header, a project's own actions come first, then the global ones, each in the order set in these lists. Drag a row by its grip to reorder it, or use **Move up / Move down** in its menu. **New action** is also in the launcher's list, and an action can be edited or deleted from its page there.
 
 The editor asks for:
 
@@ -79,7 +81,7 @@ Deleting an action asks for confirmation and says whether it disappears from one
 
 ## Schedules
 
-Background actions can run on a schedule from the [Schedules](../schedules/) page: create a schedule, choose **Run a custom action**, then the conversation and the action. Schedules support the same rules as prompt schedules (once, every N minutes, daily, weekly, monthly), and can be paused or run now. Scheduled runs appear in the Actions tab marked _scheduled_.
+Background actions can run on a schedule from the [Schedules](../schedules/) page: create a schedule, choose **Run a custom action**, then the conversation and the action. Schedules support the same rules as prompt schedules (once, every N minutes, daily, weekly, monthly), and can be paused or run now. Scheduled runs appear on the action's page marked _scheduled_.
 
 ## Good action shapes
 
@@ -94,7 +96,7 @@ When the work needs judgement rather than a fixed command, ask the agent in the 
 
 ## Related docs
 
-- [Feature workspace](../feature-workspace/): the header and tabs the launcher and Actions tab live in
+- [Feature workspace](../feature-workspace/): the header the launcher lives in
 - [Terminal](../terminal/): where terminal-mode actions run
 - [Worktrees](../worktrees/): the working copy each action runs in
 - [Schedules](../schedules/): running actions and prompts automatically

@@ -14,6 +14,8 @@ export interface PendingVariablesPrompt {
   target: CustomActionLaunchTarget;
   /** Stored values for this conversation, prefilled into the fields. */
   values: Record<string, string>;
+  /** Reopen the action's details once the run starts (the gesture came from them). */
+  showOutput: boolean;
 }
 
 /** A background run this client started, so its end can be announced. */
@@ -21,6 +23,16 @@ export interface TrackedRun {
   actionId: number;
   actionName: string;
   featureId: number;
+  projectId: number;
+}
+
+/**
+ * The open launcher menu: the conversation whose header it drops from, and
+ * the action it details (its output, runs and settings), or null for the list.
+ */
+export interface CustomActionsMenuRequest {
+  featureId: number;
+  actionId: number | null;
 }
 
 /**
@@ -38,8 +50,8 @@ export interface CustomActionEditorRequest {
 interface CustomActionsUiState {
   /** The action the launcher's primary button runs, per project. */
   selectedByProject: Record<number, number>;
-  /** The action the Actions tab shows, per conversation. */
-  runsTabActionByFeature: Record<number, number>;
+  /** The open launcher menu, if any (one at a time, across conversations). */
+  menu: CustomActionsMenuRequest | null;
   /** `${actionId}:${featureId}` keys whose launch request is in flight. */
   starting: Record<string, true>;
   pendingVariables: PendingVariablesPrompt | null;
@@ -48,7 +60,8 @@ interface CustomActionsUiState {
   openEditor: (request: CustomActionEditorRequest) => void;
   closeEditor: () => void;
   selectAction: (projectId: number, actionId: number) => void;
-  showInRunsTab: (featureId: number, actionId: number) => void;
+  openMenu: (featureId: number, actionId: number | null) => void;
+  closeMenu: () => void;
   setStarting: (actionId: number, featureId: number, starting: boolean) => void;
   openVariablesPrompt: (prompt: PendingVariablesPrompt) => void;
   closeVariablesPrompt: () => void;
@@ -89,7 +102,7 @@ export function startingKey(actionId: number, featureId: number): string {
 
 export const useCustomActionsUiStore = create<CustomActionsUiState>((set, get) => ({
   selectedByProject: typeof window === "undefined" ? {} : readSelection(),
-  runsTabActionByFeature: {},
+  menu: null,
   starting: {},
   pendingVariables: null,
   trackedRuns: {},
@@ -102,10 +115,8 @@ export const useCustomActionsUiStore = create<CustomActionsUiState>((set, get) =
     writeSelection(selectedByProject);
     set({ selectedByProject });
   },
-  showInRunsTab: (featureId, actionId) =>
-    set((state) => ({
-      runsTabActionByFeature: { ...state.runsTabActionByFeature, [featureId]: actionId },
-    })),
+  openMenu: (featureId, actionId) => set({ menu: { featureId, actionId } }),
+  closeMenu: () => set({ menu: null }),
   setStarting: (actionId, featureId, starting) =>
     set((state) => {
       const key = startingKey(actionId, featureId);
