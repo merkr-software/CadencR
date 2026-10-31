@@ -1,4 +1,4 @@
-import { memo, useMemo, useState, useSyncExternalStore, type ReactElement } from "react";
+import { memo, useMemo, useState, type ReactElement } from "react";
 import type { TabContext } from "@cadencr/tab-sdk/protocol";
 
 import type { PluginTabSummary } from "@/api/generated";
@@ -7,6 +7,7 @@ import type { PluginIdentity } from "@/lib/plugin-tabs/broker-runtime";
 import { pluginTabInstanceId } from "@/lib/plugin-tabs/instance-id";
 import { refreshPluginTabsOrToast } from "@/lib/plugin-tabs/live-instances";
 import { useOpenCustomTabProject } from "@/components/settings/custom-tabs/useOpenCustomTabProject";
+import { useDocumentVisible } from "@/hooks/useDocumentVisible";
 import type { PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
 import { pluginTabKind } from "@/stores/feature-layout-schema";
 import {
@@ -70,19 +71,6 @@ function guestOverlayState(phase: GuestPhase): PluginTabOverlayState | null {
     case "crashed":
       return { kind: "crashed", detail: phase.detail };
   }
-}
-
-function subscribeDocumentVisibility(onChange: () => void): () => void {
-  document.addEventListener("visibilitychange", onChange);
-  return () => document.removeEventListener("visibilitychange", onChange);
-}
-
-function useDocumentVisible(): boolean {
-  return useSyncExternalStore(
-    subscribeDocumentVisibility,
-    () => document.visibilityState !== "hidden",
-    () => true,
-  );
 }
 
 /**

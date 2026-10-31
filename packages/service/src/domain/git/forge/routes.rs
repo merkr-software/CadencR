@@ -12,7 +12,7 @@ use super::poller::refresh_all;
 use super::provider::{
     FeaturePrParams, ForgeAuthContext, ForgeAuthSource, ForgeAuthStatus, ForgeCredentials,
     ForgeHostConfig, ForgeTokenDeleteParams, ForgeTokenDeleteResponse, ForgeTokenRequest,
-    PrCommentsParams, PrCommentsResponse, PrStatusSnapshot,
+    PrCommentsParams, PrCommentsResponse, PrStatusSnapshot, PrSummary,
 };
 use super::repository::{detected_project_remotes, feature_forge_context};
 use super::{api_base_url, effective_kind, provider_for};
@@ -201,27 +201,35 @@ pub async fn get_pr_comments_handler(
 }
 
 /// The proposal whose comments to read: the requested one when it belongs to
-/// the conversation, else the current branch's. Only the conversation's own
-/// proposals can be asked for — the forge snapshot is what vouches for them.
+/// the conversation, else the current branch's.
 fn requested_pr_number(
     status: &PrStatusSnapshot,
     requested: Option<u64>,
 ) -> Result<Option<u64>, AppError> {
-    let current = status.pr.as_ref().map(|pr| pr.number);
     let Some(requested) = requested else {
-        return Ok(current);
+        return Ok(status.pr.as_ref().map(|pr| pr.number));
     };
-    let known = current == Some(requested)
-        || status
-            .other_prs
-            .iter()
-            .any(|other| other.pr.number == requested);
-    if !known {
-        return Err(AppError::BadRequest(format!(
-            "#{requested} is not one of this conversation's pull requests"
-        )));
-    }
-    Ok(Some(requested))
+    conversation_pr(status, requested).map(|pr| Some(pr.number))
+}
+
+/// One of the conversation's own proposals. The forge snapshot is what vouches
+/// for them, so a request can never read or act on an arbitrary number in the
+/// repository.
+pub(super) fn conversation_pr(
+    status: &PrStatusSnapshot,
+    pr_number: u64,
+) -> Result<PrSummary, AppError> {
+    status
+        .pr
+        .iter()
+        .chain(status.other_prs.iter().map(|other| &other.pr))
+        .find(|pr| pr.number == pr_number)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::BadRequest(format!(
+                "#{pr_number} is not one of this conversation's pull requests"
+            ))
+        })
 }
 
 pub fn forge_router() -> Router<AppState> {
@@ -241,13 +249,14 @@ pub fn forge_router() -> Router<AppState> {
             "/api/git/pr/lookup",
             get(super::pr_lookup::lookup_feature_repo_pr),
         )
+        .merge(super::merge_routes::merge_router())
         .route(
             "/api/git/forge/image",
             get(super::image_routes::get_forge_image_handler),
         )
 }
 
-async fn refresh_if_stale(state: &AppState, feature_id: i64) -> Result<(), AppError> {
+pub(super) async fn refresh_if_stale(state: &AppState, feature_id: i64) -> Result<(), AppError> {
     let stale = state
         .forge_status
         .get(feature_id)
@@ -353,7 +362,7 @@ fn disable_cli_auth(config: Option<&mut ForgeHostConfig>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{disable_cli_auth, has_stored_credentials, requested_pr_number};
+    use super::{conversation_pr, disable_cli_auth, has_stored_credentials, requested_pr_number};
     use crate::domain::git::forge::provider::{
         ForgeAuthSource, ForgeCredentials, ForgeHostConfig, ForgeUser, PrState, PrStatusSnapshot,
         PrSummary, ReviewState,
@@ -397,6 +406,9 @@ mod tests {
         assert_eq!(requested_pr_number(&status, None).unwrap(), Some(12));
         assert_eq!(requested_pr_number(&status, Some(10)).unwrap(), Some(10));
         assert!(requested_pr_number(&status, Some(99)).is_err());
+        // The merge endpoints act through the same gate.
+        assert_eq!(conversation_pr(&status, 10).unwrap().number, 10);
+        assert!(conversation_pr(&status, 99).is_err());
     }
 
     fn credentials(source: ForgeAuthSource) -> ForgeCredentials {

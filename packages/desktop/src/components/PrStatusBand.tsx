@@ -3,10 +3,14 @@ import { useCallback, useState, type ReactElement, type WheelEvent } from "react
 import type { PrStatusSnapshot } from "@/api/generated";
 import { relativeTime } from "@/components/FeaturePrViewParts";
 import { ForgeAvatar } from "@/components/ForgeImage";
+import { PrApprovalsFact } from "@/components/PrApprovalsFact";
+import { PrMergeBar } from "@/components/PrMergeBar";
 import { ChecksDisclosure } from "@/components/PrStatusBandChecks";
 import { PrToneDot } from "@/components/PrStatusIndicators";
 import { Button } from "@/components/ui/button";
+import { usePrMergeStatus } from "@/hooks/usePrMergeStatus";
 import { openPullRequestExternally } from "@/lib/open-pull-request";
+import { isOpenPr } from "@/lib/thread-prs";
 import { cn } from "@/lib/utils";
 
 export interface PrStatusBandProps {
@@ -40,6 +44,10 @@ export function PrStatusBand({
   onWheel,
 }: PrStatusBandProps): ReactElement {
   const pr = status.pr!;
+  const merge = usePrMergeStatus(status);
+  const approvals = merge.status?.approvals;
+  const showApprovals =
+    approvals != null && (approvals.reviewers.length > 0 || (approvals.required ?? 0) > 0);
   // `@container`: the identity block drops its branch line and the check list
   // takes a shorter cap by the width of the band itself. Safe as a containment
   // context here — every overlay under this subtree (tooltips, menus) is
@@ -70,7 +78,20 @@ export function PrStatusBand({
         unresolvedCount={unresolvedCount}
         unresolvedFiltered={unresolvedFiltered}
         onToggleUnresolved={onToggleUnresolved}
+        reviewFact={showApprovals ? <PrApprovalsFact approvals={approvals} /> : undefined}
       />
+      {isOpenPr(pr) && (
+        <PrMergeBar
+          // Per proposal: a dialog left open must never reappear on another one.
+          key={`${status.feature_id}#${pr.number}`}
+          featureId={status.feature_id}
+          pr={pr}
+          status={merge.status}
+          isLoading={merge.isLoading}
+          error={merge.errorMessage}
+          onRefetch={merge.refetch}
+        />
+      )}
     </div>
   );
 }

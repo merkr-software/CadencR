@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use super::http::ForgeHttp;
+use super::merging::{MergeCommand, PrMergeResponse, PrMergeStatus};
 pub use super::snapshot::{BranchPr, PrStatusSnapshot};
 use crate::domain::git::host::{GitHost, RemoteInfo};
 
@@ -239,6 +240,9 @@ pub enum ForgeError {
     Http(String),
     RateLimited(String),
     Response(String),
+    /// The forge understood a write and declined it — not mergeable, head
+    /// moved, branch protected. Carries the forge's own explanation.
+    Refused(String),
 }
 
 impl ForgeError {
@@ -261,7 +265,8 @@ impl fmt::Display for ForgeError {
             | Self::Configuration(message)
             | Self::Http(message)
             | Self::RateLimited(message)
-            | Self::Response(message) => message,
+            | Self::Response(message)
+            | Self::Refused(message) => message,
         };
         f.write_str(message)
     }
@@ -280,6 +285,22 @@ pub trait ForgeProvider: Send + Sync {
         pr_number: u64,
     ) -> Result<Vec<CommentThread>, ForgeError>;
     async fn validate_token(&self, ctx: &ForgeAuthContext) -> Result<ForgeUser, ForgeError>;
+    /// Approvals, mergeability, and what the viewer can do to land `pr`.
+    async fn merge_status(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+    ) -> Result<PrMergeStatus, ForgeError>;
+    /// Carries out a command already checked against `status`.
+    async fn merge(
+        &self,
+        ctx: &ForgeContext,
+        pr: &PrSummary,
+        command: &MergeCommand,
+        status: &PrMergeStatus,
+    ) -> Result<PrMergeResponse, ForgeError>;
+    /// Takes `pr` off auto-merge or out of the merge queue / train.
+    async fn cancel_merge(&self, ctx: &ForgeContext, pr: &PrSummary) -> Result<(), ForgeError>;
 }
 
 pub fn proposal_noun(host: GitHost) -> &'static str {

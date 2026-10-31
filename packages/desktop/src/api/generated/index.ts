@@ -545,6 +545,42 @@ export interface ArchivedCleanupRunResponse {
   status: ArchivedCleanupRunStatus;
 }
 
+export interface ForgeUser {
+  /** @nullable */
+  avatar_url?: string | null;
+  /** @nullable */
+  display_name?: string | null;
+  username: string;
+}
+
+export type AutoMergeStateEnabledBy = null | ForgeUser;
+
+/**
+ * How a proposal's commits land on the target branch. Each forge offers a
+ * subset, and which one is allowed is a repository (or branch) setting.
+ */
+export type MergeMethod = (typeof MergeMethod)[keyof typeof MergeMethod];
+
+export const MergeMethod = {
+  merge: "merge",
+  squash: "squash",
+  rebase: "rebase",
+  rebase_merge: "rebase_merge",
+  fast_forward: "fast_forward",
+  squash_fast_forward: "squash_fast_forward",
+} as const;
+
+export type AutoMergeStateMethod = null | MergeMethod;
+
+/**
+ * The proposal will merge itself once its checks (and, where the forge
+ * supports it, its approvals) pass.
+ */
+export interface AutoMergeState {
+  enabled_by?: AutoMergeStateEnabledBy;
+  method?: AutoMergeStateMethod;
+}
+
 export interface AutoNamePromptResponse {
   /**
    * The built-in auto-naming system prompt, used whenever the workspace
@@ -704,14 +740,6 @@ export interface CiRollup {
 }
 
 export type BranchPrCi = null | CiRollup;
-
-export interface ForgeUser {
-  /** @nullable */
-  avatar_url?: string | null;
-  /** @nullable */
-  display_name?: string | null;
-  username: string;
-}
 
 export type ReviewState = (typeof ReviewState)[keyof typeof ReviewState];
 
@@ -1757,6 +1785,22 @@ export interface CustomActionVariable {
 
 export interface CustomModelsResponse {
   models: ModelCatalogEntry[];
+}
+
+export interface DeleteSourceBranch {
+  /**
+   * Whether the viewer may choose. False when the repository always deletes
+   * it, or when the source branch lives in another repository (a fork).
+   */
+  configurable: boolean;
+  /** What the forge (or repository setting) would do by default. */
+  default: boolean;
+  /**
+   * Whether the choice also holds when the merge is deferred (auto-merge, a
+   * queue). False when the forge only deletes on an immediate merge: the
+   * repository setting then decides.
+   */
+  deferred: boolean;
 }
 
 export interface DeleteThemeResponse {
@@ -3396,6 +3440,19 @@ export interface McpServerStatusPayload {
   status: string;
 }
 
+/**
+ * What the viewer can do to land the proposal, in the order the pane offers
+ * them — the first one is the primary button.
+ */
+export type MergeAction = (typeof MergeAction)[keyof typeof MergeAction];
+
+export const MergeAction = {
+  merge: "merge",
+  auto_merge: "auto_merge",
+  enqueue: "enqueue",
+  enqueue_when_ready: "enqueue_when_ready",
+} as const;
+
 export interface MergeConflictResult {
   conflict_files: string[];
   has_conflicts: boolean;
@@ -3419,6 +3476,54 @@ export interface MergeFeatureBranchBody {
   project_id?: number | null;
   save_as_default?: boolean;
 }
+
+export type MergeOutcome = (typeof MergeOutcome)[keyof typeof MergeOutcome];
+
+export const MergeOutcome = {
+  merged: "merged",
+  merging: "merging",
+  auto_merge_enabled: "auto_merge_enabled",
+  queued: "queued",
+} as const;
+
+export type MergeQueueEntryEnqueuedBy = null | ForgeUser;
+
+export interface MergeQueueEntry {
+  /**
+   * Entries that will land before this one; `None` when the forge does not
+   * report a position.
+   * @minimum 0
+   * @nullable
+   */
+  ahead?: number | null;
+  enqueued_by?: MergeQueueEntryEnqueuedBy;
+}
+
+/**
+ * A serialized landing lane the forge runs in front of the target branch:
+ * GitHub's merge queue, GitLab's merge trains.
+ */
+export type MergeQueueKind = (typeof MergeQueueKind)[keyof typeof MergeQueueKind];
+
+export const MergeQueueKind = {
+  merge_queue: "merge_queue",
+  merge_train: "merge_train",
+} as const;
+
+/**
+ * Where the proposal stands against the target branch's rules.
+ */
+export type MergeReadiness = (typeof MergeReadiness)[keyof typeof MergeReadiness];
+
+export const MergeReadiness = {
+  ready: "ready",
+  blocked: "blocked",
+  checking: "checking",
+  conflicts: "conflicts",
+  behind: "behind",
+  draft: "draft",
+  closed: "closed",
+} as const;
 
 export interface MergeResult {
   /**
@@ -4291,10 +4396,117 @@ export interface PluginTabWorkspace {
   project_id: number;
 }
 
+/**
+ * One reviewer's latest position on the proposal.
+ */
+export type ReviewerDecision = (typeof ReviewerDecision)[keyof typeof ReviewerDecision];
+
+export const ReviewerDecision = {
+  approved: "approved",
+  changes_requested: "changes_requested",
+  commented: "commented",
+  pending: "pending",
+} as const;
+
+export interface PrReviewer {
+  decision: ReviewerDecision;
+  user: ForgeUser;
+}
+
+export interface PrApprovals {
+  /** @minimum 0 */
+  approved_count: number;
+  /**
+   * Approvals the forge's rules demand before merging. `None` when the forge
+   * does not say (no rule, or the token cannot read the rule).
+   * @minimum 0
+   * @nullable
+   */
+  required?: number | null;
+  /** Approvers first, then requested changes, then everyone else. */
+  reviewers: PrReviewer[];
+  /**
+   * Whether the forge considers the approval requirement met. `None` when it
+   * has no opinion — no rule applies, or it cannot be read.
+   * @nullable
+   */
+  satisfied?: boolean | null;
+}
+
 export interface PrCommentsResponse {
   feature_id: number;
   fetched_at: number;
   threads: CommentThread[];
+}
+
+export interface PrMergeCancelResponse {
+  cancelled: boolean;
+}
+
+export type PrMergeRequestMethod = null | MergeMethod;
+
+export interface PrMergeRequest {
+  action: MergeAction;
+  delete_source_branch?: boolean;
+  /**
+   * The head the user confirmed (`PrMergeStatus::head_sha`). Cadencr
+   * refuses if the forge now reports another head; GitHub and GitLab also
+   * enforce it on their side, Bitbucket's merge API cannot.
+   */
+  expected_head_sha: string;
+  feature_id: number;
+  method?: PrMergeRequestMethod;
+  /** @minimum 0 */
+  pr_number: number;
+}
+
+export interface PrMergeResponse {
+  outcome: MergeOutcome;
+  /**
+   * Something the user should know even though the merge went through — a
+   * source branch that could not be deleted, say.
+   * @nullable
+   */
+  warning?: string | null;
+}
+
+export type PrMergeStatusAutoMerge = null | AutoMergeState;
+
+export type PrMergeStatusDefaultMethod = null | MergeMethod;
+
+export type PrMergeStatusQueue = null | MergeQueueKind;
+
+export type PrMergeStatusQueueEntry = null | MergeQueueEntry;
+
+export interface PrMergeStatus {
+  actions: MergeAction[];
+  approvals: PrApprovals;
+  auto_merge?: PrMergeStatusAutoMerge;
+  /**
+   * Whether the viewer is allowed to merge into the target branch. `None`
+   * when the forge would not say; the merge is then offered and the forge
+   * decides.
+   * @nullable
+   */
+  can_merge?: boolean | null;
+  /** Whether the viewer can take it off auto-merge or out of the queue. */
+  cancellable: boolean;
+  default_method?: PrMergeStatusDefaultMethod;
+  delete_source_branch: DeleteSourceBranch;
+  fetched_at: number;
+  /**
+   * The head the forge evaluated. Sent back with a merge so the forge
+   * refuses if someone pushed in between.
+   */
+  head_sha: string;
+  methods: MergeMethod[];
+  /** @minimum 0 */
+  pr_number: number;
+  queue?: PrMergeStatusQueue;
+  queue_entry?: PrMergeStatusQueueEntry;
+  readiness: MergeReadiness;
+  /** Why the proposal is not ready, in the forge's terms. Empty when ready. */
+  reasons: string[];
 }
 
 export type PrStatusSnapshotCi = null | CiRollup;
@@ -7869,6 +8081,22 @@ export type GetPrCommentsParams = {
 };
 
 export type LookupFeatureRepoPrParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type DeletePrMergeParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type GetPrMergeStatusParams = {
   feature_id: number;
   /**
    * @minimum 0
@@ -21072,6 +21300,252 @@ export function useLookupFeatureRepoPr<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getLookupFeatureRepoPrQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const postPrMerge = (prMergeRequest: PrMergeRequest, signal?: AbortSignal) => {
+  return customInstance<PrMergeResponse>({
+    url: `/api/git/pr/merge`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: prMergeRequest,
+    signal,
+  });
+};
+
+export const getPostPrMergeMutationKey = () => ["postPrMerge"] as const;
+
+export const getPostPrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    TError,
+    PostPrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPostPrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    PostPrMergeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postPrMerge(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostPrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof postPrMerge>>>;
+export type PostPrMergeMutationBody = PrMergeRequest;
+export type PostPrMergeMutationError = ErrorType<unknown>;
+export type PostPrMergeMutationVariables = { data: PrMergeRequest };
+
+export const usePostPrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postPrMerge>>,
+      TError,
+      PostPrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getPostPrMergeMutationOptions(options), queryClient);
+};
+
+export const deletePrMerge = (params: DeletePrMergeParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeCancelResponse>({
+    url: `/api/git/pr/merge`,
+    method: "DELETE",
+    params,
+    signal,
+  });
+};
+
+export const getDeletePrMergeMutationKey = () => ["deletePrMerge"] as const;
+
+export const getDeletePrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    TError,
+    DeletePrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeletePrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    DeletePrMergeMutationVariables
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return deletePrMerge(params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof deletePrMerge>>>;
+
+export type DeletePrMergeMutationError = ErrorType<unknown>;
+export type DeletePrMergeMutationVariables = { params: DeletePrMergeParams };
+
+export const useDeletePrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deletePrMerge>>,
+      TError,
+      DeletePrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeletePrMergeMutationOptions(options), queryClient);
+};
+
+export const getPrMergeStatus = (params: GetPrMergeStatusParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeStatus>({
+    url: `/api/git/pr/merge-status`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetPrMergeStatusQueryKey = (params?: GetPrMergeStatusParams) => {
+  return [`/api/git/pr/merge-status`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPrMergeStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPrMergeStatusQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPrMergeStatus>>> = ({ signal }) =>
+    getPrMergeStatus(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPrMergeStatus>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPrMergeStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getPrMergeStatus>>>;
+export type GetPrMergeStatusQueryError = ErrorType<unknown>;
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPrMergeStatusQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
