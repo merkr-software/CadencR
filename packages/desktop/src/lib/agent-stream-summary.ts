@@ -28,6 +28,18 @@ const SEGMENT_BOUNDARY_TYPES = new Set<AgentBlockData["type"]>([
 ]);
 
 /**
+ * A user message the agent has received, or one whose delivery was never
+ * tracked (history). A steer still `pending_agent` may yet land inside the
+ * running turn, so it opens nothing.
+ */
+export function isDeliveredPrompt(block: AgentBlockData): boolean {
+  return (
+    block.type === "user_message" &&
+    (block.promptDeliveryState === undefined || block.promptDeliveryState === "received_agent")
+  );
+}
+
+/**
  * Whether a block closes the current turn and opens a new one. A canonical
  * steer event can be persisted with `promptDeliveryState: "pending_agent"`
  * before the agent receives it, so collapsing the in-flight turn at that
@@ -39,14 +51,7 @@ function isSegmentBoundary(block: AgentBlockData): boolean {
     return shouldHideToolCall(block.sourceToolName);
   }
   if (!SEGMENT_BOUNDARY_TYPES.has(block.type)) return false;
-  if (
-    block.type === "user_message" &&
-    block.promptDeliveryState !== undefined &&
-    block.promptDeliveryState !== "received_agent"
-  ) {
-    return false;
-  }
-  return true;
+  return block.type !== "user_message" || isDeliveredPrompt(block);
 }
 
 /** A turn: an optional leading boundary block plus the blocks that follow it. */
@@ -147,9 +152,7 @@ function emitSegment(result: AgentBlockData[], segment: Segment, active: boolean
       (block) =>
         block === finalText ||
         isSubagentCarrier(block) ||
-        (block.type === "user_message" &&
-          block.promptDeliveryState !== undefined &&
-          block.promptDeliveryState !== "received_agent"),
+        (block.type === "user_message" && !isDeliveredPrompt(block)),
     ),
   );
   if (tools.length === 0) {

@@ -25,10 +25,17 @@ import { CompactFlowRow } from "./agent-session/CompactFlowRow";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
 import type { DisplayItem } from "@/types/agent-stream";
-import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgentStreamData";
+import {
+  useAgentDisplayItems,
+  useRootBlocks,
+  useRowAnnotations,
+  useToolResultMap,
+} from "./useAgentStreamData";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { isTurnInProgress } from "@/stores/ws-turn-lifecycle";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
+import type { RowAnnotation } from "@/lib/agent-turn-annotations";
+import { ModelSwitchDivider, TurnFooterLine } from "./StreamDividers";
 
 type ScrollRef = (el: HTMLElement | null) => void;
 const FIRST_ITEM_INDEX_BASE = 1_000_000;
@@ -159,7 +166,7 @@ const VIRTUOSO_COMPONENTS = {
 
 const LoadingOlderOverlay = memo(function LoadingOlderOverlay() {
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center">
+    <div className="pointer-events-none absolute inset-x-0 top-2 z-20 flex justify-center">
       <div className="rounded-full border bg-background/80 p-1 shadow-sm backdrop-blur">
         <Loader2Icon className="h-4 w-4 animate-spin text-muted-foreground" />
       </div>
@@ -196,6 +203,25 @@ function useAgentStreamRefs(
   );
 }
 
+/** Row keys and the history prefetch trigger, both offset by `firstItemIndex`. */
+function useVirtuosoIndexing(
+  displayItems: DisplayItem[],
+  firstItemIndex: number,
+  onStartReached: (() => void) | undefined,
+) {
+  const onRangeChanged = useCallback(
+    (range: ListRange): void => {
+      if (range.startIndex <= firstItemIndex + HISTORY_PREFETCH_ROWS) onStartReached?.();
+    },
+    [firstItemIndex, onStartReached],
+  );
+  const computeItemKey = useCallback(
+    (i: number): string => displayItems[i - firstItemIndex]?.key ?? String(i),
+    [displayItems, firstItemIndex],
+  );
+  return { onRangeChanged, computeItemKey };
+}
+
 function useVirtuosoContext({
   showStreamingIndicator,
   streamingBlockId,
@@ -213,18 +239,24 @@ function useAgentStreamItemRenderer(
   basePath: string | undefined,
   toolResultMap: Map<string, AgentBlockData>,
   verbosityMode: AgentVerbosityMode,
+  rowAnnotations: Map<string, RowAnnotation>,
 ) {
   return useCallback(
     (_index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => {
+      const annotation = rowAnnotations.get(item.key);
       if (item.kind === "flow") {
         const target = context.searchBlockId;
         const reveal = target && item.blocks.some((block) => block.id === target);
         return (
-          <CompactFlowRow
-            blocks={item.blocks}
-            basePath={basePath}
-            revealBlockId={reveal ? target : undefined}
-          />
+          <>
+            {annotation?.modelSwitch && <ModelSwitchDivider {...annotation.modelSwitch} />}
+            <CompactFlowRow
+              blocks={item.blocks}
+              basePath={basePath}
+              revealBlockId={reveal ? target : undefined}
+            />
+            {annotation?.footer && <TurnFooterLine footer={annotation.footer} />}
+          </>
         );
       }
       return (
@@ -234,10 +266,11 @@ function useAgentStreamItemRenderer(
           basePath={basePath}
           toolResultMap={toolResultMap}
           verbosityMode={verbosityMode}
+          annotation={annotation}
         />
       );
     },
-    [basePath, toolResultMap, verbosityMode],
+    [basePath, toolResultMap, verbosityMode, rowAnnotations],
   );
 }
 
@@ -334,6 +367,7 @@ export const AgentStream = memo(function AgentStream({
     isStreaming,
     verbosityMode,
   );
+  const rowAnnotations = useRowAnnotations(displayItems, turnActive ?? !!isStreaming);
   const firstItemIndex = FIRST_ITEM_INDEX_BASE - historyPrependDisplayOffset;
 
   const [searchBlockId, setSearchBlockId] = useState<string | null>(null);
@@ -347,20 +381,17 @@ export const AgentStream = memo(function AgentStream({
     searchBlockId,
   });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
-  const onRangeChanged = useCallback(
-    (range: ListRange): void => {
-      if (range.startIndex <= firstItemIndex + HISTORY_PREFETCH_ROWS) onStartReached?.();
-    },
-    [firstItemIndex, onStartReached],
+  const { onRangeChanged, computeItemKey } = useVirtuosoIndexing(
+    displayItems,
+    firstItemIndex,
+    onStartReached,
   );
-  const computeItemKey = useCallback(
-    (i: number): string => {
-      const localIndex = i - firstItemIndex;
-      return displayItems[localIndex]?.key ?? String(i);
-    },
-    [displayItems, firstItemIndex],
+  const renderItem = useAgentStreamItemRenderer(
+    basePath,
+    toolResultMap,
+    verbosityMode,
+    rowAnnotations,
   );
-  const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
 
   if (displayItems.length === 0) {
     return (

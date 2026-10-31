@@ -143,14 +143,43 @@ describe("AgentStream", () => {
     expect(screen.queryByText("█")).not.toBeInTheDocument();
   });
 
-  it("renders sender and timestamp header for text blocks", () => {
+  it("names the model once, on the finished turn's closing line", () => {
+    const createdAt = "2026-02-22T10:30:00Z";
+    const blocks: AgentBlockData[] = [
+      { ...makeBlock("0", "Do it", "user_message"), createdAt },
+      { ...makeBlock("1", "Looking"), createdAt, model: "claude-sonnet-4-6" },
+      { ...makeBlock("2", "Done"), createdAt, model: "claude-sonnet-4-6" },
+    ];
+    render(<AgentStream blocks={blocks} />);
+    const footer = screen.getByText("claude-sonnet-4-6");
+    expect(screen.getAllByText("claude-sonnet-4-6")).toHaveLength(1);
+    const position = screen.getByTestId("block-2").compareDocumentPosition(footer);
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("marks where the model changed with a divider", () => {
+    const createdAt = "2026-02-22T10:30:00Z";
+    const blocks: AgentBlockData[] = [
+      { ...makeBlock("0", "Do it", "user_message"), createdAt },
+      { ...makeBlock("1", "On it"), createdAt, model: "claude-opus-5-5" },
+      { ...makeBlock("2", "Again", "user_message"), createdAt },
+      { ...makeBlock("3", "Sure"), createdAt, model: "claude-sonnet-5-5" },
+    ];
+    render(<AgentStream blocks={blocks} />);
+    const divider = screen.getByRole("note");
+    expect(divider).toHaveTextContent("claude-opus-5-5 → claude-sonnet-5-5");
+    const position = divider.compareDocumentPosition(screen.getByTestId("block-3"));
+    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("waits for the turn to end before naming its model", () => {
     const block: AgentBlockData = {
       ...makeBlock("1", "Hello"),
       createdAt: "2026-02-22T10:30:00Z",
       model: "claude-sonnet-4-6",
     };
-    render(<AgentStream blocks={[block]} />);
-    expect(screen.getByText("claude-sonnet-4-6")).toBeInTheDocument();
+    render(<AgentStream blocks={[block]} isStreaming />);
+    expect(screen.queryByText("claude-sonnet-4-6")).toBeNull();
   });
 
   it("renders 'User' header for user_message blocks", () => {
@@ -178,13 +207,14 @@ describe("AgentStream", () => {
     expect(screen.queryByText("User")).toBeNull();
   });
 
-  it("renders 'unknown' when model is not set", () => {
+  it("draws no closing line for a turn without an attributed model", () => {
     const block: AgentBlockData = {
       ...makeBlock("1", "Hello"),
       createdAt: "2026-02-22T10:30:00Z",
     };
-    render(<AgentStream blocks={[block]} />);
-    expect(screen.getByText("unknown")).toBeInTheDocument();
+    const { container } = render(<AgentStream blocks={[block]} />);
+    expect(container.querySelector("[data-turn-footer]")).toBeNull();
+    expect(screen.queryByText("unknown")).toBeNull();
   });
 
   it("does not show streaming indicator when not streaming", () => {

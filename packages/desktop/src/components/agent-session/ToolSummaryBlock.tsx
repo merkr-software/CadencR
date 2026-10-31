@@ -128,7 +128,7 @@ export const ToolSummaryBlock = memo(function ToolSummaryBlock({
         )}
       </button>
       <CollapsibleSection open={expanded}>
-        <div className="border-t border-border px-3 py-1">
+        <div className="border-t border-border px-3 py-1" data-stream-nested>
           {detail.map((block) => (
             <AgentStreamItem
               key={block.id}
