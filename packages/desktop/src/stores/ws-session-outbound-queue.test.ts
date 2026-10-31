@@ -312,17 +312,4 @@ describe("ws-session outbound queue", () => {
     // Resolves now instead of hanging until the 10s timeout after teardown.
     await expect(pending).resolves.toBeNull();
   });
-
-  it("resolves an in-flight sendRequest() immediately on destroy", async () => {
-    await connectInitializedThenDrop();
-    const store = useWsSessionStore.getState();
-
-    const pending = store.sendRequest(
-      "s1",
-      createEnvelope("session", "retry_worktree_setup", { feature_id: 42 }),
-    );
-    store.destroy("s1");
-
-    await expect(pending).resolves.toBeNull();
-  });
 });

@@ -292,8 +292,6 @@ function createWsSessionStore(set: WsStoreSet, get: WsStoreGet): WsSessionStore 
     ...createWsSessionSimpleActions({
       ctx,
       sendRaw,
-      sourceKey: wsSessionSourceKey,
-      rejectPendingRequests,
       planRestorePrefix: PLAN_RESTORE_PREFIX,
     }),
   };

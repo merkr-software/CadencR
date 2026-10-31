@@ -36,7 +36,6 @@ import {
   handleGateClosed,
   handleInitialized,
   handleMcpServers,
-  handleMessage,
   handlePermissionRequest,
   handlePromptReceived,
   handleCanonicalUserMessage,
@@ -159,12 +158,16 @@ const ignoreSessionAction: SessionActionHandler = () => {};
  * Replaces the three hand-mirrored string switches this file used to chain.
  * Exhaustive over `SessionActionName`, so adding a backend action to the
  * contract fails the type-check until it is handled (or explicitly ignored).
+ * `session.message` is the one exception: the socket handler coalesces every
+ * stream delta (`ws-session-socket-handler.ts`), so none reaches this table.
  */
-const SESSION_ACTION_HANDLERS: Record<SessionActionName, SessionActionHandler> = {
+const SESSION_ACTION_HANDLERS: Record<
+  Exclude<SessionActionName, typeof SESSION_ACTION.message>,
+  SessionActionHandler
+> = {
   [SESSION_ACTION.initialized]: handleInitialized,
   [SESSION_ACTION.runtimeSessionId]: handleRuntimeSessionId,
   [SESSION_ACTION.mcpServers]: handleMcpServers,
-  [SESSION_ACTION.message]: handleMessage,
   [SESSION_ACTION.userMessage]: handleCanonicalUserMessage,
   [SESSION_ACTION.permissionRequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
@@ -210,7 +213,7 @@ function handleSessionAction(
   // reads as the load-bearing runtime check it is: `envelope.action` is an
   // arbitrary wire string, not necessarily a known `SessionActionName`.
   const handler: SessionActionHandler | undefined =
-    SESSION_ACTION_HANDLERS[envelope.action as SessionActionName];
+    SESSION_ACTION_HANDLERS[envelope.action as keyof typeof SESSION_ACTION_HANDLERS];
   if (!handler) {
     // Never drop a session envelope silently: an unknown action means the FE
     // contract has drifted from the backend emit sites (or a typo shipped).

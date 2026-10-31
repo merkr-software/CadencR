@@ -91,7 +91,6 @@ export interface WsSessionStore {
   ) => void;
   respondToQuestion: (sessionId: string, response: AgentQuestionAnswers) => void;
   interrupt: (sessionId: string) => void;
-  destroy: (sessionId: string) => void;
   clearSession: (sessionId: string) => void;
   /** Rewind conversation + code back to before `messageId`, in place. */
   rewindToMessage: (sessionId: string, messageId: number, confirmDiscard?: boolean) => void;

@@ -265,27 +265,6 @@ describe("ws-session-store", () => {
     expect(useWsSessionStore.getState().sessions["s1"]).toBeUndefined();
   });
 
-  it("destroy sends destroy envelope and closes connection", async () => {
-    const store = useWsSessionStore.getState();
-    store.connect("s1");
-    await tick();
-    const ws = getWs();
-    ws.simulateMessage({
-      domain: "session",
-      action: "initialized",
-      payload: { session_id: "srv-1" },
-    });
-    store.destroy("s1");
-    const destroyMsg = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(destroyMsg.action).toBe("destroy");
-    expect(destroyMsg.payload.session_id).toBe("srv-1");
-    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
-    expect(useWsSessionStore.getState().sessions["s1"].lifecycle).toEqual({
-      phase: "terminal",
-      reason: "completed",
-    });
-  });
-
   it("sendPrompt waits for the canonical backend event without marking the agent running", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");

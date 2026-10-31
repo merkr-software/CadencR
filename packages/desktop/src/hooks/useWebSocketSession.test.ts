@@ -2773,30 +2773,6 @@ describe("useWebSocketSession", () => {
     expect(ws.readyState).toBe(MockWebSocket.OPEN);
   });
 
-  it("explicit destroy sends destroy and closes WebSocket", async () => {
-    const { result } = renderHook(() => useWebSocketSession("test-id"));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const ws = getWs();
-    act(() => {
-      ws.simulateMessage({
-        domain: "session",
-        action: "initialized",
-        payload: { session_id: "srv-session-1" },
-      });
-    });
-    act(() => {
-      result.current.destroy();
-    });
-    expect(ws.sent.length).toBeGreaterThan(0);
-    const destroyMsg = JSON.parse(ws.sent[ws.sent.length - 1]);
-    expect(destroyMsg.action).toBe("destroy");
-    expect(destroyMsg.payload.session_id).toBe("srv-session-1");
-    expect(ws.readyState).toBe(MockWebSocket.CLOSED);
-  });
-
   it("reuses existing WebSocket connection across unmount/remount", async () => {
     const { unmount } = renderHook(() => useWebSocketSession("reuse-id"));
     await act(async () => {
@@ -2936,7 +2912,6 @@ describe("useWebSocketSession", () => {
     const before = {
       sendPrompt: result.current.sendPrompt,
       interrupt: result.current.interrupt,
-      destroy: result.current.destroy,
       setPermissionMode: result.current.setPermissionMode,
       approvePlan: result.current.approvePlan,
       loadOlderMessages: result.current.loadOlderMessages,
@@ -2975,7 +2950,6 @@ describe("useWebSocketSession", () => {
     expect(result.current.blocks.length).toBe(1);
     expect(result.current.sendPrompt).toBe(before.sendPrompt);
     expect(result.current.interrupt).toBe(before.interrupt);
-    expect(result.current.destroy).toBe(before.destroy);
     expect(result.current.setPermissionMode).toBe(before.setPermissionMode);
     expect(result.current.approvePlan).toBe(before.approvePlan);
     expect(result.current.loadOlderMessages).toBe(before.loadOlderMessages);

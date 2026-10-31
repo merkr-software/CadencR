@@ -123,7 +123,6 @@ export interface UseWebSocketSessionReturn {
     optionId?: string,
   ) => void;
   interrupt: () => void;
-  destroy: () => void;
   clearSession: () => void;
   compactSession: () => void;
   initSession: (config: SessionConfig) => void;
@@ -142,7 +141,6 @@ type SessionActions = Pick<
   | "respondToPermission"
   | "respondToQuestion"
   | "interrupt"
-  | "destroy"
   | "clearSession"
   | "compactSession"
   | "initSession"
@@ -294,7 +292,6 @@ function useSessionActions(sessionId: string): SessionActions {
       respondToQuestion: (response: AgentQuestionAnswers): void =>
         s.respondToQuestion(sessionId, response),
       interrupt: (): void => s.interrupt(sessionId),
-      destroy: (): void => s.destroy(sessionId),
       clearSession: (): void => s.clearSession(sessionId),
       compactSession: (): void => s.compactSession(sessionId),
       initSession: (config: SessionConfig): void => s.initSession(sessionId, config),

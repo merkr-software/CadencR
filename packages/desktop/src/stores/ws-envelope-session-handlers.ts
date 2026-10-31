@@ -24,9 +24,6 @@ import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
-// Re-exported so the envelope dispatch table keeps importing `handleMessage`
-// from here; the implementation moved to `ws-message-envelope-handler.ts`.
-export { handleMessage } from "./ws-message-envelope-handler";
 
 export function handleCompacting(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
   const p = parseCompactingPayload(payload);
