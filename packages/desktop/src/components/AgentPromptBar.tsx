@@ -200,12 +200,19 @@ function PromptSurface({
     () => withSideQuestionSkill(props.slashCommandsOverride, props.sessionId),
     [props.slashCommandsOverride, props.sessionId],
   );
+  // The 40% cap keeps a long draft from swallowing the transcript, but it
+  // counts this card's own chrome (manifest, chips, instrument row, ~170px on a
+  // first prompt). With the phone keyboard up, 40% of the visible height is
+  // less than that, so the editor got 0px and typed text was invisible. The
+  // rem floor keeps a few lines for the editor (in desktop windows under 640px
+  // tall too, which had the same squeeze); the composer's `min-h-0` chain still
+  // shrinks it to fit the frame.
   return (
     <div
       data-composer-card
       data-shell-command-mode={controller.isShellCommandMode || undefined}
       data-running={controller.isRunning || undefined}
-      className="glass-surface flex max-h-[calc(var(--app-vh,100dvh)*0.4)] min-h-0 flex-col rounded-lg border border-transparent bg-muted/40 transition-colors focus-within:bg-muted/55"
+      className="glass-surface flex max-h-[max(calc(var(--app-vh,100dvh)*0.4),16rem)] min-h-0 flex-col rounded-lg border border-transparent bg-muted/40 transition-colors focus-within:bg-muted/55"
       onClick={editorActions.handleSurfaceClick}
     >
       {controller.isRunning && <RunningSweep />}
