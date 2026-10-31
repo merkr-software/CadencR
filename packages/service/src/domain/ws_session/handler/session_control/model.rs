@@ -42,7 +42,7 @@ pub(crate) async fn handle_model_set(
 
     // Reach the map that owns the live runtime, not just this viewer.
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
     let Some((snapshot, model, entry)) = validate_model_set(

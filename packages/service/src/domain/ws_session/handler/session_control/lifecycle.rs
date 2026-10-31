@@ -1,3 +1,4 @@
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 use std::sync::atomic::Ordering;
 
 use axum::extract::ws::Message;
@@ -48,7 +49,7 @@ pub(crate) async fn handle_interrupt(
     // resulting Idle status already broadcasts to every device via
     // `session_status_tx`, so no extra mirror is needed here.
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let sdk_sessions = &effective_sessions;
 
     let active_query = {
@@ -162,15 +163,17 @@ pub(crate) async fn handle_destroy(
     if let QueryState::Active { query, .. } = handle.state {
         persist_and_close_query(
             &query,
-            app_state,
+            &RuntimeCloseContext::builder()
+                .pool(&app_state.write_pool)
+                .feature_senders(&app_state.ws_feature_senders)
+                .build(),
             db_session_id,
             &runtime_provider,
             feature_id,
         )
         .await;
     }
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
+    app_state.session_status_tx.broadcast(
         db_session_id,
         feature_id,
         crate::domain::session_status::AgentStatus::Idle,
@@ -227,8 +230,7 @@ pub(crate) async fn handle_delete(
                 .forget_session(db_session_id)
                 .await;
 
-            WsSessionPersistence::broadcast_session_status(
-                &app_state.session_status_tx,
+            app_state.session_status_tx.broadcast(
                 db_session_id,
                 feature_id,
                 crate::domain::session_status::AgentStatus::Idle,
@@ -306,7 +308,10 @@ pub(crate) async fn handle_clear(
             WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
             persist_and_close_query(
                 query,
-                app_state,
+                &RuntimeCloseContext::builder()
+                    .pool(&app_state.write_pool)
+                    .feature_senders(&app_state.ws_feature_senders)
+                    .build(),
                 db_session_id,
                 &handle.runtime_provider,
                 handle.feature_id,

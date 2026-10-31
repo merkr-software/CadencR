@@ -1,11 +1,17 @@
-use crate::app_state::AppState;
 use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimeSpawnConfig};
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 
 use super::default_permission_mode;
 
+/// Read settings and persist a provider-selected default profile independently.
+#[derive(bon::Builder)]
+pub(in crate::domain::ws_session) struct RuntimeSettingsContext<'a> {
+    read_pool: &'a sqlx::SqlitePool,
+    write_pool: &'a sqlx::SqlitePool,
+}
+
 pub(in crate::domain::ws_session) async fn apply_provider_settings(
-    app_state: &AppState,
+    context: &RuntimeSettingsContext<'_>,
     project_id: i64,
     feature_id: i64,
     db_session_id: i64,
@@ -27,7 +33,7 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
         runtime_config.profile_state_identity = profile.state_identity;
         if stored_profile.is_none() {
             WsSessionPersistence::update_profile_static(
-                &app_state.write_pool,
+                context.write_pool,
                 db_session_id,
                 &profile.identity,
             )
@@ -36,7 +42,7 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
     }
 
     let Some(allow_bypass_permissions) = adapter
-        .bypass_permission_opt_in(&app_state.read_pool, feature_id, Some(project_id))
+        .bypass_permission_opt_in(context.read_pool, feature_id, Some(project_id))
         .await
     else {
         return Ok(runtime_config.profile.clone());

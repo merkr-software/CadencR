@@ -1,12 +1,19 @@
-use super::*;
+use super::super::super::{PersistedEventRef, PersistedMessageRef, INSERT_MESSAGE_SQL};
+use super::super::compact::serialize_compact_metadata;
+use super::super::TranscriptWriter;
+use super::TranscriptPersistenceError;
+use crate::domain::agents::adapter::{RuntimeEvent, RuntimeStreamScope};
 
-impl WsSessionPersistence {
+impl TranscriptWriter {
     /// Report transcript durability separately from successful live streaming.
-    pub async fn persist_runtime_event(
+    pub(in super::super::super) async fn persist_runtime_event(
         &mut self,
+        session_id: Option<i64>,
         runtime_event: &RuntimeEvent,
     ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
-        let result = self.try_persist_runtime_event(runtime_event).await;
+        let result = self
+            .try_persist_runtime_event(session_id, runtime_event)
+            .await;
         if result.is_err() {
             self.transcript.record_failure(runtime_event);
         }
@@ -15,11 +22,10 @@ impl WsSessionPersistence {
 
     async fn try_persist_runtime_event(
         &mut self,
+        session_id: Option<i64>,
         runtime_event: &RuntimeEvent,
     ) -> Result<Option<PersistedEventRef>, TranscriptPersistenceError> {
-        let session_id = self
-            .session_db_id
-            .ok_or(TranscriptPersistenceError::MissingSession)?;
+        let session_id = session_id.ok_or(TranscriptPersistenceError::MissingSession)?;
         if let Some(event) = runtime_event.stream_event() {
             return self
                 .persist_stream_event(

@@ -1,9 +1,14 @@
-impl WsSessionPersistence {
+use super::super::message_store::insert_message;
+use super::super::TranscriptPersistenceError;
+use super::TranscriptWriter;
+use crate::domain::agents::adapter::{RuntimeAssistantMessage, RuntimeContentBlock};
+
+impl TranscriptWriter {
     /// Persist sub-agent content from an `assistant` message.
     ///
     /// Stream events for sub-agent tool_calls lack `parent_tool_use_id`, so we
     /// update existing rows to add the parent link. Text/thinking are inserted fresh.
-    async fn persist_assistant_subagent(
+    pub(super) async fn persist_assistant_subagent(
         &self,
         session_id: i64,
         message: &RuntimeAssistantMessage,
@@ -31,18 +36,18 @@ impl WsSessionPersistence {
                     .await;
 
                     if result?.rows_affected() == 0 {
-                        Self::insert_message(
-                            &self.write_pool,
-                            session_id,
-                            "assistant",
-                            &content,
-                            "tool_call",
-                            Some(name),
-                            Some(id),
-                            Some(ptuid),
-                            model,
-                        )
-                        .await?;
+                        insert_message()
+                            .pool(&self.write_pool)
+                            .session_id(session_id)
+                            .role("assistant")
+                            .content(&content)
+                            .message_type("tool_call")
+                            .tool_name(name)
+                            .tool_use_id(id)
+                            .parent_tool_use_id(ptuid)
+                            .maybe_model(model)
+                            .call()
+                            .await?;
                     }
                 }
                 // Text/thinking are reconciled once, using the scoped streaming row identities.
@@ -57,7 +62,10 @@ impl WsSessionPersistence {
 #[cfg(test)]
 mod session_subagents_tests {
     use super::*;
+    use crate::domain::agents::adapter::RuntimeEvent;
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
     use sqlx::sqlite::SqlitePoolOptions;
+    use sqlx::SqlitePool;
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
@@ -153,25 +161,24 @@ mod session_subagents_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let sid = p.find_or_create_session(None, None).await.unwrap();
 
-        let _ = WsSessionPersistence::insert_message(
-            &pool,
-            sid,
-            "assistant",
-            "{\"command\":\"ls\"}",
-            "tool_call",
-            Some("Bash"),
-            Some("toolu_child1"),
-            None,
-            None,
-        )
-        .await;
+        let _ = insert_message()
+            .pool(&pool)
+            .session_id(sid)
+            .role("assistant")
+            .content("{\"command\":\"ls\"}")
+            .message_type("tool_call")
+            .tool_name("Bash")
+            .tool_use_id("toolu_child1")
+            .call()
+            .await;
 
         let msg = make_assistant_message(vec![RuntimeContentBlock::ToolUse {
             id: "toolu_child1".to_string(),
             name: "Bash".to_string(),
             input: serde_json::json!({"command": "ls -la"}),
         }]);
-        p.persist_assistant_subagent(sid, &msg, "toolu_parent")
+        p.writer
+            .persist_assistant_subagent(sid, &msg, "toolu_parent")
             .await
             .expect("persist subagent tools");
 
@@ -204,7 +211,8 @@ mod session_subagents_tests {
             name: "Read".to_string(),
             input: serde_json::json!({"file_path": "/tmp/test"}),
         }]);
-        p.persist_assistant_subagent(sid, &msg, "toolu_parent")
+        p.writer
+            .persist_assistant_subagent(sid, &msg, "toolu_parent")
             .await
             .expect("persist subagent tools");
 
@@ -225,25 +233,25 @@ mod session_subagents_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let sid = p.find_or_create_session(None, None).await.unwrap();
 
-        let _ = WsSessionPersistence::insert_message(
-            &pool,
-            sid,
-            "assistant",
-            r#"{"status":"pending"}"#,
-            "tool_call",
-            Some("Read"),
-            Some("toolu_same_parent"),
-            Some("toolu_parent"),
-            None,
-        )
-        .await;
+        let _ = insert_message()
+            .pool(&pool)
+            .session_id(sid)
+            .role("assistant")
+            .content(r#"{"status":"pending"}"#)
+            .message_type("tool_call")
+            .tool_name("Read")
+            .tool_use_id("toolu_same_parent")
+            .parent_tool_use_id("toolu_parent")
+            .call()
+            .await;
 
         let msg = make_assistant_message(vec![RuntimeContentBlock::ToolUse {
             id: "toolu_same_parent".to_string(),
             name: "Read".to_string(),
             input: serde_json::json!({"file_path": "/tmp/test"}),
         }]);
-        p.persist_assistant_subagent(sid, &msg, "toolu_parent")
+        p.writer
+            .persist_assistant_subagent(sid, &msg, "toolu_parent")
             .await
             .expect("persist subagent tools");
 

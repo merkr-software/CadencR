@@ -109,7 +109,7 @@ async fn resolve_target(
         None
     })?;
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let feature_id = validate_session(sender, &effective_sessions, ref_id, db_session_id).await?;
     Some((effective_sessions, db_session_id, feature_id))
 }

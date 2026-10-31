@@ -1,7 +1,12 @@
-use super::*;
+use super::super::super::INSERT_MESSAGE_SQL;
+use super::super::{MergeableMessageType, TranscriptWriter};
+use super::TranscriptPersistenceError;
+use crate::domain::agents::adapter::{
+    RuntimeAssistantMessage, RuntimeContentBlock, RuntimeStreamScope,
+};
 
-impl WsSessionPersistence {
-    pub(in super::super) async fn reconcile_assistant_text(
+impl TranscriptWriter {
+    pub(super) async fn reconcile_assistant_text(
         &mut self,
         session_id: i64,
         scope: &RuntimeStreamScope,
@@ -66,6 +71,10 @@ impl WsSessionPersistence {
 mod tests {
     use super::super::test_helpers::*;
     use super::*;
+    use crate::domain::agents::adapter::RuntimeStreamEvent;
+    use crate::domain::ws_session::persistence::{
+        PersistedEventRef, TranscriptPersistenceStatus, WsSessionPersistence,
+    };
     #[tokio::test]
     async fn failed_initial_insert_is_reconciled_without_lost_or_duplicate_text() {
         let pool = setup_test_db().await;

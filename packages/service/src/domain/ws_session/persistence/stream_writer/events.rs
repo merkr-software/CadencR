@@ -1,39 +1,9 @@
-impl WsSessionPersistence {
-    async fn insert_message(
-        pool: &SqlitePool,
-        session_id: i64,
-        role: &str,
-        content: &str,
-        message_type: &str,
-        tool_name: Option<&str>,
-        tool_use_id: Option<&str>,
-        ptuid: Option<&str>,
-        model: Option<&str>,
-    ) -> Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error> {
-        // Only user-message image blocks have a desktop consumer that resolves
-        // `cadencr-blob://`. Tool arguments/results may contain image-looking
-        // strings as source code or protocol data and must remain byte-for-byte.
-        let offloaded = if message_type == "user_message" {
-            crate::domain::blobs::offload_content_async(content).await
-        } else {
-            None
-        };
-        let content = offloaded.as_deref().unwrap_or(content);
+use super::super::{PersistedMessageRef, TranscriptPersistenceError};
+use super::TranscriptWriter;
+use crate::domain::agents::adapter::{RuntimeEvent, RuntimeStreamEvent, RuntimeStreamScope};
 
-        sqlx::query(INSERT_MESSAGE_SQL)
-            .bind(session_id)
-            .bind(role)
-            .bind(content)
-            .bind(message_type)
-            .bind(tool_name)
-            .bind(tool_use_id)
-            .bind(ptuid)
-            .bind(model)
-            .execute(pool)
-            .await
-    }
-
-    async fn persist_stream_event(
+impl TranscriptWriter {
+    pub(super) async fn persist_stream_event(
         &mut self,
         session_id: i64,
         runtime_session_id: Option<&str>,
@@ -84,12 +54,15 @@ impl WsSessionPersistence {
     /// runtime session, if any. The forward path stamps this onto live blocks so
     /// a client that missed `message_start` (e.g. a remote device that joined the
     /// turn late) still labels streamed text with the right model.
-    pub fn current_model_for_event(&self, runtime_event: &RuntimeEvent) -> Option<&str> {
+    pub(in super::super) fn current_model_for_event(
+        &self,
+        runtime_event: &RuntimeEvent,
+    ) -> Option<&str> {
         let scope = RuntimeStreamScope::for_event(runtime_event);
         self.current_models.get(&scope).map(String::as_str)
     }
 
-    async fn mark_has_file_changes(&mut self, session_id: i64) {
+    pub(super) async fn mark_has_file_changes(&mut self, session_id: i64) {
         self.file_change_marked = true;
         let _ = sqlx::query("UPDATE agent_sessions SET has_file_changes = 1 WHERE id = ?")
             .bind(session_id)
@@ -99,16 +72,17 @@ impl WsSessionPersistence {
 }
 
 #[cfg(test)]
-mod session_events_tests {
-    use super::*;
+pub(super) mod session_events_tests {
     use crate::domain::agents::adapter::{
         RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent, RuntimeEventKind,
         RuntimeEventMetadata, RuntimeStreamEvent,
     };
+    use crate::domain::ws_session::persistence::PersistedEventRef;
+    use crate::domain::ws_session::persistence::WsSessionPersistence;
     use sqlx::sqlite::SqlitePoolOptions;
     use sqlx::{Row, SqlitePool};
 
-    pub(super) async fn setup_test_db() -> SqlitePool {
+    pub(in super::super) async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -169,7 +143,7 @@ mod session_events_tests {
         pool
     }
 
-    pub(super) fn stream_event(
+    pub(in super::super) fn stream_event(
         runtime_session_id: &str,
         parent_tool_use_id: Option<&str>,
         event: RuntimeStreamEvent,

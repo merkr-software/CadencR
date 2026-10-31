@@ -1,39 +1,31 @@
-#[bon::bon]
+//! Persist lifecycle status and usage counters for a session record.
+
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+use tracing::error;
+
 impl WsSessionPersistence {
-    pub async fn update_runtime_overrides_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        overrides: &crate::domain::agents::adapter::RuntimeConfigOverrides,
+    pub async fn reopen_session(
+        &self,
+        id: i64,
+        permission_mode: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        let json = serde_json::to_string(overrides).expect("runtime overrides serialize");
-        sqlx::query("UPDATE agent_sessions SET runtime_overrides = ? WHERE id = ?")
-            .bind(json)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
+        let result = sqlx::query(
+            "UPDATE agent_sessions
+             SET status = CASE WHEN status = 'running' THEN status ELSE 'paused' END,
+                 permission_mode = COALESCE(?, permission_mode)
+             WHERE id = ?",
+        )
+        .bind(permission_mode)
+        .bind(id)
+        .execute(&self.write_pool)
+        .await?;
+        if result.rows_affected() == 0 {
+            return Err(sqlx::Error::RowNotFound);
+        }
         Ok(())
     }
 
-    /// Persist an override document together with the model it resolves to,
-    /// so the model column never names the model the session switched away
-    /// from. `None` (an inherited model nothing resolved) keeps the column.
-    pub async fn update_runtime_overrides_and_model(
-        pool: &SqlitePool,
-        session_id: i64,
-        overrides: &crate::domain::agents::adapter::RuntimeConfigOverrides,
-        model: Option<&str>,
-    ) -> Result<(), sqlx::Error> {
-        let json = serde_json::to_string(overrides).expect("runtime overrides serialize");
-        sqlx::query(
-            "UPDATE agent_sessions SET runtime_overrides = ?, model = COALESCE(?, model) WHERE id = ?",
-        )
-        .bind(json)
-        .bind(model)
-        .bind(session_id)
-        .execute(pool)
-        .await?;
-        Ok(())
-    }
     pub async fn mark_paused_static(pool: &SqlitePool, session_id: i64) {
         let now = chrono::Utc::now().to_rfc3339();
         if let Err(e) =
@@ -65,9 +57,15 @@ impl WsSessionPersistence {
         }
     }
 
-    pub(crate) async fn try_mark_completed_static(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
+    pub(crate) async fn try_mark_completed_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query("UPDATE agent_sessions SET status = 'completed', ended_at = ? WHERE id = ?")
-            .bind(chrono::Utc::now().to_rfc3339()).bind(session_id).execute(pool).await?;
+            .bind(chrono::Utc::now().to_rfc3339())
+            .bind(session_id)
+            .execute(pool)
+            .await?;
         Ok(())
     }
 
@@ -83,108 +81,6 @@ impl WsSessionPersistence {
         {
             error!(error = %e, session_db_id = session_id, "failed to mark session error");
         }
-    }
-
-    pub async fn update_model_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        model: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE agent_sessions SET model = ? WHERE id = ?")
-            .bind(model)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    pub async fn update_profile_static(pool: &SqlitePool, session_id: i64, profile: &str) {
-        if let Err(e) = sqlx::query("UPDATE agent_sessions SET profile = ? WHERE id = ?")
-            .bind(profile)
-            .bind(session_id)
-            .execute(pool)
-            .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to update profile");
-        }
-    }
-
-    pub async fn update_permission_mode_static(pool: &SqlitePool, session_id: i64, mode: &str) {
-        if let Err(e) = sqlx::query("UPDATE agent_sessions SET permission_mode = ? WHERE id = ?")
-            .bind(mode)
-            .bind(session_id)
-            .execute(pool)
-            .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to update permission_mode");
-        }
-    }
-
-    pub async fn update_access_mode_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        mode: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE agent_sessions SET codex_permission_mode = ? WHERE id = ?")
-            .bind(mode)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    #[builder]
-    pub async fn update_runtime_selection_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        runtime_provider: &str,
-        model: Option<&str>,
-        clear_thinking_effort: bool,
-    ) -> Result<(), sqlx::Error> {
-        let sql = if clear_thinking_effort {
-            "UPDATE agent_sessions SET runtime_provider = ?, model = ?, thinking_effort = NULL WHERE id = ?"
-        } else {
-            "UPDATE agent_sessions SET runtime_provider = ?, model = ? WHERE id = ?"
-        };
-        sqlx::query(sql)
-            .bind(runtime_provider)
-            .bind(model)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
-
-    /// Persist (or clear) the conversation-level thinking effort. The per-model
-    /// workspace default is updated separately by the caller — this function
-    /// only owns the row column. Pass `None` to set NULL (the default cascades
-    /// through the per-model workspace setting at next session.init).
-    pub async fn update_thinking_effort_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        thinking_effort: Option<&str>,
-    ) {
-        if let Err(e) = sqlx::query("UPDATE agent_sessions SET thinking_effort = ? WHERE id = ?")
-            .bind(thinking_effort)
-            .bind(session_id)
-            .execute(pool)
-            .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to update thinking_effort");
-        }
-    }
-
-    pub async fn update_fast_mode_static(
-        pool: &SqlitePool,
-        session_id: i64,
-        enabled: bool,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query("UPDATE agent_sessions SET fast_mode = ? WHERE id = ?")
-            .bind(enabled)
-            .bind(session_id)
-            .execute(pool)
-            .await?;
-        Ok(())
     }
 
     pub async fn update_token_usage(
@@ -219,21 +115,6 @@ impl WsSessionPersistence {
             .await;
     }
 
-    /// Broadcast a status transition for a single session. Every status
-    /// mutation in the codebase goes through here (or through
-    /// `mark_awaiting_user_static` / `mark_agent_resumed_static` which
-    /// pair this with a DB write). `session_id` is required so the
-    /// frontend can route per-session updates without inferring identity.
-    pub fn broadcast_session_status(
-        broadcaster: &crate::domain::session_status::SessionStatusBroadcaster,
-        session_id: i64,
-        feature_id: i64,
-        status: crate::domain::session_status::AgentStatus,
-        kind: Option<crate::domain::session_status::PendingKind>,
-    ) {
-        broadcaster.broadcast(session_id, feature_id, status, kind);
-    }
-
     #[cfg(test)]
     pub async fn mark_completed(&self) {
         let Some(session_id) = self.session_db_id else {
@@ -244,49 +125,11 @@ impl WsSessionPersistence {
 }
 
 #[cfg(test)]
-mod session_state_tests {
+pub(super) mod session_state_tests {
     use super::*;
     use sqlx::sqlite::SqlitePoolOptions;
 
-    #[tokio::test]
-    async fn runtime_selection_preserves_or_clears_effort_atomically() {
-        let pool = setup_test_db().await;
-        let mut persistence = WsSessionPersistence::new(pool.clone(), 1);
-        let id = persistence.find_or_create_session(None, None).await.unwrap();
-        sqlx::query("UPDATE agent_sessions SET thinking_effort = 'high' WHERE id = ?")
-            .bind(id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        for (model, clear_effort, expected_effort) in [
-            (Some("sonnet"), false, Some("high")),
-            (Some(""), true, None),
-            (None, false, None),
-        ] {
-            WsSessionPersistence::update_runtime_selection_static()
-                .pool(&pool)
-                .session_id(id)
-                .runtime_provider("claude_code")
-                .maybe_model(model)
-                .clear_thinking_effort(clear_effort)
-                .call()
-                .await
-                .unwrap();
-            let stored: (String, Option<String>, Option<String>) = sqlx::query_as(
-                "SELECT runtime_provider, model, thinking_effort FROM agent_sessions WHERE id = ?",
-            )
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-            assert_eq!(stored.0, "claude_code");
-            assert_eq!(stored.1.as_deref(), model);
-            assert_eq!(stored.2.as_deref(), expected_effort);
-        }
-    }
-
-    async fn setup_test_db() -> SqlitePool {
+    pub(in super::super) async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePoolOptions::new()
             .connect("sqlite::memory:")
             .await
@@ -403,87 +246,6 @@ mod session_state_tests {
     }
 
     #[tokio::test]
-    async fn test_update_model_static() {
-        let pool = setup_test_db().await;
-        let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        let id = p
-            .find_or_create_session(Some("sonnet"), None)
-            .await
-            .unwrap();
-
-        WsSessionPersistence::update_model_static(&pool, id, "opus")
-            .await
-            .unwrap();
-
-        let row: (String,) = sqlx::query_as("SELECT model FROM agent_sessions WHERE id = ?")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(row.0, "opus");
-    }
-
-    #[tokio::test]
-    async fn test_update_permission_mode_static() {
-        let pool = setup_test_db().await;
-        let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        let id = p.find_or_create_session(None, Some("plan")).await.unwrap();
-
-        WsSessionPersistence::update_permission_mode_static(&pool, id, "acceptEdits").await;
-
-        let row: (String,) =
-            sqlx::query_as("SELECT permission_mode FROM agent_sessions WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(row.0, "acceptEdits");
-    }
-
-    #[tokio::test]
-    async fn test_update_thinking_effort_static_set_and_clear() {
-        let pool = setup_test_db().await;
-        let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        let id = p.find_or_create_session(None, None).await.unwrap();
-
-        WsSessionPersistence::update_thinking_effort_static(&pool, id, Some("high")).await;
-        let row: (Option<String>,) =
-            sqlx::query_as("SELECT thinking_effort FROM agent_sessions WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(row.0.as_deref(), Some("high"));
-
-        WsSessionPersistence::update_thinking_effort_static(&pool, id, None).await;
-        let row: (Option<String>,) =
-            sqlx::query_as("SELECT thinking_effort FROM agent_sessions WHERE id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert!(row.0.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_update_fast_mode_static() {
-        let pool = setup_test_db().await;
-        let mut p = WsSessionPersistence::new(pool.clone(), 1);
-        let id = p.find_or_create_session(None, None).await.unwrap();
-
-        WsSessionPersistence::update_fast_mode_static(&pool, id, true)
-            .await
-            .unwrap();
-        let enabled: bool = sqlx::query_scalar("SELECT fast_mode FROM agent_sessions WHERE id = ?")
-            .bind(id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-
-        assert!(enabled);
-    }
-
-    #[tokio::test]
     async fn test_update_token_usage() {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
@@ -515,76 +277,6 @@ mod session_state_tests {
             .await
             .unwrap();
         assert_eq!(row.0, "completed");
-    }
-
-    fn test_broadcaster() -> (
-        crate::domain::session_status::SessionStatusBroadcaster,
-        tokio::sync::broadcast::Receiver<crate::domain::session_status::SessionStatusEvent>,
-    ) {
-        let (tx, rx) = tokio::sync::broadcast::channel(16);
-        let bc = crate::domain::session_status::SessionStatusBroadcaster::new(tx);
-        (bc, rx)
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_session_status_sends_event() {
-        use crate::domain::session_status::{AgentStatus, PendingKind};
-        let (bc, mut rx) = test_broadcaster();
-        WsSessionPersistence::broadcast_session_status(
-            &bc,
-            10,
-            42,
-            AgentStatus::Question,
-            Some(PendingKind::Permission),
-        );
-
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.session_id, 10);
-        assert_eq!(event.feature_id, 42);
-        assert_eq!(event.status, AgentStatus::Question);
-        assert_eq!(event.kind, Some(PendingKind::Permission));
-        assert_eq!(event.seq, 1);
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_session_status_idle() {
-        use crate::domain::session_status::AgentStatus;
-        let (bc, mut rx) = test_broadcaster();
-        WsSessionPersistence::broadcast_session_status(&bc, 5, 7, AgentStatus::Agent, None);
-        WsSessionPersistence::broadcast_session_status(&bc, 5, 7, AgentStatus::Idle, None);
-
-        rx.recv().await.unwrap();
-        let event = rx.recv().await.unwrap();
-        assert_eq!(event.feature_id, 7);
-        assert_eq!(event.status, AgentStatus::Idle);
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_session_status_no_receivers_does_not_panic() {
-        use crate::domain::session_status::AgentStatus;
-        let (bc, _) = test_broadcaster();
-        WsSessionPersistence::broadcast_session_status(&bc, 1, 1, AgentStatus::Agent, None);
-    }
-
-    #[tokio::test]
-    async fn test_broadcast_session_status_seq_is_monotonic() {
-        use crate::domain::session_status::{AgentStatus, PendingKind};
-        let (bc, mut rx) = test_broadcaster();
-        WsSessionPersistence::broadcast_session_status(&bc, 1, 1, AgentStatus::Agent, None);
-        WsSessionPersistence::broadcast_session_status(
-            &bc,
-            1,
-            1,
-            AgentStatus::Question,
-            Some(PendingKind::Question),
-        );
-        WsSessionPersistence::broadcast_session_status(&bc, 2, 2, AgentStatus::Agent, None);
-
-        let a = rx.recv().await.unwrap();
-        let b = rx.recv().await.unwrap();
-        let c = rx.recv().await.unwrap();
-        assert!(a.seq < b.seq);
-        assert!(b.seq < c.seq);
     }
 
     #[tokio::test]
@@ -621,14 +313,20 @@ mod session_state_tests {
                 .unwrap();
         assert_eq!(row.0, None);
     }
+
     #[tokio::test]
     async fn try_mark_completed_reports_failed_write_and_preserves_running_status() {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, status TEXT, ended_at TEXT); INSERT INTO agent_sessions VALUES (7, 'running', NULL); CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON agent_sessions BEGIN SELECT RAISE(FAIL, 'storage unavailable'); END;")
             .execute(&pool).await.unwrap();
-        assert!(WsSessionPersistence::try_mark_completed_static(&pool, 7).await.is_err());
-        let row: (String, Option<String>) = sqlx::query_as("SELECT status, ended_at FROM agent_sessions WHERE id = 7").fetch_one(&pool).await.unwrap();
+        assert!(WsSessionPersistence::try_mark_completed_static(&pool, 7)
+            .await
+            .is_err());
+        let row: (String, Option<String>) =
+            sqlx::query_as("SELECT status, ended_at FROM agent_sessions WHERE id = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(row, ("running".into(), None));
     }
-
 }

@@ -12,8 +12,8 @@ use crate::domain::agents::adapter::{
 };
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::handler::session_prompt::PermissionResponse;
-use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{PermissionDecision, PermissionOptionPayload};
+use crate::domain::ws_session::runtime::application::mark_agent_resumed;
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
 
@@ -154,12 +154,12 @@ fn preview_value(value: Option<&Value>) -> Option<String> {
 ///
 /// Preconditions: the caller has already
 /// - persisted the pending-input row via
-///   [`WsSessionPersistence::mark_awaiting_user_static`] (which both wrote the
+///   [`crate::domain::ws_session::runtime::application::mark_awaiting_user`] (which both wrote the
 ///   `pending_*` column and broadcast `"askUser"`), and
 /// - sent the matching `permission.request` WS envelope to the client.
 ///
 /// On response this function calls
-/// [`WsSessionPersistence::mark_agent_resumed_static`] which NULLs the given
+/// [`mark_agent_resumed`] which NULLs the given
 /// column *before* broadcasting the terminal turn (`"agent"` / `"none"`),
 /// closing the lag-recovery race where a snapshot re-read resurrected
 /// `"askUser"` from a row that had already been answered.
@@ -182,7 +182,7 @@ pub async fn wait_and_apply_decision(
             // with `interrupt: false`, so the turn stays on the agent until a
             // real Result arrives. Broadcasting Idle here would flip the
             // sidebar while the CLI is still working.
-            WsSessionPersistence::mark_agent_resumed_static(
+            mark_agent_resumed(
                 write_pool,
                 session_status_tx,
                 db_session_id,
@@ -205,7 +205,7 @@ pub async fn wait_and_apply_decision(
             // broadcast Idle so any connected client still showing Question
             // drops back to idle — otherwise the sidebar stays stuck even
             // after the gate is gone from the DB.
-            WsSessionPersistence::mark_agent_resumed_static(
+            mark_agent_resumed(
                 write_pool,
                 session_status_tx,
                 db_session_id,

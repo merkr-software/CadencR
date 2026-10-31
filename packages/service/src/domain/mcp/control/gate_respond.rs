@@ -9,7 +9,7 @@ use super::gate_policy::{authorize_decision, GateDecision};
 use super::scope::{resolve_session_scope, SessionScope};
 use crate::app_state::AppState;
 use crate::domain::ws_session::protocol::PermissionRespondPayload;
-use crate::domain::ws_session::runtime::application::respond_permission;
+use crate::domain::ws_session::runtime::application::{respond_permission, PermissionContext};
 use crate::domain::ws_session::runtime::output::{CommandOutput, SessionOutput};
 use crate::error::AppError;
 
@@ -151,7 +151,16 @@ pub(crate) async fn dispatch_permission_response(
         recipient: SessionOutput::headless(),
         correlation_id: String::new(),
     };
-    let outcome = respond_permission(state, &sessions, payload, &output)
+    let context = PermissionContext::builder()
+        .read_pool(&state.read_pool)
+        .write_pool(&state.write_pool)
+        .pending_gates(&state.pending_gates)
+        .active_turns(&state.active_turns)
+        .session_status(&state.session_status_tx)
+        .feature_senders(&state.ws_feature_senders)
+        .feature_events(&state.feature_events_tx)
+        .build();
+    let outcome = respond_permission(&context, &sessions, payload, &output)
         .await
         .map_err(|error| AppError::Conflict(error.message))?;
     Ok(outcome

@@ -1,3 +1,7 @@
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+use tracing::error;
+
 impl WsSessionPersistence {
     pub async fn delete_session_static(
         pool: &SqlitePool,
@@ -172,12 +176,14 @@ mod session_cleanup_tests {
             .await
             .unwrap();
         WsSessionPersistence::mark_paused_static(&pool, id).await;
-        sqlx::query("INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, ?)")
-            .bind(id)
-            .bind("archived-session")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, ?)",
+        )
+        .bind(id)
+        .bind("archived-session")
+        .execute(&pool)
+        .await
+        .unwrap();
         let result = WsSessionPersistence::delete_session_static(&pool, id).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().0, 1);
@@ -204,7 +210,6 @@ mod session_cleanup_tests {
                 .await
                 .unwrap();
         assert!(archived_ids.is_empty());
-
     }
 
     #[tokio::test]

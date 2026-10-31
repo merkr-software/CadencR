@@ -7,6 +7,7 @@
 //! live entirely behind the `SessionBranching` capability; nothing here branches
 //! on provider identity.
 
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 mod fork;
 mod fork_db;
 mod rewind;
@@ -264,7 +265,8 @@ pub(super) async fn stop_live_turn(
     app_state: &AppState,
     db_session_id: i64,
 ) {
-    let effective = resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
+    let effective =
+        resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let mut sessions = effective.lock().await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         return;
@@ -275,7 +277,10 @@ pub(super) async fn stop_live_turn(
         WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
         persist_and_close_query(
             query,
-            app_state,
+            &RuntimeCloseContext::builder()
+                .pool(&app_state.write_pool)
+                .feature_senders(&app_state.ws_feature_senders)
+                .build(),
             db_session_id,
             &handle.runtime_provider,
             handle.feature_id,

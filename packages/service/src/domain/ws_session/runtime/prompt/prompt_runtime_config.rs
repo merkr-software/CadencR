@@ -1,3 +1,4 @@
+use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 use tracing::info;
 
 use crate::app_state::AppState;
@@ -44,7 +45,15 @@ pub(in crate::domain::ws_session) async fn apply_respawn_if_needed(
     }
     log_respawn(handle, db_session_id);
     arm_bypass_for_respawn(handle, &app_state.read_pool).await;
-    let runtime_session_id = close_active_for_respawn(handle, app_state, db_session_id).await;
+    let runtime_session_id = close_active_for_respawn(
+        handle,
+        &RuntimeCloseContext::builder()
+            .pool(&app_state.write_pool)
+            .feature_senders(&app_state.ws_feature_senders)
+            .build(),
+        db_session_id,
+    )
+    .await;
     reset_handle_to_pending(handle, runtime_session_id);
     changes
 }
@@ -138,7 +147,7 @@ fn log_respawn(handle: &SdkHandle, db_session_id: i64) {
 
 async fn close_active_for_respawn(
     handle: &mut SdkHandle,
-    app_state: &AppState,
+    context: &RuntimeCloseContext<'_>,
     db_session_id: i64,
 ) -> Option<String> {
     let QueryState::Active { query, .. } = &handle.state else {
@@ -146,7 +155,7 @@ async fn close_active_for_respawn(
     };
     persist_and_close_query(
         query,
-        app_state,
+        context,
         db_session_id,
         &handle.runtime_provider,
         handle.feature_id,

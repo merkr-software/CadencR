@@ -18,6 +18,13 @@ use crate::domain::ws_session::protocol::{
 
 use super::session_init_resume::persistable_resume_session_id_for_provider;
 
+/// Persistence and viewer delivery needed while closing a runtime.
+#[derive(bon::Builder)]
+pub(in crate::domain::ws_session) struct RuntimeCloseContext<'a> {
+    pool: &'a sqlx::SqlitePool,
+    feature_senders: &'a crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry,
+}
+
 /// Parse a session_id string from client payload into i64 DB key.
 pub(in crate::domain::ws_session) fn parse_session_id(s: &str) -> Option<i64> {
     s.parse::<i64>().ok()
@@ -26,7 +33,7 @@ pub(in crate::domain::ws_session) fn parse_session_id(s: &str) -> Option<i64> {
 /// Persist the runtime session ID from the active runtime, close it, and return the ID.
 pub(in crate::domain::ws_session) async fn persist_and_close_query(
     query: &RuntimeSessionHandle,
-    app_state: &crate::app_state::AppState,
+    context: &RuntimeCloseContext<'_>,
     db_session_id: i64,
     runtime_provider: &str,
     feature_id: i64,
@@ -34,7 +41,7 @@ pub(in crate::domain::ws_session) async fn persist_and_close_query(
     let mut q = query.write().await;
     persist_and_close_runtime(
         q.as_mut(),
-        app_state,
+        context,
         db_session_id,
         runtime_provider,
         feature_id,
@@ -46,7 +53,7 @@ pub(in crate::domain::ws_session) async fn persist_and_close_query(
 /// for the writer without releasing it before the close operation.
 pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
     q: &mut dyn AgentRuntimeSession,
-    app_state: &crate::app_state::AppState,
+    context: &RuntimeCloseContext<'_>,
     db_session_id: i64,
     runtime_provider: &str,
     feature_id: i64,
@@ -65,7 +72,7 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
             "persist_and_close: saving runtime session_id"
         );
         WsSessionPersistence::persist_runtime_session_id_static(
-            &app_state.write_pool,
+            context.pool,
             db_session_id,
             runtime_provider,
             sid,
@@ -76,7 +83,7 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
         let message = error.to_string();
         tracing::warn!(db_session_id, %error, "runtime close failed after local cleanup");
         WsSessionPersistence::persist_error_message_static(
-            &app_state.write_pool,
+            context.pool,
             db_session_id,
             &message,
             None,
@@ -89,10 +96,10 @@ pub(in crate::domain::ws_session) async fn persist_and_close_runtime(
         }))
         .expect("runtime close error should serialize");
         let message = Message::Text(String::from(envelope).into());
-        app_state
-            .ws_feature_senders
+        context
+            .feature_senders
             .notify_observers(feature_id, &message);
-        for sender in app_state.ws_feature_senders.get_senders(feature_id).await {
+        for sender in context.feature_senders.get_senders(feature_id).await {
             let _ = sender.send(message.clone());
         }
     }

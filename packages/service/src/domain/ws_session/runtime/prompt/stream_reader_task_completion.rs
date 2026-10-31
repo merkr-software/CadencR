@@ -186,8 +186,7 @@ impl StreamReaderTask {
                 .await
                 .is_some_and(|row| row.has_pending_user_input());
         if !has_pending_user_input {
-            WsSessionPersistence::broadcast_session_status(
-                &self.session_status_tx,
+            self.session_status_tx.broadcast(
                 self.db_session_id,
                 self.feature_id,
                 AgentStatus::Idle,

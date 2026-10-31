@@ -64,13 +64,9 @@ fn send_pending(
 async fn clear_stale_pending(app_state: &AppState, db_session_id: i64, feature_id: i64) {
     WsSessionPersistence::clear_all_pending_user_input_static(&app_state.write_pool, db_session_id)
         .await;
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
-        db_session_id,
-        feature_id,
-        AgentStatus::Idle,
-        None,
-    );
+    app_state
+        .session_status_tx
+        .broadcast(db_session_id, feature_id, AgentStatus::Idle, None);
 }
 
 #[cfg(test)]
