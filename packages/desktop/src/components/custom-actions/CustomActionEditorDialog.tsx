@@ -27,8 +27,8 @@ import {
 } from "./useCustomActionEditorForm";
 
 /**
- * The one action editor, opened from the launcher menu, the Actions tab and
- * both settings lists through `useCustomActionsUiStore.openEditor`. Mounted
+ * The one action editor, opened from the launcher menu (its list and an
+ * action's page) and both settings lists through `useCustomActionsUiStore.openEditor`. Mounted
  * once at the app root.
  */
 export function CustomActionEditorHost(): ReactElement | null {
@@ -193,7 +193,7 @@ function BehaviorFields({ editor }: { editor: CustomActionEditorForm }): ReactEl
         <p className="text-xs text-muted-foreground">
           {form.runInTerminal
             ? "Opens a terminal split you can type into — for dev servers and prompts."
-            : "Output and status go to the Actions tab; it can also run on a schedule."}
+            : "Output and status show on its page in the header’s action menu; it can also run on a schedule."}
         </p>
       </fieldset>
       <fieldset className="space-y-1.5">

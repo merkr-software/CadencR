@@ -2,6 +2,7 @@ import { memo, useLayoutEffect, useMemo, useRef, type ReactElement } from "react
 
 import type { CustomActionRun } from "@/api/generated";
 import { parseAnsi } from "@/lib/ansi-to-html";
+import { cn } from "@/lib/utils";
 
 /** Pixels from the bottom within which the view keeps following new output. */
 const FOLLOW_THRESHOLD_PX = 24;
@@ -14,8 +15,11 @@ const FOLLOW_THRESHOLD_PX = 24;
  */
 export const CustomActionRunOutput = memo(function CustomActionRunOutput({
   run,
+  className,
 }: {
   run: CustomActionRun;
+  /** Sets the height: the output scrolls inside it. */
+  className?: string;
 }): ReactElement {
   const text = useMemo(
     () => [run.stdout.trimEnd(), run.stderr.replace(/^\n+/, "")].filter(Boolean).join("\n"),
@@ -48,7 +52,10 @@ export const CustomActionRunOutput = memo(function CustomActionRunOutput({
         followRef.current =
           element.scrollHeight - element.scrollTop - element.clientHeight <= FOLLOW_THRESHOLD_PX;
       }}
-      className="min-h-0 flex-1 overflow-auto rounded-md bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-[var(--code-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+      className={cn(
+        "min-h-0 overflow-auto rounded-md bg-[var(--code-bg)] px-3 py-2 font-mono text-xs leading-5 text-[var(--code-fg)] focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+        className,
+      )}
     >
       {text ? (
         <pre className="whitespace-pre-wrap break-words">{rendered}</pre>

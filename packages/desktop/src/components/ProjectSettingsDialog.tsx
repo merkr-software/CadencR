@@ -109,7 +109,7 @@ export function ProjectSettingsDialog({
           <SettingsSection
             size="sm"
             title="Custom actions"
-            subtitle="Header launcher · Actions tab"
+            subtitle="Header launcher"
             description="This project's own actions, shown in its header before the global ones (Settings → Custom actions)."
           >
             <SettingsCard padded>

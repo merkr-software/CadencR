@@ -21,11 +21,14 @@ interface LauncherArgs {
   bindKeys: boolean;
 }
 
-/** The click on an action: run it, or — while it runs in the background — show its output. */
+/**
+ * The click on an action: run it, or — while it runs in the background —
+ * open its details on the output.
+ */
 export function activateAction(action: CustomAction, featureId: number, projectId: number): void {
   useCustomActionsUiStore.getState().selectAction(projectId, action.id);
   if (!action.run_in_terminal && runStateOf(action.last_run) === "running") {
-    showCustomActionOutput(featureId, action.id);
+    showCustomActionOutput({ featureId, projectId, actionId: action.id });
     return;
   }
   void launchCustomAction({ action, featureId, projectId });

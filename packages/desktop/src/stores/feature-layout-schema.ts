@@ -22,18 +22,10 @@
 import { PLUGIN_TAB_ID_PATTERN } from "@/shared/plugin-tab-host";
 
 /**
- * The first-party tabs. Every feature page carries the first six; `runs` (the
- * custom actions' output) only shows while the project has actions, but keeps
- * its place in the layout like every built-in.
+ * The six first-party tabs every feature page always carries. A layout saved
+ * while the custom actions had a `runs` tab drops it on parse (see `parseLeaf`).
  */
-export type BuiltinTabKind =
-  | "agent"
-  | "terminal"
-  | "git"
-  | "editor"
-  | "browser"
-  | "preview"
-  | "runs";
+export type BuiltinTabKind = "agent" | "terminal" | "git" | "editor" | "browser" | "preview";
 /**
  * A custom (plugin) tab, `plugin:<id>`. The id follows the manifest rule in
  * docs/CUSTOM_TABS.md §3 — see `isPluginTabKind`. A layout may hold plugin tabs
@@ -51,7 +43,6 @@ export const BUILTIN_TAB_KINDS: readonly BuiltinTabKind[] = Object.freeze([
   "editor",
   "browser",
   "preview",
-  "runs",
 ] as const);
 
 const PLUGIN_TAB_PREFIX = "plugin:";
