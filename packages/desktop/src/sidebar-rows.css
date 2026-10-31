@@ -50,9 +50,20 @@
   display: inline-flex;
 }
 
+/* Touch: the actions stay out (no reflow under the finger, see below). Hit areas
+ * grow up over the row padding and over half the gap, never onto the next line. */
 @media (hover: none) {
   .sidebar-row-actions {
     display: inline-flex;
+    gap: 0.5rem;
+  }
+  .sidebar-row-actions > button {
+    position: relative;
+  }
+  .sidebar-row-actions > button::after {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--sidebar-row-pad, 6px)) -0.25rem 0;
   }
 }
 
@@ -88,10 +99,12 @@
   --sidebar-row-pad: 10px;
 }
 
-/* The time and the row actions share a spot: hovering or focusing a row swaps
- * the time for the actions. */
-[data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-time] {
-  display: none;
+/* Pointer devices only: a tap sets :hover before its click lands, so on touch the
+ * time-for-actions swap slid pin under a tap on archive. Same for hover titles. */
+@media (hover: hover) {
+  [data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-time] {
+    display: none;
+  }
 }
 
 /* Two-line and expand-on-hover titles: the fixed slots stay on the first
@@ -103,19 +116,20 @@
   white-space: normal;
   overflow-wrap: break-word;
 }
-/* A fixed row height never grows on hover: the title stays on its line. */
-[data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
-  .sidebar-row:is(:hover, :focus-within)
-  [data-feature-title] {
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-/* Uniform rows hold the details beside the title on one clipped line; a title
+/* A fixed row height never grows on hover: the title stays on its line.
+ * Uniform rows hold the details beside the title on one clipped line; a title
  * shown in full on hover brings the ones that didn't fit along with it. */
-[data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
-  .sidebar-row:is(:hover, :focus-within)
-  [data-feature-title-fold] {
-  height: auto;
+@media (hover: hover) {
+  [data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
+    .sidebar-row:is(:hover, :focus-within) {
+    & [data-feature-title] {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+    & [data-feature-title-fold] {
+      height: auto;
+    }
+  }
 }
 :is([data-sidebar-title-lines="two"], [data-sidebar-title-lines="hover"]) {
   & [data-feature-title-line] {

@@ -1,11 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
-import {
-  SlashCommandPopover,
-  slashCommandPopoverMaxHeight,
-  SLASH_COMMAND_POPOVER_MAX_HEIGHT,
-  SLASH_COMMAND_POPOVER_MIN_HEIGHT,
-} from "./SlashCommandPopover";
+import { SlashCommandPopover } from "./SlashCommandPopover";
 
 const commands = [
   {
@@ -28,20 +23,6 @@ const cadencrCommand = {
   kind: "cadencr" as const,
   argumentHint: "[focus]",
 };
-
-describe("slashCommandPopoverMaxHeight", () => {
-  it("caps at the shared max when there is plenty of space", () => {
-    expect(slashCommandPopoverMaxHeight(800)).toBe(SLASH_COMMAND_POPOVER_MAX_HEIGHT);
-  });
-
-  it("shrinks to available space above the prompt", () => {
-    expect(slashCommandPopoverMaxHeight(200)).toBe(192);
-  });
-
-  it("floors at the shared minimum", () => {
-    expect(slashCommandPopoverMaxHeight(50)).toBe(SLASH_COMMAND_POPOVER_MIN_HEIGHT);
-  });
-});
 
 describe("SlashCommandPopover", () => {
   it("does not show popover when closed", () => {

@@ -74,9 +74,9 @@ const COLLAPSIBLE_ROOT_CLASS = "shrink-0";
 // The home-indicator clearance sits on this root so it applies whichever
 // optional row happens to be last. It used to hang off `ComposerContextUsage`,
 // which returns null until a session reports context usage — so before the
-// first prompt the bottom chips sat flush against the screen edge.
-const FULL_PAGE_ROOT_CLASS =
-  "flex min-h-0 flex-col overflow-y-auto pb-[env(safe-area-inset-bottom)]";
+// first prompt the bottom chips sat flush against the screen edge. It reads
+// `--app-inset-bottom`, which drops to 0 while the on-screen keyboard is up.
+const FULL_PAGE_ROOT_CLASS = "flex min-h-0 flex-col overflow-y-auto pb-[var(--app-inset-bottom)]";
 
 // Bottom safe-area clearance lives on the composer root (see above), so this row
 // only owns its own spacing — the same in both layouts.

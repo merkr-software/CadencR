@@ -45,34 +45,53 @@ export function useVisualViewportHeight(enabled: boolean): void {
       if (window.scrollX !== 0 || window.scrollY !== 0) window.scrollTo(0, 0);
     };
 
+    // The layout viewport's height, i.e. the full screen the shell would fill
+    // without a keyboard. `innerHeight` alone is not it: iOS 26 Safari shrinks
+    // `innerHeight` along with the visual viewport, and whether it has already
+    // done so when the keyboard's `resize` tick lands is a race — on the losing
+    // side the inset read ~0, the override never applied, and the prompt stayed
+    // under the keyboard. The root's `clientHeight` (the initial containing
+    // block) holds still while the keyboard is up; the max keeps whichever is
+    // the true full height when the URL bar collapses and `innerHeight` briefly
+    // exceeds it.
+    const layoutHeight = (): number => Math.max(window.innerHeight, root.clientHeight);
+
     // The keyboard slide fires many resize ticks at the same final height, so
     // cache the last write and skip redundant style mutations.
     let lastHeightPx: number | null = null;
     const sync = (): void => {
-      // Undo any pan before measuring: a panned viewport inflates `offsetTop`,
-      // which under-reports the inset below and drops (or never applies) the
-      // override, leaving the shell sized to the full screen while only the
-      // strip above the keyboard is visible — the prompt you just focused is
-      // then off-screen entirely.
-      //
-      // Unconditional on purpose: gating this on an already-known-open keyboard
-      // means the first focus of a session measures a viewport iOS has already
-      // panned, and the override never applies. See the regression test.
-      undoPan();
-
-      const inset = window.innerHeight - vv.height - vv.offsetTop;
-      const heightPx = inset > KEYBOARD_INSET_THRESHOLD ? Math.round(vv.height) : null;
+      // A height difference, not `offsetTop`: iOS pans the viewport to lift the
+      // caret around the same tick it reports the keyboard, and a panned
+      // `offsetTop` under-reported the inset (the very first focus of a session
+      // used to miss the override that way). The pan doesn't change heights.
+      // Scaled back to layout pixels: a pinch zoom shrinks `vv.height` too, and
+      // read raw it passed for a keyboard.
+      const visibleHeight = vv.height * vv.scale;
+      const inset = layoutHeight() - visibleHeight;
+      const heightPx = inset > KEYBOARD_INSET_THRESHOLD ? Math.round(visibleHeight) : null;
       if (heightPx !== lastHeightPx) {
         lastHeightPx = heightPx;
-        if (heightPx === null) root.style.removeProperty("--app-vh");
-        else root.style.setProperty("--app-vh", `${heightPx}px`);
+        if (heightPx === null) {
+          root.style.removeProperty("--app-vh");
+          delete root.dataset.keyboardOpen;
+        } else {
+          root.style.setProperty("--app-vh", `${heightPx}px`);
+          root.dataset.keyboardOpen = "";
+        }
       }
+      undoPan();
     };
 
-    // The pan can also arrive as a standalone visualViewport scroll (no height
-    // change) right after focus. A scroll never changes `vv.height`, so don't
-    // re-measure here — just re-pin. `undoPan`'s guard makes the scroll its own
-    // `scrollTo` fires a no-op, so this stays a single, self-terminating reset.
+    // iOS computes its caret-reveal pan from the layout *before* the shell
+    // collapses, then applies it after: the collapsed shell lands ~a keyboard
+    // height too high and the prompt leaves through the top of the screen. The
+    // pan reaches the document as a window `scroll` right away, while the
+    // matching visualViewport `scroll` trails it by ~400ms (measured on iOS 26),
+    // so re-pin on both; waiting for the latter left the prompt visibly gone.
+    // A scroll never changes `vv.height`, so don't re-measure here. `undoPan`'s
+    // guard makes the scroll its own `scrollTo` fires a no-op, so this stays a
+    // single, self-terminating reset. With the keyboard closed a stray pan is
+    // left alone.
     const repin = (): void => {
       if (lastHeightPx !== null) undoPan();
     };
@@ -80,10 +99,13 @@ export function useVisualViewportHeight(enabled: boolean): void {
     sync();
     vv.addEventListener("resize", sync);
     vv.addEventListener("scroll", repin);
+    window.addEventListener("scroll", repin);
     return () => {
       vv.removeEventListener("resize", sync);
       vv.removeEventListener("scroll", repin);
+      window.removeEventListener("scroll", repin);
       root.style.removeProperty("--app-vh");
+      delete root.dataset.keyboardOpen;
     };
   }, [enabled]);
 }

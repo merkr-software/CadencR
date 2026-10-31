@@ -14,17 +14,6 @@ import {
   ComposerPopoverOption,
 } from "./composer/ComposerPopover";
 
-export const SLASH_COMMAND_POPOVER_MAX_HEIGHT = 300;
-export const SLASH_COMMAND_POPOVER_MIN_HEIGHT = 120;
-
-/** Cap the list to available space above the prompt (with a usable floor). */
-export function slashCommandPopoverMaxHeight(spaceAbovePx: number): number {
-  return Math.max(
-    SLASH_COMMAND_POPOVER_MIN_HEIGHT,
-    Math.min(SLASH_COMMAND_POPOVER_MAX_HEIGHT, spaceAbovePx - 8),
-  );
-}
-
 interface SlashCommandPopoverProps {
   /** Listbox id shared with the editor's combobox ARIA. */
   listId: string;
@@ -155,7 +144,7 @@ export function SlashCommandPopover({
   isLoading,
   triggerChar = "/",
   cadencrDisabled = false,
-  maxHeight = SLASH_COMMAND_POPOVER_MAX_HEIGHT,
+  maxHeight,
 }: SlashCommandPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
 

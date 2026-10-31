@@ -2,20 +2,16 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode, type TextNode } from "lexical";
 import { $createSlashCommandNode } from "../nodes/SlashCommandNode";
-import {
-  SLASH_COMMAND_GROUP_ORDER,
-  SlashCommandPopover,
-  slashCommandPopoverMaxHeight,
-} from "@/components/SlashCommandPopover";
+import { SLASH_COMMAND_GROUP_ORDER, SlashCommandPopover } from "@/components/SlashCommandPopover";
 import { useSlashCommand } from "@/hooks/useSlashCommand";
 import { useProjectMcpEnabled, useWorkspaceMcpEnabled } from "@/lib/mcp-settings";
 import type { PromptCommandTriggerChar } from "@/lib/prompt-command-policy";
 import { isSlashCommandDisabled, type SlashCommand } from "@/lib/slash-command";
 import {
-  CursorPopover,
+  AnchoredPopover,
   getTriggerMatch,
   replaceTriggerWithNode,
-  useEditorAnchorRect,
+  useComposerPopoverAnchor,
   usePopoverKeyboardCommands,
 } from "./trigger-utils";
 
@@ -167,12 +163,12 @@ export function SlashCommandPlugin({
   );
 
   const popoverOpen = slash.isOpen && (!!isLoading || slash.filteredItems.length > 0);
-  const anchorRect = useEditorAnchorRect(editor, popoverOpen);
+  const popoverAnchor = useComposerPopoverAnchor(editor, popoverOpen);
 
-  if (!popoverOpen || !anchorRect) return null;
+  if (!popoverOpen || !popoverAnchor) return null;
 
   return (
-    <CursorPopover cursorRect={anchorRect} matchWidth>
+    <AnchoredPopover anchor={popoverAnchor}>
       <SlashCommandPopover
         listId={listId}
         open={true}
@@ -182,8 +178,8 @@ export function SlashCommandPlugin({
         isLoading={isLoading ?? false}
         triggerChar={triggerChar}
         cadencrDisabled={!cadencrEnabled}
-        maxHeight={slashCommandPopoverMaxHeight(anchorRect.top)}
+        maxHeight={popoverAnchor.maxHeight}
       />
-    </CursorPopover>
+    </AnchoredPopover>
   );
 }

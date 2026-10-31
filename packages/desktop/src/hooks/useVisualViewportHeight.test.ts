@@ -5,6 +5,8 @@ import { useVisualViewportHeight } from "./useVisualViewportHeight";
 
 interface Viewport {
   resize: (h: number) => void;
+  /** Pinch-zoom: the visible viewport shrinks by the zoom factor. */
+  zoom: (scale: number) => void;
   /** Pan the layout viewport up (as the browser does to lift a focused input). */
   setPan: (offsetTop: number) => void;
   /** Pan, then fire the standalone `visualViewport` scroll the pan emits. */
@@ -22,6 +24,7 @@ function installViewport(height: number): Viewport {
   const vv = {
     height,
     offsetTop: 0,
+    scale: 1,
     addEventListener: target.addEventListener.bind(target),
     removeEventListener: target.removeEventListener.bind(target),
   };
@@ -45,6 +48,11 @@ function installViewport(height: number): Viewport {
       vv.height = h;
       target.dispatchEvent(new Event("resize"));
     },
+    zoom: (scale: number) => {
+      vv.height = height / scale;
+      vv.scale = scale;
+      target.dispatchEvent(new Event("resize"));
+    },
     setPan,
     pan: (offsetTop: number) => {
       setPan(offsetTop);
@@ -61,6 +69,7 @@ function vh(): string {
 describe("useVisualViewportHeight", () => {
   afterEach(() => {
     document.documentElement.style.removeProperty("--app-vh");
+    delete document.documentElement.dataset.keyboardOpen;
     Reflect.deleteProperty(window, "visualViewport");
     vi.restoreAllMocks();
   });
@@ -135,9 +144,9 @@ describe("useVisualViewportHeight", () => {
     act(() => resize(450)); // keyboard opens
     expect(vh()).toBe("450px");
 
-    // The browser pans far enough that the raw inset (800 - 450 - 250 = 100)
-    // would fall under the threshold — but the pre-measure reset undoes the pan
-    // first, so the override must stick instead of snapping back.
+    // The browser pans far enough that an offset-based inset (800 - 450 - 250 =
+    // 100) would fall under the threshold. The inset is a height difference, so
+    // the pan can't drop the override.
     setPan(250);
     act(() => resize(450));
     expect(vh()).toBe("450px");
@@ -150,21 +159,90 @@ describe("useVisualViewportHeight", () => {
     renderHook(() => useVisualViewportHeight(true));
 
     // iOS pans to lift the caret BEFORE the resize tick that reports the
-    // keyboard. On that first tick the raw inset reads 800 - 450 - 250 = 100,
-    // under the 120px threshold — so a pre-measure reset gated on "we already
-    // know the keyboard is open" would skip the override entirely and leave the
-    // shell full-height with only a strip visible: the prompt the user just
-    // focused stays off-screen. Every *later* focus worked, which is exactly why
-    // the bug looked intermittent.
+    // keyboard. On that first tick an offset-based inset reads 800 - 450 - 250 =
+    // 100, under the 120px threshold, which used to skip the override entirely
+    // and leave the shell full-height with only a strip visible: the prompt the
+    // user just focused stayed off-screen.
     setPan(250);
     act(() => resize(450));
 
     expect(vh()).toBe("450px");
   });
 
-  it("clears the override and detaches its listener on unmount", () => {
+  it("detects the keyboard when innerHeight has already shrunk with it (iOS 26)", () => {
+    // iOS 26 Safari shrinks `innerHeight` to the visual viewport too, and may do
+    // so before the keyboard's resize tick. Measured against `innerHeight` the
+    // inset read 0: no override, and the prompt stayed under the keyboard. The
+    // root's client height (the initial containing block) does not move.
+    let innerHeight = 800;
+    vi.spyOn(window, "innerHeight", "get").mockImplementation(() => innerHeight);
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(800);
+    const { resize } = installViewport(800);
+
+    renderHook(() => useVisualViewportHeight(true));
+    innerHeight = 450;
+    act(() => resize(450));
+
+    expect(vh()).toBe("450px");
+  });
+
+  it("re-pins on the window scroll that carries the caret-reveal pan", () => {
+    // The visualViewport scroll trails the pan by ~400ms on iOS; the window
+    // scroll arrives at once, so that is the one that must undo it.
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
+    const { resize, setPan, scrollTo } = installViewport(800);
+
+    renderHook(() => useVisualViewportHeight(true));
+    act(() => resize(450));
+    scrollTo.mockClear();
+
+    setPan(350);
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    expect(window.scrollY).toBe(0);
+  });
+
+  it("does not take a pinch zoom for the keyboard", () => {
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
+    const { zoom, setPan, scrollTo } = installViewport(800);
+
+    renderHook(() => useVisualViewportHeight(true));
+    act(() => zoom(2)); // the visible viewport is now 400px of the layout
+    expect(vh()).toBe("");
+    expect(document.documentElement.dataset.keyboardOpen).toBeUndefined();
+
+    // Panning around the zoomed page is left alone.
+    setPan(200);
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("flags the open keyboard on the root so CSS can drop the home-indicator inset", () => {
     vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
     const { resize } = installViewport(800);
+    const root = document.documentElement;
+
+    const { unmount } = renderHook(() => useVisualViewportHeight(true));
+    expect(root.dataset.keyboardOpen).toBeUndefined();
+
+    act(() => resize(450));
+    expect(root.dataset.keyboardOpen).toBe("");
+
+    act(() => resize(800));
+    expect(root.dataset.keyboardOpen).toBeUndefined();
+
+    act(() => resize(450));
+    unmount();
+    expect(root.dataset.keyboardOpen).toBeUndefined();
+  });
+
+  it("clears the override and detaches its listener on unmount", () => {
+    vi.spyOn(window, "innerHeight", "get").mockReturnValue(800);
+    const { resize, setPan, scrollTo } = installViewport(800);
 
     const { unmount } = renderHook(() => useVisualViewportHeight(true));
     act(() => resize(450));
@@ -174,5 +252,11 @@ describe("useVisualViewportHeight", () => {
     expect(vh()).toBe(""); // cleanup restores the CSS fallback
     act(() => resize(400)); // stale events no longer mutate the var
     expect(vh()).toBe("");
+    scrollTo.mockClear();
+    setPan(250);
+    act(() => {
+      window.dispatchEvent(new Event("scroll"));
+    });
+    expect(scrollTo).not.toHaveBeenCalled(); // nor re-pin the document
   });
 });
