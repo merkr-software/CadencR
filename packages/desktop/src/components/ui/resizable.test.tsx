@@ -26,6 +26,20 @@ describe("Resizable", () => {
     expect(container.querySelector("[data-slot='resizable-handle']")).toBeInTheDocument();
   });
 
+  it("hides a disabled handle and lets pointers through it", () => {
+    const { container } = render(
+      <ResizablePanelGroup orientation="horizontal">
+        <ResizablePanel defaultSize={50}>Left</ResizablePanel>
+        <ResizableHandle disabled />
+        <ResizablePanel defaultSize={50}>Right</ResizablePanel>
+      </ResizablePanelGroup>,
+    );
+    const handle = container.querySelector("[data-slot='resizable-handle']");
+    expect(handle?.getAttribute("aria-disabled")).toBe("true");
+    expect(handle?.className).toContain("aria-disabled:invisible");
+    expect(handle?.className).toContain("aria-disabled:pointer-events-none");
+  });
+
   it("renders panel group with data-slot", () => {
     const { container } = render(
       <ResizablePanelGroup {...({ direction: "vertical" } as Record<string, string>)}>

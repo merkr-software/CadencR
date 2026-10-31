@@ -86,7 +86,10 @@ export interface FeatureLayoutState {
    * the right pane when activating a tab.
    */
   focusedPaneId: string | null;
-  /** Id of the saved layout currently applied (for the "Update X" menu item). */
+  /**
+   * Id of the saved layout currently applied (for the "Update X" menu item).
+   * Persisted with the feature's current layout; may outlive its layout.
+   */
   appliedLayoutId: number | null;
   /**
    * Auto layout's size memory: the share (percent) the user last gave a pane
@@ -376,13 +379,18 @@ export function serializeLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify(state);
 }
 
-/** Serialize the per-feature current layout, preserving focus and size memory. */
+/**
+ * Serialize the per-feature current layout, preserving focus, size memory and
+ * the saved layout it was applied from — so "Update <layout>" survives a
+ * reload. (An id whose layout was deleted since matches no layout and is
+ * ignored by the menu.)
+ */
 export function serializeCurrentLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify({
     version: 1,
     splitRoot: state.splitRoot,
     focusedPaneId: state.focusedPaneId,
-    appliedLayoutId: null,
+    appliedLayoutId: state.appliedLayoutId,
     autoShares: state.autoShares,
   });
 }

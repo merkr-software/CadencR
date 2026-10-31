@@ -51,10 +51,21 @@ vi.mock("@/components/ui/resizable", () => ({
     if (onResize) reportPanelSize = onResize;
     return children;
   },
-  ResizableHandle: (): null => null,
+  // Like the library's Separator: `aria-disabled` only while disabled.
+  ResizableHandle: ({ disabled }: { disabled?: boolean }): ReactNode => (
+    <div data-testid="handle" aria-disabled={disabled || undefined} />
+  ),
 }));
 
 const FEATURE_ID = 3;
+
+/** Fake timers that also drive animation frames. */
+const FRAME_TIMERS: NonNullable<Parameters<typeof vi.useFakeTimers>[0]>["toFake"] = [
+  "setTimeout",
+  "clearTimeout",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+];
 
 const split: LayoutNode = {
   type: "split",
@@ -154,6 +165,16 @@ describe("SplitTreeRenderer", () => {
       expect(resizePanel).toHaveBeenLastCalledWith("40px");
     });
 
+    it("disables its resize handle while folded and enables it once open", () => {
+      seed("root");
+      const view = renderSplit(popSplit);
+      const handle = view.getByTestId("handle");
+      expect(handle.getAttribute("aria-disabled")).toBe("true");
+
+      focus("term");
+      expect(handle.hasAttribute("aria-disabled")).toBe(false);
+    });
+
     it("folds again when the group lays the folded panel out at another size", () => {
       seed("root");
       renderSplit(popSplit);
@@ -186,7 +207,7 @@ describe("SplitTreeRenderer", () => {
       expect(slots.at(-1)).toMatchObject({ popCollapsed: false, slidingPx: 375 });
       expect(container.querySelector("[data-pop-motion]")).not.toBeNull();
 
-      act(() => vi.advanceTimersByTime(220));
+      act(() => vi.advanceTimersByTime(270));
       expect(slots.at(-1)).toMatchObject({ popCollapsed: false, slidingPx: null });
       expect(container.querySelector("[data-pop-motion]")).toBeNull();
 
@@ -194,8 +215,96 @@ describe("SplitTreeRenderer", () => {
       panelSize = { asPercentage: 37.5, inPixels: 375 };
       focus("root");
       expect(slots.at(-1)).toMatchObject({ popCollapsed: false, slidingPx: 375 });
+      act(() => vi.advanceTimersByTime(270));
+      expect(slots.at(-1)).toMatchObject({ popCollapsed: true, slidingPx: null });
+    });
+
+    it("with animations on, resizes the sliding panel two frames after the toggle", () => {
+      vi.useFakeTimers({ toFake: FRAME_TIMERS });
+      document.documentElement.dataset.animations = "on";
+      seed("root");
+      renderSplit(popSplit);
+      resizePanel.mockClear();
+
+      focus("term");
+      expect(slots.at(-1)).toMatchObject({ slidingPx: 375 });
+      expect(resizePanel).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersToNextFrame());
+      expect(resizePanel).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersToNextFrame());
+      expect(resizePanel).toHaveBeenLastCalledWith("37.5%");
+    });
+
+    it("holds the pane for the whole transition, timed from the resize", () => {
+      vi.useFakeTimers({ toFake: FRAME_TIMERS });
+      document.documentElement.dataset.animations = "on";
+      seed("root");
+      renderSplit(popSplit);
+      focus("term");
+      act(() => vi.advanceTimersToNextFrame());
+      act(() => vi.advanceTimersToNextFrame());
+      expect(resizePanel).toHaveBeenLastCalledWith("37.5%");
+      // The hold ends a full transition after the resize, frames included.
+      act(() => vi.advanceTimersByTime(219));
+      expect(slots.at(-1)).toMatchObject({ slidingPx: 375 });
+      act(() => vi.advanceTimersByTime(1));
+      expect(slots.at(-1)).toMatchObject({ slidingPx: null });
+    });
+
+    it("drops a deferred resize when focus flips back, or the split unmounts, first", () => {
+      vi.useFakeTimers({ toFake: FRAME_TIMERS });
+      document.documentElement.dataset.animations = "on";
+      seed("root");
+      const view = renderSplit(popSplit);
+      resizePanel.mockClear();
+
+      focus("term");
+      act(() => vi.advanceTimersToNextFrame());
+      focus("root");
+      act(() => vi.advanceTimersToNextFrame());
+      act(() => vi.advanceTimersToNextFrame());
+      expect(resizePanel).not.toHaveBeenCalledWith("37.5%");
+      expect(resizePanel).toHaveBeenLastCalledWith("40px");
       act(() => vi.advanceTimersByTime(220));
       expect(slots.at(-1)).toMatchObject({ popCollapsed: true, slidingPx: null });
+      expect(view.container.querySelector("[data-pop-motion]")).toBeNull();
+
+      resizePanel.mockClear();
+      focus("term");
+      view.unmount();
+      act(() => vi.advanceTimersByTime(300));
+      expect(resizePanel).not.toHaveBeenCalled();
+    });
+
+    it("still ends a slide whose deferred resize a re-run replaced", () => {
+      vi.useFakeTimers({ toFake: FRAME_TIMERS });
+      document.documentElement.dataset.animations = "on";
+      seed("root");
+      const view = renderSplit(popSplit);
+      focus("term");
+      act(() => vi.advanceTimersToNextFrame());
+
+      // The pane measures its header between the two frames: not a toggle.
+      act(() => (slots.at(-1) as { onFoldedSize: (px: number) => void }).onFoldedSize(36));
+      act(() => vi.advanceTimersByTime(220));
+      expect(slots.at(-1)).toMatchObject({ slidingPx: null });
+      expect(view.container.querySelector("[data-pop-motion]")).toBeNull();
+    });
+
+    it("opens a pane unpinned mid-slide at its share and ends the slide", () => {
+      vi.useFakeTimers({ toFake: FRAME_TIMERS });
+      document.documentElement.dataset.animations = "on";
+      seed("root");
+      const view = renderSplit(popSplit);
+      focus("term");
+      act(() => vi.advanceTimersToNextFrame());
+
+      act(() => useFeatureLayoutStore.getState().setPanePop(FEATURE_ID, "term", false));
+      view.rerender(splitTree(useFeatureLayoutStore.getState().features[FEATURE_ID]!.splitRoot));
+      expect(resizePanel).toHaveBeenLastCalledWith("37.5%");
+      expect(view.container.querySelector("[data-pop-motion]")).toBeNull();
+      act(() => vi.advanceTimersByTime(300));
+      expect(resizePanel).toHaveBeenLastCalledWith("37.5%");
     });
 
     it("keeps the open size when a slide reverses midway", () => {
@@ -229,7 +338,7 @@ describe("SplitTreeRenderer", () => {
       reportPanelSize?.({ asPercentage: 20, inPixels: 200 });
       expect(resizePanel).not.toHaveBeenCalled();
 
-      act(() => vi.advanceTimersByTime(220));
+      act(() => vi.advanceTimersByTime(270));
       reportPanelSize?.({ asPercentage: 10, inPixels: 114 });
       expect(resizePanel).toHaveBeenCalledWith("40px");
     });

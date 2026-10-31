@@ -300,6 +300,20 @@ export function isPopCollapsed(state: FeatureLayoutState, paneId: string): boole
 }
 
 /**
+ * Whether the agent is the only open pane of a split layout: the root pane
+ * shows it and every other pane is a folded pop pane.
+ */
+export function isAgentAlone(state: FeatureLayoutState): boolean {
+  const leaves = getLeaves(state.splitRoot);
+  return (
+    leaves.length > 1 &&
+    leaves.every((leaf) =>
+      leaf.id === ROOT_LEAF_ID ? leaf.activeTabId === "agent" : isPopCollapsed(state, leaf.id),
+    )
+  );
+}
+
+/**
  * Whether the given tab is currently visible: it's the host pane's active tab,
  * and that pane isn't a folded pop pane.
  */

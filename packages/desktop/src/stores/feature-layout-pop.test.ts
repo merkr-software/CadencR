@@ -11,6 +11,7 @@ import {
 } from "./feature-layout-schema";
 import { planReveal } from "./feature-layout-reveal";
 import {
+  isAgentAlone,
   isPopCollapsed,
   isTabVisible,
   selectFeatureLayout,
@@ -62,6 +63,29 @@ describe("pop pane tree helpers", () => {
     expect(isPopLeaf(tree, "term")).toBe(true);
     expect(isPopLeaf(tree, "side")).toBe(false);
     expect(isPopLeaf(tree, "root")).toBe(false);
+  });
+
+  it("tells when the agent is the only open pane, its pop panes folded", () => {
+    const alone = (tree: LayoutNode, focus: string): boolean => isAgentAlone(withRoot(tree, focus));
+    const popRail = (side: LayoutLeaf): LayoutSplit =>
+      split(terminalAtBottom(), side, "horizontal");
+    expect(alone(terminalAtBottom(), "root")).toBe(true);
+    expect(alone(popRail(leaf("side", ["git"], true)), "root")).toBe(true);
+    // A focused pop pane is open, and so is any plain split pane.
+    expect(alone(terminalAtBottom(), "term")).toBe(false);
+    expect(alone(popRail(leaf("side", ["git"], true)), "side")).toBe(false);
+    expect(alone(popRail(leaf("side", ["git"])), "root")).toBe(false);
+    expect(alone(terminalAtBottom(false), "root")).toBe(false);
+    // A pop pane beside a subtree without the root leaves that subtree open.
+    const away = split(
+      leaf("root", ["agent"]),
+      split(leaf("a", ["git"], true), leaf("b", ["editor"])),
+    );
+    expect(alone(away, "root")).toBe(false);
+    // The root showing another tab, or no split at all.
+    const editorRoot = split(leaf("root", ["editor", "agent"]), leaf("term", ["terminal"], true));
+    expect(alone(editorRoot, "root")).toBe(false);
+    expect(alone(leaf("root", ["agent"]), "root")).toBe(false);
   });
 
   it("flags a pane and clears its sibling's flag, so one side stays open", () => {

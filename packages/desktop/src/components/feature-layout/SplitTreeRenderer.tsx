@@ -131,7 +131,8 @@ function SplitRenderer({
       {/* Transparent handle: the floating-block padding around each pane
           provides the visual gap, so the handle just needs to stay grabbable
           (its ::after pseudo gives a generous hit zone) without painting a
-          gray divider line. A folded pop pane opens by click, not by drag. */}
+          gray divider line. A folded pop pane opens by click, not by drag:
+          its disabled handle shows nothing and takes no pointer. */}
       <ResizableHandle className="bg-transparent" disabled={pop.folded} />
       {renderChild(1)}
     </ResizablePanelGroup>

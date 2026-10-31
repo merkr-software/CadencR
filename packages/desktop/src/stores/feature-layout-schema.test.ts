@@ -127,12 +127,15 @@ describe("parseLayoutState", () => {
     expect(fromJson).toEqual(state);
   });
 
-  it("preserves focus for current layouts but strips it from reusable templates", () => {
+  it("preserves focus and the applied layout for current layouts, not for templates", () => {
     const state = { ...flatLayoutState(), focusedPaneId: "root", appliedLayoutId: 99 };
 
-    expect(parseLayoutState(serializeCurrentLayoutState(state))?.focusedPaneId).toBe("root");
-    expect(parseLayoutState(serializeLayoutForSave(state))?.focusedPaneId).toBeNull();
-    expect(parseLayoutState(serializeCurrentLayoutState(state))?.appliedLayoutId).toBeNull();
+    const current = parseLayoutState(serializeCurrentLayoutState(state));
+    const template = parseLayoutState(serializeLayoutForSave(state));
+    expect(current?.focusedPaneId).toBe("root");
+    expect(current?.appliedLayoutId).toBe(99);
+    expect(template?.focusedPaneId).toBeNull();
+    expect(template?.appliedLayoutId).toBeNull();
   });
 
   it("sanitizes stale focused pane ids", () => {

@@ -158,6 +158,15 @@
   border-bottom-color: var(--pane-border, var(--border));
   min-height: 0;
 }
+/* Pad a folded pop pane's side rail like the strip's ends, and drop the strip
+ * pop toggle's own inset, so a rail's toggle and a bottom strip's line up in
+ * one column. */
+:root[data-tabs="segmented"] [data-pop-pane-rail] {
+  padding-inline: 8px;
+}
+:root[data-tabs="segmented"] [data-pane-tab-strip] > [data-pop-toggle-slot] {
+  padding-right: 0;
+}
 :root[data-tabs="segmented"] [data-pane-tab-strip] [data-slot="tabs"] {
   flex: 0 1 auto;
   width: auto;
