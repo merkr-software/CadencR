@@ -7,6 +7,7 @@ import {
 import {
   findPaneContaining,
   getLeaves,
+  isPopLeaf,
   makeLeaf,
   mapLeaf,
   pluckTab,
@@ -20,10 +21,12 @@ import {
  *
  * Revealing a tab must never hide the agent conversation:
  *  - already visible            → nothing to do (focus may still move)
+ *  - active in a folded pop pane → flag the pane (its header pulses) without
+ *                                  opening it: only focus opens a pop pane
  *  - in a pane without the agent → activate it there
- *  - sharing the agent's pane    → move it into the last secondary pane, or,
- *                                  with no secondary pane, split it off beside
- *                                  the agent
+ *  - sharing the agent's pane    → move it into the last secondary pane that
+ *                                  is not a pop pane, or, with none, split it
+ *                                  off beside the agent
  * When there is no room to split (`placement: null`) the reveal is `blocked`
  * rather than falling back to hiding the agent — the caller decides.
  */
@@ -54,7 +57,11 @@ export function planReveal(
   if (!host || tab === "agent") return { kind: "noop" };
 
   if (host.activeTabId === tab) {
-    if (!options.focus || state.focusedPaneId === host.id) return { kind: "noop" };
+    if (state.focusedPaneId === host.id) return { kind: "noop" };
+    if (!options.focus) {
+      const folded = isPopLeaf(state.splitRoot, host.id);
+      return folded ? { kind: "activated", state, paneId: host.id } : { kind: "noop" };
+    }
     return { kind: "activated", state: { ...state, focusedPaneId: host.id }, paneId: host.id };
   }
 
@@ -68,7 +75,11 @@ export function planReveal(
   }
 
   const plucked = pluckTab(state.splitRoot, tab);
-  const secondary = getLeaves(plucked).filter((leaf) => leaf.id !== agentPane.id);
+  // A pop pane folds away once focus leaves it: a reveal landing there would
+  // hide the tab again, so it only targets panes that stay open.
+  const secondary = getLeaves(plucked).filter(
+    (leaf) => leaf.id !== agentPane.id && !isPopLeaf(plucked, leaf.id),
+  );
   const target = secondary.at(-1);
   if (target) {
     const splitRoot = mapLeaf(plucked, target.id, (leaf) => ({

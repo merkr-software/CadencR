@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { DndContext } from "@dnd-kit/core";
 import {
   BotIcon,
@@ -12,7 +13,11 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 import { noteUserLayoutChange } from "@/lib/auto-layout/auto-layout-controller";
 import { BUILTIN_TAB_KINDS, ROOT_LEAF_ID, type LayoutLeaf } from "@/stores/feature-layout-schema";
-import { useFeatureLayoutStore } from "@/stores/feature-layout-store";
+import {
+  findLeafById,
+  useFeatureLayoutStore,
+  useFocusedPaneId,
+} from "@/stores/feature-layout-store";
 import { makeTabHostKey, useTabHostRegistry } from "@/stores/tab-host-registry";
 
 import { TabPane } from "./TabPane";
@@ -345,6 +350,134 @@ describe("TabPane", () => {
         </DndContext>,
       );
       expect(screen.getByRole("button", { name: "Add tab" })).toBeInTheDocument();
+    });
+  });
+
+  describe("pop pane", () => {
+    const popLeaf: LayoutLeaf = {
+      type: "leaf",
+      id: "term",
+      tabIds: ["terminal"],
+      activeTabId: "terminal",
+      pop: true,
+    };
+    const slot = { orientation: "vertical", index: 1 } as const;
+
+    it("folds to its own tab strip, whose tab opens the pane", () => {
+      const onTerminalActivate = vi.fn();
+      const onFoldedSize = vi.fn();
+      render(
+        <DndContext>
+          <TabPane
+            featureId={FEATURE_ID}
+            leaf={popLeaf}
+            tabs={tabs}
+            slot={{ ...slot, pops: true, popCollapsed: true, slidingPx: null, onFoldedSize }}
+            onTerminalActivate={onTerminalActivate}
+          />
+        </DndContext>,
+      );
+
+      // The content host stays registered (tab state survives) but hidden.
+      const host = useTabHostRegistry.getState().hosts[makeTabHostKey(FEATURE_ID, "term")];
+      expect(host?.parentElement).toHaveClass("hidden");
+      expect(onFoldedSize).toHaveBeenCalled();
+
+      fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+      expect(useFeatureLayoutStore.getState().features[FEATURE_ID]?.focusedPaneId).toBe("term");
+      expect(onTerminalActivate).toHaveBeenCalledOnce();
+    });
+
+    it("folds to a rail of tab icons on a side edge, opened by a click on one", () => {
+      const sideLeaf: LayoutLeaf = { ...popLeaf, tabIds: ["git", "editor"], activeTabId: "git" };
+      useFeatureLayoutStore.getState().setState(FEATURE_ID, {
+        version: 1,
+        splitRoot: {
+          type: "split",
+          orientation: "horizontal",
+          children: [{ ...leaf, tabIds: ["agent"] }, sideLeaf],
+        },
+        focusedPaneId: ROOT_LEAF_ID,
+        appliedLayoutId: null,
+      });
+      // Folded while unfocused, as `SplitTreeRenderer` slots it: opening it
+      // swaps the rail for the pane's strip.
+      function SidePane(): ReactNode {
+        const focused = useFocusedPaneId(FEATURE_ID) === "term";
+        const pane = useFeatureLayoutStore((s) =>
+          findLeafById(s.features[FEATURE_ID]!.splitRoot, "term"),
+        );
+        return (
+          <TabPane
+            featureId={FEATURE_ID}
+            leaf={pane!}
+            tabs={tabs}
+            slot={{
+              orientation: "horizontal",
+              index: 1,
+              pops: true,
+              popCollapsed: !focused,
+              slidingPx: null,
+              onFoldedSize: vi.fn(),
+            }}
+          />
+        );
+      }
+      render(
+        <DndContext>
+          <SidePane />
+        </DndContext>,
+      );
+
+      // The press alone keeps the rail in place, so the click lands on its button.
+      const showEditor = screen.getByRole("button", { name: "Show Editor" });
+      fireEvent.pointerDown(showEditor);
+      fireEvent.focus(showEditor);
+      expect(useFeatureLayoutStore.getState().features[FEATURE_ID]?.focusedPaneId).toBe(
+        ROOT_LEAF_ID,
+      );
+      fireEvent.click(showEditor);
+
+      const state = useFeatureLayoutStore.getState().features[FEATURE_ID]!;
+      expect(state.focusedPaneId).toBe("term");
+      expect(findLeafById(state.splitRoot, "term")?.activeTabId).toBe("editor");
+      expect(screen.queryByRole("button", { name: "Show Editor" })).toBeNull();
+    });
+
+    it("toggles the pane's pop flag from its strip", () => {
+      useFeatureLayoutStore.getState().setState(FEATURE_ID, {
+        version: 1,
+        splitRoot: {
+          type: "split",
+          orientation: "vertical",
+          children: [{ ...leaf, tabIds: ["agent"] }, popLeaf],
+        },
+        focusedPaneId: "term",
+        appliedLayoutId: null,
+      });
+      render(
+        <DndContext>
+          <TabPane
+            featureId={FEATURE_ID}
+            leaf={popLeaf}
+            tabs={tabs}
+            slot={{
+              ...slot,
+              pops: true,
+              popCollapsed: false,
+              slidingPx: null,
+              onFoldedSize: vi.fn(),
+            }}
+          />
+        </DndContext>,
+      );
+
+      const toggle = screen.getByRole("button", { name: "Pop pane" });
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      fireEvent.click(toggle);
+
+      const root = useFeatureLayoutStore.getState().features[FEATURE_ID]?.splitRoot;
+      expect(root?.type === "split" ? root.children[1] : null).not.toHaveProperty("pop");
     });
   });
 });

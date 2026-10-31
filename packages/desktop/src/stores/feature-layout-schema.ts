@@ -57,6 +57,12 @@ export interface LayoutLeaf {
   id: string;
   tabIds: TabKind[];
   activeTabId: TabKind | null;
+  /**
+   * Pop pane: folded to its header along its split edge until it takes
+   * focus, then it expands and pushes its sibling. Only `true` is
+   * stored; never set on the root leaf (see `popChildIndex`).
+   */
+  pop?: true;
 }
 
 export interface LayoutSplit {
@@ -230,7 +236,8 @@ function parseLeaf(value: Record<string, unknown>): LayoutLeaf | null {
       : isTabKind(value.activeTabId)
         ? value.activeTabId
         : (tabIds[0] ?? null);
-  return { type: "leaf", id: value.id, tabIds, activeTabId };
+  const leaf: LayoutLeaf = { type: "leaf", id: value.id, tabIds, activeTabId };
+  return value.pop === true && value.id !== ROOT_LEAF_ID ? { ...leaf, pop: true } : leaf;
 }
 
 function parseLayoutNode(value: unknown): LayoutNode | null {

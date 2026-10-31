@@ -143,10 +143,13 @@ html {
 /* Programmatic app-sidebar collapse/expand updates both panel flex weights.
  * Animate those weights as a pair, but not during pointer drags or while the
  * resize handle has keyboard focus, so manual resizing tracks every input.
- * The global `data-animations="off"` rule makes this instant when fluid
- * animations are disabled. */
+ * A pop pane sliding in or out of its split (`usePopPanel`) gets the same
+ * animation, set only for the slide; keep the duration in sync with
+ * `POP_MOTION_MS`. The global `data-animations="off"` rule makes both instant
+ * when fluid animations are disabled. */
 [data-app-shell-resize="fluid"]:not(:has(> [data-app-shell-handle]:focus-visible))
-  > [data-slot="resizable-panel"] {
+  > [data-slot="resizable-panel"],
+[data-pop-motion] > [data-slot="resizable-panel"] {
   transition: flex-grow 220ms var(--ease-fluid);
 }
 

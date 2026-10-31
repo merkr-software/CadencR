@@ -1,6 +1,7 @@
 import {
   filterLayoutTabs,
   isPluginTabKind,
+  ROOT_LEAF_ID,
   type FeatureLayoutState,
   type LayoutLeaf,
   type LayoutNode,
@@ -145,6 +146,60 @@ export function makeLeaf(tabs: TabKind[], active: TabKind): LayoutLeaf {
 export function pluckTab(root: LayoutNode, tab: TabKind): LayoutNode {
   // A tree always holds the root leaf, so the filter never collapses it all.
   return filterLayoutTabs(root, (t) => t !== tab) ?? root;
+}
+
+/**
+ * The child of `split` that pops (see `LayoutLeaf.pop`): a flagged non-root
+ * leaf — the first one if a payload flags both.
+ */
+export function popChildIndex(split: LayoutSplit): 0 | 1 | null {
+  const index = split.children.findIndex(
+    (child) => child.type === "leaf" && child.pop === true && child.id !== ROOT_LEAF_ID,
+  );
+  return index === -1 ? null : (index as 0 | 1);
+}
+
+/** Whether `leafId` is a pop pane in effect (flagged, and the side of its split that pops). */
+export function isPopLeaf(node: LayoutNode, leafId: string): boolean {
+  if (node.type === "leaf") return false;
+  const index = popChildIndex(node);
+  if (
+    index !== null &&
+    node.children[index].type === "leaf" &&
+    node.children[index].id === leafId
+  ) {
+    return true;
+  }
+  return isPopLeaf(node.children[0], leafId) || isPopLeaf(node.children[1], leafId);
+}
+
+/**
+ * Flag or unflag `leafId` as a pop pane. Flagging clears its sibling leaf's
+ * flag: a split keeps one side open. The root leaf never pops.
+ */
+export function setLeafPop(node: LayoutNode, leafId: string, pop: boolean): LayoutNode {
+  if (leafId === ROOT_LEAF_ID) return node;
+  if (!pop) return mapLeaf(node, leafId, (leaf) => withPopFlag(leaf, false));
+  if (node.type === "leaf") return node.id === leafId ? withPopFlag(node, true) : node;
+  const [a, b] = node.children;
+  const isChild = (child: LayoutNode): boolean => child.type === "leaf" && child.id === leafId;
+  if (isChild(a) || isChild(b)) {
+    const newA = a.type === "leaf" ? withPopFlag(a, a.id === leafId) : a;
+    const newB = b.type === "leaf" ? withPopFlag(b, b.id === leafId) : b;
+    return newA === a && newB === b ? node : { ...node, children: [newA, newB] };
+  }
+  const newA = setLeafPop(a, leafId, true);
+  if (newA !== a) return { ...node, children: [newA, b] };
+  const newB = setLeafPop(b, leafId, true);
+  return newB === b ? node : { ...node, children: [a, newB] };
+}
+
+function withPopFlag(leaf: LayoutLeaf, pop: boolean): LayoutLeaf {
+  if ((leaf.pop === true) === pop) return leaf;
+  if (pop) return { ...leaf, pop: true };
+  const next = { ...leaf };
+  delete next.pop;
+  return next;
 }
 
 export function getFirstLeafId(node: LayoutNode): string {
