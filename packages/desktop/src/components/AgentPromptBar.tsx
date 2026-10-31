@@ -96,6 +96,7 @@ function SpecialPrompt({
         onRequestChanges={props.onPlanRequestChanges}
         onReject={props.onGateClose ?? props.onPlanReject}
         error={props.planApprovalError}
+        isSubmitting={!!props.isSubmittingPermission}
       />
     ) : special.visibleQuestions?.length && props.onQuestionResponse ? (
       <AgentQuestionDrawer

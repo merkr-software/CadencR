@@ -1034,7 +1034,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.status).toBe("idle");
   });
 
-  it("approvePlan clears approval, sends permission.respond, defers mode change to backend", async () => {
+  it("approvePlan sends permission.respond, clears approval on ack, defers mode change to backend", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
@@ -1074,7 +1074,19 @@ describe("useWebSocketSession", () => {
       result.current.approvePlan();
     });
 
+    // The gate waits for the backend's answer, with the loader on.
+    expect(result.current.pendingPlanApproval).toEqual({});
+    expect(result.current.isSubmittingPermission).toBe(true);
+    const approval = ws.sent
+      .map((s) => JSON.parse(s))
+      .findLast((m) => m.action === "permission.respond");
+    await act(async () => {
+      ws.simulateMessage({ domain: "session", action: "ack", ref: approval.id, payload: {} });
+      await Promise.resolve();
+    });
+
     expect(result.current.pendingPlanApproval).toBeNull();
+    expect(result.current.isSubmittingPermission).toBe(false);
     // Chip stays at the pre-approval mode (the FE never observed an
     // EnterPlanMode signal in this test, so it's the post-init default
     // `auto`) — the backend bridge owns the post-approval mode
@@ -1106,7 +1118,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.permissionMode).toBe("auto");
   });
 
-  it("requestPlanChanges clears approval, echoes feedback, sends prompt", async () => {
+  it("requestPlanChanges sends the feedback, clears approval on ack, echoes feedback", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
@@ -1139,6 +1151,15 @@ describe("useWebSocketSession", () => {
     // Request changes
     act(() => {
       result.current.requestPlanChanges("Use a different approach");
+    });
+
+    expect(result.current.pendingPlanApproval).toEqual({});
+    const denial = ws.sent
+      .map((s) => JSON.parse(s))
+      .findLast((m) => m.action === "permission.respond");
+    await act(async () => {
+      ws.simulateMessage({ domain: "session", action: "ack", ref: denial.id, payload: {} });
+      await Promise.resolve();
     });
 
     expect(result.current.pendingPlanApproval).toBeNull();

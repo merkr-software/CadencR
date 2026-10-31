@@ -155,4 +155,28 @@ describe("PlanApprovalBar", () => {
 
     expect(onApprove).not.toHaveBeenCalled();
   });
+
+  it("disables every decision while one is in flight", () => {
+    const onApprove = vi.fn();
+    const onReject = vi.fn();
+    render(
+      <PlanApprovalBar
+        onApprove={onApprove}
+        onRequestChanges={vi.fn()}
+        onReject={onReject}
+        isSubmitting
+      />,
+    );
+
+    const approve = screen.getByRole("button", { name: /approve & execute/i });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute("aria-busy", "true");
+    expect(screen.getByRole("button", { name: /request changes/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /reject & stop/i })).toBeDisabled();
+
+    fireEvent.keyDown(window, { key: "y", code: "KeyY", metaKey: true });
+    fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+    expect(onApprove).not.toHaveBeenCalled();
+    expect(onReject).not.toHaveBeenCalled();
+  });
 });
