@@ -243,3 +243,52 @@
     animation: none;
   }
 }
+
+/* ── Stack on the card's top edge ───────────────────────────────────────── */
+
+/* One tray for everything stacked above the card (`ComposerStack`). Each
+ * section keeps one accent — icon and title ink, plus a wash faint enough that
+ * the tray still reads as one surface — so running agents, side questions,
+ * schedules, the queue and pending requests are told apart at a glance. */
+[data-stack-tone] {
+  --stack-tone: var(--muted-foreground);
+}
+/* Neutral sections (help, skill wizard) keep the tray's own wash. */
+[data-stack-tone]:not([data-stack-tone="neutral"]) {
+  background-color: color-mix(in oklab, var(--stack-tone) 5%, transparent);
+}
+/* The blue of a working agent everywhere (sidebar ring, sub-agent card). */
+[data-stack-tone="agents"] {
+  --stack-tone: var(--color-blue-500);
+}
+[data-stack-tone="side"] {
+  --stack-tone: var(--acc-purple);
+}
+[data-stack-tone="schedule"] {
+  --stack-tone: var(--acc-cyan);
+}
+[data-stack-tone="queue"] {
+  --stack-tone: var(--acc-orange);
+}
+[data-stack-tone="attention"] {
+  --stack-tone: var(--acc-yellow);
+}
+[data-stack-tone="question"] {
+  --stack-tone: var(--primary);
+}
+/* A call to action on the coming send, so the send button's color — not the
+ * `--chip-worktree-*` trio, which tones the chips reporting a session's state. */
+[data-stack-tone="worktree"] {
+  --stack-tone: var(--primary);
+}
+[data-stack-tone] [data-stack-ink] {
+  color: color-mix(in oklab, var(--stack-tone) 78%, var(--foreground));
+}
+[data-stack-tone="neutral"] [data-stack-ink] {
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+}
+/* The skill wizard holding the keys takes the focused-card border for the
+ * whole tray: one of tray and card owns them at a time. */
+[data-composer-stack]:has([data-keys-active]) {
+  border-color: var(--composer-focus-border);
+}

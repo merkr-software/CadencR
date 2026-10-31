@@ -1,10 +1,16 @@
 import { memo, useState, type ReactElement } from "react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertCircle, ArrowUp, Loader2, Pencil, X } from "lucide-react";
+import { AlertCircle, ArrowUp, ListOrdered, Loader2, Pencil, X } from "lucide-react";
 import type { QueuedPrompt } from "@/api/generated";
 import { cn } from "@/lib/utils";
 import { useComposerContext } from "./ComposerContext";
+import {
+  STACK_ROW_CLASS,
+  StackList,
+  StackRowActions,
+  StackRowButton,
+  StackSection,
+} from "./ComposerStack";
 import { usePromptQueue, type PromptQueueApi } from "./usePromptQueue";
 
 /**
@@ -19,27 +25,40 @@ export const QueueRail = memo(function QueueRail(): ReactElement | null {
   const queue = usePromptQueue(sessionId);
   if (queue.items.length === 0) return null;
   return (
-    <section
-      aria-label="Queued messages"
+    <StackSection
+      tone="queue"
+      label="Queued messages"
       data-composer-queue
-      className="mx-2 flex flex-col gap-1 rounded-t-lg border border-b-0 border-border/70 bg-muted/30 px-1.5 pt-1.5 pb-1.5"
+      icon={<ListOrdered />}
+      title="Queued"
+      count={queue.items.length}
+      hint={
+        isRunning
+          ? "Sends when the agent finishes this turn"
+          : "Held: sends after the next turn, or send it now"
+      }
+      summary={<QueueSummary items={queue.items} />}
     >
-      <header className="flex items-center gap-2 px-1.5 text-[11px] text-muted-foreground">
-        <span className="font-medium text-foreground/80">Queued · {queue.items.length}</span>
-        <span>
-          {isRunning
-            ? "Sends when the agent finishes this turn"
-            : "Held: sends after the next turn, or send it now"}
-        </span>
-      </header>
-      <ol className="flex flex-col gap-1">
+      <StackList>
         {queue.items.map((item, index) => (
           <QueueRow key={item.id} item={item} index={index} queue={queue} />
         ))}
-      </ol>
-    </section>
+      </StackList>
+    </StackSection>
   );
 });
+
+/** The next message to go out, and whether any failed to. */
+function QueueSummary({ items }: { items: readonly QueuedPrompt[] }): ReactElement {
+  const failed = items.filter((item) => item.status === "error").length;
+  return (
+    <>
+      {/* First: the line truncates its end. */}
+      {failed > 0 && <span className="text-destructive">{failed} not delivered · </span>}
+      Next: {items[0]?.content}
+    </>
+  );
+}
 
 function QueueRow({
   item,
@@ -57,12 +76,7 @@ function QueueRow({
     return <QueueRowEditor item={item} queue={queue} onDone={() => setEditing(false)} />;
   }
   return (
-    <li
-      className={cn(
-        "group flex min-h-8 items-center gap-2 rounded-md bg-background/60 py-1 pr-1 pl-2 text-[13px]",
-        failed && "ring-1 ring-destructive/40",
-      )}
-    >
+    <li className={cn(STACK_ROW_CLASS, failed && "ring-1 ring-destructive/40")}>
       <span className="w-4 shrink-0 text-center font-mono text-[11px] text-muted-foreground">
         {delivering ? (
           <Loader2 className="mx-auto size-3 animate-spin" aria-label="Sending" />
@@ -82,25 +96,25 @@ function QueueRow({
         )}
       </span>
       {!delivering && (
-        <span className="flex shrink-0 items-center gap-0.5 opacity-70 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-          <RowButton
+        <StackRowActions>
+          <StackRowButton
             label="Send now"
             onClick={() => void queue.sendNow(item.id)}
             disabled={queue.busy}
           >
             <ArrowUp className="size-3.5" />
-          </RowButton>
-          <RowButton label="Edit" onClick={() => setEditing(true)}>
+          </StackRowButton>
+          <StackRowButton label="Edit" onClick={() => setEditing(true)}>
             <Pencil className="size-3.5" />
-          </RowButton>
-          <RowButton
+          </StackRowButton>
+          <StackRowButton
             label="Remove"
             onClick={() => void queue.remove(item.id)}
             disabled={queue.busy}
           >
             <X className="size-3.5" />
-          </RowButton>
-        </span>
+          </StackRowButton>
+        </StackRowActions>
       )}
     </li>
   );
@@ -161,31 +175,5 @@ function QueueRowEditor({
         </button>
       </span>
     </li>
-  );
-}
-
-function RowButton({
-  label,
-  onClick,
-  disabled,
-  children,
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: ReactElement;
-}): ReactElement {
-  return (
-    <Button
-      variant="ghost"
-      size="icon-xs"
-      aria-label={label}
-      title={label}
-      onClick={onClick}
-      disabled={disabled}
-      className="size-7 text-muted-foreground"
-    >
-      {children}
-    </Button>
   );
 }

@@ -22,7 +22,11 @@ vi.mock("@/api/generated", async (importOriginal) => ({
   }),
 }));
 
+// Every jump a test starts, stopped after it so no rAF loop outlives it.
+const jumpCancels: (() => void)[] = [];
+
 afterEach(() => {
+  for (const cancel of jumpCancels.splice(0)) cancel();
   promptsQuery.data = undefined;
   vi.restoreAllMocks();
 });
@@ -77,7 +81,11 @@ function setup({
   // Each turn load stays pending until the test settles it.
   const settleTurn = new Map<number, (found: boolean) => void>();
   const controls = {
-    prepareJump: vi.fn(),
+    startJump: vi.fn((run: () => () => void) => {
+      const cancel = run();
+      jumpCancels.push(cancel);
+      return cancel;
+    }),
     loadPromptTurn: vi.fn(
       (messageDbId: number) =>
         new Promise<boolean>((resolve) => settleTurn.set(messageDbId, resolve)),
@@ -145,7 +153,7 @@ describe("MessageNavigator", () => {
   it("glides to a nearby message after handing it the viewport", () => {
     const { scroller, controls, scrollToIndex } = setup({ clientHeight: 800 });
     fireEvent.click(mockRailRect(), { clientY: 250, detail: 1 });
-    expect(controls.prepareJump).toHaveBeenCalledTimes(1);
+    expect(controls.startJump).toHaveBeenCalledTimes(1);
     expect(scroller.scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "smooth" }));
     expect(scrollToIndex).not.toHaveBeenCalled();
   });

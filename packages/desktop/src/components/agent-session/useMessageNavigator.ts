@@ -9,6 +9,7 @@ import {
   markIndexAtRow,
   type UserMessageMark,
 } from "@/lib/agent-message-navigator";
+import type { StartJump } from "./agent-session-scroll-utils";
 import { jumpToRow, rowAtOffset } from "./message-navigator-scroll";
 import { useSessionPromptMarks } from "./useSessionPromptMarks";
 
@@ -21,7 +22,7 @@ const TOP_PROBE_PX = 16;
 
 /** What the navigator needs from the session's scroll owner. */
 export interface MessageNavigatorControls {
-  prepareJump: () => void;
+  startJump: StartJump;
   /**
    * Loads one unloaded prompt and the start of its turn in a single request;
    * resolves with whether the prompt is now in the transcript.
@@ -127,8 +128,9 @@ function useJumpToMark(
   marks: UserMessageMark[],
   virtuosoRef: RefObject<VirtuosoHandle | null>,
   scrollerRef: RefObject<HTMLElement | null>,
-  { prepareJump, loadPromptTurn }: MessageNavigatorControls,
+  { startJump, loadPromptTurn }: MessageNavigatorControls,
 ) {
+  // The rail can unmount (agent tab hidden) while the session stays: stop its jump then.
   const cancelJumpRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelJumpRef.current?.(), []);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -143,17 +145,13 @@ function useJumpToMark(
   const scrollToMark = useCallback(
     (mark: UserMessageMark): void => {
       const scroller = scrollerRef.current;
-      if (!scroller || mark.rowIndex === null || mark.blockId === null) return;
-      prepareJump();
-      cancelJumpRef.current?.();
-      cancelJumpRef.current = jumpToRow({
-        scroller,
-        virtuoso: virtuosoRef.current,
-        blockId: mark.blockId,
-        rowIndex: mark.rowIndex,
-      });
+      const { rowIndex, blockId } = mark;
+      if (!scroller || rowIndex === null || blockId === null) return;
+      cancelJumpRef.current = startJump(() =>
+        jumpToRow({ scroller, virtuoso: virtuosoRef.current, blockId, rowIndex }),
+      );
     },
-    [prepareJump, scrollerRef, virtuosoRef],
+    [startJump, scrollerRef, virtuosoRef],
   );
 
   const loadThenJump = useCallback(

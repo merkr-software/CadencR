@@ -101,6 +101,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
       instruments={instruments}
       sessionInfo={sessionInfo}
       onScheduleRequest={schedules.requestSchedule}
+      schedules={schedules.section}
     />
   ) : null;
   const utilities =
@@ -110,7 +111,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
 
   return (
     <div className={props.collapsible ? COLLAPSIBLE_ROOT_CLASS : FULL_PAGE_ROOT_CLASS}>
-      {props.shouldShowPromptBar && schedules.element}
+      {props.shouldShowPromptBar && schedules.dialog}
       {utilities}
       {promptBar ?? instruments}
       {!promptBar && (
@@ -205,6 +206,7 @@ function AgentSessionPrompt(
     instruments: ReactElement | null;
     sessionInfo: ReturnType<typeof useComposerSessionInfo>;
     onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
+    schedules: ReactElement | null;
   },
 ): ReactElement {
   const session = props.sessionProps;
@@ -284,6 +286,7 @@ function AgentSessionPrompt(
       steeringAcknowledged={session.steeringAcknowledged}
       launchManifest={launchManifest(props)}
       sideConversations={sideConversations}
+      schedules={props.schedules}
       instrumentLeading={props.instruments}
       slashCommandsOverride={session.slashCommandsOverride}
       slashCommandsLoading={session.slashCommandsLoading}

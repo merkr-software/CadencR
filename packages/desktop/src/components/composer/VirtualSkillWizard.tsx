@@ -26,10 +26,8 @@ import { VirtualSkillAgentControls } from "./VirtualSkillAgentControls";
 import { SkillWizardSection, useSkillWizardFocus, useWizardShortcut } from "./useSkillWizardFocus";
 import type { VirtualSkillWizardState } from "./useVirtualSkillWizard";
 
-const TRAY = "mx-2 rounded-t-lg border border-b-0 border-border/70 bg-muted/30";
-
 /**
- * Stacked on the composer card's top edge while the draft invokes a
+ * A section of the composer card's stack while the draft invokes a
  * configurable `/cadencr:*` skill: what the skill does, in full, and the
  * composer's own instruments to configure the sessions it spawns. The choices
  * are written into the prompt as flags when it is sent.
@@ -48,7 +46,8 @@ export const VirtualSkillWizard = memo(function VirtualSkillWizard({
   if (state.status === "loading") {
     return (
       <div
-        className={cn(TRAY, "flex h-8 items-center gap-2 px-3 text-[11px] text-muted-foreground")}
+        data-stack-tone="neutral"
+        className="flex h-8 shrink-0 items-center gap-2 px-3 text-[11px] text-muted-foreground"
         role="status"
       >
         <Loader2 className="size-3 animate-spin" aria-hidden />
@@ -58,7 +57,7 @@ export const VirtualSkillWizard = memo(function VirtualSkillWizard({
   }
   if (state.status === "error") {
     return (
-      <p className={cn(TRAY, "px-3 py-2 text-[11px] text-destructive")} role="alert">
+      <p data-stack-tone="neutral" className="px-3 py-2 text-[11px] text-destructive" role="alert">
         {apiErrorMessage(state.error, `Could not load the options of /${state.command}.`)}
       </p>
     );
@@ -99,13 +98,12 @@ function ReadyWizard({
         data-virtual-skill-wizard
         data-keys-active={focus.active || undefined}
         aria-label={`Configure /${skill.command}`}
-        // The focused-card border: one of wizard and card owns the keys at a time.
-        // Short of room (a phone keyboard), the wizard scrolls before the card
-        // below shrinks: crushed, the card hid the prompt being typed.
+        data-stack-tone="neutral"
+        // Holding the keys, it hands the whole stack the focused-card border
+        // (`composer.css`): one of wizard and card owns them at a time.
         className={cn(
-          TRAY,
-          "@container flex min-h-16 shrink-[100] flex-col gap-2 overflow-y-auto px-2.5 pt-2.5 pb-2.5 transition-colors duration-150",
-          focus.active && "border-[var(--composer-focus-border)] bg-muted/45",
+          "@container flex shrink-0 flex-col gap-2 px-2.5 pt-2.5 pb-2.5 transition-colors duration-150",
+          focus.active && "bg-muted/45",
         )}
       >
         {/* 1 · How it reads when typed: the command, then the slot to fill. */}

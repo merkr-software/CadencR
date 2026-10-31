@@ -30,19 +30,22 @@ function animationsEnabled(): boolean {
   return document.documentElement.dataset.animations !== "off";
 }
 
-function flashBubble(scroller: HTMLElement, blockId: string): void {
+const USER_BUBBLE_SELECTOR = '[data-testid="user-message-bubble"]';
+
+function flashArrival(scroller: HTMLElement, blockId: string, selectors: readonly string[]): void {
   // With animations off the keyframes never run, so `animationend` would never
   // clear the class.
   if (!animationsEnabled()) return;
-  const bubble = findRow(scroller, blockId)?.querySelector<HTMLElement>(
-    '[data-testid="user-message-bubble"]',
-  );
-  if (!bubble) return;
-  bubble.classList.remove(ARRIVAL_FLASH_CLASS);
-  // Restart the keyframes when the same prompt is targeted twice in a row.
-  void bubble.offsetWidth;
-  bubble.classList.add(ARRIVAL_FLASH_CLASS);
-  bubble.addEventListener("animationend", () => bubble.classList.remove(ARRIVAL_FLASH_CLASS), {
+  const row = findRow(scroller, blockId);
+  const target = selectors
+    .map((selector) => row?.querySelector<HTMLElement>(selector))
+    .find((element) => element != null);
+  if (!target) return;
+  target.classList.remove(ARRIVAL_FLASH_CLASS);
+  // Restart the keyframes when the same target is jumped to twice in a row.
+  void target.offsetWidth;
+  target.classList.add(ARRIVAL_FLASH_CLASS);
+  target.addEventListener("animationend", () => target.classList.remove(ARRIVAL_FLASH_CLASS), {
     once: true,
   });
 }
@@ -52,6 +55,11 @@ interface JumpArgs {
   virtuoso: VirtuosoHandle | null;
   blockId: string;
   rowIndex: number;
+  /**
+   * What flashes on arrival, first match inside the row: the user's bubble by
+   * default (a prompt jump), a sub-agent card for the composer's agent list.
+   */
+  flashSelectors?: readonly string[];
 }
 
 function scrollToRowIndex({ virtuoso, rowIndex }: JumpArgs): void {
@@ -147,7 +155,8 @@ class JumpHold {
 }
 
 /**
- * Scrolls a prompt to the top of the stream and flashes its bubble on arrival.
+ * Scrolls a row (a prompt, a sub-agent card) to the top of the stream and
+ * flashes it on arrival.
  *
  * A nearby row glides there — everything between is already measured, so it
  * can't drift. A far row is brought in instantly by index: gliding across
@@ -175,7 +184,7 @@ export function jumpToRow(args: JumpArgs): () => void {
     cancelAnimationFrame(raf);
     for (const type of USER_SCROLL_EVENTS) scroller.removeEventListener(type, abort);
     delete scroller.dataset.navJumping;
-    if (land) flashBubble(scroller, blockId);
+    if (land) flashArrival(scroller, blockId, args.flashSelectors ?? [USER_BUBBLE_SELECTOR]);
   };
   function abort(): void {
     finish(false);
