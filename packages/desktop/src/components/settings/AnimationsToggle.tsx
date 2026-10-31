@@ -1,4 +1,3 @@
-import { Sparkles } from "lucide-react";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { useAnimationsEnabled } from "@/lib/animations/animations-setting";
 
@@ -17,8 +16,6 @@ export function AnimationsToggle({ divided }: { divided?: boolean }): React.JSX.
 
   return (
     <SettingsSwitchRow
-      icon={<Sparkles className="size-4" />}
-      iconTint="purple"
       label="Fluid animations"
       description={description}
       checked={enabled}

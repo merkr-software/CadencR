@@ -9,5 +9,8 @@
 /** The "Remote connections" group inside the Git section — forge onboarding. */
 export const FORGE_SETTINGS_ANCHOR = "git-remotes";
 
+/** The "Saved views" group on the Sidebar page — the lens menu's "Edit views…". */
+export const SIDEBAR_VIEWS_SETTINGS_ANCHOR = "sidebar-views";
+
 /** The "Versions & updates" card leads the Providers section. */
 export const PROVIDER_UPDATES_SETTINGS_ANCHOR = "providers";

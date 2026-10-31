@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { LabeledControl } from "@/components/settings/LabeledControl";
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { SettingsHeading } from "@/components/settings/SettingsHeading";
+import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { queryClient } from "@/lib/queryClient";
 import { FORGE_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
@@ -88,52 +88,77 @@ export function GitRemotesSettings(): ReactElement {
   };
 
   return (
-    // The PR pane's "Connect a provider" button deep-links straight here rather
-    // than to the top of the Git section, which opens on merge strategy.
-    // `scroll-mt-6` matches `SettingsSection` so the heading clears the top edge.
-    <div id={FORGE_SETTINGS_ANCHOR} className="scroll-mt-6 space-y-3">
-      <SettingsHeading
-        title="Remote connections"
-        description="Connect the host behind each project's origin remote to show pull request and merge request status, checks, and comments. Tokens are stored locally in an owner-only secret file, never in workspace settings."
-      />
-      {statusQuery.isLoading && (
-        <SettingsCard padded>
-          <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status">
-            <Loader2Icon className="size-4 animate-spin" aria-hidden /> Detecting project remotes…
-          </p>
-        </SettingsCard>
-      )}
-      {statusQuery.isError && (
-        <SettingsCard padded tone="danger">
-          <div className="flex items-center justify-between gap-4">
-            <p className="text-sm text-destructive">
-              {apiErrorMessage(statusQuery.error, "Could not load remote connections")}
-            </p>
-            <Button variant="outline" size="sm" onClick={refreshForgeAuthStatus}>
-              <RefreshCwIcon className="mr-1.5 size-3.5" aria-hidden /> Retry
-            </Button>
-          </div>
-        </SettingsCard>
-      )}
-      {statusQuery.data?.length === 0 && (
-        <SettingsCard padded>
-          <p className="text-sm text-muted-foreground">
-            No Git remotes were detected in the current projects.
-          </p>
-        </SettingsCard>
-      )}
-      {statusQuery.data?.map((status) => (
-        <ForgeHostCard
-          key={status.hostname}
-          status={status}
-          pending={busy && pendingHost === status.hostname}
-          disabled={busy}
-          onSave={save}
-          onDisconnect={disconnect}
+    // The PR pane's "Connect a provider" button deep-links straight to this group.
+    <SettingsGroup
+      id={FORGE_SETTINGS_ANCHOR}
+      bare
+      title="Remote connections"
+      description="Connect the host behind each project's origin remote to see pull request and merge request status, checks and comments. Tokens stay on this machine in an owner-only secret file, never in workspace settings."
+    >
+      <div className="space-y-3">
+        <RemoteConnectionsNotice
+          isLoading={statusQuery.isLoading}
+          error={statusQuery.isError ? statusQuery.error : null}
+          isEmpty={statusQuery.data?.length === 0}
         />
-      ))}
-    </div>
+        {statusQuery.data?.map((status) => (
+          <ForgeHostCard
+            key={status.hostname}
+            status={status}
+            pending={busy && pendingHost === status.hostname}
+            disabled={busy}
+            onSave={save}
+            onDisconnect={disconnect}
+          />
+        ))}
+      </div>
+    </SettingsGroup>
   );
+}
+
+/** Loading, failure and "no remotes" states above the host cards. */
+function RemoteConnectionsNotice({
+  isLoading,
+  error,
+  isEmpty,
+}: {
+  isLoading: boolean;
+  error: unknown;
+  isEmpty: boolean;
+}): React.JSX.Element | null {
+  if (isLoading) {
+    return (
+      <SettingsCard padded>
+        <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" role="status">
+          <Loader2Icon className="size-4 animate-spin" aria-hidden /> Detecting project remotes…
+        </p>
+      </SettingsCard>
+    );
+  }
+  if (error) {
+    return (
+      <SettingsCard padded tone="danger">
+        <div className="flex items-center justify-between gap-4">
+          <p className="text-sm text-destructive">
+            {apiErrorMessage(error, "Could not load remote connections")}
+          </p>
+          <Button variant="outline" size="sm" onClick={refreshForgeAuthStatus}>
+            <RefreshCwIcon className="mr-1.5 size-3.5" aria-hidden /> Retry
+          </Button>
+        </div>
+      </SettingsCard>
+    );
+  }
+  if (isEmpty) {
+    return (
+      <SettingsCard padded>
+        <p className="text-sm text-muted-foreground">
+          No Git remotes were detected in the current projects.
+        </p>
+      </SettingsCard>
+    );
+  }
+  return null;
 }
 
 function refreshForgeAuthStatus(): void {

@@ -24,24 +24,26 @@ Open **Settings** from the sidebar or its shortcut. Workspace and project prefer
 
 ## Current sections
 
-| Group / section            | What you configure                                                             | Guide                                  |
-| -------------------------- | ------------------------------------------------------------------------------ | -------------------------------------- |
-| General → Appearance       | Dark/light/system appearance, themes, animation, monospace font                | [Themes](../themes/)                   |
-| General → Editor           | CodeMirror preferences and the Neovim editor choice                            | [Editor](../editor/)                   |
-| General → Interface & Zoom | Density, zoom, and conversation display controls such as the message navigator | [Session view](../session-view/)       |
-| General → Sidebar          | Presets, row details, grouping, sorting, rail, and preview                     | [Sidebar](../sidebar/)                 |
-| General → Saved views      | Saved sidebar filters and presentation choices                                 | [Sidebar](../sidebar/)                 |
-| General → Notifications    | Notification destination, activity events, and macOS notch presence/animation  | Below                                  |
-| General → Browser          | Defaults for new browser tabs                                                  | [Browser](../browser/)                 |
-| General → Storage          | Optional archived-output retention and manual maintenance                      | Below                                  |
-| MCP                        | Browser, Project, and Workspace tool servers exposed to agents                 | [MCP & orchestration](../mcp/)         |
-| Agents → Auto-naming       | Naming model and editable naming instructions                                  | Below                                  |
-| Source Control → Git       | Git preferences, diff layout, and remote-host connections                      | [Git](../git/)                         |
-| Providers → CLI Providers  | Installed providers, discovery, profiles, access options, and local connectors | [Providers](../providers/)             |
-| Usage → Stats              | Durable token/message activity and daily details                               | [Usage Stats](../usage-stats/)         |
-| About → About Cadencr      | Build information and replaying onboarding                                     | [Workspace pages](../workspace-pages/) |
+Settings shows one page at a time, picked from a rail grouped by what it configures. The search field at the top of the rail (⌘F on macOS, Ctrl+F on Linux) finds a page or a single setting by name or by the words people use for it ("vim", "token", "zoom"); Enter opens the first result and outlines the setting it points at. Every page and setting is also a command in the ⌘K / Ctrl+K palette.
 
-Provider controls are grouped under **CLI Providers**. Older references to a separate **Runtime & Models** settings section do not describe the current navigation.
+| Group / page                  | What you configure                                                                        | Guide                                  |
+| ----------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------- |
+| Preferences → General         | Interface zoom, keyboard shortcuts, resuming agents after a restart, the settings file    | Below                                  |
+| Preferences → Appearance      | Theme, animations, monospace font, theme library, how agent transcripts read              | [Themes](../themes/)                   |
+| Preferences → Sidebar         | Presets, row details, blocks, grouping, sorting, rail, live preview, saved views          | [Sidebar](../sidebar/)                 |
+| Preferences → Notifications   | Notification destination, push on paired devices, the macOS notch, a test notification    | Below                                  |
+| Agents → Agents               | Conversation names: the naming model and its instructions                                 | Below                                  |
+| Agents → Providers            | Provider versions and updates, which install is used, profiles, models and access options | [Providers](../providers/)             |
+| Agents → MCP servers          | Browser, Project, and Workspace tool servers exposed to agents                            | [MCP & orchestration](../mcp/)         |
+| Tools → Editor                | Vim mode, auto-save, Git blame, open-tab limit, language servers, file-tree icons         | [Editor](../editor/)                   |
+| Tools → Git                   | Merge strategy, diff layout, and remote-host connections                                  | [Git](../git/)                         |
+| Tools → Browser               | Auto layout, default mode, search engine, and links opened in Cadencr's browser           | [Browser](../browser/)                 |
+| Tools → Custom tabs / actions | Your custom tabs, and commands you run from a conversation                                | Below                                  |
+| System → Usage                | Durable token/message activity and daily details                                          | [Usage Stats](../usage-stats/)         |
+| System → Storage              | Optional archived-output retention and manual maintenance                                 | Below                                  |
+| System → About                | Version, updates, and a diagnostic report                                                 | [Workspace pages](../workspace-pages/) |
+
+Older links to a settings section (for example `?section=interface` or `?section=auto-naming`) still open the page that now holds it.
 
 ## Notification destinations
 
@@ -61,7 +63,7 @@ Paired browser/PWA clients can enable Web Push. Push depends on the host running
   elevated
 />
 
-**Auto-naming** lets you select a naming model and edit its system prompt. The editor starts with the built-in instructions and offers a reset. Adjust the language, length, or naming conventions you want for new tasks.
+**Conversation names** (Agents page) lets you select a naming model and edit its system prompt. The editor starts with the built-in instructions and offers a reset. Adjust the language, length, or naming conventions you want for new tasks.
 
 The naming model is separate from the provider/model used for task prompts. New task conversations follow your last accepted manual prompt across projects, with conversation overrides taking priority.
 

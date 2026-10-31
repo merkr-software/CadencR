@@ -1,4 +1,3 @@
-import { ListChecks } from "lucide-react";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { AGENT_SUMMARY_MODE_SETTING_KEY, parseAgentSummaryMode } from "@/lib/agent-verbosity";
@@ -15,8 +14,6 @@ export function AgentSummaryModeToggle(): React.JSX.Element {
 
   return (
     <SettingsSwitchRow
-      icon={<ListChecks className="size-4" />}
-      iconTint="green"
       label="Summary mode"
       description="Collapse each turn's tool calls into one recap (e.g. Read ×5, Bash ×12), then show the turn's final message. Keeps the stream focused on results."
       checked={enabled}

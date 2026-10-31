@@ -3,8 +3,8 @@ import { keepPreviousData } from "@tanstack/react-query";
 import { useGetUsageStats } from "@/api/generated";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { Skeleton } from "@/components/ui/skeleton";
-import { SettingsSection } from "@/components/settings/SettingsSection";
-import { SettingsCard } from "@/components/settings/SettingsCard";
+import { SettingsPageSection } from "./SettingsPageSection";
+import { SettingsGroup } from "@/components/settings/SettingsGroup";
 import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
 import { WARNING_BANNER_CLASS } from "@/components/settings/SettingsWarningsBanner";
 import { UsageSegmentedControl } from "@/components/usage/UsageSegmentedControl";
@@ -72,16 +72,12 @@ export function StatsSection(): React.JSX.Element {
   });
 
   return (
-    <SettingsSection
-      id="stats"
-      title="Usage stats"
-      description="Provider-reported token usage and the messages you send are kept independently of your conversations. Archiving or deleting a conversation does not erase them."
-    >
-      <SettingsCard>
-        <SettingsSubsection
-          title="Overview"
-          description="Tokens come from each provider's native usage events; messages are counted as you send them."
-        >
+    <SettingsPageSection pageId="stats">
+      <SettingsGroup
+        title="Overview"
+        description="Tokens come from each provider's own usage events; messages are counted as you send them."
+      >
+        <SettingsSubsection>
           {/* One row of options for the whole overview: the tiles and the chart
               below answer to the same range, measure, grouping and scale. */}
           <div className="mb-5 flex flex-wrap items-center gap-2">
@@ -137,8 +133,8 @@ export function StatsSection(): React.JSX.Element {
             </div>
           </StatsBody>
         </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
+      </SettingsGroup>
+    </SettingsPageSection>
   );
 }
 

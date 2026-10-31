@@ -18,8 +18,9 @@ import {
 import { toastError } from "@/lib/api-errors";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { isBrowserRemote } from "@/lib/remote/device-token";
+import { PROVIDER_UPDATES_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { startProviderUpdate } from "@/stores/provider-updates";
-import { SettingsCard } from "./SettingsCard";
+import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
 import { ErrorRow, LoadingRow } from "./SettingsStateRows";
 
@@ -46,7 +47,8 @@ export function ProviderUpdatesCard(): React.JSX.Element {
   };
 
   return (
-    <SettingsCard
+    <SettingsGroup
+      id={PROVIDER_UPDATES_SETTINGS_ANCHOR}
       title="Versions & updates"
       description={<CheckedAt checkedAt={query.data?.checked_at ?? null} />}
       action={
@@ -62,7 +64,7 @@ export function ProviderUpdatesCard(): React.JSX.Element {
         </Button>
       }
     >
-      <div className="mt-3">
+      <div className={query.data ? undefined : "p-4"}>
         {query.isLoading ? (
           <LoadingRow label="Loading provider versions…" />
         ) : query.isError || !query.data ? (
@@ -77,7 +79,7 @@ export function ProviderUpdatesCard(): React.JSX.Element {
           </ul>
         )}
       </div>
-    </SettingsCard>
+    </SettingsGroup>
   );
 }
 
