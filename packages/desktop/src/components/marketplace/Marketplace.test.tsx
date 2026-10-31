@@ -9,6 +9,7 @@ import {
   getManagedTabPolicy,
   getManagedTabs,
   pluginTabList,
+  previewManagedThemePackage,
   installManagedTab,
   updateManagedTab,
   removeManagedTab,
@@ -230,7 +231,12 @@ function stubBackend(providers: ManagedProviderInventoryEntry[], recommended = "
     index,
   });
   vi.mocked(getManagedThemes).mockResolvedValue([graphiteEntry("0.1.0")] as never);
+  vi.mocked(previewManagedThemePackage).mockResolvedValue(graphiteEntry("0.2.0").theme as never);
 }
+
+const previewFailure = {
+  response: { data: { error: "Archive unreachable", code: "MANAGED_THEME_DOWNLOAD" } },
+};
 
 function graphiteEntry(version: string) {
   return {
@@ -322,6 +328,33 @@ describe("plugin detail", () => {
     expect(await screen.findByRole("button", { name: "In use" })).toBeDisabled();
     expect(document.querySelector(".mp-stage:not([data-unpainted])")).toBeTruthy();
     expect(applyManagedTheme).not.toHaveBeenCalled();
+    expect(previewManagedThemePackage).not.toHaveBeenCalled();
+  });
+
+  it("paints an uninstalled theme from its preview without a click, and retries a failure", async () => {
+    stubBackend([]);
+    vi.mocked(getManagedThemes).mockResolvedValue([]);
+    vi.mocked(previewManagedThemePackage).mockRejectedValueOnce(previewFailure);
+    const { user } = inMarketplace(<PluginDetail kind="theme" id="graphite" />);
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "MANAGED_THEME_DOWNLOAD: Archive unreachable",
+    );
+    await user.click(screen.getByRole("button", { name: "Retry preview" }));
+    expect(await screen.findByText("Preview of 0.2.0 — not installed")).toBeTruthy();
+    expect(previewManagedThemePackage).toHaveBeenCalledTimes(2);
+  });
+
+  it("previews nothing from an unverified theme catalog", async () => {
+    stubBackend([]);
+    vi.mocked(getManagedThemes).mockResolvedValue([]);
+    vi.mocked(getManagedThemeCatalog).mockResolvedValue({
+      verified: false,
+      recommended_versions: { graphite: "0.2.0" },
+      index,
+    });
+    inMarketplace(<PluginDetail kind="theme" id="graphite" />);
+    expect(await screen.findByText("No preview available")).toBeTruthy();
+    expect(previewManagedThemePackage).not.toHaveBeenCalled();
   });
 
   it("offers a pending update consistently: select, action and stage name the same version", async () => {
@@ -330,7 +363,11 @@ describe("plugin detail", () => {
     const { user } = inMarketplace(<PluginDetail kind="theme" id="graphite" />);
     await user.click(await screen.findByRole("button", { name: "Update to 0.2.0" }));
     expect(screen.getByRole("combobox", { name: "Exact version" })).toHaveTextContent("0.2.0");
-    expect(screen.getByRole("button", { name: /Preview 0\.2\.0/ })).toBeTruthy();
+    expect(await screen.findByText("Preview of 0.2.0 — not installed")).toBeTruthy();
+    expect(previewManagedThemePackage).toHaveBeenCalledWith(
+      { theme_id: "graphite", version: "0.2.0", index },
+      expect.anything(),
+    );
     await waitFor(() =>
       expect(updateManagedTheme).toHaveBeenCalledWith("graphite", {
         theme_id: "graphite",
@@ -452,6 +489,18 @@ describe("marketplace home", () => {
     expect(screen.getByRole("heading", { name: /Providers/ })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Showcase" })).toBeTruthy();
     expect(screen.queryByText(/featured|popular|trending/i)).toBeNull();
+  });
+
+  it("loads shelf previews by itself and keeps a tile's failure quiet", async () => {
+    stubBackend([]);
+    vi.mocked(getManagedThemes).mockResolvedValue([]);
+    vi.mocked(previewManagedThemePackage).mockRejectedValue(previewFailure);
+    inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
+    const shelf = await screen.findByRole("region", { name: /Themes/ });
+    expect(await within(shelf).findByText(/Archive unreachable/)).toBeTruthy();
+    expect(within(shelf).queryByRole("alert")).toBeNull();
+    expect(within(shelf).queryByRole("button", { name: "Retry preview" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Preview/ })).toBeNull();
   });
 
   it("says when no verified catalog is available, keeping installed reachable", async () => {

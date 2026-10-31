@@ -1,13 +1,10 @@
 import { forwardRef, useMemo, type HTMLAttributes } from "react";
-import { useIsFetching } from "@tanstack/react-query";
-import { Loader2, Paintbrush, SearchX } from "lucide-react";
+import { SearchX } from "lucide-react";
 import { VirtuosoGrid } from "react-virtuoso";
 import { Button } from "@/components/ui/button";
-import { usePreviewThemes } from "@/hooks/useThemePreview";
 import type { MarketplaceListing, PluginKind } from "@/lib/marketplace-listings";
 import { cn } from "@/lib/utils";
 import { KIND_ORDER, KINDS } from "./kinds";
-import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceEmpty, TILE_GRID } from "./MarketplaceStates";
 import { MarketplaceTile } from "./MarketplaceTile";
 
@@ -74,32 +71,6 @@ export function KindFilterBar({
   );
 }
 
-/**
- * Loads verified colors for every theme on the shelf that is not installed.
- * Stays available after a click: cached previews are skipped, failed ones retried.
- */
-function PreviewThemesButton({
-  listings,
-}: {
-  listings: MarketplaceListing[];
-}): React.JSX.Element | null {
-  const { themes } = useMarketplaceState();
-  const previewThemes = usePreviewThemes(themes.catalog.data?.index);
-  const fetching = useIsFetching({ queryKey: ["marketplace", "theme-preview"] }) > 0;
-  const unpainted = listings.filter((listing) => listing.inCatalog && !listing.installed);
-  if (!unpainted.length) return null;
-  return (
-    <Button variant="ghost" size="xs" disabled={fetching} onClick={() => previewThemes(unpainted)}>
-      {fetching ? (
-        <Loader2 aria-hidden="true" className="animate-spin" />
-      ) : (
-        <Paintbrush aria-hidden="true" />
-      )}
-      {fetching ? "Painting previews…" : "Preview colors"}
-    </Button>
-  );
-}
-
 function Shelf({
   kind,
   listings,
@@ -125,7 +96,6 @@ function Shelf({
           </h2>
           <p className="text-xs text-muted-foreground">{meta.pitch}</p>
         </div>
-        {kind === "theme" && <PreviewThemesButton listings={shown} />}
         {listings.length > SHELF_SIZE && (
           <Button variant="ghost" size="xs" onClick={onSeeAll}>
             See all {listings.length}
