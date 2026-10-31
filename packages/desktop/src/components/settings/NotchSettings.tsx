@@ -1,16 +1,15 @@
 import { useState } from "react";
-import { LaptopMinimal } from "lucide-react";
 import { toast } from "sonner";
 import { useNotchDestinationActive } from "@/components/notch/useNotchCapabilities";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { IconTile } from "./IconTile";
 import { NotchBehaviorSettings } from "./NotchBehaviorSettings";
 import { NotchDisplaySetting } from "./NotchDisplaySetting";
 import { NotchPrimaryStyleSetting } from "./NotchPrimaryStyleSetting";
 import { SettingsRow } from "./SettingsRow";
-import { SettingsSubsection } from "./SettingsSubsection";
+import { SettingsGroup } from "./SettingsGroup";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 /**
  * Notch-only settings: the island's behavior switches, then a button that
@@ -42,16 +41,15 @@ export function NotchSettings(): React.JSX.Element | null {
   };
 
   return (
-    <SettingsSubsection padded={false}>
+    <SettingsGroup
+      id={SETTINGS_ANCHORS.notch}
+      title="Notch island"
+      description="Agent activity and notifications around the MacBook camera notch."
+    >
       <NotchDisplaySetting />
       <NotchPrimaryStyleSetting />
       <NotchBehaviorSettings />
       <SettingsRow
-        icon={
-          <IconTile tint="green">
-            <LaptopMinimal className="size-4" />
-          </IconTile>
-        }
         divided
         label="Preview the notch island"
         description="Peeks a sample notification out of the notch. Hover the notch to see the live agent list."
@@ -61,6 +59,6 @@ export function NotchSettings(): React.JSX.Element | null {
           </Button>
         }
       />
-    </SettingsSubsection>
+    </SettingsGroup>
   );
 }

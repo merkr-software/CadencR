@@ -3,17 +3,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /**
- * Top-level section block on the settings page. Pattern:
+ * A titled block of settings.
  *
- *   <h2>Title</h2>          <small>subtitle</small>
- *   [optional intro paragraph]
- *   <children />            (typically one or more <SettingsCard>)
+ * `lg` is a whole page of the settings screen: a 20px title, the page's
+ * one-sentence purpose, then its `SettingsGroup`s, generously spaced. `sm` is
+ * a section of the project-settings modal, where vertical density matters
+ * more: title and right-aligned `subtitle` on one line, content close below.
  *
- * The `id` is set as both an HTML id and a `data-section` attribute so the
- * sidebar nav can scroll-track active sections.
- *
- * The `size` prop tunes the heading: `lg` for the main settings page, `sm`
- * for the project-settings modal where vertical density matters more.
+ * The `id` is set as both an HTML id and a `data-section` attribute so deep
+ * links can resolve it.
  */
 export function SettingsSection({
   id,
@@ -26,27 +24,44 @@ export function SettingsSection({
 }: {
   id?: string;
   title: ReactNode;
-  /** Right-aligned eyebrow next to the title (e.g. "Theme · Loader style"). */
+  /** `sm` only: right-aligned summary next to the title (e.g. "Color · Icon"). */
   subtitle?: ReactNode;
-  /** Long-form intro paragraph below the title row. */
+  /** The page's purpose (`lg`) or a long-form intro paragraph (`sm`). */
   description?: ReactNode;
   size?: "lg" | "sm";
   className?: string;
   children?: ReactNode;
 }): React.JSX.Element {
-  const headingClass = size === "lg" ? "text-base font-semibold" : "text-sm font-semibold";
+  // One provider per section: hints inside open without the delay once one shows.
+  const content = <TooltipProvider delayDuration={300}>{children}</TooltipProvider>;
+
+  if (size === "lg") {
+    return (
+      <section
+        id={id}
+        data-section={id ?? ""}
+        aria-labelledby={id ? `${id}-title` : undefined}
+        className={cn("scroll-mt-6", className)}
+      >
+        <header className="mb-8 space-y-1.5">
+          <h2 id={id ? `${id}-title` : undefined} className="text-xl font-semibold tracking-tight">
+            {title}
+          </h2>
+          {description ? (
+            <p className="max-w-[68ch] text-[13px] leading-relaxed text-pretty text-muted-foreground">
+              {description}
+            </p>
+          ) : null}
+        </header>
+        <div className="space-y-9">{content}</div>
+      </section>
+    );
+  }
 
   return (
-    <section
-      id={id}
-      data-section={id ?? ""}
-      className={cn(
-        "space-y-3 scroll-mt-6 animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-out",
-        className,
-      )}
-    >
+    <section id={id} data-section={id ?? ""} className={cn("space-y-3 scroll-mt-6", className)}>
       <div className="flex items-baseline justify-between gap-4">
-        <h2 className={headingClass}>{title}</h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
         {subtitle ? (
           <span className="text-xs text-muted-foreground truncate">{subtitle}</span>
         ) : null}
@@ -54,8 +69,7 @@ export function SettingsSection({
       {description ? (
         <p className="-mt-1 text-xs text-muted-foreground leading-snug">{description}</p>
       ) : null}
-      {/* One provider per section: hints inside open without the delay once one shows. */}
-      <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+      {content}
     </section>
   );
 }

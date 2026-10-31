@@ -121,7 +121,19 @@ const APP_SHORTCUTS = [
   },
 
   // ─── Settings ────────────────────────────────────────────────────────
-  { id: "settings-back", keys: ["escape"], description: "Back to workspace", scope: "settings" },
+  {
+    id: "settings-back",
+    keys: ["escape"],
+    description: "Clear the settings search, else back to workspace",
+    scope: "settings",
+  },
+  {
+    id: "settings-search",
+    keys: ["mod", "f"],
+    description: "Search settings",
+    scope: "settings",
+    aliases: ["find"],
+  },
 
   // ─── Unified Agents ──────────────────────────────────────────────────
   {

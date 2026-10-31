@@ -1,10 +1,12 @@
 import { useState, type ReactElement } from "react";
 
 import { useListProjects } from "@/api/generated";
+import { ResolvedKbdChord } from "@/components/KbdShortcut";
 import { CustomActionsManager } from "@/components/custom-actions/CustomActionsManager";
-import { SettingsCard } from "@/components/settings/SettingsCard";
-import { SettingsSection } from "@/components/settings/SettingsSection";
+import { SettingsGroup } from "@/components/settings/SettingsGroup";
+import { SettingsPageSection } from "@/components/settings/SettingsPageSection";
 import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
+import type { SettingsPageId } from "@/components/settings/settings-catalog";
 import {
   Select,
   SelectContent,
@@ -13,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-export const CUSTOM_ACTIONS_SECTION_ID = "actions";
+export const CUSTOM_ACTIONS_SECTION_ID = "actions" satisfies SettingsPageId;
 
 /**
  * Settings → Custom actions: the one place to see and arrange every action.
@@ -26,45 +28,49 @@ export function CustomActionsSettingsSection(): ReactElement {
   const [projectId, setProjectId] = useState<number | null>(null);
   const shownProjectId = projectId ?? projects[0]?.id ?? null;
   return (
-    <SettingsSection
-      id={CUSTOM_ACTIONS_SECTION_ID}
-      title="Custom actions"
-      subtitle="Header launcher · Actions tab · ⌥⌘1–9"
-      description="Commands you run often in a conversation's working copy: tests, linters, deploys, dev servers. Each project's header lists its own actions, then the global ones, in the order below."
+    <SettingsPageSection
+      pageId={CUSTOM_ACTIONS_SECTION_ID}
+      description={
+        <>
+          Commands you run often in a conversation's working copy: tests, linters, deploys, dev
+          servers. Each project's header lists its own actions, then the global ones, in the order
+          below. Run them from the header launcher, the Actions tab, or{" "}
+          <ResolvedKbdChord shortcutId="custom-action-run-1-9" />.
+        </>
+      }
     >
-      <SettingsCard>
-        <SettingsSubsection
-          title="All projects"
-          description="Offered in every project's conversations."
-        >
+      <SettingsGroup title="All projects" description="Offered in every project's conversations.">
+        <SettingsSubsection>
           <CustomActionsManager scope="global" />
         </SettingsSubsection>
-        {projects.length > 0 && shownProjectId != null && (
-          <SettingsSubsection
-            title="One project"
-            description="Offered only in that project's conversations, before the global ones."
-            action={
-              <Select
-                value={String(shownProjectId)}
-                onValueChange={(value) => setProjectId(Number(value))}
-              >
-                <SelectTrigger size="sm" className="h-8 min-w-40" aria-label="Project">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {projects.map((project) => (
-                    <SelectItem key={project.id} value={String(project.id)}>
-                      {project.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            }
-          >
+      </SettingsGroup>
+      {projects.length > 0 && shownProjectId != null && (
+        <SettingsGroup
+          title="One project"
+          description="Offered only in that project's conversations, before the global ones."
+          action={
+            <Select
+              value={String(shownProjectId)}
+              onValueChange={(value) => setProjectId(Number(value))}
+            >
+              <SelectTrigger size="sm" className="h-8 min-w-40" aria-label="Project">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent align="end">
+                {projects.map((project) => (
+                  <SelectItem key={project.id} value={String(project.id)}>
+                    {project.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          }
+        >
+          <SettingsSubsection>
             <CustomActionsManager key={shownProjectId} scope="project" projectId={shownProjectId} />
           </SettingsSubsection>
-        )}
-      </SettingsCard>
-    </SettingsSection>
+        </SettingsGroup>
+      )}
+    </SettingsPageSection>
   );
 }

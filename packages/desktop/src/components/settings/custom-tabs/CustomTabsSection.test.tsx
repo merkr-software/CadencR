@@ -71,7 +71,7 @@ describe("CustomTabsSection", () => {
   it("explains custom tabs and offers to create one when there are none", async () => {
     render(<CustomTabsSection />);
     expect(await screen.findByText("No custom tabs yet")).toBeInTheDocument();
-    expect(screen.getByText("Desktop only")).toBeInTheDocument();
+    expect(screen.getByText(/Desktop only\./)).toBeInTheDocument();
     await screen.findByRole("button", { name: "Create custom tab" });
     expect(screen.getAllByRole("button", { name: "Create custom tab" })).toHaveLength(1);
   });

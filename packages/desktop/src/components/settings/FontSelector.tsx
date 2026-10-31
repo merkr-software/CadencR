@@ -44,10 +44,7 @@ export function FontSelector(): React.JSX.Element {
   };
 
   return (
-    <SettingsSubsection
-      title="Monospace font"
-      description="Applies to the terminal, editor, and code snippets."
-    >
+    <SettingsSubsection>
       <div className="flex flex-col gap-3">
         <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>

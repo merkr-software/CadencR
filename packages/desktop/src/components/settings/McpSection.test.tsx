@@ -33,15 +33,15 @@ describe("McpSection", () => {
     }));
   });
 
-  it("shows each MCP family in its own settings section without per-row MCP chips", () => {
+  it("shows each MCP family as a plain row, without per-row chips or decorative icons", () => {
     const { container } = render(<McpSection />);
 
-    expect(screen.getByRole("heading", { name: "MCP" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "MCP servers" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: /browser tools for agents/i })).toBeChecked();
     expect(screen.getByRole("switch", { name: /project coordination for agents/i })).toBeChecked();
     expect(screen.getByRole("switch", { name: /workspace memory for agents/i })).toBeChecked();
     expect(screen.queryByTestId("mcp-row-tag")).not.toBeInTheDocument();
-    expect(container.querySelectorAll(".lucide")).toHaveLength(3);
+    expect(container.querySelectorAll(".lucide")).toHaveLength(0);
   });
 
   it("persists project and workspace MCP toggle changes", async () => {

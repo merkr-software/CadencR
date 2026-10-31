@@ -1,10 +1,9 @@
-import { BellRing } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { type PushState } from "@/lib/remote/push-subscribe";
-import { SettingsSubsection } from "./SettingsSubsection";
+import { SettingsGroup } from "./SettingsGroup";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
-import { IconTile } from "./IconTile";
 
 /**
  * Per-device Web Push opt-in, shown only in the remote/PWA shell. The toggle
@@ -17,12 +16,13 @@ export function PushNotificationsSubsection(): React.JSX.Element {
   const { state, busy, toggle } = usePushNotifications();
 
   return (
-    <SettingsSubsection
-      title="Push notifications (this device)"
-      description="Get a native notification when an agent finishes or needs input, even when this tab is in the background or closed."
+    <SettingsGroup
+      id={SETTINGS_ANCHORS.push}
+      title="Push notifications on this device"
+      description="A native notification when an agent finishes or needs input, even with this tab in the background or closed."
     >
       {renderBody(state, busy, toggle)}
-    </SettingsSubsection>
+    </SettingsGroup>
   );
 }
 
@@ -49,8 +49,6 @@ function renderBody(
   }
   return (
     <SettingsSwitchRow
-      icon={<BellRing className="size-4" />}
-      iconTint="cyan"
       label="Enable on this device"
       description={
         state === "on"
@@ -65,15 +63,5 @@ function renderBody(
 }
 
 function InfoRow({ description }: { description: string }): React.JSX.Element {
-  return (
-    <SettingsRow
-      icon={
-        <IconTile tint="muted">
-          <BellRing className="size-4" />
-        </IconTile>
-      }
-      label="Push notifications"
-      description={description}
-    />
-  );
+  return <SettingsRow label="Push notifications" description={description} />;
 }

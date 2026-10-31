@@ -117,7 +117,7 @@ interface AgentStreamProps {
    * focus gate so search only binds/opens for the visible feature workspace.
    */
   searchEnabled?: boolean;
-  /** Scroll hooks for the prompt rail; null/absent hides it (Settings → Interface). */
+  /** Scroll hooks for the prompt rail; null/absent hides it (Settings → Appearance → Agent transcript). */
   messageNavigator?: MessageNavigatorControls | null;
 }
 

@@ -3,10 +3,9 @@ import { Virtuoso } from "react-virtuoso";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Plus, Puzzle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SettingsCard } from "@/components/settings/SettingsCard";
-import { SettingsSection } from "@/components/settings/SettingsSection";
+import { SettingsGroup } from "@/components/settings/SettingsGroup";
+import { SettingsPageSection } from "../SettingsPageSection";
 import { ErrorRow, LoadingRow } from "@/components/settings/SettingsStateRows";
-import { SettingsSubsection } from "@/components/settings/SettingsSubsection";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { CUSTOM_TABS_SECTION_ID } from "./custom-tab-model";
 import { CreateCustomTabDialog } from "./CreateCustomTabDialog";
@@ -35,37 +34,35 @@ export function CustomTabsSection(): React.JSX.Element {
   const empty = !data.isLoading && !data.error && data.tabs.length === 0;
 
   return (
-    <SettingsSection id={CUSTOM_TABS_SECTION_ID} title="Custom tabs" subtitle="Desktop only">
-      <SettingsCard>
-        <SettingsSubsection
-          title="Your custom tabs"
-          description="Web apps you build that show up as tabs in a conversation, next to Agent, Terminal and Git. Each one only sees what you allow."
-          action={
-            !empty ? (
-              <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-                <Plus className="size-3.5" aria-hidden />
-                Create custom tab
-              </Button>
-            ) : undefined
-          }
-        >
-          <CustomTabsList
-            data={data}
-            onCreate={() => setCreating(true)}
-            render={(tab) => (
-              <CustomTabCard
-                tab={tab}
-                projects={data.projects}
-                overrides={data.overridesFor(tab.id)}
-                enablement={enablement}
-                opener={opener}
-                expanded={expanded.get(tab.id) ?? data.tabs.length === 1}
-                onExpandedChange={(open) => setExpanded(tab.id, open)}
-              />
-            )}
-          />
-        </SettingsSubsection>
-      </SettingsCard>
+    <SettingsPageSection pageId="custom-tabs">
+      <SettingsGroup
+        bare
+        title="Your custom tabs"
+        action={
+          !empty ? (
+            <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="size-3.5" aria-hidden />
+              Create custom tab
+            </Button>
+          ) : undefined
+        }
+      >
+        <CustomTabsList
+          data={data}
+          onCreate={() => setCreating(true)}
+          render={(tab) => (
+            <CustomTabCard
+              tab={tab}
+              projects={data.projects}
+              overrides={data.overridesFor(tab.id)}
+              enablement={enablement}
+              opener={opener}
+              expanded={expanded.get(tab.id) ?? data.tabs.length === 1}
+              onExpandedChange={(open) => setExpanded(tab.id, open)}
+            />
+          )}
+        />
+      </SettingsGroup>
       {creating ? <CreateCustomTabDialog onClose={() => setCreating(false)} /> : null}
       <CustomTabConsentDialog
         request={enablement.request}
@@ -73,7 +70,7 @@ export function CustomTabsSection(): React.JSX.Element {
         onAccept={enablement.accept}
         onCancel={enablement.cancel}
       />
-    </SettingsSection>
+    </SettingsPageSection>
   );
 }
 

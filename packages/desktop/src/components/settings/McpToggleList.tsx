@@ -1,4 +1,3 @@
-import { Bot, Network, Search } from "lucide-react";
 import {
   useBrowserMcpEnabled,
   useProjectMcpEnabled,
@@ -20,8 +19,6 @@ export function McpToggleList(): React.JSX.Element {
   return (
     <>
       <SettingsSwitchRow
-        icon={<Bot className="size-4" />}
-        iconTint="cyan"
         label="Browser tools for agents"
         description="Expose the cadencr-browser MCP so agents can open localhost pages, inspect the console and network, and drive the Browser tab. Takes effect on the next agent turn."
         checked={browserMcp.enabled}
@@ -29,8 +26,6 @@ export function McpToggleList(): React.JSX.Element {
         disabled={browserMcp.isLoading}
       />
       <SettingsSwitchRow
-        icon={<Network className="size-4" />}
-        iconTint="purple"
         label="Project coordination for agents"
         description="Expose the cadencr-project MCP so agents can inspect, compare, spawn, and message sessions in the current project. Takes effect on the next agent turn."
         checked={projectMcp.enabled}
@@ -39,8 +34,6 @@ export function McpToggleList(): React.JSX.Element {
         divided
       />
       <SettingsSwitchRow
-        icon={<Search className="size-4" />}
-        iconTint="green"
         label="Workspace memory for agents"
         description="Expose the cadencr-workspace MCP so agents can search conversation history and message sessions across all Cadencr projects. Takes effect on the next agent turn."
         checked={workspaceMcp.enabled}

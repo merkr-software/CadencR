@@ -11,16 +11,21 @@ import {
   type BrowserSearchEngine,
   type CookieMode,
 } from "@/lib/browser-settings";
-import { SettingsCard } from "./SettingsCard";
-import { SettingsSection } from "./SettingsSection";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { AutoLayoutDefaultSetting } from "./AutoLayoutDefaultSetting";
+import { SettingsGroup } from "./SettingsGroup";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
+import { SettingsPageSection } from "./SettingsPageSection";
 import { SettingsSubsection } from "./SettingsSubsection";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
 import { InternalDomainsEditor } from "./InternalDomainsEditor";
 
 /**
  * Browser workspace preferences:
- *  1. Default cookie mode (Normal / Private) used for the first tab and as the
+ *  1. Auto layout default (desktop): whether the Browser splits beside the agent.
+ *  2. Default cookie mode (Normal / Private) used for the first tab and as the
  *     toolbar toggle's initial value.
+ *  3. Search engine, and the domains whose links open in Cadencr's browser.
  */
 export function BrowserSection(): React.JSX.Element {
   const modeSetting = useDebouncedSetting(BROWSER_DEFAULT_MODE_SETTING_KEY, 0);
@@ -28,6 +33,7 @@ export function BrowserSection(): React.JSX.Element {
     immediateCache: false,
   });
   const mode = parseCookieMode(modeSetting.value);
+  const isMobile = useIsMobile();
   const searchEngine = parseBrowserSearchEngine(searchSetting.value);
 
   const options = useMemo<RadioCardOption<CookieMode>[]>(
@@ -50,12 +56,19 @@ export function BrowserSection(): React.JSX.Element {
   );
 
   return (
-    <SettingsSection id="browser" title="Browser" subtitle="Cookie mode and link routing">
-      <SettingsCard>
-        <SettingsSubsection
-          title="Default mode"
-          description="Which cookie mode new Browser tabs open in. Private sessions are in-memory only and cleared when the tab closes."
-        >
+    <SettingsPageSection pageId="browser">
+      {/* Auto layout splits the feature page, which only the desktop shell lays out. */}
+      {!isMobile ? (
+        <SettingsGroup id={SETTINGS_ANCHORS.browserLayout} title="Layout">
+          <AutoLayoutDefaultSetting />
+        </SettingsGroup>
+      ) : null}
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.browserMode}
+        title="Default mode"
+        description="The cookie mode new Browser tabs open in. Private sessions live in memory only and are cleared when the tab closes."
+      >
+        <SettingsSubsection>
           <RadioCardGroup<CookieMode>
             ariaLabel="Default browser mode"
             value={mode}
@@ -66,10 +79,13 @@ export function BrowserSection(): React.JSX.Element {
             disabled={modeSetting.isLoading}
           />
         </SettingsSubsection>
-        <SettingsSubsection
-          title="Search engine"
-          description="Used only when you submit search terms in the Browser address bar. Suggestions stay on this device."
-        >
+      </SettingsGroup>
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.browserSearch}
+        title="Search engine"
+        description="Used only when you submit search terms in the address bar. Suggestions stay on this device."
+      >
+        <SettingsSubsection>
           <RadioCardGroup<BrowserSearchEngine>
             ariaLabel="Browser search engine"
             value={searchEngine}
@@ -87,13 +103,16 @@ export function BrowserSection(): React.JSX.Element {
             </div>
           ) : null}
         </SettingsSubsection>
-        <SettingsSubsection
-          title="Open in Cadencr's browser"
-          description="Links to these domains (and their subdomains) open in a Cadencr browser tab when clicked in agent chat or Cmd/Ctrl+clicked in the terminal. Everything else opens in your system browser."
-        >
+      </SettingsGroup>
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.browserDomains}
+        title="Open in Cadencr's browser"
+        description="Links to these domains and their subdomains open in a Cadencr Browser tab when clicked in agent chat or Cmd/Ctrl+clicked in the terminal. Everything else opens in your system browser."
+      >
+        <SettingsSubsection>
           <InternalDomainsEditor />
         </SettingsSubsection>
-      </SettingsCard>
-    </SettingsSection>
+      </SettingsGroup>
+    </SettingsPageSection>
   );
 }

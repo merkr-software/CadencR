@@ -1,4 +1,4 @@
-import { LoaderCircle, PanelTop, Sparkles } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import {
   NOTCH_ALWAYS_ANIMATE_KEY,
@@ -16,15 +16,9 @@ export function NotchBehaviorSettings(): React.JSX.Element {
   return (
     <>
       <SettingsSwitchRow
-        icon={
-          alwaysOn.isLoading || alwaysOn.isSaving ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : (
-            <PanelTop className="size-4" />
-          )
+        label={
+          <SavingLabel saving={alwaysOn.isLoading || alwaysOn.isSaving}>Always on</SavingLabel>
         }
-        iconTint="cyan"
-        label="Always on"
         description="Show compact activity while agents work, wait for you, or have unread replies. Off, it appears only on hover or for notifications. No status always hides compact activity on the primary display."
         checked={prefs.alwaysOn}
         onCheckedChange={(next) => alwaysOn.setValue(String(next))}
@@ -32,15 +26,11 @@ export function NotchBehaviorSettings(): React.JSX.Element {
         divided
       />
       <SettingsSwitchRow
-        icon={
-          alwaysAnimate.isLoading || alwaysAnimate.isSaving ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : (
-            <Sparkles className="size-4" />
-          )
+        label={
+          <SavingLabel saving={alwaysAnimate.isLoading || alwaysAnimate.isSaving}>
+            Always animate
+          </SavingLabel>
         }
-        iconTint="yellow"
-        label="Always animate"
         description="Animate the logo and working indicators even with the island closed. Waiting and finished session dots stay still. Off, animations run only once the island opens."
         checked={prefs.alwaysAnimate}
         onCheckedChange={(next) => alwaysAnimate.setValue(String(next))}
@@ -48,5 +38,14 @@ export function NotchBehaviorSettings(): React.JSX.Element {
         divided
       />
     </>
+  );
+}
+
+function SavingLabel({ saving, children }: { saving: boolean; children: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {children}
+      {saving ? <LoaderCircle aria-label="Saving" className="size-3.5 animate-spin" /> : null}
+    </span>
   );
 }

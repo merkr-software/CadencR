@@ -1,37 +1,39 @@
 import { GitDiffViewSettings } from "./GitDiffViewSettings";
 import { GitRemotesSettings } from "./GitRemotesSettings";
 import { GitSettings } from "./GitSettings";
-import { SettingsCard } from "./SettingsCard";
-import { SettingsSection } from "./SettingsSection";
+import { SettingsGroup } from "./SettingsGroup";
+import { SettingsPageSection } from "./SettingsPageSection";
+import { SettingsSubsection } from "./SettingsSubsection";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 export function GitSection(): React.JSX.Element {
   return (
-    <SettingsSection
-      id="git"
-      title="Git"
-      subtitle="Header actions · Diff layout · Remote connections"
-    >
-      <SettingsCard
-        padded
+    <SettingsPageSection pageId="git">
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.merge}
         title="Merge strategy"
         description={
           <>
-            Default mode used by the{" "}
+            What the{" "}
             <span className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">Merge</span> action
-            in the feature top bar.
+            in a feature's top bar does by default.
           </>
         }
       >
-        <GitSettings />
-      </SettingsCard>
-      <SettingsCard
-        padded
+        <SettingsSubsection>
+          <GitSettings />
+        </SettingsSubsection>
+      </SettingsGroup>
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.diff}
         title="Diff layout"
-        description="How git diffs are displayed. The Split/Unified toggle in the diff view writes back to this preference."
+        description="How diffs are displayed. The Split / Unified toggle in the diff view changes this too."
       >
-        <GitDiffViewSettings />
-      </SettingsCard>
+        <SettingsSubsection>
+          <GitDiffViewSettings />
+        </SettingsSubsection>
+      </SettingsGroup>
       <GitRemotesSettings />
-    </SettingsSection>
+    </SettingsPageSection>
   );
 }
