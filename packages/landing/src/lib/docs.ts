@@ -3,7 +3,14 @@ interface DocPage {
   title: string;
   navLabel: string;
   description: string;
-  section: "Start Here" | "Core Views" | "Features" | "Reference";
+  section:
+    | "Start Here"
+    | "Core Views"
+    | "Features"
+    | "Reference"
+    | "Libraries"
+    | "npm packages"
+    | "Rust crates";
 }
 
 const DOC_PAGES: DocPage[] = [
@@ -192,6 +199,46 @@ const DOC_PAGES: DocPage[] = [
     description: "Find the current settings sections and the workflows they control.",
     section: "Reference",
   },
+  {
+    slug: "libraries",
+    title: "Cadencr libraries for custom tabs and providers",
+    navLabel: "Libraries overview",
+    description:
+      "Choose an npm package or Rust crate to build a Cadencr custom tab or agent provider.",
+    section: "Libraries",
+  },
+  {
+    slug: "tab-sdk",
+    title: "@cadencr/tab-sdk — custom tab SDK",
+    navLabel: "@cadencr/tab-sdk",
+    description:
+      "Connect a custom tab to Cadencr, call typed APIs, subscribe to events, and test with a fake host.",
+    section: "npm packages",
+  },
+  {
+    slug: "tab-kit",
+    title: "@cadencr/tab-kit — custom tab UI",
+    navLabel: "@cadencr/tab-kit",
+    description:
+      "Build theme-aware custom tabs with React components, bundled fonts, and a Tailwind CSS v4 preset.",
+    section: "npm packages",
+  },
+  {
+    slug: "tab-backend",
+    title: "cadencr-tab-backend — native custom tab backends",
+    navLabel: "cadencr-tab-backend",
+    description:
+      "Write a Rust backend for a custom tab with stdio framing, scoped API access, and conformance checks.",
+    section: "Rust crates",
+  },
+  {
+    slug: "provider-sdk",
+    title: "cadencr-provider-sdk — agent provider harness",
+    navLabel: "cadencr-provider-sdk",
+    description:
+      "Implement the command contract for a native Cadencr agent provider speaking ACP v1.",
+    section: "Rust crates",
+  },
 ];
 
 interface DocSection {
@@ -199,7 +246,15 @@ interface DocSection {
   pages: DocPage[];
 }
 
-const SECTION_ORDER: DocPage["section"][] = ["Start Here", "Core Views", "Features", "Reference"];
+const SECTION_ORDER: DocPage["section"][] = [
+  "Start Here",
+  "Core Views",
+  "Features",
+  "Reference",
+  "Libraries",
+  "npm packages",
+  "Rust crates",
+];
 
 export const DOC_SECTIONS: DocSection[] = SECTION_ORDER.map((section) => ({
   title: section,
