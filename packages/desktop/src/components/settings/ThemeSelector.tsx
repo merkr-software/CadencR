@@ -6,7 +6,6 @@ import { getTheme } from "@/lib/themes";
 import { useLastScreenStore } from "@/stores/last-screen-store";
 import { THEME_SELECTOR_SEARCH_KEY } from "@/components/theme/ThemeDrawer";
 import { SettingsRow } from "./SettingsRow";
-import { IconTile } from "./IconTile";
 
 /**
  * Settings entry-point for the theme picker.
@@ -37,11 +36,6 @@ export function ThemeSelector(): React.JSX.Element {
 
   return (
     <SettingsRow
-      icon={
-        <IconTile tint="purple">
-          <Paintbrush className="size-4" />
-        </IconTile>
-      }
       label="Theme"
       description={
         isLoading
@@ -51,7 +45,7 @@ export function ThemeSelector(): React.JSX.Element {
       control={
         <Button
           variant="outline"
-          size="xs"
+          size="sm"
           className="shrink-0 gap-1"
           onClick={handleClick}
           disabled={isLoading}

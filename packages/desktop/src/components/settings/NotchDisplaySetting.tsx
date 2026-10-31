@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { LoaderCircle, Monitor } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/select";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { NOTCH_DISPLAY_MODE_KEY, useNotchPrefs } from "@/lib/notch/notch-prefs";
-import { IconTile } from "./IconTile";
 import { SettingsRow } from "./SettingsRow";
 
 export function NotchDisplaySetting(): React.JSX.Element {
@@ -20,11 +19,6 @@ export function NotchDisplaySetting(): React.JSX.Element {
 
   return (
     <SettingsRow
-      icon={
-        <IconTile tint="cyan">
-          <Monitor className="size-4" />
-        </IconTile>
-      }
       label="Show notch on"
       htmlFor={id}
       description="Built-in always uses your Mac's built-in display, or the primary display when it is disconnected. Both shows the same island on each. Primary follows your main display."

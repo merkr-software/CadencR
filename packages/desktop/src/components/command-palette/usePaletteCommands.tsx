@@ -15,7 +15,11 @@ import {
   SquarePenIcon,
 } from "lucide-react";
 import type { Project } from "@/api/generated";
-import { NAV_GROUPS } from "@/components/settings/settings-nav-groups";
+import {
+  availableSettingsGroups,
+  currentSettingsPlatform,
+} from "@/components/settings/settings-availability";
+import { isMobileViewport } from "@/hooks/useIsMobile";
 import { PALETTE_SHORTCUT_ICONS } from "@/components/command-palette/palette-shortcut-icons";
 import {
   isPaletteShortcut,
@@ -26,6 +30,7 @@ import { runShortcutAction, useShortcutActionStore } from "@/lib/command-palette
 import { useCustomActionPaletteStore } from "@/lib/custom-actions/palette-commands";
 import type { PaletteCommand } from "@/lib/command-palette/palette-types";
 import { isDesktopShell } from "@/lib/desktop-bridge";
+import { slugify } from "@/lib/utils";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 
 export interface PaletteCommandContext {
@@ -82,18 +87,37 @@ function navigationCommands(navigate: Navigate): PaletteCommand[] {
   ];
 }
 
-/** One command per settings section: "Appearance", "Git"… straight to its anchor. */
-function settingsCommands(navigate: Navigate): PaletteCommand[] {
-  return NAV_GROUPS.flatMap((group) =>
-    group.items.map((item) => ({
-      id: `settings-${item.id}`,
-      title: `Settings: ${item.label}`,
-      group: "Settings" as const,
-      icon: item.icon,
-      keywords: [group.label, "settings", "preferences"],
-      description: `Open the ${item.label} section of Settings.`,
-      run: () => navigate({ to: "/settings", search: { section: item.id } }),
-    })),
+/**
+ * One command per settings page ("Settings: Appearance") and per indexed
+ * setting ("Settings: Vim mode"), each opening its page at that setting.
+ */
+/** One command per settings page, and one per setting this client renders. */
+export function settingsCommands(navigate: Navigate): PaletteCommand[] {
+  const groups = availableSettingsGroups(currentSettingsPlatform(isMobileViewport()));
+  return groups.flatMap((group) =>
+    group.pages.flatMap((page) => [
+      {
+        id: `settings-${page.id}`,
+        title: `Settings: ${page.label}`,
+        group: "Settings" as const,
+        icon: page.icon,
+        keywords: [group.label, "settings", "preferences", ...(page.aliases ?? [])],
+        description: page.description,
+        run: () => navigate({ to: "/settings", search: { section: page.id } }),
+      },
+      ...page.entries
+        // A page-named entry would only repeat the page's own command.
+        .filter((entry) => entry.label !== page.label)
+        .map((entry) => ({
+          id: `settings-${page.id}-${slugify(entry.label)}`,
+          title: `Settings: ${entry.label}`,
+          group: "Settings" as const,
+          icon: page.icon,
+          keywords: [page.label, "settings", ...(entry.keywords ?? [])],
+          description: `In ${page.label} settings.`,
+          run: () => navigate({ to: "/settings", search: { section: entry.anchor ?? page.id } }),
+        })),
+    ]),
   );
 }
 

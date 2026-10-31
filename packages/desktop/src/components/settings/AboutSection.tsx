@@ -5,9 +5,11 @@ import { Button } from "@/components/ui/button";
 import { APP_VERSION } from "@/lib/app-version";
 import { desktopBridge } from "@/lib/desktop-bridge";
 import { useUpdateStore, type UpdateStatus } from "@/stores/update-store";
-import { RestartResumeToggle } from "./RestartResumeToggle";
-import { SettingsCard } from "./SettingsCard";
-import { SettingsSection } from "./SettingsSection";
+import { SettingsGroup } from "./SettingsGroup";
+import { SettingsRow } from "./SettingsRow";
+import { SettingsPageSection } from "./SettingsPageSection";
+import { SettingsSubsection } from "./SettingsSubsection";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
 export function AboutSection(): React.JSX.Element {
   const isDesktop = desktopBridge.isElectron;
@@ -21,66 +23,65 @@ export function AboutSection(): React.JSX.Element {
   const unsupported = status === "unsupported";
 
   return (
-    <SettingsSection id="about" title="About" subtitle="Build · Updates · Diagnostics">
-      <SettingsCard padded>
-        <div className="flex items-center gap-4">
-          <div className="grid size-12 shrink-0 place-items-center">
-            <CadencrLogo className="size-12" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold">Cadencr Desktop</div>
-            <div className="font-mono text-xs text-muted-foreground">v{APP_VERSION}</div>
+    <SettingsPageSection pageId="about">
+      <SettingsGroup title="Version">
+        <SettingsSubsection>
+          <div className="flex items-center gap-4">
+            <div className="grid size-12 shrink-0 place-items-center">
+              <CadencrLogo className="size-12" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold">Cadencr Desktop</div>
+              <div className="font-mono text-xs text-muted-foreground">v{APP_VERSION}</div>
+            </div>
+            {isDesktop && (
+              <div className="flex items-center gap-2">
+                {status === "downloaded" ? (
+                  <UpdateInstallActions size="sm" />
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={checking || unsupported}
+                    onClick={() => void checkForUpdates()}
+                    title={unsupported ? (unsupportedMessage ?? undefined) : undefined}
+                  >
+                    {unsupported
+                      ? "Managed by package manager"
+                      : checking
+                        ? "Checking…"
+                        : "Check for updates"}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
           {isDesktop && (
-            <div className="flex items-center gap-2">
-              {status === "downloaded" ? (
-                <UpdateInstallActions size="sm" />
-              ) : (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={checking || unsupported}
-                  onClick={() => void checkForUpdates()}
-                  title={unsupported ? (unsupportedMessage ?? undefined) : undefined}
-                >
-                  {unsupported
-                    ? "Managed by package manager"
-                    : checking
-                      ? "Checking…"
-                      : "Check for updates"}
-                </Button>
-              )}
+            <div role="status" aria-live="polite" className="mt-3 text-xs text-muted-foreground">
+              {updateStatusMessage(status, {
+                progress,
+                version: updateVersion,
+                error,
+                unsupportedMessage,
+              })}
             </div>
           )}
-        </div>
-        {isDesktop && (
-          <div role="status" aria-live="polite" className="mt-3 text-xs text-muted-foreground">
-            {updateStatusMessage(status, {
-              progress,
-              version: updateVersion,
-              error,
-              unsupportedMessage,
-            })}
-          </div>
-        )}
-        {isDesktop && status === "downloaded" && (
-          <div className="mt-2">
-            <UpdateInstallNotice />
-          </div>
-        )}
-      </SettingsCard>
-      <SettingsCard>
-        <RestartResumeToggle />
-      </SettingsCard>
-      <SettingsCard padded>
-        <h3 className="text-sm font-semibold">Diagnostics</h3>
-        <p className="my-2 text-xs text-muted-foreground">
-          Export recent errors and app activity to help investigate a problem, even after
-          restarting. The report is saved locally for you to share.
-        </p>
-        <ExportDiagnosticsButton />
-      </SettingsCard>
-    </SettingsSection>
+          {isDesktop && status === "downloaded" && (
+            <div className="mt-2">
+              <UpdateInstallNotice />
+            </div>
+          )}
+        </SettingsSubsection>
+      </SettingsGroup>
+      <SettingsGroup id={SETTINGS_ANCHORS.diagnostics} title="Diagnostics">
+        <SettingsRow
+          align="start"
+          label="Diagnostic report"
+          description="Recent errors and app activity, kept across restarts, to help investigate a problem. The report is saved on this computer for you to share."
+          control={<ExportDiagnosticsButton />}
+        />
+      </SettingsGroup>
+    </SettingsPageSection>
   );
 }
 

@@ -295,6 +295,23 @@ html[data-animations="off"] .user-message-arrival-flash {
   outline: none;
 }
 
+/* The settings group a search result or deep link landed on
+ * (`reveal-settings-anchor.ts`): one primary outline around its name and card
+ * that fades out, so the eye finds the setting, not just the scrolled page.
+ * With motion off the outline holds still until the attribute is removed. */
+[data-settings-flash] {
+  --flash-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  border-radius: calc(var(--radius) + 6px);
+  outline: 1.5px solid transparent;
+  outline-offset: 6px;
+  animation: outline-flash 1.6s cubic-bezier(0.16, 1, 0.3, 1) 1;
+}
+
+html[data-animations="off"] [data-settings-flash] {
+  animation-name: none;
+  outline-color: var(--flash-color);
+}
+
 /* A far message-navigator jump: Virtuoso reaches an unmeasured row through a
  * few estimate corrections, so the list hides (instantly) while the jump
  * settles and fades back in on landing. */

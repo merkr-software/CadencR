@@ -1,5 +1,5 @@
 import { useId } from "react";
-import { LoaderCircle, PanelTop } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/select";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { NOTCH_PRIMARY_STYLE_KEY, useNotchPrefs } from "@/lib/notch/notch-prefs";
-import { IconTile } from "./IconTile";
 import { SettingsRow } from "./SettingsRow";
 
 export function NotchPrimaryStyleSetting(): React.JSX.Element {
@@ -21,11 +20,6 @@ export function NotchPrimaryStyleSetting(): React.JSX.Element {
 
   return (
     <SettingsRow
-      icon={
-        <IconTile tint="cyan">
-          <PanelTop className="size-4" />
-        </IconTile>
-      }
       label="Primary display status"
       htmlFor={id}
       divided
