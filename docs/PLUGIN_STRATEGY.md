@@ -47,6 +47,9 @@ contribution process are in [Marketplace V1](./MARKETPLACE_V1.md), the authorita
 delivery checklist for that deferred decision, not for v0.12.0. Public themes, custom tabs, and deeper
 plugin contributions follow independently; themes are no longer a prerequisite
 for shipping the provider marketplace.
+A single marketplace package may combine these contributions (a theme, a
+provider and a custom tab released together): see
+[Multi-export plugins](./MULTI_EXPORT_PLUGINS.md).
 
 ## 0. Thesis
 

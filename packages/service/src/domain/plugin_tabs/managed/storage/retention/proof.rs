@@ -40,7 +40,8 @@ pub(super) fn recognized(root: &Path, id: &str, revision: &Path) -> Result<Plan,
     let sha = io::digest(&archive);
     // Deletion proves historical bytes, not whether they can run on this host.
     // In particular an app upgrade must not make max_app_version revisions immortal.
-    let mut matches = receipt.index.signed.packages.iter().filter(|entry| {
+    let members = cadencr_registry_core::catalog_members(&receipt.index.signed.packages);
+    let mut matches = members.filter(|entry| {
         entry["kind"] == "tab"
             && entry["package"]["tab"]["id"] == id
             && entry["package"]["tab"]["version"] == receipt.version

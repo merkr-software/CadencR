@@ -81,7 +81,7 @@ pub(crate) fn validate_catalog_identities_with_label(
 ) -> Result<(), RegistryError> {
     let mut normalized = HashMap::<String, String>::new();
     let mut owners = HashMap::<String, String>::new();
-    for package in packages {
+    for package in crate::plugin_package::identity_units(packages) {
         let Some((id, _)) = identity(package) else {
             continue;
         };
@@ -118,7 +118,7 @@ pub(crate) fn validate_catalog_identities_with_label(
             owners.insert(id.to_owned(), owner);
         }
     }
-    Ok(())
+    crate::plugin_package::validate_member_ownership(packages)
 }
 
 #[cfg(test)]

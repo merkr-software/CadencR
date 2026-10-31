@@ -81,9 +81,19 @@ fn parse_targets(plan: &Value) -> Result<Vec<Target>, PublisherError> {
         .ok_or_else(|| PublisherError::new("publication plan targets are missing"))?;
     let targets: Vec<Target> = serde_json::from_value(targets)
         .map_err(|_| PublisherError::new("publication plan targets are invalid"))?;
-    if targets.len() > MAX_TARGETS {
+    // A plugin release carries each member's targets.
+    let maximum = if plan
+        .pointer("/mirrored_package/kind")
+        .and_then(Value::as_str)
+        == Some(cadencr_registry_core::PLUGIN_KIND)
+    {
+        MAX_TARGETS * cadencr_registry_core::MAX_PLUGIN_MEMBERS
+    } else {
+        MAX_TARGETS
+    };
+    if targets.len() > maximum {
         return Err(PublisherError::new(format!(
-            "publication exceeds {MAX_TARGETS} targets"
+            "publication exceeds {maximum} targets"
         )));
     }
     for target in &targets {
@@ -283,6 +293,86 @@ mod tests {
         .is_err());
         assert!(!final_path.exists());
         assert_eq!(std::fs::read(&partial).unwrap(), b"foreign");
+    }
+    #[test]
+    fn plugin_publication_verifies_each_member_archive_by_its_kind() {
+        let root = tempfile::tempdir().unwrap();
+        let tab = root.path().join("tab");
+        std::fs::create_dir_all(tab.join("dist")).unwrap();
+        std::fs::write(tab.join("tab.json"),r#"{"schema_version":1,"kind":"tab","id":"aurora-tab","name":"Aurora","version":"1.0.0","api_version":1,"entry":"dist/index.html"}"#).unwrap();
+        std::fs::write(tab.join("dist/index.html"), "<html>Aurora</html>").unwrap();
+        let theme = root.path().join("theme");
+        std::fs::create_dir_all(&theme).unwrap();
+        std::fs::write(
+            theme.join("theme.json"),
+            include_str!("../../../plugins/themes/ember/theme.json"),
+        )
+        .unwrap();
+        let packed_tab = cadencr_registry_core::pack_tab(
+            cadencr_registry_core::PackTabRequest::builder()
+                .directory(&tab)
+                .output(&root.path().join("tab.tar.gz"))
+                .build(),
+        )
+        .unwrap();
+        let packed_theme =
+            cadencr_registry_core::pack_theme(cadencr_registry_core::PackThemeRequest {
+                directory: &theme,
+                output: &root.path().join("theme.tar.gz"),
+            })
+            .unwrap();
+        let downloader = FixtureDownloader {
+            bodies: HashMap::from([
+                (
+                    packed_tab.sha256.clone(),
+                    std::fs::read(&packed_tab.archive).unwrap(),
+                ),
+                (
+                    packed_theme.sha256.clone(),
+                    std::fs::read(&packed_theme.archive).unwrap(),
+                ),
+            ]),
+            calls: Mutex::new(Vec::new()),
+            fail_at: None,
+        };
+        let repository = "https://github.com/acme/aurora";
+        let release = format!("{repository}/releases/download/v1.0.0");
+        let host = json!({"publisher":"acme","compatibility":{"min_app_version":"0.1.0"}});
+        let tab_member = json!({"kind":"tab","package":{"tab":{"id":"aurora-tab","name":"Aurora","description":"Tab","version":"1.0.0","api_version":1,"license":"MIT","repository":repository,"distribution":{"archive":format!("{release}/tab.tar.gz"),"sha256":packed_tab.sha256}},"host":host}});
+        let theme_member = json!({"kind":"theme","package":{"theme":{"id":"aurora-theme","name":"Aurora","description":"Theme","version":"1.0.0","document_version":1,"license":"MIT","repository":repository,"distribution":{"archive":format!("{release}/theme.tar.gz"),"sha256":packed_theme.sha256}},"host":host}});
+        let mut submission = json!({"schema_version":2,"package":{"kind":"plugin","package":{
+            "plugin":{"id":"aurora","name":"Aurora","description":"Theme and tab","version":"1.0.0","repository":repository,"license":"MIT"},
+            "host":host,"contributes":[tab_member, theme_member]}},
+            "source":{"repository":repository,"commit":"a".repeat(40),"tag":"v1.0.0"},"changelog":"Release"});
+        let receipt = stage_loaded(
+            &submission,
+            "cadencr/registry",
+            &root.path().join("first"),
+            &downloader,
+        )
+        .unwrap();
+        let assets = receipt
+            .artifacts
+            .iter()
+            .map(|artifact| artifact.asset.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            assets,
+            [
+                "tab-aurora-tab-tab.tar.gz",
+                "theme-aurora-theme-theme.tar.gz"
+            ]
+        );
+        // The theme archive cannot stand in for the tab member's web archive.
+        let contributes = &mut submission["package"]["package"]["contributes"];
+        contributes[0]["package"]["tab"]["distribution"]["sha256"] = json!(packed_theme.sha256);
+        assert!(stage_loaded(
+            &submission,
+            "cadencr/registry",
+            &root.path().join("second"),
+            &downloader
+        )
+        .is_err());
     }
     #[test]
     fn tab_publication_stages_normalized_assets_and_rejects_identity_swaps() {
