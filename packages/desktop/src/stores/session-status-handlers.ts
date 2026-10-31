@@ -121,20 +121,29 @@ export function snapshotCursor(payload: Record<string, unknown>): {
   };
 }
 
+/** A session the snapshot newly shows awaiting the user, to notify about. */
+export interface StatusTransition {
+  featureId: number;
+  prevStatus: LiveAgentStatus | undefined;
+  nextStatus: LiveAgentStatus;
+}
+
 /**
- * Apply a `session_status.snapshot` envelope to the per-session map. Pure
- * over `current` — see store comments for the seq-merge invariants.
+ * Apply a `session_status.snapshot` envelope to the per-session map. Pure: it
+ * returns the transitions to notify about instead of notifying — see store
+ * comments for the seq-merge invariants.
  */
 export function applySnapshot(
   current: Record<number, SessionStatusEntry>,
   payload: Record<string, unknown>,
   previousEpoch: number | null = null,
-): Record<number, SessionStatusEntry> {
+): { bySession: Record<number, SessionStatusEntry>; transitions: StatusTransition[] } {
   const rawStates = (payload.states ?? {}) as Record<string, unknown>;
   const { seq: snapshotSeq, epoch } = snapshotCursor(payload);
   // A restarted server's seqs start over: nothing from before compares.
   const prev = epoch != null && previousEpoch != null && epoch !== previousEpoch ? {} : current;
   const next: Record<number, SessionStatusEntry> = {};
+  const transitions: StatusTransition[] = [];
 
   for (const [idKey, entryRaw] of Object.entries(rawStates)) {
     const sessionId = Number(idKey);
@@ -166,7 +175,7 @@ export function applySnapshot(
     };
 
     if (status === "question" && existing?.status !== "question") {
-      notifyTransition(featureId, existing?.status, status);
+      transitions.push({ featureId, prevStatus: existing?.status, nextStatus: status });
     }
   }
 
@@ -183,7 +192,7 @@ export function applySnapshot(
     }
   }
 
-  return next;
+  return { bySession: next, transitions };
 }
 
 /**

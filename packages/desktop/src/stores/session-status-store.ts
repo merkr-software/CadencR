@@ -42,11 +42,10 @@ import { reconcileQuestionDrafts } from "./question-drafts";
 import { create, type StoreApi } from "zustand";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import { useWsSessionStore } from "@/stores/ws-session-store";
-import { updateSession, type SessionEntry, type WsSessionStore } from "@/stores/ws-session-types";
-import { isTurnInProgress, transitionTurn, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import { anchorTurnTiming } from "@/stores/ws-turn-timing";
-import { buildClearedGatePatch } from "@/stores/ws-gate-state";
-import { registerTurnStartResolver, serverTurnStartLocalMs } from "@/stores/server-turn-start";
+import { updateSession, type WsSessionStore } from "@/stores/ws-session-types";
+import { liveSessionEnv } from "@/stores/ws-session-update";
+import { liveStatusPatch, type LiveStatusChange } from "@/stores/session-state-reducer";
+import { registerTurnStartResolver } from "@/stores/server-turn-start";
 import { observeServerClock, serverToLocalMs } from "@/lib/server-clock";
 import {
   applySnapshot,
@@ -113,11 +112,14 @@ function createEnvelopeDispatcher(
     if (action === "session_status.snapshot") {
       observeServerClock(payload.server_now_ms);
       const { bySession: previous, epoch: previousEpoch } = get();
-      const bySession = applySnapshot(previous, payload, previousEpoch);
+      const { bySession, transitions } = applySnapshot(previous, payload, previousEpoch);
       const { seq: snapshotSeq, epoch } = snapshotCursor(payload);
       set({ bySession, hasSnapshot: true, epoch, snapshotSeq });
       reconcileQuestionDrafts(previous, bySession);
       syncWsLifecycles(previous, bySession);
+      for (const transition of transitions) {
+        notifyTransition(transition.featureId, transition.prevStatus, transition.nextStatus);
+      }
       return;
     }
     if (action === "session_status.update") {
@@ -161,9 +163,7 @@ registerTurnStartResolver((sessionDbId) => {
   return startedAt == null ? null : serverToLocalMs(startedAt);
 });
 
-type StatusSyncEntry = Pick<SessionStatusEntry, "status" | "kind" | "turnStartedAtMs">;
-
-const IDLE_ENTRY: StatusSyncEntry = { status: "idle", kind: null, turnStartedAtMs: null };
+const IDLE_ENTRY: LiveStatusChange = { status: "idle", kind: null };
 
 /**
  * Bring every open conversation in line with a snapshot — including the ones
@@ -184,7 +184,7 @@ function syncWsLifecycles(
     const entry = next[session.sessionDbId] ?? (wasBusy ? IDLE_ENTRY : null);
     const current = updated.sessions[sessionId];
     if (!entry || !current) continue;
-    const patch = statusSyncPatch(current, entry, previous[session.sessionDbId]);
+    const patch = liveStatusPatch(current, entry, previous[session.sessionDbId], liveSessionEnv());
     if (!patch) continue;
     updated = { ...updated, ...updateSession(updated, sessionId, patch) };
     changed = true;
@@ -194,7 +194,7 @@ function syncWsLifecycles(
 
 function syncWsLifecycle(
   sessionDbId: number,
-  entry: StatusSyncEntry,
+  entry: LiveStatusChange,
   previous?: SessionStatusEntry,
 ): void {
   const store = useWsSessionStore.getState();
@@ -203,71 +203,7 @@ function syncWsLifecycle(
   );
   if (!match) return;
   const [sessionId, session] = match;
-  const patch = statusSyncPatch(session, entry, previous);
+  const patch = liveStatusPatch(session, entry, previous, liveSessionEnv());
   if (!patch) return;
   useWsSessionStore.setState(updateSession(store, sessionId, patch));
-}
-
-/**
- * Build the full ws-session patch for a status change: the lifecycle patch
- * plus a gate clear when the session leaves the "question" state. The timer
- * is not patched here: `updateSession` anchors it to the server turn start.
- *
- * A gate (permission/plan/question) is answered on whichever device the user
- * is holding; the backend then broadcasts the session out of "question" to
- * every client. Clearing the gate here makes it disappear on the *other*
- * devices too (the answering device already cleared its own). Keyed on the
- * app-socket's own prev→next transition, so it never races a freshly-arrived
- * gate on the per-feature socket.
- */
-function statusSyncPatch(
-  session: SessionEntry,
-  entry: StatusSyncEntry,
-  previous?: SessionStatusEntry,
-): Partial<SessionEntry> | null {
-  const lifecyclePatch = lifecyclePatchFromStatus(session, entry);
-  const gatePatch =
-    previous?.status === "question" &&
-    entry.status !== "question" &&
-    (previous.requestId == null || previous.requestId === session.pendingRequestId)
-      ? buildClearedGatePatch(session)
-      : null;
-  if (!lifecyclePatch && !gatePatch) return null;
-  return { ...gatePatch, ...lifecyclePatch };
-}
-
-function lifecyclePatchFromStatus(
-  session: SessionEntry,
-  entry: StatusSyncEntry,
-): Pick<SessionEntry, "lifecycle"> | Pick<SessionEntry, "lifecycle" | "turnTiming"> | null {
-  const lifecycle = lifecycleFromStatus(session.lifecycle, entry.status, entry.kind);
-  if (lifecycle !== session.lifecycle) return { lifecycle };
-  // Same lifecycle, but this device first saw the turn through its own stream
-  // (or the turn restarted): move its timer to the server start.
-  const turnTiming = anchorTurnTiming(
-    session.turnTiming,
-    lifecycle,
-    serverTurnStartLocalMs(session.sessionDbId),
-  );
-  return turnTiming === session.turnTiming ? null : { lifecycle, turnTiming };
-}
-
-function lifecycleFromStatus(
-  lifecycle: TurnLifecycle,
-  status: LiveAgentStatus,
-  kind: PendingKind | null,
-): TurnLifecycle {
-  if (status === "agent") return transitionTurn(lifecycle, { type: "stream_activity" });
-  if (status === "question") {
-    return transitionTurn(lifecycle, {
-      type: kind === "question" ? "question_requested" : "permission_requested",
-    });
-  }
-  if (status === "idle" && isTurnInProgress(lifecycle)) {
-    return transitionTurn(lifecycle, {
-      type: "turn_ended",
-      reason: "completed",
-    });
-  }
-  return lifecycle;
 }

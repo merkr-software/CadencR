@@ -1,12 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  applySnapshot,
   handleAppEnvelope,
   lookupFeature,
   resetEditorInvalidationSchedulingForTest,
 } from "./session-status-handlers";
+import { notifyAgentNeedsInput } from "@/lib/notify-agent-done";
 import { queryClient } from "@/lib/queryClient";
 import { getInvalidatePredicate } from "@/test-utils";
+
+vi.mock("@/lib/notify-agent-done", () => ({
+  isViewingFeature: vi.fn(() => false),
+  notifyAgentDone: vi.fn(),
+  notifyAgentNeedsInput: vi.fn(),
+}));
 
 function fireFileTreeChanged(): void {
   handleAppEnvelope("editor", "file_tree.changed", {});
@@ -123,5 +131,24 @@ describe("lookupFeature", () => {
     queryClient.setQueryData(["/api/features", { project_id: 1 }], [{ id: 7, title: "Seven" }]);
     expect(lookupFeature(7)).toMatchObject({ id: 7, title: "Seven" });
     expect(lookupFeature(8)).toBeUndefined();
+  });
+});
+
+describe("applySnapshot", () => {
+  it("returns the sessions newly awaiting the user instead of notifying", () => {
+    const states = {
+      7: { feature_id: 70, status: "question", kind: "permission" },
+      8: { feature_id: 80, status: "agent" },
+      9: { feature_id: 90, status: "question", kind: "question" },
+    };
+    const current = {
+      9: { status: "question" as const, kind: "question" as const, featureId: 90, seq: 1 },
+    };
+
+    const { bySession, transitions } = applySnapshot(current, { seq: 2, states });
+
+    expect(Object.keys(bySession)).toEqual(["7", "8", "9"]);
+    expect(transitions).toEqual([{ featureId: 70, prevStatus: undefined, nextStatus: "question" }]);
+    expect(notifyAgentNeedsInput).not.toHaveBeenCalled();
   });
 });

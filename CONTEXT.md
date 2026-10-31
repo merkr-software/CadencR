@@ -110,3 +110,19 @@ can retire an authority for historical evidence or revoke it after compromise.
 
 One exact historical metadata snapshot independently endorsed for continuity
 recovery. It does not restore a revoked publisher's ordinary authority.
+
+## Sessions
+
+### Live status
+
+The backend's answer to "what is this session doing now": idle, working, or
+awaiting the user. Every connected device receives the same value; the desktop
+never infers it from local state or user actions.
+_Avoid_: agent status, session state.
+
+### Turn lifecycle
+
+The detailed phase of a conversation's current turn (active, paused and why,
+ended and why, failed), as followed by the desktop. It refines live status for
+display but never overrides it, and only backend events advance it.
+_Avoid_: status.
