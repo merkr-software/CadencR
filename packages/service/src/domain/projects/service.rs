@@ -80,7 +80,9 @@ pub async fn create_project(
     path: &str,
 ) -> Result<Project, AppError> {
     let (clean_name, canonical_path) = validate_new_project(name, path)?;
-    repository::create_project(pool, &clean_name, &canonical_path).await
+    let project = repository::create_project(pool, &clean_name, &canonical_path).await?;
+    crate::domain::telemetry::product(crate::domain::telemetry::models::ProductEvent::ProjectAdded);
+    Ok(project)
 }
 
 /// Create a first-class user project that owns one locally-authored plugin.

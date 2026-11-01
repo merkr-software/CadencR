@@ -1888,6 +1888,50 @@ export interface DeletedResponse {
   deleted: number;
 }
 
+export type DeliveryStatus = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
+
+export const DeliveryStatus = {
+  disabled: "disabled",
+  not_configured: "not_configured",
+  ready: "ready",
+  delivery_failed: "delivery_failed",
+} as const;
+
+export type DiagnosticCategory = (typeof DiagnosticCategory)[keyof typeof DiagnosticCategory];
+
+export const DiagnosticCategory = {
+  react_boundary: "react_boundary",
+  renderer_unhandled_error: "renderer_unhandled_error",
+  renderer_unhandled_rejection: "renderer_unhandled_rejection",
+  renderer_recoverable: "renderer_recoverable",
+  electron_main: "electron_main",
+  electron_preload: "electron_preload",
+  renderer_process_exit: "renderer_process_exit",
+  service_process_exit: "service_process_exit",
+  service_internal: "service_internal",
+  service_database: "service_database",
+  service_git: "service_git",
+  service_panic: "service_panic",
+} as const;
+
+export interface DiagnosticFrame {
+  /** @minimum 0 */
+  colno: number;
+  filename: string;
+  /** @minimum 0 */
+  lineno: number;
+}
+
+/**
+ * The wire contract deliberately has no message, URL, context or arbitrary properties.
+ */
+export interface DiagnosticReport {
+  /** @nullable */
+  build_id?: string | null;
+  category: DiagnosticCategory;
+  frames?: DiagnosticFrame[];
+}
+
 export interface DiffComment {
   content: string;
   created_at: string;
@@ -6792,6 +6836,35 @@ export interface SubmitPublicationRegistryRequest {
 
 export interface SuccessResponse {
   success: boolean;
+}
+
+export interface TelemetryConsent {
+  /**
+   * Omit for a detailed telemetry decision to preserve the current counter setting.
+   * @nullable
+   */
+  audience_enabled?: boolean | null;
+  diagnostics_enabled: boolean;
+  usage_enabled: boolean;
+}
+
+export interface TelemetryPreferences {
+  audience_configured: boolean;
+  audience_enabled: boolean;
+  audience_status: DeliveryStatus;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  decision_version?: number | null;
+  diagnostics_configured: boolean;
+  diagnostics_enabled: boolean;
+  diagnostics_status: DeliveryStatus;
+  /** @nullable */
+  installation_id?: string | null;
+  usage_configured: boolean;
+  usage_enabled: boolean;
+  usage_status: DeliveryStatus;
 }
 
 /**
@@ -33082,6 +33155,330 @@ export const useRunArchivedCleanup = <TError = ErrorType<void>, TContext = unkno
   queryClient?: QueryClient,
 ): UseMutationResult<Awaited<ReturnType<typeof runArchivedCleanup>>, TError, void, TContext> => {
   return useMutation(getRunArchivedCleanupMutationOptions(options), queryClient);
+};
+
+export const getPreferences = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({ url: `/api/telemetry`, method: "GET", signal });
+};
+
+export const getGetPreferencesQueryKey = () => {
+  return [`/api/telemetry`] as const;
+};
+
+export const getGetPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPreferencesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPreferences>>> = ({ signal }) =>
+    getPreferences(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPreferences>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getPreferences>>>;
+export type GetPreferencesQueryError = ErrorType<unknown>;
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const putPreferences = (telemetryConsent: TelemetryConsent, signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: telemetryConsent,
+    signal,
+  });
+};
+
+export const getPutPreferencesMutationKey = () => ["putPreferences"] as const;
+
+export const getPutPreferencesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putPreferences>>,
+    TError,
+    PutPreferencesMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutPreferencesMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putPreferences>>,
+    PutPreferencesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return putPreferences(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof putPreferences>>>;
+export type PutPreferencesMutationBody = TelemetryConsent;
+export type PutPreferencesMutationError = ErrorType<unknown>;
+export type PutPreferencesMutationVariables = { data: TelemetryConsent };
+
+export const usePutPreferences = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putPreferences>>,
+      TError,
+      PutPreferencesMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutPreferencesMutationOptions(options), queryClient);
+};
+
+export const activity = (signal?: AbortSignal) => {
+  return customInstance<void>({ url: `/api/telemetry/activity`, method: "POST", signal });
+};
+
+export const getActivityMutationKey = () => ["activity"] as const;
+
+export const getActivityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  const mutationKey = getActivityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof activity>>, void> = () => {
+    return activity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActivityMutationResult = NonNullable<Awaited<ReturnType<typeof activity>>>;
+
+export type ActivityMutationError = ErrorType<unknown>;
+
+export const useActivity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  return useMutation(getActivityMutationOptions(options), queryClient);
+};
+
+export const ingestDiagnostic = (diagnosticReport: DiagnosticReport, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/telemetry/diagnostics`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: diagnosticReport,
+    signal,
+  });
+};
+
+export const getIngestDiagnosticMutationKey = () => ["ingestDiagnostic"] as const;
+
+export const getIngestDiagnosticMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    TError,
+    IngestDiagnosticMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  const mutationKey = getIngestDiagnosticMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    IngestDiagnosticMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return ingestDiagnostic(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type IngestDiagnosticMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ingestDiagnostic>>
+>;
+export type IngestDiagnosticMutationBody = DiagnosticReport;
+export type IngestDiagnosticMutationError = ErrorType<unknown>;
+export type IngestDiagnosticMutationVariables = { data: DiagnosticReport };
+
+export const useIngestDiagnostic = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof ingestDiagnostic>>,
+      TError,
+      IngestDiagnosticMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  return useMutation(getIngestDiagnosticMutationOptions(options), queryClient);
+};
+
+export const resetIdentity = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry/reset-identity`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getResetIdentityMutationKey = () => ["resetIdentity"] as const;
+
+export const getResetIdentityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  const mutationKey = getResetIdentityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetIdentity>>, void> = () => {
+    return resetIdentity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetIdentityMutationResult = NonNullable<Awaited<ReturnType<typeof resetIdentity>>>;
+
+export type ResetIdentityMutationError = ErrorType<unknown>;
+
+export const useResetIdentity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof resetIdentity>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  return useMutation(getResetIdentityMutationOptions(options), queryClient);
 };
 
 /**

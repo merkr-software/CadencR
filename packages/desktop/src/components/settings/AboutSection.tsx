@@ -1,3 +1,4 @@
+import { TelemetrySection } from "./TelemetrySection";
 import { ExportDiagnosticsButton } from "../ExportDiagnosticsButton";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { UpdateInstallActions, UpdateInstallNotice } from "@/components/UpdateInstallActions";
@@ -73,6 +74,7 @@ export function AboutSection(): React.JSX.Element {
           )}
         </SettingsSubsection>
       </SettingsGroup>
+      <TelemetrySection />
       <SettingsGroup id={SETTINGS_ANCHORS.diagnostics} title="Diagnostics">
         <SettingsRow
           align="start"

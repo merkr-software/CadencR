@@ -160,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
             // CWD-relative `./cadencr-settings/settings.json`.
             let settings_dir = std::fs::canonicalize(&settings_dir).unwrap_or(settings_dir);
             domain::settings_store::init(settings_dir.clone());
+            domain::telemetry::initialize(config.app_version.as_deref());
             domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
             )
             .await?;

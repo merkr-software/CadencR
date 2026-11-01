@@ -1,4 +1,6 @@
 import path from "node:path";
+import { installMainTelemetry } from "./main-telemetry";
+import { closeAllWindowsForQuit } from "./window-shutdown";
 import { app, BrowserWindow, dialog, protocol } from "electron";
 import { loadDevEnv } from "./env";
 import { clearRegisteredFilePaths, registerIpc, registerThemeEvents } from "./ipc";
@@ -303,6 +305,8 @@ function closeSplash(): void {
   splash = null;
 }
 
+installMainTelemetry();
+
 app.setAppUserModelId(app.isPackaged ? "com.cadencr.desktop" : "com.cadencr.desktop.dev");
 
 if (!app.isPackaged) {
@@ -427,6 +431,7 @@ async function stopSidecarForExit(): Promise<void> {
     const currentSidecar = sidecar;
     if (!currentSidecar) return;
     sidecar = null;
+    allowClose = true;
     closeAllWindowsForQuit();
     // Release any held power-save-blocker and unwire power listeners before
     // the sidecar stop awaits, so quit cleans up the OS-level state even
@@ -440,13 +445,6 @@ async function stopSidecarForExit(): Promise<void> {
     });
   }
   await sidecarStopPromise;
-}
-
-function closeAllWindowsForQuit(): void {
-  allowClose = true;
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.close();
-  }
 }
 
 app.on("window-all-closed", () => {

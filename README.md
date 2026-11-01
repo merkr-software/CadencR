@@ -6,7 +6,7 @@ The desktop workspace for managing AI coding agents. **Run Claude Code, Codex, C
 
 [**Download for macOS →**](https://github.com/merkr-software/CadencR/releases/latest) · [Website & demo](https://cadencr.com) · [Documentation](https://cadencr.com/docs/) · [What's new](https://cadencr.com/news/)
 
-**Free & open source · Local-first · No telemetry · Apache 2.0**
+**Free & open source · Local-first · Privacy controls · Apache 2.0**
 
 [![CadencR v0.14.1: four agent conversations in a unified grid, with model controls, a permission request, and the For me queue across projects.](./.github/assets/readme/hero.png)](./.github/assets/readme/hero.png)
 
@@ -83,7 +83,7 @@ When you need to inspect, test, or ship what an agent produced, open the relevan
 
 - **Local workspace.** CadencR runs on your computer and stores its workspace state locally. Remote access is opt-in.
 - **Your existing agent accounts.** Install and authenticate the native CLI you want to use. CadencR runs it locally; requests to the provider follow that agent's own configuration and service.
-- **No CadencR telemetry.** No additional CadencR subscription. Your agent provider's pricing and usage limits still apply.
+- **Privacy controls.** Diagnostics and detailed usage analytics start off. A separate monthly installation counter starts on when configured, independently of the detailed telemetry decision, and has its own off switch in Settings. Declining detailed telemetry leaves that counter setting unchanged. No prompts, your code, conversation content, session replay, or log dumps are sent. [Data and setup details](./docs/TELEMETRY.md). No additional CadencR subscription; your agent provider's pricing and usage limits still apply.
 - **Open source under Apache 2.0.** Inspect the implementation, build from source, and adapt it to your workflow.
 
 Built-in integrations support **Claude Code, Codex, and OpenCode**. **Cursor** is available as an official provider plugin from the marketplace. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)

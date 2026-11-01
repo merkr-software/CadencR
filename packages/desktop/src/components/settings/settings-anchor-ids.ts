@@ -33,4 +33,5 @@ export const SETTINGS_ANCHORS = {
   browserSearch: "browser-search",
   browserDomains: "browser-domains",
   diagnostics: "diagnostics",
+  telemetry: "telemetry",
 } as const;

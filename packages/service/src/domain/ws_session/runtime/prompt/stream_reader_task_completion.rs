@@ -1,3 +1,7 @@
+use crate::domain::telemetry::{
+    models::{TurnOutcome, TurnSummary},
+    turn_completed,
+};
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::path::PathBuf;
 
@@ -18,6 +22,15 @@ use crate::domain::ws_session::protocol::{
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
 
 impl StreamReaderTask {
+    async fn record_turn_outcome(&self, state: &StreamReaderState, outcome: TurnOutcome) {
+        turn_completed(TurnSummary::new(
+            outcome,
+            &self.runtime_provider,
+            state.turn_state.elapsed_seconds(),
+        ))
+        .await;
+    }
+
     pub(in crate::domain::ws_session) async fn send_usage_update(
         &self,
         input_tokens: u64,
@@ -123,6 +136,15 @@ impl StreamReaderTask {
         }
 
         WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.record_turn_outcome(
+            state,
+            if failed {
+                TurnOutcome::Failed
+            } else {
+                TurnOutcome::Completed
+            },
+        )
+        .await;
         if let Err(error) = crate::domain::sessions::user_messages::resolve_pending_delivery_states(
             &self.write_pool,
             self.db_session_id,
@@ -177,6 +199,8 @@ impl StreamReaderTask {
             return None;
         }
         WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.record_turn_outcome(state, TurnOutcome::Interrupted)
+            .await;
         // Both ways a stopped turn ends (its runtime's interrupted result, or
         // the runtime closing mid-interrupt) pass here exactly once.
         WsSessionPersistence::persist_turn_interrupted_static(&self.write_pool, self.db_session_id)
@@ -209,6 +233,7 @@ impl StreamReaderTask {
         state: &mut StreamReaderState,
         error: RuntimeError,
     ) {
+        self.record_turn_outcome(state, TurnOutcome::Failed).await;
         let code = match &error {
             RuntimeError::CompactFailed(_) => "COMPACT_ERROR",
             _ => "SDK_ERROR",
@@ -308,6 +333,7 @@ impl StreamReaderTask {
         &self,
         state: &mut StreamReaderState,
     ) {
+        self.record_turn_outcome(state, TurnOutcome::Failed).await;
         error!(
             self.db_session_id,
             "SDK stream closed mid-turn without a result"

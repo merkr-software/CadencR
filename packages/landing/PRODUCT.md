@@ -24,8 +24,8 @@ The IDE for the era of agents: CadencR unifies Agent, Git, Browser, Editor, and 
 
 - Primary CTA: Download for Mac, with the copyable `brew install --cask` command as its terminal-native twin. Secondary: Source on GitHub — for visitors not ready to install, the open code is the fallback.
 - The line a visitor remembers after 10 seconds: "Stop switching — one window."
-- Belief ladder, mirrored by the homepage section order: (1) my agent workflow is fragmented across windows; (2) CadencR puts agent, git, browser, editor, and terminal in one place; (3) it works with the agents I already use — Claude Code, Codex, Cursor, OpenCode — provider-neutral by design; (4) each surface is genuinely good (readable agent stream, per-task worktrees with reviewable commits, embedded browser QA); (5) it is free, open source, local, and sends no telemetry — nothing to lose. Then the closing download CTA.
-- Proof on hand: the Apache-2.0 source on GitHub, real product screenshots and the hero screen recording captured from the app (`src/assets/`, `public/hero.*.mp4`), versioned release notes under `/news`, and the free / local / no-telemetry answers in the FAQ. No testimonials or press yet.
+- Belief ladder, mirrored by the homepage section order: (1) my agent workflow is fragmented across windows; (2) CadencR puts agent, git, browser, editor, and terminal in one place; (3) it works with the agents I already use — Claude Code, Codex, Cursor, OpenCode — provider-neutral by design; (4) each surface is genuinely good (readable agent stream, per-task worktrees with reviewable commits, embedded browser QA); (5) it is free, open source, local, with opt-in diagnostics and detailed analytics and a separately disableable monthly installation counter. Then the closing download CTA.
+- Proof on hand: the Apache-2.0 source on GitHub, real product screenshots and the hero screen recording captured from the app (`src/assets/`, `public/hero.*.mp4`), versioned release notes under `/news`, and the free / local / optional-telemetry answers in the FAQ. No testimonials or press yet.
 
 ## Brand Personality
 

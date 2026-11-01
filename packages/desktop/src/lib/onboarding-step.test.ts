@@ -34,6 +34,7 @@ describe("onboarding-step", () => {
         "pick_agent",
         "notifications",
         "preferences",
+        "telemetry",
         "first_prompt",
         "completed",
       ] as const;
@@ -49,7 +50,8 @@ describe("onboarding-step", () => {
 
   describe("previousOnboardingStep", () => {
     it("walks back through every step", () => {
-      expect(previousOnboardingStep("first_prompt")).toBe("preferences");
+      expect(previousOnboardingStep("first_prompt")).toBe("telemetry");
+      expect(previousOnboardingStep("telemetry")).toBe("preferences");
       expect(previousOnboardingStep("preferences")).toBe("notifications");
       expect(previousOnboardingStep("notifications")).toBe("pick_agent");
       expect(previousOnboardingStep("pick_agent")).toBe("choose_workspace");

@@ -355,6 +355,18 @@ mod tests {
     }
 
     #[test]
+    fn telemetry_consent_is_never_agent_writable() {
+        for key in [
+            "telemetry",
+            "diagnostics_enabled",
+            "usage_enabled",
+            "telemetry_diagnostics_enabled",
+        ] {
+            assert!(validate_updates(SettingsScope::Global, &values(json!({key: true}))).is_err());
+        }
+    }
+
+    #[test]
     fn catalog_describes_value_shapes_without_user_only_keys() {
         let global = serde_json::to_value(catalog(SettingsScope::Global, &[])).unwrap();
         let entry = |key: &str| {
