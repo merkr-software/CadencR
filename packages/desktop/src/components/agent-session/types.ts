@@ -24,7 +24,7 @@ import type {
 import type { AgentCatalog } from "@/api/agentRuntime";
 import type { ClaudeProfileSelection } from "./useClaudeProfileSelection";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import type { TurnTimingState } from "@/stores/ws-turn-timing";
+import type { TurnClock } from "@/lib/turn-clock";
 import type { RuntimeSelection } from "@/shared/models";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 
@@ -63,8 +63,8 @@ export interface AgentSessionProps {
   isCompacting?: boolean;
   /** Provider-neutral lifecycle for active/paused/terminal turn state. */
   lifecycle?: TurnLifecycle;
-  /** Provider-neutral timing accumulator for the current or latest turn. */
-  turnTiming?: TurnTimingState;
+  /** The running turn's clock, from the backend status book. */
+  turnClock?: TurnClock | null;
   /**
    * Called when the user sends a message via the prompt bar. May return a
    * Promise — the prompt bar awaits it before clearing the input so a

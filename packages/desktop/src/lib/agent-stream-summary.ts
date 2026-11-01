@@ -153,6 +153,8 @@ function emitSegment(result: AgentBlockData[], segment: Segment, active: boolean
       (block) =>
         block === finalText ||
         isAgentCardCarrier(block) ||
+        // Where the model changed is said in every verbosity mode.
+        block.type === "model_switch" ||
         (block.type === "user_message" && !isDeliveredPrompt(block)),
     ),
   );

@@ -25,17 +25,10 @@ import { CompactFlowRow } from "./agent-session/CompactFlowRow";
 import { AgentStreamTools } from "./agent-session/AgentStreamTools";
 import type { MessageNavigatorControls } from "./agent-session/useMessageNavigator";
 import type { DisplayItem } from "@/types/agent-stream";
-import {
-  useAgentDisplayItems,
-  useRootBlocks,
-  useRowAnnotations,
-  useToolResultMap,
-} from "./useAgentStreamData";
+import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgentStreamData";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 import { isTurnInProgress } from "@/stores/ws-turn-lifecycle";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
-import type { RowAnnotation } from "@/lib/agent-turn-annotations";
-import { ModelSwitchDivider, TurnFooterLine } from "./StreamDividers";
 
 type ScrollRef = (el: HTMLElement | null) => void;
 const FIRST_ITEM_INDEX_BASE = 1_000_000;
@@ -239,24 +232,18 @@ function useAgentStreamItemRenderer(
   basePath: string | undefined,
   toolResultMap: Map<string, AgentBlockData>,
   verbosityMode: AgentVerbosityMode,
-  rowAnnotations: Map<string, RowAnnotation>,
 ) {
   return useCallback(
     (_index: number, item: DisplayItem, context: AgentStreamVirtuosoContext) => {
-      const annotation = rowAnnotations.get(item.key);
       if (item.kind === "flow") {
         const target = context.searchBlockId;
         const reveal = target && item.blocks.some((block) => block.id === target);
         return (
-          <>
-            {annotation?.modelSwitch && <ModelSwitchDivider {...annotation.modelSwitch} />}
-            <CompactFlowRow
-              blocks={item.blocks}
-              basePath={basePath}
-              revealBlockId={reveal ? target : undefined}
-            />
-            {annotation?.footer && <TurnFooterLine footer={annotation.footer} />}
-          </>
+          <CompactFlowRow
+            blocks={item.blocks}
+            basePath={basePath}
+            revealBlockId={reveal ? target : undefined}
+          />
         );
       }
       return (
@@ -266,11 +253,10 @@ function useAgentStreamItemRenderer(
           basePath={basePath}
           toolResultMap={toolResultMap}
           verbosityMode={verbosityMode}
-          annotation={annotation}
         />
       );
     },
-    [basePath, toolResultMap, verbosityMode, rowAnnotations],
+    [basePath, toolResultMap, verbosityMode],
   );
 }
 
@@ -367,7 +353,6 @@ export const AgentStream = memo(function AgentStream({
     isStreaming,
     verbosityMode,
   );
-  const rowAnnotations = useRowAnnotations(displayItems, turnActive ?? !!isStreaming);
   const firstItemIndex = FIRST_ITEM_INDEX_BASE - historyPrependDisplayOffset;
 
   const [searchBlockId, setSearchBlockId] = useState<string | null>(null);
@@ -386,12 +371,7 @@ export const AgentStream = memo(function AgentStream({
     firstItemIndex,
     onStartReached,
   );
-  const renderItem = useAgentStreamItemRenderer(
-    basePath,
-    toolResultMap,
-    verbosityMode,
-    rowAnnotations,
-  );
+  const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
 
   if (displayItems.length === 0) {
     return (

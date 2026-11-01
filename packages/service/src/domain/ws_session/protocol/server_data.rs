@@ -6,9 +6,12 @@ pub struct SessionAcknowledgedPayload {
     pub action: String,
 }
 
+/// A transcript row Cadencr wrote itself (a turn's closing line, a model
+/// switch), pushed to every device viewing the conversation.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct SessionCompactingPayload {
-    pub active: bool,
+pub struct SessionTranscriptBlockPayload {
+    pub session_id: String,
+    pub block: crate::domain::sessions::models::AgentBlock,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

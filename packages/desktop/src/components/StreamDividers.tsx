@@ -1,14 +1,18 @@
 /**
- * Visual dividers in the agent stream marking compaction and clear events.
+ * Visual dividers in the agent stream marking compaction and clear events, a
+ * turn's closing line and a model switch the CLI reported.
  *
  * Extracted from `AgentBlock.tsx` purely to keep that file under the
  * 400-line cap; the components are agent-stream-specific and not meant
  * for reuse outside of stream rendering.
  */
-import { Fragment } from "react";
 import { cn } from "@/lib/utils";
-import { formatStreamTimestamp } from "@/lib/date-utils";
-import type { ModelSwitch, TurnFooter } from "@/lib/agent-turn-annotations";
+import {
+  parseModelSwitch,
+  parseTurnSummary,
+  workedParts,
+  type TurnSummary,
+} from "@/lib/turn-clock";
 
 interface CompactMetadata {
   trigger?: string;
@@ -72,64 +76,50 @@ export function ClearDivider({ previousSessionId }: { previousSessionId?: string
   return <StreamDivider label="Cleared" tone="cyan" detail={previousSessionId || undefined} />;
 }
 
-/** Gaps around a turn's closing line, live summary row or not. */
+/** Gaps around a turn's closing line. */
 export const TURN_CLOSING_SPACING = "pt-2 pb-0.5";
 
-/**
- * A finished turn's closing line: the live timing ("Worked - 21s · …") when
- * this device watched the turn end, then the model(s) that wrote it and when
- * it ended — said once per turn instead of over every reply.
- */
-export function TurnSummaryDivider({ content, footer }: { content?: string; footer?: TurnFooter }) {
-  const models = footer?.models.join(" → ");
-  const endedAt = footer?.endedAt ? formatStreamTimestamp(footer.endedAt) : undefined;
-  const details = [
-    models && (
-      <span key="models" className="font-mono text-[11px]">
-        {models}
+function WorkedLine({ summary }: { summary: TurnSummary }) {
+  const { models, total, waiting, agent } = workedParts(summary);
+  return (
+    <>
+      <span className="font-medium">Worked</span>
+      {models && (
+        <>
+          {" - "}
+          <span className="font-mono text-[11px]">{models}</span>
+        </>
+      )}
+      <span className="text-muted-foreground/80">
+        {` - ${total} - Waiting ${waiting} - Agent ${agent}`}
       </span>
-    ),
-    endedAt && <span key="ended">{endedAt}</span>,
-  ].filter(Boolean);
+    </>
+  );
+}
+
+/**
+ * A finished turn's closing line, persisted by the backend when the turn
+ * ended: "Worked - <model> - <total> - Waiting <w> - Agent <a>". The same row
+ * on every device and after any reload or restart.
+ */
+export function TurnSummaryDivider({ content }: { content: string }) {
+  const summary = parseTurnSummary(content);
   return (
     <div data-turn-footer className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
       <span className="h-0.5 w-5 shrink-0 rounded-full bg-muted-foreground/65" aria-hidden />
       <span className="min-w-0 truncate tabular-nums">
-        {content && <span className="font-medium">{content}</span>}
-        {details.length > 0 && (
-          <span className="text-muted-foreground/80">
-            {details.map((detail, index) => (
-              <Fragment key={index}>
-                {(content || index > 0) && " · "}
-                {detail}
-              </Fragment>
-            ))}
-          </span>
-        )}
+        {summary ? <WorkedLine summary={summary} /> : <span className="font-medium">Worked</span>}
       </span>
     </div>
   );
 }
 
 /**
- * A finished turn's closing line under its last row, when no live summary row
- * carries it (history, or a device that did not watch the turn end). Spaced
- * like the summary row it stands in for.
+ * Where the CLI reported the conversation's model changed, drawn before the
+ * first reply the new model wrote.
  */
-export function TurnFooterLine({ footer }: { footer: TurnFooter }) {
-  return (
-    <div className={TURN_CLOSING_SPACING}>
-      <TurnSummaryDivider footer={footer} />
-    </div>
-  );
-}
-
-/**
- * Where the model writing the conversation changed: at the top of the turn it
- * took effect in, or before the first reply it wrote when the provider
- * applied it mid-turn.
- */
-export function ModelSwitchDivider({ from, to }: ModelSwitch) {
+export function ModelSwitchDivider({ content }: { content: string }) {
+  const change = parseModelSwitch(content);
   return (
     <div
       role="note"
@@ -139,11 +129,13 @@ export function ModelSwitchDivider({ from, to }: ModelSwitch) {
       <span className="h-px flex-1 bg-border/70" aria-hidden />
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="shrink-0 font-medium">Model</span>
-        <span className="min-w-0 truncate font-mono text-[11px]">
-          <span className="text-muted-foreground/70">{from}</span>
-          {" → "}
-          <span className="text-foreground/80">{to}</span>
-        </span>
+        {change && (
+          <span className="min-w-0 truncate font-mono text-[11px]">
+            <span className="text-muted-foreground/70">{change.from}</span>
+            {" → "}
+            <span className="text-foreground/80">{change.to}</span>
+          </span>
+        )}
       </span>
       <span className="h-px flex-1 bg-border/70" aria-hidden />
     </div>

@@ -55,6 +55,7 @@ pub use event_identity::{raw_event_with_agent_message_id, PersistedEventRef};
 mod message_store;
 mod pending_user_gate;
 mod pending_user_input;
+mod reported_model;
 mod session_archiving;
 mod session_bootstrap;
 mod session_cleanup;

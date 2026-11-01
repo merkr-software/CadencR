@@ -47,6 +47,9 @@ pub(super) struct CodexSession {
     model: Arc<RwLock<Option<String>>>,
     effort: Arc<RwLock<Option<String>>>,
     effective_model: Arc<RwLock<Option<String>>>,
+    /// The running turn's model: Codex applies `set_model` at the next turn,
+    /// a `model/rerouted` within it.
+    turn_model: Arc<RwLock<Option<String>>>,
     effective_effort: Arc<RwLock<Option<String>>>,
     summary: Option<String>,
     fast_mode: Arc<RwLock<Option<bool>>>,
@@ -95,6 +98,7 @@ impl CodexSession {
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
+            turn_model: Arc::new(RwLock::new(options.effective_model.clone())),
             effective_model: Arc::new(RwLock::new(options.effective_model)),
             effective_effort: Arc::new(RwLock::new(options.effective_effort)),
             summary: options.summary,
@@ -143,6 +147,8 @@ impl CodexSession {
         let model = self.model.read().await.clone();
         let effort = self.effort.read().await.clone();
         let collaboration_model = self.effective_model.read().await.clone();
+        // Before `turn/start`: its `turn/started` can arrive before the reply.
+        *self.turn_model.write().await = collaboration_model.clone();
         let collaboration_effort = self.effective_effort.read().await.clone();
         let fast_mode = *self.fast_mode.read().await;
         let permission_mode = self.permission_mode.read().await.clone();
@@ -211,7 +217,7 @@ impl AgentRuntimeSession for CodexSession {
                 root_thread_id: self.thread_id.clone(),
                 child_turn_ids: Arc::clone(&self.child_turn_ids),
             })
-            .model(self.effective_model.clone())
+            .model(Arc::clone(&self.turn_model))
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
             .call();

@@ -29,7 +29,6 @@ function context(mode: "running" | "compacting" | "gated" = "running"): StoreAcc
   if (mode === "compacting") {
     session.compactRequestPending = true;
     session.pendingManualCompact = true;
-    session.runtimeCompacting = true;
   }
   if (mode === "gated") {
     session.pendingPermission = {

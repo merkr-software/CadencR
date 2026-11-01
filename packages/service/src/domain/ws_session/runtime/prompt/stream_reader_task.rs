@@ -105,6 +105,8 @@ pub(super) struct StreamReaderState {
     pub(super) diagnostics: super::stream_diagnostics::StreamDiagnostics,
     /// Sub-agents this stream launched; see [`crate::domain::subagents`].
     pub(super) subagents: crate::domain::subagents::tracker::SubagentTracker,
+    /// The model the CLI last reported for the session; `None` until read.
+    pub(super) reported_model: Option<Option<String>>,
 }
 
 enum ReaderAction {

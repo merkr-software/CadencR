@@ -10,7 +10,7 @@ use tokio::sync::{mpsc, Mutex as AsyncMutex, Notify, RwLock};
 use crate::domain::agents::acp::AcpClient;
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeUsage};
 
-use super::events_stream_blocks::EventIndexer;
+use super::events_stream_blocks::{message_start_for, EventIndexer};
 use super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::provider_hooks::AcpProviderHooks;
 use super::turn_result::emit_turn_result;
@@ -91,6 +91,7 @@ pub async fn drive_initial_prompt(
     let prompt = acp_prompt_blocks_from_content(content);
     let model = current_model_lock.read().await.clone();
     let effort = current_effort_lock.read().await.clone();
+    start_turn_on_model(tx, indexer, &session_id, model.clone()).await;
     let params = build_prompt_params(
         &session_id,
         prompt,
@@ -113,6 +114,26 @@ pub async fn drive_initial_prompt(
         .await;
     }
     Ok(())
+}
+
+/// Latch the model a prompt is sent on and announce it at once: ACP only
+/// synthesises a `message_start` before the agent's first text, so a turn
+/// opening with tool calls would otherwise run unnamed on the "Working" line.
+pub async fn start_turn_on_model(
+    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+    indexer: &StdMutex<EventIndexer>,
+    session_id: &str,
+    model: Option<String>,
+) {
+    indexer
+        .lock()
+        .expect("EventIndexer poisoned")
+        .latch_turn_model(model.clone());
+    if model.is_some() {
+        let _ = tx
+            .send(Ok(message_start_for(Some(session_id), model.as_deref())))
+            .await;
+    }
 }
 
 pub async fn request_prompt_with_cancel(
@@ -189,11 +210,14 @@ pub async fn finalize_turn(
 
 #[cfg(test)]
 mod tests {
-    use super::{drive_initial_prompt, finalize_turn, EventIndexer, PromptCancel, PromptTurnLock};
+    use super::{
+        drive_initial_prompt, finalize_turn, start_turn_on_model, EventIndexer, PromptCancel,
+        PromptTurnLock,
+    };
     use crate::domain::agents::acp::runtime::provider_hooks::AcpProviderHooks;
     use crate::domain::agents::acp::runtime::test_support::spawn_event_barrier_acker;
     use crate::domain::agents::acp::{AcpClient, AcpClientInfo};
-    use crate::domain::agents::adapter::RuntimePermissionMode;
+    use crate::domain::agents::adapter::{RuntimePermissionMode, RuntimeStreamEvent};
     use serde_json::{json, Value};
     use std::sync::{Arc, Mutex as StdMutex};
     use std::time::Duration;
@@ -249,6 +273,27 @@ mod tests {
             })
         );
         stdout.write_all(frame.as_bytes()).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_prompt_names_its_model_before_the_agent_writes_anything() {
+        let (tx, mut rx) = mpsc::channel(4);
+        let indexer = StdMutex::new(EventIndexer::default());
+        start_turn_on_model(&tx, &indexer, "s1", Some("openai/gpt-6.1-terra".into())).await;
+        assert_eq!(
+            indexer.lock().unwrap().turn_model(),
+            Some("openai/gpt-6.1-terra")
+        );
+        let event = rx.try_recv().unwrap().unwrap();
+        assert!(matches!(
+            event.stream_event(),
+            Some(RuntimeStreamEvent::MessageStart { model: Some(model), .. })
+                if model == "openai/gpt-6.1-terra"
+        ));
+
+        start_turn_on_model(&tx, &indexer, "s1", None).await;
+        assert_eq!(indexer.lock().unwrap().turn_model(), None);
+        assert!(rx.try_recv().is_err(), "no model, nothing to announce");
     }
 
     #[tokio::test]

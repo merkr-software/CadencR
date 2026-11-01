@@ -22,7 +22,7 @@ use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
 
-use super::event_loop_state::sync_session_state_from_update;
+use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
 use super::events::session_update_to_events;
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call_metadata::is_empty_value;
@@ -143,7 +143,7 @@ async fn handle_notification(
     match notification {
         AcpNotification::SessionUpdate { .. } => {
             let params = notification.params();
-            sync_session_state_from_update(params, config).await;
+            let agent_moved_model = sync_session_state_from_update(params, config).await;
             if config.replay_suppression.load(Ordering::SeqCst)
                 && is_transcript_session_update(params)
             {
@@ -169,10 +169,11 @@ async fn handle_notification(
                 // never across `await`. The prompt-turn path competes for
                 // this lock at turn end (see drain_open_blocks).
                 let mut indexer = config.indexer.lock().expect("EventIndexer poisoned");
+                let turn_model = latched_turn_model(&mut indexer, agent_moved_model, model);
                 session_update_to_events(
                     payload,
                     &mut indexer,
-                    model.as_deref(),
+                    turn_model.as_deref(),
                     session_id.as_deref(),
                     config.hooks.as_ref(),
                 )

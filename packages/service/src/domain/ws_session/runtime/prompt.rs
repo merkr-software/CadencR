@@ -24,6 +24,7 @@ mod stream_reader_background_agents;
 mod stream_reader_forward;
 mod stream_reader_idle;
 mod stream_reader_persistence_health;
+mod stream_reader_reported_state;
 mod stream_reader_resume;
 mod stream_reader_stop;
 mod stream_reader_subagents;

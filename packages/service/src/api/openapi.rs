@@ -737,7 +737,7 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::WsSessionAction,
         ws_protocol::WsSessionEvent,
         ws_protocol::SessionAcknowledgedPayload,
-        ws_protocol::SessionCompactingPayload,
+        ws_protocol::SessionTranscriptBlockPayload,
         ws_protocol::SessionCompactStartedPayload,
         ws_protocol::SessionDeletedPayload,
         ws_protocol::SessionClearedPayload,

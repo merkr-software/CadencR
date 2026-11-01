@@ -26,6 +26,22 @@ pub(super) fn turn_started_event(params: Value, model: Option<&str>) -> Option<R
     ))
 }
 
+/// The model Codex rerouted a turn to (`model/rerouted`), e.g. when a request
+/// is moved off the model the turn started on.
+pub(in super::super) fn rerouted_model(params: &Value) -> Option<&str> {
+    params
+        .get("toModel")
+        .or_else(|| params.get("to_model"))
+        .and_then(Value::as_str)
+        .filter(|model| !model.is_empty())
+}
+
+/// A reroute starts the turn's next message on the model Codex reports.
+pub(super) fn model_rerouted_event(params: Value) -> Option<RuntimeEvent> {
+    let model = rerouted_model(&params)?.to_string();
+    turn_started_event(params, Some(&model))
+}
+
 pub(super) fn result_event(params: Value) -> RuntimeEvent {
     let error = params.get("turn").and_then(|turn| {
         let error = turn.get("error").filter(|error| !error.is_null());
@@ -163,5 +179,27 @@ mod tests {
         assert!(!error.is_result());
         assert_eq!(error.parent_tool_use_id(), Some("spawn"));
         assert_eq!(error.provider_error().unwrap().message, "capacity");
+    }
+
+    #[test]
+    fn a_reroute_starts_the_next_message_on_the_reported_model() {
+        let mut indexes = IndexState::default();
+        let events = notification_events(
+            "model/rerouted",
+            json!({ "threadId": "thread", "fromModel": "gpt-5.5", "toModel": "gpt-5.5-mini" }),
+            Some("gpt-5.5"),
+            &mut indexes,
+        );
+        assert!(matches!(
+            events[0].stream_event(),
+            Some(RuntimeStreamEvent::MessageStart { model: Some(model), .. }) if model == "gpt-5.5-mini"
+        ));
+        let malformed = notification_events(
+            "model/rerouted",
+            json!({ "threadId": "thread" }),
+            None,
+            &mut indexes,
+        );
+        assert!(malformed.is_empty());
     }
 }

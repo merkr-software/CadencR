@@ -4,17 +4,14 @@ use super::stream_reader_background_agents::track_background_agents;
 use super::stream_reader_forward::{forward_immediate_event, ForwardOutcome};
 use super::stream_reader_resume::runtime_allows_resume_persistence;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
-use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent, RuntimeTurnStartedSource};
+use crate::domain::agents::adapter::{AgentRuntimeAdapter, RuntimeEvent};
 use crate::domain::runtime_stream::{
     capture_runtime_session_id, permission_request_payload, persist_usage,
 };
 use crate::domain::ws_session::persistence::{
     PendingUserInput, TranscriptPersistenceError, WsSessionPersistence,
 };
-use crate::domain::ws_session::protocol::{
-    permission_request_envelope, PermissionRequestPayload, WsEnvelope,
-};
-use crate::domain::ws_session::protocol::{SessionCompactingPayload, WsSessionEvent};
+use crate::domain::ws_session::protocol::{permission_request_envelope, PermissionRequestPayload};
 use crate::domain::ws_session::runtime::application::mark_awaiting_user;
 use axum::extract::ws::Message;
 use tracing::{debug, error, info};
@@ -53,7 +50,8 @@ impl StreamReaderTask {
         } else {
             None
         };
-        self.forward_compaction_state(state, &runtime_event).await;
+        self.reflect_reported_status(&runtime_event);
+        self.observe_reported_model(state, &runtime_event).await;
         track_background_agents(&mut state.live_background_agents, &runtime_event);
         self.track_subagents(state, &runtime_event, interrupted_generation.is_some())
             .await;
@@ -226,37 +224,6 @@ impl StreamReaderTask {
         result
     }
 
-    /// Emit `session.compacting` when a provider reports a compaction start/end.
-    async fn forward_compaction_state(
-        &self,
-        state: &mut StreamReaderState,
-        runtime_event: &RuntimeEvent,
-    ) {
-        let next = if matches!(
-            runtime_event.turn_started_source(),
-            Some(RuntimeTurnStartedSource::ContextCompaction)
-                | Some(RuntimeTurnStartedSource::ManualCompact)
-        ) {
-            true
-        } else if runtime_event.is_compact_boundary() || runtime_event.is_result() {
-            false
-        } else {
-            return;
-        };
-
-        if !state.turn_state.set_compacting(next) {
-            return;
-        }
-        let envelope =
-            WsEnvelope::session_event(&WsSessionEvent::Compacting(SessionCompactingPayload {
-                active: next,
-            }))
-            .expect("session event payload should serialize");
-        let _ = self
-            .send_and_mirror(Message::Text(String::from(envelope).into()))
-            .await;
-    }
-
     async fn handle_non_result_signal(
         &self,
         state: &mut StreamReaderState,
@@ -282,6 +249,10 @@ impl StreamReaderTask {
         }
         self.session_status_tx
             .stream_event(self.db_session_id, self.feature_id, runtime_event);
+        // A turn the CLI opened itself (no prompt) is in the book only now.
+        if crate::domain::session_status::event_starts_fresh_turn(runtime_event) {
+            self.reflect_reported_status(runtime_event);
+        }
     }
 
     async fn persist_and_forward_event(

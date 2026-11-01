@@ -1,7 +1,6 @@
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(in crate::domain::ws_session) struct StreamTurnState {
     phase: TurnPhase,
-    compacting: bool,
     surfaced_error_this_turn: bool,
 }
 
@@ -16,7 +15,6 @@ impl StreamTurnState {
     pub(in crate::domain::ws_session) fn new() -> Self {
         Self {
             phase: TurnPhase::AwaitingFirstEvent,
-            compacting: false,
             surfaced_error_this_turn: false,
         }
     }
@@ -30,19 +28,6 @@ impl StreamTurnState {
 
     pub(in crate::domain::ws_session) fn has_completed_turn(&self) -> bool {
         matches!(self.phase, TurnPhase::BetweenTurnsAfterResult)
-    }
-
-    #[cfg(test)]
-    fn is_compacting(&self) -> bool {
-        self.compacting
-    }
-
-    pub(in crate::domain::ws_session) fn set_compacting(&mut self, next: bool) -> bool {
-        if self.compacting == next {
-            return false;
-        }
-        self.compacting = next;
-        true
     }
 
     pub(in crate::domain::ws_session) fn has_error_surfaced_this_turn(&self) -> bool {
@@ -64,7 +49,6 @@ impl StreamTurnState {
 
     pub(in crate::domain::ws_session) fn mark_result(&mut self) {
         self.phase = TurnPhase::BetweenTurnsAfterResult;
-        self.compacting = false;
     }
 }
 
@@ -78,7 +62,6 @@ mod tests {
 
         assert!(state.is_between_turns());
         assert!(!state.has_completed_turn());
-        assert!(!state.is_compacting());
     }
 
     #[test]
@@ -101,18 +84,6 @@ mod tests {
 
         assert!(state.is_between_turns());
         assert!(state.has_completed_turn());
-        assert!(!state.is_compacting());
-    }
-
-    #[test]
-    fn compaction_tracks_only_real_state_changes() {
-        let mut state = StreamTurnState::new();
-
-        assert!(state.set_compacting(true));
-        assert!(state.is_compacting());
-        assert!(!state.set_compacting(true));
-        assert!(state.set_compacting(false));
-        assert!(!state.is_compacting());
     }
 
     #[test]

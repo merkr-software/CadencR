@@ -1,11 +1,9 @@
 /** Application composition between backend status, conversations, and presentation. */
 import { noteUserPrompt } from "@/lib/auto-layout/auto-layout-controller";
 import { revealAgentDocument } from "@/lib/auto-layout/agent-document-activity";
-import { serverToLocalMs } from "@/lib/server-clock";
 import { acknowledgeForMe } from "@/stores/for-me-ack";
 import { handleAppSocketError } from "@/stores/app-socket-errors";
 import { reconcileQuestionDrafts } from "@/stores/question-drafts";
-import { registerTurnStartResolver } from "@/stores/server-turn-start";
 import { handleAppEnvelope, notifyTransition } from "@/stores/session-status-handlers";
 import { statusSyncPatch, type StatusSyncEntry } from "@/stores/session-status-patch";
 import {
@@ -17,7 +15,7 @@ import {
 import { installSessionPresentationEffects, useWsSessionStore } from "@/stores/ws-session-store";
 import { updateSession, type WsSessionStore } from "@/stores/ws-session-types";
 
-const IDLE_ENTRY: StatusSyncEntry = { status: "idle", kind: null, turnStartedAtMs: null };
+const IDLE_ENTRY: StatusSyncEntry = { status: "idle", kind: null };
 
 function syncConversations(
   previous: Record<number, SessionStatusEntry>,
@@ -26,7 +24,6 @@ function syncConversations(
 ): void {
   const store = useWsSessionStore.getState();
   let updated: WsSessionStore = store;
-  const nowMs = Date.now();
   for (const [sessionId, session] of Object.entries(store.sessions)) {
     const dbId = session.sessionDbId;
     if (dbId == null || (onlySessionId != null && dbId !== onlySessionId)) continue;
@@ -35,11 +32,7 @@ function syncConversations(
     const entry = next[dbId] ?? (wasBusy ? IDLE_ENTRY : null);
     const current = updated.sessions[sessionId];
     if (!entry || !current) continue;
-    const patch = statusSyncPatch(current, entry, previous[dbId], {
-      serverStartedAtLocalMs:
-        entry.turnStartedAtMs == null ? null : serverToLocalMs(entry.turnStartedAtMs),
-      nowMs,
-    });
+    const patch = statusSyncPatch(current, entry, previous[dbId]);
     if (patch) updated = { ...updated, ...updateSession(updated, sessionId, patch) };
   }
   if (updated !== store) useWsSessionStore.setState(updated);
@@ -95,10 +88,6 @@ export function installSessionIntegration(): () => void {
     removeStatusEffects();
     throw error;
   }
-  const removeResolver = registerTurnStartResolver((sessionDbId) => {
-    const startedAt = useSessionStatusStore.getState().bySession[sessionDbId]?.turnStartedAtMs;
-    return startedAt == null ? null : serverToLocalMs(startedAt);
-  });
   let disposed = false;
   return () => {
     if (disposed) return;
@@ -106,7 +95,6 @@ export function installSessionIntegration(): () => void {
     useSessionStatusStore.getState().disconnect();
     const sessions = useWsSessionStore.getState();
     for (const sessionId of Object.keys(sessions.sessions)) sessions.release(sessionId);
-    removeResolver();
     removePresentationEffects();
     removeStatusEffects();
   };

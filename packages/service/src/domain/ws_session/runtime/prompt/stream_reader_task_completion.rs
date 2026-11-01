@@ -234,8 +234,8 @@ impl StreamReaderTask {
         received_prompt_message_uuids: Vec<String>,
     ) {
         self.fail_receipts_and_pause("after stream error").await;
-        self.session_status_tx
-            .broadcast_turn_failed(self.db_session_id, self.feature_id);
+        // The error row goes before the turn's closing line, which the failed
+        // transition queues.
         self.persist_and_emit_error_with_receipts(
             code,
             message.clone(),
@@ -243,6 +243,8 @@ impl StreamReaderTask {
             received_prompt_message_uuids,
         )
         .await;
+        self.session_status_tx
+            .broadcast_turn_failed(self.db_session_id, self.feature_id);
         if let Err(error) = crate::domain::mcp::control::reply_wait::deliver_failed(
             &self.app_state,
             self.db_session_id,

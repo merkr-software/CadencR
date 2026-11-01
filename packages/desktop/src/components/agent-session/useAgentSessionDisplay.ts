@@ -6,12 +6,13 @@ import type { AgentSessionProps } from "./types";
 import { useTurnWorkingLabel } from "@/components/TurnWorkingLabel";
 
 export function useAgentSessionDisplay(props: AgentSessionProps) {
-  const { agentType, status, isCompacting = false, lifecycle, turnTiming, label, icon } = props;
+  const { agentType, status, isCompacting = false, lifecycle, turnClock, label, icon } = props;
   const isAgentWorking = status === "agent";
   const isTurnActive = status !== "idle";
-  const timerLifecycle = isAgentWorking && !isCompacting ? lifecycle : undefined;
   const streamLifecycle = isAgentWorking ? lifecycle : undefined;
-  const turnWorkingLabel = useTurnWorkingLabel(timerLifecycle, turnTiming);
+  const turnWorkingLabel = useTurnWorkingLabel(
+    isAgentWorking && !isCompacting ? (turnClock ?? null) : null,
+  );
   const workingLabel = isCompacting ? COMPACTING_BADGE.label : turnWorkingLabel;
   const badge = isCompacting
     ? COMPACTING_BADGE
