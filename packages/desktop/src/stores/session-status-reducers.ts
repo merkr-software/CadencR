@@ -13,6 +13,35 @@ function isPendingKind(val: unknown): val is PendingKind {
   return typeof val === "string" && (PENDING_KIND_VALUES as string[]).includes(val);
 }
 
+type TurnFields = Pick<
+  SessionStatusEntry,
+  "turnStartedAtMs" | "waitingMs" | "waitingSinceMs" | "model" | "compacting"
+>;
+
+const finiteOrNull = (value: unknown): number | null =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+/** The turn clock and compaction flag an event or snapshot entry carries. */
+function parseTurnFields(obj: Record<string, unknown>): TurnFields {
+  return {
+    turnStartedAtMs: finiteOrNull(obj.turn_started_at_ms),
+    waitingMs: finiteOrNull(obj.waiting_ms) ?? 0,
+    waitingSinceMs: finiteOrNull(obj.waiting_since_ms),
+    model: typeof obj.model === "string" && obj.model !== "" ? obj.model : null,
+    compacting: obj.compacting === true,
+  };
+}
+
+function sameTurnFields(existing: SessionStatusEntry, next: TurnFields): boolean {
+  return (
+    (existing.turnStartedAtMs ?? null) === next.turnStartedAtMs &&
+    (existing.waitingMs ?? 0) === next.waitingMs &&
+    (existing.waitingSinceMs ?? null) === next.waitingSinceMs &&
+    (existing.model ?? null) === next.model &&
+    (existing.compacting ?? false) === next.compacting
+  );
+}
+
 /** Where a snapshot sits in the server's event stream. */
 export function snapshotCursor(payload: Record<string, unknown>): {
   seq: number;
@@ -50,8 +79,6 @@ export function applySnapshot(
     if (!status) continue;
     const kind = isPendingKind(obj.kind) ? obj.kind : null;
     const requestId = typeof obj.request_id === "string" ? obj.request_id : null;
-    const turnStartedAtMs =
-      typeof obj.turn_started_at_ms === "number" ? obj.turn_started_at_ms : null;
 
     // Preserve a more recent live entry if it has overtaken the snapshot.
     const existing = prev[sessionId];
@@ -65,7 +92,7 @@ export function applySnapshot(
       requestId,
       featureId,
       seq: snapshotSeq,
-      turnStartedAtMs,
+      ...parseTurnFields(obj),
     };
   }
 
@@ -101,13 +128,12 @@ export function applyUpdate(
   nextStatus: LiveAgentStatus | null;
   /** The update ended a failed turn (`outcome: "failed"`). */
   failed: boolean;
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "requestId" | "turnStartedAtMs"> | null;
+  entry: (Pick<SessionStatusEntry, "status" | "kind" | "requestId"> & TurnFields) | null;
 } {
   const sessionId = typeof payload.session_id === "number" ? payload.session_id : null;
   const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
   const seq = typeof payload.seq === "number" ? payload.seq : 0;
-  const turnStartedAtMs =
-    typeof payload.turn_started_at_ms === "number" ? payload.turn_started_at_ms : null;
+  const turn = parseTurnFields(payload);
   if (sessionId == null || featureId == null) {
     return {
       next: null,
@@ -152,7 +178,7 @@ export function applyUpdate(
     existing?.status === payload.status &&
     (existing?.kind ?? null) === kind &&
     (existing?.requestId ?? null) === requestId &&
-    (existing?.turnStartedAtMs ?? null) === turnStartedAtMs &&
+    sameTurnFields(existing, turn) &&
     existing?.featureId === featureId;
 
   if (sameValue) {
@@ -165,7 +191,7 @@ export function applyUpdate(
       prevStatus: existing.status,
       nextStatus: payload.status,
       failed,
-      entry: { status: payload.status, kind, requestId, turnStartedAtMs },
+      entry: { status: payload.status, kind, requestId, ...turn },
     };
   }
 
@@ -178,7 +204,7 @@ export function applyUpdate(
         requestId,
         featureId,
         seq,
-        turnStartedAtMs,
+        ...turn,
       },
     },
     sessionId,
@@ -186,6 +212,6 @@ export function applyUpdate(
     prevStatus: existing?.status,
     nextStatus: payload.status,
     failed,
-    entry: { status: payload.status, kind, requestId, turnStartedAtMs },
+    entry: { status: payload.status, kind, requestId, ...turn },
   };
 }

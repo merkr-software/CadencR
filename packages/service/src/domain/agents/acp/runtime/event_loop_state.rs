@@ -10,13 +10,17 @@ use serde_json::Value;
 
 use super::events::{mirror_session_info_update, parse_available_commands};
 use super::events_config_option::{mirror_config_snapshot, mirror_legacy_config_update};
+use super::events_stream_blocks::EventIndexer;
 use super::server_requests::EventLoopConfig;
 use super::session_config::ConfigNotificationUpdate;
 
 /// Mirror agent-initiated `current_mode_update` / `config_option_update` /
 /// `session_info_update` notifications into the session's local state, and
-/// log slash-command catalog updates for diagnostics.
-pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopConfig) {
+/// log slash-command catalog updates for diagnostics. `true` when the update
+/// moved the session's model: the echo of the client's own `set_model` finds
+/// the model already there, as `apply_model_config` writes it under the same
+/// update lock.
+pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopConfig) -> bool {
     // Borrowed — `events::session_update_to_events` does the same dance, and
     // both run on every `session/update` notification, so we pay no clones.
     let body = params.get("update").unwrap_or(params);
@@ -30,6 +34,7 @@ pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopCo
                     tracing::debug!(mode, "ACP agent updated current mode");
                 }
             }
+            false
         }
         Some("available_commands_update") => {
             // Mirror the agent-advertised catalog into the provider's
@@ -47,9 +52,11 @@ pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopCo
                 .hooks
                 .record_available_commands(&config.cwd, commands)
                 .await;
+            false
         }
         Some("config_option_update") => {
             let update_guard = config.session_config.lock_updates().await;
+            let before = config.current_model.read().await.clone();
             match config
                 .session_config
                 .observe_notification(&update_guard, body)
@@ -80,12 +87,29 @@ pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopCo
                     tracing::warn!(%error, "ignoring invalid ACP config option update");
                 }
             }
+            *config.current_model.read().await != before
         }
         Some("session_info_update") => {
+            let before = config.current_model.read().await.clone();
             mirror_session_info_update(body, &config.current_model).await;
+            *config.current_model.read().await != before
         }
-        _ => {}
+        _ => false,
     }
+}
+
+/// The model the running prompt's replies are labelled with. Only the agent
+/// moves it (`agent_moved_model`, see [`sync_session_state_from_update`]) —
+/// never a local `set_model`, which applies at the next prompt.
+pub fn latched_turn_model(
+    indexer: &mut EventIndexer,
+    agent_moved_model: bool,
+    current_model: Option<String>,
+) -> Option<String> {
+    if agent_moved_model || indexer.turn_model().is_none() {
+        indexer.latch_turn_model(current_model);
+    }
+    indexer.turn_model().map(ToOwned::to_owned)
 }
 
 #[cfg(test)]
@@ -215,12 +239,16 @@ mod tests {
                 "configOption": { "name": "model", "value": "m2" }
             }
         });
-        sync_session_state_from_update(&params, &cfg).await;
+        assert!(sync_session_state_from_update(&params, &cfg).await);
         assert_eq!(cfg.current_model.read().await.as_deref(), Some("m2"));
         assert!(matches!(
             &cfg.session_config.snapshot().await.options[0].kind,
             RuntimeSessionConfigKind::Select { current_value, .. } if current_value == "m2"
         ));
+        assert!(
+            !sync_session_state_from_update(&params, &cfg).await,
+            "the echo of a model the session already runs moves nothing"
+        );
     }
 
     #[tokio::test]
@@ -306,5 +334,25 @@ mod tests {
         });
         sync_session_state_from_update(&params, &cfg).await;
         assert_eq!(cfg.current_mode.read().await.clone(), "build".to_string());
+    }
+
+    #[test]
+    fn a_local_model_change_waits_for_the_next_prompt_unless_the_agent_moves_it() {
+        use super::latched_turn_model;
+        let mut indexer = EventIndexer::default();
+        indexer.latch_turn_model(Some("m1".into()));
+        assert_eq!(
+            latched_turn_model(&mut indexer, false, Some("m2".into())).as_deref(),
+            Some("m1")
+        );
+        assert_eq!(
+            latched_turn_model(&mut indexer, true, Some("m2".into())).as_deref(),
+            Some("m2")
+        );
+        let mut fresh = EventIndexer::default();
+        assert_eq!(
+            latched_turn_model(&mut fresh, false, Some("m3".into())).as_deref(),
+            Some("m3")
+        );
     }
 }

@@ -9,7 +9,6 @@ import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry } from "@/stores/ws-session-types";
 import { noteUserPrompt } from "@/lib/auto-layout/auto-layout-controller";
 import { acknowledgeForMe } from "@/stores/for-me-ack";
-import { serverTurnStartLocalMs } from "@/stores/server-turn-start";
 
 vi.mock("@/lib/auto-layout/auto-layout-controller", async (original) => ({
   ...(await original<typeof import("@/lib/auto-layout/auto-layout-controller")>()),
@@ -72,14 +71,12 @@ describe("session application composition", () => {
     });
     expect(noteUserPrompt).toHaveBeenCalledExactlyOnceWith(7);
     expect(acknowledgeForMe).toHaveBeenCalledExactlyOnceWith(7);
-    expect(serverTurnStartLocalMs(7)).toBe(123);
     const ws = MockWebSocket.instances.at(-1)!;
     dispose();
     dispose();
     expect(unmount).toHaveBeenCalledOnce();
     expect(ws.close).toHaveBeenCalledOnce();
     expect(useWsSessionStore.getState().sessions).toEqual({});
-    expect(serverTurnStartLocalMs(7)).toBeNull();
     expect(() => useSessionStatusStore.getState().connect()).toThrow("must be installed");
     expect(noteUserPrompt).toHaveBeenCalledTimes(2);
   });

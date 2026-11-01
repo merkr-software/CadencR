@@ -37,7 +37,6 @@ describe("updateSession turn summaries", () => {
 
     expect(terminal.sessions.s1.blocks).toEqual([]);
     expect(terminal.sessions.s1.lifecycle).toEqual({ phase: "idle" });
-    expect(terminal.sessions.s1.turnTiming.startedAt).toBeNull();
   });
 
   it("keeps a completed lifecycle when a terminal patch includes content", () => {

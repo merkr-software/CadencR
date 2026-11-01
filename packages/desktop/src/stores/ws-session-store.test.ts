@@ -3401,59 +3401,14 @@ describe("ws-session-store", () => {
       });
     });
 
-    it("records active and user-pending timing across permission-gated turns", async () => {
+    it("leaves a turn's closing line to the backend instead of measuring it locally", async () => {
       const ws = await setupActiveSession();
-      vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-      const store = useWsSessionStore.getState();
+      useWsSessionStore.getState().sendPrompt("s1", "build it");
+      streamTextMessage(ws, "done");
+      ws.simulateMessage({ domain: "session", action: "turn_complete", payload: {} });
 
-      store.sendPrompt("s1", "build it");
-      vi.setSystemTime(4_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "permission.request",
-        payload: { request_id: "req-1", tool_name: "Bash", tool_input: {} },
-      });
-      vi.setSystemTime(9_000);
-      streamTextMessage(ws, "resumed after permission");
-      vi.setSystemTime(11_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "turn_complete",
-        payload: {},
-      });
-
-      const session = useWsSessionStore.getState().sessions["s1"];
-      expect(session.turnTiming.completed).toEqual({
-        totalMs: 7_000,
-        activeMs: 2_000,
-        userPendingMs: 5_000,
-      });
-      expect(session.blocks.at(-1)).toMatchObject({
-        type: "turn_summary",
-        content: "Worked - 7s · Agent 2s · Waiting 5s",
-      });
-      vi.useRealTimers();
-    });
-
-    it("adds a visible turn summary even when a turn completes without output blocks", async () => {
-      const ws = await setupActiveSession();
-      vi.useFakeTimers();
-      vi.setSystemTime(1_000);
-
-      streamTextMessage(ws, "");
-      vi.setSystemTime(4_000);
-      ws.simulateMessage({
-        domain: "session",
-        action: "turn_complete",
-        payload: {},
-      });
-
-      expect(useWsSessionStore.getState().sessions["s1"].blocks.at(-1)).toMatchObject({
-        type: "turn_summary",
-        content: "Worked - 3s · Agent 3s · Waiting 0s",
-      });
-      vi.useRealTimers();
+      const blocks = useWsSessionStore.getState().sessions["s1"].blocks;
+      expect(blocks.some((block) => block.type === "turn_summary")).toBe(false);
     });
   });
 

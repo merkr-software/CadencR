@@ -5,13 +5,7 @@ import { hasSenderTab } from "@/lib/agent-message-origin";
 import { shouldHideToolCall } from "@/lib/tool-display-policy";
 import { formatStreamTimestamp } from "@/lib/date-utils";
 import AgentStreamContextMenu from "./AgentStreamContextMenu";
-import {
-  ModelSwitchDivider,
-  TURN_CLOSING_SPACING,
-  TurnFooterLine,
-  TurnSummaryDivider,
-} from "../StreamDividers";
-import type { RowAnnotation } from "@/lib/agent-turn-annotations";
+import { ModelSwitchDivider, TURN_CLOSING_SPACING, TurnSummaryDivider } from "../StreamDividers";
 import { parseGeneratedSessionReply } from "@/lib/session-reply";
 import {
   AGENT_AUTO_COLLAPSE_DELAY_MS,
@@ -26,13 +20,12 @@ interface AgentStreamItemProps {
   basePath?: string;
   toolResultMap: Map<string, AgentBlockData>;
   verbosityMode?: AgentVerbosityMode;
-  /** A model switch above the row, a finished turn's closing line under it. */
-  annotation?: RowAnnotation;
 }
 
 /**
- * "User · time" over a prompt. Replies carry no header: the model and time a
- * turn ran on are said once, on its closing line (`TurnSummaryDivider`).
+ * "User · time" over a prompt. Replies carry no header: the model a turn ran
+ * on and how long it took are said once, on its closing line
+ * (`TurnSummaryDivider`), and a model switch gets its own divider row.
  */
 function UserHeader({ createdAt }: { createdAt: string }) {
   return (
@@ -97,7 +90,6 @@ export const AgentStreamItem = memo(function AgentStreamItem({
   basePath,
   toolResultMap,
   verbosityMode = "maximal",
-  annotation,
 }: AgentStreamItemProps) {
   const [collapsedByPolicy, setCollapsedByPolicy] = useState(false);
 
@@ -159,7 +151,9 @@ export const AgentStreamItem = memo(function AgentStreamItem({
     <div className={rowSpacingClass(block)} data-block-id={block.id}>
       {showHeader && block.createdAt && <UserHeader createdAt={block.createdAt} />}
       {block.type === "turn_summary" ? (
-        <TurnSummaryDivider content={block.content} footer={annotation?.footer} />
+        <TurnSummaryDivider content={block.content} />
+      ) : block.type === "model_switch" ? (
+        <ModelSwitchDivider content={block.content} />
       ) : (
         <AgentBlock
           block={block}
@@ -175,18 +169,12 @@ export const AgentStreamItem = memo(function AgentStreamItem({
     </div>
   );
   return (
-    <>
-      {annotation?.modelSwitch && <ModelSwitchDivider {...annotation.modelSwitch} />}
-      <AgentStreamContextMenu
-        block={block}
-        copyContent={sessionReply?.body}
-        branchingEnabled={!isSessionReply}
-      >
-        {item}
-      </AgentStreamContextMenu>
-      {annotation?.footer && block.type !== "turn_summary" && (
-        <TurnFooterLine footer={annotation.footer} />
-      )}
-    </>
+    <AgentStreamContextMenu
+      block={block}
+      copyContent={sessionReply?.body}
+      branchingEnabled={!isSessionReply}
+    >
+      {item}
+    </AgentStreamContextMenu>
   );
 });

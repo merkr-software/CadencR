@@ -182,7 +182,7 @@ async fn run_local(
     WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
     app_state
         .session_status_tx
-        .broadcast_running(session_id, feature_id);
+        .broadcast_shell_running(session_id, feature_id);
     let request = LocalUserShellRequest {
         session_id,
         feature_id,

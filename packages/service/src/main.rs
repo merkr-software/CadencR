@@ -243,16 +243,9 @@ async fn main() -> anyhow::Result<()> {
                 .remote_data_dir(&remote_data_dir)
                 .build();
 
-            // Gates persisted by the previous process must still show: seed the
-            // live status book (the snapshot every client reads) before any
-            // client can connect. Stale `running` rows were reset above.
-            let persisted_statuses =
-                domain::sessions::repository::get_session_status_snapshot(&state.read_pool)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("failed to seed session statuses: {error}"))?;
-            state
-                .session_status_tx
-                .seed(persisted_statuses.into_values());
+            // Stale `running` rows were reset above; restore the status book
+            // every client reads before any of them can connect.
+            domain::session_status::restore_at_boot(&state).await?;
 
             // Watch the settings dir so external edits to the JSON files push a
             // live refresh to connected clients.

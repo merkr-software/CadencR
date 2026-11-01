@@ -1,15 +1,10 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { buildToolResultMap } from "./AgentBlock";
 import type { AgentBlockData } from "@/types/agent-block";
 import { buildDisplayItems, filterRenderableBlocks } from "@/lib/agent-stream-display";
 import type { DisplayItem } from "@/types/agent-stream";
 import { collapseTurnsToSummary } from "@/lib/agent-stream-summary";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
-import {
-  buildRowAnnotations,
-  reuseRowAnnotations,
-  type RowAnnotation,
-} from "@/lib/agent-turn-annotations";
 
 export function useRootBlocks(
   blocks: AgentBlockData[],
@@ -59,18 +54,4 @@ export function useAgentDisplayItems(
     [displayBlocks, verbosityMode],
   );
   return useMemo(() => ({ displayBlocks, displayItems }), [displayBlocks, displayItems]);
-}
-
-/** Stable across stream chunks that leave every row's annotation unchanged. */
-export function useRowAnnotations(
-  items: DisplayItem[],
-  turnActive: boolean,
-): Map<string, RowAnnotation> {
-  const previousRef = useRef<Map<string, RowAnnotation> | null>(null);
-  return useMemo(() => {
-    const next = buildRowAnnotations(items, turnActive);
-    const annotations = reuseRowAnnotations(previousRef.current, next);
-    previousRef.current = annotations;
-    return annotations;
-  }, [items, turnActive]);
 }

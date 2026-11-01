@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { AgentMessageOrigin } from "@/api/generated";
 import {
   asRecord,
@@ -265,4 +266,22 @@ export function parseClearedPayload(payload: unknown): { previous_session_id?: s
   const record = asRecord(payload);
   if (!record) return null;
   return { previous_session_id: optionalString(record, "previous_session_id") };
+}
+
+const transcriptBlockPayloadSchema = z.object({
+  session_id: z.string(),
+  block: z.object({
+    id: z.string(),
+    type: z.enum(["turn_summary", "model_switch"]),
+    content: z.string(),
+    createdAt: z.string().nullish(),
+  }),
+});
+
+export type TranscriptBlockPayload = z.infer<typeof transcriptBlockPayloadSchema>;
+
+/** `session.transcript_block`: a row Cadencr wrote itself (turn end, model switch). */
+export function parseTranscriptBlockPayload(payload: unknown): TranscriptBlockPayload | null {
+  const parsed = transcriptBlockPayloadSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
 }

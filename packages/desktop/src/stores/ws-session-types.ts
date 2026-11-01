@@ -19,7 +19,6 @@ import type { StreamingState } from "./ws-message-processing";
 import { createStreamingState } from "./ws-message-processing";
 import type { TurnLifecycle } from "./ws-turn-lifecycle";
 import { createIdleTurnLifecycle } from "./ws-turn-lifecycle";
-import { createTurnTiming, type TurnTimingState } from "./ws-turn-timing";
 import { DEFAULT_PROVIDER } from "../shared/models";
 import type { RuntimeSelection } from "../shared/models";
 import { defaultEditModeFor } from "../lib/provider-modes";
@@ -142,7 +141,6 @@ export interface SessionEntry extends SessionConfigState {
   isConnecting: boolean;
   serverSessionId: string;
   lifecycle: TurnLifecycle;
-  turnTiming: TurnTimingState;
   streamingState: StreamingState;
   blocks: AgentBlockData[];
   /**
@@ -183,8 +181,6 @@ export interface SessionEntry extends SessionConfigState {
   pendingPlanApproval: PendingPlanApproval | null;
   compactRequestPending: boolean;
   pendingManualCompact: boolean;
-  /** True while the provider-neutral runtime reports an active compaction turn. */
-  runtimeCompacting: boolean;
   /**
    * The session's runtime provider/model pair, or `null` while the backend has
    * not confirmed one. Written whole or not at all — no code path may update
@@ -248,7 +244,6 @@ export function createSessionEntry(): SessionEntry {
     isConnecting: false,
     serverSessionId: "",
     lifecycle: createIdleTurnLifecycle(),
-    turnTiming: createTurnTiming(),
     streamingState: createStreamingState(),
     blocks: [],
     rootBlocks: [],
@@ -269,7 +264,6 @@ export function createSessionEntry(): SessionEntry {
     pendingPlanApproval: null,
     compactRequestPending: false,
     pendingManualCompact: false,
-    runtimeCompacting: false,
     currentSelection: null,
     runtimeSessionId: "",
     ...createSessionConfigState(),

@@ -50,13 +50,14 @@ pub fn spawn(state: AppState) {
                     let turn = OpenTurn {
                         feature_id: event.feature_id,
                         started_at_ms: event
+                            .clock
                             .turn_started_at_ms
                             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
                     };
                     // The turn's own start is authoritative. Without one, keep
                     // the earliest: a respawn mid-turn re-announces the turn
                     // without starting a new one.
-                    if event.turn_started_at_ms.is_some() {
+                    if event.clock.turn_started_at_ms.is_some() {
                         open.insert(event.session_id, turn);
                     } else {
                         open.entry(event.session_id).or_insert(turn);

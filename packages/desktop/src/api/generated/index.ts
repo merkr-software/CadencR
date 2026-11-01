@@ -6177,10 +6177,6 @@ export interface SessionClearedPayload {
  */
 export type SessionCompactStartedPayload = null;
 
-export interface SessionCompactingPayload {
-  active: boolean;
-}
-
 export interface SessionConfigSetPayload {
   config_id: string;
   session_id: string;
@@ -6386,6 +6382,15 @@ export interface SessionStreamStatusPayload {
   /** @nullable */
   reason?: string | null;
   state: StreamStatusState;
+}
+
+/**
+ * A transcript row Cadencr wrote itself (a turn's closing line, a model
+ * switch), pushed to every device viewing the conversation.
+ */
+export interface SessionTranscriptBlockPayload {
+  block: AgentBlock;
+  session_id: string;
 }
 
 export interface SessionUsageUpdatePayload {
@@ -7096,7 +7101,7 @@ export type WsSessionAction = (typeof WsSessionAction)[keyof typeof WsSessionAct
 export const WsSessionAction = {
   initialized: "initialized",
   acknowledged: "acknowledged",
-  compacting: "compacting",
+  transcript_block: "transcript_block",
   featurerenamed: "feature.renamed",
   featureautonaming: "feature.autonaming",
   branchneeds_confirm: "branch.needs_confirm",
@@ -7533,12 +7538,12 @@ export type WsSessionEventOneOfFiveAction =
   (typeof WsSessionEventOneOfFiveAction)[keyof typeof WsSessionEventOneOfFiveAction];
 
 export const WsSessionEventOneOfFiveAction = {
-  compacting: "compacting",
+  transcript_block: "transcript_block",
 } as const;
 
 export type WsSessionEventOneOfFive = {
   action: WsSessionEventOneOfFiveAction;
-  payload: SessionCompactingPayload;
+  payload: SessionTranscriptBlockPayload;
 };
 
 export type WsSessionEventOneOfSevenAction =

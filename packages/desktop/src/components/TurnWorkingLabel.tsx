@@ -1,17 +1,15 @@
 import { useNow } from "@/hooks/useNow";
-import { isTurnInProgress, type TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import {
-  elapsedTurnTiming,
-  formatTurnDuration,
-  type TurnTimingState,
-} from "@/stores/ws-turn-timing";
+import { serverToLocalMs } from "@/lib/server-clock";
+import { elapsedTurnClock, formatWorkingLabel, type TurnClock } from "@/lib/turn-clock";
 
-export function useTurnWorkingLabel(
-  lifecycle: TurnLifecycle | undefined,
-  turnTiming: TurnTimingState | undefined,
-): string {
-  const startedAt = turnTiming?.startedAt ?? null;
-  const nowMs = useNow(isTurnInProgress(lifecycle) && startedAt != null, 1_000, startedAt);
-  const elapsed = lifecycle && turnTiming ? elapsedTurnTiming(turnTiming, lifecycle, nowMs) : null;
-  return elapsed ? `Working - ${formatTurnDuration(elapsed.totalMs)}` : "Working";
+/**
+ * "Working - <model> - <elapsed>" for a turn the agent is working on, from the
+ * backend's turn clock: the same instant on every device, across reloads and
+ * restarts. Ticks only while a clock is given.
+ */
+export function useTurnWorkingLabel(clock: TurnClock | null): string {
+  const anchor = clock ? serverToLocalMs(clock.startedAtMs) : null;
+  const nowMs = useNow(clock != null, 1_000, anchor);
+  if (!clock) return formatWorkingLabel(null, null);
+  return formatWorkingLabel(clock.model, elapsedTurnClock(clock, nowMs).totalMs);
 }

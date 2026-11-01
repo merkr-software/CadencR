@@ -54,9 +54,21 @@ pub struct EventIndexer {
     /// The session's cancel handle, so a tool call failing mid-cancel reads
     /// as interrupted (see `events_tool_call_subagent`).
     prompt_cancel: Option<PromptCancel>,
+    /// The model the running prompt was sent on. A `set_model` applies at the
+    /// next prompt, so the replies of this one keep it unless the agent itself
+    /// reports a different model.
+    turn_model: Option<String>,
 }
 
 impl EventIndexer {
+    pub fn latch_turn_model(&mut self, model: Option<String>) {
+        self.turn_model = model;
+    }
+
+    pub fn turn_model(&self) -> Option<&str> {
+        self.turn_model.as_deref()
+    }
+
     pub fn watch_prompt_cancel(&mut self, prompt_cancel: PromptCancel) {
         self.prompt_cancel = Some(prompt_cancel);
     }

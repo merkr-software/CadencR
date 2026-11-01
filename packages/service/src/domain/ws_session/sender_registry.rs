@@ -158,6 +158,14 @@ impl WsFeatureSenderRegistry {
         }
     }
 
+    /// Send `message` to every device and observer viewing `feature_id`.
+    pub async fn broadcast_all(&self, feature_id: i64, message: &Message) {
+        self.notify_observers(feature_id, message);
+        for sender in self.get_senders(feature_id).await {
+            let _ = sender.send(message.clone());
+        }
+    }
+
     /// Attach a read-only observer to `feature_id`'s traffic.
     pub fn observe(&self, feature_id: i64, observer: FeatureObserver) {
         let mut map = self.observers.lock();
@@ -223,10 +231,7 @@ impl WsFeatureSenderRegistry {
             self.broadcast_others(feature_id, recipient, &msg).await;
             return recipient.send(msg).is_err();
         }
-        self.notify_observers(feature_id, &msg);
-        for sender in self.get_senders(feature_id).await {
-            let _ = sender.send(msg.clone());
-        }
+        self.broadcast_all(feature_id, &msg).await;
         false
     }
 }

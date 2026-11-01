@@ -42,7 +42,7 @@ macro_rules! session_events {
 session_events! {
     Initialized(SessionInitializedPayload) => "initialized",
     Acknowledged(SessionAcknowledgedPayload) => "acknowledged",
-    Compacting(SessionCompactingPayload) => "compacting",
+    TranscriptBlock(SessionTranscriptBlockPayload) => "transcript_block",
     FeatureRenamed(FeatureRenamedPayload) => "feature.renamed",
     FeatureAutonaming(FeatureAutoNamingPayload) => "feature.autonaming",
     BranchNeedsConfirm(BranchNeedsConfirmPayload) => "branch.needs_confirm",

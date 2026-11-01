@@ -9,6 +9,7 @@ export type BlockType =
   | "thinking"
   | "user_message"
   | "turn_summary"
+  | "model_switch"
   | "tool_summary"
   | "compact_divider"
   | "clear_divider"

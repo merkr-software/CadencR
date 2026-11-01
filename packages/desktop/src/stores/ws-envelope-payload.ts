@@ -374,11 +374,4 @@ export function parseFeatureUpdatedPayload(
   };
 }
 
-export function parseCompactingPayload(payload: unknown): { active: boolean } | null {
-  const record = asRecord(payload);
-  if (!record) return null;
-  const active = optionalBoolean(record, "active");
-  return active == null ? null : { active };
-}
-
 export * from "./ws-envelope-payload-session";

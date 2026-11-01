@@ -77,7 +77,7 @@ function AgentTabContent({
         status={controls.ws.status}
         isCompacting={controls.ws.isCompacting}
         lifecycle={controls.ws.lifecycle}
-        turnTiming={controls.ws.turnTiming}
+        turnClock={controls.ws.turnClock}
         onSend={onSend}
         onStop={controls.ws.interrupt}
         disabled={hasAccessModes && controls.isAccessModePending}

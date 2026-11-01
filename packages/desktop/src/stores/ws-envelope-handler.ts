@@ -31,7 +31,6 @@ import { transitionTurn } from "./ws-turn-lifecycle";
 import type { StoreAccessors } from "./ws-envelope-types";
 import {
   handleCleared,
-  handleCompacting,
   handleGateClosed,
   handleInitialized,
   handleMcpServers,
@@ -39,6 +38,7 @@ import {
   handlePermissionRequest,
   handlePromptReceived,
   handleCanonicalUserMessage,
+  handleTranscriptBlock,
 } from "./ws-envelope-session-handlers";
 import { handleError } from "./ws-envelope-error-handler";
 import { handleWarning } from "./ws-envelope-warning-handler";
@@ -187,7 +187,7 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
   [SESSION_ACTION.warning]: handleWarning,
-  [SESSION_ACTION.compacting]: handleCompacting,
+  [SESSION_ACTION.transcript_block]: handleTranscriptBlock,
   [SESSION_ACTION.access_modechanged]: handleAccessModeChanged,
   [LEGACY_SESSION_ACTION.codexPermissionModeChanged]: handleAccessModeChanged,
   [SESSION_ACTION.modechanged]: handleModeChanged,
@@ -355,7 +355,6 @@ function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
       }),
       compactRequestPending: false,
       pendingManualCompact: false,
-      runtimeCompacting: false,
     }),
   );
 }

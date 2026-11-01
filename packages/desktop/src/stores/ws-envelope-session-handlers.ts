@@ -2,15 +2,19 @@ import type { AgentQuestion } from "@/types/agent-question";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import {
   parseClearedPayload,
-  parseCompactingPayload,
   parseGateClosedPayload,
   parseInitializedPayload,
   parseMcpServersPayload,
   parsePermissionPayload,
   parsePromptReceivedPayload,
   parseCanonicalUserMessagePayload,
+  parseTranscriptBlockPayload,
 } from "./ws-envelope-payload";
-import { upsertCanonicalUserMessage } from "./ws-user-message-reconciliation";
+import {
+  messageDbIdFromBlockId,
+  upsertCanonicalUserMessage,
+} from "./ws-user-message-reconciliation";
+import type { AgentBlockData } from "@/types/agent-block";
 import { buildClearedGatePatch } from "./ws-gate-state";
 import { blocksPatchWithDerived, createStreamingState } from "./ws-message-processing";
 import { normalizeContextWindow } from "@/types/agent";
@@ -28,12 +32,51 @@ import type { StoreAccessors } from "./ws-envelope-types";
 // from here; the implementation moved to `ws-message-envelope-handler.ts`.
 export { handleMessage } from "./ws-message-envelope-handler";
 
-export function handleCompacting(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  const p = parseCompactingPayload(payload);
-  if (!p) return;
+/**
+ * Append a row the backend wrote to the transcript itself — a turn's closing
+ * line, a model switch the CLI reported. Every device viewing the conversation
+ * receives the same persisted row, under the id history returns it with.
+ */
+export function handleTranscriptBlock(
+  ctx: StoreAccessors,
+  sessionId: string,
+  payload: unknown,
+): void {
+  const p = parseTranscriptBlockPayload(payload);
   const session = ctx.getSession(sessionId);
-  if (session.runtimeCompacting === p.active) return;
-  ctx.set(updateSession(ctx.get(), sessionId, { runtimeCompacting: p.active }));
+  if (!p) {
+    console.warn("[ws-session] dropped malformed transcript_block envelope", payload);
+    ctx.set(
+      updateSession(
+        ctx.get(),
+        sessionId,
+        appendErrorBlockPatch(
+          session,
+          "A transcript line could not be displayed because its live event was malformed. Reconnect to reload the conversation.",
+          { code: "MALFORMED_TRANSCRIPT_BLOCK" },
+        ),
+      ),
+    );
+    return;
+  }
+  // Rows go to every device viewing the feature: a conversation that does not
+  // know its own id yet cannot tell a sibling's row from its own.
+  if (session.sessionDbId == null || String(session.sessionDbId) !== p.session_id) return;
+  if (session.blocks.some((block) => block.id === p.block.id)) return;
+  const block: AgentBlockData = {
+    id: p.block.id,
+    type: p.block.type,
+    content: p.block.content,
+    createdAt: p.block.createdAt ?? undefined,
+    messageDbId: messageDbIdFromBlockId(p.block.id) ?? undefined,
+  };
+  ctx.set(
+    updateSession(
+      ctx.get(),
+      sessionId,
+      blocksPatchWithDerived(session.streamingState, [...session.blocks, block]),
+    ),
+  );
 }
 
 export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload: unknown): void {

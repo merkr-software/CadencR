@@ -8,7 +8,6 @@ import { queryClient } from "@/lib/queryClient";
 import { getListFeaturesQueryKey, type Feature } from "@/api/generated";
 import { handleAppEnvelope } from "@/stores/session-status-handlers";
 import { transitionTurn } from "@/stores/ws-turn-lifecycle";
-import { startTurnTiming } from "@/stores/ws-turn-timing";
 import { getInvalidatePredicate } from "@/test-utils";
 import { resetScheduleInvalidationForTest } from "@/lib/schedules/invalidate";
 import { resetServerClock } from "@/lib/server-clock";
@@ -145,186 +144,46 @@ describe("session status lifecycle sync", () => {
     expect(useQuestionDraftStore.getState().drafts.get(7)?.draft.freeText).toBe("keep");
   });
 
-  it("does not restart active turn timing when status confirms an in-progress prompt", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(5_000);
+  it("keeps the backend turn clock on the status entry and preserves no-op identities", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
-
-    const session = createSessionEntry();
-    session.sessionDbId = 10;
-    session.lifecycle = transitionTurn(session.lifecycle, { type: "prompt_sent" });
-    session.turnTiming = startTurnTiming(1_000);
-    session.blocks = [
-      {
-        id: "user-1",
-        type: "user_message",
-        content: "steer now",
-        isError: false,
-      },
-    ];
-    useWsSessionStore.setState({ sessions: { s1: session } });
-    useSessionStatusStore.setState({
-      bySession: { 10: { status: "idle", kind: null, featureId: 1, seq: 1 } },
-    });
-
-    useSessionStatusStore.getState().connect();
-    const ws = MockWebSocket.instances.at(-1);
-    expect(ws).toBeDefined();
-
-    ws?.simulateMessage({
-      domain: "app",
-      action: "session_status.update",
-      payload: {
-        session_id: 10,
-        feature_id: 1,
-        status: "agent",
-        kind: null,
-        seq: 2,
-      },
-    });
-
-    const updated = useWsSessionStore.getState().sessions.s1;
-    expect(updated.turnTiming.startedAt).toBe(1_000);
-    expect(updated.turnTiming.segmentStartedAt).toBe(1_000);
-  });
-
-  it("anchors a second device's turn timer to the server-stamped start", () => {
-    vi.useFakeTimers();
-    // Local clock is far ahead of the server-stamped turn start to prove the
-    // timer uses the server value, not Date.now().
-    vi.setSystemTime(100_000);
-    vi.stubGlobal("WebSocket", MockWebSocket);
-
-    const session = createSessionEntry();
-    session.sessionDbId = 20;
-    // Idle, no timing yet — exactly how a second device looks when it opens a
-    // conversation the host is already running.
-    useWsSessionStore.setState({ sessions: { s2: session } });
-    useSessionStatusStore.setState({
-      bySession: { 20: { status: "idle", kind: null, featureId: 2, seq: 1 } },
-    });
-
-    useSessionStatusStore.getState().connect();
-    const ws = MockWebSocket.instances.at(-1);
-    ws?.simulateMessage({
-      domain: "app",
-      action: "session_status.update",
-      payload: {
-        session_id: 20,
-        feature_id: 2,
-        status: "agent",
-        kind: null,
-        seq: 2,
-        turn_started_at_ms: 42_000,
-      },
-    });
-
-    const updated = useWsSessionStore.getState().sessions.s2;
-    expect(updated.turnTiming.startedAt).toBe(42_000);
-    expect(updated.turnTiming.segmentStartedAt).toBe(42_000);
-  });
-
-  it("re-anchors a conversation that first saw the turn through its own stream", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(50_000);
-    vi.stubGlobal("WebSocket", MockWebSocket);
-
-    // The feature socket's stream flipped the turn active first, so the timer
-    // started at this device's first sight of it.
-    const session = createSessionEntry();
-    session.sessionDbId = 21;
-    session.lifecycle = { phase: "active" };
-    session.turnTiming = startTurnTiming(50_000);
-    useWsSessionStore.setState({ sessions: { s21: session } });
-
-    useSessionStatusStore.getState().connect();
-    MockWebSocket.instances.at(-1)?.simulateMessage({
-      domain: "app",
-      action: "session_status.update",
-      payload: {
-        session_id: 21,
-        feature_id: 2,
-        status: "agent",
-        seq: 1,
-        turn_started_at_ms: 40_000,
-      },
-    });
-
-    const updated = useWsSessionStore.getState().sessions.s21;
-    expect(updated.lifecycle.phase).toBe("active");
-    expect(updated.turnTiming.startedAt).toBe(40_000);
-    expect(updated.turnTiming.segmentStartedAt).toBe(40_000);
-  });
-
-  it("observes the clock before unchanged updates re-anchor timing and preserves no-op identities", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(100_000);
-    vi.stubGlobal("WebSocket", MockWebSocket);
-    const session = {
-      ...createSessionEntry(),
-      sessionDbId: 21,
-      lifecycle: { phase: "active" } as const,
-      turnTiming: startTurnTiming(93_000),
-    };
-    useWsSessionStore.setState({ sessions: { s21: session } });
-    const bySession = {
-      21: { status: "agent", kind: null, featureId: 2, seq: 1, turnStartedAtMs: 93_000 },
-    } as const;
-    useSessionStatusStore.setState({ bySession });
     useSessionStatusStore.getState().connect();
     const ws = MockWebSocket.instances.at(-1)!;
     const payload = {
       session_id: 21,
       feature_id: 2,
-      status: "agent",
-      seq: 2,
+      status: "question",
+      kind: "permission",
+      seq: 1,
       turn_started_at_ms: 93_000,
-      server_now_ms: 103_000,
+      waiting_ms: 1_500,
+      waiting_since_ms: 98_000,
+      model: "gpt-5.5",
     };
     ws.simulateMessage({ domain: "app", action: "session_status.update", payload });
-    expect(useSessionStatusStore.getState().bySession).toBe(bySession);
-    const anchored = useWsSessionStore.getState().sessions;
-    expect(anchored.s21.turnTiming.startedAt).toBe(90_000);
+    const bySession = useSessionStatusStore.getState().bySession;
+    expect(bySession[21]).toMatchObject({
+      turnStartedAtMs: 93_000,
+      waitingMs: 1_500,
+      waitingSinceMs: 98_000,
+      model: "gpt-5.5",
+      compacting: false,
+    });
     ws.simulateMessage({
       domain: "app",
       action: "session_status.update",
-      payload: { ...payload, seq: 3 },
+      payload: { ...payload, seq: 2 },
     });
     expect(useSessionStatusStore.getState().bySession).toBe(bySession);
-    expect(useWsSessionStore.getState().sessions).toBe(anchored);
+    ws.simulateMessage({
+      domain: "app",
+      action: "session_status.update",
+      payload: { ...payload, seq: 3, model: "gpt-5.5-mini" },
+    });
+    expect(useSessionStatusStore.getState().bySession[21]?.model).toBe("gpt-5.5-mini");
   });
 
-  it("anchors a conversation opened mid-turn to the turn start it already knows", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(90_000);
-    useSessionStatusStore.setState({
-      bySession: {
-        22: { status: "agent", kind: null, featureId: 2, seq: 4, turnStartedAtMs: 30_000 },
-      },
-    });
-    const session = createSessionEntry();
-    useWsSessionStore.setState({ sessions: { s22: session } });
-
-    // Hydrating from history: no status event arrives, the turn is mid-way.
-    useWsSessionStore.getState().setPersistedState("s22", {
-      blocks: [],
-      lifecycle: { phase: "active" },
-      sessionDbId: 22,
-      featureId: 2,
-    });
-
-    expect(useWsSessionStore.getState().sessions.s22.turnTiming.startedAt).toBe(30_000);
-  });
-
-  it("measures the turn on the server clock, whatever this device's skew", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(100_000);
+  it("restores the turn clock and compaction from a snapshot", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
-    const session = createSessionEntry();
-    session.sessionDbId = 23;
-    useWsSessionStore.setState({ sessions: { s23: session } });
-
-    // The server runs 3s ahead of this device; its turn started 10s ago.
     useSessionStatusStore.getState().connect();
     MockWebSocket.instances.at(-1)?.simulateMessage({
       domain: "app",
@@ -339,12 +198,18 @@ describe("session status lifecycle sync", () => {
             feature_id: 2,
             status: "agent",
             turn_started_at_ms: 93_000,
+            waiting_ms: 0,
+            model: "claude-opus-5-5",
+            compacting: true,
           },
         },
       },
     });
-
-    expect(useWsSessionStore.getState().sessions.s23.turnTiming.startedAt).toBe(90_000);
+    expect(useSessionStatusStore.getState().bySession[23]).toMatchObject({
+      turnStartedAtMs: 93_000,
+      model: "claude-opus-5-5",
+      compacting: true,
+    });
   });
 
   it("replaces everything on a snapshot from a restarted server and ends its turns", () => {

@@ -9,7 +9,10 @@ mod subagents;
 #[cfg(test)]
 mod subagents_collab;
 
-use self::signals::{child_error_event, result_event, text_delta_event, turn_started_event};
+pub(super) use self::signals::rerouted_model;
+use self::signals::{
+    child_error_event, model_rerouted_event, result_event, text_delta_event, turn_started_event,
+};
 use self::subagents::apply_subagent_parent_tool_use_id;
 use super::event_items::{
     command_output_delta_event, file_patch_updated_event, item_events, tool_json_delta_event,
@@ -93,6 +96,7 @@ fn dispatch_notification(
 ) -> Vec<RuntimeEvent> {
     match method {
         "turn/started" => turn_started_event(params, model).into_iter().collect(),
+        "model/rerouted" => model_rerouted_event(params).into_iter().collect(),
         "turn/completed" => {
             let mut events = flush_raw_response_usage_events(&params, index_state);
             events.push(result_event(params));

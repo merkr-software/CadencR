@@ -230,6 +230,13 @@ async fn persist_initial_user_message(
 ) -> Result<PromptPersistenceOutcome, String> {
     let attachments = payload_attachments(&context.payload);
     let persist_content = build_persist_content(&context.payload.text, &attachments);
+    // The previous turn's closing line goes before this prompt.
+    let app_state = &context.app_state;
+    app_state
+        .session_status_tx
+        .journal()
+        .flush(&app_state.write_pool, &app_state.ws_feature_senders)
+        .await;
     let outcome = persist_and_publish_prompt(
         &context.app_state.write_pool,
         &context.app_state.ws_feature_senders,

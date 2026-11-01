@@ -31,8 +31,10 @@
  *   process, so a snapshot from a new epoch replaces everything instead of
  *   being merged against the old process's seqs.
  * - Both carry `server_now_ms`, from which `server-clock` estimates this
- *   device's skew: `turnStartedAtMs` stays on the server clock here, and is
- *   converted where a timer is anchored to it.
+ *   device's skew: the turn clock (`turnStartedAtMs`, `waitingSinceMs`) stays
+ *   on the server clock here, and is converted where a timer reads it.
+ * - Compaction rides the entry too, so a device that missed its end reads
+ *   the truth from the next event or snapshot, and idle always clears it.
  * Reducers and validators live in `./session-status-reducers` to keep
  * this file focused on the WS lifecycle and Zustand wiring.
  *
@@ -56,11 +58,19 @@ export interface SessionStatusEntry {
   seq: number;
   /**
    * Server-stamped turn start (epoch ms, server clock) of the running turn,
-   * kept through gates: the single source of truth every device anchors its
-   * elapsed timer to. `null` only for a gate restored across a server restart
-   * (the timer then falls back to local time).
+   * kept through gates and server restarts: the single source of truth every
+   * device derives its timer from. `null` only for a gate persisted before
+   * turns had a clock.
    */
   turnStartedAtMs?: number | null;
+  /** Time the turn already spent waiting on its user, gates answered so far. */
+  waitingMs?: number;
+  /** When the open gate opened (server clock); `null` while the agent works. */
+  waitingSinceMs?: number | null;
+  /** The model the CLI reports running the conversation's root agent. */
+  model?: string | null;
+  /** The provider is compacting the conversation's context. */
+  compacting?: boolean;
 }
 export interface SessionStatusState {
   /** Changes on every confirmed connection, including a batched drop/reconnect. */

@@ -134,12 +134,7 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     type: "turn_ended",
     reason: mapTerminalReason(ended.reason),
   });
-  const shouldClearRuntimeCompacting = session.runtimeCompacting;
-  if (
-    blocks === session.blocks &&
-    lifecycle === session.lifecycle &&
-    !shouldClearRuntimeCompacting
-  ) {
+  if (blocks === session.blocks && lifecycle === session.lifecycle) {
     repairRecoveredPersistence(ctx, sessionId);
     return;
   }
@@ -147,7 +142,6 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     updateSession(ctx.get(), sessionId, {
       ...(blocks === session.blocks ? {} : blocksPatchWithDerived(state, blocks)),
       lifecycle,
-      ...(shouldClearRuntimeCompacting ? { runtimeCompacting: false } : {}),
     }),
   );
   repairRecoveredPersistence(ctx, sessionId);

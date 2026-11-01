@@ -28,6 +28,7 @@ impl StreamReaderState {
             received_prompt_message_uuids: Vec::new(),
             diagnostics: super::stream_diagnostics::StreamDiagnostics::new(),
             subagents: Default::default(),
+            reported_model: None,
         }
     }
 }

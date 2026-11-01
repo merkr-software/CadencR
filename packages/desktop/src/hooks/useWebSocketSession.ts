@@ -27,7 +27,8 @@ import {
   createIdleTurnLifecycle,
   persistedSessionToLifecycle,
 } from "@/stores/ws-turn-lifecycle";
-import { createTurnTiming, type TurnTimingState } from "@/stores/ws-turn-timing";
+import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
+import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
 import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
@@ -49,7 +50,8 @@ export interface UseWebSocketSessionReturn {
   /** Rendered Virtuoso row count prepended by older-history pagination. */
   historyPrependDisplayOffset: number;
   lifecycle: TurnLifecycle;
-  turnTiming: TurnTimingState;
+  /** The running turn's clock, from the backend status book. */
+  turnClock: TurnClock | null;
   status: LiveAgentStatus;
   /** True while any backend-confirmed compaction is in progress.
    *  Manual compaction is driven by `compact.started`; runtime/auto compaction
@@ -179,7 +181,7 @@ export function useWebSocketSession(
   // on the frontend). Keyed by the DB session id, which the WS handler
   // populates on `session.connected` / persistedLoaded.
   const sessionDbId = session?.sessionDbId ?? null;
-  const liveStatus = useSessionStatus(sessionDbId)?.status ?? null;
+  const liveEntry = useSessionStatus(sessionDbId);
 
   useEffect(() => {
     const release = retainWsSession(sessionId);
@@ -189,7 +191,7 @@ export function useWebSocketSession(
 
   usePersistedSessionLoader(session, sessionId, featureId, options);
   const actions = useSessionActions(sessionId);
-  return useSessionSnapshot(session, sessionId, actions, liveStatus);
+  return useSessionSnapshot(session, sessionId, actions, liveEntry);
 }
 
 function usePersistedSessionLoader(
@@ -323,7 +325,7 @@ function useSessionSnapshot(
   session: SessionEntry | undefined,
   sessionId: string,
   actions: SessionActions,
-  liveStatus: LiveAgentStatus | null,
+  liveEntry: SessionStatusEntry | null,
 ): UseWebSocketSessionReturn {
   return useMemo<UseWebSocketSessionReturn>(() => {
     const lifecycle = session?.lifecycle ?? createIdleTurnLifecycle();
@@ -331,19 +333,20 @@ function useSessionSnapshot(
     // first `session_status.update` arrives (race during initial WS
     // connect, or before `sessionDbId` is known), fall back to deriving
     // from the local lifecycle so the UI doesn't blink to Idle on
-    // mount. Once the WS snapshot arrives, `liveStatus` wins forever —
+    // mount. Once the WS snapshot arrives, the live status wins forever —
     // see `lib/agent-status.ts` for the canonical mapping.
-    const status: LiveAgentStatus = liveStatus ?? liveStatusFromLifecycle(lifecycle);
+    const status: LiveAgentStatus = liveEntry?.status ?? liveStatusFromLifecycle(lifecycle);
     return {
       blocks: session?.blocks ?? [],
       rootBlocks: session?.rootBlocks ?? [],
       toolResultMap: session?.toolResultMap ?? new Map(),
       historyPrependDisplayOffset: session?.historyPrependDisplayOffset ?? 0,
       lifecycle,
-      turnTiming: session?.turnTiming ?? createTurnTiming(),
+      turnClock: turnClockFromStatus(liveEntry),
       status,
-      isCompacting:
-        (session?.pendingManualCompact ?? false) || (session?.runtimeCompacting ?? false),
+      // Compaction is backend status: every device reads the same flag, and
+      // a turn going idle clears it even for one that missed its end.
+      isCompacting: (session?.pendingManualCompact ?? false) || (liveEntry?.compacting ?? false),
       isConnected: session?.isConnected ?? false,
       sessionId,
       sessionDbId: session?.sessionDbId ?? null,
@@ -377,5 +380,5 @@ function useSessionSnapshot(
       hasFileChanges: session?.hasFileChanges ?? false,
       ...actions,
     };
-  }, [session, sessionId, actions, liveStatus]);
+  }, [session, sessionId, actions, liveEntry]);
 }

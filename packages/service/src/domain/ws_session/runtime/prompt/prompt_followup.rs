@@ -144,6 +144,12 @@ async fn persist_followup_user_message(
 ) -> Result<PromptPersistenceOutcome, String> {
     let attachments = payload_attachments(payload);
     let persist_content = build_persist_content(&payload.text, &attachments);
+    // The previous turn's closing line goes before this prompt.
+    context
+        .session_status_tx
+        .journal()
+        .flush(&context.write_pool, &context.ws_feature_senders)
+        .await;
     let outcome = persist_and_publish_prompt(
         &context.write_pool,
         &context.ws_feature_senders,
