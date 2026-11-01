@@ -11,6 +11,17 @@ use crate::domain::agents::adapter::{
 
 const HANDBACK_TOOL_NAME: &str = "SubagentHandback";
 
+/// How the CLI's summary starts when a `completed` notification is not an end:
+/// the agent stopped while its own background work still runs, and the same
+/// task notifies again once that finishes. Nothing structured marks it, beyond
+/// the notification's `handback` field being left out.
+const WAITING_REPORT_PREFIX: &str = "This agent has not reported yet:";
+
+/// Whether a notification's summary says the agent has not reported yet.
+pub(super) fn is_waiting_report(summary: &str) -> bool {
+    summary.starts_with(WAITING_REPORT_PREFIX)
+}
+
 /// The report a sub-agent's message hands back, if it makes that call.
 pub(super) fn handback_report(content: &[claude_agent_sdk_rs::ContentBlock]) -> Option<String> {
     content.iter().rev().find_map(|block| {

@@ -56,6 +56,12 @@ fn register_route(route: SubagentRoute<'_>, index_state: &mut IndexState) -> Vec
         index_state.record_subagent_thread(route.child_thread_id, &parent_tool_use_id);
         return Vec::new();
     }
+    // A child an earlier runtime spawned (resumed, or rehydrated with the
+    // thread) reports to the carrier the registry remembers for it.
+    if let Some(parent_tool_use_id) = index_state.take_known_carrier(route.child_thread_id) {
+        index_state.record_subagent_thread(route.child_thread_id, &parent_tool_use_id);
+        return Vec::new();
+    }
     // Rehydrated children have no pending spawn in this transport. Give them
     // a stable visible parent before their first turn/status or content event.
     let parent_tool_use_id = format!("codex-agent-{}", route.child_thread_id);
@@ -105,6 +111,7 @@ mod tests {
 
     use super::super::event_state::IndexState;
     use super::super::events::notification_events;
+    use crate::domain::agents::adapter::KnownSubagent;
 
     fn record_spawn(indexes: &mut IndexState, task_name: &str, call_id: &str) {
         notification_events(
@@ -346,6 +353,43 @@ mod tests {
         );
         assert!(!indexes.should_reset_for_turn_started("child"));
         assert!(notification_events("thread/started", params, None, &mut indexes).is_empty());
+    }
+    #[test]
+    fn child_an_earlier_runtime_spawned_reports_to_its_own_carrier() {
+        let mut indexes = IndexState::for_root_thread("root");
+        indexes.seed_known_subagents(vec![KnownSubagent {
+            tool_use_id: "call_review".into(),
+            child_session_id: "child".into(),
+        }]);
+        let params = json!({"thread":{"id":"child", "source":{"subAgent":{
+            "thread_spawn":{"parent_thread_id":"root","agent_path":"/root/reviewer"}
+        }}}});
+        let events = notification_events("thread/started", params, None, &mut indexes);
+        // No new carrier block: the child's facts land on the run it had.
+        assert!(events.iter().all(|event| event.stream_event().is_none()));
+        assert!(events
+            .iter()
+            .flat_map(|event| event.subagent_updates())
+            .all(|update| update.tool_use_id == "call_review"));
+        assert_eq!(
+            indexes.subagent_parent_tool_use_id("child"),
+            Some("call_review")
+        );
+        let started = notification_events(
+            "turn/started",
+            json!({"threadId":"child","turn":{"id":"t2"}}),
+            None,
+            &mut indexes,
+        );
+        let running: Vec<_> = started
+            .iter()
+            .flat_map(|event| event.subagent_updates())
+            .collect();
+        assert_eq!(running[0].tool_use_id, "call_review");
+        assert_eq!(
+            running[0].patch.status,
+            Some(crate::domain::agents::adapter::RuntimeSubagentStatus::Running)
+        );
     }
     #[test]
     fn recovered_grandchild_block_and_content_keep_both_nesting_levels() {

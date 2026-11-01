@@ -41,6 +41,14 @@ pub(in crate::domain::ws_session) async fn register_runtime(
         );
     }
 
+    super::super::super::helpers::seed_known_subagents(
+        &context.sender,
+        &context.envelope_id,
+        &context.app_state.read_pool,
+        context.db_session_id,
+        runtime_session.as_mut(),
+    )
+    .await;
     let message_rx = runtime_session.take_message_rx();
     let query_arc = Arc::new(tokio::sync::RwLock::new(runtime_session));
     let permission_tx = context

@@ -19,6 +19,20 @@ pub mod tracker;
 
 pub use model::{SubagentRun, SubagentRunStatus};
 
+/// Tell a runtime about to start streaming which sub-agents earlier runtimes
+/// of its conversation launched, so a run it resumes keeps its carrier.
+pub async fn seed_runtime(
+    pool: &sqlx::SqlitePool,
+    session_id: i64,
+    runtime: &mut dyn crate::domain::agents::adapter::AgentRuntimeSession,
+) -> Result<(), sqlx::Error> {
+    let known = repository::known_subagents(pool, session_id).await?;
+    if !known.is_empty() {
+        runtime.seed_known_subagents(known);
+    }
+    Ok(())
+}
+
 /// Settle the runs the previous service left running: no sub-agent outlives
 /// the service that ran it. Called once at startup.
 pub async fn stop_runs_orphaned_by_restart(pool: &sqlx::SqlitePool) {

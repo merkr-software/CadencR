@@ -16,7 +16,7 @@ use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::trusted_mcp::trusted_cadencr_browser_permission_response;
-use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+use crate::domain::agents::adapter::{KnownSubagent, RuntimeError, RuntimeEvent};
 
 #[bon::builder]
 pub(super) fn spawn_event_loop(
@@ -30,6 +30,8 @@ pub(super) fn spawn_event_loop(
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
     compaction: Arc<super::session::compaction::CompactionState>,
+    /// Sub-agents earlier runtimes spawned: a rehydrated child keeps its carrier.
+    known_subagents: Vec<KnownSubagent>,
 ) {
     let event_loop = EventLoop {
         client,
@@ -42,7 +44,7 @@ pub(super) fn spawn_event_loop(
         closing,
         compaction,
     };
-    tokio::spawn(async move { event_loop.run(source_rx).await });
+    tokio::spawn(async move { event_loop.run(source_rx, known_subagents).await });
 }
 
 struct EventLoop {
@@ -64,10 +66,12 @@ struct NotificationState {
 }
 
 impl EventLoop {
-    async fn run(&self, mut source: AppServerEventReceiver) {
+    async fn run(&self, mut source: AppServerEventReceiver, known_subagents: Vec<KnownSubagent>) {
+        let mut index_state = IndexState::for_root_thread(&self.turns.root_thread_id);
+        index_state.seed_known_subagents(known_subagents);
         let mut state = NotificationState {
             command_outputs: HashMap::new(),
-            index_state: IndexState::for_root_thread(&self.turns.root_thread_id),
+            index_state,
             lifecycle: SessionLifecycle::default(),
         };
         loop {

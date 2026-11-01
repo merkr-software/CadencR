@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use super::prompt_receipts::ClaudePromptReceipts;
 use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
+    AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
     RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
     RuntimeToolPermissionResult,
@@ -18,6 +18,8 @@ pub struct ClaudeCodeSession {
     /// Working directory the CLI runs in; custom agent definitions resolve
     /// from it.
     pub(super) cwd: std::path::PathBuf,
+    /// Sub-agents earlier runtimes launched, handed to the message pump.
+    pub(super) known_subagents: Vec<KnownSubagent>,
 }
 
 impl ClaudeCodeSession {
@@ -28,6 +30,7 @@ impl ClaudeCodeSession {
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: std::path::PathBuf::new(),
+            known_subagents: Vec::new(),
         }
     }
 }
@@ -125,7 +128,8 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         let mut source_rx = self.query.take_message_rx();
         let (tx, rx) = mpsc::channel(64);
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
-        let mut subagents = ClaudeSubagentState::new(&self.cwd);
+        let mut subagents =
+            ClaudeSubagentState::new(&self.cwd, std::mem::take(&mut self.known_subagents));
 
         tokio::spawn(async move {
             'messages: while let Some(msg) = source_rx.recv().await {
@@ -164,6 +168,10 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         });
 
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {

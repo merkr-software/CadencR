@@ -2,11 +2,13 @@
 //! session's runs are written by its current stream reader; the only overlap
 //! is a new reader stopping orphans while the superseded one stops its live
 //! runs, and both write the same Stopped patch, so either order lands the same.
+//! A run the new runtime resumes in that window can still be stopped by the
+//! superseded reader; the resumed run's own end still settles it.
 
 use sqlx::{Row, SqlitePool};
 
 use super::model::{now_timestamp, SubagentRun, SubagentRunStatus};
-use crate::domain::agents::adapter::{stop_reason, RuntimeSubagentPatch};
+use crate::domain::agents::adapter::{stop_reason, KnownSubagent, RuntimeSubagentPatch};
 
 macro_rules! columns {
     () => {
@@ -151,6 +153,31 @@ pub async fn running_tool_use_ids(
     .bind(include_background)
     .fetch_all(pool)
     .await
+}
+
+/// The session's runs a provider can name when it resumes one: those it
+/// reported a handle for. A handle several runs share (a carrier an earlier
+/// runtime had to synthesize for it) names the latest one.
+pub async fn known_subagents(
+    pool: &SqlitePool,
+    session_id: i64,
+) -> Result<Vec<KnownSubagent>, sqlx::Error> {
+    // SQLite takes bare columns from the row that holds the MAX.
+    let rows: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT tool_use_id, child_session_id, MAX(id) FROM agent_subagent_runs
+         WHERE session_id = ? AND child_session_id IS NOT NULL
+         GROUP BY child_session_id",
+    )
+    .bind(session_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(tool_use_id, child_session_id, _)| KnownSubagent {
+            tool_use_id,
+            child_session_id,
+        })
+        .collect())
 }
 
 /// No sub-agent outlives the service that ran it: a run still marked running
@@ -338,5 +365,41 @@ mod tests {
         let stopped = load(&pool, session_id, "toolu_bg").await.unwrap().unwrap();
         assert_eq!(stopped.status, SubagentRunStatus::Stopped);
         assert_eq!(stopped.status_reason.as_deref(), Some("service_restarted"));
+    }
+
+    #[tokio::test]
+    async fn known_subagents_are_the_runs_with_a_provider_handle() {
+        let pool = test_support::migrated_pool().await;
+        let session_id = seeded_session(&pool).await;
+        apply_change(&pool, session_id, &change(RuntimeSubagentPatch::default()))
+            .await
+            .unwrap();
+        let handled = SubagentChange {
+            tool_use_id: "toolu_bg".into(),
+            parent_tool_use_id: None,
+            patch: RuntimeSubagentPatch {
+                status: Some(RuntimeSubagentStatus::Failed),
+                child_session_id: Some("a79a49".into()),
+                ..RuntimeSubagentPatch::default()
+            },
+        };
+        apply_change(&pool, session_id, &handled).await.unwrap();
+        // A later run with the same handle (a synthesized carrier) is the one named.
+        let later = SubagentChange {
+            tool_use_id: "codex-agent-a79a49".into(),
+            parent_tool_use_id: None,
+            patch: RuntimeSubagentPatch {
+                child_session_id: Some("a79a49".into()),
+                ..RuntimeSubagentPatch::default()
+            },
+        };
+        apply_change(&pool, session_id, &later).await.unwrap();
+        assert_eq!(
+            known_subagents(&pool, session_id).await.unwrap(),
+            vec![KnownSubagent {
+                tool_use_id: "codex-agent-a79a49".into(),
+                child_session_id: "a79a49".into(),
+            }]
+        );
     }
 }

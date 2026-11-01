@@ -23,6 +23,25 @@ impl IndexState {
         self.root_thread_id.is_some() && !self.is_session_thread(thread)
     }
 
+    pub(in crate::domain::agents::codex) fn seed_known_subagents(
+        &mut self,
+        known: Vec<crate::domain::agents::adapter::KnownSubagent>,
+    ) {
+        self.known_subagent_carriers.extend(
+            known
+                .into_iter()
+                .map(|run| (run.child_session_id, run.tool_use_id)),
+        );
+    }
+
+    /// The carrier an earlier runtime recorded for `thread`, used once.
+    pub(in crate::domain::agents::codex) fn take_known_carrier(
+        &mut self,
+        thread: &str,
+    ) -> Option<String> {
+        self.known_subagent_carriers.remove(thread)
+    }
+
     /// Record that `subagent_thread_id` belongs to a sub-agent spawned by the
     /// `spawn_agent` collab tool call with id `parent_tool_use_id`.
     pub(in crate::domain::agents::codex) fn record_subagent_thread(

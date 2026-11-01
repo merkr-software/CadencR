@@ -6,7 +6,7 @@ use tokio::sync::{mpsc, Mutex};
 
 use super::session_prompt::spawn_stream_reader;
 use super::session_prompt::{PermissionResponse, WsBridgeCanUseTool};
-use super::{send_error, QueryState, SdkSessions, WsSender};
+use super::{seed_known_subagents, send_error, QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
     RuntimePermissionMode, RuntimeSessionHandle, RuntimeSpawnConfig,
@@ -91,6 +91,14 @@ pub(super) async fn spawn_pending_runtime_for_compact(
         WsSessionPersistence::update_context_window(&app_state.write_pool, db_session_id, Some(cw))
             .await;
     }
+    seed_known_subagents(
+        sender,
+        envelope_id,
+        &app_state.read_pool,
+        db_session_id,
+        runtime_session.as_mut(),
+    )
+    .await;
     let message_rx = runtime_session.take_message_rx();
     let query = Arc::new(tokio::sync::RwLock::new(runtime_session));
     if !activate_spawned_runtime(

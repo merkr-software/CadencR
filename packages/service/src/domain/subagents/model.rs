@@ -148,15 +148,18 @@ impl SubagentRun {
             return;
         }
         self.status = status;
+        // Why it ended before does not explain the new status; the patch
+        // names the new reason, if any, after this.
+        self.status_reason = None;
         if status.is_terminal() {
+            // A correction of how it ended keeps when it ended.
             self.ended_at.get_or_insert_with(|| now.to_string());
             if self.duration_ms.is_none() {
                 self.duration_ms = elapsed_ms(&self.started_at, now);
             }
         } else {
-            // Resumed (Codex `send_input` / follow-up): it runs again.
+            // Resumed (Claude `SendMessage`, Codex `send_input`): it runs again.
             self.ended_at = None;
-            self.status_reason = None;
             self.duration_ms = None;
             self.result_summary = None;
         }
@@ -253,6 +256,30 @@ mod tests {
         assert_eq!(run.ended_at, None);
         assert_eq!(run.status_reason, None);
         assert_eq!(run.duration_ms, None);
+    }
+
+    #[test]
+    fn a_corrected_end_drops_the_old_reason_and_keeps_its_time() {
+        let mut run = run();
+        run.apply(
+            &RuntimeSubagentPatch {
+                status: Some(RuntimeSubagentStatus::Failed),
+                status_reason: Some("rate limit".into()),
+                ..RuntimeSubagentPatch::default()
+            },
+            T1,
+        );
+        let patch = RuntimeSubagentPatch {
+            status: Some(RuntimeSubagentStatus::Completed),
+            result_summary: Some("7 issues".into()),
+            ..RuntimeSubagentPatch::default()
+        };
+        assert!(run.apply(&patch, "2026-10-30T10:01:00.000Z"));
+        assert_eq!(run.status, SubagentRunStatus::Completed);
+        assert_eq!(run.status_reason, None);
+        assert_eq!(run.ended_at.as_deref(), Some(T1));
+        assert_eq!(run.duration_ms, Some(42_500));
+        assert_eq!(run.result_summary.as_deref(), Some("7 issues"));
     }
 
     #[test]

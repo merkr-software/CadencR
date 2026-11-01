@@ -17,6 +17,8 @@
 
 mod definitions;
 mod handback;
+mod lifecycle;
+mod resume;
 mod task_events;
 mod tool_result;
 
@@ -28,11 +30,12 @@ use serde_json::Value;
 
 use super::events::normalize_event;
 use crate::domain::agents::adapter::{
-    is_subagent_tool_name, summarize_subagent_result, RuntimeEvent, RuntimeSubagentPatch,
+    is_subagent_tool_name, KnownSubagent, RuntimeEvent, RuntimeSubagentPatch,
     RuntimeSubagentStatus, RuntimeSubagentUpdate,
 };
 use definitions::{AgentDirs, DefinitionLookup};
 use handback::{apply_handback, handback_report};
+use lifecycle::{notification_patch, updated_patch};
 pub(super) use task_events::terminal_task_status;
 use task_events::TaskEvent;
 use tool_result::{parse_agent_tool_result, AgentToolResult};
@@ -66,6 +69,21 @@ struct TaskEntry {
     tool_use_id: String,
     description: Option<String>,
     last_progress: Option<Instant>,
+    /// The `SendMessage` call that last resumed it. The resumed run's
+    /// notifications name that call, so one naming another call (or the
+    /// carrier) is an earlier run's, trailing.
+    resumed_by: Option<String>,
+}
+
+impl TaskEntry {
+    fn new(tool_use_id: &str) -> Self {
+        Self {
+            tool_use_id: tool_use_id.to_string(),
+            description: None,
+            last_progress: None,
+            resumed_by: None,
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -84,16 +102,19 @@ pub(super) struct ClaudeSubagentState {
     tasks: HashMap<String, TaskEntry>,
     /// Reports sub-agents handed back, by carrier. Kept, not taken: the
     /// carrier's result and the task queue's end each report the pointer, in
-    /// either order, and each must read the report instead.
+    /// either order, and each must read the report instead. Only a resume
+    /// drops one, as it belongs to the run that ended.
     handbacks: HashMap<String, String>,
 }
 
 impl ClaudeSubagentState {
-    pub(super) fn new(cwd: &Path) -> Self {
-        Self {
+    pub(super) fn new(cwd: &Path, known: Vec<KnownSubagent>) -> Self {
+        let mut state = Self {
             definitions: AgentDirs::new(cwd, dirs::home_dir().as_deref()),
             ..Self::default()
-        }
+        };
+        state.seed(known);
+        state
     }
 
     /// Normalize `msg` and attach the sub-agent facts it reveals.
@@ -189,6 +210,7 @@ impl ClaudeSubagentState {
         let mut updates = Vec::new();
         for id in ids {
             let Some(phase) = self.carriers.get_mut(id) else {
+                updates.extend(structured.and_then(|result| self.observe_resume(id, result)));
                 continue;
             };
             let outcome = structured.map_or(AgentToolResult::Other, parse_agent_tool_result);
@@ -198,10 +220,16 @@ impl ClaudeSubagentState {
                         // It already finished; the ack trailed its end.
                         patch.status = None;
                     }
+                    if let Some(agent_id) = patch.child_session_id.clone() {
+                        self.remember_task(agent_id, id);
+                    }
                     updates.push(RuntimeSubagentUpdate::new(id, patch));
                 }
                 AgentToolResult::Completed(mut patch) => {
                     mark_result_seen(phase);
+                    if let Some(agent_id) = patch.child_session_id.clone() {
+                        self.remember_task(agent_id, id);
+                    }
                     apply_handback(&mut patch, self.handbacks.get(id).cloned());
                     updates.push(RuntimeSubagentUpdate::new(id, patch));
                 }
@@ -251,12 +279,20 @@ impl ClaudeSubagentState {
                 usage.into_patch()
             }
             TaskEvent::Notification {
+                tool_use_id: tagged,
                 status,
                 reason,
                 summary,
                 usage,
                 ..
             } => {
+                if entry
+                    .resumed_by
+                    .as_deref()
+                    .is_some_and(|by| tagged.as_deref().is_some_and(|tag| tag != by))
+                {
+                    return None;
+                }
                 let mut patch = notification_patch(phase, entry, &status, reason, summary, usage)?;
                 if patch.status == Some(RuntimeSubagentStatus::Completed) {
                     apply_handback(&mut patch, self.handbacks.get(&tool_use_id).cloned());
@@ -268,7 +304,14 @@ impl ClaudeSubagentState {
                 error,
                 backgrounded,
                 ..
-            } => updated_patch(phase, status.as_deref(), error, backgrounded),
+            } => {
+                // Names no call: once resumed, only the notification tells
+                // which run ended.
+                let status = status.filter(|label| {
+                    entry.resumed_by.is_none() || terminal_task_status(label).is_none()
+                });
+                updated_patch(phase, status.as_deref(), error, backgrounded)
+            }
         };
         (!patch.is_empty()).then(|| RuntimeSubagentUpdate::new(tool_use_id, patch))
     }
@@ -282,13 +325,7 @@ impl ClaudeSubagentState {
             .tool_use_id()
             .filter(|id| self.carriers.contains_key(*id))
         {
-            self.tasks
-                .entry(task_id.to_string())
-                .or_insert_with(|| TaskEntry {
-                    tool_use_id: id.to_string(),
-                    description: None,
-                    last_progress: None,
-                });
+            self.remember_task(task_id.to_string(), id);
             return Some(id.to_string());
         }
         self.tasks
@@ -301,85 +338,6 @@ fn mark_result_seen(phase: &mut CarrierPhase) {
     if *phase == CarrierPhase::Live {
         *phase = CarrierPhase::ResultSeen;
     }
-}
-
-/// `task_notification`: the end of a task, foreground or background. For a
-/// foreground agent the CLI's `summary` is just the description and its
-/// totals are cruder than the tool result's, which wins when already seen.
-fn notification_patch(
-    phase: &mut CarrierPhase,
-    entry: &TaskEntry,
-    label: &str,
-    reason: Option<String>,
-    summary: Option<String>,
-    usage: Option<task_events::TaskUsage>,
-) -> Option<RuntimeSubagentPatch> {
-    let status = terminal_task_status(label)?;
-    let first_end = *phase != CarrierPhase::Notified;
-    let mut patch = match usage {
-        Some(usage) if *phase != CarrierPhase::ResultSeen => usage.into_patch(),
-        _ => RuntimeSubagentPatch::default(),
-    };
-    *phase = CarrierPhase::Notified;
-    let summary = summary
-        .filter(|summary| {
-            !entry
-                .description
-                .as_deref()
-                .is_some_and(|d| same_words(d, summary))
-        })
-        .and_then(|summary| summarize_subagent_result(&summary));
-    // An explicit reason always applies; a derived one only names the first
-    // reported end, so the `killed` of a preceding `task_updated` survives
-    // the notification's generic `stopped`.
-    let derived = match status {
-        RuntimeSubagentStatus::Completed | RuntimeSubagentStatus::Running => None,
-        RuntimeSubagentStatus::Failed => summary.clone().or_else(|| Some(label.to_string())),
-        RuntimeSubagentStatus::Stopped => Some(label.to_string()),
-    };
-    patch.status = Some(status);
-    patch.status_reason = reason
-        .filter(|_| status != RuntimeSubagentStatus::Completed)
-        .or(derived.filter(|_| first_end));
-    patch.result_summary = summary;
-    Some(patch)
-}
-
-/// `task_updated`: a diff of the task's state. `killed` is how a stopped
-/// agent ends; `paused` keeps it running.
-fn updated_patch(
-    phase: &mut CarrierPhase,
-    status: Option<&str>,
-    error: Option<String>,
-    backgrounded: Option<bool>,
-) -> RuntimeSubagentPatch {
-    let mut patch = RuntimeSubagentPatch {
-        background: backgrounded.filter(|backgrounded| *backgrounded),
-        ..RuntimeSubagentPatch::default()
-    };
-    match status {
-        Some("pending" | "running") => {
-            if phase.resume() {
-                patch.status = Some(RuntimeSubagentStatus::Running);
-            }
-        }
-        Some(label) => {
-            if let Some(terminal) = terminal_task_status(label) {
-                *phase = CarrierPhase::Notified;
-                patch.status = Some(terminal);
-                patch.status_reason = match terminal {
-                    RuntimeSubagentStatus::Completed => None,
-                    _ => error.or_else(|| Some(label.to_string())),
-                };
-            }
-        }
-        None => {}
-    }
-    patch
-}
-
-fn same_words(a: &str, b: &str) -> bool {
-    a.split_whitespace().eq(b.split_whitespace())
 }
 
 fn tool_result_ids(message: &Value) -> Vec<&str> {
@@ -402,7 +360,7 @@ mod tests {
 
     use serde_json::{json, Value};
 
-    use super::{ClaudeSubagentState, RuntimeSubagentPatch, RuntimeSubagentStatus};
+    use super::{ClaudeSubagentState, KnownSubagent, RuntimeSubagentPatch, RuntimeSubagentStatus};
     use crate::domain::agents::adapter::RuntimeSubagentUpdate;
 
     fn msg(value: Value) -> claude_agent_sdk_rs::SdkMessage {
@@ -709,6 +667,198 @@ mod tests {
         assert_eq!(done.tool_use_count, Some(1));
     }
 
+    /// CLI 2.1.312: a `SendMessage` resume, then the resumed run's end, which
+    /// the queue reports under the `SendMessage` call rather than the carrier.
+    fn send_message_resume(agent_id: &str) -> claude_agent_sdk_rs::SdkMessage {
+        tool_result(
+            "toolu_send",
+            json!({ "success": true, "message": "Resuming agent a8f3c2",
+                "resumedAgentId": agent_id, "revivedAgentId": agent_id }),
+        )
+    }
+
+    fn resumed_end(status: &str, summary: &str) -> claude_agent_sdk_rs::SdkMessage {
+        system(
+            "task_notification",
+            json!({ "task_id": "a8f3c2", "tool_use_id": "toolu_send", "status": status,
+                "output_file": "", "summary": summary }),
+        )
+    }
+
+    #[test]
+    fn agent_waiting_on_its_own_background_work_keeps_running() {
+        // CLI 2.1.312, seen live: the agent backgrounded its `sleep`, then stopped.
+        let waiting = "This agent has not reported yet: it is waiting on its own background \
+            work and will deliver its report through SubagentHandback when that finishes.";
+        let mut state = ClaudeSubagentState::default();
+        observe(
+            &mut state,
+            launch("toolu_1", json!({"description": "QA sleeper"})),
+        );
+        observe(&mut state, started("a8f3c2", "toolu_1", true));
+        // The task is marked completed first; the notification says it only paused.
+        let updated = system(
+            "task_updated",
+            json!({ "task_id": "a8f3c2", "patch": { "status": "completed" } }),
+        );
+        let ended = only(observe(&mut state, updated));
+        assert_eq!(ended.status, Some(RuntimeSubagentStatus::Completed));
+        let paused = only(observe(
+            &mut state,
+            notification("a8f3c2", "completed", waiting, json!({})),
+        ));
+        assert_eq!(paused.status, Some(RuntimeSubagentStatus::Running));
+        assert_eq!(paused.background, Some(true));
+        assert_eq!(paused.result_summary, None);
+
+        assert!(observe(&mut state, handback("toolu_1", "SLEPT")).is_empty());
+        let done = only(observe(
+            &mut state,
+            notification(
+                "a8f3c2",
+                "completed",
+                "Agent \"QA sleeper\" finished",
+                json!({}),
+            ),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("SLEPT"));
+    }
+
+    #[test]
+    fn failed_agent_resumed_in_the_same_runtime_settles_again() {
+        let mut state = ClaudeSubagentState::default();
+        observe(
+            &mut state,
+            launch("toolu_1", json!({"description": "Review"})),
+        );
+        observe(
+            &mut state,
+            tool_result(
+                "toolu_1",
+                json!({ "isAsync": true, "status": "async_launched", "agentId": "a8f3c2" }),
+            ),
+        );
+        let failed = only(observe(
+            &mut state,
+            notification("a8f3c2", "failed", "API error: rate limit", json!({})),
+        ));
+        assert_eq!(failed.status, Some(RuntimeSubagentStatus::Failed));
+
+        let resumed = only(observe(&mut state, send_message_resume("a8f3c2")));
+        assert_eq!(resumed.status, Some(RuntimeSubagentStatus::Running));
+        assert_eq!(resumed.background, Some(true));
+        assert!(observe(&mut state, handback("toolu_1", "7 issues")).is_empty());
+        let done = only(observe(
+            &mut state,
+            resumed_end("completed", "Agent \"Review\" finished"),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("7 issues"));
+    }
+
+    #[test]
+    fn earlier_run_end_trailing_a_resume_does_not_end_the_resumed_run() {
+        let mut state = ClaudeSubagentState::default();
+        observe(
+            &mut state,
+            launch("toolu_1", json!({"description": "Review"})),
+        );
+        observe(&mut state, started("a8f3c2", "toolu_1", false));
+        observe(
+            &mut state,
+            tool_result(
+                "toolu_1",
+                json!({ "status": "completed", "agentId": "a8f3c2",
+                    "content": [{ "type": "text", "text": "first report" }] }),
+            ),
+        );
+        let resumed = only(observe(&mut state, send_message_resume("a8f3c2")));
+        assert_eq!(resumed.status, Some(RuntimeSubagentStatus::Running));
+        // The first run's queue end, still naming the carrier, lands late.
+        assert!(observe(
+            &mut state,
+            notification("a8f3c2", "completed", "first report", json!({}))
+        )
+        .is_empty());
+        let done = only(observe(
+            &mut state,
+            resumed_end("completed", "second report"),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("second report"));
+    }
+
+    #[test]
+    fn only_the_latest_resume_settles_the_run() {
+        let mut state = ClaudeSubagentState::default();
+        state.seed(vec![KnownSubagent {
+            tool_use_id: "toolu_1".into(),
+            child_session_id: "a8f3c2".into(),
+        }]);
+        only(observe(&mut state, send_message_resume("a8f3c2")));
+        only(observe(
+            &mut state,
+            resumed_end("completed", "first resume"),
+        ));
+        let second = tool_result(
+            "toolu_send2",
+            json!({ "success": true, "resumedAgentId": "a8f3c2" }),
+        );
+        only(observe(&mut state, second));
+        // The first resume's end, and a `task_updated` naming no call, trail it.
+        assert!(observe(&mut state, resumed_end("completed", "first resume")).is_empty());
+        let updated = system(
+            "task_updated",
+            json!({ "task_id": "a8f3c2", "patch": { "status": "completed" } }),
+        );
+        assert!(observe(&mut state, updated).is_empty());
+        let done = only(observe(
+            &mut state,
+            system(
+                "task_notification",
+                json!({ "task_id": "a8f3c2", "tool_use_id": "toolu_send2",
+                    "status": "completed", "output_file": "", "summary": "second resume" }),
+            ),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("second resume"));
+    }
+
+    #[test]
+    fn agent_resumed_in_a_later_runtime_reports_to_its_carrier() {
+        let known = vec![KnownSubagent {
+            tool_use_id: "toolu_1".into(),
+            child_session_id: "a8f3c2".into(),
+        }];
+        let mut state = ClaudeSubagentState::default();
+        state.seed(known.clone());
+        // Unknown agents and messages that resumed nothing are not attributed.
+        assert!(observe(&mut state, send_message_resume("other")).is_empty());
+
+        let resumed = only(observe(&mut state, send_message_resume("a8f3c2")));
+        assert_eq!(resumed.status, Some(RuntimeSubagentStatus::Running));
+        assert!(observe(&mut state, handback("toolu_1", "7 issues")).is_empty());
+        let done = only(observe(
+            &mut state,
+            resumed_end("completed", "Agent \"Review\" finished"),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("7 issues"));
+
+        // Without the resume signal, the queue's end still settles the run.
+        let mut state = ClaudeSubagentState::default();
+        state.seed(known);
+        let late = only(observe(&mut state, handback("toolu_1", "7 issues")));
+        assert_eq!(late.result_summary.as_deref(), Some("7 issues"));
+        let done = only(observe(
+            &mut state,
+            resumed_end("completed", "Agent \"Review\" finished"),
+        ));
+        assert_eq!(done.status, Some(RuntimeSubagentStatus::Completed));
+        assert_eq!(done.result_summary.as_deref(), Some("7 issues"));
+    }
+
     #[test]
     fn killed_update_resolves_by_task_id_and_keeps_its_reason() {
         let mut state = ClaudeSubagentState::default();
@@ -890,7 +1040,7 @@ mod tests {
             "---\nname: reviewer\nmodel: haiku\neffort: high\n---\n",
         )
         .unwrap();
-        let mut state = ClaudeSubagentState::new(&cwd);
+        let mut state = ClaudeSubagentState::new(&cwd, Vec::new());
 
         let event = state
             .normalize(launch(
