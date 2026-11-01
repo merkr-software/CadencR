@@ -173,6 +173,17 @@ corresponding integration unconfigured. No ingest variables are needed in the
 renderer or Electron bundles. The monthly counter uses the same PostHog key and
 host; it needs no extra GitHub variable, secret, or hosted server.
 
+For packaged local builds, `pnpm build:local` (or `pnpm build:local:linux`) fetches
+these three values and the marketplace configuration from GitHub using `gh`,
+validates them, then embeds the ingest configuration during compilation. All
+three ingest values are required when a configuration is available. If `gh` is
+absent, GitHub cannot be reached, access is denied, or no build variables are
+configured, the command falls back to a build without managed marketplace or
+telemetry configuration (including the monthly counter). Inherited build values
+are cleared in this mode. A partial or malformed fetched configuration is rejected.
+Run `pnpm build:local --check-config` to validate without compiling. See
+[Packaged local builds](../CONTRIBUTING.md#packaged-local-builds) for prerequisites.
+
 For a local development check, put values in the uncommitted service `.env`:
 
 ```dotenv
