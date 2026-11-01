@@ -84,9 +84,9 @@ fn popularity(listing: &SkillListing) -> u64 {
 /// cannot reach a marketplace still lists what it has.
 async fn refresh_catalogs(hosts: &[ExtensionHost]) -> Vec<ExtensionCliError> {
     let reports = futures::future::join_all(hosts.iter().map(|host| async move {
-        let cli = host.cli.as_ref().expect("filtered on installed CLIs");
         let _guard = service().lock_cli(&host.provider_id).await;
-        host.extensions.refresh_skill_catalog(cli).await
+        let cli = host.runner()?;
+        host.extensions.refresh_skill_catalog(&cli).await
     }))
     .await;
     hosts
@@ -121,8 +121,8 @@ async fn snapshot(read_pool: &SqlitePool, refresh: bool) -> Arc<SkillSnapshot> {
         }
     }
     let reports = futures::future::join_all(hosts.iter().map(|host| async move {
-        let cli = host.cli.as_ref().expect("filtered on installed CLIs");
-        host.extensions.skills(cli).await
+        let cli = host.runner()?;
+        host.extensions.skills(&cli).await
     }))
     .await;
     let mut inventories = Vec::new();
@@ -254,7 +254,6 @@ pub async fn apply(
     let read_pool = &read_pool;
     let service = service();
     let host = service.host(read_pool, &request.provider_id).await?;
-    let cli = host.runner()?;
     if !host.support().skills {
         return Err(ExtensionError::Unsupported(format!(
             "{} has no command that installs skill packs.",
@@ -285,10 +284,15 @@ pub async fn apply(
         find(read_pool, &request, false).await?;
     }
     let _guard = service.lock_cli(&host.provider_id).await;
+    let cli = host.runner()?;
     let result = match action {
-        SkillAction::Install => host.extensions.install_skill(cli, &request.plugin_id).await,
-        SkillAction::Remove => host.extensions.remove_skill(cli, &request.plugin_id).await,
-        SkillAction::Update => host.extensions.update_skill(cli, &request.plugin_id).await,
+        SkillAction::Install => {
+            host.extensions
+                .install_skill(&cli, &request.plugin_id)
+                .await
+        }
+        SkillAction::Remove => host.extensions.remove_skill(&cli, &request.plugin_id).await,
+        SkillAction::Update => host.extensions.update_skill(&cli, &request.plugin_id).await,
     };
     // Even a failure may have changed what the CLI has installed.
     service.invalidate_skills().await;

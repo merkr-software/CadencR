@@ -48,7 +48,9 @@ pub async fn update_profile_handler(
     Json(body): Json<ProfileUpdate>,
 ) -> Result<Json<CodexProfileView>, AppError> {
     let referenced = profile_reference_counts(&state, &id).await? != (0, 0);
-    Ok(Json(profiles::update(&id, body, !referenced).await?))
+    let updated = profiles::update(&id, body, !referenced).await?;
+    crate::domain::agents::extensions::forget_inventories();
+    Ok(Json(updated))
 }
 
 #[utoipa::path(delete, path = "/api/codex/profiles/{id}", operation_id = "codex_delete_profile", params(("id" = String, Path)), responses((status = 200, body = SuccessResponse)))]
@@ -58,6 +60,7 @@ pub async fn delete_profile_handler(
 ) -> Result<Json<SuccessResponse>, AppError> {
     reject_referenced_profile(&state, &id).await?;
     profiles::delete(&id).await?;
+    crate::domain::agents::extensions::forget_inventories();
     Ok(Json(SuccessResponse { ok: true }))
 }
 
@@ -66,6 +69,7 @@ pub async fn set_active_profile_handler(
     Json(body): Json<SetActiveProfileRequest>,
 ) -> Result<Json<ProfilesResponse>, AppError> {
     profiles::set_active(body.profile_id.as_deref()).await?;
+    crate::domain::agents::extensions::forget_inventories();
     Ok(Json(response()?))
 }
 

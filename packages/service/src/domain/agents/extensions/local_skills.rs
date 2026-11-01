@@ -5,6 +5,7 @@
 use std::path::Path;
 
 use super::types::{InstalledSkill, SkillSource};
+use crate::shared::frontmatter;
 
 /// Every skill folder under `root`, sorted by name. A missing root is empty.
 pub async fn scan(provider_id: &str, root: &Path) -> Vec<InstalledSkill> {
@@ -21,7 +22,8 @@ pub async fn scan(provider_id: &str, root: &Path) -> Vec<InstalledSkill> {
         let Ok(manifest) = tokio::fs::read_to_string(path.join("SKILL.md")).await else {
             continue;
         };
-        let (name, description) = frontmatter(&manifest);
+        let mut fields = frontmatter::scalars(&manifest);
+        let (name, description) = (fields.remove("name"), fields.remove("description"));
         skills.push(InstalledSkill {
             provider_id: provider_id.to_string(),
             id: folder.clone(),
@@ -39,38 +41,6 @@ pub async fn scan(provider_id: &str, root: &Path) -> Vec<InstalledSkill> {
     }
     skills.sort_by(|a, b| a.name.cmp(&b.name));
     skills
-}
-
-/// `name` and `description` from a SKILL.md YAML front matter block.
-fn frontmatter(text: &str) -> (Option<String>, Option<String>) {
-    let mut lines = text.lines();
-    if lines.next().map(str::trim) != Some("---") {
-        return (None, None);
-    }
-    let (mut name, mut description) = (None, None);
-    for line in lines.take_while(|line| line.trim() != "---") {
-        if let Some(value) = line.strip_prefix("name:") {
-            name = scalar(value);
-        } else if let Some(value) = line.strip_prefix("description:") {
-            description = scalar(value);
-        }
-    }
-    (name, description)
-}
-
-fn scalar(value: &str) -> Option<String> {
-    let value = value.trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|inner| inner.strip_suffix('"'))
-        .or_else(|| {
-            value
-                .strip_prefix('\'')
-                .and_then(|inner| inner.strip_suffix('\''))
-        })
-        .unwrap_or(value);
-    // Block scalars (`>` / `|`) are not worth a YAML parser for a one-line hint.
-    (!value.is_empty() && value != ">" && value != "|").then(|| value.to_string())
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ use axum::http::StatusCode;
 use serde::de::DeserializeOwned;
 use sqlx::SqlitePool;
 
-use crate::domain::agents::discovery::read_override_setting;
+use crate::domain::agents::discovery::{best_cli, read_override_setting};
 use crate::domain::agents::providers::ProviderDiscoveryMetadata;
 use crate::domain::agents::updates::display_tail;
 use crate::error::AppError;
@@ -106,6 +106,9 @@ impl From<ExtensionError> for AppError {
 pub struct CliRunner {
     binary: PathBuf,
     pub version: Option<String>,
+    env: Vec<(String, String)>,
+    env_unset: Vec<String>,
+    config_home: Option<PathBuf>,
 }
 
 impl CliRunner {
@@ -115,12 +118,15 @@ impl CliRunner {
         discovery: &ProviderDiscoveryMetadata,
     ) -> Option<Self> {
         let override_path = read_override_setting(read_pool, discovery.setting_key()).await;
-        let candidates =
-            cli_discovery::discover_all(discovery.spec(), override_path.as_deref()).await;
-        cli_discovery::select_best(&candidates).map(|candidate| Self {
-            binary: candidate.path.clone(),
-            version: candidate.version_text.clone(),
-        })
+        best_cli(discovery, override_path.as_deref())
+            .await
+            .map(|candidate| Self {
+                binary: candidate.path,
+                version: candidate.version_text,
+                env: Vec::new(),
+                env_unset: Vec::new(),
+                config_home: None,
+            })
     }
 
     #[cfg(test)]
@@ -128,7 +134,32 @@ impl CliRunner {
         Self {
             binary: binary.into(),
             version: None,
+            env: Vec::new(),
+            env_unset: Vec::new(),
+            config_home: None,
         }
+    }
+
+    /// The same CLI as a provider profile runs it: `env` set, `unset`
+    /// removed, reading its config from `config_home`.
+    pub fn for_profile(
+        &self,
+        env: impl IntoIterator<Item = (String, String)>,
+        unset: Vec<String>,
+        config_home: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            binary: self.binary.clone(),
+            version: self.version.clone(),
+            env: env.into_iter().collect(),
+            env_unset: unset,
+            config_home,
+        }
+    }
+
+    /// Where this CLI keeps its user config, when its profile says.
+    pub fn config_home(&self) -> Option<&Path> {
+        self.config_home.as_deref()
     }
 
     /// Run `args`; stdout on success, the CLI's own explanation on failure.
@@ -141,12 +172,16 @@ impl CliRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        for key in &self.env_unset {
+            command.env_remove(key);
+        }
+        command.envs(self.env.iter().map(|(key, value)| (key, value)));
         if let Some(home) = dirs::home_dir() {
             command.current_dir(home);
         }
         let output = capture_bounded_up_to(command, COMMAND_TIMEOUT, MAX_OUTPUT_BYTES)
             .await
-            .map_err(|error| ExtensionError::failed(format!("`{label}` {error}")))?;
+            .map_err(|error| self.redacted(ExtensionError::failed(format!("`{label}` {error}"))))?;
         let stdout = String::from_utf8(output.stdout)
             .unwrap_or_else(|error| String::from_utf8_lossy(error.as_bytes()).into_owned());
         if output.status.success() {
@@ -154,11 +189,16 @@ impl CliRunner {
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let detail = display_tail(&format!("{stderr}\n{stdout}"));
-        Err(ExtensionError::failed(if detail.is_empty() {
+        Err(self.redacted(ExtensionError::failed(if detail.is_empty() {
             format!("`{label}` failed ({})", output.status)
         } else {
             format!("`{label}` failed: {detail}")
-        }))
+        })))
+    }
+
+    /// A profile's values (keys, proxy URLs…) never reach an error message.
+    fn redacted(&self, error: ExtensionError) -> ExtensionError {
+        error.redacted(self.env.iter().map(|(_, value)| value.as_str()))
     }
 
     pub async fn run_json<T: DeserializeOwned>(
@@ -229,6 +269,40 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(value, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn a_profile_environment_reaches_the_cli() {
+        let runner = CliRunner::for_binary("/bin/sh").for_profile(
+            [(
+                "CADENCR_EXT_TEST_HOME".to_string(),
+                "/profiles/work".to_string(),
+            )],
+            vec!["HOME".to_string()],
+            None,
+        );
+        let output = runner
+            .run(&args![
+                "-c",
+                "echo \"$CADENCR_EXT_TEST_HOME|${HOME:-unset}\""
+            ])
+            .await
+            .unwrap();
+        assert_eq!(output.trim(), "/profiles/work|unset");
+    }
+
+    #[tokio::test]
+    async fn profile_values_stay_out_of_errors() {
+        let runner = CliRunner::for_binary("/bin/sh").for_profile(
+            [("PROXY".to_string(), "https://user:pass@proxy".to_string())],
+            Vec::new(),
+            None,
+        );
+        let error = runner
+            .run(&args!["-c", "echo \"cannot reach $PROXY\" >&2; exit 1"])
+            .await
+            .unwrap_err();
+        assert!(!error.to_string().contains("user:pass"), "{error}");
     }
 
     #[test]

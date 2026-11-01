@@ -50,7 +50,7 @@ describe("Claude Code profile mutations", () => {
   // The active profile env feeds the model probe, so switching profiles must
   // refetch the catalog — otherwise the picker keeps the old profile's models
   // (under Bedrock/Vertex even the model ids differ). Regression for issue #43.
-  it("invalidates both profiles and the agent catalog when activating a profile", async () => {
+  it("invalidates profiles, the agent catalog and the CLI extensions when activating a profile", async () => {
     const { result, invalidateSpy } = renderWithSpiedClient(() => useSetActiveClaudeCodeProfile());
     await act(async () => {
       await result.current.mutateAsync({ name: "bedrock" });
@@ -61,10 +61,12 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
-    expect(invalidateSpy).toHaveBeenCalledTimes(4);
+    // The profile can move Claude Code's config dir: skills and MCP servers re-list.
+    expect(invalidateSpy).toHaveBeenCalledWith({ predicate: expect.any(Function) });
+    expect(invalidateSpy).toHaveBeenCalledTimes(5);
   });
 
-  it("invalidates both profiles and the agent catalog when upserting a profile", async () => {
+  it("invalidates profiles, the agent catalog and the CLI extensions when upserting a profile", async () => {
     mockCustomInstance.mockResolvedValue({ name: "bedrock", env: {} });
     const { result, invalidateSpy } = renderWithSpiedClient(() => useUpsertClaudeCodeProfile());
     await act(async () => {
@@ -76,10 +78,11 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
-    expect(invalidateSpy).toHaveBeenCalledTimes(4);
+    expect(invalidateSpy).toHaveBeenCalledWith({ predicate: expect.any(Function) });
+    expect(invalidateSpy).toHaveBeenCalledTimes(5);
   });
 
-  it("invalidates both profiles and the agent catalog when deleting a profile", async () => {
+  it("invalidates profiles, the agent catalog and the CLI extensions when deleting a profile", async () => {
     const { result, invalidateSpy } = renderWithSpiedClient(() => useDeleteClaudeCodeProfile());
     await act(async () => {
       await result.current.mutateAsync({ name: "bedrock" });
@@ -90,7 +93,8 @@ describe("Claude Code profile mutations", () => {
     });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["agent-catalog"] });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAgentSelectionQueryKey() });
-    expect(invalidateSpy).toHaveBeenCalledTimes(4);
+    expect(invalidateSpy).toHaveBeenCalledWith({ predicate: expect.any(Function) });
+    expect(invalidateSpy).toHaveBeenCalledTimes(5);
   });
 
   it("marks the generic Claude profile cache invalid in a real QueryClient", async () => {

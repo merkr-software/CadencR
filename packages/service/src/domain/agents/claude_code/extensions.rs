@@ -2,8 +2,7 @@
 
 mod mcp_list;
 mod plugins;
-
-use std::path::PathBuf;
+mod profile;
 
 use async_trait::async_trait;
 
@@ -14,14 +13,6 @@ use crate::domain::agents::extensions::{
 
 #[derive(Debug, Clone, Copy)]
 pub struct ClaudeExtensions;
-
-/// Where Claude Code reads user skills: `$CLAUDE_CONFIG_DIR/skills`, else `~/.claude/skills`.
-fn skills_root() -> Option<PathBuf> {
-    std::env::var_os("CLAUDE_CONFIG_DIR")
-        .map(PathBuf::from)
-        .or_else(|| dirs::home_dir().map(|home| home.join(".claude")))
-        .map(|root| root.join("skills"))
-}
 
 /// The JSON `claude mcp add-json` takes for `spec`.
 fn server_json(spec: &McpServerSpec) -> serde_json::Value {
@@ -69,6 +60,10 @@ impl ExtensionCli for ClaudeExtensions {
         }
     }
 
+    fn for_active_profile(&self, cli: &CliRunner) -> Result<CliRunner, ExtensionError> {
+        Ok(profile::active(cli))
+    }
+
     async fn list_mcp(&self, cli: &CliRunner) -> Result<Vec<CliMcpServer>, ExtensionError> {
         Ok(mcp_list::parse_list(&cli.run(&args!["mcp", "list"]).await?))
     }
@@ -111,7 +106,8 @@ impl ExtensionCli for ClaudeExtensions {
             tokio::try_join!(cli.run_json(&list_args), cli.run_json(&marketplace_args))?;
         let catalog = plugins::catalog_entries(&marketplaces).await;
         let mut inventory = plugins::inventory(super::PROVIDER_ID, list, &catalog);
-        if let Some(root) = skills_root() {
+        // Where Claude Code reads user skills: `<config dir>/skills`.
+        if let Some(root) = cli.config_home().map(|dir| dir.join("skills")) {
             inventory
                 .installed
                 .extend(local_skills::scan(super::PROVIDER_ID, &root).await);

@@ -49,6 +49,7 @@ function CarrierLine({
   identity,
   version,
   update,
+  blocked,
   action,
 }: {
   providerId: string;
@@ -56,6 +57,8 @@ function CarrierLine({
   identity: string;
   version?: string | null;
   update?: string | null;
+  /** Why Cadencr cannot apply `update` itself. */
+  blocked?: string | null;
   action?: AgentExtensionAction;
 }): React.JSX.Element {
   return (
@@ -76,6 +79,11 @@ function CarrierLine({
           busyLabel="Updating…"
         />
       )}
+      {update && blocked && (
+        <span title={blocked} className="ml-auto shrink-0">
+          Update in {label}&apos;s config
+        </span>
+      )}
     </div>
   );
 }
@@ -85,7 +93,7 @@ function mcpUpdateAction(
   installation: McpInstallation,
   clis: ExtensionCliSummary[],
 ) {
-  if (!installation.update) return undefined;
+  if (!installation.update || installation.update_blocked) return undefined;
   return {
     kind: "mcp-update",
     label: listing.name,
@@ -166,6 +174,7 @@ const LibraryRow = memo(function LibraryRow({
                       (installation.package ? "newest each run" : null)
                     }
                     update={installation.update}
+                    blocked={installation.update_blocked}
                     action={mcpUpdateAction(row.listing, installation, clis)}
                   />
                 ))

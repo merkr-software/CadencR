@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 
 use sqlx::SqlitePool;
 
-use super::installed_package::{may_hold_spaces, with_version};
-use super::mcp_match::{installations, newer_version, package_of, registry_match};
+use super::installed_package::with_version;
+use super::mcp_match::{installations, newer_version, package_of, registry_match, update_blocker};
 use super::mcp_spec::build_spec;
 use super::service::{service, Cached, ExtensionHost, FAILED_TTL, MCP_TTL};
 use super::types::{
@@ -45,21 +45,21 @@ async fn list_everything(read_pool: &SqlitePool) -> McpInventoryResponse {
         .filter(|host| host.cli.is_some() && !host.support().mcp_transports.is_empty())
         .collect();
     let reports = futures::future::join_all(hosts.iter().map(|host| async move {
-        let cli = host.cli.as_ref().expect("filtered on installed CLIs");
-        (
-            host.provider_id.clone(),
-            host.extensions.list_mcp(cli).await,
-        )
+        let listed = match host.runner() {
+            Ok(cli) => host.extensions.list_mcp(&cli).await,
+            Err(error) => Err(error),
+        };
+        (host.provider_id.clone(), host.label.clone(), listed)
     }))
     .await;
     let mut errors = Vec::new();
     let mut servers = Vec::new();
-    for (provider_id, report) in reports {
+    for (provider_id, label, report) in reports {
         match report {
             Ok(listed) => servers.extend(
                 listed
                     .into_iter()
-                    .map(|server| (provider_id.clone(), server)),
+                    .map(|server| (provider_id.clone(), label.clone(), server)),
             ),
             Err(error) => errors.push(ExtensionCliError {
                 provider_id,
@@ -165,7 +165,6 @@ async fn install_server(
 ) -> Result<(), ExtensionError> {
     let service = service();
     let host = service.host(read_pool, &request.provider_id).await?;
-    let cli = host.runner()?;
     let name = request.server_name.trim();
     if !valid_server_name(name) {
         return Err(ExtensionError::Invalid(
@@ -189,14 +188,15 @@ async fn install_server(
     let spec = build_spec(launch, name, &request.values)?;
     check_support(&host.support(), &spec, &host.label)?;
     let _guard = service.lock_cli(&host.provider_id).await;
+    let cli = host.runner()?;
     // Some CLIs overwrite an existing name silently.
-    if host.extensions.get_mcp(cli, name).await.is_ok() {
+    if host.extensions.get_mcp(&cli, name).await.is_ok() {
         return Err(ExtensionError::Invalid(format!(
             "{} already has an MCP server named {name}. Pick another name.",
             host.label
         )));
     }
-    let result = host.extensions.add_mcp(cli, &spec).await;
+    let result = host.extensions.add_mcp(&cli, &spec).await;
     service.invalidate_mcp().await;
     result
 }
@@ -207,13 +207,13 @@ pub async fn remove(
 ) -> Result<(), ExtensionError> {
     let service = service();
     let host = service.host(&read_pool, &request.provider_id).await?;
-    let cli = host.runner()?;
     let _guard = service.lock_cli(&host.provider_id).await;
-    let definition = host.extensions.get_mcp(cli, &request.server_name).await?;
+    let cli = host.runner()?;
+    let definition = host.extensions.get_mcp(&cli, &request.server_name).await?;
     changeable(&definition, &host.label)?;
     let result = host
         .extensions
-        .remove_mcp(cli, &definition.server.name)
+        .remove_mcp(&cli, &definition.server.name)
         .await;
     service.invalidate_mcp().await;
     result
@@ -227,30 +227,22 @@ pub async fn update(
 ) -> Result<String, ExtensionError> {
     let service = service();
     let host = service.host(&read_pool, &request.provider_id).await?;
-    let cli = host.runner()?;
     let _guard = service.lock_cli(&host.provider_id).await;
-    let definition = host.extensions.get_mcp(cli, &request.server_name).await?;
+    let cli = host.runner()?;
+    let definition = host.extensions.get_mcp(&cli, &request.server_name).await?;
     let secrets: Vec<String> = definition.env.values().cloned().collect();
-    let result = replace_server(&host, definition).await;
+    let result = replace_server(&host, &cli, definition).await;
     service.invalidate_mcp().await;
     result.map_err(|error| error.redacted(secrets.iter().map(String::as_str)))
 }
 
 async fn replace_server(
     host: &ExtensionHost,
+    cli: &CliRunner,
     definition: McpDefinition,
 ) -> Result<String, ExtensionError> {
-    let cli = host.runner()?;
     changeable(&definition, &host.label)?;
     let server = &definition.server;
-    if !definition.unsupported_settings.is_empty() {
-        return Err(ExtensionError::Unsupported(format!(
-            "{} has settings {} cannot re-add from its command line ({}); update it in its config.",
-            server.name,
-            host.label,
-            definition.unsupported_settings.join(", ")
-        )));
-    }
     let (index, package) = package_of(server)
         .filter(|(_, package)| package.version.is_some())
         .ok_or_else(|| {
@@ -259,11 +251,8 @@ async fn replace_server(
                 server.name
             ))
         })?;
-    if definition.args_space_joined && may_hold_spaces(&server.args, index) {
-        return Err(ExtensionError::Unsupported(format!(
-            "{} prints {}'s arguments on one line, so one containing a space cannot be told apart; update it in its config.",
-            host.label, server.name
-        )));
+    if let Some(reason) = update_blocker(server, index, &host.label) {
+        return Err(ExtensionError::Unsupported(reason));
     }
     let entry = registry_match(service(), server, Some(&package))
         .await
@@ -426,11 +415,11 @@ mod tests {
                 enabled: true,
                 status: None,
                 managed_by: None,
+                args_space_joined: false,
+                unsupported_settings: vec![],
             },
             env: BTreeMap::new(),
-            args_space_joined: false,
             other_scope: None,
-            unsupported_settings: vec![],
         };
         assert!(changeable(&definition, "Claude Code").is_ok());
         definition.other_scope = Some("Project config".into());

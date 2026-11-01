@@ -10,7 +10,7 @@ import {
   updateSkill,
   type McpInstallRequest,
 } from "@/api/generated";
-import { INVENTORY_URLS } from "@/hooks/useAgentExtensions";
+import { INVENTORY_URLS } from "@/lib/agent-extensions";
 import { toastError } from "@/lib/api-errors";
 import { invalidateByUrlPrefix } from "@/lib/queryClient";
 

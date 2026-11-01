@@ -1,8 +1,9 @@
 //! Codex skills and MCP servers, through `codex mcp` and `codex plugin`.
 
 mod definition;
+mod profile;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde::Deserialize;
@@ -15,35 +16,6 @@ use crate::domain::agents::extensions::{
 
 #[derive(Debug, Clone, Copy)]
 pub struct CodexExtensions;
-
-#[derive(Debug, Deserialize)]
-struct RawServer {
-    name: String,
-    #[serde(default = "enabled_by_default")]
-    enabled: bool,
-    #[serde(default)]
-    disabled_reason: Option<String>,
-    transport: RawTransport,
-}
-
-fn enabled_by_default() -> bool {
-    true
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-enum RawTransport {
-    Stdio {
-        command: String,
-        #[serde(default)]
-        args: Vec<String>,
-    },
-    StreamableHttp {
-        url: String,
-    },
-    #[serde(other)]
-    Other,
-}
 
 #[derive(Debug, Deserialize)]
 struct PluginList {
@@ -67,45 +39,10 @@ struct RawPlugin {
     install_policy: Option<String>,
 }
 
-impl RawServer {
-    fn into_server(self) -> Option<CliMcpServer> {
-        let mut server = CliMcpServer {
-            name: self.name,
-            transport: McpTransport::Stdio,
-            command: None,
-            args: Vec::new(),
-            url: None,
-            enabled: self.enabled,
-            status: self.disabled_reason,
-            managed_by: None,
-        };
-        match self.transport {
-            RawTransport::Stdio { command, args, .. } => {
-                server.managed_by = plugin_owner(&command);
-                server.command = Some(command);
-                server.args = args;
-            }
-            RawTransport::StreamableHttp { url } => {
-                server.transport = McpTransport::Http;
-                server.url = Some(url);
-            }
-            RawTransport::Other => return None,
-        }
-        Some(server)
-    }
-}
-
 /// Plugin-provided servers run from the plugin cache and are not in
 /// `config.toml`, so `codex mcp remove` cannot touch them.
-fn plugin_owner(command: &str) -> Option<String> {
-    is_plugin_launcher(command).then(|| "a Codex plugin".to_string())
-}
-
-fn is_plugin_launcher(command: &str) -> bool {
-    command.contains("/.codex/plugins/cache/")
-        || super::profiles::default_home().is_some_and(|home| {
-            std::path::Path::new(command).starts_with(home.join("plugins").join("cache"))
-        })
+fn plugin_owner(command: &str, home: Option<&Path>) -> Option<String> {
+    profile::in_plugin_cache(command, home).then(|| "a Codex plugin".to_string())
 }
 
 /// Remote marketplace apps listed only by an opaque id (`app-69a8…`).
@@ -162,13 +99,21 @@ fn inventory(list: PluginList) -> SkillInventory {
 }
 
 /// Skill folders Codex reads: `$CODEX_HOME/skills` and the shared `~/.agents/skills`.
-fn skill_roots() -> Vec<PathBuf> {
-    let mut roots: Vec<PathBuf> = super::profiles::default_home()
-        .map(|home| home.join("skills"))
-        .into_iter()
-        .collect();
+fn skill_roots(home: Option<&Path>) -> Vec<PathBuf> {
+    let mut roots: Vec<PathBuf> = home.map(|home| home.join("skills")).into_iter().collect();
     roots.extend(dirs::home_dir().map(|home| home.join(".agents").join("skills")));
     roots
+}
+
+/// What `codex mcp list --json` printed, minus transports Cadencr does not know.
+fn listed_servers(raw: Vec<definition::RawDefinition>, home: Option<&Path>) -> Vec<CliMcpServer> {
+    raw.into_iter()
+        .filter(definition::RawDefinition::known_transport)
+        .map(|raw| {
+            raw.into_definition(|command| plugin_owner(command, home))
+                .server
+        })
+        .collect()
 }
 
 fn add_args(spec: &McpServerSpec) -> Result<Vec<String>, ExtensionError> {
@@ -203,19 +148,21 @@ impl ExtensionCli for CodexExtensions {
         }
     }
 
+    fn for_active_profile(&self, cli: &CliRunner) -> Result<CliRunner, ExtensionError> {
+        profile::active(cli)
+    }
+
     async fn list_mcp(&self, cli: &CliRunner) -> Result<Vec<CliMcpServer>, ExtensionError> {
-        let servers: Vec<RawServer> = cli.run_json(&args!["mcp", "list", "--json"]).await?;
-        Ok(servers
-            .into_iter()
-            .filter_map(RawServer::into_server)
-            .collect())
+        let servers = cli.run_json(&args!["mcp", "list", "--json"]).await?;
+        Ok(listed_servers(servers, cli.config_home()))
     }
 
     async fn get_mcp(&self, cli: &CliRunner, name: &str) -> Result<McpDefinition, ExtensionError> {
         let raw: definition::RawDefinition = cli
             .run_json(&args!["mcp", "get", positional(name)?, "--json"])
             .await?;
-        Ok(raw.into_definition(plugin_owner))
+        let home = cli.config_home();
+        Ok(raw.into_definition(|command| plugin_owner(command, home)))
     }
 
     async fn add_mcp(&self, cli: &CliRunner, spec: &McpServerSpec) -> Result<(), ExtensionError> {
@@ -233,7 +180,7 @@ impl ExtensionCli for CodexExtensions {
             .run_json(&args!["plugin", "list", "--json", "--available"])
             .await?;
         let mut inventory = inventory(list);
-        for root in skill_roots() {
+        for root in skill_roots(cli.config_home()) {
             inventory
                 .installed
                 .extend(local_skills::scan(super::PROVIDER_ID, &root).await);
@@ -268,7 +215,7 @@ mod tests {
 
     #[test]
     fn reads_the_json_server_list() {
-        let raw: Vec<RawServer> = serde_json::from_value(serde_json::json!([
+        let raw: Vec<definition::RawDefinition> = serde_json::from_value(serde_json::json!([
             {"name": "chrome-devtools", "enabled": true, "transport": {
                 "type": "stdio", "command": "npx", "args": ["chrome-devtools-mcp@latest"],
                 "env": null, "env_vars": [], "cwd": null}},
@@ -277,20 +224,14 @@ mod tests {
             {"name": "future", "transport": {"type": "websocket"}}
         ]))
         .unwrap();
-        let servers: Vec<_> = raw.into_iter().filter_map(RawServer::into_server).collect();
+        let servers = listed_servers(raw, None);
         assert_eq!(servers.len(), 2);
         assert_eq!(servers[0].managed_by, None);
         assert_eq!(servers[0].args, ["chrome-devtools-mcp@latest"]);
         assert_eq!(servers[1].transport, McpTransport::Http);
         assert!(!servers[1].enabled);
-    }
-
-    #[test]
-    fn plugin_cache_launchers_are_managed_by_their_plugin() {
-        assert!(is_plugin_launcher(
-            "/Users/me/.codex/plugins/cache/openai-bundled/codex-app-tools/0.1.6/scripts/launch"
-        ));
-        assert!(!is_plugin_launcher("npx"));
+        assert_eq!(servers[1].status.as_deref(), Some("disabled by user"));
+        assert_eq!(servers[1].unsupported_settings, ["disabled"]);
     }
 
     #[test]

@@ -98,6 +98,7 @@ pub async fn upsert_profile_handler(
     Json(body): Json<UpsertProfileRequest>,
 ) -> Result<Json<ProfileView>, AppError> {
     let profile = profiles::upsert_profile(&name, &body.env).await?;
+    crate::domain::agents::extensions::forget_inventories();
     Ok(Json(ProfileView::from(profile)))
 }
 
@@ -111,6 +112,7 @@ pub async fn delete_profile_handler(
     Path(name): Path<String>,
 ) -> Result<Json<SuccessResponse>, AppError> {
     profiles::delete_profile(&name).await?;
+    crate::domain::agents::extensions::forget_inventories();
     Ok(Json(SuccessResponse { ok: true }))
 }
 
@@ -124,6 +126,7 @@ pub async fn set_active_profile_handler(
     Json(body): Json<SetActiveProfileRequest>,
 ) -> Result<Json<SuccessResponse>, AppError> {
     profiles::set_active_profile(&body.name).await?;
+    crate::domain::agents::extensions::forget_inventories();
     Ok(Json(SuccessResponse { ok: true }))
 }
 

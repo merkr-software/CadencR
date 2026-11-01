@@ -31,25 +31,38 @@ use async_trait::async_trait;
 pub(crate) use cli::{args, positional, CliRunner, ExtensionError};
 pub use types::*;
 
+/// A profile change may have moved the config an agent CLI reads: list
+/// everything again next time. Returns at once; queued behind any listing in
+/// flight, the reset still lands before the next one starts.
+pub fn forget_inventories() {
+    tokio::spawn(async {
+        let service = service::service();
+        service.invalidate_mcp().await;
+        service.invalidate_skills().await;
+    });
+}
+
 /// An installed server as its CLI's `mcp get` reports it.
 #[derive(Debug, Clone)]
 pub struct McpDefinition {
     pub server: CliMcpServer,
     pub env: BTreeMap<String, String>,
-    /// The CLI prints arguments joined by spaces, so one containing a space
-    /// reads back as two.
-    pub args_space_joined: bool,
     /// Where the server lives when that is not the user's own config (a
     /// project file…): Cadencr only changes user-level servers.
     pub other_scope: Option<String>,
-    /// Settings the CLI's `add` has no flag for, which a re-add would drop.
-    pub unsupported_settings: Vec<String>,
 }
 
 /// One provider's CLI, as the extension manager drives it.
 #[async_trait]
 pub trait ExtensionCli: Send + Sync + std::fmt::Debug {
     fn support(&self) -> ExtensionSupport;
+
+    /// The CLI as the provider's active profile runs it (its environment and
+    /// config home). Resolved once per operation, after taking the CLI's lock,
+    /// so every step of an update reads and writes the same config.
+    fn for_active_profile(&self, cli: &CliRunner) -> Result<CliRunner, ExtensionError> {
+        Ok(cli.clone())
+    }
 
     /// Servers the CLI loads for the user (not one project).
     async fn list_mcp(&self, cli: &CliRunner) -> Result<Vec<CliMcpServer>, ExtensionError>;

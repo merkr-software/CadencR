@@ -19,7 +19,7 @@ use super::{
     display_tail, ProviderUpdater, ProviderVersionReport, UpdateContext, UpdateError,
     UPDATE_TIMEOUT,
 };
-use crate::domain::agents::discovery::read_override_setting;
+use crate::domain::agents::discovery::{best_cli, read_override_setting};
 use crate::domain::agents::providers::ProviderDiscoveryMetadata;
 use crate::shared::bounded_command::capture_bounded;
 
@@ -52,12 +52,8 @@ impl NativeCliUpdater {
         read_override_setting(&context.read_pool, self.discovery.setting_key()).await
     }
 
-    /// The binary Cadencr would spawn: the persisted override, else the best
-    /// discovered install, with the version discovery already probed. `None`
-    /// when the CLI is not installed.
     async fn resolve(&self, override_path: Option<&Path>) -> Option<Candidate> {
-        let candidates = cli_discovery::discover_all(self.discovery.spec(), override_path).await;
-        cli_discovery::select_best(&candidates).cloned()
+        best_cli(&self.discovery, override_path).await
     }
 }
 
