@@ -20,6 +20,7 @@ use std::sync::{Arc, OnceLock};
 use cli_discovery::DiscoverySpec;
 
 use crate::domain::agents::adapter::AgentRuntimeAdapter;
+use crate::domain::agents::extensions::ExtensionCli;
 use crate::domain::agents::runtime::ProviderOrigin;
 use crate::domain::agents::updates::ProviderUpdater;
 
@@ -128,6 +129,8 @@ pub struct ProviderRegistrationMetadata {
     discovery: Option<ProviderDiscoveryMetadata>,
     /// Version detection and self-update, when the provider manages it.
     updater: Option<Arc<dyn ProviderUpdater>>,
+    /// Skills and MCP servers managed through the provider's own CLI.
+    extensions: Option<Arc<dyn ExtensionCli>>,
 }
 
 impl ProviderRegistrationMetadata {
@@ -145,6 +148,10 @@ impl ProviderRegistrationMetadata {
 
     pub fn updater(&self) -> Option<&Arc<dyn ProviderUpdater>> {
         self.updater.as_ref()
+    }
+
+    pub fn extensions(&self) -> Option<&Arc<dyn ExtensionCli>> {
+        self.extensions.as_ref()
     }
 }
 

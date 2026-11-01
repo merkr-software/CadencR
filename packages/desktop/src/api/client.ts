@@ -8,6 +8,7 @@ import { desktopBridge } from "@/lib/desktop-bridge";
 import { developmentApiBaseUrl } from "./runtime-origin";
 import { clearDeviceToken, isBrowserRemote, readDeviceToken } from "@/lib/remote/device-token";
 import {
+  agentExtensionOperationTimeout,
   managedProviderOperationTimeout,
   neovimOperationTimeout,
   NO_TIMEOUT_PATHS,
@@ -173,7 +174,8 @@ export async function customInstance<T>(config: AxiosRequestConfig): Promise<T> 
   const operationTimeout =
     publicationOperationTimeout(config) ??
     managedProviderOperationTimeout(config) ??
-    neovimOperationTimeout(config);
+    neovimOperationTimeout(config) ??
+    agentExtensionOperationTimeout(config);
   let finalConfig: AxiosRequestConfig =
     typeof config.url === "string" && NO_TIMEOUT_PATHS.some((p) => config.url!.startsWith(p))
       ? { ...config, timeout: 0 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { customInstance } from "./client";
-import { neovimOperationTimeout } from "./operation-timeouts";
+import { agentExtensionOperationTimeout, neovimOperationTimeout } from "./operation-timeouts";
 
 describe("Neovim initialization request timeout", () => {
   it.each(["/api/neovim/start", "/api/features/7/neovim/open"])(
@@ -34,5 +34,19 @@ describe("Neovim initialization request timeout", () => {
     expect(
       neovimOperationTimeout({ method: "POST", url: "/api/neovim/start", timeout: 5000 }),
     ).toBe(5000);
+  });
+});
+
+describe("agent extension request timeout", () => {
+  it("keeps CLI-driven installs alive past the default budget", () => {
+    expect(
+      agentExtensionOperationTimeout({ method: "POST", url: "/api/agent-extensions/mcp/install" }),
+    ).toBe(900000);
+    expect(
+      agentExtensionOperationTimeout({ method: "GET", url: "/api/agent-extensions/skills" }),
+    ).toBe(600000);
+    expect(
+      agentExtensionOperationTimeout({ method: "POST", url: "/api/git/status" }),
+    ).toBeUndefined();
   });
 });

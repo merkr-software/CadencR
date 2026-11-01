@@ -1,4 +1,5 @@
 import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { AgentExtensionActionsProvider } from "@/components/marketplace/agent/AgentExtensionActions";
 import { MarketplaceProvider } from "@/components/marketplace/MarketplaceContext";
 
 export const Route = createFileRoute("/marketplace")({
@@ -9,7 +10,9 @@ export const Route = createFileRoute("/marketplace")({
 function MarketplaceLayout(): React.JSX.Element {
   return (
     <MarketplaceProvider>
-      <Outlet />
+      <AgentExtensionActionsProvider>
+        <Outlet />
+      </AgentExtensionActionsProvider>
     </MarketplaceProvider>
   );
 }

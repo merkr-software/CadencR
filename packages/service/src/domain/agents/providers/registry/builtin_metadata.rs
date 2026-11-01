@@ -5,6 +5,7 @@ use std::sync::Arc;
 use cli_discovery::DiscoverySpec;
 
 use super::{ProviderDiscoveryMetadata, ProviderRegistrationMetadata};
+use crate::domain::agents::extensions::ExtensionCli;
 use crate::domain::agents::updates::native_cli::{LatestVersionSource, NativeCliUpdater};
 
 pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
@@ -24,6 +25,9 @@ pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
             &["update"],
         )
     }
+    .with_extensions(Arc::new(
+        crate::domain::agents::claude_code::extensions::ClaudeExtensions,
+    ))
 }
 
 pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
@@ -43,6 +47,7 @@ pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
             &["update"],
         )
     }
+    .with_extensions(Arc::new(crate::domain::agents::codex::extensions::CodexExtensions))
 }
 
 pub(super) fn cursor_metadata() -> ProviderRegistrationMetadata {
@@ -92,6 +97,13 @@ pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
             crate::domain::agents::opencode::updates::latest_version,
             &["upgrade"],
         )
+    }
+}
+
+impl ProviderRegistrationMetadata {
+    fn with_extensions(mut self, extensions: Arc<dyn ExtensionCli>) -> Self {
+        self.extensions = Some(extensions);
+        self
     }
 }
 

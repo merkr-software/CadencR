@@ -7,6 +7,8 @@ use crate::app_state::AppState;
 use crate::domain::agents::claude_code::routes as claude_code_routes;
 use crate::domain::agents::codex::routes as codex_routes;
 use crate::domain::agents::discovery::routes as discovery_routes;
+use crate::domain::agents::extensions as agent_extensions;
+use crate::domain::agents::extensions::routes as agent_extension_routes;
 use crate::domain::agents::orchestration_skills::routes as virtual_skills_routes;
 use crate::domain::agents::providers::development::routes as provider_development_routes;
 use crate::domain::agents::providers::installed::managed::routes as managed_provider_routes;
@@ -213,6 +215,17 @@ use crate::domain::ws_session::routes as ws_routes;
         provider_update_routes::get_provider_updates,
         provider_update_routes::check_provider_updates,
         provider_update_routes::update_provider,
+        agent_extension_routes::list_extension_clis,
+        agent_extension_routes::search_mcp_registry,
+        agent_extension_routes::get_mcp_registry_server,
+        agent_extension_routes::list_installed_mcp_servers,
+        agent_extension_routes::install_mcp_server,
+        agent_extension_routes::remove_mcp_server,
+        agent_extension_routes::update_mcp_server,
+        agent_extension_routes::list_skills,
+        agent_extension_routes::install_skill,
+        agent_extension_routes::remove_skill,
+        agent_extension_routes::update_skill,
         provider_development_routes::create_provider_workspace_handler,
         installed_provider_routes::installed_providers_handler,
         installed_provider_routes::install_provider_handler,
@@ -410,6 +423,31 @@ use crate::domain::ws_session::routes as ws_routes;
         discovery_routes::DiscoveredCandidate,
         discovery_routes::DiscoveredSource,
         crate::domain::agents::updates::ProviderUpdatesResponse,
+        agent_extensions::ExtensionClisResponse,
+        agent_extensions::ExtensionCliSummary,
+        agent_extensions::ExtensionSupport,
+        agent_extensions::McpTransport,
+        agent_extensions::McpRegistryPage,
+        agent_extensions::McpRegistryServer,
+        agent_extensions::McpInstallOption,
+        agent_extensions::McpInput,
+        agent_extensions::McpInputKind,
+        agent_extensions::McpInventoryResponse,
+        agent_extensions::McpListing,
+        agent_extensions::McpInstallation,
+        agent_extensions::CliMcpServer,
+        agent_extensions::McpPackageRef,
+        agent_extensions::McpInstallRequest,
+        agent_extensions::McpServerRequest,
+        agent_extension_routes::McpUpdateResponse,
+        agent_extension_routes::SkillCatalogFilter,
+        agent_extensions::ExtensionCliError,
+        agent_extensions::SkillCatalogResponse,
+        agent_extensions::SkillListing,
+        agent_extensions::SkillOffer,
+        agent_extensions::InstalledSkill,
+        agent_extensions::SkillSource,
+        agent_extensions::SkillRequest,
         crate::domain::agents::updates::ProviderUpdateStatus,
         crate::domain::agents::updates::ProviderUpdateState,
         crate::domain::agents::updates::ProviderUpdateActivity,

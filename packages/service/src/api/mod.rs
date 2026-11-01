@@ -302,6 +302,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(managed_provider_inventory_router())
         .merge(managed_provider_lifecycle_router())
         .merge(provider_update_actions_router())
+        .merge(crate::domain::agents::extensions::routes::agent_extensions_router())
         .merge(crate::domain::mcp::control::control_router())
         .merge(crate::domain::remote::loopback_router())
         // Custom tab grants, plugin-token routes and the plugin socket: a

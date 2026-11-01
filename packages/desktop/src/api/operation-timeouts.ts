@@ -54,3 +54,15 @@ export function neovimOperationTimeout(config: TimeoutConfig): number | undefine
     ? 120000
     : undefined;
 }
+
+// Skills and MCP servers install by running the agent CLIs, which fetch from
+// the network (backend budget: 180 s per command; an MCP update runs four,
+// a marketplace refresh then a listing two in a row). The backend finishes a
+// change even when this gives up, so a timeout only loses the confirmation.
+const AGENT_EXTENSION_PATH = /^\/api\/agent-extensions\//;
+
+export function agentExtensionOperationTimeout(config: TimeoutConfig): number | undefined {
+  if (config.timeout !== undefined) return config.timeout;
+  if (typeof config.url !== "string" || !AGENT_EXTENSION_PATH.test(config.url)) return undefined;
+  return config.method?.toUpperCase() === "POST" ? 900000 : 600000;
+}

@@ -167,7 +167,7 @@ export function HistorySection({
   );
 }
 
-function ExternalLinkValue({ url }: { url: string }): React.JSX.Element {
+export function ExternalLinkValue({ url }: { url: string }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -207,6 +207,15 @@ export function FactsSection({ listing }: { listing: MarketplaceListing }): Reac
       "Last updated",
       `${formatDay(listing.installed.updatedAt)} (${formatAgo(listing.installed.updatedAt)})`,
     ]);
+  return <DetailsSection facts={facts} />;
+}
+
+/** The "Details" label/value list of a detail page's sidebar. */
+export function DetailsSection({
+  facts,
+}: {
+  facts: readonly [string, React.ReactNode][];
+}): React.JSX.Element {
   return (
     <Section title="Details">
       <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12.5px]">

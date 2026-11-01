@@ -878,6 +878,42 @@ export interface ClaudeCodeSuccessResponse {
   ok: boolean;
 }
 
+/**
+ * How an agent CLI reaches an MCP server.
+ */
+export type McpTransport = (typeof McpTransport)[keyof typeof McpTransport];
+
+export const McpTransport = {
+  stdio: "stdio",
+  http: "http",
+  sse: "sse",
+} as const;
+
+/**
+ * One MCP server as an agent CLI reports it.
+ */
+export interface CliMcpServer {
+  args: string[];
+  /** @nullable */
+  command?: string | null;
+  enabled: boolean;
+  /**
+   * Set when the server is owned by something else (a connector account,
+   * a plugin) and cannot be removed or updated from here.
+   * @nullable
+   */
+  managed_by?: string | null;
+  name: string;
+  /**
+   * Health as the CLI reported it (`Connected`, `Needs authentication`…).
+   * @nullable
+   */
+  status?: string | null;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
+}
+
 export type CodexProfileDraftEnv = { [key: string]: string };
 
 export interface CodexProfileDraft {
@@ -1893,6 +1929,45 @@ export interface EffortSetPayload {
   session_id: string;
   /** @nullable */
   thinking_effort?: string | null;
+}
+
+/**
+ * A CLI that could not report its extensions; the others still answer.
+ */
+export interface ExtensionCliError {
+  message: string;
+  provider_id: string;
+}
+
+/**
+ * What a provider's CLI can install, list and update for Cadencr.
+ */
+export interface ExtensionSupport {
+  /** The CLI can attach arbitrary HTTP headers to a remote server. */
+  mcp_headers: boolean;
+  /** Transports `mcp add` accepts. Empty: the CLI cannot add MCP servers. */
+  mcp_transports: McpTransport[];
+  /** The CLI has a command that updates an installed skill pack. */
+  skill_update: boolean;
+  /** The CLI installs skill packs from its own plugin marketplaces. */
+  skills: boolean;
+}
+
+/**
+ * One agent CLI that can carry skills and MCP servers.
+ */
+export interface ExtensionCliSummary {
+  /** The CLI binary was found on this computer. */
+  installed: boolean;
+  label: string;
+  provider_id: string;
+  support: ExtensionSupport;
+  /** @nullable */
+  version?: string | null;
+}
+
+export interface ExtensionClisResponse {
+  clis: ExtensionCliSummary[];
 }
 
 export interface FastModeSetOkPayload {
@@ -2949,6 +3024,46 @@ export interface InstalledProvidersResponse {
   rejected: InstalledProviderRejection[];
 }
 
+/**
+ * Where an installed skill came from.
+ */
+export type SkillSource = (typeof SkillSource)[keyof typeof SkillSource];
+
+export const SkillSource = {
+  plugin: "plugin",
+  local: "local",
+} as const;
+
+/**
+ * A skill or skill pack installed in one CLI.
+ */
+export interface InstalledSkill {
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  enabled?: boolean | null;
+  /** Plugin selector, or the skill folder name for a local skill. */
+  id: string;
+  /** @nullable */
+  installed_at?: string | null;
+  name: string;
+  /** @nullable */
+  path?: string | null;
+  provider_id: string;
+  /** @nullable */
+  scope?: string | null;
+  source: SkillSource;
+  /**
+   * Newer marketplace version, when the CLI's catalog shows one.
+   * @nullable
+   */
+  update?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  /** @nullable */
+  version?: string | null;
+}
+
 export interface IsEmptyResponse {
   empty: boolean;
 }
@@ -3435,9 +3550,164 @@ export interface MarkViewedRequest {
   file_path: string;
 }
 
+/**
+ * Where one value the user provides at install time goes.
+ */
+export type McpInputKind = (typeof McpInputKind)[keyof typeof McpInputKind];
+
+export const McpInputKind = {
+  env: "env",
+  header: "header",
+  argument: "argument",
+  url_variable: "url_variable",
+} as const;
+
+/**
+ * A value the registry entry asks for (API key, path, header…).
+ */
+export interface McpInput {
+  /** @nullable */
+  default?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** Stable key the install request uses, e.g. `env:GITHUB_TOKEN`. */
+  key: string;
+  kind: McpInputKind;
+  label: string;
+  /**
+   * Format hint from the registry, e.g. `Bearer {api_key}`.
+   * @nullable
+   */
+  placeholder?: string | null;
+  required: boolean;
+  secret: boolean;
+}
+
+/**
+ * One way to run a registry server: a package launched locally or a remote endpoint.
+ */
+export interface McpInstallOption {
+  /** @nullable */
+  identifier?: string | null;
+  inputs: McpInput[];
+  /** `npm`, `pypi`, `oci` or `remote`. */
+  kind: string;
+  /** What the agent will run or reach, e.g. `npx -y pkg@1.2.0`. */
+  summary: string;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * Values keyed by [`McpInput::key`].
+ */
+export type McpInstallRequestValues = { [key: string]: string };
+
+export interface McpInstallRequest {
+  /**
+   * Index into the registry server's `options`.
+   * @minimum 0
+   */
+  option: number;
+  provider_id: string;
+  registry_name: string;
+  /** Name the CLI registers the server under. */
+  server_name: string;
+  /** Values keyed by [`McpInput::key`]. */
+  values?: McpInstallRequestValues;
+}
+
+/**
+ * A package an installed server runs, read from its launch command.
+ */
+export interface McpPackageRef {
+  identifier: string;
+  /** `npm` or `pypi`. */
+  registry_type: string;
+  /**
+   * Pinned version. `None`: the launcher resolves the newest one each run.
+   * @nullable
+   */
+  version?: string | null;
+}
+
+export type McpInstallationPackage = null | McpPackageRef;
+
+/**
+ * One server installed in one CLI.
+ */
+export interface McpInstallation {
+  package?: McpInstallationPackage;
+  provider_id: string;
+  server: CliMcpServer;
+  /**
+   * Newer registry version this pinned installation can move to.
+   * @nullable
+   */
+  update?: string | null;
+}
+
+/**
+ * A server listed in the official MCP Registry (latest version).
+ */
+export interface McpRegistryServer {
+  description: string;
+  /** Reverse-DNS registry name, e.g. `io.github.owner/server`. */
+  name: string;
+  options: McpInstallOption[];
+  /** @nullable */
+  published_at?: string | null;
+  /** @nullable */
+  repository?: string | null;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  version: string;
+  /** @nullable */
+  website?: string | null;
+}
+
+export type McpListingRegistry = null | McpRegistryServer;
+
+/**
+ * Installed servers grouped by what they are: one registry server (or one
+ * unmatched name) across every CLI that carries it.
+ */
+export interface McpListing {
+  installations: McpInstallation[];
+  /** `registry:<name>` or `local:<server name>`. */
+  key: string;
+  name: string;
+  registry?: McpListingRegistry;
+}
+
+export interface McpInventoryResponse {
+  errors: ExtensionCliError[];
+  listings: McpListing[];
+}
+
+export interface McpRegistryPage {
+  /** @nullable */
+  next_cursor?: string | null;
+  servers: McpRegistryServer[];
+}
+
+export interface McpServerRequest {
+  provider_id: string;
+  server_name: string;
+}
+
 export interface McpServerStatusPayload {
   name: string;
   status: string;
+}
+
+export interface McpUpdateResponse {
+  version: string;
 }
 
 /**
@@ -6267,6 +6537,60 @@ export interface SideQuestionResponse {
   session_id: number;
 }
 
+export type SkillCatalogFilter = (typeof SkillCatalogFilter)[keyof typeof SkillCatalogFilter];
+
+export const SkillCatalogFilter = {
+  all: "all",
+  installed: "installed",
+  updates: "updates",
+} as const;
+
+/**
+ * A skill pack as a CLI's plugin marketplace offers it.
+ */
+export interface SkillOffer {
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  install_count?: number | null;
+  marketplace: string;
+  /** The CLI's own selector, e.g. `name@marketplace`. */
+  plugin_id: string;
+  provider_id: string;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * One skill name across every CLI: what each offers and what each has installed.
+ */
+export interface SkillListing {
+  /** @nullable */
+  description?: string | null;
+  installed: InstalledSkill[];
+  /** Lowercased name: the same skill pack in two CLIs shares it. */
+  key: string;
+  name: string;
+  offers: SkillOffer[];
+}
+
+export interface SkillCatalogResponse {
+  errors: ExtensionCliError[];
+  skills: SkillListing[];
+  /**
+   * Matches before `offset`/`limit` were applied.
+   * @minimum 0
+   */
+  total: number;
+}
+
+export interface SkillRequest {
+  /** The CLI's plugin selector (`name@marketplace`). */
+  plugin_id: string;
+  provider_id: string;
+}
+
 /**
  * Where a spawned session works, relative to the invoking conversation.
  */
@@ -7721,6 +8045,46 @@ export type GetAgentCatalogParams = {
   profile?: string;
 };
 
+export type ListInstalledMcpServersParams = {
+  /**
+   * List every CLI again instead of the cached inventory.
+   */
+  refresh?: boolean;
+};
+
+export type SearchMcpRegistryParams = {
+  /**
+   * Substring of the registry name.
+   */
+  q?: string;
+  /**
+   * @nullable
+   */
+  cursor?: string | null;
+};
+
+export type GetMcpRegistryServerParams = {
+  name: string;
+};
+
+export type ListSkillsParams = {
+  q?: string;
+  filter?: SkillCatalogFilter;
+  /**
+   * @minimum 0
+   */
+  offset?: number;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  limit?: number | null;
+  /**
+   * Re-read every CLI's marketplaces from their sources first.
+   */
+  refresh?: boolean;
+};
+
 export type GetAgentProfilesParams = {
   /**
    * Registered provider id
@@ -8413,6 +8777,987 @@ export function useGetAgentCatalog<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const listExtensionClis = (signal?: AbortSignal) => {
+  return customInstance<ExtensionClisResponse>({
+    url: `/api/agent-extensions/clis`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListExtensionClisQueryKey = () => {
+  return [`/api/agent-extensions/clis`] as const;
+};
+
+export const getListExtensionClisQueryOptions = <
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListExtensionClisQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listExtensionClis>>> = ({ signal }) =>
+    listExtensionClis(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listExtensionClis>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListExtensionClisQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listExtensionClis>>
+>;
+export type ListExtensionClisQueryError = ErrorType<unknown>;
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListExtensionClisQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installMcpServer = (mcpInstallRequest: McpInstallRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpInstallRequest,
+    signal,
+  });
+};
+
+export const getInstallMcpServerMutationKey = () => ["installMcpServer"] as const;
+
+export const getInstallMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    TError,
+    InstallMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    InstallMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installMcpServer>>
+>;
+export type InstallMcpServerMutationBody = McpInstallRequest;
+export type InstallMcpServerMutationError = ErrorType<void>;
+export type InstallMcpServerMutationVariables = { data: McpInstallRequest };
+
+export const useInstallMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installMcpServer>>,
+      TError,
+      InstallMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallMcpServerMutationOptions(options), queryClient);
+};
+
+export const listInstalledMcpServers = (
+  params?: ListInstalledMcpServersParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<McpInventoryResponse>({
+    url: `/api/agent-extensions/mcp/installed`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListInstalledMcpServersQueryKey = (params?: ListInstalledMcpServersParams) => {
+  return [`/api/agent-extensions/mcp/installed`, ...(params ? [params] : [])] as const;
+};
+
+export const getListInstalledMcpServersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListInstalledMcpServersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listInstalledMcpServers>>> = ({
+    signal,
+  }) => listInstalledMcpServers(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInstalledMcpServers>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListInstalledMcpServersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInstalledMcpServers>>
+>;
+export type ListInstalledMcpServersQueryError = ErrorType<unknown>;
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListInstalledMcpServersParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListInstalledMcpServersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const searchMcpRegistry = (params?: SearchMcpRegistryParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryPage>({
+    url: `/api/agent-extensions/mcp/registry`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getSearchMcpRegistryQueryKey = (params?: SearchMcpRegistryParams) => {
+  return [`/api/agent-extensions/mcp/registry`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchMcpRegistryQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSearchMcpRegistryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMcpRegistry>>> = ({ signal }) =>
+    searchMcpRegistry(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchMcpRegistry>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type SearchMcpRegistryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof searchMcpRegistry>>
+>;
+export type SearchMcpRegistryQueryError = ErrorType<void>;
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params: undefined | SearchMcpRegistryParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getSearchMcpRegistryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getMcpRegistryServer = (params: GetMcpRegistryServerParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryServer>({
+    url: `/api/agent-extensions/mcp/registry/server`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetMcpRegistryServerQueryKey = (params?: GetMcpRegistryServerParams) => {
+  return [`/api/agent-extensions/mcp/registry/server`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMcpRegistryServerQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMcpRegistryServerQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMcpRegistryServer>>> = ({ signal }) =>
+    getMcpRegistryServer(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMcpRegistryServer>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMcpRegistryServerQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMcpRegistryServer>>
+>;
+export type GetMcpRegistryServerQueryError = ErrorType<void>;
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMcpRegistryServerQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const removeMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getRemoveMcpServerMutationKey = () => ["removeMcpServer"] as const;
+
+export const getRemoveMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    TError,
+    RemoveMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    RemoveMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeMcpServer>>
+>;
+export type RemoveMcpServerMutationBody = McpServerRequest;
+export type RemoveMcpServerMutationError = ErrorType<void>;
+export type RemoveMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useRemoveMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeMcpServer>>,
+      TError,
+      RemoveMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveMcpServerMutationOptions(options), queryClient);
+};
+
+export const updateMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<McpUpdateResponse>({
+    url: `/api/agent-extensions/mcp/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getUpdateMcpServerMutationKey = () => ["updateMcpServer"] as const;
+
+export const getUpdateMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    TError,
+    UpdateMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    UpdateMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMcpServer>>
+>;
+export type UpdateMcpServerMutationBody = McpServerRequest;
+export type UpdateMcpServerMutationError = ErrorType<void>;
+export type UpdateMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useUpdateMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateMcpServer>>,
+      TError,
+      UpdateMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateMcpServerMutationOptions(options), queryClient);
+};
+
+export const listSkills = (params?: ListSkillsParams, signal?: AbortSignal) => {
+  return customInstance<SkillCatalogResponse>({
+    url: `/api/agent-extensions/skills`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListSkillsQueryKey = (params?: ListSkillsParams) => {
+  return [`/api/agent-extensions/skills`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSkillsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSkills>>> = ({ signal }) =>
+    listSkills(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListSkillsQueryResult = NonNullable<Awaited<ReturnType<typeof listSkills>>>;
+export type ListSkillsQueryError = ErrorType<unknown>;
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListSkillsParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSkillsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getInstallSkillMutationKey = () => ["installSkill"] as const;
+
+export const getInstallSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installSkill>>,
+    TError,
+    InstallSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installSkill>>,
+    InstallSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallSkillMutationResult = NonNullable<Awaited<ReturnType<typeof installSkill>>>;
+export type InstallSkillMutationBody = SkillRequest;
+export type InstallSkillMutationError = ErrorType<void>;
+export type InstallSkillMutationVariables = { data: SkillRequest };
+
+export const useInstallSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installSkill>>,
+      TError,
+      InstallSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallSkillMutationOptions(options), queryClient);
+};
+
+export const removeSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getRemoveSkillMutationKey = () => ["removeSkill"] as const;
+
+export const getRemoveSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeSkill>>,
+    TError,
+    RemoveSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeSkill>>,
+    RemoveSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveSkillMutationResult = NonNullable<Awaited<ReturnType<typeof removeSkill>>>;
+export type RemoveSkillMutationBody = SkillRequest;
+export type RemoveSkillMutationError = ErrorType<void>;
+export type RemoveSkillMutationVariables = { data: SkillRequest };
+
+export const useRemoveSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeSkill>>,
+      TError,
+      RemoveSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveSkillMutationOptions(options), queryClient);
+};
+
+export const updateSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getUpdateSkillMutationKey = () => ["updateSkill"] as const;
+
+export const getUpdateSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSkill>>,
+    TError,
+    UpdateSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSkill>>,
+    UpdateSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSkillMutationResult = NonNullable<Awaited<ReturnType<typeof updateSkill>>>;
+export type UpdateSkillMutationBody = SkillRequest;
+export type UpdateSkillMutationError = ErrorType<void>;
+export type UpdateSkillMutationVariables = { data: SkillRequest };
+
+export const useUpdateSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateSkill>>,
+      TError,
+      UpdateSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateSkillMutationOptions(options), queryClient);
+};
 
 export const getAgentProfiles = (params: GetAgentProfilesParams, signal?: AbortSignal) => {
   return customInstance<ProviderProfilesResponse>({
