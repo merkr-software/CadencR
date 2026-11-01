@@ -36,7 +36,7 @@
     "host": {
       "publisher": "cadencr",
       "compatibility": {
-        "min_app_version": "0.15.1"
+        "min_app_version": "0.16.0"
       },
       "assets": {
         "icon": "icon.svg",

@@ -275,16 +275,13 @@ cannot satisfy without a new artifact kind. Remaining release steps:
    session reconciliation, load and close probes) and record the evidence in
    `readiness.json`.
 
-`package-template.json` declares `min_app_version` `0.15.1` (the desktop
-version this connector was written against); raise it to the first app release
-that ships the host side of this change (generic `_meta.updatedInput`
-forwarding and the removal of the built-in Cursor adapter).
-
-TODO: `min_app_version` must also be raised to the first app release that
-ships the provider-neutral host conventions this connector now emits
-(`_meta.cadencr` modes, access mode and background sub-agents, and the
-`host-integration` command). Older hosts ignore them, so the connector still
-runs there, but without the mode/access chips or worktree configuration.
+`package-template.json` declares `min_app_version` `0.16.0`, the first app
+release that ships the host side of this connector: the removal of the
+built-in Cursor adapter, generic `_meta.updatedInput` forwarding, and the
+provider-neutral conventions the connector emits (`_meta.cadencr` modes,
+access mode and background sub-agents, the `host-integration` and
+`slash-commands` commands). On an older host the built-in adapter still owns
+the `cursor` id.
 
 ## Connector artwork
 
