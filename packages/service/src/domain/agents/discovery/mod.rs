@@ -9,13 +9,15 @@
 pub mod routes;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use cli_discovery::Candidate;
 
 use sqlx::SqlitePool;
 use tracing::info;
 
 use super::adapter::RuntimeError;
-use super::providers::provider_registry;
+use super::providers::{provider_registry, ProviderDiscoveryMetadata};
 
 pub(crate) type BinaryOverrides = HashMap<String, PathBuf>;
 
@@ -63,6 +65,17 @@ pub(crate) async fn read_override_setting(read_pool: &SqlitePool, key: &str) -> 
             None
         }
     }
+}
+
+/// The binary Cadencr would spawn for `discovery`: `override_path` (the
+/// persisted override) when set, else the best discovered install, with the
+/// version discovery already probed. `None` when the CLI is not installed.
+pub(crate) async fn best_cli(
+    discovery: &ProviderDiscoveryMetadata,
+    override_path: Option<&Path>,
+) -> Option<Candidate> {
+    let candidates = cli_discovery::discover_all(discovery.spec(), override_path).await;
+    cli_discovery::select_best(&candidates).cloned()
 }
 
 /// User-facing message for `RuntimeError::CliNotFound`, surfaced via the WS

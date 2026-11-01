@@ -38,6 +38,8 @@ fn parse_line(line: &str) -> Option<CliMcpServer> {
         enabled,
         status,
         managed_by,
+        args_space_joined: true,
+        unsupported_settings: Vec::new(),
     };
     if target.starts_with("https://") || target.starts_with("http://") {
         let (url, transport) = match target.rsplit_once(' ') {
@@ -114,12 +116,12 @@ pub fn parse_get(name: &str, output: &str) -> McpDefinition {
             enabled: true,
             status: fields.get("Status").map(|status| status.to_string()),
             managed_by: owner(name),
+            args_space_joined: true,
+            unsupported_settings: Vec::new(),
         },
         env,
-        args_space_joined: true,
         other_scope: (!scope.starts_with("User"))
             .then(|| scope.split(" (").next().unwrap_or(scope).to_string()),
-        unsupported_settings: Vec::new(),
     }
 }
 
@@ -174,7 +176,7 @@ plugin:github:github: https://api.githubcopilot.com/mcp/ (HTTP) - ✗ Failed to 
             definition.server.args,
             ["-y", "acme@1.0.0", "/Users/me/My", "Projects"]
         );
-        assert!(definition.args_space_joined);
+        assert!(definition.server.args_space_joined);
         assert_eq!(definition.env.len(), 2);
         assert_eq!(definition.env["ACME_TOKEN"], "abc=d");
         assert_eq!(definition.other_scope, None);

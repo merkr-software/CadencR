@@ -69,6 +69,13 @@ pub struct CliMcpServer {
     /// Set when the server is owned by something else (a connector account,
     /// a plugin) and cannot be removed or updated from here.
     pub managed_by: Option<String>,
+    /// The CLI prints arguments joined by spaces, so one containing a space
+    /// reads back as two.
+    #[serde(skip)]
+    pub args_space_joined: bool,
+    /// Settings the CLI's `add` has no flag for, which a re-add would drop.
+    #[serde(skip)]
+    pub unsupported_settings: Vec<String>,
 }
 
 /// A package an installed server runs, read from its launch command.
@@ -149,6 +156,9 @@ pub struct McpInstallation {
     pub package: Option<McpPackageRef>,
     /// Newer registry version this pinned installation can move to.
     pub update: Option<String>,
+    /// Why Cadencr cannot apply `update` itself: the CLI could not re-add the
+    /// server exactly as it is. The user updates it in the CLI's config.
+    pub update_blocked: Option<String>,
 }
 
 /// Installed servers grouped by what they are: one registry server (or one

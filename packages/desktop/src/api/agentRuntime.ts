@@ -13,6 +13,7 @@ import type {
 import { getGetAgentSelectionQueryKey } from "./generated";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 import { PROVIDER_IDS } from "@/lib/providers";
+import { invalidateExtensionInventories } from "@/lib/agent-extensions";
 
 export type RuntimeModelOption = {
   [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
@@ -218,13 +219,15 @@ export function useClaudeCodeProfiles(arg: boolean | QueryExtras = true) {
 // (and the model picker built from it) is profile-dependent — under Bedrock /
 // Vertex even the model ids change. Any profile mutation that can alter the
 // active env therefore invalidates the catalog so the picker refetches the
-// right models, not just the profiles list.
+// right models, not just the profiles list. The env can also move Claude
+// Code's config dir, so the skills and MCP servers it reports re-list too.
 async function invalidateProfilesAndCatalog(queryClient: ReturnType<typeof useQueryClient>) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["claude-code", "profiles"] }),
     queryClient.invalidateQueries({ queryKey: ["agent-profiles", PROVIDER_IDS.CLAUDE_CODE] }),
     queryClient.invalidateQueries({ queryKey: ["agent-catalog"] }),
     queryClient.invalidateQueries({ queryKey: getGetAgentSelectionQueryKey() }),
+    invalidateExtensionInventories(queryClient),
   ]);
 }
 

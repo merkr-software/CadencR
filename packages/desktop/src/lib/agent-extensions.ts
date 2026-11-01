@@ -8,6 +8,8 @@ import type {
   SkillListing,
   SkillOffer,
 } from "@/api/generated";
+import type { QueryClient } from "@tanstack/react-query";
+import { invalidateByUrlPrefix } from "@/lib/queryClient";
 import { matchesSidebarFilter } from "@/lib/sidebar-filter";
 
 /** What the marketplace installs into the agent CLIs themselves, not into Cadencr. */
@@ -16,6 +18,17 @@ export type AgentExtensionKind = (typeof AGENT_EXTENSION_KINDS)[number];
 
 export function isAgentExtensionKind(value: string): value is AgentExtensionKind {
   return (AGENT_EXTENSION_KINDS as readonly string[]).includes(value);
+}
+
+/** What a change in one kind can move: its inventory, never registry search results. */
+export const INVENTORY_URLS = {
+  mcp: "/api/agent-extensions/mcp/installed",
+  skill: "/api/agent-extensions/skills",
+} as const satisfies Record<AgentExtensionKind, string>;
+
+/** Re-list every CLI's skills and MCP servers: what they read may have changed. */
+export function invalidateExtensionInventories(client: QueryClient): Promise<void> {
+  return invalidateByUrlPrefix(client, Object.values(INVENTORY_URLS));
 }
 
 /** The name a CLI registers a registry server under: its last path segment, made safe. */

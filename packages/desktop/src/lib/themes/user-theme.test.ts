@@ -108,7 +108,8 @@ describe("readThemeCssVars", () => {
   it("returns a theme's own token map without touching the document", () => {
     window.document.documentElement.dataset.theme = "frost-dark";
     const vars = readThemeCssVars("dracula", DRACULA_THEME.cssVars);
-    expect(Object.keys(vars)).toHaveLength(THEME_TOKEN_KEYS.length);
+    // Every required token, plus the optional `--chart-6` Dracula declares.
+    expect(Object.keys(vars)).toHaveLength(THEME_TOKEN_KEYS.length + 1);
     expect(vars["--background"]).toBe(DRACULA_THEME.cssVars?.["--background"]);
     expect(window.document.documentElement.dataset.theme).toBe("frost-dark");
   });

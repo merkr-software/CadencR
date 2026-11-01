@@ -3648,6 +3648,12 @@ export interface McpInstallation {
    * @nullable
    */
   update?: string | null;
+  /**
+   * Why Cadencr cannot apply `update` itself: the CLI could not re-add the
+   * server exactly as it is. The user updates it in the CLI's config.
+   * @nullable
+   */
+  update_blocked?: string | null;
 }
 
 /**

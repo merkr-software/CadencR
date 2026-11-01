@@ -1,5 +1,7 @@
-//! `codex mcp get <name> --json`: one server with every setting, so an update
-//! knows what `codex mcp add` could not put back.
+//! A server as `codex mcp get <name> --json` and `codex mcp list --json`
+//! print it: every setting, so an update knows what `codex mcp add` could not
+//! put back. `list` leaves out `enabled_tools` and `disabled_tools` (codex-cli
+//! 0.165), so a server limited by those alone is only refused at update time.
 
 use std::collections::BTreeMap;
 
@@ -12,6 +14,8 @@ pub struct RawDefinition {
     name: String,
     #[serde(default = "enabled_by_default")]
     enabled: bool,
+    #[serde(default)]
+    disabled_reason: Option<String>,
     transport: RawTransport,
     #[serde(default)]
     enabled_tools: Option<Vec<String>>,
@@ -37,7 +41,7 @@ enum RawTransport {
         #[serde(default)]
         env: Option<BTreeMap<String, String>>,
         #[serde(default)]
-        env_vars: Vec<String>,
+        env_vars: Option<Vec<String>>,
         #[serde(default)]
         cwd: Option<String>,
     },
@@ -49,6 +53,11 @@ enum RawTransport {
 }
 
 impl RawDefinition {
+    /// Whether Cadencr knows the transport; a newer one is left out of lists.
+    pub fn known_transport(&self) -> bool {
+        !matches!(self.transport, RawTransport::Other)
+    }
+
     pub fn into_definition(self, managed_by: impl Fn(&str) -> Option<String>) -> McpDefinition {
         let mut unsupported = Vec::new();
         let mut note = |present: bool, setting: &str| {
@@ -68,8 +77,10 @@ impl RawDefinition {
             args: Vec::new(),
             url: None,
             enabled: self.enabled,
-            status: None,
+            status: self.disabled_reason,
             managed_by: None,
+            args_space_joined: false,
+            unsupported_settings: Vec::new(),
         };
         let mut env = BTreeMap::new();
         match self.transport {
@@ -80,7 +91,7 @@ impl RawDefinition {
                 env_vars,
                 cwd,
             } => {
-                note(!env_vars.is_empty(), "env_vars");
+                note(env_vars.is_some_and(|vars| !vars.is_empty()), "env_vars");
                 note(cwd.is_some(), "cwd");
                 server.managed_by = managed_by(&command);
                 server.command = Some(command);
@@ -93,12 +104,11 @@ impl RawDefinition {
             }
             RawTransport::Other => note(true, "transport"),
         }
+        server.unsupported_settings = unsupported;
         McpDefinition {
             server,
             env,
-            args_space_joined: false,
             other_scope: None,
-            unsupported_settings: unsupported,
         }
     }
 }
@@ -125,7 +135,7 @@ mod tests {
         }));
         assert_eq!(definition.server.args, ["-y", "pkg@1.0.0", "/My Path"]);
         assert_eq!(definition.env["TOKEN"], "s3cret");
-        assert!(definition.unsupported_settings.is_empty());
+        assert!(definition.server.unsupported_settings.is_empty());
     }
 
     #[test]
@@ -137,7 +147,7 @@ mod tests {
             "enabled_tools": ["a"], "startup_timeout_sec": 30.0
         }));
         assert_eq!(
-            definition.unsupported_settings,
+            definition.server.unsupported_settings,
             [
                 "disabled",
                 "enabled_tools",
@@ -146,5 +156,31 @@ mod tests {
                 "cwd"
             ]
         );
+    }
+
+    #[test]
+    fn the_list_output_names_what_it_carries() {
+        // `codex mcp list --json` (codex-cli 0.165) for a server with tool
+        // filters, timeouts and env_vars: no `enabled_tools`/`disabled_tools`.
+        let definition = definition(serde_json::json!({
+            "name": "tools-limited", "enabled": true, "disabled_reason": null,
+            "transport": {"type": "stdio", "command": "npx", "args": ["-y", "fs@1.0.0"],
+                "env": null, "env_vars": ["HOME_TOKEN"], "cwd": null},
+            "startup_timeout_sec": 30.0, "tool_timeout_sec": 60.0,
+            "auth_status": "unsupported"
+        }));
+        assert_eq!(
+            definition.server.unsupported_settings,
+            ["startup_timeout_sec", "tool_timeout_sec", "env_vars"]
+        );
+    }
+
+    #[test]
+    fn null_env_vars_read_as_none() {
+        let definition = definition(serde_json::json!({
+            "name": "plain",
+            "transport": {"type": "stdio", "command": "npx", "env_vars": null}
+        }));
+        assert!(definition.server.unsupported_settings.is_empty());
     }
 }

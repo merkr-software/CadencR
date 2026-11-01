@@ -323,7 +323,7 @@ function InstalledRow({
   label: string;
   installation: McpInstallation;
 }): React.JSX.Element {
-  const { server, update } = installation;
+  const { server, update, update_blocked: blocked } = installation;
   const target = {
     label,
     cliLabel: cli.label,
@@ -342,10 +342,13 @@ function InstalledRow({
       detail={
         server.managed_by
           ? `Managed by ${server.managed_by}; change it there.`
-          : [server.status, server.enabled ? null : "Disabled"].filter(Boolean).join(" · ") || null
+          : // Health first, then why an available update must happen in the config.
+            [server.status, server.enabled ? null : "Disabled", update ? blocked : null]
+              .filter(Boolean)
+              .join(" · ") || null
       }
     >
-      {!server.managed_by && update && (
+      {!server.managed_by && update && !blocked && (
         <ActionButton
           action={{ kind: "mcp-update", ...target }}
           idle={`Update to ${update}`}

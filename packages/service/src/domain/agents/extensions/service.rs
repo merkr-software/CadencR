@@ -47,14 +47,16 @@ impl ExtensionHost {
         self.extensions.support()
     }
 
-    /// The CLI to run, or why there is none.
-    pub fn runner(&self) -> Result<&CliRunner, ExtensionError> {
-        self.cli.as_ref().ok_or_else(|| {
+    /// The CLI to run as its active profile runs it, or why there is none.
+    /// Take it once per operation, after the CLI's lock.
+    pub fn runner(&self) -> Result<CliRunner, ExtensionError> {
+        let cli = self.cli.as_ref().ok_or_else(|| {
             ExtensionError::Unsupported(format!(
                 "{} is not installed on this computer.",
                 self.label
             ))
-        })
+        })?;
+        self.extensions.for_active_profile(cli)
     }
 }
 

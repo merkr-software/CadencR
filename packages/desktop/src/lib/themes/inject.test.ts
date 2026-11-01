@@ -29,8 +29,10 @@ describe("theme token set", () => {
   it("dracula carries a value for every token in the closed set", () => {
     // Dracula is the first theme ported off `theme.css` to the data path. It
     // must cover the whole token set, or the ported theme paints less than the
-    // stylesheet block it replaced.
-    expect(Object.keys(DRACULA_THEME.cssVars ?? {}).sort()).toEqual([...THEME_TOKEN_KEYS].sort());
+    // stylesheet block it replaced, the optional sixth chart color included.
+    expect(Object.keys(DRACULA_THEME.cssVars ?? {}).sort()).toEqual(
+      [...THEME_TOKEN_KEYS, "--chart-6"].sort(),
+    );
   });
 });
 

@@ -122,38 +122,11 @@ struct AgentFrontmatter {
 
 /// Top-level `model` / `effort` scalars of a `---` fenced YAML frontmatter.
 fn parse_frontmatter(content: &str) -> AgentFrontmatter {
-    let mut frontmatter = AgentFrontmatter::default();
-    let mut lines = content.trim_start_matches('\u{feff}').lines();
-    if lines.next().map(str::trim_end) != Some("---") {
-        return frontmatter;
+    let mut fields = crate::shared::frontmatter::scalars(content);
+    AgentFrontmatter {
+        model: fields.remove("model").filter(|model| model != "inherit"),
+        effort: fields.remove("effort"),
     }
-    for line in lines {
-        if line.trim_end() == "---" {
-            break;
-        }
-        if line.starts_with(char::is_whitespace) {
-            continue;
-        }
-        let Some((key, value)) = line.split_once(':') else {
-            continue;
-        };
-        match key.trim() {
-            "model" => frontmatter.model = scalar(value).filter(|model| model != "inherit"),
-            "effort" => frontmatter.effort = scalar(value),
-            _ => {}
-        }
-    }
-    frontmatter
-}
-
-fn scalar(value: &str) -> Option<String> {
-    let value = value.trim();
-    let value = match value.chars().next() {
-        Some(quote @ ('"' | '\'')) => value[1..].split(quote).next().unwrap_or_default(),
-        _ => value.split(" #").next().unwrap_or_default(),
-    };
-    let value = value.trim();
-    (!value.is_empty()).then(|| value.to_string())
 }
 
 #[cfg(test)]

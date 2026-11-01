@@ -20,19 +20,13 @@ import {
   type ListSkillsParams,
 } from "@/api/generated";
 import { toastError } from "@/lib/api-errors";
-import { invalidateByUrlPrefix } from "@/lib/queryClient";
+import { invalidateExtensionInventories } from "@/lib/agent-extensions";
 
 /**
  * Listing runs the agent CLIs (Claude health-checks servers), so it is not
  * re-run eagerly: every change invalidates it, and "Check for updates" forces it.
  */
 const INVENTORY_STALE_MS = 5 * 60_000;
-
-/** What a change in one kind can move: its inventory, never registry search results. */
-export const INVENTORY_URLS = {
-  mcp: "/api/agent-extensions/mcp/installed",
-  skill: "/api/agent-extensions/skills",
-} as const;
 
 export function useExtensionClis() {
   return useQuery({
@@ -133,6 +127,6 @@ export function useRefreshAgentExtensions() {
         listInstalledMcpServers({ refresh: true }),
       ]),
     onError: (error) => toastError(error, "The agent CLIs could not refresh their marketplaces."),
-    onSettled: () => invalidateByUrlPrefix(client, Object.values(INVENTORY_URLS)),
+    onSettled: () => invalidateExtensionInventories(client),
   });
 }
