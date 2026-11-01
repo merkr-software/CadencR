@@ -69,6 +69,11 @@ use crate::domain::ws_session::routes as ws_routes;
     info(title = "Cadencr Service API", version = "0.1.0"),
     paths(
         health,
+        crate::domain::telemetry::routes::get_preferences,
+        crate::domain::telemetry::routes::put_preferences,
+        crate::domain::telemetry::routes::reset_identity,
+        crate::domain::telemetry::routes::ingest_diagnostic,
+        crate::domain::telemetry::routes::activity,
         openapi_spec,
         editor_routes::read_file_handler,
         // `read-image` and `diff-image` are intentionally NOT exposed to orval: their responses
@@ -320,6 +325,12 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_routes::open_file_route,
     ),
     components(schemas(
+        crate::domain::telemetry::models::TelemetryConsent,
+        crate::domain::telemetry::models::TelemetryPreferences,
+        crate::domain::telemetry::models::DeliveryStatus,
+        crate::domain::telemetry::models::DiagnosticReport,
+        crate::domain::telemetry::models::DiagnosticCategory,
+        crate::domain::telemetry::models::DiagnosticFrame,
         prompt_queue_store::QueuedPrompt,
         prompt_queue_store::QueuedPromptStatus,
         crate::domain::subagents::SubagentRun,

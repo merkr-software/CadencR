@@ -99,6 +99,17 @@ impl IntoResponse for AppError {
 
         if status.is_server_error() {
             tracing::error!(code = code, error = %self, "request failed");
+            use crate::domain::telemetry::{diagnostic, models::DiagnosticCategory};
+            // Only curated application failures; never forward Display, trace fields or provider text.
+            let category = match &self {
+                AppError::DatabaseError(_) => Some(DiagnosticCategory::ServiceDatabase),
+                AppError::Internal(_) => Some(DiagnosticCategory::ServiceInternal),
+                AppError::GitCommandError(_) => Some(DiagnosticCategory::ServiceGit),
+                _ => None,
+            };
+            if let Some(category) = category {
+                diagnostic(category, vec![]);
+            }
         }
 
         let public_error = if status == StatusCode::INTERNAL_SERVER_ERROR {

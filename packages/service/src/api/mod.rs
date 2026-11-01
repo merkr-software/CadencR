@@ -85,6 +85,14 @@ pub async fn get_agent_catalog(
         query.profile.as_deref(),
     )
     .await;
+    if catalog.providers.iter().any(|entry| {
+        matches!(
+            entry.provider.status,
+            crate::domain::agents::runtime::ProviderStatus::Available
+        )
+    }) {
+        crate::domain::telemetry::provider_ready();
+    }
     Json(catalog)
 }
 
@@ -227,6 +235,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(openapi::routes())
         .merge(git_router())
         .merge(workspace_router())
+        .merge(crate::domain::telemetry::routes::router())
         .merge(projects_router())
         .merge(features_router())
         .merge(recent_routes())

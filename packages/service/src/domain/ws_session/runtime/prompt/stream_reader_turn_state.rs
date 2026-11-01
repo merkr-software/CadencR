@@ -3,6 +3,7 @@ pub(in crate::domain::ws_session) struct StreamTurnState {
     phase: TurnPhase,
     compacting: bool,
     surfaced_error_this_turn: bool,
+    started_at: std::time::Instant,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,6 +19,7 @@ impl StreamTurnState {
             phase: TurnPhase::AwaitingFirstEvent,
             compacting: false,
             surfaced_error_this_turn: false,
+            started_at: std::time::Instant::now(),
         }
     }
 
@@ -58,8 +60,15 @@ impl StreamTurnState {
     }
 
     pub(in crate::domain::ws_session) fn mark_fresh_turn_started(&mut self) {
+        if self.is_between_turns() {
+            self.started_at = std::time::Instant::now();
+        }
         self.phase = TurnPhase::Active;
         self.surfaced_error_this_turn = false;
+    }
+
+    pub(in crate::domain::ws_session) fn elapsed_seconds(&self) -> u64 {
+        self.started_at.elapsed().as_secs()
     }
 
     pub(in crate::domain::ws_session) fn mark_result(&mut self) {
