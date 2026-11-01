@@ -22,8 +22,12 @@ const DEFAULT_FOLDED_PX = 40;
 /** Length of a pop pane's slide, matching `[data-pop-motion]` in index.css. */
 const POP_MOTION_MS = 220;
 
-/** Off by more than this many pixels, a folded panel is folded again. */
-const FOLDED_SLACK_PX = 1;
+/**
+ * Off by more than this many pixels, a folded panel is folded again. Under a
+ * device pixel: a window resize scales the folded panel with the group, and
+ * what it keeps shows as the card lifting off the edge its neighbours line up on.
+ */
+const FOLDED_SLACK_PX = 0.25;
 
 /**
  * Smallest share (%) a pop pane opens at: dragged down to its header while
@@ -53,8 +57,19 @@ export interface PopPanel {
     RefObject<PanelImperativeHandle | null>,
     RefObject<PanelImperativeHandle | null>,
   ];
+  /** The split's two panel elements, by child index (see `onResize`). */
+  elementRefs: readonly [RefObject<HTMLDivElement | null>, RefObject<HTMLDivElement | null>];
   /** Re-folds the panel whenever the group lays it out at another size. */
   onResize: (size: PanelSize) => void;
+}
+
+/**
+ * An element's length along a split's axis, to the fraction of a pixel zoom
+ * lays out (`offsetHeight` rounds it).
+ */
+export function axisLength(el: Element, horizontal: boolean): number {
+  const rect = el.getBoundingClientRect();
+  return horizontal ? rect.width : rect.height;
 }
 
 /** The pane's open size in pixels, from the panel's size before it toggles. */
@@ -88,10 +103,16 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
   const leaf = child?.type === "leaf" ? child : null;
   const folded = leaf !== null && leaf.id !== focusedPaneId;
   const canSlide = leaf !== null && slides(leaf);
+  const horizontal = split.orientation === "horizontal";
   const share = index === null ? null : Math.max(split.sizes?.[index] ?? 50, MIN_OPEN_SHARE);
   // One per child: a pane that stops popping is resized back as well.
   const [panelRefs] = useState(
     () => [createRef<PanelImperativeHandle>(), createRef<PanelImperativeHandle>()] as const,
+  );
+  // Also one per child: a panel attaches its element once, at mount, and
+  // either child may pop later.
+  const [elementRefs] = useState(
+    () => [createRef<HTMLDivElement>(), createRef<HTMLDivElement>()] as const,
   );
   // The child that popped at the last layout, and whether it was folded.
   const popped = useRef<{ index: 0 | 1; folded: boolean } | null>(null);
@@ -104,7 +125,9 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
   const [foldedPx, setFoldedPx] = useState(DEFAULT_FOLDED_PX);
   const foldedSize = `${foldedPx}px`;
   const onFoldedSize = useCallback((px: number): void => {
-    if (px > 0) setFoldedPx(Math.ceil(px));
+    // Fractional, as laid out (zoom makes it so): rounding up to whole pixels
+    // would leave the card short of the panel's far edge.
+    if (px > 0) setFoldedPx(Math.ceil(px * 100) / 100);
   }, []);
 
   const endSlide = useCallback((): void => {
@@ -181,10 +204,14 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
     (size: PanelSize): void => {
       // A slide reports every frame of its transition; it ends folded anyway.
       if (!folded || slideRef.current !== null) return;
-      if (Math.abs(size.inPixels - foldedPx) <= FOLDED_SLACK_PX) return;
-      if (index !== null) panelRefs[index].current?.resize(`${foldedPx}px`);
+      if (index === null) return;
+      // The group reports whole pixels (`offsetHeight`): read the fraction too.
+      const el = elementRefs[index].current;
+      const px = el ? axisLength(el, horizontal) : size.inPixels;
+      if (Math.abs(px - foldedPx) <= FOLDED_SLACK_PX) return;
+      panelRefs[index].current?.resize(`${foldedPx}px`);
     },
-    [index, folded, foldedPx, panelRefs],
+    [index, folded, foldedPx, horizontal, panelRefs, elementRefs],
   );
   return {
     index,
@@ -194,6 +221,7 @@ export function usePopPanel(split: LayoutSplit, focusedPaneId: string): PopPanel
     foldedSize,
     onFoldedSize,
     panelRefs,
+    elementRefs,
     onResize,
   };
 }
