@@ -12,6 +12,8 @@ interface UseOnboardingStatusResult {
   step: OnboardingStep;
   isLoading: boolean;
   isPersisting: boolean;
+  error: unknown;
+  retry: () => void;
   isCompleted: boolean;
   setStep: (next: OnboardingStep) => Promise<void>;
   /** Convenience: jump straight to `completed` (used by "Skip onboarding"). */
@@ -36,16 +38,21 @@ export function useOnboardingStatus(): UseOnboardingStatusResult {
 
   const complete = useCallback(() => setValue(COMPLETED_ONBOARDING_STEP), [setValue]);
 
+  const retry = useCallback(() => {
+    void query.refetch();
+  }, [query.refetch]);
   const isLoading = query.isLoading;
   return useMemo(
     () => ({
       step,
       isLoading,
       isPersisting: isPending,
+      error: query.error,
+      retry,
       isCompleted: step === COMPLETED_ONBOARDING_STEP,
       setStep,
       complete,
     }),
-    [step, isLoading, isPending, setStep, complete],
+    [step, isLoading, isPending, setStep, complete, query.error, retry],
   );
 }

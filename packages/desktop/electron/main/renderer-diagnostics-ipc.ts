@@ -7,6 +7,12 @@ import {
   rendererErrorSchema,
   type DiagnosticRecord,
 } from "../../src/shared/renderer-diagnostics";
+import { rendererRemoteDiagnostic } from "../../src/shared/telemetry-diagnostics";
+import {
+  relayRemoteDiagnostic,
+  rendererTelemetryAssets,
+  telemetryRelayStatus,
+} from "./telemetry-relay";
 import { resolveRendererDiagnosticHistory } from "./app-paths";
 import { appendRendererErrorLog } from "./renderer-error-log";
 import { readDiagnosticRecords, saveDiagnosticRecord } from "./renderer-diagnostics-store";
@@ -16,12 +22,17 @@ export function registerRendererDiagnosticsIpc(
   assertTrusted: (event: IpcMainInvokeEvent) => void,
 ): void {
   const gate = createDiagnosticGate();
+  ipcMain.handle("app:telemetry-relay-status", (event) => {
+    assertTrusted(event);
+    return telemetryRelayStatus();
+  });
   const historyPath = () =>
     resolveRendererDiagnosticHistory(app.isPackaged, app.getPath("userData"));
   ipcMain.handle("app:renderer-error", (event, payload: unknown) => {
     assertTrusted(event);
     const error = rendererErrorSchema.parse(payload);
     if (!gate.accept(error)) return;
+    relayRemoteDiagnostic(rendererRemoteDiagnostic(error, rendererTelemetryAssets()));
     const record: DiagnosticRecord = {
       timestamp: new Date().toISOString(),
       appVersion: app.getVersion(),

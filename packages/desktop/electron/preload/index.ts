@@ -224,6 +224,8 @@ contextBridge.exposeInMainWorld("cadencr", {
   windowClose: (): Promise<void> => ipcRenderer.invoke("app:window-close"),
   exportRendererDiagnostics: (context: DiagnosticContext): Promise<{ canceled: boolean }> =>
     ipcRenderer.invoke("app:export-renderer-diagnostics", context),
+  telemetryRelayStatus: (): Promise<"idle" | "unavailable" | "frames_unavailable"> =>
+    ipcRenderer.invoke("app:telemetry-relay-status"),
   reportRendererError: (payload: RendererErrorReportPayload): Promise<void> =>
     ipcRenderer.invoke("app:renderer-error", payload),
   setZoom: (factor: number): Promise<void> => ipcRenderer.invoke("webview:set-zoom", factor),

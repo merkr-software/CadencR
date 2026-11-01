@@ -1,3 +1,4 @@
+import { browserTelemetryRelayStatus } from "./telemetry-relay";
 import { persistBrowserDiagnostic, exportBrowserDiagnostics } from "./renderer-diagnostics-browser";
 import { isSafeExternalUrl, isUserOpenableUrl } from "@/lib/safe-url";
 import type { PluginTabsBridge } from "@/shared/plugin-tab-host";
@@ -132,6 +133,7 @@ const browserBridge: CadencrBrowserBridge = {
   windowMinimize: () => unavailable("windowMinimize"),
   windowToggleMaximize: () => unavailable("windowToggleMaximize"),
   windowClose: () => unavailable("windowClose"),
+  telemetryRelayStatus: browserTelemetryRelayStatus,
   reportRendererError: persistBrowserDiagnostic,
   exportRendererDiagnostics: exportBrowserDiagnostics,
   setZoom: () => Promise.resolve(),

@@ -338,6 +338,19 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         entries: [
           { label: "Check for updates", keywords: ["version", "upgrade"] },
           { label: "Export diagnostics", anchor: A.diagnostics, keywords: ["logs", "bug report"] },
+          {
+            label: "Privacy and telemetry",
+            anchor: A.telemetry,
+            keywords: [
+              "sentry",
+              "posthog",
+              "analytics",
+              "consent",
+              "anonymous",
+              "identity",
+              "usage",
+            ],
+          },
         ],
       },
     ],
