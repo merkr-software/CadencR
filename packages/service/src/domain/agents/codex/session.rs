@@ -20,7 +20,6 @@ use super::async_questions::PendingAsyncQuestions;
 use super::event_loop::spawn_event_loop;
 use super::event_system::init_event;
 use super::event_turn_state::RootTurnTracker;
-use super::input::user_input_from_content;
 use super::mcp_status::parse_mcp_server_statuses;
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
@@ -31,8 +30,8 @@ use super::session_permissions::{
 use super::timeouts::{with_control_timeout, with_probe_timeout};
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeAccessMode, RuntimeError, RuntimeEvent, RuntimeMcpServerStatus,
-    RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
+    AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
+    RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
 use stream::{error_receiver, spawn_local_forwarder, stream_channel};
@@ -67,6 +66,7 @@ pub(super) struct CodexSession {
     compaction: Arc<compaction::CompactionState>,
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
+    known_subagents: Vec<KnownSubagent>,
 }
 
 pub(super) struct CodexSessionOptions {
@@ -117,6 +117,7 @@ impl CodexSession {
             compaction: Arc::default(),
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
+            known_subagents: Vec::new(),
         }
     }
 
@@ -176,15 +177,6 @@ impl CodexSession {
         *self.last_root_turn_id.write().await = Some(turn.id);
         Ok(())
     }
-
-    async fn convert_input(&self, content: Value) -> Result<Vec<Value>, RuntimeError> {
-        let mut new_files = Vec::new();
-        let input = user_input_from_content(content, &mut new_files)?;
-        if !new_files.is_empty() {
-            self.temp_files.lock().await.extend(new_files);
-        }
-        Ok(input)
-    }
 }
 
 #[async_trait]
@@ -220,9 +212,14 @@ impl AgentRuntimeSession for CodexSession {
             .model(Arc::clone(&self.turn_model))
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
+            .known_subagents(std::mem::take(&mut self.known_subagents))
             .call();
         spawn_local_forwarder(local_rx, tx);
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {

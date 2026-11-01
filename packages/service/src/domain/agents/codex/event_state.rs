@@ -31,6 +31,9 @@ pub(super) struct IndexState {
     /// belonging to a sub-agent thread. Outlives `reset()` because sub-agents
     /// can keep emitting events across multiple root turns.
     subagent_threads: HashMap<String, String>,
+    /// Carriers earlier runtimes recorded for child threads, by thread id. A
+    /// child Codex rehydrates is routed back to its own carrier with these.
+    known_subagent_carriers: HashMap<String, String>,
     /// Coalesce the started/completed interaction pair, including failed reads.
     subagent_recovery_attempts: HashSet<String>,
     /// Set of `function_call` `call_id`s that were emitted as `spawn_agent`

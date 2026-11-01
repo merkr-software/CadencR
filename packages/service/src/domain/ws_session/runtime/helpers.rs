@@ -125,6 +125,26 @@ pub(in crate::domain::ws_session) fn send_warning(
     sender.report_warning(code, message, ref_id);
 }
 
+/// Tell a runtime about to stream which sub-agents its conversation already
+/// launched, so one it resumes keeps its card. A registry that cannot be read
+/// only costs that, so the client is warned and the runtime starts anyway.
+pub(in crate::domain::ws_session) async fn seed_known_subagents(
+    sender: &impl OutputTarget,
+    ref_id: &str,
+    pool: &sqlx::SqlitePool,
+    session_id: i64,
+    runtime: &mut dyn AgentRuntimeSession,
+) {
+    if let Err(error) = crate::domain::subagents::seed_runtime(pool, session_id, runtime).await {
+        send_warning(
+            sender,
+            ref_id,
+            "SUBAGENT_HISTORY_UNAVAILABLE",
+            &format!("Sub-agents resumed in this conversation may not show their status: {error}"),
+        );
+    }
+}
+
 /// Notify the frontend of the runtime session ID (used for --resume).
 pub(in crate::domain::ws_session) fn send_runtime_session_id(
     sender: &impl OutputTarget,

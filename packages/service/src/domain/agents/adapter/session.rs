@@ -28,6 +28,11 @@ pub trait RuntimeToolPermissionHandler: Send + Sync {
 #[async_trait]
 pub trait AgentRuntimeSession: Send + Sync {
     fn take_message_rx(&mut self) -> RuntimeMessageRx;
+    /// Sub-agents earlier runtimes of the conversation launched. Called at
+    /// most once, before `take_message_rx`, so a provider that can resume one of them
+    /// reports the resumed run under its carrier. Ignored by runtimes that
+    /// cannot resume a sub-agent they did not launch.
+    fn seed_known_subagents(&mut self, _known: Vec<super::subagent::KnownSubagent>) {}
     fn context_window(&self) -> Option<u64> {
         None
     }

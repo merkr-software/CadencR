@@ -71,6 +71,17 @@ impl RuntimeSubagentStatus {
     }
 }
 
+/// A sub-agent an earlier runtime of the conversation launched, as the
+/// registry remembers it. A new runtime is told about them so that when its
+/// agent resumes one (Claude `SendMessage`), the resumed run reports to its
+/// own carrier instead of being dropped as unknown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KnownSubagent {
+    pub tool_use_id: String,
+    /// The provider's handle of the sub-agent, the one a resume names.
+    pub child_session_id: String,
+}
+
 /// What changed about one sub-agent. `None` leaves a field as it was, so a
 /// provider reports each fact when it learns it.
 #[derive(Debug, Clone, Default, PartialEq)]

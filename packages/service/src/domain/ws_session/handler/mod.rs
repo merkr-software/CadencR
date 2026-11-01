@@ -66,8 +66,8 @@ use dispatch::dispatch_envelope;
 #[allow(unused_imports)]
 use helpers::{
     default_permission_mode, default_permission_mode_wire, parse_permission_mode, parse_session_id,
-    persist_and_close_query, post_plan_approval_mode_wire, provider_supports_mode, send_error,
-    send_runtime_session_id,
+    persist_and_close_query, post_plan_approval_mode_wire, provider_supports_mode,
+    seed_known_subagents, send_error, send_runtime_session_id,
 };
 #[allow(unused_imports)]
 use types::{QueryState, SessionConfig, WsSender};

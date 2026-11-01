@@ -50,8 +50,8 @@ pub use session_config::{
 };
 pub use subagent::{
     is_subagent_tool_name, non_empty_str, stop_reason, subagent_result_text,
-    summarize_subagent_result, RuntimeSubagentPatch, RuntimeSubagentStatus, RuntimeSubagentUpdate,
-    SUBAGENT_TOOL_NAMES,
+    summarize_subagent_result, KnownSubagent, RuntimeSubagentPatch, RuntimeSubagentStatus,
+    RuntimeSubagentUpdate, SUBAGENT_TOOL_NAMES,
 };
 pub(crate) use tool_input::{is_file_change_tool_name, RuntimeToolInputBuffer};
 pub use user_shell::RuntimeUserShellStrategy;
