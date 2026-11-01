@@ -12,7 +12,10 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
+import { requirePython } from "./python-requirement.mjs";
+
+before(requirePython);
 
 const script = new URL("./qualify-released-cli-github.sh", import.meta.url).pathname;
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");

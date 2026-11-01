@@ -35,6 +35,7 @@
               nodejs_22
               openssl
               pkg-config
+              python3
               rustup
               sqlite
               watchexec

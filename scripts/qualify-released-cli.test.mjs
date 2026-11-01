@@ -14,8 +14,11 @@ import {
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
 import { createHash } from "node:crypto";
+import { requirePython } from "./python-requirement.mjs";
+
+before(requirePython);
 
 const script = new URL("./qualify-released-cli.sh", import.meta.url).pathname;
 const pins = new URL("./cli-qualification.env", import.meta.url);

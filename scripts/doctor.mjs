@@ -16,6 +16,7 @@ import {
   readEnvFile,
 } from "./dev-env.mjs";
 import { gitCheckout } from "./git-worktrees.mts";
+import { MIN_PYTHON, PYTHON_FIX, probePython, pythonProblem } from "./python-requirement.mjs";
 import { WATCHEXEC_INSTALL, executableOnPath, pickWatcher } from "./service-dev-watch.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -87,6 +88,15 @@ function toolchainChecks({ node, pnpm, deps }) {
       : error("node_modules missing", "run `pnpm install`"),
   );
   return checks;
+}
+
+/** Not needed by `pnpm dev`, but the root script tests (pre-commit, CI) fail without it. */
+function pythonCheck({ python }) {
+  const problem = pythonProblem(python);
+  if (problem === null) {
+    return ok(`python3 ${python.version} (root script tests need ${MIN_PYTHON}+)`);
+  }
+  return warn(`${problem}: the root script tests, pre-commit's included, will fail`, PYTHON_FIX);
 }
 
 function rustChecks({ rust, watcher }) {
@@ -193,7 +203,12 @@ function envFileChecks({ env, linkedWorktree, gitProblem }) {
 
 /** Turn probed facts into ordered check results. Pure. */
 export function evaluate(facts) {
-  const checks = [...toolchainChecks(facts), ...rustChecks(facts), ...envFileChecks(facts)];
+  const checks = [
+    ...toolchainChecks(facts),
+    pythonCheck(facts),
+    ...rustChecks(facts),
+    ...envFileChecks(facts),
+  ];
   checks.push(
     facts.electron.installed
       ? ok("Electron binary present")
@@ -288,6 +303,7 @@ export function gatherFacts(root = repoRoot) {
       expected: pkg.packageManager.replace(/^pnpm@/, "").replace(/\+.*$/, ""),
     },
     deps: { installed: existsSync(join(root, "node_modules/.modules.yaml")) },
+    python: probePython(),
     rust: rustFacts(),
     watcher: watcherFacts(),
     env: { service: readEnvFile(root, SERVICE_ENV), desktop: readEnvFile(root, DESKTOP_ENV) },
