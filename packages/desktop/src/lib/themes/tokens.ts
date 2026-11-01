@@ -138,6 +138,10 @@ export type ThemeTokenKey = (typeof THEME_TOKEN_KEYS)[number];
  * themes draw neither shape and shouldn't have to name colors for chrome they
  * never paint.
  *
+ * `--chart-6` is the categorical palette's sixth slot. It came after themes
+ * were already published, so it is optional too and its readers fall back to
+ * a mix of the five required slots.
+ *
  * `--tab-active-shadow` and `--page-shadow` stay out: they are `box-shadow`
  * values rather than colors, and the theme vocabulary is colors.
  */
@@ -146,6 +150,7 @@ export const THEME_OPTIONAL_TOKEN_KEYS = [
   "--tab-track-border",
   "--tab-active-bg",
   "--pane-border",
+  "--chart-6",
 ] as const;
 
 export type ThemeOptionalTokenKey = (typeof THEME_OPTIONAL_TOKEN_KEYS)[number];

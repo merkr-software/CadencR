@@ -335,8 +335,9 @@ html[data-animations="off"] .mp-spotlight-enter {
 }
 
 /* Skills and MCP servers install into the agent CLIs, not into Cadencr. */
+/* --chart-6 is optional: a theme without it gets a mix no other kind uses. */
 .mp-kind-skill {
-  --mp-kind: var(--chart-5);
+  --mp-kind: var(--chart-6, color-mix(in oklch, var(--chart-2), var(--chart-4)));
 }
 .mp-kind-mcp {
   --mp-kind: var(--chart-1);

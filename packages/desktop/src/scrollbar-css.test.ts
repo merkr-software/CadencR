@@ -104,7 +104,8 @@ describe("scrollbar CSS", () => {
     // an accent it never asked for. This is also the regression: an agent asked
     // to recolor one theme's tabs edited these fallbacks instead, which is a
     // change to every theme at once and one no installed Cadencr can receive.
-    for (const key of THEME_OPTIONAL_TOKEN_KEYS) {
+    // `--chart-6` is the optional palette slot, not chrome: the marketplace reads it.
+    for (const key of THEME_OPTIONAL_TOKEN_KEYS.filter((token) => token !== "--chart-6")) {
       expect(chromeCss, `${key} must be a token a theme can set`).toMatch(
         new RegExp(`var\\(\\s*${key}\\s*,`),
       );
@@ -115,6 +116,23 @@ describe("scrollbar CSS", () => {
       expect(fallback).toContain("var(--foreground)");
       expect(fallback).toContain("var(--background)");
       expect(fallback).not.toContain("var(--primary)");
+    }
+  });
+
+  it("never sets an optional token on bare :root, where every other theme would inherit it", () => {
+    // A theme that leaves an optional token out must reach its fallback, so
+    // first-party values sit on theme-specific selectors only.
+    const blocks = [themeCss, cadencrCss].flatMap((css) =>
+      [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter(([, selector]) =>
+        // The capture starts after the previous rule, comments included.
+        selector.split(",").some((part) => part.trim().split(/\s+/).pop() === ":root"),
+      ),
+    );
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const [, , body] of blocks) {
+      for (const key of THEME_OPTIONAL_TOKEN_KEYS) {
+        expect(body, `${key} on bare :root`).not.toMatch(new RegExp(`${key}\\s*:`));
+      }
     }
   });
 

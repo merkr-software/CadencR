@@ -145,6 +145,10 @@ pub const REQUIRED_TOKENS: &[&str] = &[
 /// never draw. Every one still has to be a real color, and an unknown key is
 /// still an error — this widens the vocabulary, it does not open it.
 ///
+/// `--chart-6`, the categorical palette's sixth slot, arrived after themes were
+/// already published. Requiring it would have invalidated every one of them, so
+/// it is optional and its readers fall back to a mix of the five required slots.
+///
 /// `--tab-active-shadow` and `--page-shadow` are deliberately absent: they hold
 /// `box-shadow` values, not colors, and the gate here parses colors. They stay
 /// the stylesheet's business.
@@ -155,6 +159,8 @@ pub const OPTIONAL_TOKENS: &[&str] = &[
     "--tab-active-bg",
     // The rail chassis' page edge, and the hairline around raised panes.
     "--pane-border",
+    // The sixth categorical color.
+    "--chart-6",
 ];
 
 /// Foreground/background pairs that must stay legible.
