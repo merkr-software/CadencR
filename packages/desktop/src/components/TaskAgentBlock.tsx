@@ -1,14 +1,14 @@
 import { memo, useCallback, useMemo, useState, type ReactElement } from "react";
 import { ChevronRightIcon } from "lucide-react";
 import type { AgentBlockData } from "@/types/agent-block";
-import { hasCompactLine } from "@/lib/agent-stream-display";
 import { countSubagentToolCalls, selectSubagentActions } from "@/components/subagent-actions";
 import { useAgentSessionContext } from "@/components/agent-session/agent-session-context";
-import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
 import { useSubagentCardRef } from "@/components/agent-session/subagent-reveal";
 import {
+  agentCardClassName,
   CardSection,
   ElapsedClock,
+  SubagentCardPeek,
   SubagentIdentity,
   SubagentMetaLine,
   SubagentPrompt,
@@ -88,12 +88,7 @@ export const TaskAgentBlock = memo(function TaskAgentBlock({
       data-subagent-depth={depth}
       data-subagent-status={view.status}
       aria-label={`Sub-agent ${view.title}: ${subagentStatusSentence(view)}`}
-      className={cn(
-        "my-1 min-w-0 rounded-md border bg-(--block-task-bg)",
-        view.status === "failed"
-          ? "border-[color-mix(in_oklab,var(--acc-red)_50%,var(--border))]"
-          : "border-border",
-      )}
+      className={agentCardClassName(view.status === "failed")}
       style={nestOffset > 0 ? { marginLeft: nestOffset } : undefined}
     >
       <SubagentCardHeader view={view} expanded={expanded} canOpen={canOpen} onToggle={toggle} />
@@ -163,38 +158,6 @@ interface CardContentProps {
   basePath?: string;
   depth: number;
   renderNested: NestedSubagentRenderer;
-}
-
-/**
- * Closed card: the sub-agent's latest action, live while it runs and its last
- * once it ended, then the head of its report when one is passed.
- */
-function SubagentCardPeek({
-  actions,
-  report,
-  basePath,
-}: {
-  actions: AgentBlockData[];
-  report: string | null;
-  basePath?: string;
-}): ReactElement | null {
-  const latest = actions.some(hasCompactLine);
-  if (!latest && !report) return null;
-  return (
-    <div className="flex flex-col gap-1 border-t border-border/60 py-1 pr-3 pl-[34px]">
-      {latest && (
-        <div className="flex h-6 min-w-0 items-center text-xs">
-          <span className="sr-only">Latest action: </span>
-          <CompactLatestStep blocks={actions} basePath={basePath} />
-        </div>
-      )}
-      {report && (
-        <div className="pb-1">
-          <SubagentReportBody report={report} clamp />
-        </div>
-      )}
-    </div>
-  );
 }
 
 /** Opened card: the brief, every action, the report. */

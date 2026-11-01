@@ -88,15 +88,15 @@ describe("AgentBlock MCP tools", () => {
     const { rerender } = render(
       <AgentBlock
         block={makeBlock({
-          toolName: "mcp__cadencr-project__project_spawn_session",
-          toolArgs: JSON.stringify({ title: "Investigate flaky login test" }),
+          toolName: "mcp__cadencr-project__project_list_sessions",
+          toolArgs: JSON.stringify({ query: "flaky login test" }),
         })}
       />,
     );
 
     expect(screen.getByText("project")).toBeInTheDocument();
-    expect(screen.getByText("Spawning session")).toBeInTheDocument();
-    expect(screen.getByText("Investigate flaky login test")).toBeInTheDocument();
+    expect(screen.getByText("Listing project sessions")).toBeInTheDocument();
+    expect(screen.getByText("flaky login test")).toBeInTheDocument();
 
     rerender(
       <AgentBlock

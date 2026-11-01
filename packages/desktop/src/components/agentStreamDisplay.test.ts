@@ -245,6 +245,17 @@ describe("agentStreamDisplay", () => {
       ]);
     });
 
+    it("keeps a spawned conversation's card out of the compact flow", () => {
+      const read = block("read", "", { type: "tool_call", toolName: "Read" });
+      const spawn = block("spawn", "", {
+        type: "tool_call",
+        toolName: "mcp__cadencr-project__project_spawn_session",
+      });
+      const items = buildDisplayItems([read, spawn, read], { compact: true });
+
+      expect(items.map((item) => item.key)).toEqual(["flow:read", "spawn", "flow:read#1"]);
+    });
+
     it("drops a run with no step to draw instead of yielding an empty row", () => {
       const todo = block("todo", "", { type: "tool_call", toolName: "TodoWrite" });
       const bash = block("bash", "", { type: "tool_call", toolName: "Bash" });

@@ -18,6 +18,8 @@ import { isAgentSentMessage, isRestartContinuationMessage } from "@/lib/agent-me
 import { renderGeneratedSessionMessage } from "@/components/session-generated-message";
 import { UserMessageActions } from "@/components/agent-session/UserMessageActions";
 import { TaskAgentBlock } from "@/components/TaskAgentBlock";
+import { SpawnedSessionBlock } from "@/components/SpawnedSessionBlock";
+import { isSpawnedSessionCarrier } from "@/lib/spawned-session";
 import { PlanBlock } from "@/components/PlanBlock";
 import { BashBlock } from "@/components/BashBlock";
 import { ThinkingBlock } from "@/components/ThinkingBlock";
@@ -248,6 +250,10 @@ function ToolCallContent({
   if (skill) return <ToolCallBlock name="Skill" args={skill.args} basePath={basePath} />;
   if (isSubagentCarrier(block)) {
     return <TaskAgentBlock block={block} basePath={basePath} compact={compact} />;
+  }
+  if (isSpawnedSessionCarrier(block)) {
+    const result = block.toolUseId ? toolResultMap?.get(block.toolUseId) : undefined;
+    return <SpawnedSessionBlock block={block} result={result} basePath={basePath} />;
   }
   if (
     block.toolName === "ExitPlanMode" ||
