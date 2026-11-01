@@ -86,6 +86,13 @@ describe("collapseTurnsToSummary", () => {
     expect(result[2].childBlocks?.map((block) => block.id)).toEqual(["read"]);
   });
 
+  it("keeps a spawned conversation as its own row around the recap", () => {
+    const spawn = tool("spawn", "mcp__cadencr-project__project_spawn_session");
+    const result = collapseTurnsToSummary([user("u"), spawn, tool("read", "Read"), text("answer")]);
+    expect(result.map((block) => block.id)).toEqual(["u", "spawn", "tool-summary-read", "answer"]);
+    expect(summaryOf(result)).toEqual({ Read: 1 });
+  });
+
   it("keeps a turn's only sub-agent without an empty recap", () => {
     const result = collapseTurnsToSummary([user("u"), tool("explore", "Agent"), text("answer")]);
     expect(result.map((block) => block.id)).toEqual(["u", "explore", "answer"]);

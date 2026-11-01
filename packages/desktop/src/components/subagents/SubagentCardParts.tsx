@@ -1,5 +1,8 @@
 import { memo, useMemo, useState, type ReactElement, type ReactNode } from "react";
 import { Markdown } from "@/components/Markdown";
+import { CompactLatestStep } from "@/components/agent-session/CompactFlowRow";
+import { hasCompactLine } from "@/lib/agent-stream-display";
+import type { AgentBlockData } from "@/types/agent-block";
 import { useNow } from "@/hooks/useNow";
 import { formatElapsed } from "@/lib/format-elapsed";
 import {
@@ -99,7 +102,22 @@ export const SubagentMetaLine = memo(function SubagentMetaLine({
   actionCount: number | null;
   className?: string;
 }): ReactElement | null {
-  const items = metaItems(view, actionCount);
+  return <MetaItemList items={metaItems(view, actionCount)} className={className} />;
+});
+
+export interface MetaItem {
+  key: string;
+  node: ReactNode;
+}
+
+/** A card's configuration facts on one dotted line; nothing when there are none. */
+export function MetaItemList({
+  items,
+  className,
+}: {
+  items: MetaItem[];
+  className?: string;
+}): ReactElement | null {
   if (items.length === 0) return null;
   return (
     <div
@@ -120,13 +138,64 @@ export const SubagentMetaLine = memo(function SubagentMetaLine({
       ))}
     </div>
   );
-});
+}
 
-function metaItems(
-  view: SubagentView,
-  actionCount: number | null,
-): { key: string; node: ReactNode }[] {
-  const items: { key: string; node: ReactNode }[] = [];
+/** How a reasoning effort reads on a meta line. */
+export function effortLabel(effort: string): string {
+  return effort === "none" ? "no reasoning" : `${effort} effort`;
+}
+
+/** The frame every agent card shares; a failed one wears a red edge. */
+export function agentCardClassName(failed: boolean): string {
+  return cn(
+    "my-1 min-w-0 rounded-md border bg-(--block-task-bg)",
+    failed ? "border-[color-mix(in_oklab,var(--acc-red)_50%,var(--border))]" : "border-border",
+  );
+}
+
+/**
+ * Closed card: the agent's latest action, live while it runs and its last
+ * once it ended, then the head of its report when one is passed.
+ */
+export function SubagentCardPeek({
+  actions,
+  report,
+  basePath,
+}: {
+  actions: AgentBlockData[];
+  report: string | null;
+  basePath?: string;
+}): ReactElement | null {
+  const latest = actions.some(hasCompactLine);
+  if (!latest && !report) return null;
+  return (
+    <SubagentCardPeekFrame>
+      {latest && (
+        <div className="flex h-6 min-w-0 items-center text-xs">
+          <span className="sr-only">Latest action: </span>
+          <CompactLatestStep blocks={actions} basePath={basePath} />
+        </div>
+      )}
+      {report && (
+        <div className="pb-1">
+          <SubagentReportBody report={report} clamp />
+        </div>
+      )}
+    </SubagentCardPeekFrame>
+  );
+}
+
+/** The band under a card's header where its peek sits. */
+export function SubagentCardPeekFrame({ children }: { children: ReactNode }): ReactElement {
+  return (
+    <div className="flex flex-col gap-1 border-t border-border/60 py-1 pr-3 pl-[34px]">
+      {children}
+    </div>
+  );
+}
+
+function metaItems(view: SubagentView, actionCount: number | null): MetaItem[] {
+  const items: MetaItem[] = [];
   if (view.model) {
     items.push({
       key: "model",
@@ -134,8 +203,7 @@ function metaItems(
     });
   }
   if (view.effort) {
-    const effort = view.effort === "none" ? "no reasoning" : `${view.effort} effort`;
-    items.push({ key: "effort", node: <span>{effort}</span> });
+    items.push({ key: "effort", node: <span>{effortLabel(view.effort)}</span> });
   }
   if (view.background) {
     items.push({ key: "background", node: <SubagentBackgroundTag /> });

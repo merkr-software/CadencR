@@ -6,11 +6,12 @@ import {
   isRestartContinuationMessage,
   isRestartInterruptionMarker,
 } from "@/lib/agent-message-origin";
-import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy";
+import { shouldHideToolCall } from "@/lib/tool-display-policy";
+import { isAgentCardCarrier } from "@/lib/spawned-session";
 
 /**
  * Only tool calls and thinking fold into a compact line. Prose, prompts, plans,
- * sub-agents (each keeps its own status line), results the renderer shows
+ * sub-agents and spawned conversations (each keeps its own status line), results the renderer shows
  * (Agent/Task output, hidden-tool errors), markers and dividers keep their
  * full row: the mode keeps the conversation itself whole. A truncated wire
  * preview still folds; its line shows the name only.
@@ -18,7 +19,7 @@ import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy
 function isFlowEligible(block: AgentBlockData): boolean {
   if (block.type === "thinking") return true;
   return (
-    block.type === "tool_call" && block.toolName !== "ExitPlanMode" && !isSubagentCarrier(block)
+    block.type === "tool_call" && block.toolName !== "ExitPlanMode" && !isAgentCardCarrier(block)
   );
 }
 

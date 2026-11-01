@@ -1,6 +1,7 @@
 import type { AgentBlockData } from "@/types/agent-block";
 import { isTaskTodoTool } from "@/lib/tool-adapter";
-import { isSubagentCarrier, shouldHideToolCall } from "@/lib/tool-display-policy";
+import { shouldHideToolCall } from "@/lib/tool-display-policy";
+import { isAgentCardCarrier } from "@/lib/spawned-session";
 
 /** Options controlling how turns collapse into recaps. */
 export interface CollapseOptions {
@@ -144,14 +145,14 @@ function emitSegment(result: AgentBlockData[], segment: Segment, active: boolean
   // Sub-agents stay visible as their own cards: a recap chip would hide who
   // ran, on what, and how it ended.
   const isRecapTool = (block: AgentBlockData): boolean =>
-    isCountableTool(block) && !isSubagentCarrier(block);
+    isCountableTool(block) && !isAgentCardCarrier(block);
   const tools = segment.body.filter(isRecapTool);
   const finalText = findFinalText(segment.body);
   const kept = new Set(
     segment.body.filter(
       (block) =>
         block === finalText ||
-        isSubagentCarrier(block) ||
+        isAgentCardCarrier(block) ||
         (block.type === "user_message" && !isDeliveredPrompt(block)),
     ),
   );
