@@ -15,7 +15,7 @@ export function FeatureHierarchyGutter({
 }): ReactElement {
   return (
     <div
-      data-feature-hierarchy-gutter
+      data-feature-hierarchy-gutter={depth}
       className="flex size-3.5 shrink-0 items-center justify-center"
       style={{ marginInlineStart: depth * FEATURE_NESTING_INDENT_PX }}
     >
