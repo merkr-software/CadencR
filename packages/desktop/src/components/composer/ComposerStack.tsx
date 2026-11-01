@@ -42,7 +42,7 @@ export function ComposerStack({ children }: { children: ReactNode }): ReactEleme
       <div
         data-composer-stack
         data-folding={fold.folding || undefined}
-        className="@container mx-2 flex max-h-[min(55vh,32rem)] min-h-10 shrink-[100] flex-col divide-y divide-border/60 overflow-y-auto rounded-t-lg border border-b-0 border-border/70 bg-muted/30 transition-colors duration-150 empty:hidden"
+        className="@container mx-2 flex max-h-[min(55vh,32rem)] min-h-10 shrink-[100] flex-col divide-y divide-border/60 overflow-x-hidden overflow-y-auto rounded-t-lg border border-b-0 border-border/70 bg-muted/30 transition-colors duration-150 empty:hidden"
       >
         {children}
       </div>

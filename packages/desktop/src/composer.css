@@ -37,13 +37,20 @@
  * to right, then rests: the composer says "this agent is busy — what you type
  * steers it" to a glance, without pulling the eye off the transcript. The
  * track stops short of the rounded corners and fades at both ends, so the
- * reflection emerges from and melts back into the border. */
+ * reflection emerges from and melts back into the border.
+ *
+ * The track clips: the mask only hides the reflection's paint, while its
+ * translated box still overflowed the card's right edge by over a quarter of
+ * its width.
+ * That made the composer's scroller wide enough to swipe the whole prompt
+ * sideways, and leave it off-centre, for as long as the agent ran. */
 .composer-sweep {
   position: absolute;
   top: -1px;
   left: var(--composer-radius);
   right: var(--composer-radius);
   height: 1px;
+  overflow: clip;
   pointer-events: none;
   mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }

@@ -76,7 +76,12 @@ const COLLAPSIBLE_ROOT_CLASS = "shrink-0";
 // which returns null until a session reports context usage — so before the
 // first prompt the bottom chips sat flush against the screen edge. It reads
 // `--app-inset-bottom`, which drops to 0 while the on-screen keyboard is up.
-const FULL_PAGE_ROOT_CLASS = "flex min-h-0 flex-col overflow-y-auto pb-[var(--app-inset-bottom)]";
+//
+// `overflow-y-auto` alone computes `overflow-x` to `auto` too, so anything
+// poking past the card's sides (the running sweep did) let a sideways swipe
+// scroll the whole composer out of its column. It only ever scrolls vertically.
+const FULL_PAGE_ROOT_CLASS =
+  "flex min-h-0 flex-col overflow-x-hidden overflow-y-auto pb-[var(--app-inset-bottom)]";
 
 // Bottom safe-area clearance lives on the composer root (see above), so this row
 // only owns its own spacing — the same in both layouts.
