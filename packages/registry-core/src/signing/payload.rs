@@ -91,28 +91,36 @@ fn validate_optional_fields(signed: &Value) -> Result<(), RegistryError> {
     let Some(packages) = signed.get("packages").and_then(Value::as_array) else {
         return Ok(());
     };
-    for (index, package) in packages.iter().enumerate() {
+    let labelled = packages.iter().enumerate().flat_map(|(index, package)| {
+        let entry = format!("payload.packages[{index}]");
+        let members = crate::plugin_package::plugin_members(package)
+            .iter()
+            .enumerate()
+            .map(move |(position, member)| {
+                (
+                    format!("payload.packages[{index}].package.contributes[{position}]"),
+                    member,
+                )
+            });
+        std::iter::once((entry, package)).chain(members)
+    });
+    for (label, package) in labelled {
         let agent = crate::marketplace::body(package).get("agent");
-        reject_empty(
-            agent,
-            "authors",
-            &format!("payload.packages[{index}].agent.authors"),
-        )?;
+        reject_empty(agent, "authors", &format!("{label}.agent.authors"))?;
         let distribution = agent.and_then(|value| value.get("distribution"));
         if let Some(binary) = distribution
             .and_then(|value| value.get("binary"))
             .and_then(Value::as_object)
         {
             for (target, config) in binary {
-                let prefix =
-                    format!("payload.packages[{index}].agent.distribution.binary.{target}");
+                let prefix = format!("{label}.agent.distribution.binary.{target}");
                 reject_empty(Some(config), "args", &format!("{prefix}.args"))?;
                 reject_empty(Some(config), "env", &format!("{prefix}.env"))?;
             }
         }
         for runner in ["npx", "uvx"] {
             let config = distribution.and_then(|value| value.get(runner));
-            let prefix = format!("payload.packages[{index}].agent.distribution.{runner}");
+            let prefix = format!("{label}.agent.distribution.{runner}");
             reject_empty(config, "args", &format!("{prefix}.args"))?;
             reject_empty(config, "env", &format!("{prefix}.env"))?;
         }

@@ -13,6 +13,26 @@ pub enum MarketplacePackage {
     Provider(ProviderPackage),
     Theme(ThemePackage),
     Tab(TabPackage),
+    Plugin(PluginPackage),
+}
+/// A multi-export plugin: complete single-kind members released together
+/// (see [`crate::plugin_package`]).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginPackage {
+    pub plugin: PluginDescriptor,
+    pub host: MarketplaceHost,
+    pub contributes: Vec<MarketplacePackage>,
+}
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PluginDescriptor {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub version: String,
+    pub repository: String,
+    pub license: String,
 }
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

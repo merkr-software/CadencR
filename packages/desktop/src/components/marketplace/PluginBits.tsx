@@ -1,5 +1,13 @@
 import { format } from "date-fns";
-import { ArrowUpCircle, Ban, Check, CircleAlert, RotateCw, ShieldAlert } from "lucide-react";
+import {
+  ArrowUpCircle,
+  Ban,
+  Check,
+  CircleAlert,
+  CircleDashed,
+  RotateCw,
+  ShieldAlert,
+} from "lucide-react";
 import type { MarketplaceListing, PluginKind } from "@/lib/marketplace-listings";
 import { Badge } from "@/components/ui/badge";
 import { ProviderIconGraphic, useProviderMetadata } from "@/lib/provider-icons";
@@ -118,6 +126,13 @@ function stateOf(listing: MarketplaceListing): ListingState | null {
       tone: STATE_TONES.restart,
       icon: <RotateCw aria-hidden="true" />,
       label: "Restart to apply",
+    };
+  // A plugin whose members are not all in, at one release: the install panel finishes it.
+  if (installed?.partial)
+    return {
+      tone: STATE_TONES.restart,
+      icon: <CircleDashed aria-hidden="true" />,
+      label: "Partly installed",
     };
   if (listing.update)
     return {

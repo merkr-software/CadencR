@@ -11,6 +11,8 @@ import {
   pluginTabList,
   previewManagedThemePackage,
   installManagedTab,
+  installManagedTheme,
+  removeManagedTheme,
   updateManagedTab,
   removeManagedTab,
   getManagedThemes,
@@ -28,6 +30,7 @@ import {
   stagedUpdateTab,
   tabFixture,
 } from "@/components/settings/custom-tabs/custom-tabs-fixtures";
+import { auroraPlugin, signedCatalog } from "@/lib/marketplace-plugin-fixtures";
 import { MarketplaceProvider } from "./MarketplaceContext";
 import { MarketplaceHome } from "./MarketplaceHome";
 import { PluginDetail } from "./PluginDetail";
@@ -1114,5 +1117,209 @@ describe("platform filtering in the marketplace", () => {
     stubPlatformCatalog("darwin-aarch64", [{ ...pi, id: "linuxagent", version: "1.0.0" }]);
     inMarketplace(<MarketplaceHome view="installed" kind="all" query="" onChange={vi.fn()} />);
     expect((await screen.findAllByText("Linuxagent")).length).toBeGreaterThan(0);
+  });
+});
+
+const AURORA_MEMBERS = ["aurora-agent", "aurora-tab", "aurora-theme"];
+const auroraIndex = signedCatalog([...index.signed.packages, auroraPlugin("1.0.0")]);
+
+/** The Aurora plugin (agent + tab + theme) in every kind's catalog, installed as given. */
+function stubPlugin(
+  installed: { agent?: boolean; tab?: boolean; theme?: boolean; restart?: boolean } = {},
+) {
+  const agent = {
+    ...pi,
+    id: "aurora-agent",
+    version: "1.0.0",
+    restart_required: !!installed.restart,
+  };
+  stubBackend(installed.agent ? [agent] : []);
+  const recommended = Object.fromEntries(AURORA_MEMBERS.map((id) => [id, "1.0.0"]));
+  vi.mocked(catalog).mockResolvedValue({
+    source_configured: true,
+    cache_status: "verified",
+    refreshed: true,
+    used_cached_verified_catalog: false,
+    recommended_versions: { pi: "2.0.0", ...recommended },
+    index: auroraIndex,
+  });
+  vi.mocked(getManagedThemeCatalog).mockResolvedValue({
+    verified: true,
+    recommended_versions: { graphite: "0.2.0", ...recommended },
+    index: auroraIndex,
+  });
+  vi.mocked(getManagedTabCatalog).mockResolvedValue({
+    verified: true,
+    recommended_versions: recommended,
+    index: auroraIndex,
+  });
+  if (installed.theme)
+    vi.mocked(getManagedThemes).mockResolvedValue([
+      graphiteEntry("0.1.0"),
+      { ...graphiteEntry("1.0.0"), id: "aurora-theme", name: "Aurora theme", active: false },
+    ] as never);
+  if (installed.tab) {
+    vi.mocked(getManagedTabs).mockResolvedValue([
+      { id: "aurora-tab", name: "Aurora tab", version: "1.0.0", error: null },
+    ]);
+    vi.mocked(pluginTabList).mockResolvedValue([
+      tabFixture({ id: "aurora-tab", name: "Aurora tab", managed: true }),
+    ]);
+  }
+}
+
+function stubPluginInstalls() {
+  vi.mocked(install).mockResolvedValue({ ...pi, id: "aurora-agent", version: "1.0.0" });
+  vi.mocked(installManagedTab).mockResolvedValue({
+    id: "aurora-tab",
+    name: "Aurora tab",
+    version: "1.0.0",
+    error: null,
+  });
+  vi.mocked(installManagedTheme).mockResolvedValue({
+    ...graphiteEntry("1.0.0"),
+    id: "aurora-theme",
+  } as never);
+}
+
+describe("multi-export plugins in the marketplace", () => {
+  it("shows one plugin tile in Discover and hides its members", async () => {
+    stubPlugin();
+    inMarketplace(<MarketplaceHome view="discover" kind="all" query="" onChange={vi.fn()} />);
+    const shelf = await screen.findByRole("region", { name: /Custom tabs/ });
+    expect(within(shelf).getByRole("link", { name: /Aurora/ })).toHaveAttribute(
+      "href",
+      "/marketplace/$kind/$id:plugin/aurora",
+    );
+    // It sits on the shelf of every kind it adds, and is counted once per kind.
+    expect(within(await screen.findByRole("region", { name: /Providers/ })).getByText("Aurora"));
+    expect(screen.getByRole("button", { name: /Custom tabs 1/ })).toBeTruthy();
+    for (const name of ["Aurora agent", "Aurora tab", "Aurora theme"])
+      expect(screen.queryByText(name)).toBeNull();
+  });
+
+  it("lists what the plugin includes, each linked to its own page", async () => {
+    stubPlugin({ theme: true });
+    inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    const includes = await screen.findByRole("heading", { name: "Includes · 3" });
+    const list = within(includes.closest("section")!);
+    expect(list.getByRole("link", { name: "Aurora tab" })).toHaveAttribute(
+      "href",
+      "/marketplace/$kind/$id:tab/aurora-tab",
+    );
+    expect(list.getAllByText("Not installed")).toHaveLength(2);
+    expect(screen.getByText("Partly installed")).toBeTruthy();
+    expect(screen.getByText(/This plugin installs 3 components/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Install 2 missing" })).toBeTruthy();
+  });
+
+  it("installs every member in catalog order, each with its kind's signed catalog", async () => {
+    stubPlugin();
+    stubPluginInstalls();
+    const { user } = inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    await user.click(await screen.findByRole("button", { name: "Install 1.0.0" }));
+    await waitFor(() =>
+      expect(installManagedTheme).toHaveBeenCalledWith({
+        theme_id: "aurora-theme",
+        version: "1.0.0",
+        index: auroraIndex,
+      }),
+    );
+    expect(install).toHaveBeenCalledWith({
+      provider_id: "aurora-agent",
+      version: "1.0.0",
+      index: auroraIndex,
+    });
+    expect(installManagedTab).toHaveBeenCalledWith({
+      tab_id: "aurora-tab",
+      version: "1.0.0",
+      index: auroraIndex,
+    });
+    const order = [install, installManagedTab, installManagedTheme].map(
+      (fn) => vi.mocked(fn).mock.invocationCallOrder[0],
+    );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
+  it("keeps installing the remaining members after the marketplace is left", async () => {
+    stubPlugin();
+    stubPluginInstalls();
+    let confirmAgent!: () => void;
+    vi.mocked(install).mockReturnValue(
+      new Promise((resolve) => {
+        confirmAgent = () => resolve({ ...pi, id: "aurora-agent", version: "1.0.0" });
+      }),
+    );
+    const { user, rerender } = inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    await user.click(await screen.findByRole("button", { name: "Install 1.0.0" }));
+    await waitFor(() => expect(install).toHaveBeenCalled());
+    // Leaving /marketplace unmounts the layout route that owns the mutations.
+    rerender(<p>Elsewhere</p>);
+    confirmAgent();
+    await waitFor(() => expect(installManagedTheme).toHaveBeenCalled());
+    expect(installManagedTab).toHaveBeenCalled();
+  });
+
+  it("never offers a release a member's catalog does not list yet", async () => {
+    stubPlugin();
+    vi.mocked(getManagedTabCatalog).mockResolvedValue({
+      verified: true,
+      recommended_versions: {},
+      index: signedCatalog(index.signed.packages),
+    });
+    inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    expect(await screen.findByRole("button", { name: "Catalog incomplete" })).toBeDisabled();
+    expect(installManagedTab).not.toHaveBeenCalled();
+  });
+
+  it("stops at the first failing member and says which one", async () => {
+    stubPlugin();
+    stubPluginInstalls();
+    vi.mocked(installManagedTab).mockRejectedValue(
+      serviceError(502, "PLUGIN_TAB_DOWNLOAD", "Archive unreachable"),
+    );
+    const { user } = inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    await user.click(await screen.findByRole("button", { name: "Install 1.0.0" }));
+    expect(
+      await screen.findByText(/Stopped at Aurora tab \(custom tab\): .*Archive unreachable/),
+    ).toBeTruthy();
+    expect(install).toHaveBeenCalledTimes(1);
+    expect(installManagedTheme).not.toHaveBeenCalled();
+  });
+
+  it("asks to enable an installed tab member and to restart for a provider", async () => {
+    stubPlugin({ agent: true, tab: true, theme: true, restart: true });
+    inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    expect(await screen.findByRole("button", { name: "Installed" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Enable" })).toBeTruthy();
+    expect(screen.getByText(/Aurora tab is installed but off/)).toBeTruthy();
+    expect(screen.getByText("Restart Cadencr to apply Aurora agent.")).toBeTruthy();
+  });
+
+  it("lists the plugin and its members in Installed, each member saying where it comes from", async () => {
+    stubPlugin({ agent: true, tab: true, theme: true });
+    inMarketplace(<MarketplaceHome view="installed" kind="all" query="" onChange={vi.fn()} />);
+    expect(await screen.findByRole("link", { name: "Aurora" })).toBeTruthy();
+    expect(screen.getByText(/3 components/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Aurora tab" })).toBeTruthy();
+    expect(screen.getAllByText(/Part of Aurora/)).toHaveLength(3);
+  });
+
+  it("removes every installed member after one confirmation", async () => {
+    stubPlugin({ tab: true, theme: true });
+    vi.mocked(removeManagedTab).mockResolvedValue(true);
+    vi.mocked(removeManagedTheme).mockResolvedValue({ success: true } as never);
+    const { user } = inMarketplace(<PluginDetail kind="plugin" id="aurora" />);
+    await user.click(await screen.findByRole("button", { name: "Remove Aurora…" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/returns to a built-in theme/)).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(removeManagedTheme).toHaveBeenCalledWith("aurora-theme", {
+        confirm_builtin_fallback: true,
+      }),
+    );
+    expect(removeManagedTab).toHaveBeenCalledWith("aurora-tab");
+    expect(remove).not.toHaveBeenCalled();
   });
 });

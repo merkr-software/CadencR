@@ -53,24 +53,17 @@ fn stage_locked(
             stage_managed_targets(directory, &targets, downloader, max_total_bytes)?
         }
     };
-    let package = &plan["mirrored_package"]["package"];
-    let kind = plan
-        .pointer("/mirrored_package/kind")
-        .and_then(Value::as_str);
-    let backend = match kind {
-        Some("tab") => cadencr_registry_core::signed_tab_backend(package)
-            .map_err(cadencr_registry_core::RegistryError::from)?,
-        _ => None,
-    };
+    let mirrored = &plan["mirrored_package"];
     for (target, artifact) in targets.iter().zip(&artifacts) {
         let archive = directory.join(&artifact.asset);
-        match kind {
-            Some("theme") => cadencr_registry_core::verify_theme_archive(&archive)?,
-            Some("tab") => {
-                verify_tab_artifact(package, backend.as_ref(), &target.target, &archive)?
-            }
-            _ => {}
-        }
+        let (entry, name) = if cadencr_registry_core::marketplace_package_kind(mirrored)
+            == Some(cadencr_registry_core::PLUGIN_KIND)
+        {
+            plugin_member_target(mirrored, &target.target)?
+        } else {
+            (mirrored, target.target.as_str())
+        };
+        verify_entry_artifact(entry, name, &archive)?;
     }
     let receipt = StageReceipt {
         schema_version: 1,
@@ -79,6 +72,44 @@ fn stage_locked(
     };
     publish_receipt(directory, &receipt)?;
     Ok(receipt)
+}
+
+/// A plugin target names its member: `<kind>:<id>:<member target>`.
+fn plugin_member_target<'a>(
+    plugin: &'a Value,
+    target: &'a str,
+) -> Result<(&'a Value, &'a str), PublisherError> {
+    let unknown = || PublisherError::new(format!("unknown plugin publication target {target}"));
+    let (kind, id, name) =
+        cadencr_registry_core::split_plugin_target(target).ok_or_else(unknown)?;
+    let member = cadencr_registry_core::plugin_members(plugin)
+        .iter()
+        .find(|member| {
+            cadencr_registry_core::marketplace_package_kind(member) == Some(kind)
+                && cadencr_registry_core::marketplace_package_identity(member)
+                    .is_some_and(|(member_id, _)| member_id == id)
+        })
+        .ok_or_else(unknown)?;
+    Ok((member, name))
+}
+
+/// Verify one staged archive against its single-kind entry, executing
+/// nothing. Provider binaries are checked by digest only.
+fn verify_entry_artifact(
+    entry: &Value,
+    target: &str,
+    archive: &Path,
+) -> Result<(), PublisherError> {
+    match cadencr_registry_core::marketplace_package_kind(entry) {
+        Some("theme") => cadencr_registry_core::verify_theme_archive(archive)?,
+        Some("tab") => {
+            let backend = cadencr_registry_core::signed_tab_backend(entry)
+                .map_err(cadencr_registry_core::RegistryError::from)?;
+            verify_tab_artifact(&entry["package"], backend.as_ref(), target, archive)?
+        }
+        _ => {}
+    }
+    Ok(())
 }
 
 /// A tab publication stages its web archive (`tab`) and one archive per

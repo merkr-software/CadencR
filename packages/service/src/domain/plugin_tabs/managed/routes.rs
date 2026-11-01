@@ -96,7 +96,7 @@ struct Review<'a> {
 /// Review every tab version of `index`, each signed entry parsed once.
 fn review<'a>(index: &'a SignedMixedCatalog, policy: Option<&PolicySnapshot>) -> Review<'a> {
     let mut review = Review::default();
-    for entry in &index.signed.packages {
+    for entry in cadencr_registry_core::catalog_members(&index.signed.packages) {
         let Some((id, version)) = catalog::package_version(entry, "tab") else {
             continue;
         };

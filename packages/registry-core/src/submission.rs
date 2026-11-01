@@ -39,7 +39,7 @@ pub(crate) fn validate_submission(value: &Value, errors: &mut Diagnostics) {
     }
     let package = value.get("package").unwrap_or(&Value::Null);
     validate_package(package, "submission.package", errors);
-    validate_marketplace_package(package, errors);
+    validate_marketplace_package(package, "submission.package", errors);
     validate_source(value.get("source"), package, errors);
     if !value
         .get("changelog")
@@ -64,24 +64,28 @@ pub(crate) fn validate_submission(value: &Value, errors: &mut Diagnostics) {
     }
 }
 
-fn validate_marketplace_package(package: &Value, errors: &mut Diagnostics) {
+fn validate_marketplace_package(package: &Value, label: &str, errors: &mut Diagnostics) {
     let Some(agent) = package.get("agent").and_then(Value::as_object) else {
         return;
     };
     if !agent.get("repository").is_some_and(Value::is_string) {
-        errors.push("submission.package.agent.repository is required".into());
+        errors.push(format!("{label}.agent.repository is required"));
     }
     if agent
         .get("license")
         .and_then(Value::as_str)
         .is_none_or(|value| ecmascript_trim(value).is_empty())
     {
-        errors.push("submission.package.agent.license must be a non-empty declared license".into());
+        errors.push(format!(
+            "{label}.agent.license must be a non-empty declared license"
+        ));
     }
     if identity(package).is_some_and(|(id, _)| {
         reserved_provider_ids().contains(normalized_provider_id(id).as_str())
     }) {
-        errors.push("submission.package.agent.id is reserved by a built-in provider".into());
+        errors.push(format!(
+            "{label}.agent.id is reserved by a built-in provider"
+        ));
     }
     if let Some(assets) = package.pointer("/host/assets").and_then(Value::as_object) {
         for key in ["readme", "license"] {
@@ -90,7 +94,7 @@ fn validate_marketplace_package(package: &Value, errors: &mut Diagnostics) {
                 .and_then(Value::as_str)
                 .is_none_or(|value| ecmascript_trim(value).is_empty())
             {
-                errors.push(format!("submission.package.host.assets.{key} is required"));
+                errors.push(format!("{label}.host.assets.{key} is required"));
             }
         }
     }
@@ -100,7 +104,7 @@ fn validate_marketplace_package(package: &Value, errors: &mut Diagnostics) {
             .is_some()
         {
             errors.push(format!(
-                "submission.package.agent.distribution.{runner} is not supported by marketplace v1"
+                "{label}.agent.distribution.{runner} is not supported by marketplace v1"
             ));
         }
     }
@@ -143,20 +147,29 @@ fn validate_source(source: Option<&Value>, package: &Value, errors: &mut Diagnos
     ) else {
         return;
     };
-    if let Some(binary) = package
+    validate_provider_archives(package, repository, tag, "submission.package", errors);
+}
+
+/// Every provider binary archive is an asset of the source release.
+fn validate_provider_archives(
+    package: &Value,
+    repository: &str,
+    tag: &str,
+    label: &str,
+    errors: &mut Diagnostics,
+) {
+    let binary = package
         .pointer("/agent/distribution/binary")
-        .and_then(Value::as_object)
-    {
-        for (platform, target) in binary {
-            if let Some(archive) = target.get("archive").and_then(Value::as_str) {
-                validate_archive(
-                    archive,
-                    repository,
-                    tag,
-                    &format!("submission.package.agent.distribution.binary.{platform}"),
-                    errors,
-                );
-            }
+        .and_then(Value::as_object);
+    for (platform, target) in binary.into_iter().flatten() {
+        if let Some(archive) = target.get("archive").and_then(Value::as_str) {
+            validate_archive(
+                archive,
+                repository,
+                tag,
+                &format!("{label}.agent.distribution.binary.{platform}"),
+                errors,
+            );
         }
     }
 }

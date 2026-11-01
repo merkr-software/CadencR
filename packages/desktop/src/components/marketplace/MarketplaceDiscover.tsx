@@ -31,7 +31,7 @@ export function KindFilterBar({
   const options: { value: KindFilter; label: string; count: number; tone?: string }[] = [
     { value: "all", label: "All", count: listings.length },
     ...KIND_ORDER.filter(
-      (value) => value === kind || listings.some((listing) => listing.kind === value),
+      (value) => value === kind || listings.some((listing) => listing.contributes.includes(value)),
     ).map((value) => ({
       value,
       label: KINDS[value].plural,

@@ -18,7 +18,11 @@ pub(crate) fn validate_optional_assets_host(
     }
 }
 
-fn validate_host_metadata(host: &Map<String, Value>, label: &str, errors: &mut Diagnostics) {
+pub(crate) fn validate_host_metadata(
+    host: &Map<String, Value>,
+    label: &str,
+    errors: &mut Diagnostics,
+) {
     reject_unknown(
         host,
         &["publisher", "compatibility", "assets"],

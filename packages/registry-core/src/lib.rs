@@ -17,15 +17,22 @@ mod metadata;
 pub use marketplace::theme_distribution_repository;
 pub use metadata::{check_metadata_expiry, validate_metadata_file, validate_submission_file};
 mod marketplace_plan;
+pub use marketplace_plan::{plugin_web_archive_kind, split_plugin_target};
 mod marketplace_types;
+mod plugin_package;
 pub use marketplace::{
     marketplace_package_identity, marketplace_package_kind, valid_theme_id,
     validate_marketplace_package,
 };
 pub use marketplace_types::{
     parse_marketplace_package, MarketplaceAssets, MarketplaceCompatibility, MarketplaceHost,
-    MarketplacePackage, ProviderPackage, TabBackendDescriptor, TabBinaryTarget, TabDescriptor,
-    TabDistribution, TabPackage, ThemeDescriptor, ThemeDistribution, ThemePackage,
+    MarketplacePackage, PluginDescriptor, PluginPackage, ProviderPackage, TabBackendDescriptor,
+    TabBinaryTarget, TabDescriptor, TabDistribution, TabPackage, ThemeDescriptor,
+    ThemeDistribution, ThemePackage,
+};
+pub use plugin_package::{
+    catalog_members, plugin_members, valid_plugin_id, MAX_PLUGIN_MEMBERS, PLUGIN_KIND,
+    PLUGIN_MEMBER_KINDS,
 };
 mod json;
 mod package;
@@ -151,6 +158,9 @@ pub fn validate_contribution(base: &Path, candidate: &Path) -> Result<(), Regist
     validate_candidate(&base, &candidate, &mut errors);
     validate_owners(&base, &candidate, &mut errors);
     validate_collisions(&candidate, &mut errors);
+    if let Err(error) = plugin_package::validate_member_ownership(candidate.packages.values()) {
+        errors.extend(error.messages().iter().cloned());
+    }
     if errors.is_empty() {
         Ok(())
     } else {
@@ -229,8 +239,9 @@ fn validate_candidate(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
 }
 
 fn validate_owners(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
-    let mut owners = HashMap::<String, (&str, Option<&str>, Option<&str>)>::new();
-    for package in base.packages.values() {
+    let mut owners = HashMap::<String, Owner>::new();
+    let base_units = plugin_package::identity_units_of(base.packages.values());
+    for package in base_units {
         if let Some((id, _)) = identity(package) {
             owners.entry(id.into()).or_insert((
                 marketplace::kind(package),
@@ -274,40 +285,66 @@ fn validate_owners(base: &Tree, candidate: &Tree, errors: &mut Diagnostics) {
             errors.push(format!("submissions/{name}: retroactive provenance claims for legacy packages are not allowed"));
             continue;
         }
-        let proposed = (
-            marketplace::kind(package),
-            marketplace::body(package)
-                .pointer("/host/publisher")
-                .and_then(serde_json::Value::as_str),
-            submission
-                .pointer("/source/repository")
-                .and_then(serde_json::Value::as_str),
+        let source = submission
+            .pointer("/source/repository")
+            .and_then(serde_json::Value::as_str);
+        // A plugin's members own their ids exactly as standalone packages do.
+        let units = std::iter::once((id, package)).chain(
+            plugin_package::plugin_members(package)
+                .iter()
+                .filter_map(|member| identity(member).map(|(id, _)| (id, member))),
         );
-        if let Some(owner) = owners.get(id) {
-            if proposed.0 != owner.0 {
-                errors.push(format!("packages/{name}: package kind is immutable"));
-            }
-            if proposed.1 != owner.1 {
-                errors.push(format!(
-                    "packages/{name}: host.publisher must remain {:?}",
-                    owner.1
-                ));
-            }
-            if proposed.2 != owner.2 {
-                errors.push(format!(
-                    "submissions/{name}: source.repository must remain {:?}",
-                    owner.2
-                ));
-            }
-        } else {
-            owners.insert(id.into(), proposed);
+        for (id, unit) in units {
+            let proposed = (
+                marketplace::kind(unit),
+                marketplace::body(unit)
+                    .pointer("/host/publisher")
+                    .and_then(serde_json::Value::as_str),
+                source,
+            );
+            check_owner(&mut owners, id, proposed, name, errors);
         }
+    }
+}
+
+type Owner<'a> = (&'a str, Option<&'a str>, Option<&'a str>);
+
+fn check_owner<'a>(
+    owners: &mut HashMap<String, Owner<'a>>,
+    id: &str,
+    proposed: Owner<'a>,
+    name: &str,
+    errors: &mut Diagnostics,
+) {
+    let Some(owner) = owners.get(id) else {
+        owners.insert(id.into(), proposed);
+        return;
+    };
+    if proposed.0 != owner.0 {
+        errors.push(format!("packages/{name}: package kind is immutable"));
+    }
+    if proposed.1 != owner.1 {
+        errors.push(format!(
+            "packages/{name}: host.publisher must remain {:?}",
+            owner.1
+        ));
+    }
+    if proposed.2 != owner.2 {
+        errors.push(format!(
+            "submissions/{name}: source.repository must remain {:?}",
+            owner.2
+        ));
     }
 }
 
 fn validate_collisions(candidate: &Tree, errors: &mut Diagnostics) {
     let mut owners = HashMap::<String, &str>::new();
-    for (name, package) in &candidate.packages {
+    let units = candidate.packages.iter().flat_map(|(name, package)| {
+        std::iter::once(package)
+            .chain(plugin_package::plugin_members(package))
+            .map(move |unit| (name, unit))
+    });
+    for (name, package) in units {
         if errors.is_full() {
             break;
         }

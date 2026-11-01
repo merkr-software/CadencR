@@ -49,10 +49,8 @@ impl SignedProviderCatalog {
             Self::Mixed(index) => {
                 let generated_at = timestamp(&index.signed.generated_at)?;
                 let expires_at = timestamp(&index.signed.expires_at)?;
-                let packages = index
-                    .signed
-                    .packages
-                    .iter()
+                // Plugin members are providers like standalone entries.
+                let packages = cadencr_registry_core::catalog_members(&index.signed.packages)
                     .filter(|entry| entry["kind"] == "provider")
                     .map(|entry| {
                         serde_json::from_value::<ManagedProviderPackage>(entry["package"].clone())

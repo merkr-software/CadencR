@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { useThemeArt } from "@/hooks/useThemePreview";
 import { marketplaceError } from "@/lib/marketplace";
 import { displayVersion, type MarketplaceListing } from "@/lib/marketplace-listings";
+import { pluginMembers } from "@/lib/marketplace-plugin-listings";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { ProviderStage, ThemeStage } from "./PluginStages";
 
@@ -22,10 +23,44 @@ export function PluginArt({
   variant: Variant;
   version?: string;
 }): React.JSX.Element {
+  if (listing.kind === "plugin")
+    return <PluginPackageArt listing={listing} variant={variant} version={version} />;
   if (listing.kind === "tab") return <TabArt listing={listing} />;
   if (listing.kind === "provider")
     return <ProviderStage listing={listing} compact={variant === "tile"} />;
   return <ThemeArt key={version} listing={listing} variant={variant} version={version} />;
+}
+
+/** What a plugin looks like: its most visible member (a theme, else a provider, else a tab). */
+const FACE_ORDER = ["theme", "provider", "tab"] as const;
+
+function PluginPackageArt({
+  listing,
+  variant,
+  version,
+}: {
+  listing: MarketplaceListing;
+  variant: Variant;
+  version?: string;
+}): React.JSX.Element {
+  const { listingsByKey } = useMarketplaceState();
+  const members = pluginMembers(listing, version, listingsByKey);
+  const face = FACE_ORDER.flatMap((kind) =>
+    members.flatMap((member) => (member.ref.kind === kind && member.listing) || []),
+  )[0];
+  if (!face)
+    return (
+      <>
+        <ThemeStage definition={null} />
+        <div className="absolute inset-0 grid place-items-center">
+          <span className="rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
+            No preview available
+          </span>
+        </div>
+      </>
+    );
+  // Members ship in their plugin's release, so the plugin version is the member's.
+  return <PluginArt listing={face} variant={variant} version={version} />;
 }
 
 function ThemeArt({

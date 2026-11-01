@@ -128,7 +128,9 @@ pub(crate) fn validate_index_with(
     if schema == Some(2) {
         crate::catalog::validate_catalog_identities_with_label(packages, "repository")?;
     }
-    let identities = packages.iter().filter_map(identity).collect::<Vec<_>>();
+    let identities = crate::plugin_package::identity_units(packages)
+        .filter_map(identity)
+        .collect::<Vec<_>>();
     if identities
         .iter()
         .collect::<std::collections::HashSet<_>>()
@@ -387,5 +389,46 @@ mod tests {
             .call()
             .unwrap_err();
         assert!(error.to_string().contains("exceeds 14 days"));
+    }
+
+    fn catalog(packages: Vec<Value>) -> Value {
+        let (generated, expires) = window();
+        json!({"schema_version":2,"generated_at":generated,"expires_at":expires,"packages":packages})
+    }
+
+    #[test]
+    fn consumers_skip_newer_kinds_that_publication_refuses() {
+        let unknown = json!({"kind":"skill","package":{"skill":{"id":"review","version":"1.0.0"}}});
+        let index = catalog(vec![crate::plugin_package::tests::plugin("1.0.0"), unknown]);
+        validate_index_with(&index, Utc::now(), false, Rules::Consume).unwrap();
+        assert!(validate_index_with(&index, Utc::now(), false, Rules::Publish).is_err());
+        for malformed in [json!({"kind":"skill"}), json!({"kind":"","package":{}})] {
+            let index = catalog(vec![malformed]);
+            assert!(validate_index_with(&index, Utc::now(), false, Rules::Consume).is_err());
+        }
+    }
+
+    #[test]
+    fn plugin_members_share_the_catalog_id_namespace() {
+        use crate::plugin_package::tests::{plugin, theme_member};
+        let standalone = theme_member("aurora-theme", "1.0.0");
+        let index = catalog(vec![plugin("1.0.0"), standalone]);
+        let error = validate_index_with(&index, Utc::now(), false, Rules::Publish).unwrap_err();
+        assert!(
+            error.to_string().contains("member of plugin aurora"),
+            "{error}"
+        );
+        let mut other_owner = theme_member("aurora-theme", "2.0.0");
+        other_owner["package"]["host"]["publisher"] = json!("mallory");
+        let index = catalog(vec![plugin("1.0.0"), other_owner]);
+        let error = validate_index_with(&index, Utc::now(), false, Rules::Publish).unwrap_err();
+        assert!(error.to_string().contains("ownership"), "{error}");
+        // Even its own owner cannot publish a member on its own.
+        let index = catalog(vec![plugin("1.0.0"), theme_member("aurora-theme", "2.0.0")]);
+        let error = validate_index_with(&index, Utc::now(), false, Rules::Publish).unwrap_err();
+        assert!(
+            error.to_string().contains("member of plugin aurora"),
+            "{error}"
+        );
     }
 }

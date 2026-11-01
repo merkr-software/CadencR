@@ -135,7 +135,7 @@ fn valid_repository_name(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
-fn mirror_target(
+pub(crate) fn mirror_target(
     target: &str,
     distribution: &Value,
     repository: &str,

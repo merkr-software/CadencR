@@ -1,5 +1,5 @@
-import { Bot, Palette, PanelTop, type LucideIcon } from "lucide-react";
-import { PLUGIN_KINDS, type PluginKind } from "@/lib/marketplace-listings";
+import { Bot, Boxes, Palette, PanelTop, type LucideIcon } from "lucide-react";
+import { PLUGIN_KINDS, type ListingKind } from "@/lib/marketplace-listings";
 
 interface KindMeta {
   label: string;
@@ -11,10 +11,20 @@ interface KindMeta {
   pitch: string;
 }
 
-/** Display order is user-visible: the order kinds appear in filters and shelves. */
+/**
+ * Display order is user-visible: the order kinds appear in filters and shelves.
+ * A plugin is no shelf of its own: it sits on the shelf of every kind it adds.
+ */
 export const KIND_ORDER = PLUGIN_KINDS;
 
-export const KINDS: Record<PluginKind, KindMeta> = {
+export const KINDS: Record<ListingKind, KindMeta> = {
+  plugin: {
+    label: "Plugin",
+    plural: "Plugins",
+    icon: Boxes,
+    tone: "mp-kind-plugin",
+    pitch: "Several contributions in one release, installed and updated together.",
+  },
   tab: {
     label: "Custom tab",
     plural: "Custom tabs",

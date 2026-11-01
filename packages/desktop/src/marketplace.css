@@ -11,6 +11,10 @@
 .mp-kind-provider {
   --mp-kind: var(--chart-4);
 }
+/* A plugin listing (several kinds in one release); its chips keep their own kinds' tones. */
+.mp-kind-plugin {
+  --mp-kind: var(--chart-5);
+}
 
 /* ── Kind chip ─────────────────────────────────────────────────────────── */
 .mp-kind-chip {

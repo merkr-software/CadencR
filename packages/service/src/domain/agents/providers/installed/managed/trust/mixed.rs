@@ -95,6 +95,49 @@ mod tests {
         );
     }
     #[test]
+    fn plugin_members_resolve_like_standalone_entries_and_newer_kinds_are_skipped() {
+        let (trust, mut index) = fixture(true);
+        let mut provider = index.signed.packages.remove(0);
+        let mut theme = index.signed.packages.remove(0);
+        let repository = json!("https://github.com/acme/agent");
+        let compatibility = json!({"min_app_version":"0.11.0"});
+        provider["package"]["agent"]["repository"] = repository.clone();
+        provider["package"]["host"]["compatibility"] = compatibility.clone();
+        let descriptor = &mut theme["package"]["theme"];
+        descriptor["id"] = json!("acme-agent-theme");
+        descriptor["version"] = json!("1.2.3");
+        descriptor["repository"] = repository.clone();
+        descriptor["distribution"]["archive"] =
+            json!("https://github.com/acme/agent/releases/download/v1.2.3/theme.tar.gz");
+        theme["package"]["host"]["compatibility"] = compatibility.clone();
+        index.signed.packages = vec![
+            json!({"kind":"plugin","package":{
+                "plugin":{"id":"acme","name":"Acme","description":"Agent and theme",
+                    "version":"1.2.3","repository":repository,"license":"MIT"},
+                "host":{"publisher":"acme","compatibility":compatibility},
+                "contributes":[provider, theme]}}),
+            json!({"kind":"skill","package":{"skill":{"id":"review"}}}),
+        ];
+        sign(&mut index);
+        let theme_entry = crate::domain::themes::managed::catalog::resolve_kind(
+            &index,
+            "acme-agent-theme",
+            "1.2.3",
+            "theme",
+        )
+        .unwrap();
+        assert_eq!(theme_entry["theme"]["id"], "acme-agent-theme");
+        let verified = trust.verify_index(index).unwrap();
+        assert_eq!(verified.index().packages.len(), 1);
+        assert_eq!(
+            verified
+                .resolve_current_platform("acme-agent", "1.2.3", "0.12.0")
+                .unwrap()
+                .provider_id,
+            "acme-agent"
+        );
+    }
+    #[test]
     fn themes_only_is_a_verified_empty_provider_view_not_a_fake_provider() {
         let (trust, index) = fixture(false);
         let verified = trust.verify_index(index).unwrap();
