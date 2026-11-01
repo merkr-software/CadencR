@@ -53,7 +53,6 @@ describe("SidebarProviderBadge", () => {
   it.each([
     ["claude_code", 56],
     ["codex_cli", 43],
-    ["cursor", 56],
     ["opencode", 46],
   ])("normalizes %s to the same longest ink edge", (provider, inkEdge) => {
     render(<SidebarProviderBadge providerId={String(provider)} />);

@@ -97,6 +97,12 @@ pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
     if let Some(spec) = editor_tooling_spec(key).or_else(|| sidebar::sidebar_display_spec(key)) {
         return Some(spec);
     }
+    if crate::domain::settings_allowlist::is_provider_access_mode_key(key) {
+        return Some(SettingSpec::new(
+            ValueKind::Enum(&["default", "fullAccess", "autoReview"]),
+            Some("default"),
+        ));
+    }
     let spec = match key {
         // Booleans default to "false" — the historical "unset == off" behavior.
         "editor_vim_mode"
@@ -198,6 +204,17 @@ mod tests {
         assert!(spec.is_valid("false"));
         assert!(!spec.is_valid("yes"));
         assert_eq!(spec.default, Some("true"));
+    }
+
+    #[test]
+    fn provider_access_mode_defaults_accept_only_access_mode_ids() {
+        let spec = workspace_spec("provider_access_mode.acme-agent").unwrap();
+        for value in ["default", "fullAccess", "autoReview"] {
+            assert!(spec.is_valid(value), "{value}");
+        }
+        assert!(!spec.is_valid("bypassPermissions"));
+        assert_eq!(spec.default, Some("default"));
+        assert!(workspace_spec("provider_access_mode.Bad Id").is_none());
     }
 
     #[test]

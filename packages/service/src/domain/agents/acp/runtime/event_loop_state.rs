@@ -12,29 +12,41 @@ use super::events::{mirror_session_info_update, parse_available_commands};
 use super::events_config_option::{mirror_config_snapshot, mirror_legacy_config_update};
 use super::events_stream_blocks::EventIndexer;
 use super::server_requests::EventLoopConfig;
+use super::session::select_value;
 use super::session_config::ConfigNotificationUpdate;
+use crate::domain::agents::adapter::{RuntimeEvent, RuntimeSessionConfigValue};
+
+/// What a `session/update` changed in the session's mirrored state.
+#[derive(Default)]
+pub struct SessionStateSync {
+    /// The update moved the session's model. The echo of the client's own
+    /// `set_model` finds the model already there, as `apply_model_config`
+    /// writes it under the same update lock.
+    pub agent_moved_model: bool,
+    /// A mode the agent switched itself into, in host terms.
+    pub mode_changed: Option<RuntimeEvent>,
+}
 
 /// Mirror agent-initiated `current_mode_update` / `config_option_update` /
 /// `session_info_update` notifications into the session's local state, and
-/// log slash-command catalog updates for diagnostics. `true` when the update
-/// moved the session's model: the echo of the client's own `set_model` finds
-/// the model already there, as `apply_model_config` writes it under the same
-/// update lock.
-pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopConfig) -> bool {
+/// log slash-command catalog updates for diagnostics.
+pub async fn sync_session_state_from_update(
+    params: &Value,
+    config: &EventLoopConfig,
+) -> SessionStateSync {
     // Borrowed — `events::session_update_to_events` does the same dance, and
     // both run on every `session/update` notification, so we pay no clones.
     let body = params.get("update").unwrap_or(params);
     let kind = body.get("sessionUpdate").and_then(Value::as_str);
     match kind {
         Some("current_mode_update") => {
-            if let Some(mode) = body.get("currentModeId").and_then(Value::as_str) {
-                let mut current = config.current_mode.write().await;
-                if *current != mode {
-                    *current = mode.to_string();
-                    tracing::debug!(mode, "ACP agent updated current mode");
-                }
-            }
-            false
+            let Some(mode) = body.get("currentModeId").and_then(Value::as_str) else {
+                return SessionStateSync::default();
+            };
+            return SessionStateSync {
+                agent_moved_model: false,
+                mode_changed: observe_provider_mode(config, mode).await,
+            };
         }
         Some("available_commands_update") => {
             // Mirror the agent-advertised catalog into the provider's
@@ -52,50 +64,85 @@ pub async fn sync_session_state_from_update(params: &Value, config: &EventLoopCo
                 .hooks
                 .record_available_commands(&config.cwd, commands)
                 .await;
-            false
         }
         Some("config_option_update") => {
-            let update_guard = config.session_config.lock_updates().await;
             let before = config.current_model.read().await.clone();
-            match config
-                .session_config
-                .observe_notification(&update_guard, body)
-                .await
-            {
-                Ok(ConfigNotificationUpdate::Snapshot(snapshot)) => {
-                    mirror_config_snapshot(
-                        &snapshot,
-                        config.hooks.as_ref(),
-                        &config.current_model,
-                        &config.current_effort,
-                    )
-                    .await;
-                }
-                Ok(ConfigNotificationUpdate::Legacy { config_id, value }) => {
-                    mirror_legacy_config_update(
-                        &config_id,
-                        value.as_ref(),
-                        &config.current_model,
-                        &config.current_effort,
-                    )
-                    .await;
-                }
-                Ok(ConfigNotificationUpdate::Ignored) => {
-                    tracing::debug!("ignoring ACP config update without options");
-                }
-                Err(error) => {
-                    tracing::warn!(%error, "ignoring invalid ACP config option update");
-                }
-            }
-            *config.current_model.read().await != before
+            let mode_changed = sync_config_update(body, config).await;
+            return SessionStateSync {
+                agent_moved_model: *config.current_model.read().await != before,
+                mode_changed,
+            };
         }
         Some("session_info_update") => {
             let before = config.current_model.read().await.clone();
             mirror_session_info_update(body, &config.current_model).await;
-            *config.current_model.read().await != before
+            return SessionStateSync {
+                agent_moved_model: *config.current_model.read().await != before,
+                mode_changed: None,
+            };
         }
-        _ => false,
+        _ => {}
     }
+    SessionStateSync::default()
+}
+
+async fn sync_config_update(body: &Value, config: &EventLoopConfig) -> Option<RuntimeEvent> {
+    let update_guard = config.session_config.lock_updates().await;
+    let mode_value = match config
+        .session_config
+        .observe_notification(&update_guard, body)
+        .await
+    {
+        Ok(ConfigNotificationUpdate::Snapshot(snapshot)) => {
+            mirror_config_snapshot(&snapshot, &config.current_model, &config.current_effort).await;
+            let mode_config_id = config.hooks.mode_config_id()?;
+            select_value(&snapshot, &mode_config_id).map(ToOwned::to_owned)
+        }
+        Ok(ConfigNotificationUpdate::Legacy { config_id, value }) => {
+            mirror_legacy_config_update(
+                &config_id,
+                value.as_ref(),
+                &config.current_model,
+                &config.current_effort,
+            )
+            .await;
+            match value {
+                Some(RuntimeSessionConfigValue::Select(value))
+                    if config.hooks.mode_config_id().as_deref() == Some(config_id.as_str()) =>
+                {
+                    Some(value)
+                }
+                _ => None,
+            }
+        }
+        Ok(ConfigNotificationUpdate::Ignored) => {
+            tracing::debug!("ignoring ACP config update without options");
+            None
+        }
+        Err(error) => {
+            tracing::warn!(%error, "ignoring invalid ACP config option update");
+            None
+        }
+    };
+    drop(update_guard);
+    observe_provider_mode(config, &mode_value?).await
+}
+
+/// Record the agent's current mode id; report it in host terms when it moved.
+async fn observe_provider_mode(config: &EventLoopConfig, mode: &str) -> Option<RuntimeEvent> {
+    {
+        let mut current = config.current_mode.write().await;
+        if *current == mode {
+            return None;
+        }
+        *current = mode.to_string();
+    }
+    tracing::debug!(mode, "ACP agent updated current mode");
+    let host_mode = config.hooks.permission_mode_for_mode_id(mode)?;
+    let session_id = config.session_id.read().await.clone();
+    Some(RuntimeEvent::permission_mode_changed_event(
+        session_id, host_mode,
+    ))
 }
 
 /// The model the running prompt's replies are labelled with. Only the agent
@@ -239,14 +286,20 @@ mod tests {
                 "configOption": { "name": "model", "value": "m2" }
             }
         });
-        assert!(sync_session_state_from_update(&params, &cfg).await);
+        assert!(
+            sync_session_state_from_update(&params, &cfg)
+                .await
+                .agent_moved_model
+        );
         assert_eq!(cfg.current_model.read().await.as_deref(), Some("m2"));
         assert!(matches!(
             &cfg.session_config.snapshot().await.options[0].kind,
             RuntimeSessionConfigKind::Select { current_value, .. } if current_value == "m2"
         ));
         assert!(
-            !sync_session_state_from_update(&params, &cfg).await,
+            !sync_session_state_from_update(&params, &cfg)
+                .await
+                .agent_moved_model,
             "the echo of a model the session already runs moves nothing"
         );
     }

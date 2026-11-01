@@ -198,7 +198,7 @@ async fn project_spawn_session_unknown_provider_error_lists_valid_ids() {
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     let body_text = response_text(response).await;
     assert!(body_text.contains("unknown provider 'claudeish'"));
-    assert!(body_text.contains("Valid providers: claude_code, codex_cli, cursor, opencode"));
+    assert!(body_text.contains("Valid providers: claude_code, codex_cli, opencode"));
 }
 
 #[tokio::test]

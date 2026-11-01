@@ -281,16 +281,19 @@ mod tests {
     fn duplicate_ids_keep_the_first_registration_and_report_the_rest() {
         let dir = tempfile::tempdir().unwrap();
         let bin = runnable_binary(dir.path());
-        write(dir.path(), "cursor.json", descriptor("cursor", &bin));
+        write(dir.path(), "opencode.json", descriptor("opencode", &bin));
 
-        let outcome = load_from_dir(dir.path(), &["cursor", "opencode"]);
+        let outcome = load_from_dir(dir.path(), &["opencode", "claude_code"]);
         assert!(outcome.installations.is_empty());
         assert_eq!(outcome.rejections.len(), 1);
         assert_eq!(
             outcome.rejections[0].code,
             RejectionCode::DuplicateProviderId
         );
-        assert_eq!(outcome.rejections[0].provider_id.as_deref(), Some("cursor"));
+        assert_eq!(
+            outcome.rejections[0].provider_id.as_deref(),
+            Some("opencode")
+        );
     }
 
     #[test]
@@ -340,9 +343,9 @@ mod tests {
     fn a_disabled_descriptor_still_cannot_claim_a_taken_id() {
         let dir = tempfile::tempdir().unwrap();
         let bin = runnable_binary(dir.path());
-        let mut disabled = descriptor("cursor", &bin);
+        let mut disabled = descriptor("opencode", &bin);
         disabled["installation"]["enabled"] = json!(false);
-        write(dir.path(), "cursor.json", disabled);
+        write(dir.path(), "opencode.json", disabled);
         let mut second = descriptor("acme", &bin);
         second["installation"]["enabled"] = json!(false);
         write(dir.path(), "acme.json", second);
@@ -352,13 +355,16 @@ mod tests {
             descriptor("acme-again", &bin),
         );
 
-        let outcome = load_from_dir(dir.path(), &["cursor"]);
+        let outcome = load_from_dir(dir.path(), &["opencode"]);
         assert_eq!(outcome.rejections.len(), 1);
         assert_eq!(
             outcome.rejections[0].code,
             RejectionCode::DuplicateProviderId
         );
-        assert_eq!(outcome.rejections[0].provider_id.as_deref(), Some("cursor"));
+        assert_eq!(
+            outcome.rejections[0].provider_id.as_deref(),
+            Some("opencode")
+        );
         let ids: Vec<&str> = outcome
             .installations
             .iter()

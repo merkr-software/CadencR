@@ -6,7 +6,18 @@ use std::process::ExitCode;
 
 use agent_client_protocol::schema::v1::SessionConfigOption;
 
+mod host_integration;
+pub mod meta;
+mod slash_commands;
 mod updates;
+pub use host_integration::{
+    HostIntegration, ResumeCommand, HOST_INTEGRATION_FORMAT, SESSION_ID_PLACEHOLDER,
+};
+pub use slash_commands::{
+    is_valid_slash_command_name, sanitize_slash_command_description, validate_slash_commands,
+    SlashCommand, SlashCommandKind, MAX_SLASH_COMMANDS, MAX_SLASH_COMMAND_DESCRIPTION_CHARS,
+    MAX_SLASH_COMMAND_NAME_CHARS, SLASH_COMMANDS_FORMAT,
+};
 pub use updates::{UpdateReport, UPDATE_REPORT_FORMAT};
 
 pub const MODEL_DISCOVERY_FORMAT: &str = "acp-config-options-v1";
@@ -61,6 +72,21 @@ pub trait CadencrProvider {
     fn update(&self, _target: Option<&str>) -> Result<Option<String>, ProviderError> {
         Err(ProviderError::new("this provider does not manage updates"))
     }
+
+    /// Host conventions this provider opts into (compaction command, worktree
+    /// configuration paths, terminal resume command). `None` (the default)
+    /// prints `{}`: no host integration.
+    fn host_integration(&self) -> Result<Option<HostIntegration>, ProviderError> {
+        Ok(None)
+    }
+
+    /// The `/name` commands and skills the native agent accepts in a prompt
+    /// for `cwd`, matching what its ACP `available_commands_update` would
+    /// list there. `None` (the default) exits non-zero: Cadencr then shows
+    /// the list the last live session advertised for that directory.
+    fn slash_commands(&self, _cwd: &Path) -> Result<Option<Vec<SlashCommand>>, ProviderError> {
+        Ok(None)
+    }
 }
 
 pub fn run_cli(provider: &impl CadencrProvider) -> ExitCode {
@@ -79,7 +105,8 @@ fn execute(
 ) -> Result<ExitCode, ProviderError> {
     let Some(command) = args.first().and_then(|value| value.to_str()) else {
         return Err(ProviderError::new(
-            "expected `models`, `run`, `version`, `updates`, or `update`",
+            "expected `models`, `run`, `version`, `updates`, `update`, `host-integration`, \
+             or `slash-commands`",
         ));
     };
     match command {
@@ -87,6 +114,8 @@ fn execute(
         "run" => execute_run(provider, &args[1..]),
         "updates" => updates::execute_updates(provider, &args[1..]),
         "update" => updates::execute_update(provider, &args[1..]),
+        "host-integration" => host_integration::execute_host_integration(provider, &args[1..]),
+        "slash-commands" => slash_commands::execute_slash_commands(provider, &args[1..]),
         "version" if args.len() == 1 => {
             println!("{}", provider.version());
             Ok(ExitCode::SUCCESS)
@@ -203,6 +232,88 @@ mod tests {
             vec!["update".into(), "--version".into(), " ".into()],
         )
         .is_err());
+    }
+
+    #[test]
+    fn host_integration_defaults_to_none_and_checks_the_format() {
+        let command = |format: &str| {
+            execute(
+                &FixtureProvider,
+                vec!["host-integration".into(), "--format".into(), format.into()],
+            )
+        };
+        assert_eq!(
+            command("cadencr-host-integration-v1").unwrap(),
+            ExitCode::SUCCESS
+        );
+        assert!(command("cadencr-host-integration-v2").is_err());
+        assert!(execute(&FixtureProvider, vec!["host-integration".into()]).is_err());
+    }
+
+    #[test]
+    fn slash_commands_default_to_unsupported_and_check_arguments() {
+        let command = |args: &[&str]| {
+            let mut full = vec![std::ffi::OsString::from("slash-commands")];
+            full.extend(args.iter().map(std::ffi::OsString::from));
+            execute(&FixtureProvider, full)
+        };
+        let valid = ["--format", "cadencr-slash-commands-v1", "--cwd", "/repo"];
+        // Unsupported is an error without stdout, like an older package.
+        assert!(command(&valid).is_err());
+        assert!(command(&["--format", "cadencr-slash-commands-v2", "--cwd", "/repo"]).is_err());
+        assert!(command(&["--format", "cadencr-slash-commands-v1", "--cwd", "repo"]).is_err());
+        assert!(command(&["--format", "cadencr-slash-commands-v1"]).is_err());
+    }
+
+    #[test]
+    fn slash_commands_print_or_report_failures() {
+        struct Listing(Result<Vec<super::SlashCommand>, &'static str>);
+        impl CadencrProvider for Listing {
+            fn models(
+                &self,
+                _cwd: &Path,
+                _provider_args: &[std::ffi::OsString],
+            ) -> Result<Vec<SessionConfigOption>, ProviderError> {
+                Ok(Vec::new())
+            }
+            fn run_acp(
+                &self,
+                _provider_args: &[std::ffi::OsString],
+            ) -> Result<ExitCode, ProviderError> {
+                Ok(ExitCode::SUCCESS)
+            }
+            fn version(&self) -> &str {
+                "1.0.0"
+            }
+            fn slash_commands(
+                &self,
+                cwd: &Path,
+            ) -> Result<Option<Vec<super::SlashCommand>>, ProviderError> {
+                assert_eq!(cwd, Path::new("/repo"));
+                self.0.clone().map(Some).map_err(ProviderError::new)
+            }
+        }
+        let args = || {
+            [
+                "slash-commands",
+                "--format",
+                "cadencr-slash-commands-v1",
+                "--cwd",
+                "/repo",
+            ]
+            .map(std::ffi::OsString::from)
+            .to_vec()
+        };
+        let listed = Listing(Ok(vec![super::SlashCommand::builder()
+            .name("review")
+            .build()]));
+        assert_eq!(execute(&listed, args()).unwrap(), ExitCode::SUCCESS);
+        let failing = Listing(Err("config unreadable"));
+        assert_eq!(execute(&failing, args()).unwrap(), ExitCode::FAILURE);
+        let invalid = Listing(Ok(vec![super::SlashCommand::builder()
+            .name("/bad")
+            .build()]));
+        assert_eq!(execute(&invalid, args()).unwrap(), ExitCode::FAILURE);
     }
 
     #[test]

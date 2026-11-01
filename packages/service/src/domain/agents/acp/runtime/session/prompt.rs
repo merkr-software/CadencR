@@ -19,28 +19,9 @@ impl AcpRuntimeSession {
         client_message_id: Option<String>,
         finalize_response: bool,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input_once(content, client_message_id, finalize_response)
-            .await?;
-        if finalize_response {
-            loop {
-                let followup = self.pending_followups.write().await.pop_front();
-                let Some((_, followup)) = followup else {
-                    break;
-                };
-                self.prompt_input_once(followup, None, true).await?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn prompt_input_once(
-        &self,
-        content: Value,
-        client_message_id: Option<String>,
-        finalize_response: bool,
-    ) -> Result<(), RuntimeError> {
         let session_id = self.require_session_id().await?;
         let prompt = acp_prompt_blocks_from_content(content);
+        self.hooks.validate_prompt_blocks(&prompt)?;
         let supports = self.supports_set_config_option.load(Ordering::SeqCst);
         let model = self.current_model.read().await.clone();
         let effort = self.current_effort.read().await.clone();

@@ -1,9 +1,11 @@
 mod compact;
 mod compact_turn;
 mod implementation;
+mod modes;
 mod prompt;
 
 pub use implementation::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
+pub(super) use modes::select_value;
 
 #[cfg(test)]
 mod tests {

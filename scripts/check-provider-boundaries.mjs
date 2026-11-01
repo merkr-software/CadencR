@@ -16,24 +16,9 @@ const STATIC_ALLOWED_PREFIXES = [
   "packages/desktop/src/components/settings/ProvidersSection.tsx",
 ];
 
-const ALLOWED_EXACT = new Map([
-  // These are domain terms that happen to equal the Cursor provider id.
-  ["packages/service/src/domain/themes/schema.rs:cursor", "CSS cursor property"],
-  ["packages/service/src/domain/git/forge/github/review_threads.rs:cursor", "GraphQL cursor"],
-  ["packages/service/src/domain/mcp/tools/workspace.rs:cursor", "pagination cursor"],
-  ["packages/service/src/domain/mcp/tools/project_list.rs:cursor", "pagination cursor"],
-  ["packages/service/src/domain/mcp/servers/project_schema.rs:cursor", "pagination cursor"],
-  [
-    "packages/service/src/domain/mcp/servers/project_schema_descriptions.rs:cursor",
-    "pagination cursor",
-  ],
-  ["packages/service/src/domain/mcp/servers/workspace.rs:cursor", "pagination cursor"],
-  [
-    "packages/service/src/domain/agents/extensions/mcp_registry.rs:cursor",
-    "MCP Registry page cursor",
-  ],
-  ["packages/desktop/src/lib/mcp-tool-parser.ts:cursor", "MCP server name"],
-]);
+// `path:providerId` pairs where a built-in id is an unrelated domain term
+// (for example a CSS or pagination "cursor" while Cursor was a built-in).
+const ALLOWED_EXACT = new Map([]);
 
 // Existing named-provider imports that still own behavior tracked by Phase 5.
 // New files cannot join this list accidentally; every entry is a review point.

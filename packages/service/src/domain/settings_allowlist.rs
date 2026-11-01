@@ -31,8 +31,26 @@ pub fn is_project_key_allowed(key: &str) -> bool {
     PROJECT_ALLOWED_KEYS.contains(&key)
 }
 
+/// Workspace default access mode of an installed provider:
+/// `provider_access_mode.<provider_id>`, value `default | fullAccess | autoReview`.
+pub const PROVIDER_ACCESS_MODE_PREFIX: &str = "provider_access_mode.";
+
+pub fn provider_access_mode_setting_key(provider_id: &str) -> String {
+    format!("{PROVIDER_ACCESS_MODE_PREFIX}{provider_id}")
+}
+
+/// Whether `key` names a provider access-mode default for a well-formed
+/// provider id (the ACP registry pattern installed providers must match).
+pub fn is_provider_access_mode_key(key: &str) -> bool {
+    key.strip_prefix(PROVIDER_ACCESS_MODE_PREFIX)
+        .is_some_and(|id| cadencr_plugin_core::validate_provider_id(id).is_ok())
+}
+
 pub fn is_workspace_key_allowed(key: &str) -> bool {
     if WORKSPACE_ALLOWED_KEYS.contains(&key) || SIDEBAR_DISPLAY_KEYS.contains(&key) {
+        return true;
+    }
+    if is_provider_access_mode_key(key) {
         return true;
     }
     WORKSPACE_MODEL_PREFIXES
@@ -43,6 +61,24 @@ pub fn is_workspace_key_allowed(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn provider_access_mode_keys_follow_the_provider_id_pattern() {
+        assert_eq!(
+            provider_access_mode_setting_key("cursor"),
+            "provider_access_mode.cursor"
+        );
+        assert!(is_workspace_key_allowed("provider_access_mode.cursor"));
+        assert!(is_workspace_key_allowed("provider_access_mode.acme-agent"));
+        for key in [
+            "provider_access_mode.",
+            "provider_access_mode.Cursor",
+            "provider_access_mode.a b",
+            "provider_access_mode.../x",
+        ] {
+            assert!(!is_workspace_key_allowed(key), "{key}");
+            assert!(!is_feature_key_allowed(key) && !is_project_key_allowed(key));
+        }
+    }
     #[test]
     fn rejects_unknown_feature_key() {
         assert!(!is_feature_key_allowed("setup_worktree"));

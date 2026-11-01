@@ -2,14 +2,14 @@
 layout: "@/layouts/DocLayout.astro"
 title: "Providers & profiles"
 description: "Configure local agent CLIs, select native profiles, or author a local ACP connector."
-lastReviewed: "2026-10-13"
+lastReviewed: "2026-11-01"
 version: "0.13.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
 import pageImage from "@/assets/docs/v0.13.0/providers.png";
 
-CadencR runs agent CLIs installed on your host. Built-in integrations support **Claude Code, Codex, Cursor, and OpenCode**. You can also create or import a local **ACP** connector.
+CadencR runs agent CLIs installed on your host. Built-in integrations support **Claude Code, Codex, and OpenCode**. **Cursor** is available as an official provider plugin from the marketplace. You can also create or import a local **ACP** connector.
 
 <DocScreenshot
   src={pageImage}
@@ -30,11 +30,22 @@ CadencR runs agent CLIs installed on your host. Built-in integrations support **
 
 Unavailable local providers are not selectable. A moved or upgraded OpenCode installation can be rediscovered when its saved executable becomes stale. Errors in discovery or persistence are visible.
 
+## Install the Cursor plugin
+
+Cursor is no longer built in. It runs through an official provider plugin, a connector that CadencR installs like any other marketplace provider.
+
+1. Install the Cursor CLI: `curl https://cursor.com/install -fsS | bash`.
+2. Authenticate it with `agent login`.
+3. Install **Cursor** from the marketplace's **Providers** section, then restart CadencR when prompted.
+4. Choose a Cursor model in a conversation.
+
+Settings has no Cursor tab, and the plugin finds the `agent` CLI itself. Cursor's access mode (Default, Full Access, or Auto Review) is a setting of each conversation in its session configuration. It is not a workspace default. Existing Cursor conversations keep their provider and can continue once the plugin is installed.
+
 ## Controls are capability-based
 
 Models, thinking levels, modes, permission options, attachments, context usage, and resume support vary by provider. CadencR displays supported controls through a shared interface; it does not invent missing ACP information.
 
-Cursor's current ACP integration does not report authoritative context usage and exposes limited live sub-agent detail. Its structured question drawer is available when Cursor emits its question extension; some models or turns may not emit it. A local connector likewise only exposes the capabilities it implements and negotiates.
+The Cursor plugin does not report authoritative context usage and exposes limited live sub-agent detail. Its structured questions and plan approval are available when Cursor emits them; some models or turns may not. CadencR's `/compact` action is not available for Cursor. Any plugin or local connector only exposes the capabilities it implements and negotiates.
 
 ## Provider and model selection
 

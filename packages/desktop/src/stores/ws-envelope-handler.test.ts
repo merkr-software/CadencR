@@ -463,6 +463,53 @@ describe("handleEnvelope commands.list", () => {
       userShell: true,
     });
   });
+
+  it("keeps the provider's discovery error for the menu", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-2";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-2",
+      payload: {
+        commands: [{ name: "cadencr:status", kind: "cadencr" }],
+        error: "Provider commands could not be loaded: output was rejected",
+      },
+    });
+
+    expect(ctx.getSession("s1").slashCommandsError).toBe(
+      "Provider commands could not be loaded: output was rejected",
+    );
+    expect(ctx.getSession("s1").slashCommands).toHaveLength(1);
+  });
+
+  it("lets a live update win over a pre-session list that lands after it", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-3";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "updated",
+      payload: { commands: [{ name: "live-only", kind: "command" }] },
+    });
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-3",
+      payload: { commands: [{ name: "stale", kind: "command" }], error: "late" },
+    });
+
+    expect(ctx.getSession("s1").slashCommands).toEqual([
+      { name: "live-only", description: "", kind: "command" },
+    ]);
+    expect(ctx.getSession("s1").slashCommandsError).toBeNull();
+    expect(ctx.getSession("s1").slashCommandsLoading).toBe(false);
+  });
 });
 
 describe("handleEnvelope workflow worktree events", () => {

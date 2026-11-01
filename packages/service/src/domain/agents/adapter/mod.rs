@@ -4,6 +4,7 @@ mod branching;
 mod config;
 mod error;
 mod event;
+mod event_mode;
 mod event_types;
 mod permission;
 mod prompt_attachments;
@@ -17,9 +18,9 @@ pub use adapter_trait::AgentRuntimeAdapter;
 pub use branching::{BranchContext, BranchError, BranchResult, SessionBranching};
 pub use config::{
     access_mode_wire, parse_access_mode_wire, static_config_paths, ResolvedRuntimeProfile,
-    RuntimeAccessMode, RuntimeConfigOverrides, RuntimeEffectiveConfig, RuntimeMcpServerConfig,
-    RuntimeMcpServerStatus, RuntimePermissionMode, RuntimePurpose, RuntimeSpawnConfig,
-    RuntimeTokenUsage, RuntimeTokenUsageEntry, RuntimeUsage,
+    RuntimeAccessMode, RuntimeAccessModeChange, RuntimeConfigOverrides, RuntimeEffectiveConfig,
+    RuntimeMcpServerConfig, RuntimeMcpServerStatus, RuntimePermissionMode, RuntimePurpose,
+    RuntimeSpawnConfig, RuntimeTokenUsage, RuntimeTokenUsageEntry, RuntimeUsage,
 };
 pub use error::RuntimeError;
 pub use event::RuntimeStreamScope;

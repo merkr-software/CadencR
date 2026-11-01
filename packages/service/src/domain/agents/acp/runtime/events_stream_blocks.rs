@@ -58,6 +58,10 @@ pub struct EventIndexer {
     /// next prompt, so the replies of this one keep it unless the agent itself
     /// reports a different model.
     turn_model: Option<String>,
+    /// Carriers declared background by `_meta.cadencr.subagent`; `true` once
+    /// the launching call completed and the sub-agent runs detached.
+    /// Survives turn ends: the finishing update can arrive in a later turn.
+    pub(super) background_subagents: HashMap<String, bool>,
 }
 
 impl EventIndexer {

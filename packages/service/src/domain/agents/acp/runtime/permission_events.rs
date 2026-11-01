@@ -80,20 +80,14 @@ pub fn parse_permission_options(raw: Option<&Value>) -> Option<Vec<RuntimePermis
     (!parsed.is_empty()).then_some(parsed)
 }
 
-/// The single decoder for the envelope [`permission_raw_event`] wrote, with the
-/// one thing adapters legitimately differ on left open: what to do when the
-/// agent offered no options.
+/// The single decoder for the envelope [`permission_raw_event`] wrote.
 ///
 /// Keeping decode in one place means adding a field to [`permission_raw_event`]
-/// is a one-line change here rather than a hunt through every reader.
-/// `fallback_options` supplies provider-owned defaults (Cursor names its own
-/// allow/deny choices). Passing `None` rejects such an envelope instead of
-/// inventing choices — a generic ACP provider must never show the user options
-/// its agent did not offer.
-pub fn parse_acp_permission_request(
-    raw: &Value,
-    fallback_options: Option<Vec<RuntimePermissionOption>>,
-) -> Option<RuntimePermissionRequest> {
+/// is a one-line change here rather than a hunt through every reader. An
+/// envelope without options is rejected instead of inventing choices — a
+/// generic ACP provider must never show the user options its agent did not
+/// offer.
+pub fn parse_acp_permission_request(raw: &Value) -> Option<RuntimePermissionRequest> {
     if raw.get("type").and_then(Value::as_str) != Some("acp_permission_request") {
         return None;
     }
@@ -106,7 +100,7 @@ pub fn parse_acp_permission_request(
         description: text("description"),
         pattern: None,
         preview: text("preview"),
-        options: parse_permission_options(raw.get("options")).or(fallback_options)?,
+        options: parse_permission_options(raw.get("options"))?,
     })
 }
 
@@ -142,7 +136,7 @@ mod tests {
     #[test]
     fn round_trips_the_runtime_permission_envelope() {
         let raw = permission_raw_event(&request(), &json!({ "sessionId": "s-1" }));
-        let parsed = parse_acp_permission_request(&raw, None).expect("envelope should parse");
+        let parsed = parse_acp_permission_request(&raw).expect("envelope should parse");
         assert_eq!(parsed.request_id, "req-1");
         assert_eq!(parsed.tool_use_id.as_deref(), Some("call-1"));
         assert_eq!(parsed.tool_name, "Bash");
@@ -154,20 +148,12 @@ mod tests {
 
     #[test]
     fn ignores_other_events_and_option_less_envelopes() {
-        assert!(parse_acp_permission_request(&json!({ "type": "other" }), None).is_none());
+        assert!(parse_acp_permission_request(&json!({ "type": "other" })).is_none());
         let option_less = json!({
             "type": "acp_permission_request",
             "request_id": "req-1",
             "tool_name": "Bash",
         });
-        assert!(parse_acp_permission_request(&option_less, None).is_none());
-        // A provider that names its own choices answers the same envelope.
-        assert_eq!(
-            parse_acp_permission_request(&option_less, Some(request().options))
-                .expect("fallback options make the envelope answerable")
-                .options
-                .len(),
-            1
-        );
+        assert!(parse_acp_permission_request(&option_less).is_none());
     }
 }

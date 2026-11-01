@@ -205,6 +205,7 @@ function PromptSurface({
           mentionFeatureId={props.featureId}
           slashCommands={slashCommands}
           slashCommandsLoading={props.slashCommandsLoading}
+          slashCommandsError={props.slashCommandsError}
           promptCommandPolicy={controller.promptCommandPolicy}
           onPasteImages={state.attachments.addFiles}
           onPasteLongText={editorActions.handlePasteLongText}

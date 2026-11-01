@@ -13,6 +13,7 @@ pub mod events_config_option;
 pub mod events_plan;
 pub mod events_stream_blocks;
 pub mod events_tool_call;
+mod events_tool_call_background;
 mod events_tool_call_input;
 mod events_tool_call_metadata;
 mod events_tool_call_name;
@@ -37,7 +38,6 @@ pub mod provider_hooks;
 pub mod schema_bridge;
 #[cfg(test)]
 mod server_request_event_loop_tests;
-mod server_request_extensions;
 mod server_request_response;
 pub mod server_requests;
 pub mod session;

@@ -103,8 +103,8 @@ impl AcpProviderHooks for OpenCodeAcpAdapter {
     fn default_mode_id(&self) -> Option<&'static str> {
         Some("build")
     }
-    fn compact_prompt(&self) -> Option<&'static str> {
-        Some("/compact")
+    fn compact_prompt(&self) -> Option<String> {
+        Some("/compact".to_string())
     }
     fn prompt_response_usage(&self, response: &Value) -> Option<RuntimeUsage> {
         prompt_response_usage(response)

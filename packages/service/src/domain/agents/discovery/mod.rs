@@ -137,7 +137,6 @@ mod tests {
             .await
             .unwrap();
         set(&pool, "codex_cli_path", "/x/codex").await.unwrap();
-        set(&pool, "cursor_cli_path", "/u/agent").await.unwrap();
         let overrides = read_overrides(&pool).await;
         assert_eq!(overrides.get("claude"), Some(&PathBuf::from("/c/claude")));
         assert_eq!(
@@ -145,7 +144,6 @@ mod tests {
             Some(&PathBuf::from("/o/opencode"))
         );
         assert_eq!(overrides.get("codex"), Some(&PathBuf::from("/x/codex")));
-        assert_eq!(overrides.get("cursor"), Some(&PathBuf::from("/u/agent")));
     }
 
     #[test]

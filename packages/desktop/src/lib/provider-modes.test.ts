@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   PROVIDER_MODES,
   defaultEditModeFor,
@@ -6,8 +6,13 @@ import {
   getProviderModes,
   getVisibleModes,
   nextProviderMode,
+  canReplayPermissionMode,
+  providerAcceptsMode,
 } from "./provider-modes";
+import { setProviderCatalogMetadata } from "./provider-catalog-registry";
 import { PROVIDER_IDS } from "./providers";
+
+afterEach(() => setProviderCatalogMetadata([]));
 
 describe("provider-modes catalog", () => {
   it("exposes the documented mode set per provider", () => {
@@ -19,11 +24,6 @@ describe("provider-modes catalog", () => {
     ]);
     expect(PROVIDER_MODES[PROVIDER_IDS.OPENCODE].map((m) => m.id)).toEqual(["acceptEdits", "plan"]);
     expect(PROVIDER_MODES[PROVIDER_IDS.CODEX_CLI].map((m) => m.id)).toEqual(["default", "plan"]);
-    expect(PROVIDER_MODES[PROVIDER_IDS.CURSOR].map((m) => m.id)).toEqual([
-      "default",
-      "plan",
-      "ask",
-    ]);
   });
 
   it("exposes Claude bypass as an opt-in permission mode in the normal selector", () => {
@@ -79,14 +79,55 @@ describe("getVisibleModes", () => {
     ).toBe("documentor");
   });
 
-  it("uses the Cursor adapter catalog as the available mode set", () => {
+  it("builds installed provider modes from the catalog, styled by host mode id", () => {
+    const catalogModes = [
+      { id: "default" as const, label: "Agent", description: "Full tools." },
+      { id: "plan" as const, label: "Plan" },
+      { id: "ask" as const, label: "Ask" },
+    ];
+    const modes = getVisibleModes("cursor", [], catalogModes);
+    expect(modes.map((mode) => [mode.id, mode.label, mode.risk])).toEqual([
+      ["default", "Agent", "ask"],
+      ["plan", "Plan", "read"],
+      ["ask", "Ask", "read"],
+    ]);
+    expect(modes[0].description).toBe("Full tools.");
+    expect(modes[1].description).toBe("Plan");
+  });
+
+  it("never gates catalog bypass modes behind an opt-in", () => {
     const catalogModes = [
       { id: "default" as const, label: "Default" },
-      { id: "ask" as const, label: "Ask", description: "Read-only Q&A." },
+      { id: "bypassPermissions" as const, label: "Yolo" },
     ];
-    const visible = getVisibleModes(PROVIDER_IDS.CURSOR, [], catalogModes);
-    expect(visible.map((mode) => mode.id)).toEqual(["default", "ask"]);
-    expect(visible[1].description).toBe("Read-only Q&A.");
+    const modes = getVisibleModes("acme", [], catalogModes);
+    expect(modes.map((mode) => mode.id)).toEqual(["default", "bypassPermissions"]);
+    expect(modes[1].risk).toBe("bypass");
+    expect(modes[1].optIn).toBeFalsy();
+  });
+
+  it("hides the chip for an installed provider with fewer than two catalog modes", () => {
+    expect(getVisibleModes("acme", [], [{ id: "default", label: "Default" }])).toHaveLength(1);
+    expect(getVisibleModes("acme", [], [])).toEqual([]);
+  });
+
+  it("falls back to the published catalog when the caller holds no modes", () => {
+    setProviderCatalogMetadata([
+      {
+        id: "acme",
+        label: "Acme",
+        modes: [
+          { id: "acceptEdits", label: "Build" },
+          { id: "plan", label: "Plan" },
+          { id: "not-a-host-mode", label: "Ignored" },
+        ],
+      },
+    ]);
+    expect(getProviderModes("acme").map((mode) => mode.id)).toEqual(["acceptEdits", "plan"]);
+    expect(providerAcceptsMode("acme", "plan")).toBe(true);
+    expect(providerAcceptsMode("acme", "auto")).toBe(false);
+    expect(defaultEditModeFor("acme")).toBe("acceptEdits");
+    expect(nextProviderMode("acme", "acceptEdits")).toBe("plan");
   });
 });
 
@@ -130,11 +171,18 @@ describe("nextProviderMode (cycle)", () => {
     expect(nextProviderMode(PROVIDER_IDS.CODEX_CLI, "plan", ["bypassPermissions"])).toBe("default");
   });
 
-  it("Cursor cycle: default → plan → ask → wrap", () => {
-    expect(nextProviderMode(PROVIDER_IDS.CURSOR, "default", [])).toBe("plan");
-    expect(nextProviderMode(PROVIDER_IDS.CURSOR, "acceptEdits", [])).toBe("plan");
-    expect(nextProviderMode(PROVIDER_IDS.CURSOR, "plan", [])).toBe("ask");
-    expect(nextProviderMode(PROVIDER_IDS.CURSOR, "ask", [])).toBe("default");
+  it("Shift+Tab cycles an installed provider's catalog modes in declared order", () => {
+    const catalogModes = [
+      { id: "default" as const, label: "Agent" },
+      { id: "plan" as const, label: "Plan" },
+      { id: "ask" as const, label: "Ask" },
+    ];
+    expect(nextProviderMode("cursor", "default", [], catalogModes)).toBe("plan");
+    expect(nextProviderMode("cursor", "plan", [], catalogModes)).toBe("ask");
+    expect(nextProviderMode("cursor", "ask", [], catalogModes)).toBe("default");
+    expect(nextProviderMode("cursor", "auto", [], catalogModes)).toBe("default");
+    expect(providerAcceptsMode("cursor", "ask", catalogModes)).toBe(true);
+    expect(providerAcceptsMode("cursor", "acceptEdits", catalogModes)).toBe(false);
   });
 
   it("jumps to the head of the cycle when the current mode isn't in the provider's catalog", () => {
@@ -150,6 +198,30 @@ describe("defaultEditModeFor", () => {
     expect(defaultEditModeFor(PROVIDER_IDS.CLAUDE_CODE)).toBe("auto");
     expect(defaultEditModeFor(PROVIDER_IDS.OPENCODE)).toBe("acceptEdits");
     expect(defaultEditModeFor(PROVIDER_IDS.CODEX_CLI)).toBe("default");
-    expect(defaultEditModeFor(PROVIDER_IDS.CURSOR)).toBe("default");
+  });
+
+  it("uses an installed provider's first catalog mode as its primary edit mode", () => {
+    const catalogModes = [
+      { id: "default" as const, label: "Agent" },
+      { id: "plan" as const, label: "Plan" },
+    ];
+    expect(defaultEditModeFor("cursor", catalogModes)).toBe("default");
+    expect(defaultEditModeFor("unknown-provider")).toBe("acceptEdits");
+  });
+});
+
+describe("canReplayPermissionMode", () => {
+  it("replays any mode to built-ins and only declared modes to catalog providers", () => {
+    expect(canReplayPermissionMode(PROVIDER_IDS.CODEX_CLI, "auto")).toBe(true);
+    expect(canReplayPermissionMode("acme", "acceptEdits")).toBe(false);
+    setProviderCatalogMetadata([
+      {
+        id: "acme",
+        label: "Acme",
+        modes: [{ id: "default", label: "Default" }],
+      },
+    ]);
+    expect(canReplayPermissionMode("acme", "default")).toBe(true);
+    expect(canReplayPermissionMode("acme", "acceptEdits")).toBe(false);
   });
 });

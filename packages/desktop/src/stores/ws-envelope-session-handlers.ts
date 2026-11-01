@@ -99,7 +99,7 @@ export function handleGateClosed(ctx: StoreAccessors, sessionId: string, payload
 /**
  * The mode to hold once the backend has picked the session's provider. New
  * entries are seeded with the default provider's mode (Claude's `auto`), which
- * a Codex or Cursor session can't run; the backend then falls back to its
+ * a Codex or installed-provider session can't run; the backend then falls back to its
  * provider default and reports it. Adopt that report only when the local mode
  * doesn't fit the provider — a valid local mode may be a chip change made
  * while `session.init` was in flight, which the init replay still has to send.

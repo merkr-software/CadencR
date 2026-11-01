@@ -266,11 +266,40 @@ export interface ProviderProfileCapability {
   supports_config_inheritance: boolean;
 }
 
+/**
+ * ACP `promptCapabilities`: which non-text content blocks a prompt may carry.
+ */
+export interface ProviderPromptCapabilities {
+  audio: boolean;
+  embedded_context: boolean;
+  image: boolean;
+}
+
+/**
+ * A program and argument vector; `{session_id}` is the only placeholder.
+ * Never a shell string: the desktop quotes every element itself.
+ */
+export interface ProviderResumeCommand {
+  args: string[];
+  program: string;
+}
+
 export type ProviderCatalogResponseEntryAllOfProfileCapability = null | ProviderProfileCapability;
 
+export type ProviderCatalogResponseEntryAllOfPromptCapabilities = null | ProviderPromptCapabilities;
+
+export type ProviderCatalogResponseEntryAllOfResumeCommand = null | ProviderResumeCommand;
+
 export type ProviderCatalogResponseEntryAllOf = {
+  /**
+   * `/compact` is a session action Cadencr performs (manual compaction
+   * through the live runtime) rather than text the runtime understands.
+   */
+  compact_action?: boolean;
   origin: ProviderOrigin;
   profile_capability?: ProviderCatalogResponseEntryAllOfProfileCapability;
+  prompt_capabilities?: ProviderCatalogResponseEntryAllOfPromptCapabilities;
+  resume_command?: ProviderCatalogResponseEntryAllOfResumeCommand;
   /**
    * A prompt sent while the agent works is delivered into the running turn
    * and acknowledged (steering). When false the composer queues it for
@@ -1046,6 +1075,12 @@ export interface PromptCommandPolicyPayload {
 
 export interface CommandsListPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
   prompt_command_policy?: PromptCommandPolicyPayload;
   /**
    * `true` when the server is currently re-resolving the catalog in
@@ -1067,6 +1102,11 @@ export interface CommandsListPayload {
  */
 export interface CommandsUpdatedPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Same as the `error` of `CommandsListPayload`; absent on live pushes.
+   * @nullable
+   */
+  error?: string | null;
 }
 
 /**
@@ -2962,6 +3002,14 @@ export interface InstalledProviderEntry {
    * env names, there is no generic way to redact one safely.
    */
   executable: string;
+  /**
+   * Why this process applies no host integration (compaction, worktree
+   * config copying, resume-in-terminal) for the provider: its package has
+   * no `host-integration` command, or its declaration was rejected. Absent
+   * when the declaration was accepted or has not been read yet.
+   * @nullable
+   */
+  host_integration_issue?: string | null;
   /**
    * A non-fatal packaging problem that prevented the declared icon from
    * loading. Runtime availability is independent from visual metadata.
@@ -4978,6 +5026,12 @@ export interface PromptAttachmentPayload {
 export interface PromptCommandsResponse {
   commands: SlashCommandPayload[];
   /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
+  /**
    * Which trigger characters mean what for this provider — `$` for skills on
    * Codex, `/` everywhere on Claude, and so on.
    */
@@ -5950,7 +6004,7 @@ export const TargetKind = {
  */
 export interface ScheduleTarget {
   /**
-   * Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+   * Provider access mode (e.g. Codex sandboxing). Ignored by providers that
    * don't offer one.
    * @nullable
    */

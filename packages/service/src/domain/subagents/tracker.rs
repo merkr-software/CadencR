@@ -342,6 +342,9 @@ mod tests {
             Some(RuntimeSubagentStatus::Running)
         );
         assert_eq!(changes[0].patch.background, Some(true));
+        // A detached run stays live, so the runtime-end sweep stops it when
+        // its provider never reports the outcome.
+        assert_eq!(tracker.live_tool_use_ids(), vec!["bg".to_string()]);
         // Still running, so its later real result completes it.
         let done = tracker.observe(&result("bg", false, json!("report")));
         assert_eq!(done[0].patch.status, Some(RuntimeSubagentStatus::Completed));

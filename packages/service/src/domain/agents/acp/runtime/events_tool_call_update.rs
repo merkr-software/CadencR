@@ -1,5 +1,6 @@
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call::{other_event, MappedUpdate};
+use super::events_tool_call_background::{finish_detached, observe_background_launch};
 use super::events_tool_call_input::synthesize_input_delta_event;
 use super::events_tool_call_name::{recover_tool_name_from_update, resolve_tool_name};
 use super::events_tool_call_parent::parent_tool_use_id;
@@ -28,6 +29,12 @@ pub fn map_tool_call_update(
     if indexer.is_tool_call_suppressed(tool_call_id) {
         return MappedUpdate { events: vec![] };
     }
+    if let Some(event) = finish_detached(tool_call_id, body, indexer, &metadata) {
+        return MappedUpdate {
+            events: vec![event],
+        };
+    }
+    observe_background_launch(tool_call_id, body, indexer);
     // OpenCode can first surface Task as kind=think (empty input), then fill
     // rawInput with subagent_type. Re-resolve so pairing/suppression catch up.
     recover_tool_name_from_update(tool_call_id, body, indexer, hooks);
@@ -567,6 +574,61 @@ mod tests {
         ));
         assert_eq!(
             stop.subagent_updates()[0].patch.status,
+            Some(RuntimeSubagentStatus::Completed)
+        );
+    }
+
+    /// Some agents only reveal a background launch on the completing update
+    /// itself: the meta must be read before that status ends the sub-agent,
+    /// and a later meta status update finishes it without a second block.
+    #[test]
+    fn background_meta_on_the_completed_update_keeps_the_carrier_running() {
+        use crate::domain::agents::adapter::RuntimeSubagentStatus;
+        let mut idx = EventIndexer::default();
+        idx.record_tool_name("agent-bg", "Agent");
+        let _ = idx.index_for_tool("agent-bg");
+        let done = map_tool_call_update(
+            &json!({
+                "toolCallId": "agent-bg",
+                "status": "completed",
+                "rawOutput": { "isBackground": true },
+                "_meta": { "cadencr": { "subagent": { "background": true } } }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        let patch = done
+            .events
+            .iter()
+            .flat_map(|event| event.subagent_updates())
+            .next_back()
+            .map(|update| update.patch.clone())
+            .expect("sub-agent patches");
+        let merged_status = done
+            .events
+            .iter()
+            .flat_map(|event| event.subagent_updates())
+            .filter_map(|update| update.patch.status)
+            .next_back();
+        assert_eq!(merged_status, Some(RuntimeSubagentStatus::Running));
+        assert_eq!(patch.background, Some(true));
+
+        let finished = map_tool_call_update(
+            &json!({
+                "toolCallId": "agent-bg",
+                "status": "completed",
+                "_meta": { "cadencr": { "subagent": { "status": "completed", "summary": "done" } } }
+            }),
+            &mut idx,
+            metadata(),
+            &PlainHooks,
+        );
+        assert_eq!(finished.events.len(), 1, "no second tool block");
+        let event = &finished.events[0];
+        assert!(event.is_subagent_signal_only());
+        assert_eq!(
+            event.subagent_updates()[0].patch.status,
             Some(RuntimeSubagentStatus::Completed)
         );
     }

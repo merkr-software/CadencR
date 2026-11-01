@@ -149,7 +149,10 @@ function handleCommandsDomain(
         slashCommands: cmds,
         promptCommandPolicy: promptCommandPolicyFromPayload(p.prompt_command_policy),
         slashCommandsLoading: false,
-        ...(envelope.action === "list" ? { slashCommandsRequestRef: null } : {}),
+        slashCommandsError: p.error ?? null,
+        // Either reply settles the request: a live `updated` (the agent's
+        // own catalog) must not be overwritten by a `list` that lands after it.
+        slashCommandsRequestRef: null,
       }),
     );
     return;

@@ -14,6 +14,7 @@
 use serde_json::Value;
 
 use super::events_stream_blocks::EventIndexer;
+use super::events_tool_call_background::detach_on_completion;
 use super::events_tool_call_metadata::is_empty_value;
 use super::provider_hooks::AcpProviderHooks;
 use super::tool_result_flatten::unwrap_nested_text_block;
@@ -58,7 +59,7 @@ pub(super) struct TerminalToolCall<'a> {
 /// appended unchanged.
 pub(super) fn settle_carrier(
     call: &TerminalToolCall<'_>,
-    indexer: &EventIndexer,
+    indexer: &mut EventIndexer,
     provider_events: Vec<RuntimeEvent>,
     events: &mut Vec<RuntimeEvent>,
 ) {
@@ -74,6 +75,14 @@ pub(super) fn settle_carrier(
     if indexer.turn_interrupted() {
         updates.iter_mut().for_each(mark_interrupted);
     }
+    // A declared background carrier keeps running past its launching call;
+    // its patch comes last so it wins over the generic `completed`.
+    updates.extend(detach_on_completion(
+        call.tool_call_id,
+        call.body,
+        call.status,
+        indexer,
+    ));
     attach_to_terminal_event(events, updates);
     events.extend(passthrough);
 }
@@ -222,7 +231,7 @@ mod tests {
                 &json!({ "toolCallId": "agent-1" }),
                 "completed",
             ),
-            &EventIndexer::default(),
+            &mut EventIndexer::default(),
             Vec::new(),
             &mut events,
         );
@@ -247,7 +256,7 @@ mod tests {
         let mut events = vec![stop()];
         settle_carrier(
             &call("call_task", "Task", &body, "failed"),
-            &EventIndexer::default(),
+            &mut EventIndexer::default(),
             Vec::new(),
             &mut events,
         );
@@ -289,7 +298,7 @@ mod tests {
                 &json!({ "rawOutput": { "error": "quota" } }),
                 "completed",
             ),
-            &EventIndexer::default(),
+            &mut EventIndexer::default(),
             vec![provider, text],
             &mut events,
         );
@@ -314,7 +323,7 @@ mod tests {
         let body = json!({ "rawOutput": { "error": "Tool execution aborted" } });
         settle_carrier(
             &call("call_task", "Task", &body, "failed"),
-            &indexer,
+            &mut indexer,
             Vec::new(),
             &mut events,
         );
@@ -328,7 +337,7 @@ mod tests {
         let mut events = vec![stop()];
         settle_carrier(
             &call("bash-1", "Bash", &json!({}), "failed"),
-            &EventIndexer::default(),
+            &mut EventIndexer::default(),
             Vec::new(),
             &mut events,
         );

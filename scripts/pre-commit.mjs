@@ -29,6 +29,7 @@ const RUST_ROOT_FILES = new Set([
   "deny.toml",
 ]);
 const RUST_PACKAGE = /^packages\/(service|cli-discovery|[^/]+-rs)\//;
+const RUST_PLUGIN = /^plugins\/providers\/[^/]+\/(?:Cargo\.toml$|.*\.rs$|tests\/fixtures\/)/;
 // Files that configure every package's tooling: any change re-checks everything.
 const FULL_ROOT_FILES = new Set([
   "package.json",
@@ -91,7 +92,12 @@ function isDocs(path) {
 
 /** Map one repository-relative path to the check areas it affects. */
 export function classifyPath(path) {
-  if (path.startsWith("plugins/providers/")) return ["other", "providerPlugins"];
+  if (path.startsWith("plugins/providers/")) {
+    // Rust connectors are Cargo workspace members: run the workspace Rust checks too.
+    return RUST_PLUGIN.test(path)
+      ? ["other", "providerPlugins", "rust"]
+      : ["other", "providerPlugins"];
+  }
   if (path.startsWith("plugins/themes/")) return ["other", "themePlugins"];
   if (path.startsWith("plugins/")) return ["other", "providerPlugins", "themePlugins"];
   if (isDocs(path)) return ["docs"];

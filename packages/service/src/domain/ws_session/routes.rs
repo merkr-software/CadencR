@@ -39,6 +39,10 @@ pub struct PromptCommandsResponse {
     /// Which trigger characters mean what for this provider — `$` for skills on
     /// Codex, `/` everywhere on Claude, and so on.
     pub prompt_command_policy: PromptCommandPolicyPayload,
+    /// Why the provider's own commands are missing from `commands` (its
+    /// discovery failed or timed out). Shown in the `/` menu.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[utoipa::path(
@@ -58,8 +62,10 @@ pub async fn get_prompt_commands(
     if provider.is_empty() {
         return Err(AppError::BadRequest("provider is required".into()));
     }
+    let resolved = resolve_commands(&query.cwd, provider).await;
     Ok(Json(PromptCommandsResponse {
-        commands: to_payload_commands(resolve_commands(&query.cwd, provider).await),
+        commands: to_payload_commands(resolved.commands),
+        error: resolved.error,
         prompt_command_policy: runtime_adapter(provider)
             .map(|adapter| adapter.prompt_command_policy())
             .unwrap_or_default()

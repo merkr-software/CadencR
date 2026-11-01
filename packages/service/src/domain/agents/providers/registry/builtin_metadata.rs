@@ -50,37 +50,6 @@ pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
     .with_extensions(Arc::new(crate::domain::agents::codex::extensions::CodexExtensions))
 }
 
-pub(super) fn cursor_metadata() -> ProviderRegistrationMetadata {
-    ProviderRegistrationMetadata {
-        model_guidance: Some(Cow::Borrowed(
-            "Use model ids advertised by the Cursor Agent CLI, for example values returned by `agent models`.",
-        )),
-        ..with_native_updates(
-            discovery(
-                "cursor",
-                "cursor_cli_path",
-                cursor_agent_sdk_rs::cursor_discovery_spec(),
-                cursor_agent_sdk_rs::set_binary_override,
-            ),
-            crate::domain::agents::cursor::updates::latest_version,
-            &["update"],
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::cursor_metadata;
-
-    #[test]
-    fn cursor_model_guidance_points_to_the_cli_catalog() {
-        let metadata = cursor_metadata();
-        assert!(metadata
-            .model_guidance()
-            .is_some_and(|guidance| guidance.contains("agent models")));
-    }
-}
-
 pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
     ProviderRegistrationMetadata {
         aliases: aliases(&["open-code", "OpenCode", "open"]),

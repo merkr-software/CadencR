@@ -174,14 +174,9 @@ async fn main() -> anyhow::Result<()> {
             // table. Needs `write_pool` for the DROP and must run after the dir is
             // initialized so the JSON write lands in the right place.
             domain::agents::claude_code::profiles::migrate_from_sqlite(&write_pool).await;
-            // Strip per-device UI state (active tab, sidebar visibility,
-            // last-opened feature) that older versions wrote into the global
-            // file — it now lives in the frontend's localStorage.
-            match domain::settings_store::prune_ephemeral_global().await {
-                Ok(true) => info!("pruned legacy per-device UI keys from settings.json"),
-                Ok(false) => {}
-                Err(e) => tracing::warn!("failed to prune ephemeral settings keys: {e}"),
-            }
+            // Strip per-device UI state older versions wrote into the global
+            // file and carry renamed workspace keys over.
+            domain::settings_store::tidy_global_at_startup().await;
 
             // Turns a crash left 'running' are captured for resume, then paused.
             let app_version = config.app_version.as_deref();

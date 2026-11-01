@@ -18,6 +18,8 @@ import {
 interface SlashCommandPluginProps {
   commands: SlashCommand[] | undefined;
   isLoading?: boolean;
+  /** Why the provider's own commands could not be listed, if they could not. */
+  error?: string | null;
   commandKindsAtPromptStart: readonly SlashCommand["kind"][];
   commandKindsMidPrompt: readonly SlashCommand["kind"][];
   triggerChar: PromptCommandTriggerChar;
@@ -75,6 +77,7 @@ function syncTriggerFromEditor(
 export function SlashCommandPlugin({
   commands,
   isLoading,
+  error,
   commandKindsAtPromptStart,
   commandKindsMidPrompt,
   triggerChar,
@@ -162,7 +165,9 @@ export function SlashCommandPlugin({
     listId,
   );
 
-  const popoverOpen = slash.isOpen && (!!isLoading || slash.filteredItems.length > 0);
+  // An error opens the menu even when nothing matched: an empty list would
+  // read as "this provider has no commands".
+  const popoverOpen = slash.isOpen && (!!isLoading || !!error || slash.filteredItems.length > 0);
   const popoverAnchor = useComposerPopoverAnchor(editor, popoverOpen);
 
   if (!popoverOpen || !popoverAnchor) return null;
@@ -176,6 +181,7 @@ export function SlashCommandPlugin({
         selectedIndex={slash.selectedIndex}
         onSelect={handleSelect}
         isLoading={isLoading ?? false}
+        error={error}
         triggerChar={triggerChar}
         cadencrDisabled={!cadencrEnabled}
         maxHeight={popoverAnchor.maxHeight}

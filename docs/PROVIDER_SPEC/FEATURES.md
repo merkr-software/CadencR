@@ -16,6 +16,11 @@ maps native `pi --mode rpc` directly to ACP without `pi-acp`; it is evidence for
 the generic host path, not a first-party support or marketplace-admission
 promise.
 
+The Cursor column describes the official Cursor marketplace plugin, an
+external Rust ACP connector (`plugins/providers/cursor/`) that runs through the
+same generic installed-provider path as Pi. Cursor is no longer a built-in
+adapter; its Cursor-specific translation lives in the connector.
+
 Claude Code and Codex remain the rich parity references. Their native protocols
 may expose more detail than ACP v1, but that detail must be translated inside the
 owning adapter rather than becoming a Cadencr-specific provider requirement.
@@ -42,32 +47,32 @@ types and must not branch on provider identity.
 
 ## Coverage matrix
 
-| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor | OpenCode | Pi external ACP |
-| --- | ---------------------------------------- | ---------------------------- | ----------- | ----- | ------ | -------- | ---------------- |
-| 1   | Session modes                            | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
-| 2   | Thinking                                 | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 3   | Partial / streaming messages             | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 4   | Bash tool calls + outputs                | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 5   | Edits / Writes / Patch                   | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 6   | Sub-agents                               | Contained built-in extension | ✅          | ✅    | 🟡     | ✅       | ❌               |
-| 7   | Todo                                     | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ❌               |
-| 8   | Thinking level changes                   | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
-| 9   | Model selection changes                  | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | 🟡               |
-| 11  | MCP                                      | ACP optional capability      | ✅          | ✅    | 🟡     | 🟡       | ❌               |
-| 12  | Plan approval                            | Contained built-in extension | ✅          | ✅    | ✅     | ❌       | ❌               |
-| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌     | ✅       | ✅               |
-| 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ✅     | ✅       | 🟡               |
-| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡     | ✅       | ✅               |
-| 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅     | ✅       | ✅               |
-| 17  | Durable session restore                  | ACP optional capability      | ✅          | ✅    | ✅     | ✅       | ✅               |
+| #   | Feature                                  | Contract class               | Claude Code | Codex | Cursor plugin | OpenCode | Pi external ACP |
+| --- | ---------------------------------------- | ---------------------------- | ----------- | ----- | ------------- | -------- | --------------- |
+| 1   | Session modes                            | ACP optional capability      | ✅          | ✅    | 🟡            | ✅       | ❌              |
+| 2   | Thinking                                 | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 3   | Partial / streaming messages             | ACP baseline                 | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 4   | Bash tool calls + outputs                | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 5   | Edits / Writes / Patch                   | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 6   | Sub-agents                               | Contained built-in extension | ✅          | ✅    | 🟡            | ✅       | ❌              |
+| 7   | Todo                                     | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ❌              |
+| 8   | Thinking level changes                   | ACP optional capability      | ✅          | ✅    | 🟡            | ✅       | ✅              |
+| 9   | Model selection changes                  | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 10  | Permissions: yes / no / always / session | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | 🟡              |
+| 11  | MCP                                      | ACP optional capability      | ✅          | ✅    | 🟡            | 🟡       | ❌              |
+| 12  | Plan approval                            | Contained built-in extension | ✅          | ✅    | ✅            | ❌       | ❌              |
+| 13  | Context usage                            | ACP optional capability      | ✅          | ✅    | ❌            | ✅       | ✅              |
+| 14  | Compaction                               | Contained built-in extension | ✅          | ✅    | ❌            | ✅       | 🟡              |
+| 15  | Command + skill list                     | ACP optional capability      | ✅          | ✅    | 🟡            | ✅       | ✅              |
+| 16  | Live follow-up prompt targeting          | ACP baseline                 | ✅          | ✅    | ✅            | ✅       | ✅              |
+| 17  | Durable session restore                  | ACP optional capability      | ✅          | ✅    | ✅            | ✅       | ✅              |
 
 OpenCode restoration requires the live CLI to advertise `session/resume` or
 legacy `loadSession`. Configured MCP servers are injected through ACP; observed
 CLI statuses are merged with configured servers, which can remain `unknown`.
 
 Point-in-time branching is implemented by Claude Code, Codex, and OpenCode.
-Cursor and generic local ACP connectors have no such adapter capability. Codex
+The Cursor plugin and generic local ACP connectors have no such adapter capability. Codex
 refuses a cut inside a native turn containing several user messages. See
 [Rewind & Fork](../REWIND_AND_FORK.md).
 
@@ -89,7 +94,9 @@ use `pi-acp` and no Pi-specific implementation is compiled into Cadencr:
   negotiated and could be changed between turns;
 - text and thinking stream separately; Pi's real tool lifecycle, image input,
   cancellation, and serialized live follow-up map into standard ACP updates;
-- Pi slash commands become available after the ACP session handshake. Session
+- Pi slash commands become available after the ACP session handshake (its
+  connector has no `slash-commands`; Cadencr keeps that live list per directory
+  for later conversations). Session
   statistics, naming, export, steering, follow-up mode, and auto-compaction were
   exercised. A small-session compaction correctly reported that there was
   nothing to compact; a successful large-context compaction was not forced;

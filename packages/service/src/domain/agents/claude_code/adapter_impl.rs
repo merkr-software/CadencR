@@ -109,6 +109,13 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         static_config_paths(worktree_config::CONFIG_PATHS)
     }
 
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "claude",
+            &["--resume", "{session_id}"],
+        ))
+    }
+
     fn supports_builtin_compact_command(&self) -> bool {
         false
     }
@@ -130,7 +137,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
 
     fn supports_permission_mode(&self, mode: &RuntimePermissionMode) -> bool {
         // Claude Code accepts its SDK permission modes, but not provider-level
-        // collaboration modes such as Cursor Ask or OpenCode custom agents.
+        // collaboration modes such as Ask or OpenCode custom agents.
         !matches!(
             mode,
             RuntimePermissionMode::Ask | RuntimePermissionMode::OpenCodeAgent(_)

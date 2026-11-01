@@ -255,11 +255,11 @@ mod tests {
         let row = SessionRow {
             id: 1,
             feature_id: 1,
-            runtime_provider: Some("cursor".to_string()),
+            runtime_provider: Some("opencode".to_string()),
             runtime_session_id: None,
             model: None,
             profile: None,
-            permission_mode: Some("acceptEdits".to_string()),
+            permission_mode: Some("ask".to_string()),
             codex_permission_mode: None,
             status: "paused".to_string(),
             pending_permission: None,
@@ -272,7 +272,7 @@ mod tests {
             runtime_overrides: None,
         };
 
-        let (options, _) = runtime_options(&app_state, 1, PathBuf::from("/tmp"), "cursor", &row)
+        let (options, _) = runtime_options(&app_state, 1, PathBuf::from("/tmp"), "opencode", &row)
             .await
             .unwrap();
         assert!(options.permission_mode.is_none());

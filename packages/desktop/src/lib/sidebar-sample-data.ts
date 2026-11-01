@@ -135,7 +135,7 @@ const SPECS: readonly SampleSpec[] = [
     minutesAgo: 12 * DAY_MINUTES,
     state: "idle",
     before: "idle",
-    feature: { runtime_provider: PROVIDER_IDS.CURSOR },
+    feature: { runtime_provider: PROVIDER_IDS.CODEX_CLI },
   },
   {
     id: -21,
@@ -155,7 +155,7 @@ const SPECS: readonly SampleSpec[] = [
     minutesAgo: 25,
     state: "unread",
     before: "working",
-    feature: { runtime_provider: PROVIDER_IDS.CURSOR },
+    feature: { runtime_provider: PROVIDER_IDS.CODEX_CLI },
     // A failing check outranks the unread reply: For me asks to fix CI.
     worktree: worktree(-22, "billing-api", "docs/release-2.4"),
     prStatus: pullRequest(-22, 57, "docs/release-2.4", { state: "open", ci: "failing" }),
@@ -210,7 +210,7 @@ const SPECS: readonly SampleSpec[] = [
     minutesAgo: 2 * DAY_MINUTES,
     state: "idle",
     before: "idle",
-    feature: { runtime_provider: PROVIDER_IDS.CURSOR },
+    feature: { runtime_provider: PROVIDER_IDS.CODEX_CLI },
   },
 ];
 

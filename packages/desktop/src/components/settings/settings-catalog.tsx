@@ -210,8 +210,12 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
             keywords: ["profiles", "custom models", "bypass permissions", "binary"],
           },
           { label: "Codex", anchor: A.providerConfig, keywords: ["profiles", "access mode"] },
-          { label: "Cursor", anchor: A.providerConfig, keywords: ["agent cli", "access mode"] },
           { label: "OpenCode", anchor: A.providerConfig, keywords: ["binary"] },
+          {
+            label: "Installed providers",
+            anchor: A.providerConfig,
+            keywords: ["connector", "plugin", "access mode"],
+          },
           {
             label: "Build a provider connector",
             anchor: A.providerConnector,

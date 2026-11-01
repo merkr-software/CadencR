@@ -1,0 +1,20 @@
+{
+  "name": "@cadencr/cursor-provider",
+  "version": "0.1.0",
+  "private": true,
+  "description": "External Cadencr provider connector for the Cursor Agent CLI (ACP proxy)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build:plugin": "node scripts/build.mjs",
+    "format:plugin": "node ../../../scripts/cargo-env.mjs cargo fmt -p cadencr-plugin-provider-cursor",
+    "format:plugin:check": "node ../../../scripts/cargo-env.mjs cargo fmt -p cadencr-plugin-provider-cursor -- --check",
+    "lint:plugin": "node ../../../scripts/cargo-env.mjs cargo clippy -p cadencr-plugin-provider-cursor --all-targets -- -D warnings",
+    "test:plugin": "node ../../../scripts/cargo-env.mjs cargo test -p cadencr-plugin-provider-cursor",
+    "package:plugin": "node scripts/package.mjs"
+  },
+  "engines": {
+    "node": ">=22.19.0 <23.0.0"
+  },
+  "packageManager": "pnpm@11.1.3"
+}

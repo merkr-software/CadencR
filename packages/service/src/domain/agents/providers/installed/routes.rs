@@ -21,6 +21,7 @@ use crate::domain::agents::providers::provider_registry;
 use crate::error::AppError;
 
 use super::descriptor::ProviderDescriptor;
+use super::host_integration::host_integration_diagnostic;
 use super::installation::HostInstallation;
 use super::lifecycle::{install_descriptor, remove_descriptor, set_descriptor_enabled};
 use super::rejection::{DescriptorRejection, RejectionCode};
@@ -55,6 +56,11 @@ pub struct InstalledProviderEntry {
     pub quarantine_code: Option<String>,
     /// Why the install cannot launch, when it cannot.
     pub quarantine_message: Option<String>,
+    /// Why this process applies no host integration (compaction, worktree
+    /// config copying, resume-in-terminal) for the provider: its package has
+    /// no `host-integration` command, or its declaration was rejected. Absent
+    /// when the declaration was accepted or has not been read yet.
+    pub host_integration_issue: Option<String>,
     /// The resolved program. The argument vector is deliberately absent: an
     /// argument can carry a credential (`--token …`) and, unlike a fixed set of
     /// env names, there is no generic way to redact one safely.
@@ -223,6 +229,7 @@ fn entry(installation: &HostInstallation, registered: bool) -> InstalledProvider
         registered,
         quarantine_code: quarantine.map(|quarantine| quarantine.code.as_str().to_string()),
         quarantine_message: quarantine.map(|quarantine| quarantine.message.clone()),
+        host_integration_issue: host_integration_diagnostic(&agent.id),
         executable: installation.executable().command.display().to_string(),
     }
 }

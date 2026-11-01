@@ -68,6 +68,8 @@ interface PromptEditorProps {
   mentionFeatureId?: number;
   slashCommands?: SlashCommand[];
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   promptCommandPolicy?: PromptCommandPolicy;
   /** Called when Enter pressed (no shift, no popover). Return true to consume. */
   onEnterSend?: () => boolean;
@@ -230,6 +232,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
       mentionFeatureId,
       slashCommands,
       slashCommandsLoading,
+      slashCommandsError,
       promptCommandPolicy = DEFAULT_PROMPT_COMMAND_POLICY,
       onEnterSend,
       onModEnterSend,
@@ -299,6 +302,7 @@ const PromptEditorInner = forwardRef<PromptEditorHandle, PromptEditorProps>(
                 key={`${trigger.triggerChar}:${trigger.commandKindsAtPromptStart.join(",")}:${trigger.commandKindsMidPrompt.join(",")}`}
                 commands={slashCommands}
                 isLoading={slashCommandsLoading}
+                error={slashCommandsError}
                 commandKindsAtPromptStart={trigger.commandKindsAtPromptStart}
                 commandKindsMidPrompt={trigger.commandKindsMidPrompt}
                 triggerChar={trigger.triggerChar}

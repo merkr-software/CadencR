@@ -295,6 +295,7 @@ function AgentSessionPrompt(
       instrumentLeading={props.instruments}
       slashCommandsOverride={session.slashCommandsOverride}
       slashCommandsLoading={session.slashCommandsLoading}
+      slashCommandsError={session.slashCommandsError}
       promptCommandPolicy={session.promptCommandPolicy}
       pendingPermission={session.pendingPermission}
       referencedWorktreeSelection={referencedWorktreeSelection}

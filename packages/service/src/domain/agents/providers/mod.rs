@@ -202,6 +202,9 @@ async fn provider_catalog_entries_with_origin_live_for_cwd(
             origin: registered.origin(),
             profile_capability,
             steering_acknowledged: adapter.supports_prompt_receipts(),
+            compact_action: adapter.compaction_strategy().is_some(),
+            resume_command: adapter.resume_command(),
+            prompt_capabilities: adapter.prompt_capabilities(),
         }
     }))
     .await
@@ -394,7 +397,6 @@ mod tests {
         assert!(runtime_adapter("opencode").is_some());
         let codex = runtime_adapter("codex_cli").expect("codex adapter");
         assert!(codex.session_branching().is_some());
-        assert!(runtime_adapter("cursor").is_some());
         assert!(runtime_adapter("unknown").is_none());
     }
 

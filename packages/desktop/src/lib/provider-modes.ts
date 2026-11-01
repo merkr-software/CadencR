@@ -2,12 +2,12 @@
  * Per-provider permission-mode catalog. Single source of truth for what
  * appears in the prompt-bar mode chip & the Shift+Tab cycle.
  *
- * Mirrors the backend `provider_supports_mode` matrix
- * (packages/service/src/domain/ws_session/handler/mod.rs).
+ * Built-ins keep their hand-styled tables (mirroring the backend
+ * `provider_supports_mode` matrix); every other provider gets its modes from
+ * the runtime catalog, styled by the host mode id alone.
  */
 import {
   ClipboardList,
-  Bot,
   FileEditIcon,
   Hammer,
   ShieldOff,
@@ -17,6 +17,8 @@ import {
 
 import { PROVIDER_IDS, type ProviderId } from "./providers";
 import type { RuntimeProviderModeOption } from "@/api/agentRuntime";
+import { catalogProviderMode, UNKNOWN_MODE_STYLE } from "./provider-catalog-modes";
+import { getCatalogProviderMetadata } from "./provider-catalog-registry";
 import { OPENCODE_AGENT_MODE_PREFIX, type PermissionMode } from "@/types/permission-mode";
 
 /**
@@ -156,96 +158,40 @@ const CODEX_MODES: ProviderMode[] = [
   },
 ];
 
-const CURSOR_MODES: ProviderMode[] = [
-  {
-    id: "default",
-    label: "Default",
-    icon: Hammer,
-    risk: "ask",
-    tone: "var(--chip-blue-fg)",
-    chipClass:
-      "bg-[var(--chip-blue-bg)]/15 text-[var(--chip-blue-fg)] hover:bg-[var(--chip-blue-bg)]/25",
-    description: "Cursor's default mode with full coding tools.",
-  },
-  {
-    id: "plan",
-    label: "Plan",
-    icon: ClipboardList,
-    risk: "read",
-    tone: "var(--acc-yellow)",
-    chipClass: "bg-[var(--acc-yellow)]/15 text-[var(--acc-yellow)] hover:bg-[var(--acc-yellow)]/25",
-    description: "Cursor read-only planning mode.",
-  },
-  {
-    id: "ask",
-    label: "Ask",
-    icon: Bot,
-    risk: "read",
-    tone: "var(--acc-green)",
-    chipClass: "bg-[var(--acc-green)]/15 text-[var(--acc-green)] hover:bg-[var(--acc-green)]/25",
-    description: "Cursor read-only Q&A mode without edits or command execution.",
-  },
-];
-
 export const PROVIDER_MODES: Record<ProviderId, ProviderMode[]> = {
   [PROVIDER_IDS.CLAUDE_CODE]: CLAUDE_CODE_MODES,
   [PROVIDER_IDS.OPENCODE]: OPENCODE_MODES,
   [PROVIDER_IDS.CODEX_CLI]: CODEX_MODES,
-  [PROVIDER_IDS.CURSOR]: CURSOR_MODES,
 };
 
 /**
- * Look up the catalog for a provider. Returns `[]` when the id is unknown so
- * the chip hides via the standard < 2 visible-modes gate in MetaBar — better
- * than masquerading as a Claude session with Claude colors and labels.
+ * Look up the catalog for a provider. Built-ins use their own table (OpenCode
+ * appends its project agents from `catalogModes`). Any other provider uses the
+ * catalog modes it declared — `catalogModes` when the caller holds the catalog,
+ * else the last published catalog. Returns `[]` when nothing is known so the
+ * chip hides via the standard < 2 visible-modes gate in MetaBar.
  */
 export function getProviderModes(
   providerId?: string | null,
-  catalogModes: readonly RuntimeProviderModeOption[] = [],
+  catalogModes?: readonly RuntimeProviderModeOption[],
 ): ProviderMode[] {
-  if (providerId && providerId in PROVIDER_MODES) {
+  if (!providerId) return [];
+  if (providerId in PROVIDER_MODES) {
     const modes = PROVIDER_MODES[providerId as ProviderId];
-    if (providerId === PROVIDER_IDS.CURSOR && catalogModes.length > 0) {
-      return catalogModes.map((mode) => cursorCatalogMode(mode, modes));
-    }
-    if (providerId !== PROVIDER_IDS.OPENCODE || catalogModes.length === 0) return modes;
+    if (providerId !== PROVIDER_IDS.OPENCODE || !catalogModes?.length) return modes;
     return [...modes, ...catalogModes.map(opencodeCatalogMode)];
   }
-  return [];
-}
-
-function cursorCatalogMode(
-  mode: RuntimeProviderModeOption,
-  styledModes: readonly ProviderMode[],
-): ProviderMode {
-  const styledMode = styledModes.find((candidate) => candidate.id === mode.id);
-  if (styledMode) {
-    return {
-      ...styledMode,
-      label: mode.label,
-      description: mode.description ?? styledMode.description,
-    };
-  }
-  return {
-    id: mode.id,
-    label: mode.label,
-    icon: Bot,
-    // Unknown catalog modes make no claim about autonomy: the neutral level.
-    risk: "ask",
-    tone: "var(--acc-cyan)",
-    chipClass: "bg-[var(--acc-cyan)]/15 text-[var(--acc-cyan)] hover:bg-[var(--acc-cyan)]/25",
-    description: mode.description ?? `Use Cursor's ${mode.label} mode.`,
-  };
+  const declared = catalogModes?.length
+    ? catalogModes
+    : (getCatalogProviderMetadata(providerId)?.modes ?? []);
+  return declared.map(catalogProviderMode);
 }
 
 function opencodeCatalogMode(mode: RuntimeProviderModeOption): ProviderMode {
   return {
+    ...UNKNOWN_MODE_STYLE,
     id: mode.id,
     label: mode.label,
-    icon: Bot,
-    risk: "ask",
-    tone: "var(--acc-cyan)",
-    chipClass: "bg-[var(--acc-cyan)]/15 text-[var(--acc-cyan)] hover:bg-[var(--acc-cyan)]/25",
     description: mode.description ?? `Use the OpenCode ${mode.label} agent.`,
   };
 }
@@ -258,7 +204,7 @@ function opencodeCatalogMode(mode: RuntimeProviderModeOption): ProviderMode {
 export function getVisibleModes(
   providerId: string | null | undefined,
   enabledOptInIds: PermissionMode[] = [],
-  catalogModes: readonly RuntimeProviderModeOption[] = [],
+  catalogModes?: readonly RuntimeProviderModeOption[],
 ): ProviderMode[] {
   return getProviderModes(providerId, catalogModes).filter(
     (mode) => !mode.optIn || enabledOptInIds.includes(mode.id),
@@ -273,10 +219,9 @@ export function getVisibleModes(
 export function findProviderMode(
   providerId: string | null | undefined,
   modeId: PermissionMode,
-  catalogModes: readonly RuntimeProviderModeOption[] = [],
+  catalogModes?: readonly RuntimeProviderModeOption[],
 ): ProviderMode | null {
-  const normalizedModeId = normalizeProviderModeId(providerId, modeId);
-  return getProviderModes(providerId, catalogModes).find((m) => m.id === normalizedModeId) ?? null;
+  return getProviderModes(providerId, catalogModes).find((m) => m.id === modeId) ?? null;
 }
 
 /**
@@ -286,19 +231,22 @@ export function findProviderMode(
 export function providerAcceptsMode(
   providerId: string | null | undefined,
   modeId: PermissionMode,
+  catalogModes?: readonly RuntimeProviderModeOption[],
 ): boolean {
-  return !!findProviderMode(providerId, modeId) || modeId.startsWith(OPENCODE_AGENT_MODE_PREFIX);
+  return (
+    !!findProviderMode(providerId, modeId, catalogModes) ||
+    modeId.startsWith(OPENCODE_AGENT_MODE_PREFIX)
+  );
 }
 
-function normalizeProviderModeId(
-  providerId: string | null | undefined,
-  modeId: PermissionMode,
-): PermissionMode {
-  // Cursor sessions created before the ACP mode catalog was exposed persisted
-  // the shared edit-mode alias. Keep those sessions cycling from Default
-  // without requiring a data migration.
-  if (providerId === PROVIDER_IDS.CURSOR && modeId === "acceptEdits") return "default";
-  return modeId;
+/**
+ * Whether the init replay may send `modeId` to a session on `providerId`.
+ * Built-in adapters resolve a mode they can't hold to their own default, so
+ * they always get the replay; catalog-declared providers only get a mode
+ * their catalog lists (never the built-in frontend fallback).
+ */
+export function canReplayPermissionMode(providerId: string, modeId: PermissionMode): boolean {
+  return providerId in PROVIDER_MODES || providerAcceptsMode(providerId, modeId);
 }
 
 /**
@@ -312,8 +260,11 @@ function normalizeProviderModeId(
  * something actually consumes it — drift between FE guess and BE truth
  * is exactly the bug class this code path is trying to eliminate.
  */
-export function defaultEditModeFor(providerId: string | null | undefined): PermissionMode {
-  return getProviderModes(providerId)[0]?.id ?? "acceptEdits";
+export function defaultEditModeFor(
+  providerId: string | null | undefined,
+  catalogModes?: readonly RuntimeProviderModeOption[],
+): PermissionMode {
+  return getProviderModes(providerId, catalogModes)[0]?.id ?? "acceptEdits";
 }
 
 /**
@@ -324,12 +275,11 @@ export function nextProviderMode(
   providerId: string | null | undefined,
   current: PermissionMode,
   enabledOptInIds: PermissionMode[] = [],
-  catalogModes: readonly RuntimeProviderModeOption[] = [],
+  catalogModes?: readonly RuntimeProviderModeOption[],
 ): PermissionMode {
   const visible = getVisibleModes(providerId, enabledOptInIds, catalogModes);
   if (visible.length < 2) return current;
-  const normalizedCurrent = normalizeProviderModeId(providerId, current);
-  const idx = visible.findIndex((m) => m.id === normalizedCurrent);
+  const idx = visible.findIndex((m) => m.id === current);
   if (idx === -1) return visible[0].id;
   return visible[(idx + 1) % visible.length].id;
 }

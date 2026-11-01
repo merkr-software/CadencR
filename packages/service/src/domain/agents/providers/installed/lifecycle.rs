@@ -306,7 +306,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let executable = dir.path().join("agent");
         let command = executable.to_str().unwrap();
-        for reserved in ["cursor", "claude", "openai"] {
+        for reserved in ["opencode", "claude", "openai"] {
             let mut candidate = descriptor(reserved, command);
             if reserved == "openai" {
                 candidate.installation.enabled = false;
@@ -317,6 +317,10 @@ mod tests {
             assert_eq!(coded(error).0, PROVIDER_ALREADY_INSTALLED, "{reserved}");
         }
 
+        // `cursor` is no longer a built-in, so an installed plugin may own it.
+        install_descriptor(dir.path(), descriptor("cursor", command), &[])
+            .await
+            .unwrap();
         install_descriptor(dir.path(), descriptor("acme-agent", command), &[])
             .await
             .unwrap();

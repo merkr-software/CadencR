@@ -6,7 +6,7 @@ import type { AccessMode } from "@/types/access-mode";
 import type { RuntimeProviderAccessModeOption } from "@/api/agentRuntime";
 import { getAccessModeDefinition } from "./meta-bar-codex-modes";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
-import { providerAccessModeConfig } from "@/lib/provider-access-modes";
+import { useProviderAccessModeConfig } from "@/hooks/useAccessModeSetting";
 
 interface AccessModePopoverProps {
   mode: AccessMode;
@@ -37,7 +37,7 @@ export function AccessModePopover({
   variant = "chip",
 }: AccessModePopoverProps): React.JSX.Element | null {
   const [open, setOpen] = useState(false);
-  const providerConfig = providerAccessModeConfig(providerId);
+  const providerConfig = useProviderAccessModeConfig(providerId);
   const activeMode = getAccessModeDefinition(mode);
   const selectedAccessMode = getAccessModeDefinition(selectedMode);
   if (!activeMode || !selectedAccessMode || !providerConfig) return null;

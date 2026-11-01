@@ -100,6 +100,8 @@ export interface AgentPromptBarProps {
   slashCommandsOverride?: SlashCommand[];
   promptCommandPolicy?: PromptCommandPolicy;
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   pendingPermission?: PendingPermission | null;
   /**
    * Pre-first-prompt selection state used to offer the live worktree of a

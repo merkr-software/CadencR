@@ -16,6 +16,9 @@ const providers = readdirSync(join(root, "plugins/providers"), { withFileTypes: 
   .filter((entry) => entry.isDirectory())
   .map((entry) => json(`plugins/providers/${entry.name}/package.json`));
 const pluginNames = new Set(providers.map((manifest) => manifest.name));
+const piManifest = providers.find((manifest) => manifest.name === "@cadencr/pi-provider");
+// `@cadencr/<id>-provider` → the `plugins/provider-<id>/v<version>` tag namespace.
+const providerTagId = (manifest) => manifest.name.replace(/^@cadencr\//, "").replace(/-provider$/, "");
 
 test("official providers expose only dedicated tasks and share the root lockfile", () => {
   const generic = [
@@ -222,7 +225,7 @@ test("the root packaging command forwards options and emits only a separate Pi p
     timeout: 10_000,
   });
   assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), providers[0].version);
+  assert.equal(version.stdout.trim(), piManifest.version);
   assert.ok(readFileSync(`${payload}.SHA256SUMS`, "utf8").includes("bin/provider"));
 });
 
@@ -230,7 +233,7 @@ test("independent official plugin tag namespaces do not trigger desktop releases
   const desktopTags = yaml(".github/workflows/desktop-release.yml").on.push.tags;
   assert.deepEqual(desktopTags, ["v*"]);
   const tags = [
-    ...providers.map((manifest) => `plugins/provider-pi/v${manifest.version}`),
+    ...providers.map((manifest) => `plugins/provider-${providerTagId(manifest)}/v${manifest.version}`),
     ...["graphite", "ember", "fjord"].map((name) => `plugins/theme-${name}/v0.1.0`),
   ];
   for (const tag of tags) {

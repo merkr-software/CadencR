@@ -32,7 +32,7 @@ impl StreamReaderTask {
         state.diagnostics.record(runtime_event.raw_json());
         // Provider-native token reports are recorded before any early return
         // below. Context-window usage remains on the separate `usage_state`
-        // path and is never mistaken for consumption, except for Cursor's
+        // path and is never mistaken for consumption, except for a provider's
         // explicit provider fallback.
         self.capture_usage_attribution(state, &runtime_event).await;
         self.capture_provider_usage_event_id(state, &runtime_event);

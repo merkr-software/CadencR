@@ -158,6 +158,12 @@ pub enum RuntimeEventKind {
     /// Provider-native usage that is persisted by the accounting path only.
     /// It must not become a transcript block or a context-window update.
     UsageAccounting,
+    /// The agent itself switched its mode (ACP `current_mode_update` or a
+    /// mode-category `config_option_update`), mapped back to the host mode so
+    /// the composer chip follows agent-initiated switches.
+    PermissionModeChanged {
+        mode: super::config::RuntimePermissionMode,
+    },
     /// The provider emitted a message the adapter could not map to any known
     /// shape (Claude Code: `SdkMessage::Unknown` — a `type` the SDK has never
     /// seen). Rather than let it degrade to [`RuntimeEventKind::Other`] and

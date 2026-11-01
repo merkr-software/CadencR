@@ -1,4 +1,6 @@
+import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { providerAccessModeConfig } from "@/lib/provider-access-modes";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata, PROVIDER_IDS, type ProviderId } from "@/lib/providers";
 import { CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY } from "@/shared/permission-mode-settings";
@@ -19,10 +21,26 @@ const PROVIDER_TABS: ProviderId[] = [
   PROVIDER_IDS.CLAUDE_CODE,
   PROVIDER_IDS.OPENCODE,
   PROVIDER_IDS.CODEX_CLI,
-  PROVIDER_IDS.CURSOR,
 ];
 
+/**
+ * Catalog providers without a built-in panel that still have something to
+ * configure here — today a catalog-declared access mode.
+ */
+function useConfigurableCatalogProviders(): RuntimeProviderOption[] {
+  const { data } = useAgentCatalog();
+  return (data?.providers ?? []).filter(
+    (provider) =>
+      !(PROVIDER_TABS as readonly string[]).includes(provider.id) &&
+      providerAccessModeConfig(provider.id, {
+        label: provider.label,
+        accessModes: provider.access_modes ?? [],
+      }) !== null,
+  );
+}
+
 export function ProvidersSection(): React.JSX.Element {
+  const catalogProviders = useConfigurableCatalogProviders();
   return (
     <SettingsPageSection pageId="providers">
       <ProviderUpdatesCard />
@@ -39,6 +57,16 @@ export function ProvidersSection(): React.JSX.Element {
                 <span>{getProviderMetadata(id)?.label ?? id}</span>
               </TabsTrigger>
             ))}
+            {catalogProviders.map((provider) => (
+              <TabsTrigger key={provider.id} value={provider.id}>
+                <ProviderIcon
+                  providerId={provider.id}
+                  alt=""
+                  className="size-4 rounded-sm shrink-0"
+                />
+                <span>{provider.label}</span>
+              </TabsTrigger>
+            ))}
           </TabsList>
           <TabsContent value={PROVIDER_IDS.CLAUDE_CODE}>
             <ClaudeProviderPanel />
@@ -49,9 +77,13 @@ export function ProvidersSection(): React.JSX.Element {
           <TabsContent value={PROVIDER_IDS.CODEX_CLI}>
             <CodexProviderPanel />
           </TabsContent>
-          <TabsContent value={PROVIDER_IDS.CURSOR}>
-            <CursorProviderPanel />
-          </TabsContent>
+          {catalogProviders.map((provider) => (
+            <TabsContent key={provider.id} value={provider.id}>
+              <SettingsSubsection>
+                <ProviderAccessModeSetting providerId={provider.id} />
+              </SettingsSubsection>
+            </TabsContent>
+          ))}
         </Tabs>
       </SettingsGroup>
       <ProviderDevelopmentCard />
@@ -145,28 +177,6 @@ function CodexProviderPanel(): React.JSX.Element {
       </SettingsSubsection>
       <SettingsSubsection>
         <ProviderAccessModeSetting providerId={PROVIDER_IDS.CODEX_CLI} />
-      </SettingsSubsection>
-    </>
-  );
-}
-
-function CursorProviderPanel(): React.JSX.Element {
-  return (
-    <>
-      <SettingsSubsection>
-        <BinaryDiscoverySection
-          discoveryKey="cursor"
-          description={
-            <>
-              Every Cursor <strong>agent</strong> CLI install Cadencr found on disk. The selected
-              binary is spawned as <strong>agent acp</strong>; override via onboarding or the{" "}
-              <strong>cursor_cli_path</strong> workspace setting.
-            </>
-          }
-        />
-      </SettingsSubsection>
-      <SettingsSubsection>
-        <ProviderAccessModeSetting providerId={PROVIDER_IDS.CURSOR} />
       </SettingsSubsection>
     </>
   );

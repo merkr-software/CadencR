@@ -1,4 +1,5 @@
 use super::events_stream_blocks::EventIndexer;
+use super::events_tool_call_background::observe_background_launch;
 use super::events_tool_call_input::derive_input_from_content;
 use super::events_tool_call_metadata::{enrich_tool_input, is_empty_value};
 use super::events_tool_call_name::resolve_tool_name;
@@ -41,6 +42,7 @@ pub fn map_tool_call_start(
         return MappedUpdate { events: vec![] };
     }
     indexer.record_tool_name(tool_call_id, &tool_name);
+    observe_background_launch(tool_call_id, body, indexer);
     hooks.record_tool_call_start(tool_call_id, &tool_name);
     let input = enrich_tool_input(body, hooks.normalize_tool_input(&tool_name, raw));
     if !is_empty_value(&input) {

@@ -2,7 +2,7 @@
 name = "cadencr-provider-sdk"
 # Own semver, independent of the Cadencr app version. Released by hand with
 # .github/workflows/crates-release.yml.
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license.workspace = true
 description = "Command harness for code-backed Cadencr agent provider packages (ACP v1)"
@@ -16,6 +16,7 @@ categories = ["development-tools", "command-line-interface"]
 [dependencies]
 agent-client-protocol = "3.4.0"
 bon.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [lints]

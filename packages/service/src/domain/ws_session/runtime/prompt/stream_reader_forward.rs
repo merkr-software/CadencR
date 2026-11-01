@@ -76,12 +76,17 @@ pub(in crate::domain::ws_session) async fn forward_immediate_event(
                             kind: slash_command_kind_payload(command.kind),
                         })
                         .collect(),
+                    error: None,
                 })
                 .unwrap(),
             ),
             false,
         )
         .await;
+    }
+
+    if let Some(mode) = runtime_event.permission_mode_changed() {
+        return super::stream_reader_mode_change::forward_agent_mode_change(task, mode).await;
     }
 
     if let Some(status) = runtime_event.stream_status() {
