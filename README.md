@@ -122,9 +122,10 @@ Use the latest code or contribute to the product.
 | **pnpm**            | Run `corepack enable`; `package.json` pins the version.                                                      |
 | **Rust**            | Install with [rustup](https://rustup.rs/). `rust-toolchain.toml` selects the toolchain, rustfmt, and clippy. |
 | **watchexec**       | `pnpm dev` uses it to restart the service: `brew install watchexec`. `cargo-watch` is a fallback.            |
+| **Python 3.11+**    | The root script tests (run by the pre-commit hook) need it as `python3`; macOS's `/usr/bin/python3` is 3.9.  |
 | **An agent CLI**    | Install and authenticate at least one supported agent.                                                       |
 
-Using Nix? `nix develop` supplies Node 22, rustup, watchexec, and native libraries; Corepack supplies pnpm.
+Using Nix? `nix develop` supplies Node 22, Python 3, rustup, watchexec, and native libraries; Corepack supplies pnpm.
 
 #### Setup
 
