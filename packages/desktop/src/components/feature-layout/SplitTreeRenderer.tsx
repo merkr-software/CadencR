@@ -96,6 +96,7 @@ function SplitRenderer({
         defaultSize={index === 0 ? defaultA : defaultB}
         minSize={popping ? pop.foldedSize : 10}
         panelRef={pop.panelRefs[index]}
+        elementRef={pop.elementRefs[index]}
         onResize={popping ? pop.onResize : undefined}
         // A sliding pop pane is laid out at its open size inside the moving
         // panel: anchor it here and clip what is not uncovered yet.

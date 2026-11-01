@@ -17,6 +17,7 @@ import { FeatureTabIcon } from "./FeatureTabIcon";
 import { TabTooltip } from "./PaneTabTriggers";
 import type { FeatureTabs, PaneSlot } from "./types";
 import { usePaneStripDrop } from "./use-pane-strip-drop";
+import { axisLength } from "./use-pop-panel";
 
 /**
  * Pop panes (`LayoutLeaf.pop`): a pane folded to its header along its split
@@ -146,7 +147,7 @@ export function useReportFoldedSize(slot: PaneSlot | undefined): RefObject<HTMLD
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !report) return;
-    const measure = (): void => report(horizontal ? el.offsetWidth : el.offsetHeight);
+    const measure = (): void => report(axisLength(el, horizontal));
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(measure);

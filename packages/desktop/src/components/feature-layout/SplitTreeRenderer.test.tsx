@@ -14,6 +14,10 @@ const resizePanel = vi.fn();
 /** The panel's size as the group last laid it out, read before each resize. */
 let panelSize = { asPercentage: 4, inPixels: 40 };
 let reportPanelSize: ((size: { asPercentage: number; inPixels: number }) => void) | undefined;
+/** Panels' laid-out lengths, by panel id: fractional, unlike `inPixels`. */
+const panelLengths: Record<string, number> = {};
+/** Panels mounted so far, by id: like the library, a panel hands over its element once. */
+const mountedPanels = new Set<string>();
 
 vi.mock("@/lib/auto-layout/auto-layout-controller", () => ({ noteUserLayoutChange: vi.fn() }));
 /** Slots handed to the pop pane ("term"), oldest first. */
@@ -40,15 +44,27 @@ vi.mock("@/components/ui/resizable", () => ({
   },
   ResizablePanel: ({
     children,
+    id,
     panelRef,
+    elementRef,
     onResize,
   }: {
     children: ReactNode;
+    id: string;
     panelRef?: { current: unknown };
+    elementRef?: { current: unknown };
     onResize?: (size: { asPercentage: number; inPixels: number }) => void;
   }): ReactNode => {
     if (panelRef) panelRef.current = { resize: resizePanel, getSize: () => panelSize };
     if (onResize) reportPanelSize = onResize;
+    if (!mountedPanels.has(id)) {
+      mountedPanels.add(id);
+      const length = (): number => panelLengths[id] ?? 0;
+      if (elementRef)
+        elementRef.current = {
+          getBoundingClientRect: () => ({ width: length(), height: length() }),
+        };
+    }
     return children;
   },
   // Like the library's Separator: `aria-disabled` only while disabled.
@@ -94,6 +110,8 @@ describe("SplitTreeRenderer", () => {
     resizePanel.mockClear();
     slots.length = 0;
     panelSize = { asPercentage: 4, inPixels: 40 };
+    mountedPanels.clear();
+    for (const id of Object.keys(panelLengths)) delete panelLengths[id];
     document.documentElement.dataset.animations = "off";
     vi.mocked(noteUserLayoutChange).mockClear();
     useFeatureLayoutStore.setState({ features: {} });
@@ -180,10 +198,49 @@ describe("SplitTreeRenderer", () => {
       renderSplit(popSplit);
       resizePanel.mockClear();
 
+      panelLengths["panel--1"] = 114;
       reportPanelSize?.({ asPercentage: 10, inPixels: 114 });
       expect(resizePanel).toHaveBeenCalledWith("40px");
 
       resizePanel.mockClear();
+      panelLengths["panel--1"] = 40.2;
+      reportPanelSize?.({ asPercentage: 4, inPixels: 40 });
+      expect(resizePanel).not.toHaveBeenCalled();
+    });
+
+    it("folds again when a window resize grows it by less than the whole pixel reported", () => {
+      seed("root");
+      renderSplit(popSplit);
+      resizePanel.mockClear();
+
+      // The group reports `offsetHeight`; the card already sits off the edge
+      // the panes beside it line up on.
+      panelLengths["panel--1"] = 40.5;
+      reportPanelSize?.({ asPercentage: 4, inPixels: 40 });
+      expect(resizePanel).toHaveBeenCalledWith("40px");
+    });
+
+    it("measures the panel that pops, even when it starts popping after mount", () => {
+      const pinned: LayoutNode = {
+        ...popSplit,
+        children: [
+          split.children[0],
+          { type: "leaf", id: "term", tabIds: ["terminal"], activeTabId: "terminal" },
+        ],
+      };
+      seed("root", pinned);
+      const view = renderSplit(pinned);
+      panelLengths["panel--0"] = 760;
+      panelLengths["panel--1"] = 40.5;
+
+      seed("root");
+      view.rerender(splitTree(popSplit));
+      resizePanel.mockClear();
+      reportPanelSize?.({ asPercentage: 4, inPixels: 40 });
+      expect(resizePanel).toHaveBeenCalledWith("40px");
+
+      resizePanel.mockClear();
+      panelLengths["panel--1"] = 40;
       reportPanelSize?.({ asPercentage: 4, inPixels: 40 });
       expect(resizePanel).not.toHaveBeenCalled();
     });
@@ -402,7 +459,7 @@ describe("SplitTreeRenderer", () => {
       renderSplit(popSplit);
       const slot = slots.at(-1) as { onFoldedSize: (px: number) => void };
       act(() => slot.onFoldedSize(36.4));
-      expect(resizePanel).toHaveBeenLastCalledWith("37px");
+      expect(resizePanel).toHaveBeenLastCalledWith("36.4px");
     });
 
     it("never stores the folded header as the split's size", () => {
