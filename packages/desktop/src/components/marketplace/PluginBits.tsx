@@ -1,10 +1,10 @@
 import { format } from "date-fns";
 import { ArrowUpCircle, Ban, Check, CircleAlert, RotateCw, ShieldAlert } from "lucide-react";
-import type { MarketplaceListing, PluginKind } from "@/lib/marketplace-listings";
+import type { MarketplaceListing } from "@/lib/marketplace-listings";
 import { Badge } from "@/components/ui/badge";
 import { ProviderIconGraphic, useProviderMetadata } from "@/lib/provider-icons";
 import { cn } from "@/lib/utils";
-import { KINDS } from "./kinds";
+import { KINDS, type MarketplaceKind } from "./kinds";
 
 export function formatDay(iso?: string | null): string | null {
   if (!iso) return null;
@@ -21,7 +21,7 @@ export function byline(listing: MarketplaceListing): string {
   return listing.publisher ? `by ${listing.publisher}` : listing.id;
 }
 
-function KindChip({ kind }: { kind: PluginKind }): React.JSX.Element {
+function KindChip({ kind }: { kind: MarketplaceKind }): React.JSX.Element {
   const meta = KINDS[kind];
   const Icon = meta.icon;
   return (
@@ -32,7 +32,7 @@ function KindChip({ kind }: { kind: PluginKind }): React.JSX.Element {
   );
 }
 
-export function KindChips({ kinds }: { kinds: PluginKind[] }): React.JSX.Element {
+export function KindChips({ kinds }: { kinds: readonly MarketplaceKind[] }): React.JSX.Element {
   return (
     <span className="flex flex-wrap items-center gap-1" aria-label="Adds">
       {kinds.map((kind) => (
@@ -42,7 +42,7 @@ export function KindChips({ kinds }: { kinds: PluginKind[] }): React.JSX.Element
   );
 }
 
-function initials(name: string): string {
+export function initials(name: string): string {
   const words = name.split(/[\s_-]+/).filter(Boolean);
   const letters = words.length > 1 ? words[0][0] + words[1][0] : name.slice(0, 2);
   return letters.toUpperCase();

@@ -7,11 +7,12 @@ import {
   type MarketplaceHomeProps,
 } from "@/components/marketplace/MarketplaceHome";
 import { PLUGIN_KINDS } from "@/lib/marketplace-listings";
+import { AGENT_EXTENSION_KINDS } from "@/lib/agent-extensions";
 
 const searchSchema = z.object({
   view: z.enum(MARKETPLACE_VIEWS).optional().catch(undefined),
   kind: z
-    .enum(["all", ...PLUGIN_KINDS])
+    .enum(["all", ...PLUGIN_KINDS, ...AGENT_EXTENSION_KINDS])
     .optional()
     .catch(undefined),
   q: z.string().optional().catch(undefined),

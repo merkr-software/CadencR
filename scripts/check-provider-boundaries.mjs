@@ -28,6 +28,10 @@ const ALLOWED_EXACT = new Map([
     "pagination cursor",
   ],
   ["packages/service/src/domain/mcp/servers/workspace.rs:cursor", "pagination cursor"],
+  [
+    "packages/service/src/domain/agents/extensions/mcp_registry.rs:cursor",
+    "MCP Registry page cursor",
+  ],
   ["packages/desktop/src/lib/mcp-tool-parser.ts:cursor", "MCP server name"],
 ]);
 

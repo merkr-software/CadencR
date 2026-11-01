@@ -116,6 +116,19 @@ vi.mock("@/api/generated", async () => {
     removeManagedTheme: vi.fn(),
     duplicateManagedTheme: vi.fn(),
     previewManagedThemePackage: vi.fn(),
+    // No agent CLI in these tests: the skill and MCP surfaces stay out of the way.
+    getListExtensionClisQueryKey: () => ["/api/agent-extensions/clis"],
+    listExtensionClis: vi.fn(async () => ({ clis: [] })),
+    getListInstalledMcpServersQueryKey: () => ["/api/agent-extensions/mcp/installed"],
+    listInstalledMcpServers: vi.fn(),
+    getListSkillsQueryKey: (params?: object) => ["/api/agent-extensions/skills", params],
+    listSkills: vi.fn(),
+    getGetMcpRegistryServerQueryKey: (params?: object) => [
+      "/api/agent-extensions/mcp/registry/server",
+      params,
+    ],
+    getMcpRegistryServer: vi.fn(),
+    searchMcpRegistry: vi.fn(),
   };
 });
 

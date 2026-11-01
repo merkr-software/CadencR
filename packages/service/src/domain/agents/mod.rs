@@ -6,6 +6,7 @@ pub mod codex;
 pub mod config_migration;
 pub mod cursor;
 pub mod discovery;
+pub mod extensions;
 mod mcp_tool_names;
 pub mod model_refs;
 pub mod opencode;

@@ -329,3 +329,59 @@ html[data-animations="off"] .mp-spotlight-enter {
 .mp-kind-tab {
   --mp-kind: var(--chart-3);
 }
+
+/* Skills and MCP servers install into the agent CLIs, not into Cadencr. */
+.mp-kind-skill {
+  --mp-kind: var(--chart-5);
+}
+.mp-kind-mcp {
+  --mp-kind: var(--chart-1);
+}
+
+/* ── Agent extension art: the command the agent CLI will run, and which
+ * CLIs carry it (filled) or could (faded). Never a fake preview. ─────────── */
+.mp-agent-art {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 7% 7% 6%;
+}
+.mp-agent-command {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: color-mix(in oklab, var(--background) 80%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--mp-kind) 22%, transparent);
+  color: color-mix(in oklab, var(--mp-kind) 55%, var(--foreground));
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.mp-agent-command::before {
+  content: "$ ";
+  color: var(--muted-foreground);
+}
+.mp-agent-carriers {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mp-agent-carrier {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 85%, transparent);
+}
+.mp-agent-carrier[data-absent] {
+  opacity: 0.38;
+  filter: grayscale(1);
+}

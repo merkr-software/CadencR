@@ -31,6 +31,7 @@ mod event_turn_state;
 mod event_usage;
 mod event_web;
 mod events;
+pub mod extensions;
 mod input;
 mod instructions;
 mod launch;

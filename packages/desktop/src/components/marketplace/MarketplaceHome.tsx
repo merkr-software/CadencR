@@ -10,15 +10,15 @@ import { sidebarFilterTerms } from "@/lib/sidebar-filter";
 import { cn } from "@/lib/utils";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceActivity } from "./MarketplaceActivity";
-import { KindFilterBar, MarketplaceDiscover, type KindFilter } from "./MarketplaceDiscover";
-import { MarketplaceLibrary } from "./MarketplaceLibrary";
-import { MarketplaceSpotlight } from "./MarketplaceSpotlight";
+import type { KindFilter } from "./MarketplaceDiscover";
+import { CheckCatalogButton, MarketplaceSkeleton } from "./MarketplaceStates";
+import { DiscoverView, LibraryView } from "./MarketplaceViews";
 import {
-  CheckCatalogButton,
-  MarketplaceSkeleton,
-  MarketplaceNotInBuild,
-  MarketplaceUnavailable,
-} from "./MarketplaceStates";
+  useAgentExtensionCounts,
+  useExtensionClis,
+  useRefreshAgentExtensions,
+} from "@/hooks/useAgentExtensions";
+import { isAgentExtensionKind } from "@/lib/agent-extensions";
 import { formatAgo } from "@/lib/date-utils";
 
 export const MARKETPLACE_VIEWS = ["discover", "installed", "updates"] as const;
@@ -56,23 +56,31 @@ export function MarketplaceHome({
     const terms = sidebarFilterTerms(query);
     return state.browsable.filter((listing) => matchesListing(listing, terms));
   }, [state.browsable, query]);
+  const clis = useExtensionClis();
+  const cliList = useMemo(() => clis.data?.clis ?? [], [clis.data]);
+  const agentCounts = useAgentExtensionCounts(cliList.some((cli) => cli.installed));
+  const refreshAgents = useRefreshAgentExtensions();
   const summary = useMemo(
     () => ({
-      installed: state.browsable.filter((l) => l.installed).length,
-      updates: state.browsable.filter((l) => l.update).length,
+      installed: state.browsable.filter((l) => l.installed).length + agentCounts.installed,
+      updates: state.browsable.filter((l) => l.update).length + agentCounts.updates,
       inCatalog: state.browsable.filter((l) => l.inCatalog).length,
     }),
-    [state.browsable],
+    [state.browsable, agentCounts],
   );
   const installed = useMemo(() => searched.filter((l) => l.installed), [searched]);
   const updates = useMemo(() => searched.filter((l) => l.update), [searched]);
   const spotlight = useMemo(() => spotlightListings(state.browsable), [state.browsable]);
-  const { publishedAt, refreshing, anyCatalog } = catalogStatus(state);
+  const status = catalogStatus(state);
+  const { publishedAt, anyCatalog } = status;
+  const refreshing = status.refreshing || refreshAgents.isPending;
   const refresh = () => {
     state.providers.refresh.mutate();
     state.themes.refresh.mutate();
     state.tabs.refresh.mutate();
+    if (cliList.some((cli) => cli.installed)) refreshAgents.mutate();
   };
+  const onKindChange = (next: KindFilter) => onChange({ kind: next });
   return (
     <div data-feature-chrome="standard" className="flex h-full flex-col bg-background">
       <MarketplaceHeader
@@ -96,43 +104,35 @@ export function MarketplaceHome({
       <div ref={setScrollParent} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1180px] space-y-6 px-5 py-5">
           <MarketplaceActivity />
-          {state.loading ? (
+          {state.loading && !isAgentExtensionKind(kind) ? (
             <MarketplaceSkeleton />
           ) : view === "discover" ? (
-            <>
-              {!anyCatalog &&
-                (state.catalogMissing ? (
-                  <MarketplaceNotInBuild />
-                ) : (
-                  <MarketplaceUnavailable refreshing={refreshing} onRefresh={refresh} />
-                ))}
-              {!query && <MarketplaceSpotlight listings={spotlight} />}
-              {searched.length > 0 && (
-                <KindFilterBar
-                  listings={searched}
-                  kind={kind}
-                  onKindChange={(next) => onChange({ kind: next })}
-                />
-              )}
-              {(anyCatalog || searched.length > 0) && (
-                <MarketplaceDiscover
-                  listings={searched}
-                  kind={kind}
-                  searching={!!query.trim()}
-                  onKindChange={(next) => onChange({ kind: next })}
-                  scrollParent={scrollParent}
-                />
-              )}
-            </>
+            <DiscoverView
+              kind={kind}
+              query={query}
+              searched={searched}
+              spotlight={spotlight}
+              clis={cliList}
+              anyCatalog={anyCatalog}
+              catalogMissing={state.catalogMissing}
+              refreshing={refreshing}
+              onRefresh={refresh}
+              onKindChange={onKindChange}
+              scrollParent={scrollParent}
+            />
           ) : (
-            <MarketplaceLibrary
+            <LibraryView
               view={view}
+              kind={kind}
+              query={query}
               listings={view === "updates" ? updates : installed}
               scrollParent={scrollParent}
               publishedAt={publishedAt}
               refreshing={refreshing}
               onRefresh={refresh}
               onDiscover={() => onChange({ view: "discover" })}
+              onKindChange={onKindChange}
+              clis={cliList}
             />
           )}
         </div>
@@ -218,7 +218,7 @@ function SearchField({
       />
       <Input
         aria-label="Search the marketplace"
-        placeholder="Search plugins, publishers…"
+        placeholder="Search plugins, skills, MCP servers…"
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         className="h-8 pl-8 text-[13px]"

@@ -12,7 +12,7 @@ import {
 } from "@/lib/marketplace-listings";
 import { BLOCKED_COPY, reasonSentence } from "@/components/plugin-tabs/plugin-tab-access";
 import { cn } from "@/lib/utils";
-import { KINDS } from "./kinds";
+import { KINDS, type MarketplaceKind } from "./kinds";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { MarketplaceActivity } from "./MarketplaceActivity";
 import { MarketplaceEmpty } from "./MarketplaceStates";
@@ -32,37 +32,62 @@ export function PluginDetail({ kind, id }: { kind: PluginKind; id: string }): Re
   const state = useMarketplaceState();
   const listing = state.listings.find((item) => item.kind === kind && item.id === id);
   return (
+    <DetailPage kind={kind} name={listing?.name ?? id}>
+      <MarketplaceActivity />
+      {listing ? (
+        <PluginDetailBody key={listing.key} listing={listing} />
+      ) : state.loading ? (
+        <Skeleton
+          role="status"
+          aria-label="Loading plugin"
+          className="h-[320px] w-full rounded-xl"
+        />
+      ) : (
+        <MarketplaceEmpty
+          icon={PackageX}
+          title="This plugin is not in the catalog or installed"
+          action={
+            <Button asChild size="sm" variant="outline">
+              <Link to="/marketplace">Back to the marketplace</Link>
+            </Button>
+          }
+        />
+      )}
+    </DetailPage>
+  );
+}
+
+/** A detail page: its header, then one scrolling, centered column. */
+export function DetailPage({
+  kind,
+  name,
+  className,
+  children,
+}: {
+  kind: MarketplaceKind;
+  name: string;
+  className?: string;
+  children: React.ReactNode;
+}): React.JSX.Element {
+  return (
     <div data-feature-chrome="standard" className="flex h-full flex-col bg-background">
-      <DetailHeader kind={kind} name={listing?.name ?? id} />
+      <DetailHeader kind={kind} name={name} />
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1180px] space-y-6 px-5 py-6">
-          <MarketplaceActivity />
-          {listing ? (
-            <PluginDetailBody key={listing.key} listing={listing} />
-          ) : state.loading ? (
-            <Skeleton
-              role="status"
-              aria-label="Loading plugin"
-              className="h-[320px] w-full rounded-xl"
-            />
-          ) : (
-            <MarketplaceEmpty
-              icon={PackageX}
-              title="This plugin is not in the catalog or installed"
-              action={
-                <Button asChild size="sm" variant="outline">
-                  <Link to="/marketplace">Back to the marketplace</Link>
-                </Button>
-              }
-            />
-          )}
+        <div className={cn("mx-auto w-full max-w-[1180px] space-y-6 px-5 py-6", className)}>
+          {children}
         </div>
       </div>
     </div>
   );
 }
 
-function DetailHeader({ kind, name }: { kind: PluginKind; name: string }): React.JSX.Element {
+export function DetailHeader({
+  kind,
+  name,
+}: {
+  kind: MarketplaceKind;
+  name: string;
+}): React.JSX.Element {
   const { collapsed, setCollapsed } = useSidebarCollapsed();
   return (
     <header className="titlebar-drag flex min-h-14 shrink-0 items-center gap-2 border-b border-border/60 px-5">

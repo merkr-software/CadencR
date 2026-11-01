@@ -7,6 +7,7 @@ mod catalog;
 mod context_windows;
 pub mod custom_models;
 mod events;
+pub mod extensions;
 mod jsonl_surgery;
 mod model_alias;
 mod post_plan_approval;
