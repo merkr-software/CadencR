@@ -12,6 +12,7 @@ use crate::domain::agents::adapter::{
     RuntimeSessionHandle,
 };
 use crate::domain::agents::permission_modes::permission_mode_wire;
+use crate::domain::agents::runtime_adapter;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{ModeChangedPayload, WsEnvelope};
 
@@ -147,6 +148,20 @@ fn plan_post_plan_mode_transition(handle: &SdkHandle) -> Option<PostPlanModeTran
     let target_wire = post_plan_approval_mode_wire(&handle.runtime_provider, model_for_gate);
     let target_mode = parse_permission_mode(&target_wire);
 
+    // A provider without permission modes (e.g. an installed ACP plugin that
+    // still raises an `ExitPlanMode` gate) keeps running as it is: switching
+    // it would only fail against a mode it never advertised.
+    if !runtime_adapter(&handle.runtime_provider)
+        .is_some_and(|adapter| adapter.supports_permission_mode(&target_mode))
+    {
+        debug!(
+            provider = %handle.runtime_provider,
+            target_mode = %target_wire,
+            "post-plan-approval: provider does not support the target mode"
+        );
+        return None;
+    }
+
     if handle.spawned_permission_mode.as_ref() == Some(&target_mode) {
         debug!(
             target_mode = %target_wire,
@@ -163,7 +178,10 @@ fn plan_post_plan_mode_transition(handle: &SdkHandle) -> Option<PostPlanModeTran
     Some(PostPlanModeTransition { target_mode, query })
 }
 
-fn apply_post_plan_mode_to_handle(handle: &mut SdkHandle, target_mode: RuntimePermissionMode) {
+pub(in crate::domain::ws_session) fn apply_post_plan_mode_to_handle(
+    handle: &mut SdkHandle,
+    target_mode: RuntimePermissionMode,
+) {
     if let QueryState::Pending(options) = &mut handle.state {
         options.permission_mode = Some(target_mode.clone());
     }
@@ -487,6 +505,35 @@ mod tests {
             envelope.payload["mode"], "acceptEdits",
             "the broadcast must reflect what the CLI actually accepted, not the original target"
         );
+    }
+
+    /// An installed ACP provider advertises no permission modes, so approving
+    /// its `ExitPlanMode` gate must not push (or persist) a mode it can't run.
+    #[tokio::test]
+    async fn plan_approval_skips_mode_switch_for_providers_without_modes() {
+        let pool = test_pool().await;
+        let modes = Arc::new(Mutex::new(Vec::new()));
+        let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+        let mut handle = codex_plan_handle(Arc::clone(&modes));
+        handle.runtime_provider = "installed-without-modes".to_string();
+        handle.spawned_permission_mode = None;
+        handle.desired_permission_mode = None;
+        sdk_sessions.lock().await.insert(7, handle);
+        let (sender, mut receiver) = mpsc::unbounded_channel::<Message>();
+
+        let changed = transition_session_to_post_plan_mode(&sdk_sessions, 7, &pool, &sender)
+            .await
+            .expect("no mode switch is not an error");
+
+        assert!(changed.is_none());
+        assert!(modes.lock().await.is_empty());
+        assert!(receiver.try_recv().is_err(), "no mode.changed broadcast");
+        let stored: String =
+            sqlx::query_scalar("SELECT permission_mode FROM agent_sessions WHERE id = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(stored, "plan");
     }
 
     #[tokio::test]

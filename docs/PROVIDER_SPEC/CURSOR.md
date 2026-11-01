@@ -1,210 +1,205 @@
 # Provider status — Cursor
 
-> Reviewed against v0.13.0 source and release changes on 2026-10-13. This is a
-> source review, not a new end-to-end parity certification of every local CLI.
+> Reviewed on 2026-11-01 when the built-in Cursor adapter was extracted into an
+> external provider plugin. This is a source/design review of the new boundary,
+> not an end-to-end parity certification of every Cursor CLI release.
 
-![Current provider settings](../../packages/landing/src/assets/docs/v0.13.0/provider-cursor.png)
+Status of the Cursor provider against [`FEATURES.md`](./FEATURES.md).
 
-Status of the Cursor adapter against [`FEATURES.md`](./FEATURES.md).
+Cursor is no longer a built-in Cadencr adapter. It ships as an **official
+marketplace provider plugin**: a Rust ACP v1 connector whose source lives in
+`plugins/providers/cursor/`. The service, desktop app, and SDK crates contain no
+Cursor code: there is no `domain/agents/cursor/` adapter, no
+`cursor-agent-sdk-rs` crate, no Cursor CLI discovery, and no `cursor_cli_path`
+setting. The workspace access default uses the provider-neutral
+`provider_access_mode.cursor` key; at startup the host copies a former
+`cursor_access_mode` value there once, unless the new key is already set.
 
-The adapter lives in `packages/service/src/domain/agents/cursor/` and starts
-the official Cursor Agent CLI as `agent acp`. Cursor ACP uses newline-delimited
-JSON-RPC 2.0 over stdio. Standard ACP traffic is handled by the shared
-`packages/service/src/domain/agents/acp/runtime/` layer; Cursor authentication,
-tool normalization, model discovery, and `cursor/*` extension methods remain
-inside the Cursor adapter.
+The plugin installs through the same generic installed-provider path as the Pi
+connector (`plugins/providers/pi/`): a signed package with a descriptor, the
+connector executable, and a connector-owned `icon.svg` that the runtime catalog
+serves to the desktop. The provider id stays `cursor`, so existing Cursor
+conversations keep their provider identity once the plugin is installed.
+Cadencr runs the connector through `GenericAcpAdapter`. Nothing in shared host
+code branches on the `cursor` id.
 
-The CLI binary/discovery boundary lives in
-`packages/cursor-agent-sdk-rs/`. Install and authenticate it with:
+## Install
 
-```bash
-curl https://cursor.com/install -fsS | bash
-agent login
-```
+1. Install and authenticate the Cursor Agent CLI:
+
+   ```bash
+   curl https://cursor.com/install -fsS | bash
+   agent login
+   ```
+
+2. Install **Cursor** from the Cadencr marketplace (**Providers**), then restart
+   Cadencr when prompted.
+
+The connector finds and launches `agent acp` itself. Credentials stay with the
+Cursor CLI. Cadencr does not collect or broker them.
+
+## Connector-owned translation
+
+The connector speaks the Cursor CLI's ACP dialect (including the `cursor/*`
+extension methods) and presents standard ACP v1 to Cadencr. All Cursor-specific
+behavior lives in the connector:
+
+- **Model discovery and companion folding.** The connector answers the host's
+  pre-session model discovery from `agent models`. It advertises
+  `clientCapabilities._meta.parameterizedModelPicker` to Cursor and folds
+  Cursor's variant ids and companion options (`fast`, thought level) into a base
+  model plus standard ACP session config options. Cursor replaces the companion
+  set when the base model changes, so the connector re-resolves companions from
+  the model-change response.
+- **Modes through `_meta.cadencr.permissionMode`.** Cursor's own `mode` select
+  (`category: "mode"`) passes through with each known value mapped:
+  `agent` → `default` (primary edit mode), `plan` → `plan`, `ask` → `ask`.
+  The cold `models` output carries the same select, so the host catalog and
+  live snapshots agree.
+- **Access mode as a synthetic config option.** Cursor ACP has no approval-mode
+  config option, so the connector advertises its own `access` select, marked
+  `_meta.cadencr.role: "access_mode"`: **Default** (`default`,
+  `--sandbox enabled`), **Full Access** (`full_access` → `fullAccess`,
+  `--force --sandbox disabled`), or **Auto Review** (`auto_review` →
+  `autoReview`, `--auto-review --sandbox enabled`), each value carrying
+  `_meta.cadencr.accessMode`; the cold `models` output carries it too. A change
+  that alters launch flags restarts the Cursor CLI and restores the
+  conversation with `session/load`. Cursor saves a new conversation only when
+  its first prompt runs, so a switch into Full Access before that prompt is
+  deferred: the connector answers that turn's permission requests
+  `allow_once` (sandbox still on) and restarts with Full Access before
+  answering the turn. Leaving Full Access before a new conversation's first
+  prompt is refused with an error.
+- **Auto Review preflight.** Cursor's ACP bootstrap does not yet honor
+  `--auto-review`, so the connector answers `allow_once` for a plain shell
+  allowlist miss. A request that carries a stronger reason (parser, sandbox,
+  blocklist, delete protection, hook, or team policy) stays interactive. MCP and
+  other non-shell gates also stay interactive.
+- **`cursor/*` extensions mapped to standard ACP:**
+
+  | Cursor method           | What Cadencr receives                                                                                                                                      |
+  | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `cursor/update_todos`   | Standard ACP `plan` session updates, rendered as the todo list.                                                                                            |
+  | `cursor/ask_question`   | A `session/request_permission` for an `AskUserQuestion` tool call. The host returns the user's answers in the selected option's `_meta.updatedInput`.      |
+  | `cursor/create_plan`    | A `session/request_permission` for an `ExitPlanMode` tool call, which opens Cadencr's plan gate. Feedback uses the same `_meta.updatedInput` convention.   |
+  | `cursor/task`           | A standard tool call carrying the sub-agent metadata. A task Cursor reports as `rawOutput.isBackground` gets `_meta.cadencr.subagent: {background: true}`. |
+  | `cursor/generate_image` | A standard tool call preserving the generated-image payload.                                                                                               |
+
+- **Host integration.** `host-integration --format cadencr-host-integration-v1`
+  declares only `worktreeConfigPaths` (`.cursor/rules`, `.cursor/commands`,
+  `.cursor/skills`, `.cursor/mcp.json`, `.cursor/cli.json`). It declares no
+  `compactCommand`: Cursor Agent 2026.10.22's ACP server has no compaction
+  command (`/compress` and `/summarize` are interactive-TUI only; over ACP
+  `/compress` is an ordinary prompt). It declares no `resumeCommand`: ACP
+  sessions live in `~/.cursor/acp-sessions/<id>`, apart from interactive
+  chats, and `agent --resume <ACP session id>` opens an empty chat instead of
+  the conversation.
+- **Slash commands.** `slash-commands --format cadencr-slash-commands-v1`
+  rebuilds, without starting `agent acp`, the list Cursor Agent 2026.10.22's
+  ACP server sends in `available_commands_update` (its `custom-commands.ts`
+  loader, read from the CLI bundle and checked against live frames):
+  `copy-request-id`; `.claude/commands/*.md` and `.cursor/commands/*.md` of the
+  project root (nearest ancestor with `.git`, else the cwd), then the same
+  under `~` — title = first line's heading or text, description
+  `<title> (project)` / `(user)`, a later file with the same name replacing an
+  earlier one in place; then skills (`SKILL.md`, recursive) of
+  `~/.cursor/skills-cursor`, the project's `.cursor`, `.claude`, `.codex`,
+  `.grok`, `.agents` `skills/`, then the same under `~`, with
+  `(builtin skill)` / `(project skill)` / `(user skill)` suffixes, the folder
+  name as id, `user-invocable: false` and non-CLI `metadata.surfaces` hidden.
+  Probed live on 2026-11-01 in two scratch repositories (52 and 50 entries,
+  real user skills included): after removing the server-side entries, the
+  connector's output matched name, description and order exactly. The proxy
+  applies the same normalization to live `available_commands_update` frames:
+  names with whitespace (listed by Cursor but not invocable) are dropped,
+  duplicate names (a command and a skill called alike) keep the first entry,
+  and skills get `_meta.cadencr.kind: "skill"`.
+- **Sub-agents.** The connector negotiates Cursor's
+  `clientCapabilities.subagents`: the child's tool calls reach Cadencr nested
+  under the launching `Agent` call (`parentToolCallId`), and a background
+  run's end (`subagent_state_update`) finishes it with
+  `_meta.cadencr.subagent.status` and the child's last text as summary. With
+  this capability Cursor holds the turn open until background runs finish,
+  then adds a summary message (58 s instead of 9 s for a `sleep 40` run,
+  measured live).
+- **Plan follow-up inside the same turn.** After the user accepts a plan, the
+  connector switches Cursor from `plan` to `agent` mode and sends the execution
+  follow-up within the same ACP prompt turn. Cadencr does not need a
+  provider-specific post-approval step.
 
 ## Status matrix
 
-| #   | Feature                                  | Status | Notes                                                                                                                                                                                                                                                                                                                                 |
-| --- | ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Modes: default / plan / ask              | ✅     | Cadencr `Default` maps to Cursor ACP `agent`; `Plan` maps to `plan`; `Ask` maps to `ask`. `AcceptEdits` and Cursor CLI Debug are not exposed by Cursor ACP.                                                                                                                                                                           |
-| 2   | Thinking                                 | ✅     | Standard ACP `agent_thought_chunk` updates map to dedicated runtime thinking deltas.                                                                                                                                                                                                                                                  |
-| 3   | Partial / streaming messages             | ✅     | Shared ACP message/block indexer maps message, thought, tool-call, and completion updates.                                                                                                                                                                                                                                            |
-| 4   | Bash tool calls + outputs                | ✅     | Cursor `shell` / `terminal` / `shellToolCall` normalize to `Bash`; ACP terminals run in the session working directory. The native access policy determines permissions. |
-| 5   | Edits / Writes / Patch                   | ✅     | Cursor names normalize to `Write`, `Edit`, and `ApplyPatch`; `path`, `fileText`, `oldText`, and `newText` normalize to Cadencr's canonical input keys.                                                                                                                                                                                |
-| 6   | Sub-agents                               | 🟡     | Composer's `Task: Subagent task` call renders immediately as a canonical `Agent` block; `cursor/task` completion metadata enriches that same block with prompt/type/model/agent details. Cursor does not expose a live child event stream or final child text in this extension.                                                      |
-| 7   | Todo                                     | ✅     | `cursor/update_todos` maps to `TodoWrite`; stable `toolCallId`s are retained and statuses normalize to the canonical runtime shape.                                                                                                                                                                                                   |
-| 8   | Thinking level changes                   | 🟡     | Cadencr advertises `clientCapabilities._meta.parameterizedModelPicker`, which unlocks Cursor's separate `fast` / thought-level (`effort` / `reasoning`) config options. Cold catalog still lists variant model ids; the adapter maps those onto base model + companion config updates. Live effort chips remain catalog-gated (`supports_effort: false`) until per-model levels are published. |
-| 9   | Model selection changes                  | ✅     | Account-scoped models come from `agent models`; changes use the opaque select values advertised by live `session/new` / `session/load` config options. Cursor's `composer-2.5-fast` catalog id maps to the advertised `composer-2.5[fast=true]` value.                                                                                  |
-| 10  | Permissions: yes / no / always / session | ✅     | Standard `session/request_permission` options map through the shared bridge. The independent access-mode axis supports Default, Full Access, and Auto Review through Cursor's official CLI flags. `cursor/ask_question` is bridged to Cadencr's question drawer; Composer may still omit emitting it for a given turn.               |
-| 11  | MCP                                      | 🟡     | Runtime MCP servers are passed through standard ACP session requests without writing credentials into project files. Status remains `unknown`; Cursor Agent must honor the ACP-provided servers, while team-dashboard MCP and hot swap are not available.                                                                            |
-| 12  | Plan approval                            | ✅     | `cursor/create_plan` synthesizes `ExitPlanMode`, opens Cadencr's plan gate, returns Cursor's accepted/rejected response schema, waits for the planning turn to end, then sends Cursor the execution follow-up in `agent` mode.                                                                                                                                                                       |
-| 13  | Context usage                            | ❌     | Cursor ACP does not currently expose authoritative per-turn token occupancy/context-window data; the adapter deliberately does not guess.                                                                                                                                                                                             |
-| 14  | Compaction                               | ✅     | Cadencr's `/compact` command invokes the live runtime compaction path, which sends Cursor's `/compress` prompt and emits a manual compact boundary on success. Typing `/compress` directly is an ordinary agent prompt, not Cadencr's compaction command.                                                                             |
-| 15  | Command + skill list                     | 🟡     | Live ACP `available_commands_update` catalogs are cached per CWD and merged with Cadencr commands/skills. There is no separate cold Cursor command probe before the first live session.                                                                                                                                               |
-| 16  | Replay / send-target detection           | ✅     | Follow-ups reuse the live ACP `sessionId`; restart resume uses `session/load` when Cursor advertises `loadSession`.                                                                                                                                                                                                                   |
+| #   | Feature                                  | Status | Notes                                                                                                                                                                                                               |
+| --- | ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Modes: agent / plan / ask                | ✅     | The `mode` select's values carry `_meta.cadencr.permissionMode`, so the host mode chip and Shift+Tab cycle Agent → Plan → Ask, and agent-initiated switches move the chip.                                          |
+| 2   | Thinking                                 | ✅     | Standard ACP `agent_thought_chunk` updates.                                                                                                                                                                         |
+| 3   | Partial / streaming messages             | ✅     | Shared ACP message, thought, tool-call, and completion indexing.                                                                                                                                                    |
+| 4   | Bash tool calls + outputs                | ✅     | The connector normalizes Cursor shell/terminal calls to standard ACP tool calls before they reach the host.                                                                                                         |
+| 5   | Edits / Writes / Patch                   | ✅     | Standard ACP diff content and tool kinds.                                                                                                                                                                           |
+| 6   | Sub-agents                               | ✅     | `cursor/task` metadata becomes a standard `Agent` tool call; the child session's tool calls nest under it live, and background runs end with Cursor's `subagent_state_update`.                                      |
+| 7   | Todo                                     | ✅     | `cursor/update_todos` becomes standard ACP `plan` updates.                                                                                                                                                          |
+| 8   | Thinking level changes                   | 🟡     | Thought-level companions become standard ACP config options when Cursor exposes them for the selected model.                                                                                                        |
+| 9   | Model selection changes                  | ✅     | Pre-session discovery from `agent models`; live changes use the advertised config option values after companion folding.                                                                                            |
+| 10  | Permissions: yes / no / always / session | ✅     | Standard `session/request_permission`. The access chip and the remembered workspace default drive the connector's `access_mode` option, applied by restarting and restoring with `session/load`.                    |
+| 11  | MCP                                      | 🟡     | Runtime MCP servers pass through standard ACP session requests. Status stays `unknown`.                                                                                                                             |
+| 12  | Plan approval                            | ✅     | `cursor/create_plan` becomes an `ExitPlanMode` permission request. The execution follow-up runs inside the same turn.                                                                                               |
+| 13  | Context usage                            | ❌     | Cursor ACP exposes no authoritative context occupancy. Nothing is guessed.                                                                                                                                          |
+| 14  | Compaction                               | ❌     | Cursor's ACP server has no compaction command, so the connector declares no `compactCommand` and the host offers no `/compact` action. Typing `/compress` sends it to Cursor as an ordinary prompt.                 |
+| 15  | Command + skill list                     | ✅     | `slash-commands` rebuilds Cursor's own list from the filesystem before any session (identical to live `available_commands_update` in probes); server-side team/global commands appear after the first live session. |
+| 16  | Live follow-up prompt targeting          | ✅     | Follow-ups reuse the live ACP `sessionId`.                                                                                                                                                                          |
+| 17  | Durable session restore                  | ✅     | `session/load` when Cursor advertises `loadSession`.                                                                                                                                                                |
 
 Legend: ✅ implemented · 🟡 partial · ❌ missing.
 
-## Cursor-specific ACP extensions
+## Changes from the former built-in adapter
 
-| Method                  | Direction        | Cadencr projection                                                                                |
-| ----------------------- | ---------------- | ------------------------------------------------------------------------------------------------- |
-| `cursor/ask_question`   | Blocking request | `AskUserQuestion` tool + question drawer; response becomes `answered`, `skipped`, or `cancelled` (explicit cancel feedback). Free-text / Other answers are preserved. |
-| `cursor/create_plan`    | Blocking request | `ExitPlanMode` tool + `PlanApproval` permission gate.                                             |
-| `cursor/update_todos`   | Non-blocking request or notification | `TodoWrite` tool with normalized statuses; requests receive an empty success response.              |
-| `cursor/task`           | Non-blocking request or notification | `Agent` tool containing sub-agent metadata; requests receive an empty success response.             |
-| `cursor/generate_image` | Non-blocking request or notification | `GenerateImage` tool preserving the raw Cursor payload; requests receive an empty success response. |
-
-All method-name checks and response-shape translations live under
-`domain/agents/cursor/acp/`; the shared ACP event loop calls only
-`AcpProviderHooks` extension points.
-
-## Standard ACP tool metadata
-
-Cursor's documented ACP transport uses standard `tool_call` and
-`tool_call_update` session notifications alongside the `cursor/*` extensions.
-The [ACP tool-call contract](https://agentclientprotocol.com/protocol/v1/tool-calls)
-makes `title` the required human-readable description, while `locations`
-carries the relevant file paths. `rawInput` is optional.
-
-The provider-neutral ACP runtime therefore projects every tool call into one
-canonical input object:
-
-- Explicit `rawInput` / `toolInput` fields remain authoritative.
-- ACP `title` fills `description` only when the input does not already provide
-  one.
-- The complete `locations` array is retained. Its first entry also fills
-  `path` and `line` when no explicit file path is present.
-- Metadata arriving in later `tool_call_update` notifications merges with the
-  existing input instead of replacing descriptions or paths.
-- Diff content still synthesizes canonical `Write` / `Edit` input when Cursor
-  omits raw arguments.
-
-Current Cursor Composer sessions omit both `rawInput` and `locations` for
-native Read and Search calls (the observed starts are only `title: "Read File"`
-or `title: "grep"` plus their coarse kind). Cadencr therefore shows the title
-as the best available description, but cannot truthfully reconstruct the read
-path or search query from ACP. Edit/Write diff calls, Bash terminal calls,
-sub-agent metadata, and generated-image calls do expose their relevant paths
-or arguments and render them normally.
-
-Standard ACP kinds normalize to `Read`, `Edit`, `Delete`, `Move`, `Search`,
-`Bash`, `Think`, `Fetch`, and `SwitchMode`. Cursor-specific aliases such as
-`shell`, `grep`, `rename_file`, and `generate_image` normalize inside the
-Cursor adapter. The desktop parser renders the most relevant argument for each
-canonical kind and falls back to the ACP description for unknown tools.
-
-## Catalog and discovery
-
-- Binary name: `agent` (the current primary name; `cursor-agent` is an upstream
-  compatibility alias).
-- Default install path: `~/.local/bin/agent`.
-- Override setting: `cursor_cli_path`.
-- Static fallback model: `auto`.
-- Live catalog: `agent models`, parsed as `<id> - <label> (current)` and cached
-  for 30 seconds.
-- A missing binary marks Cursor unavailable. A model probe/authentication error
-  keeps Cursor available with the safe `auto` fallback and an actionable
-  `agent login` status message.
-
-## Modes and plan approval
-
-| Cadencr mode        | Cursor mode                                                |
-| ------------------- | ---------------------------------------------------------- |
-| `Default`           | `agent`                                                    |
-| `AcceptEdits`       | Unsupported; Cursor has no distinct equivalent             |
-| `Plan`              | `plan`                                                     |
-| `Ask`               | `ask`                                                      |
-| `Auto`              | Unsupported in the Cursor UI catalog                       |
-| `BypassPermissions` | Unsupported; no unsafe approximation                       |
-| `DontAsk`           | Unsupported; no equivalent with identical safety semantics |
-
-Cursor Agent `2026.07.09-a3815c0` advertises only `agent`, `plan`, and `ask`
-from ACP `session/new`. Its interactive `/debug` mode is not accepted by
-`session/set_mode`, so Cadencr does not advertise a non-functional Debug mode.
-
-When Cursor sends `cursor/create_plan`, the adapter records the request id as
-`RuntimePermissionResponseKind::PlanApproval`. Shared orchestration changes the
-live session from `plan` to `agent` before the adapter returns Cursor's native
-`{ "outcome": { "outcome": "accepted" } }` response.
-
-## Access and approval modes
-
-Cursor's collaboration mode (`agent` / `plan`) is independent from its
-approval/execution mode. Cadencr keeps those as two adapter inputs instead of
-folding unsafe execution into `RuntimePermissionMode`:
-
-| Cadencr access mode | Cursor CLI launch                           | Cursor behavior                                                                                                                                                                                       |
-| ------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Default`           | `agent --sandbox enabled acp`               | Sandboxed execution with Cursor's configured approval rules (normally `approvalMode: allowlist`).                                                                                                     |
-| `FullAccess`        | `agent --force --sandbox disabled acp`      | `approvalMode: unrestricted`; Run Everything with the sandbox disabled unless explicitly denied.                                                                                                      |
-| `AutoReview`        | `agent --auto-review --sandbox enabled acp` | Sandboxed execution. Until Cursor ACP honors the flag, the adapter preflights ordinary shell allowlist misses after Cursor's parser and safety-policy checks; MCP/non-shell gates remain interactive. |
-
-Cursor ACP currently advertises only `mode` and `model` as session config
-options, so approval mode cannot be changed through
-`session/set_config_option`. The adapter therefore owns the launch-flag
-mapping. Default ↔ Auto Review changes update the adapter policy for the next permission
-request. Transitions that change sandbox launch flags restart/resume safely
-before the next prompt. The workspace default is stored under `cursor_access_mode`.
-
-Cursor Agent `2026.07.09-a3815c0` parses `--auto-review`, but its ACP session
-bootstrap only persists the `--force` path and otherwise leaves the session in
-`allowlist` mode. That makes stock ACP request approval even for `pwd`. The
-Cursor adapter therefore answers `allow_once` when Cursor reports only a plain
-shell allowlist miss. Cursor's parser, sandbox, blocklist, delete-protection,
-hook, and team-policy checks run before that request; any request carrying one
-of those stronger reasons remains interactive. MCP and other non-shell gates
-also remain interactive because ACP does not expose the classifier result for
-them. This fallback stays inside the Cursor adapter and can be removed once the
-upstream ACP bootstrap honors Auto Review.
-
-## MCP behavior
-
-Cadencr sends runtime MCP servers through the standard ACP `session/new` and
-`session/load` requests. Runtime credentials remain session-scoped and are
-never written into the repository's `.cursor/mcp.json`.
-
-Cursor Agent `2026.07.16-899851b` was validated end to end with an ACP-provided
-stdio server: the agent initialized it, listed its tools, requested permission,
-and called the selected tool without a project MCP file.
-
-Cursor continues to own any user or project MCP configuration created outside
-Cadencr. The adapter does not read, merge, or mutate those files. Until Cursor
-fully reports ACP-provided server state, Cadencr shows their status as
-`unknown`.
+- **Access default key.** The workspace default moved from `cursor_access_mode`
+  to `provider_access_mode.cursor`; the host carries an existing value over
+  once at startup and keeps the old key. The composer access chip and the
+  Settings → Providers Cursor row work as before, from the catalog.
+- **No `/compact` action.** The built-in adapter offered `/compact` and sent
+  `/compress`, which Cursor's ACP server treats as an ordinary prompt, so it
+  never compacted. The action is no longer offered.
+- **No terminal resume command.** The built-in "resume in terminal" shortcut
+  ran `agent --resume <id>` with the ACP session id, which opens an empty chat.
+  The connector declares no `resumeCommand`, so the shortcut is not offered.
+- **Worktree config copy and slash commands come from the connector.** The
+  `.cursor/*` worktree paths come from `host-integration`, and the pre-session
+  `/` list from `slash-commands`, instead of built-in host code.
+- **Attachments follow the advertised prompt capabilities.** Images and PDFs
+  are offered only when Cursor's `initialize` advertises `image` /
+  `embeddedContext`; text-like files are always accepted.
+- **CLI lookup.** The first executable `agent` found on `PATH`, then in the
+  installer and well-known directories, is used, as a shell would. The
+  built-in adapter ran `agent --version` on every candidate and kept the
+  newest; the connector skips that probe (one Node start per candidate on
+  every launch). `CADENCR_CURSOR_COMMAND` pins a specific executable.
+- **Plugin icon.** The bundled desktop Cursor logo was removed. The icon comes
+  from the connector's `icon.svg` through the runtime catalog.
+- **Existing sessions.** Conversations created by the built-in adapter keep the
+  `cursor` provider id. They resume only after the plugin is installed and only
+  where Cursor's `session/load` still accepts the stored session id.
 
 ## Known upstream/contract limitations
 
 1. Cursor's ACP model/config surface has changed across CLI releases. The
-   adapter relies on the current `model` config id and falls back safely when
-   `session/set_config_option` is unavailable.
-2. Cursor exposes no authoritative context occupancy in the documented ACP
-   surface, so Cadencr's context percentage remains unavailable.
-3. `cursor/task` is completion metadata, not a child-session stream. Nested
-   live sub-agent rendering cannot be reconstructed without more upstream
-   events.
-4. Cadencr advertises `parameterizedModelPicker` so Cursor exposes clean model
-   ids plus `fast` / thought-level companions. Cold `agent models` catalog ids
-   still encode variants (`*-fast`, `*-high`); the adapter decomposes those into
-   base model + companion `session/set_config_option` updates. Cursor replaces
-   the companion option set when the base model changes, so Cadencr resolves
-   companions again from the model-change response before applying them. A
-   first-class Cadencr effort chip still waits on per-model `supports_effort`
-   catalog data.
-5. The `cursor/ask_question` bridge is implemented. Composer may simply not emit
-   the extension for a given turn; a prompt cannot force an unavailable tool.
-6. Read/Search starts currently omit ACP `locations` and raw arguments, so the
-   required title is the only trustworthy tool description available.
-
-## Model changes and current defaults
-
-Fast/thinking companion options are resolved again after changing the base model.
-Switching to Auto or another model that lacks the old option must clear that
-unsupported value rather than send stale configuration and fail session startup.
-Only acknowledged session configuration is presented as active.
-
-A new conversation's provider/model follows the last accepted manual prompt
-across projects, with explicit conversation overrides taking priority.
-Cursor does not currently implement the `SessionBranching` capability for
-[Rewind & Fork](../REWIND_AND_FORK.md). Its `cursor/ask_question` bridge exists;
-whether a specific model/turn emits it is a separate upstream limitation.
+   connector, not Cadencr, absorbs those changes.
+2. Cursor reports no context occupancy.
+3. A sub-agent's own text is kept only as its summary; Cadencr shows its tool
+   calls live, not its messages, and drops its own todo list and plans so they
+   don't replace the parent's.
+4. Composer may not emit `cursor/ask_question` for a given turn. A prompt cannot
+   force an unavailable tool.
+5. Native Read/Search starts omit ACP `locations` and raw arguments, so the ACP
+   title is the only trustworthy description.
+6. Cursor does not implement the `SessionBranching` capability for
+   [Rewind & Fork](../REWIND_AND_FORK.md).
+7. Team commands and Cursor's "global" commands (`(team)` / `(global)`, e.g.
+   `/worktree`, `/best-of-n`, `/simplify`) come from Cursor's dashboard API,
+   not the filesystem, so `slash-commands` cannot list them. Cadencr appends
+   them from the last live session in that directory (in memory, per service
+   process). Cursor plugin skills are not in the ACP list either (the ACP
+   server loads commands without its plugin service). The connector uses name
+   order where Cursor uses raw directory order, and a YAML subset where Cursor
+   uses js-yaml: exotic frontmatter (anchors, flow mappings) may be read
+   differently.

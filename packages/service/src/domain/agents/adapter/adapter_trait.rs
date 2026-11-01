@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::branching::SessionBranching;
 use super::config::{
-    ResolvedRuntimeProfile, RuntimeAccessMode, RuntimeConfigOverrides, RuntimeEffectiveConfig,
-    RuntimePermissionMode, RuntimeSpawnConfig,
+    ResolvedRuntimeProfile, RuntimeAccessMode, RuntimeAccessModeChange, RuntimeConfigOverrides,
+    RuntimeEffectiveConfig, RuntimePermissionMode, RuntimeSpawnConfig,
 };
 use super::error::RuntimeError;
 use super::event_types::RuntimeEvent;
@@ -241,13 +241,14 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         .await
     }
 
+    /// The provider's own `/` catalog for `cwd`. The default has none, which
+    /// is not an error: the menu still lists host and Cadencr commands. An
+    /// `Err` is a failed discovery and is shown to the user.
     async fn runtime_slash_commands(
         &self,
         _cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        Err(RuntimeError::new(
-            "runtime slash command discovery is not supported by this provider",
-        ))
+        Ok(Vec::new())
     }
 
     async fn runtime_slash_commands_for_profile(
@@ -295,6 +296,16 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.compaction_strategy().is_some()
     }
 
+    /// Terminal command resuming a session outside Cadencr (`{session_id}` placeholder).
+    fn resume_command(&self) -> Option<super::super::runtime::ProviderResumeCommand> {
+        None
+    }
+
+    /// Last-negotiated prompt content capabilities; `None` until observed.
+    fn prompt_capabilities(&self) -> Option<super::super::runtime::ProviderPromptCapabilities> {
+        None
+    }
+
     /// Whether this provider's CLI can run a permission mode; `mode.set` rejects
     /// the rest (frontend mirror: `lib/provider-modes.ts`). Defaults to none, so
     /// a new provider never silently accepts modes its CLI can't execute.
@@ -316,23 +327,9 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         None
     }
 
-    /// Whether a live runtime can apply an access-mode change without a
-    /// respawn. Providers with a live policy hook (Codex's app server, Cursor's
-    /// host-side Auto Review preflight) return true; providers whose whole
-    /// access mode lives in process launch flags return false.
-    fn applies_access_mode_in_place(&self) -> bool {
-        false
-    }
-
-    /// Whether an access-mode change still requires respawning (for example
-    /// when it changes launch flags). `from` is the last spawned mode.
-    /// Defaults to true; in-place adapters may opt out.
-    fn access_mode_change_needs_respawn(
-        &self,
-        _from: Option<&RuntimeAccessMode>,
-        _to: &RuntimeAccessMode,
-    ) -> bool {
-        true
+    /// How a live runtime takes an access-mode change.
+    fn access_mode_change(&self) -> RuntimeAccessModeChange {
+        RuntimeAccessModeChange::Respawn
     }
 
     async fn configured_access_mode(

@@ -26,7 +26,7 @@ async fn validate_provider_set(
         return Err(ProviderSetError::new(
             "UNSUPPORTED_PROVIDER",
             format!(
-                "Runtime provider '{}' is not implemented yet",
+                "Runtime provider '{}' is not available; install or enable it to use it",
                 payload.provider
             ),
         ));

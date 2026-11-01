@@ -430,11 +430,15 @@ describe("session status lifecycle sync", () => {
 
     handleAppEnvelope("app", "feature_event", { feature_id: 7, action: "reordered" });
 
-    // A new user message reshuffles only its own project's list and leaves the
-    // title unchanged: scope to that project, skip the single-feature refetch.
-    const call = invalidateSpy.mock.calls[0]?.[0] as { queryKey?: unknown[] } | undefined;
-    expect(call?.queryKey?.[0]).toBe("/api/features");
-    expect(call?.queryKey?.[1]).toEqual({ project_id: 4 });
+    // A new user message reshuffles only its own project's list: scope the
+    // list refetch to that project. The prompt also recorded the provider and
+    // model the conversation's own record shows ("For me" rows read it).
+    const keys = invalidateSpy.mock.calls.map(
+      (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey,
+    );
+    expect(keys).toContainEqual(["/api/features", { project_id: 4 }]);
+    expect(keys).toContainEqual(["/api/features/7"]);
+    expect(keys).not.toContainEqual(["/api/features"]);
     invalidateSpy.mockRestore();
     queryClient.clear();
   });
@@ -444,14 +448,13 @@ describe("session status lifecycle sync", () => {
 
     handleAppEnvelope("app", "feature_event", { feature_id: 7, action: "reordered" });
 
-    // Uncached (e.g. a collapsed project on another device): broad invalidation
-    // with no single-feature refetch.
-    const call = invalidateSpy.mock.calls[0]?.[0] as { queryKey?: unknown[] } | undefined;
-    expect(call?.queryKey).toEqual(["/api/features"]);
+    // Uncached (e.g. a collapsed project on another device): broad list
+    // invalidation. The record refetch only reaches a mounted observer.
     const keys = invalidateSpy.mock.calls.map(
-      (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey?.[0],
+      (c) => (c[0] as { queryKey?: unknown[] } | undefined)?.queryKey,
     );
-    expect(keys).not.toContain("/api/features/7");
+    expect(keys).toContainEqual(["/api/features"]);
+    expect(keys).toContainEqual(["/api/features/7"]);
     invalidateSpy.mockRestore();
   });
 

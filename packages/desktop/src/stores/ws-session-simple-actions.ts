@@ -300,6 +300,7 @@ function createWorkflowActions(deps: SimpleSessionActionDeps) {
             ? session.promptCommandPolicy
             : DEFAULT_PROMPT_COMMAND_POLICY,
           slashCommandsLoading: true,
+          slashCommandsError: sameTarget ? session.slashCommandsError : null,
           slashCommandsKey: nextKey,
           slashCommandsRequestRef: envelope.id,
         }),

@@ -61,7 +61,7 @@ describe("extractBashOutput", () => {
     );
   });
 
-  it("extracts Cursor top-level stdout and stderr", () => {
+  it("extracts top-level stdout and stderr", () => {
     expect(
       extractBashOutput(
         JSON.stringify({ exitCode: 0, stdout: "lint passed\n", stderr: "$ pnpm lint\n" }),
@@ -69,7 +69,7 @@ describe("extractBashOutput", () => {
     ).toBe("lint passed\n$ pnpm lint\n");
   });
 
-  it("shows Cursor stderr when stdout is empty", () => {
+  it("shows stderr when stdout is empty", () => {
     expect(
       extractBashOutput(JSON.stringify({ exitCode: 0, stdout: "", stderr: "$ tsc --noEmit\n" })),
     ).toBe("$ tsc --noEmit\n");

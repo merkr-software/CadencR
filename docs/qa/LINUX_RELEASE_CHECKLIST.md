@@ -32,8 +32,10 @@ Record GPU and driver (Mesa/NVIDIA) for each row: the terminal's WebGPU path dep
 
 ## Agents
 
-- [ ] Each installed CLI is detected (Claude Code, Codex, Cursor, OpenCode), including one
+- [ ] Each installed CLI is detected (Claude Code, Codex, OpenCode), including one
       installed only in a user dir (`~/.local/bin`, npm global, `~/.cargo/bin`).
+- [ ] The Cursor provider plugin installs from the marketplace and runs a turn with the
+      `agent` CLI from `~/.local/bin`.
 - [ ] Run a short turn per provider (pick small/fast models); approvals and interrupts work.
 - [ ] Create a feature with a worktree; edit, diff, commit and push from the Git tab.
 

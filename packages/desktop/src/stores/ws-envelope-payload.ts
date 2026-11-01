@@ -22,11 +22,13 @@ export function parseCommandsListPayload(payload: unknown): CommandsListPayload 
   if (!record) return null;
   const commands = optionalArray(record, "commands");
   const promptCommandPolicy = parsePromptCommandPolicy(record.prompt_command_policy);
+  const error = optionalString(record, "error");
+  const extras = {
+    ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
+    ...(error ? { error } : {}),
+  };
   if (!commands) {
-    return {
-      commands: [],
-      ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
-    };
+    return { commands: [], ...extras };
   }
   const parsed = commands
     .map(
@@ -59,10 +61,7 @@ export function parseCommandsListPayload(payload: unknown): CommandsListPayload 
         kind: "command" | "skill" | "cadencr";
       } => entry !== null,
     );
-  return {
-    commands: parsed,
-    ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
-  };
+  return { commands: parsed, ...extras };
 }
 
 function parsePromptCommandPolicy(

@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect, type ReactNode } from "react";
-import { TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
+import { CircleAlertIcon, TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { SlidingText } from "@/components/SlidingText";
@@ -23,6 +23,8 @@ interface SlashCommandPopoverProps {
   onSelect: (commandName: string) => void;
   /** Whether the commands query is loading */
   isLoading: boolean;
+  /** Why the provider's own commands could not be listed, if they could not. */
+  error?: string | null;
   triggerChar?: string;
   /** When true, Cadencr virtual skills (`kind === "cadencr"`) are shown but
    * disabled because a required MCP dependency (project or workspace) is off. */
@@ -142,6 +144,7 @@ export function SlashCommandPopover({
   selectedIndex,
   onSelect,
   isLoading,
+  error,
   triggerChar = "/",
   cadencrDisabled = false,
   maxHeight,
@@ -175,9 +178,16 @@ export function SlashCommandPopover({
       <Loader2Icon className="size-3 animate-spin" />
       Loading commands…
     </>
-  ) : items.length === 0 ? (
+  ) : items.length === 0 && !error ? (
     "No matching commands"
   ) : null;
+  const notice =
+    error && !isLoading ? (
+      <>
+        <CircleAlertIcon className="mt-px size-3.5 shrink-0" />
+        <span className="min-w-0 break-words">{error}</span>
+      </>
+    ) : null;
 
   return (
     <ComposerPopover
@@ -186,6 +196,7 @@ export function SlashCommandPopover({
       label={triggerChar === "$" ? "Skills" : "Commands"}
       maxHeight={maxHeight}
       status={status}
+      notice={notice}
     >
       {runs && runs.length > 1
         ? runs.map((run) => (

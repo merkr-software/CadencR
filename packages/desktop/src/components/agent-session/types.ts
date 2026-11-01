@@ -220,6 +220,8 @@ export interface AgentSessionProps {
   promptCommandPolicy?: PromptCommandPolicy;
   /** Whether the override commands are still loading */
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   /** Whether older messages exist beyond current window */
   hasMore?: boolean;
   /**

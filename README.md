@@ -86,7 +86,7 @@ When you need to inspect, test, or ship what an agent produced, open the relevan
 - **No CadencR telemetry.** No additional CadencR subscription. Your agent provider's pricing and usage limits still apply.
 - **Open source under Apache 2.0.** Inspect the implementation, build from source, and adapt it to your workflow.
 
-Built-in integrations support **Claude Code, Codex, Cursor, and OpenCode**. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)
+Built-in integrations support **Claude Code, Codex, and OpenCode**. **Cursor** is available as an official provider plugin from the marketplace. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)
 
 ## Install
 
@@ -100,7 +100,7 @@ brew install --cask merkr-software/cadencr/cadencr
 
 Or [download the latest DMG / ZIP from GitHub Releases](https://github.com/merkr-software/CadencR/releases/latest).
 
-1. **Install and authenticate an agent CLI:** Claude Code, Codex, Cursor, or OpenCode.
+1. **Install and authenticate an agent CLI:** Claude Code, Codex, or OpenCode. For Cursor, install the Cursor CLI, run `agent login`, then add the Cursor provider plugin from the marketplace.
 2. **Open CadencR and add a repository.** Start a task with a new worktree or an existing checkout.
 3. **Choose your agent and model.** Send a prompt, then open the editor, browser, terminal, or Git beside it.
 

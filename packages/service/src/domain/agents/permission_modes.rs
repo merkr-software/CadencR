@@ -63,13 +63,10 @@ mod tests {
     #[test]
     fn effective_mode_filters_values_the_adapter_does_not_support() {
         assert_eq!(
-            effective_permission_mode("cursor", Some("plan")),
+            effective_permission_mode("codex_cli", Some("plan")),
             Some(RuntimePermissionMode::Plan)
         );
-        assert_eq!(
-            effective_permission_mode("cursor", Some("acceptEdits")),
-            None
-        );
+        assert_eq!(effective_permission_mode("codex_cli", Some("ask")), None);
     }
 
     #[test]
@@ -84,7 +81,7 @@ mod tests {
             Some(RuntimePermissionMode::Plan)
         );
         assert_eq!(
-            supported_or_default_permission_mode("cursor", None),
+            supported_or_default_permission_mode("codex_cli", None),
             Some(RuntimePermissionMode::Default)
         );
     }

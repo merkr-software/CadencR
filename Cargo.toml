@@ -8,10 +8,10 @@ members = [
     "packages/claude-agent-sdk-rs",
     "packages/cli-discovery",
     "packages/codex-app-server-sdk-rs",
-    "packages/cursor-agent-sdk-rs",
     "packages/opencode-sdk-rs",
     "packages/provider-plugin-sdk-rs",
     "packages/tab-backend-sdk-rs",
+    "plugins/providers/cursor",
 ]
 resolver = "2"
 

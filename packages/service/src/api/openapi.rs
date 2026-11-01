@@ -403,6 +403,8 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::agents::runtime::AgentCatalogResponse,
         crate::domain::agents::runtime::ProviderCatalogResponseEntry,
         crate::domain::agents::runtime::ProviderProfileCapability,
+        crate::domain::agents::runtime::ProviderResumeCommand,
+        crate::domain::agents::runtime::ProviderPromptCapabilities,
         crate::domain::agents::runtime::ProviderProfileEntry,
         crate::domain::agents::runtime::ProviderProfilesResponse,
         crate::domain::agents::adapter::RuntimeConfigOverrides,

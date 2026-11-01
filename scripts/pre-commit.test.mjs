@@ -229,6 +229,23 @@ test("official plugin changes run dedicated checks without application tasks", (
   ]);
 });
 
+test("Rust connector sources also run the workspace Rust checks", () => {
+  for (const path of [
+    "plugins/providers/cursor/src/proxy/mod.rs",
+    "plugins/providers/cursor/Cargo.toml",
+    "plugins/providers/cursor/tests/fixtures/fake_agent.py",
+  ]) {
+    assert.deepEqual(classifyPath(path), ["other", "providerPlugins", "rust"]);
+    const result = commands(plan([path]));
+    for (const command of [...PLUGINS.slice(0, 2), ...RUST]) assert.ok(result.includes(command));
+  }
+  assert.deepEqual(classifyPath("plugins/providers/cursor/README.md"), ["other", "providerPlugins"]);
+  assert.deepEqual(classifyPath("plugins/providers/pi/test/fixtures/x.mjs"), [
+    "other",
+    "providerPlugins",
+  ]);
+});
+
 test("mixed application and plugin edits union checks without duplicate plugin tests", () => {
   const result = commands(
     plan([

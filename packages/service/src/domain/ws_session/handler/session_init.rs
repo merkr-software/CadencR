@@ -201,7 +201,7 @@ pub(super) async fn handle_init(
             &envelope.id,
             "UNSUPPORTED_PROVIDER",
             &format!(
-                "Runtime provider '{effective_provider}' is not implemented yet for session agents"
+                "Runtime provider '{effective_provider}' is not available; install or enable it to continue this session"
             ),
         );
         return Some(db_session_id);

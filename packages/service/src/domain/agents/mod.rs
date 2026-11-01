@@ -4,7 +4,6 @@ pub mod canonical;
 pub mod claude_code;
 pub mod codex;
 pub mod config_migration;
-pub mod cursor;
 pub mod discovery;
 pub mod extensions;
 mod mcp_tool_names;

@@ -89,6 +89,7 @@ pub async fn drive_initial_prompt(
         .clone()
         .ok_or_else(|| RuntimeError::new("ACP session_id missing for initial prompt"))?;
     let prompt = acp_prompt_blocks_from_content(content);
+    hooks.validate_prompt_blocks(&prompt)?;
     let model = current_model_lock.read().await.clone();
     let effort = current_effort_lock.read().await.clone();
     start_turn_on_model(tx, indexer, &session_id, model.clone()).await;

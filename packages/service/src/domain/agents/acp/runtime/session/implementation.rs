@@ -4,7 +4,6 @@
 //! choices (model id mapping, permission decisions, tool name aliases) to
 //! `AcpProviderHooks`.
 
-use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
@@ -27,8 +26,10 @@ use super::super::apply_model_config::apply_model_config;
 use super::super::config_options::set_config_option_thinking_effort;
 use super::super::events_config_option::mirror_config_snapshot;
 use super::super::events_stream_blocks::EventIndexer;
-use super::super::mode_switch::set_session_mode;
-use super::super::permissions::{reject_all_pending, take_pending, PendingPermissions};
+use super::super::permissions::{
+    pending_permission_response_kind, pending_permission_response_payload, reject_all_pending,
+    take_pending, PendingPermissions,
+};
 use super::super::prompt_receipts::PendingPromptReceipts;
 use super::super::provider_hooks::{AcpProviderHooks, PermissionFallbackOutcome};
 use super::super::session_config::AcpSessionConfigState;
@@ -91,11 +92,6 @@ pub struct AcpRuntimeSession {
     pub(in crate::domain::agents::acp::runtime) replay_suppression: Arc<AtomicBool>,
     /// Client prompt ids waiting for provider-side receipt confirmation.
     pub(in crate::domain::agents::acp::runtime) pending_prompt_receipts: Arc<PendingPromptReceipts>,
-    /// Provider-requested prompts that must start only after the current ACP
-    /// turn has returned. Stored in the runtime rather than the frontend so a
-    /// browser reconnect cannot lose an approved continuation.
-    pub(in crate::domain::agents::acp::runtime) pending_followups:
-        Arc<RwLock<VecDeque<(String, Value)>>>,
     /// Serialises prompt turns so a second `stream_input` waits for the
     /// in-flight turn (request + post-response drain) to finish before
     /// sending its own `session/prompt` (W4).
@@ -255,7 +251,6 @@ impl AgentRuntimeSession for AcpRuntimeSession {
             &self.client,
             &session_id,
             &self.current_model,
-            &self.current_effort,
             &self.supports_set_config_option,
             &self.session_config,
             self.hooks.as_ref(),
@@ -307,40 +302,16 @@ impl AgentRuntimeSession for AcpRuntimeSession {
                 value,
             )
             .await?;
-        mirror_config_snapshot(
-            &snapshot,
-            self.hooks.as_ref(),
-            &self.current_model,
-            &self.current_effort,
-        )
-        .await;
+        mirror_config_snapshot(&snapshot, &self.current_model, &self.current_effort).await;
         Ok(snapshot)
     }
 
     async fn set_permission_mode(&self, mode: RuntimePermissionMode) -> Result<(), RuntimeError> {
-        let mode_id = self
-            .hooks
-            .mode_for_permission_mode(mode)
-            .or_else(|| self.hooks.default_mode_id().map(ToOwned::to_owned))
-            .ok_or_else(|| RuntimeError::new("ACP provider does not support permission modes"))?;
-        let session_id = self.require_session_id().await?;
-        set_session_mode(
-            &self.client,
-            &session_id,
-            &self.current_mode,
-            &self.supports_set_mode,
-            &mode_id,
-        )
-        .await
+        self.switch_permission_mode(mode).await
     }
 
     async fn set_access_mode(&self, mode: RuntimeAccessMode) -> Result<(), RuntimeError> {
-        // Apply the change to the provider's in-memory access state so any
-        // host-side permission decision (Cursor's Auto Review preflight) takes
-        // effect on the current turn. Launch-flag-encoded parts of the access
-        // mode still ride the runtime respawn path.
-        self.hooks.update_access_mode(mode);
-        Ok(())
+        self.apply_access_mode(&mode).await
     }
 
     async fn respond_permission(
@@ -352,32 +323,24 @@ impl AgentRuntimeSession for AcpRuntimeSession {
         // through to the provider-specific hook (e.g. OpenCode's question
         // sidecar) before surfacing a "no pending" error.
         if let Some(pending) = take_pending(&self.pending_permissions, &response.request_id).await {
-            // Cache session/always grants; one-shot variants are no-ops.
-            let key = PermissionKey::new(&pending.request.tool_name, &pending.request.tool_input);
-            self.session_permissions
-                .record(key, response.decision)
-                .await;
-            let resolution =
-                self.hooks
-                    .resolve_server_request(&pending.method, &pending.params, &response);
-            if let Some(followup) = resolution.followup {
-                self.pending_followups
-                    .write()
-                    .await
-                    .push_back((response.request_id.clone(), followup));
+            // Cache session/always grants; one-shot variants are no-ops. An
+            // answer carrying `updated_input` is specific to this request, so
+            // replaying its bare decision later would drop the answer.
+            if response.updated_input.is_none() {
+                let key =
+                    PermissionKey::new(&pending.request.tool_name, &pending.request.tool_input);
+                self.session_permissions
+                    .record(key, response.decision)
+                    .await;
             }
-            let result = self
+            return self
                 .client
-                .respond_server_request(pending.server_id, resolution.response)
+                .respond_server_request(
+                    pending.server_id.clone(),
+                    pending_permission_response_payload(&pending, &response),
+                )
                 .await
                 .map_err(|e| RuntimeError::new(format!("respond_permission write failed: {e}")));
-            if result.is_err() {
-                self.pending_followups
-                    .write()
-                    .await
-                    .retain(|(request_id, _)| request_id != &response.request_id);
-            }
-            return result;
         }
         let request_id = response.request_id.clone();
         let decision = response.decision;
@@ -399,7 +362,7 @@ impl AgentRuntimeSession for AcpRuntimeSession {
     }
 
     fn permission_response_kind(&self, request_id: &str) -> RuntimePermissionResponseKind {
-        self.hooks.permission_response_kind(request_id)
+        pending_permission_response_kind(&self.pending_permissions, request_id)
     }
 
     fn pid(&self) -> Option<u32> {

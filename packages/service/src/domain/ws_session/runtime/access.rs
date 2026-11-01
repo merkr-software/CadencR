@@ -32,8 +32,14 @@ mod tests {
     #[test]
     fn resolves_access_modes_only_for_supporting_providers() {
         assert_eq!(
-            runtime_access_mode("cursor", Some("autoReview"), None),
+            runtime_access_mode("codex_cli", Some("autoReview"), None),
             Some(RuntimeAccessMode::AutoReview)
+        );
+        // A provider that is no longer registered (a removed built-in or an
+        // uninstalled plugin) resolves no access mode instead of panicking.
+        assert_eq!(
+            runtime_access_mode("cursor", Some("autoReview"), None),
+            None
         );
         assert_eq!(
             runtime_access_mode("codex_cli", Some("fullAccess"), None),

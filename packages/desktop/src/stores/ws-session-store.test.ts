@@ -1597,7 +1597,7 @@ describe("ws-session-store", () => {
     expect(session.accessMode).toBe("fullAccess");
   });
 
-  it("session.initialized with Cursor access mode updates the stored access chip", async () => {
+  it("session.initialized with a provider-neutral access mode updates the access chip", async () => {
     const store = useWsSessionStore.getState();
     store.connect("s1");
     await tick();
@@ -1607,7 +1607,7 @@ describe("ws-session-store", () => {
       action: "initialized",
       payload: {
         session_id: "42",
-        provider: "cursor",
+        provider: "codex_cli",
         access_mode: "autoReview",
       },
     });

@@ -31,6 +31,7 @@ use crate::domain::agents::adapter::{
     RuntimeError, RuntimeMcpServerConfig, RuntimeMcpServerStatus, RuntimeSessionConfigSnapshot,
     RuntimeSpawnConfig,
 };
+use crate::domain::agents::runtime::ProviderPromptCapabilities;
 
 const INIT_TIMEOUT: Duration = Duration::from_secs(15);
 const SESSION_SETUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -112,14 +113,17 @@ async fn handshake(
     hooks: &dyn AcpProviderHooks,
 ) -> Result<NegotiatedSession, RuntimeError> {
     let init_result = client
-        .send_request_typed(initialize_request(client, hooks), INIT_TIMEOUT)
+        .send_request_typed(initialize_request(client), INIT_TIMEOUT)
         .await
         .map_err(|e| RuntimeError::new(format!("ACP initialize failed: {e}")))?;
     let capabilities = AgentCapabilities::from_protocol(&init_result.agent_capabilities);
-    let init_value = serde_json::to_value(init_result)
-        .map_err(|e| RuntimeError::new(format!("ACP initialize response invalid: {e}")))?;
-    hooks.authenticate(client, &init_value).await?;
     hooks.observe_durable_resume_capability(capabilities.supports_resume());
+    let prompt = &init_result.agent_capabilities.prompt_capabilities;
+    hooks.observe_prompt_capabilities(ProviderPromptCapabilities {
+        image: prompt.image,
+        audio: prompt.audio,
+        embedded_context: prompt.embedded_context,
+    });
 
     let resume_id = config.resume_session_id.as_deref();
     if let Some(resume_id) = resume_id {
@@ -229,9 +233,8 @@ async fn load_session(
     Ok((current_mode, snapshot_from_options(&options)))
 }
 
-fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> InitializeRequest {
+fn initialize_request(client: &AcpClient) -> InitializeRequest {
     let info = client.client_info();
-    let meta = hooks.client_capabilities_meta();
     let capabilities = ClientCapabilities::new()
         .fs(FileSystemCapabilities::new()
             .read_text_file(true)
@@ -240,11 +243,6 @@ fn initialize_request(client: &AcpClient, hooks: &dyn AcpProviderHooks) -> Initi
         .session(ClientSessionCapabilities::new().config_options(
             SessionConfigOptionsCapabilities::new().boolean(BooleanConfigOptionCapabilities::new()),
         ));
-    let capabilities = if meta.is_empty() {
-        capabilities
-    } else {
-        capabilities.meta(meta)
-    };
     InitializeRequest::new(ProtocolVersion::V1)
         .client_capabilities(capabilities)
         .client_info(
@@ -440,10 +438,8 @@ mod tests {
 
         let init = read_request(&mut stdin).await;
         assert_eq!(init["method"], "initialize");
-        // Generic ACP hooks omit Cursor-only clientCapabilities meta.
-        assert!(
-            init["params"]["clientCapabilities"]["_meta"]["parameterizedModelPicker"].is_null()
-        );
+        // The host advertises only standard client capabilities.
+        assert!(init["params"]["clientCapabilities"]["_meta"].is_null());
         assert_eq!(
             init["params"]["clientCapabilities"]["session"]["configOptions"]["boolean"],
             json!({})

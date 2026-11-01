@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Paperclip } from "lucide-react";
+import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import { attachmentAcceptForProvider } from "@/lib/prompt-attachments";
 
 interface ImageAttachmentButtonProps {
@@ -14,6 +15,7 @@ export function ImageAttachmentButton({
   providerId,
 }: ImageAttachmentButtonProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const promptCapabilities = useCatalogProviderMetadata(providerId)?.promptCapabilities ?? null;
 
   const handleClick = () => {
     inputRef.current?.click();
@@ -32,7 +34,7 @@ export function ImageAttachmentButton({
       <input
         ref={inputRef}
         type="file"
-        accept={attachmentAcceptForProvider(providerId)}
+        accept={attachmentAcceptForProvider(providerId, promptCapabilities)}
         multiple
         className="hidden"
         onChange={handleChange}

@@ -18,6 +18,10 @@ use serde::Deserialize;
 
 use crate::domain::agents::runtime::ModelCatalogEntry;
 
+mod modes;
+
+pub use modes::{option_role, ProviderModeMap, ACCESS_MODE_ROLE};
+
 use super::command_capture::run_provider_subcommand;
 use super::installation::LocalExecutable;
 #[cfg(test)]
@@ -31,6 +35,8 @@ pub struct DiscoveredModels {
     pub config_id: String,
     pub default_model: String,
     pub models: Vec<ModelCatalogEntry>,
+    /// Optional mode / access-mode selectors mapped onto host modes.
+    pub modes: ProviderModeMap,
 }
 
 #[derive(Debug, Clone)]
@@ -145,6 +151,7 @@ fn parse_models(bytes: &[u8]) -> Result<DiscoveredModels, ModelDiscoveryError> {
         config_id: config_id.to_string(),
         default_model,
         models,
+        modes: ProviderModeMap::parse(&options)?,
     })
 }
 

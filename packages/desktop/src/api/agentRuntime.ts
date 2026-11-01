@@ -12,6 +12,10 @@ import type {
 } from "./generated";
 import { getGetAgentSelectionQueryKey } from "./generated";
 import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
+import {
+  validateHostCapabilityFields,
+  type ProviderHostCapabilityFields,
+} from "@/lib/provider-host-capabilities";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { invalidateExtensionInventories } from "@/lib/agent-extensions";
 
@@ -19,7 +23,7 @@ export type RuntimeModelOption = {
   [Key in keyof ModelCatalogEntry]: Exclude<ModelCatalogEntry[Key], null>;
 };
 
-export interface RuntimeProviderOption {
+export interface RuntimeProviderOption extends ProviderHostCapabilityFields {
   id: string;
   label: string;
   status: "available" | "unavailable" | "coming_soon";
@@ -108,8 +112,8 @@ export function useAgentCatalog(extras?: QueryExtras) {
   // than serving the active profile's stale models.
   const query = useQuery({
     queryKey: ["agent-catalog", cwd ?? null, provider ?? null, profile ?? null],
-    queryFn: () =>
-      customInstance<AgentCatalog>({
+    queryFn: async () => {
+      const catalog = await customInstance<AgentCatalog>({
         method: "GET",
         url: "/api/agent-catalog",
         params:
@@ -120,7 +124,12 @@ export function useAgentCatalog(extras?: QueryExtras) {
                 ...(profile ? { profile } : {}),
               }
             : undefined,
-      }),
+      });
+      return {
+        ...catalog,
+        providers: catalog.providers.map(validateHostCapabilityFields),
+      };
+    },
     staleTime: AGENT_CATALOG_STALE_MS,
     gcTime: AGENT_CATALOG_GC_MS,
     ...queryExtras,

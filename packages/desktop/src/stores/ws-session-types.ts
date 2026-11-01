@@ -197,6 +197,8 @@ export interface SessionEntry extends SessionConfigState {
   slashCommands: SlashCommand[];
   promptCommandPolicy: PromptCommandPolicy;
   slashCommandsLoading: boolean;
+  /** Why the provider's own commands are missing from `slashCommands`. */
+  slashCommandsError: string | null;
   slashCommandsKey: string | null;
   slashCommandsRequestRef: string | null;
   todos: TodoItem[];
@@ -276,6 +278,7 @@ export function createSessionEntry(): SessionEntry {
     slashCommands: [],
     promptCommandPolicy: DEFAULT_PROMPT_COMMAND_POLICY,
     slashCommandsLoading: false,
+    slashCommandsError: null,
     slashCommandsKey: null,
     slashCommandsRequestRef: null,
     todos: [],

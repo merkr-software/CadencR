@@ -14,7 +14,7 @@ use serde_json::Value;
 
 use crate::domain::agents::acp::incoming::AcpServerRequest;
 use crate::domain::agents::adapter::{
-    RuntimePermissionDecision, RuntimePermissionOption, RuntimePermissionRequest,
+    RuntimePermissionOption, RuntimePermissionRequest, RuntimePermissionResponse,
 };
 
 use super::events_tool_call_metadata::enrich_tool_input;
@@ -22,14 +22,16 @@ pub use super::permission_events::permission_raw_event;
 #[cfg(test)]
 pub use super::permissions_dispatch::dispatch_permission_request;
 pub use super::permissions_dispatch::{
-    dispatch_permission_request_for_method, dispatch_permission_request_with_cache,
-    reject_all_pending, take_pending, PendingPermissions,
+    dispatch_permission_request_with_cache, pending_permission_response_kind,
+    pending_permission_response_payload, reject_all_pending, take_pending, PendingPermissions,
 };
 pub use super::permissions_refresh::{
     has_pending_permission_for_tool_call, refreshed_permission_event_for_tool_input,
 };
 use super::permissions_typed::permission_request_from_typed;
-use super::schema_bridge::{permission_response_value, resolve_permission_option};
+use super::schema_bridge::{
+    attach_updated_input, permission_response_value, resolve_permission_option,
+};
 
 mod options;
 
@@ -101,11 +103,14 @@ fn raw_tool_use_id(tool_call: &Value) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// Prefer a programmatic tool name (the `toolName` extension, then the
+/// standard ACP `name`) over the display `title`.
 fn raw_tool_name(tool_call: &Value) -> Option<String> {
-    tool_call
-        .get("toolName")
-        .or_else(|| tool_call.get("title"))
-        .and_then(Value::as_str)
+    ["toolName", "name", "title"]
+        .into_iter()
+        .filter_map(|key| tool_call.get(key).and_then(Value::as_str))
+        .map(str::trim)
+        .find(|name| !name.is_empty())
         .map(ToOwned::to_owned)
 }
 
@@ -149,12 +154,20 @@ fn raw_options(params: &Value) -> impl Iterator<Item = RuntimePermissionOption> 
 /// it under `_meta` AND mirror it as a top-level `feedback` field — agents
 /// that recognise either form pick it up; the rest silently ignore the
 /// extras (per JSON-RPC 2.0 / ACP passthrough).
-pub fn acp_permission_response_payload(
-    decision: RuntimePermissionDecision,
-    option_id: Option<&str>,
-    feedback: Option<&str>,
-) -> Value {
-    permission_response_value(decision, option_id, feedback)
+///
+/// `updated_input` is the user's answer to an input-collecting gate (an
+/// `AskUserQuestion` answer, an edited plan). It rides `_meta.updatedInput`
+/// — see `docs/PROVIDER_SPEC/INSTALLED_ACP_PROVIDERS.md`.
+pub fn acp_permission_response_payload(response: &RuntimePermissionResponse) -> Value {
+    let mut value = permission_response_value(
+        response.decision,
+        response.option_id.as_deref(),
+        response.feedback.as_deref(),
+    );
+    if let Some(updated_input) = response.updated_input.as_ref() {
+        attach_updated_input(&mut value, updated_input);
+    }
+    value
 }
 
 #[cfg(test)]
@@ -164,7 +177,7 @@ mod tests {
         permission_request_from_acp, permission_request_from_server_request, PendingPermissions,
     };
     use crate::domain::agents::acp::incoming::AcpServerRequest;
-    use crate::domain::agents::adapter::RuntimePermissionDecision;
+    use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionResponse};
     use agent_client_protocol::schema::v1::{
         AgentRequest, PermissionOption, PermissionOptionKind, RequestPermissionRequest,
         ToolCallUpdate, ToolCallUpdateFields,
@@ -343,10 +356,27 @@ mod tests {
         assert_eq!(event.raw_json()["acp"]["sessionId"], "s-typed");
     }
 
+    fn response(
+        decision: RuntimePermissionDecision,
+        option_id: Option<&str>,
+        feedback: Option<&str>,
+    ) -> RuntimePermissionResponse {
+        RuntimePermissionResponse {
+            request_id: "perm-1".to_string(),
+            decision,
+            option_id: option_id.map(ToOwned::to_owned),
+            feedback: feedback.map(ToOwned::to_owned),
+            updated_input: None,
+        }
+    }
+
     #[test]
     fn allow_once_response_payload_has_selected_outcome() {
-        let payload =
-            acp_permission_response_payload(RuntimePermissionDecision::AllowOnce, None, None);
+        let payload = acp_permission_response_payload(&response(
+            RuntimePermissionDecision::AllowOnce,
+            None,
+            None,
+        ));
         assert_eq!(payload["outcome"]["outcome"], "selected");
         assert_eq!(payload["outcome"]["optionId"], "allow_once");
         assert!(payload.get("feedback").is_none());
@@ -354,36 +384,76 @@ mod tests {
 
     #[test]
     fn allow_future_uses_allow_always_when_no_option_id() {
-        let payload =
-            acp_permission_response_payload(RuntimePermissionDecision::AllowFuture, None, None);
+        let payload = acp_permission_response_payload(&response(
+            RuntimePermissionDecision::AllowFuture,
+            None,
+            None,
+        ));
         assert_eq!(payload["outcome"]["optionId"], "allow_always");
     }
 
     #[test]
     fn explicit_option_id_overrides_default() {
-        let payload = acp_permission_response_payload(
+        let payload = acp_permission_response_payload(&response(
             RuntimePermissionDecision::Deny,
             Some("custom-no"),
             None,
-        );
+        ));
         assert_eq!(payload["outcome"]["optionId"], "custom-no");
     }
 
     #[test]
     fn deny_feedback_propagates_to_payload() {
-        let payload = acp_permission_response_payload(
+        let payload = acp_permission_response_payload(&response(
             RuntimePermissionDecision::Deny,
             None,
             Some("not safe to run"),
-        );
+        ));
         assert_eq!(payload["feedback"], "not safe to run");
         assert_eq!(payload["_meta"]["feedback"], "not safe to run");
     }
 
     #[test]
+    fn updated_input_is_forwarded_under_meta() {
+        let mut answer = response(RuntimePermissionDecision::AllowOnce, Some("allow"), None);
+        answer.updated_input = Some(json!({ "answers": { "Color?": "Blue" } }));
+        let payload = acp_permission_response_payload(&answer);
+        assert_eq!(payload["outcome"]["optionId"], "allow");
+        assert_eq!(
+            payload["_meta"]["updatedInput"]["answers"]["Color?"],
+            "Blue"
+        );
+        assert!(payload["_meta"].get("feedback").is_none());
+    }
+
+    #[test]
+    fn programmatic_tool_name_wins_over_display_title() {
+        let req = permission_request_from_acp(
+            "perm-q",
+            &json!({
+                "sessionId": "s1",
+                "toolCall": {
+                    "toolCallId": "q-1",
+                    "title": "Ask the user",
+                    "name": "AskUserQuestion",
+                    "rawInput": { "questions": [{ "question": "Color?" }] }
+                },
+                "options": []
+            }),
+        )
+        .unwrap();
+        assert_eq!(req.tool_name, "AskUserQuestion");
+        assert_eq!(req.description.as_deref(), Some("Ask the user"));
+        assert_eq!(req.tool_input["questions"][0]["question"], "Color?");
+    }
+
+    #[test]
     fn empty_feedback_is_omitted() {
-        let payload =
-            acp_permission_response_payload(RuntimePermissionDecision::Deny, None, Some(""));
+        let payload = acp_permission_response_payload(&response(
+            RuntimePermissionDecision::Deny,
+            None,
+            Some(""),
+        ));
         assert!(payload.get("feedback").is_none());
         assert!(payload.get("_meta").is_none());
     }

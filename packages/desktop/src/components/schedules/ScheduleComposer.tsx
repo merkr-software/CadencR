@@ -78,6 +78,7 @@ export function ScheduleComposer({
           // that window would show an empty menu as if the provider genuinely
           // had no commands, so the resolve counts as part of the load.
           slashCommandsLoading={runtime.isResolving || catalog.isLoading}
+          slashCommandsError={catalog.error}
           promptCommandPolicy={{ ...catalog.policy, userShell: false }}
         />
       </div>

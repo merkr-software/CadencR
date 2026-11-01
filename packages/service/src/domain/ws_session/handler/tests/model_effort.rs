@@ -114,7 +114,7 @@ async fn providerless_model_set_validates_the_active_provider_catalog() {
 }
 
 #[tokio::test]
-async fn model_set_preserves_explicit_cursor_provider() {
+async fn model_set_preserves_explicit_opencode_provider() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let app_state = make_test_app_state().await;
@@ -127,7 +127,7 @@ async fn model_set_preserves_explicit_cursor_provider() {
         "provider.set",
         serde_json::json!({
             "session_id": session_id,
-            "provider": "cursor",
+            "provider": "opencode",
         }),
     );
     dispatch_envelope(provider_envelope, &tx, &sdk_sessions, &app_state).await;
@@ -139,8 +139,8 @@ async fn model_set_preserves_explicit_cursor_provider() {
         "model.set",
         serde_json::json!({
             "session_id": session_id,
-            "provider": "cursor",
-            "model": "auto",
+            "provider": "opencode",
+            "model": "default/default",
         }),
     );
     dispatch_envelope(model_envelope, &tx, &sdk_sessions, &app_state).await;
@@ -151,7 +151,7 @@ async fn model_set_preserves_explicit_cursor_provider() {
     };
     let env: WsEnvelope = serde_json::from_str(&text).unwrap();
     assert_eq!(env.action, "model.set.ok");
-    assert_eq!(env.payload["provider"], "cursor");
+    assert_eq!(env.payload["provider"], "opencode");
 
     let persisted: Option<String> =
         sqlx::query_scalar("SELECT runtime_provider FROM agent_sessions WHERE id = ?")
@@ -159,7 +159,7 @@ async fn model_set_preserves_explicit_cursor_provider() {
             .fetch_one(&app_state.read_pool)
             .await
             .unwrap();
-    assert_eq!(persisted.as_deref(), Some("cursor"));
+    assert_eq!(persisted.as_deref(), Some("opencode"));
 }
 
 #[tokio::test]

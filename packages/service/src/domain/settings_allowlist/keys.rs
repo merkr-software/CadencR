@@ -71,7 +71,6 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     "claude_bypass_permissions_enabled",
     "codex_full_access_enabled",
     "codex_permission_mode",
-    "cursor_access_mode",
     // UI chrome
     "sidebar_left_width",
     "sidebar_provider_logos",

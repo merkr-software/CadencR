@@ -24,7 +24,6 @@ const AGENT_PROTECTED_KEYS: &[&str] = &[
     "claude_bypass_permissions_enabled",
     "codex_full_access_enabled",
     "codex_permission_mode",
-    "cursor_access_mode",
     "claude_cli_path",
     "codex_cli_path",
     "opencode_cli_path",
@@ -92,7 +91,9 @@ struct KeyPattern {
 }
 
 fn is_agent_protected(key: &str) -> bool {
+    // A provider access-mode default can lift approval gates (`fullAccess`).
     AGENT_PROTECTED_KEYS.contains(&key)
+        || crate::domain::settings_allowlist::is_provider_access_mode_key(key)
 }
 
 /// The catalog for `scope`, narrowed to `only` when it names keys. Keys without
@@ -323,6 +324,16 @@ mod tests {
             &values(json!({ "theme_current": "x" }))
         )
         .is_err());
+    }
+
+    #[test]
+    fn provider_access_mode_defaults_stay_user_only() {
+        let error = validate_updates(
+            SettingsScope::Global,
+            &values(json!({ "provider_access_mode.acme-agent": "fullAccess" })),
+        )
+        .unwrap_err();
+        assert!(error.contains("only the user can change"), "{error}");
     }
 
     #[test]

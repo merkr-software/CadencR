@@ -27,17 +27,22 @@ mod assets;
 mod command_capture;
 pub mod descriptor;
 mod hooks;
+pub mod host_integration;
 pub mod installation;
+mod keyed_locks;
 pub mod lifecycle;
 pub mod loader;
 pub mod managed;
 mod model_discovery;
+mod prompt_capabilities;
 mod provider_command;
 pub mod rejection;
 pub mod routes;
+pub mod slash_commands;
 #[cfg(test)]
 mod test_fixtures;
 pub mod updates;
+mod workspace_cache;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -158,14 +163,18 @@ pub fn installed_registrations() -> Vec<RegisteredProvider> {
     startup_load()
         .registrable()
         .map(|installation| {
+            let adapter = GenericAcpAdapter::new(installation.clone());
+            let updater = updates::PluginUpdater::new(
+                installation.executable().clone(),
+                adapter.host_integration(),
+                adapter.slash_commands(),
+            );
             RegisteredProvider::new(
                 installation.provider_id().to_string(),
-                ProviderAdapterHandle::owned(GenericAcpAdapter::new(installation.clone())),
+                ProviderAdapterHandle::owned(adapter),
             )
             .installed_local()
-            .with_updater(Arc::new(updates::PluginUpdater::new(
-                installation.executable().clone(),
-            )))
+            .with_updater(Arc::new(updater))
         })
         .collect()
 }

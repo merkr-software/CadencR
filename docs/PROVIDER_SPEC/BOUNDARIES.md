@@ -142,11 +142,10 @@ This document is a migration plan, not a new wire specification. Where ACP does
 not define a feature, Cadencr may keep a contained built-in integration, but it
 must not pretend that the feature is part of the public provider contract.
 Marketplace eligibility must not depend on Cadencr-specific JSON-RPC methods,
-`_cadencr` fields, or a private interpretation of `_meta`. (Cadencr already
-uses `_meta` privately for the built-in Cursor adapter —
-`clientCapabilities._meta.parameterizedModelPicker` and the `cursor/*`
-extension methods; that first-party usage is exempt but must stay inside the
-Cursor adapter.)
+`_cadencr` fields, or a private interpretation of `_meta`. (Cursor's private
+`clientCapabilities._meta.parameterizedModelPicker` and `cursor/*` extension
+methods now live entirely inside the external Cursor connector
+(`plugins/providers/cursor/`), which presents standard ACP v1 to Cadencr.)
 
 ## Normative references
 
@@ -372,8 +371,8 @@ ACP Registry entry ──► installer / executable resolver
                  ┌────────────┴────────────┐
                  │                         │
           generic ACP adapter       built-in adapters
-                                     Claude / Codex /
-                                     Cursor / OpenCode
+          (Pi, Cursor plugins)       Claude / Codex /
+                                     OpenCode
                  │                         │
                  └────────────┬────────────┘
                               ▼
@@ -403,7 +402,7 @@ all files in one change.
 | `packages/service/src/domain/agents/adapter/adapter_trait.rs`                                    | Catalog, launch, session, UI policy, profiles, commands, permissions, branching, and compaction in one trait                                                                                                                                                                       | Small composable capabilities plus a session factory                                                                                         |
 | `packages/service/src/domain/agents/adapter/event_types.rs`                                      | **Partially resolved.** Stream start/block/chunk/stop events are assigned stable canonical IDs and materialized; the legacy event type still carries indexes/raw data for the current wire and persistence path                                                                    | Extend canonical operations to every event family, persistence, and versioned DTOs                                                           |
 | `packages/service/src/domain/ws_session/handler/session_prompt/stream_reader_task_completion.rs` | Sends raw runtime JSON to the desktop WebSocket                                                                                                                                                                                                                                    | Project typed canonical operations into a versioned desktop DTO                                                                              |
-| `packages/service/src/domain/ws_session/**`                                                      | Claude profile, Codex/Cursor access modes, OpenCode content shaping, and provider-name branches (the OpenCode question side-channel lives in the ACP hooks and the OpenCode adapter)                                                                                               | Provider-neutral commands and adapter-owned translations                                                                                     |
+| `packages/service/src/domain/ws_session/**`                                                      | Claude profile, Codex access modes, OpenCode content shaping, and provider-name branches (the OpenCode question side-channel lives in the ACP hooks and the OpenCode adapter)                                                                                                      | Provider-neutral commands and adapter-owned translations                                                                                     |
 | `packages/service/src/domain/mcp/control/spawn_resolve.rs`                                       | Codex-specific spawn permission mapping                                                                                                                                                                                                                                            | Generic launch policy resolved by the selected provider factory                                                                              |
 | `packages/service/src/domain/agents/discovery/**`                                                | **Resolved for built-ins.** Shared discovery iterates registry metadata and settings keys without fixed provider fields or SDK calls                                                                                                                                               | Installed descriptors already carry explicit executables; future downloaded distributions need a generic resolver                            |
 | `packages/cli-discovery/src/types.rs`                                                            | **Resolved.** `DiscoverySpec` owns strings and vectors, so registry/imported metadata is not constrained to `'static` literals                                                                                                                                                     | Preserve the owned contract when distribution manifests begin producing discovery data                                                       |
@@ -411,13 +410,13 @@ all files in one change.
 | `packages/desktop/src/lib/providers.ts`                                                          | Built-in IDs, labels, icons, and default remain compiled; installed-provider labels and bounded package-owned icons now flow from the service catalog                                                                                                                              | Persisted catalog default and removal of the remaining built-in-only fallbacks                                                               |
 | `packages/desktop/src/lib/provider-modes.ts`                                                     | Provider-specific mode arrays and normalization                                                                                                                                                                                                                                    | Render negotiated configuration options                                                                                                      |
 | `packages/desktop/src/types/permission-mode.ts`                                                  | Fixed provider modes and encoded OpenCode agent IDs                                                                                                                                                                                                                                | Standard permission/config types plus opaque stable option IDs                                                                               |
-| `packages/desktop/src/lib/provider-access-modes.ts`                                              | Codex/Cursor-only tables and setting keys                                                                                                                                                                                                                                          | Capability-driven controls described by service data                                                                                         |
+| `packages/desktop/src/lib/provider-access-modes.ts`                                              | Codex-only table and setting key                                                                                                                                                                                                                                                   | Capability-driven controls described by service data                                                                                         |
 | `packages/desktop/src/lib/provider-model-aliases.ts`                                             | Frontend copy of Claude alias behavior                                                                                                                                                                                                                                             | Adapter-resolved canonical option IDs and labels                                                                                             |
 | `packages/desktop/src/lib/prompt-attachments.ts`                                                 | MIME and attachment behavior selected by provider ID                                                                                                                                                                                                                               | Prompt capabilities and standard ACP content blocks                                                                                          |
-| `packages/desktop/src/lib/provider-resume-command.ts`                                            | Four-provider command switch                                                                                                                                                                                                                                                       | Session capability and service-issued actions                                                                                                |
+| `packages/desktop/src/lib/provider-resume-command.ts`                                            | Three-provider command switch                                                                                                                                                                                                                                                      | Session capability and service-issued actions                                                                                                |
 | `packages/desktop/src/components/settings/ProvidersSection.tsx`                                  | One tab and component per compiled provider                                                                                                                                                                                                                                        | Installed-provider list plus schema-driven settings                                                                                          |
 | Session controls, feature tabs, and info chips                                                   | Claude/OpenCode/Codex checks                                                                                                                                                                                                                                                       | Catalog capabilities and observed canonical state                                                                                            |
-| Shared tool parsing/rendering                                                                    | Provider keys, tool names, and Cursor repair paths                                                                                                                                                                                                                                 | Standard tool kind/content first; built-in normalization before the boundary                                                                 |
+| Shared tool parsing/rendering                                                                    | Provider keys and tool names                                                                                                                                                                                                                                                       | Standard tool kind/content first; built-in normalization before the boundary                                                                 |
 | `.claude/rules/provider-boundaries.md`                                                           | Describes providers under a path that does not match all current directories                                                                                                                                                                                                       | Align the documented and enforced ownership boundary (project `CLAUDE.md` repeats the stale path; rule edits require `pnpm build:agents-md`) |
 | `packages/service/src/domain/agents/runtime.rs`                                                  | **Partially resolved.** Shared service defaults resolve from registry order; the desktop still has a compiled fallback and there is no separately persisted catalog default                                                                                                        | Add a persisted user default and remove the desktop fallback when the catalog-driven UI slice lands                                          |
 | `packages/service/src/domain/imports/**`                                                         | Per-provider import branches (`claude_code_jsonl`, `codex_rollout`, `opencode_sqlite`) in shared service code                                                                                                                                                                      | Importer registry dispatched per installed provider                                                                                          |
@@ -580,7 +579,7 @@ documented in `PROVIDER_PACKAGE.md` under "Local integrity boundary".
 - [~] Convert each built-in provider document into executable or fixture-backed
   parity cases, prioritizing Claude Code and Codex. Deterministic v1 catalog
   fixtures now pin Claude's bootstrap identity/models/default and Codex's rich
-  model/access-mode projection. Cursor/OpenCode catalog fixtures and the wider
+  model/access-mode projection. OpenCode catalog fixtures and the wider
   workflow/stream cases below remain open.
 - [ ] Record golden streams for text, thinking, tools, command output, edits,
       permissions, plans, subagents, usage, compaction, cancellation, resume, and
@@ -762,10 +761,11 @@ documented in `PROVIDER_PACKAGE.md` under "Local integrity boundary".
   adapter.
   The adapter owns substantial runtime mapping, while MCP spawn policy,
   shared attachment/config shapes, and importer/orchestration seams remain.
-- [~] Move Cursor metadata repair, model/mode synchronization, and tool
-  normalization into the Cursor adapter.
-  The Cursor hooks own the named translations, but the shared ACP hook trait
-  is still shaped around Cursor metadata/config companions.
+- [x] Move Cursor metadata repair, model/mode synchronization, and tool
+  normalization out of shared code.
+  Cursor is no longer built in: all of it moved into the external Cursor
+  connector (`plugins/providers/cursor/`), installed like any marketplace
+  provider.
 - [~] Move OpenCode question side-channel, agent modes, tool normalization, and
   permission fallback into the OpenCode adapter.
   The OpenCode adapter owns the implementations, while the shared ACP runtime
@@ -812,7 +812,7 @@ documented in `PROVIDER_PACKAGE.md` under "Local integrity boundary".
       Never select a renderer by comparing provider-native or normalized tool-name
       strings.
 - [ ] Run provider-specific repair before canonical events cross the service
-      boundary; delete Cursor/OpenCode repair logic from shared frontend parsing.
+      boundary; delete OpenCode repair logic from shared frontend parsing.
 - [~] Represent unsupported controls as absent or disabled with a reason from the
   capability model. Catalog availability and empty option lists already hide
   or disable some choices, but provider-ID tables still decide many controls
@@ -1058,9 +1058,10 @@ The provider boundary is complete when all of the following are true:
       explicit feature flag.
 - [ ] Claude Code and Codex retain the detailed behavior documented in their
       provider specs and golden fixtures.
-- [~] Cursor and OpenCode behavior remains contained behind their adapters. Their
-  implementations live there, but the shared ACP hook surface and frontend
-  provider-specific repair/config paths still encode their quirks.
+- [~] OpenCode behavior remains contained behind its adapter. Its
+  implementation lives there, but the shared ACP hook surface and frontend
+  provider-specific repair/config paths still encode its quirks. Cursor's
+  behavior moved to the external Cursor connector.
 - [ ] No raw or Claude-shaped provider event crosses the service-to-desktop
       boundary.
 - [ ] Unknown ACP fields, variants, and `_meta` survive processing without a crash

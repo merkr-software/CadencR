@@ -161,6 +161,13 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
         commands::refresh_via_acp(cwd).await
     }
 
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "opencode",
+            &["--session", "{session_id}"],
+        ))
+    }
+
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {
         // ACP subprocess is session-scoped and there's no spec'd way to
         // replay a summary back into it, so SummaryReplay would silently

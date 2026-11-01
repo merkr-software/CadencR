@@ -1,0 +1,48 @@
+{
+  "kind": "provider",
+  "package": {
+    "agent": {
+      "id": "cursor",
+      "name": "Cursor",
+      "version": "0.1.0",
+      "description": "External Cadencr provider connector for the Cursor Agent CLI (ACP proxy)",
+      "repository": "https://github.com/merkr-software/CadencR",
+      "license": "Apache-2.0",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "darwin-x86_64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "linux-aarch64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "linux-x86_64": {
+            "archive": "PENDING",
+            "cmd": "bin/provider",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      }
+    },
+    "host": {
+      "publisher": "cadencr",
+      "compatibility": {
+        "min_app_version": "0.16.0"
+      },
+      "assets": {
+        "icon": "icon.svg",
+        "readme": "README.md",
+        "license": "LICENSE"
+      }
+    }
+  }
+}

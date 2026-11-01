@@ -39,6 +39,40 @@ describe("SlashCommandPopover", () => {
     expect(screen.queryByText("/commit")).not.toBeInTheDocument();
   });
 
+  it("shows a discovery error above the commands that remain usable", () => {
+    render(
+      <SlashCommandPopover
+        listId="cmds"
+        open={true}
+        items={[cadencrCommand]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+        isLoading={false}
+        error="Provider commands could not be loaded: timed out"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Provider commands could not be loaded: timed out",
+    );
+    expect(screen.getByText("/cadencr:review")).toBeInTheDocument();
+  });
+
+  it("shows the error instead of 'no matching commands' when nothing is left", () => {
+    render(
+      <SlashCommandPopover
+        listId="cmds"
+        open={true}
+        items={[]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+        isLoading={false}
+        error="Provider commands could not be loaded: rejected"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("rejected");
+    expect(screen.queryByText("No matching commands")).not.toBeInTheDocument();
+  });
+
   it("shows commands when open", () => {
     const { container } = render(
       <SlashCommandPopover

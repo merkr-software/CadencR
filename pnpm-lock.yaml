@@ -614,6 +614,8 @@ importers:
         specifier: 4.1.12
         version: 4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(jsdom@29.1.1(@noble/hashes@1.8.0))(msw@2.14.6(@types/node@22.19.17)(typescript@5.9.3))(vite@6.4.5(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.104.0)(yaml@2.9.1))
 
+  plugins/providers/cursor: {}
+
   plugins/providers/pi:
     devDependencies:
       oxfmt:

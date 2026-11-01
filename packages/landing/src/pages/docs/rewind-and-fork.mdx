@@ -49,7 +49,7 @@ Both conversations share the source checkout. Coordinate edits or move to an iso
 
 ## Provider support
 
-The built-in branching implementations cover **Claude Code, Codex, and OpenCode**. Cursor and local connectors need their own advertised branching capability. Do not assume a native CLI's similarly named command is available through CadencR.
+The built-in branching implementations cover **Claude Code, Codex, and OpenCode**. The Cursor plugin and local connectors need their own advertised branching capability. Do not assume a native CLI's similarly named command is available through CadencR.
 
 Codex branches at safe turn boundaries. A selected message inside a turn containing multiple user messages can be refused because it cannot be cut safely. CadencR reports that limitation rather than branching at another prompt.
 

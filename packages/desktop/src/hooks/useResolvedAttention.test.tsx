@@ -137,3 +137,23 @@ describe("useResolvedAttention gone conversations", () => {
     expect(result.current.actions.map((a) => a.feature.id)).toEqual([1]);
   });
 });
+
+describe("useResolvedAttention list seeds", () => {
+  it("refetches a record seeded from an invalidated project list", async () => {
+    const { queryClient } = await import("@/lib/queryClient");
+    queryClient.setQueryData(
+      ["/api/features", { project_id: 9 }],
+      [{ ...feature(1), runtime_provider: "old-provider" }],
+    );
+    await queryClient.invalidateQueries({ queryKey: ["/api/features"], refetchType: "none" });
+    request.mockResolvedValue({ ...feature(1), runtime_provider: "new-provider" });
+    try {
+      const { result } = renderAttention([]);
+      await waitFor(() =>
+        expect(result.current.items[0]?.feature.runtime_provider).toBe("new-provider"),
+      );
+    } finally {
+      queryClient.clear();
+    }
+  });
+});

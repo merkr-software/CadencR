@@ -74,7 +74,7 @@ export function useScheduleRuntime(target: ScheduleTarget): ScheduleRuntime {
       permissionMode:
         (target.permission_mode as PermissionMode | undefined) ??
         (inherited.permissionMode as PermissionMode | undefined) ??
-        defaultEditModeFor(providerId),
+        defaultEditModeFor(providerId, provider?.modes),
       thinkingLevel: parseThinkingEffort(target.thinking_level ?? inherited.thinkingLevel),
       accessMode: parseAccessMode(target.access_mode ?? inherited.accessMode ?? undefined),
       profile: target.profile ?? inherited.profile,

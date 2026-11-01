@@ -301,6 +301,8 @@ export interface CommandsListPayload {
     kind?: SlashCommandKind;
   }>;
   prompt_command_policy?: PromptCommandPolicyPayload;
+  /** Why the provider's own commands are missing from `commands`. */
+  error?: string;
 }
 
 export function createHistoryGet(projectId: number): WsEnvelope {

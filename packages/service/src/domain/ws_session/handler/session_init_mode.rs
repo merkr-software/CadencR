@@ -9,7 +9,7 @@ use crate::domain::ws_session::persistence::WsSessionPersistence;
 /// `initialized` reply.
 ///
 /// The frontend seeds every new conversation with the default provider's mode
-/// (Claude's `auto`), even one that starts on Codex or Cursor. A mode the
+/// (Claude's `auto`), even one that starts on Codex or OpenCode. A mode the
 /// provider can't run becomes the provider default, and that correction is
 /// persisted and reported: otherwise the client replays its stale mode right
 /// after init and the provider rejects it with a `MODE_NOT_SUPPORTED` toast.

@@ -62,7 +62,7 @@ const UNKNOWN_CONTEXT_USAGE: ContextUsageState = {
 /**
  * The usage the context meter should render, or `null` to hide it.
  * Provider-neutral: a window no provider has reported yet (Claude Code only
- * sends it when a turn ends; Cursor never does) shows as "unknown" while the
+ * sends it when a turn ends; some ACP providers never do) shows as "unknown" while the
  * agent works — even before any usage arrived — or once tokens were spent.
  */
 export function contextUsageToShow(

@@ -61,6 +61,8 @@ interface RuntimeSelectionControls {
   modelSupportsAutoMode: boolean | undefined;
   /** Mid-turn prompts reach the running turn and are acknowledged. */
   steeringAcknowledged: boolean;
+  /** `/compact` is a session action Cadencr performs (catalog `compact_action`). */
+  compactAction: boolean;
 }
 
 interface AccessControls {
@@ -156,10 +158,12 @@ function useRuntimeSelection(
   const modelSupportsAutoMode = activeSessionModel?.supports_auto_mode ?? undefined;
   // Unknown (catalog still loading) keeps today's behavior: Enter steers.
   const steeringAcknowledged = !ws.isCompacting && (activeProvider?.steering_acknowledged ?? true);
+  const compactAction = activeProvider?.compact_action ?? false;
   return useMemo(
     () => ({
       modelSupportsAutoMode,
       steeringAcknowledged,
+      compactAction,
       agentCatalog,
       resolvedProviderId,
       resolvedModelId,
@@ -172,6 +176,7 @@ function useRuntimeSelection(
     [
       activeProviderId,
       agentCatalog,
+      compactAction,
       enabledOptInModes,
       modelSupportsAutoMode,
       steeringAcknowledged,

@@ -27,7 +27,15 @@ pub fn permission_request_from_typed(
     Some(permission_request_at(
         request_id,
         Some(request.tool_call.tool_call_id.to_string()),
-        request.tool_call.fields.title.clone(),
+        // The programmatic ACP `name` (e.g. `AskUserQuestion`) identifies the
+        // tool; `title` is display text and only a fallback.
+        request
+            .tool_call
+            .fields
+            .name
+            .clone()
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| request.tool_call.fields.title.clone()),
         request.tool_call.fields.title.clone(),
         request
             .tool_call
@@ -86,5 +94,22 @@ mod tests {
         assert_eq!(req.options.len(), 1);
         assert_eq!(req.options[0].option_id.as_deref(), Some("allow-once"));
         assert_eq!(req.preview.as_deref(), Some("ls"));
+    }
+
+    #[test]
+    fn typed_permission_request_prefers_the_programmatic_name() {
+        let tool_call = ToolCallUpdate::new(
+            "call-q",
+            ToolCallUpdateFields::new()
+                .title("Ask the user".to_string())
+                .name("AskUserQuestion".to_string())
+                .raw_input(json!({ "questions": [{ "question": "Color?" }] })),
+        );
+        let typed = RequestPermissionRequest::new("s-1", tool_call, vec![]);
+
+        let req = permission_request_from_typed("perm-q", &typed).unwrap();
+        assert_eq!(req.tool_name, "AskUserQuestion");
+        assert_eq!(req.description.as_deref(), Some("Ask the user"));
+        assert_eq!(req.tool_input["questions"][0]["question"], "Color?");
     }
 }

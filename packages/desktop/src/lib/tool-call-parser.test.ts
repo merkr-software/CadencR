@@ -20,14 +20,14 @@ describe("parseToolCall", () => {
     const result = parseToolCall(
       "Read",
       JSON.stringify({
-        description: "Read the Cursor adapter",
-        path: "/repo/packages/service/src/domain/agents/cursor/adapter.rs",
-        locations: [{ path: "/repo/packages/service/src/domain/agents/cursor/adapter.rs" }],
+        description: "Read the Codex adapter",
+        path: "/repo/packages/service/src/domain/agents/codex/adapter.rs",
+        locations: [{ path: "/repo/packages/service/src/domain/agents/codex/adapter.rs" }],
       }),
     );
     expect(result).toEqual({
       label: "Reading file",
-      detail: "/repo/packages/service/src/domain/agents/cursor/adapter.rs",
+      detail: "/repo/packages/service/src/domain/agents/codex/adapter.rs",
     });
   });
 

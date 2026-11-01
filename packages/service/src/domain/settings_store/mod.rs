@@ -31,12 +31,12 @@ pub mod lock;
 pub mod migrate;
 pub mod paths;
 pub mod registry;
+pub mod renamed_keys;
 pub mod store;
 pub mod validate;
 pub mod watcher;
 
 pub use dir::{global_dir, init};
-pub use ephemeral::prune_ephemeral_global;
 pub use paths::name_is_shared;
 pub use store::{
     global_get, global_get_nonempty, global_get_object, global_list, global_map,
@@ -46,7 +46,26 @@ pub use store::{
 };
 
 use serde::Serialize;
+use tracing::{info, warn};
 use utoipa::ToSchema;
+
+/// One-time startup cleanups of the global settings file. Each step leaves a
+/// missing or corrupt file untouched; a failure is logged and never blocks
+/// startup.
+pub async fn tidy_global_at_startup() {
+    // Per-device UI state (active tab, sidebar visibility, last-opened feature)
+    // now lives in the frontend's localStorage.
+    match ephemeral::prune_ephemeral_global().await {
+        Ok(true) => info!("pruned legacy per-device UI keys from settings.json"),
+        Ok(false) => {}
+        Err(e) => warn!("failed to prune ephemeral settings keys: {e}"),
+    }
+    match renamed_keys::carry_renamed_global_keys().await {
+        Ok(true) => info!("carried renamed workspace keys over in settings.json"),
+        Ok(false) => {}
+        Err(e) => warn!("failed to carry renamed settings keys: {e}"),
+    }
+}
 
 /// Which settings document a key/value lives in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

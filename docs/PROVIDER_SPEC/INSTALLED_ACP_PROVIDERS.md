@@ -139,18 +139,18 @@ CLI outside Cadencr.
 
 ## What this build does and does not do
 
-| Supported                                                                                 | Deferred                                                        |
-| ----------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Code-backed `models` discovery plus ACP v1 runtime                                        | ACP v2                                                          |
-| An explicitly selected local provider-package executable                                  | Normal-user marketplace browsing/install UI                     |
-| Startup loading plus durable add/enable/disable/remove HTTP operations                    | Hot activation / reload                                         |
-| Explicit `restart_required` activation semantics                                          | General-purpose desktop provider installation                   |
-| Strict descriptor validation and lossless typed round-trip                                | Portable registry import/export workflow (managed signed-index ingestion is implemented)                              |
-| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set | Richer ACP configuration types beyond the v1 baseline           |
-| Connector-owned `icon.svg`, bounded and inlined from its host-declared package root       | Release signing-key/blocklist provisioning                      |
-| Pre-prompt validation that live ACP still contains and confirms the selected model        | Packaged-app validation of a real signed distribution           |
-| Opaque option IDs and authoritative replacement from `session/set_config_option`          | Category-specific placement and built-in-control migration      |
-| Stable durable restore (`session/resume`, legacy `session/load` fallback) and graceful close | Marketplace package-management UI                              |
+| Supported                                                                                    | Deferred                                                                                 |
+| -------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Code-backed `models` discovery plus ACP v1 runtime                                           | ACP v2                                                                                   |
+| An explicitly selected local provider-package executable                                     | Normal-user marketplace browsing/install UI                                              |
+| Startup loading plus durable add/enable/disable/remove HTTP operations                       | Hot activation / reload                                                                  |
+| Explicit `restart_required` activation semantics                                             | General-purpose desktop provider installation                                            |
+| Strict descriptor validation and lossless typed round-trip                                   | Portable registry import/export workflow (managed signed-index ingestion is implemented) |
+| Provider-neutral live select/boolean configuration snapshot plus authenticated WS get/set    | Richer ACP configuration types beyond the v1 baseline                                    |
+| Connector-owned `icon.svg`, bounded and inlined from its host-declared package root          | Release signing-key/blocklist provisioning                                               |
+| Pre-prompt validation that live ACP still contains and confirms the selected model           | Packaged-app validation of a real signed distribution                                    |
+| Opaque option IDs and authoritative replacement from `session/set_config_option`             | Category-specific placement and built-in-control migration                               |
+| Stable durable restore (`session/resume`, legacy `session/load` fallback) and graceful close | Marketplace package-management UI                                                        |
 
 ## Requirements on the provider executable
 
@@ -179,8 +179,18 @@ checked against the live ACP selector, applied, and confirmed before
 `packages/service/tests/fixtures/fake_acp_agent.py` provides minimal, rich, and
 durable deterministic ACP v1 modes. The rich mode exercises commands,
 select/boolean configuration, permissions, plans, usage/cost, shell and edit
-tools, diffs, and an MCP-shaped tool call. The durable mode persists context and
-requires `session/load` after the first subprocess is closed.
+tools, diffs, and an MCP-shaped tool call; its "gate" prompt raises the
+`AskUserQuestion` and `ExitPlanMode` gates described below. The durable mode persists context and
+requires `session/load` after the first subprocess is closed. The `--host`
+mode declares the optional host conventions below (mode and access selectors,
+`host-integration`, `embeddedContext`, agent-initiated mode switches,
+background sub-agents); `tests/installed_acp_host_conventions_test.rs` drives
+it through the runtime, HTTP catalog/diagnostics/settings, and WebSocket.
+`--slash-commands` / `--slash-commands-invalid` / `--slash-commands-failing`
+cover the optional `slash-commands` command and `--live-commands` sends an
+`available_commands_update` after `session/new`;
+`tests/installed_acp_slash_commands_test.rs` drives them through
+`GET /api/prompt-commands`.
 `tests/installed_acp_provider_test.rs` drives those modes through the runtime
 registry and the Cadencr host-authenticated HTTP + real WebSocket surfaces, including
 interruption of an active turn and subprocess-restart resume. ACP v2 lifecycle
@@ -192,6 +202,164 @@ retains legacy load only as fallback, and sends an advertised, bounded
 path supports fails rather than calling `session/new`; replay suppression is
 enabled only for legacy load. These are handshake-owned runtime capabilities,
 never descriptor fields.
+
+## Host conventions for input-collecting gates
+
+Cadencr's question drawer and plan gate are driven purely by tool name, so an
+installed provider reaches them through standard ACP
+`session/request_permission` — no extension methods and no descriptor fields.
+These rules are normative for every installed provider:
+
+1. **Tool identity.** The host reads the tool name from the programmatic
+   `toolCall.name` (the `toolName` extension is also accepted) and falls back
+   to `title` only when neither is present. `title` stays display text.
+2. **`AskUserQuestion`.** A permission request whose tool name is
+   `AskUserQuestion` opens the question drawer. Its `toolCall.rawInput` is the
+   question payload and must follow Claude Code's `AskUserQuestion` input shape
+   (`{ "questions": [{ "question", "header", "multiSelect", "options": [{ "label",
+   "description"? }] }] }`). The matching `tool_call` notification should carry
+   the same `name`; the host renders no tool card for it.
+3. **`ExitPlanMode`.** A permission request whose tool name is `ExitPlanMode`
+   opens the plan gate; `rawInput.plan` is the plan text. The host treats it as
+   a plan approval: rejecting with feedback keeps the turn running, and the
+   host never switches permission modes for a provider that advertises none.
+   For a provider that maps modes, approving moves the session to its primary
+   edit mode (see below).
+4. **Options.** Offer at least one `allow_once` and one `reject_once` option.
+   The question drawer and plan gate may answer with a decision only; the host
+   selects the agent's own option for that decision (falling back to the
+   canonical `allow_once` / `reject_once` ids only when none is offered).
+5. **Answers ride `_meta`.** The `RequestPermissionResponse` carries the
+   user's input under `_meta`:
+   - `_meta.updatedInput` — present when the user supplied input. For
+     `AskUserQuestion` it is the original `rawInput` plus
+     `answers: { "<question text>": "<label>[, <label>…]" }` and, when option
+     ids were available, `structured_answers`. An absent or `null` value means
+     no edited input.
+   - `_meta.feedback` — the user's free-text reason (plan feedback, deny
+     reason). It is also mirrored as a top-level `feedback` field for older
+     agents.
+
+   For example, an answered question:
+
+   ```json
+   {
+     "outcome": { "outcome": "selected", "optionId": "answer" },
+     "_meta": {
+       "updatedInput": {
+         "questions": [{ "question": "Color?", "options": [{ "label": "Blue" }] }],
+         "answers": { "Color?": "Blue" }
+       }
+     }
+   }
+   ```
+
+6. **No caching.** A response that carries `_meta.updatedInput` is never
+   recorded as a session-scope grant, so an identical later question prompts
+   again.
+
+A connector that wraps a CLI with proprietary question or plan methods
+translates them into these standard requests and maps the response back
+itself; the host does not route provider extension methods.
+
+## Host conventions for modes and access modes
+
+Mode and access-mode selectors are declared in the `models` output
+([`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md#mode-and-access-mode-selectors)).
+At runtime:
+
+1. **Applying a mode.** At spawn (before the first prompt) and on every mode
+   change, the host maps its permission mode to the provider value. When the
+   live session exposes a `select` option with `"category": "mode"`, it sends
+   `session/set_config_option { configId: <that option id>, value }` and
+   replaces its configuration snapshot with the response; otherwise it falls
+   back to `session/set_mode` with the same value. A refusal fails the spawn or
+   the mode change visibly.
+2. **Following the agent.** A `current_mode_update`, or a
+   `config_option_update` whose mode option changed, that lands on a mapped
+   value updates the session's permission mode: it is persisted and every
+   viewer receives `session.mode.changed`. Unmapped values only update the
+   runtime's local state.
+3. **Access modes.** When the requested host access mode is mapped, the host
+   applies it at spawn (before the first prompt) and on every live change
+   through `session/set_config_option` on the live option whose option-level
+   `_meta.cadencr.role` is `"access_mode"` (the id from `models` when the live
+   session does not expose one). A provider error fails the spawn or the
+   `access_mode.set` request with `MODE_REJECTED_BY_CLI`; nothing is retried
+   silently. `access_mode.set` only accepts a mode the provider maps.
+4. **Remembered default.** The workspace default for new conversations is the
+   generic workspace setting `provider_access_mode.<provider_id>`, value
+   `default | fullAccess | autoReview` (default `default`). The key is
+   writable for any provider id matching the registry pattern
+   `^[a-z][a-z0-9-]*$`, is validated against those three values, and is
+   user-only: agent settings tools refuse to change it because `fullAccess`
+   lifts approval gates.
+
+## Host conventions for compaction, worktrees and resume
+
+These come from the optional `host-integration` command
+([`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md#host-integration-command)).
+With a valid `compactCommand`, the catalog reports `compact_action: true`; the
+runtime's `compact()` sends `session/prompt` with `/<compactCommand>`, emits
+the manual-compaction turn start, and closes it with a compact boundary unless
+the agent reported its own. `worktreeConfigPaths` feed the adapter's worktree
+config list, and `resumeCommand` is reported as the catalog's
+`resume_command`. Rejections and missing commands are reported as
+`host_integration_issue` on the installed-provider diagnostics.
+
+## Host conventions for slash commands
+
+The `/` menu of an installed provider comes from the optional
+`slash-commands` command
+([`PROVIDER_PACKAGE.md`](./PROVIDER_PACKAGE.md#slash-commands-command)), run
+per conversation directory before any session exists, plus the last
+`available_commands_update` a live session sent for that directory (its
+entries the package did not list are appended). A package without the command
+therefore shows the live snapshot after its first session in that directory;
+one with it shows its list from the first keystroke. A live
+`available_commands_update` still replaces the menu during the session and
+drops the cached listing for that directory. A failed or rejected listing is
+returned as `error` on `GET /api/prompt-commands` and on the WebSocket
+`commands.list` reply, and shown in the `/` menu; the host's own commands stay
+usable. `_meta.cadencr.kind: "skill"` on a live `availableCommands` entry
+groups it with skills. Nothing here branches on a provider id.
+
+## Background sub-agents
+
+ACP has no notion of a dispatch tool call that returns while its sub-agent
+keeps working. On a carrier `tool_call` / `tool_call_update` (a tool named
+`Task` or `Agent`: only those create a sub-agent run, so the declaration is
+read on any call but has an effect only there), `_meta.cadencr.subagent`
+declares one:
+
+- `{"background": true}` marks the carrier as a background launch. It may ride
+  the `tool_call`, any update, or the very `tool_call_update` whose `status` is
+  `completed` — the host reads it before treating that status as the end of
+  the sub-agent. When the launching call completes, the sub-agent stays
+  `running` with `background: true`: it is exempt from the turn-end sweep and
+  keeps running across turns.
+- A later `tool_call_update` with the same `toolCallId` and
+  `{"status": "completed" | "failed" | "cancelled", "summary"?: string}`
+  finishes it (`cancelled` becomes `stopped` / `interrupted`; `summary` is the
+  result summary, and the failure reason for `failed`). It produces no second
+  transcript block.
+- A background sub-agent that is never finished is stopped
+  (`runtime_ended`) when its runtime ends. The session itself is not held
+  "working" for it, because an agent may never report the outcome.
+
+Other keys in the object are ignored.
+
+## Prompt capabilities
+
+The host remembers the last `initialize` response's
+`agentCapabilities.promptCapabilities` per installed provider (in memory) and
+reports it as the catalog's `prompt_capabilities`
+(`{image, audio, embedded_context}`), absent until a runtime has been spawned.
+A document attachment (PDF) is sent as a standard ACP embedded resource
+`{"type": "resource", "resource": {"uri": "file:///attachments/<name>",
+"mimeType", "blob"}}`; text files stay inline text. Before `session/prompt` the
+runtime refuses, with a visible error, any `image`, `audio` or `resource`
+block the agent did not advertise — an attachment is never dropped silently.
 
 ## Descriptor lifecycle API
 
@@ -282,7 +450,11 @@ variants such as `claudecode` from shadowing `claude-code`. Enablement does not
 enter into it: a disabled descriptor still owns its identifier, so a collision
 is refused at load time rather than becoming a surprise the day the user
 enables it. The resolver also walks built-ins first, providing defense in depth
-if a future registration source bypasses descriptor loading.
+if a future registration source bypasses descriptor loading. Ids of
+providers that are no longer built in — `cursor` ships as an installed provider
+plugin — are not reserved. Conversations recorded under such an id keep their
+provider and resume id; until a provider with that id is installed, opening
+them fails with `UNSUPPORTED_PROVIDER` instead of starting another provider.
 
 `executable` is reported without its argument vector because arbitrary local
 arguments cannot be generically redacted. Future downloaded packages cannot put

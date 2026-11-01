@@ -74,7 +74,7 @@ pub struct ScheduleTarget {
     /// may run in plan mode inside a conversation the user drives normally.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
-    /// Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+    /// Provider access mode (e.g. Codex sandboxing). Ignored by providers that
     /// don't offer one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub access_mode: Option<String>,

@@ -852,11 +852,26 @@ dependencies = [
 ]
 
 [[package]]
-name = "cadencr-provider-sdk"
-version = "0.2.0"
+name = "cadencr-plugin-provider-cursor"
+version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "bon",
+ "cadencr-provider-sdk",
+ "libc",
+ "regex-lite",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "cadencr-provider-sdk"
+version = "0.3.0"
+dependencies = [
+ "agent-client-protocol",
+ "bon",
+ "serde",
  "serde_json",
 ]
 
@@ -930,7 +945,6 @@ dependencies = [
  "claude-agent-sdk-rs",
  "cli-discovery",
  "codex-app-server-sdk-rs",
- "cursor-agent-sdk-rs",
  "dashmap",
  "dirs",
  "dotenvy",
@@ -1453,18 +1467,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "38d28fb6aa7dd680b3ffd1a3e64e115c177bdba63c0ae7f9cd48129ff05c4fa0"
 dependencies = [
  "cmov",
-]
-
-[[package]]
-name = "cursor-agent-sdk-rs"
-version = "0.15.1"
-dependencies = [
- "bon",
- "cli-discovery",
- "once_cell",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]
