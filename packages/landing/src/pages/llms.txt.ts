@@ -26,7 +26,7 @@ export async function GET(context: APIContext): Promise<Response> {
     "",
     "> CadencR is a free, open-source desktop IDE that unifies the Claude Code, OpenCode, and Codex coding agents into one local workspace. Every task gets its own agent session, Git worktree, editor, terminal, and review flow.",
     "",
-    `CadencR (spelled C-A-D-E-N-C-R) is a developer tool. It is not affiliated with Cadence Design Systems or any product named Cadence. It runs locally on ${LINUX_AVAILABLE ? "macOS and Linux" : "macOS"}, is licensed under Apache-2.0, and sends no telemetry.`,
+    `CadencR (spelled C-A-D-E-N-C-R) is a developer tool. It is not affiliated with Cadence Design Systems or any product named Cadence. It runs locally on ${LINUX_AVAILABLE ? "macOS and Linux" : "macOS"}, is licensed under Apache-2.0, and keeps diagnostics and detailed usage analytics off by default. Users decide whether to enable detailed telemetry during onboarding or after upgrading. A separate monthly installation counter starts on when configured, even before that decision, and sends a minimal PostHog event without a persistent identifier. Declining detailed telemetry leaves the counter setting unchanged. The counter has its own off switch in Settings, alongside the two detailed telemetry controls. Prompts, your code, conversation content, session replay, and log dumps are excluded.`,
     "",
     "## Start",
     `- [Home](${abs("/")}): Product overview and feature tour.`,

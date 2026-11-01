@@ -17,7 +17,9 @@ name the throw site rather than the component responsible for repeated updates.
 Electron opens a native save dialog; browser clients download a JSON file. Export
 errors remain visible beside the button. Native exports require an unused `.json`
 filename and never overwrite an existing file. Reports stay local until the user
-shares them; there is no automatic upload.
+shares them. Separate [optional telemetry](./TELEMETRY.md), off by default, can
+send a strict failure category and packaged app frame positions to Sentry; it
+never uploads these report files, error messages or activity history.
 
 ## Captured context and retention
 
