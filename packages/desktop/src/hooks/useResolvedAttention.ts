@@ -12,7 +12,7 @@ import {
   type ResolvedNextAction,
 } from "@/lib/next-actions";
 import { needsUser } from "@/lib/sidebar-attention";
-import { lookupFeature } from "@/stores/session-status-handlers";
+import { lookupFeature, lookupListedFeature } from "@/stores/session-status-handlers";
 import { useUnreadStore } from "@/stores/unread-store";
 import { usePrStatusStore } from "@/stores/usePrStatusStore";
 
@@ -98,6 +98,9 @@ export function useResolvedAttention(): ResolvedAttentionResult {
           staleTime: FEATURE_STALE_MS,
           retry: false,
           initialData: () => lookupFeature(featureId),
+          // A list fetched before the latest prompt can name an older provider
+          // or model: the seed is only as fresh as its list.
+          initialDataUpdatedAt: () => lookupListedFeature(featureId)?.updatedAt,
         },
       }),
     ),

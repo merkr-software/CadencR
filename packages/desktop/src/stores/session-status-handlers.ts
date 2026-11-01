@@ -7,6 +7,7 @@ import { scheduleThemeInvalidation } from "@/lib/themeInvalidation";
 import { handlePluginTabChanged } from "@/lib/plugin-tabs/live-instances";
 import {
   getAlacrittyConfigRouteQueryKey,
+  getGetFeatureQueryKey,
   getListFeaturesQueryKey,
   type Feature,
 } from "@/api/generated";
@@ -31,16 +32,26 @@ function isFeatureList(data: Feature[] | object | undefined): data is Feature[] 
 
 /** A feature's record from any loaded project list, without a request. */
 export function lookupFeature(featureId: number): Feature | undefined {
+  return lookupListedFeature(featureId)?.feature;
+}
+
+/**
+ * A feature's record from a loaded project list, with when that list was
+ * fetched: 0 once the list is invalidated, so a cache seeded from it refetches
+ * instead of trusting a record a newer prompt already changed.
+ */
+export function lookupListedFeature(
+  featureId: number,
+): { feature: Feature; updatedAt: number } | undefined {
   // Prefix-match all per-project listFeatures caches via the orval-generated key.
   // Other per-feature queries share the prefix (a pending gate is
   // `["/api/features", id, "pending-gate", …]`): only lists hold features.
-  const queries = queryClient.getQueriesData<Feature[] | object>({
-    queryKey: getListFeaturesQueryKey(),
-  });
-  for (const [, data] of queries) {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: getListFeaturesQueryKey() });
+  for (const { state } of queries) {
+    const data = state.data as Feature[] | object | undefined;
     if (!isFeatureList(data)) continue;
     const feature = data.find((f) => f.id === featureId);
-    if (feature) return feature;
+    if (feature) return { feature, updatedAt: state.isInvalidated ? 0 : state.dataUpdatedAt };
   }
   return undefined;
 }
@@ -228,8 +239,10 @@ export function handleAppEnvelope(
     // auto-name) also changed a title, so refresh the individual feature — an
     // open conversation header falls back to the REST title when this device
     // has no live WS title — via the shared invalidation helper. "reordered"
-    // (a new user message changed the most-recent-user-message sort key) only
-    // reshuffles its own project's list, so it's scoped to that project.
+    // (a new user message changed the most-recent-user-message sort key)
+    // reshuffles its own project's list, scoped to that project. That prompt
+    // also recorded the provider, model and effort it was sent with, which the
+    // individual record shows too (the "For me" rows read it).
     // create/delete reshape the lists too, but a created feature isn't cached
     // yet, so they fall back to invalidating every project's list. The
     // single-feature refetch (a guaranteed 404 after a delete) is skipped for
@@ -238,6 +251,7 @@ export function handleAppEnvelope(
     if (payload.action === "updated" && featureId != null) {
       invalidateFeatureQueries(featureId, ["title"]);
     } else if (payload.action === "reordered" && featureId != null) {
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureQueryKey(featureId) });
       const projectId = lookupFeature(featureId)?.project_id;
       void queryClient.invalidateQueries({
         queryKey:

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   handleAppEnvelope,
   lookupFeature,
+  lookupListedFeature,
   resetEditorInvalidationSchedulingForTest,
 } from "./session-status-handlers";
 import { queryClient } from "@/lib/queryClient";
@@ -123,5 +124,18 @@ describe("lookupFeature", () => {
     queryClient.setQueryData(["/api/features", { project_id: 1 }], [{ id: 7, title: "Seven" }]);
     expect(lookupFeature(7)).toMatchObject({ id: 7, title: "Seven" });
     expect(lookupFeature(8)).toBeUndefined();
+  });
+});
+
+describe("lookupListedFeature", () => {
+  afterEach(() => queryClient.clear());
+
+  it("dates a listed record with its list, and zero once the list is invalidated", async () => {
+    queryClient.setQueryData(["/api/features", { project_id: 1 }], [{ id: 7, title: "Seven" }], {
+      updatedAt: 1234,
+    });
+    expect(lookupListedFeature(7)).toMatchObject({ feature: { id: 7 }, updatedAt: 1234 });
+    await queryClient.invalidateQueries({ queryKey: ["/api/features"], refetchType: "none" });
+    expect(lookupListedFeature(7)?.updatedAt).toBe(0);
   });
 });
