@@ -54,8 +54,8 @@ The remaining work follows the waves below.
 - Explicit current governance: only `rle-mino` may push `main`; no teams/apps,
   `enforce_admins: true`, no mandatory reviews or CI checks. CI remains advisory.
   This supersedes earlier policy requirements, not package-integrity gates.
-- Monorepo registry, author and qualification pins select stable `0.15.2`;
-  see the [0.15.2 evidence](qa/MARKETPLACE_STABLE_CLI_0152_2026_10_25.md). The
+- Monorepo registry, author and qualification pins select stable `0.15.4`;
+  see the [provider-author and offline qualification](qa/MARKETPLACE_STABLE_CLI_0154_2026_11_02.md). The
   deployed registry pin follows separately (wave 4).
   No official Graphite, Ember, Fjord or Pi release, production signing/feed
   publication or desktop activation follows from SDK/CLI publication.
