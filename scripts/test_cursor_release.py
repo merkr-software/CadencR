@@ -130,5 +130,71 @@ class ProvenanceTests(unittest.TestCase):
             run.assert_not_called()
 
 
+class RequestTests(unittest.TestCase):
+    def setUp(self):
+        self.root = pathlib.Path(tempfile.mkdtemp(prefix="cursor-request-test-"))
+        self.template = (pathlib.Path(__file__).parent.parent /
+                         "plugins/providers/cursor/package-template.json").read_bytes()
+        self.inputs = self.root / "inputs"
+        self.inputs.mkdir()
+        for target in prepare.TARGETS:
+            directory = self.inputs / f"cursor-native-{target}-{SOURCE}"
+            (directory / "bin").mkdir(parents=True)
+            binary = b"inert test payload " + target.encode()
+            (directory / "bin/provider").write_bytes(binary)
+            for name in ("LICENSE", "README.md", "icon.svg"):
+                (directory / name).write_bytes(name.encode())
+            evidence = {"schema_version": 1, "target": target, "source_commit": SOURCE,
+                        "version": "0.1.0", "executable_sha256": prepare.digest(binary),
+                        "runtime": "scripted-cursor-cli", "real_cursor_cli": False,
+                        "checks": prepare.CHECKS, "result": "PASS"}
+            (directory / "qualification.json").write_text(json.dumps(evidence))
+
+    def tracked(self, repo, commit, name):
+        if name == "package-template.json":
+            return self.template
+        if name == "package.json":
+            return b'{"version":"0.1.0"}'
+        return name.encode()
+
+    def pack(self, args, **kwargs):
+        self.assertEqual(args[:2], ["/trusted/cli", "registry"])
+        self.assertEqual(args[2], "pack-provider")
+        target = args[args.index("--target") + 1]
+        archive = pathlib.Path(args[args.index("--output") + 1])
+        data = b"canonical packer fixture " + target.encode()
+        archive.write_bytes(data)
+        return json.dumps({"target": target, "archive": str(archive),
+                           "sha256": prepare.digest(data), "size": len(data)}).encode()
+
+    def build(self, name):
+        args = argparse.Namespace(input=self.inputs, output=self.root / name, source_repo=self.root,
+                                  source_commit=SOURCE, cli=pathlib.Path("/trusted/cli"))
+        with patch.object(prepare, "tracked", side_effect=self.tracked), \
+                patch.object(prepare.subprocess, "check_output", side_effect=self.pack), \
+                patch.object(prepare.subprocess, "run") as validate:
+            digest = prepare.prepare(args)
+            self.assertEqual(validate.call_count, 2)
+        return digest, args.output
+
+    def test_inspect_and_publish_reconstruction_have_identical_request_bytes(self):
+        first, one = self.build("inspection")
+        second, two = self.build("publication")
+        self.assertEqual(first, second)
+        self.assertEqual((one / "request.json").read_bytes(), (two / "request.json").read_bytes())
+        request = json.loads((one / "request.json").read_bytes())
+        self.assertEqual(request["source_commit"], SOURCE)
+        self.assertEqual(len(request["additional_archives"]), 3)
+        for item in [request["metadata"], request["archive"], *request["additional_archives"]]:
+            self.assertEqual(prepare.digest((one / item["name"]).read_bytes()), item["sha256"])
+
+    def test_changed_artifact_is_refused_before_request_creation(self):
+        target = prepare.TARGETS[0]
+        (self.inputs / f"cursor-native-{target}-{SOURCE}" / "bin/provider").write_bytes(b"changed")
+        with self.assertRaises(ValueError):
+            self.build("refused")
+        self.assertFalse((self.root / "refused/request.json").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

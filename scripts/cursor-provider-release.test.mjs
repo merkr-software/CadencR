@@ -21,10 +21,12 @@ test("compiled Cursor publication binds native payloads and build provenance", (
 test("native release jobs have four native targets and no publication credential", () => {
   const build = workflow("cursor-provider-build.yml");
   assert.deepEqual(build.permissions, { contents: "read" });
-  assert.deepEqual(
-    build.jobs.native.strategy.matrix.include.map((row) => row.target).sort(),
-    ["darwin-aarch64", "darwin-x86_64", "linux-aarch64", "linux-x86_64"],
-  );
+  assert.deepEqual(build.jobs.native.strategy.matrix.include.map((row) => row.target).sort(), [
+    "darwin-aarch64",
+    "darwin-x86_64",
+    "linux-aarch64",
+    "linux-x86_64",
+  ]);
   assert.ok(build.jobs.native.steps.some((step) => step.run?.includes("scripts/qualify.py")));
   assert.equal(JSON.stringify(build).includes("secrets."), false);
   assert.equal(build.jobs.native.environment, undefined);
