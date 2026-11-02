@@ -76,6 +76,10 @@ checks continuity against the authenticated prior signed catalog.
 ## Identity, ownership and licensing
 
 - IDs use `^[a-z][a-z0-9-]*$`; normalized collisions and reserved identities fail.
+  The migrated `cursor` identity is accepted only for the official `cadencr`
+  publisher from a `merkr-software` repository, with an explicit minimum host
+  version of `0.16.0` or newer. Other built-in identities and normalized
+  lookalikes remain reserved.
 - New identities require proof of authority over the linked source project.
 - The `host.publisher` value `cadencr` (any letter case) is reserved for the
   official `merkr-software` GitHub organisation. A package or submission that
