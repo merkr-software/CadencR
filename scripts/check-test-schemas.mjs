@@ -38,7 +38,6 @@ export const LEGACY_FILES = new Set([
   "packages/service/src/domain/mcp/control.rs",
   "packages/service/src/domain/neovim/service.rs",
   "packages/service/src/domain/ports/repository.rs",
-  "packages/service/src/domain/projects/repository.rs",
   "packages/service/src/domain/projects/service.rs",
   "packages/service/src/domain/session_status/broadcaster.rs",
   "packages/service/src/domain/session_status/journal.rs",

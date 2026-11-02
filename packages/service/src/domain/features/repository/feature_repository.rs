@@ -306,47 +306,7 @@ pub async fn resolve_working_dir(
 
 pub async fn delete_feature(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-
-    // Delete session children, then sessions.
-    sqlx::query(
-        "DELETE FROM session_runtime_ids WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        "DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query("DELETE FROM agent_sessions WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM feature_settings WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM diff_comments WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM diff_viewed_files WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM features WHERE id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
+    super::delete_features_cascade(&mut tx, &[id]).await?;
     tx.commit().await?;
     Ok(())
 }
