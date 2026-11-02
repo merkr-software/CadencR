@@ -19,7 +19,7 @@ jobs:
       matrix:
         include:
           - target: darwin-aarch64
-            runner: macos-15
+            runner: macos-26
           - target: darwin-x86_64
             runner: macos-15-intel
           - target: linux-aarch64
