@@ -103,7 +103,6 @@ export interface WsSessionStore {
   /** Clear `forkNavigation` once the source session has navigated to the fork. */
   consumeForkNavigation: (sessionId: string) => void;
   compactSession: (sessionId: string) => void;
-  deleteSession: (sessionId: string) => void;
   setProvider: (sessionId: string, providerId: string, modelId?: string) => void;
   setModel: (sessionId: string, modelId: string, providerId: string) => void;
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;

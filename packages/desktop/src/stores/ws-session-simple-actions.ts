@@ -14,7 +14,6 @@ import {
   createProviderSet,
   createSessionClear,
   createSessionCompact,
-  createSessionDelete,
   type GateCloseReason,
   type RuntimeConfigOverridePatch,
   type WsEnvelope,
@@ -45,7 +44,6 @@ type SimpleSessionActions = Pick<
   | "interrupt"
   | "clearSession"
   | "compactSession"
-  | "deleteSession"
   | "setProvider"
   | "setModel"
   | "setThinkingEffort"
@@ -103,11 +101,6 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
           compactRequestPending: true,
         }),
       );
-    },
-
-    deleteSession(sessionId: string) {
-      const session = getSession(sessionId);
-      sendRaw(sessionId, createSessionDelete(session.serverSessionId));
     },
   };
 }
