@@ -262,18 +262,45 @@ directory order) and frontmatter is a YAML subset of what js-yaml accepts.
 
 ## Release status
 
-`plugins/release-policy.json` has no `provider-cursor` entry yet: its schema
-binds payload files to committed source digests, which a compiled Rust binary
-cannot satisfy without a new artifact kind. Remaining release steps:
+Compiled providers use a separate path from the tracked-blob preparation in
+`plugins/release-policy.json`. The
+[native build workflow](../../../.github/workflows/cursor-provider-build.yml)
+builds and tests this connector on macOS arm64/Intel and Linux arm64/x86_64.
+Each job exercises the **exact distribution executable** with the scripted
+Cursor CLI: version, cold/live model reconciliation, ACP initialization, a
+scripted turn, session load, access-mode restart and stdin shutdown. The evidence
+states `real_cursor_cli: false`; it is native connector conformance, not a test
+of Cursor's hosted service or authentication. No personal credentials or paid
+model are used. The separate real-CLI smoke evidence below remains scoped to
+the host on which it was performed.
 
-1. Compile `bin/provider` per target (`darwin-aarch64`, `darwin-x86_64`,
-   `linux-aarch64`, `linux-x86_64`) in an isolated, unprivileged job from the
-   tagged source (`plugins/provider-cursor/v0.1.0`).
-2. Record the resulting archive blobs and digests in `package-template.json`
-   (currently `PENDING`) through a release-policy entry for compiled payloads.
-3. Qualify each target natively (prompt-free `version`, `models`, initialize,
-   session reconciliation, load and close probes) and record the evidence in
-   `readiness.json`.
+The build produces inert payload artifacts plus canonical archives, metadata,
+source-pinned submission and request. `PENDING` URLs in the source template are
+resolved only in those generated outputs. No compiled binary is committed.
+
+After reviewing a successful build:
+
+1. Land the reviewed source on `main`, retaining the exact build commit.
+2. Create `plugins/provider-cursor/v0.1.0` at that exact commit.
+3. Dispatch [the author workflow](../../../.github/workflows/cursor-provider-author.yml)
+   from `main` with `source_commit`, `build_run` and 64 zeroes for
+   `request_sha256`. Inspect its public candidate and request digest.
+4. Dispatch again with the inspected digest. The protected
+   `official-plugin-publication` job independently checks repository, native
+   build run, source/tag, environment protections, payload hashes and the pinned
+   released CLI before loading the separately scoped author credential. It
+   reconstructs the request again and never executes a candidate payload.
+   Required GitHub environment approval remains an operator action.
+5. Submit the emitted package/submission pair to the public registry, publish
+   through its protected signing workflow, then verify a managed installation
+   before releasing the desktop app.
+
+The author workflow accepts only successful runs of this repository's fixed
+native build workflow, with all four declared targets and exact source bindings.
+The downloaded candidate from the build is for inspection; the protected job
+repackages the native payloads with the pinned CLI and confirms the request hash.
+An expired or missing artifact, changed byte, tag mismatch, foreign run, or
+failed native check stops publication. Existing versions are never overwritten.
 
 `package-template.json` declares `min_app_version` `0.16.0`, the first app
 release that ships the host side of this connector: the removal of the
