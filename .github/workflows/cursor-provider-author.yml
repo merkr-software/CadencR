@@ -36,11 +36,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: trusted
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.source_commit }}
-          path: candidate
           fetch-depth: 0
           persist-credentials: false
       - name: Bind native artifacts and inspect exact author request
@@ -52,7 +47,7 @@ jobs:
           DIGEST: ${{ inputs.request_sha256 }}
         run: |
           python3 trusted/scripts/cursor-release-stage.py \
-            --source-repo "$GITHUB_WORKSPACE/candidate" --source-commit "$SOURCE" \
+            --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
             --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
           if [ "$DIGEST" != 0000000000000000000000000000000000000000000000000000000000000000 ]; then
             echo 'confirmed=true' >> "$GITHUB_OUTPUT"
@@ -81,11 +76,6 @@ jobs:
         with:
           ref: ${{ github.sha }}
           path: trusted
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.source_commit }}
-          path: candidate
           fetch-depth: 0
           persist-credentials: false
       - name: Independently reconstruct exact approved request (inert artifacts only)
@@ -96,7 +86,7 @@ jobs:
           DIGEST: ${{ inputs.request_sha256 }}
         run: |
           python3 trusted/scripts/cursor-release-stage.py \
-            --source-repo "$GITHUB_WORKSPACE/candidate" --source-commit "$SOURCE" \
+            --source-repo "$GITHUB_WORKSPACE/trusted" --source-commit "$SOURCE" \
             --build-run "$BUILD_RUN" --request-sha256 "$DIGEST" --output "$RUNNER_TEMP/cursor-author"
           sh trusted/tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
             trusted/scripts/official-plugin-author-cli.env "$RUNNER_TEMP/cursor-cli" > /dev/null

@@ -65,10 +65,14 @@ def validate_context(args):
     pin = (ROOT / "scripts/official-plugin-author-cli.env").read_bytes()
     require(hashlib.sha256(pin).hexdigest() == policy["author_cli_pin_sha256"], "author CLI pin review mismatch")
     environment(policy)
-    source = subprocess.check_output(["git", "-C", str(args.source_repo), "rev-parse", "HEAD"], timeout=30).decode().strip()
-    require(source == args.source_commit, "candidate checkout source mismatch")
+    require(args.source_repo.resolve() == ROOT, "source objects must come from the trusted checkout")
+    head = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"], timeout=30).decode().strip()
+    require(head == os.environ.get("GITHUB_SHA"), "trusted checkout does not match workflow commit")
+    source = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "--verify",
+                                     f"{args.source_commit}^{{commit}}"], timeout=30).decode().strip()
+    require(source == args.source_commit, "source object mismatch")
     subprocess.run(["git", "-C", str(args.source_repo), "merge-base", "--is-ancestor",
-                    args.source_commit, "origin/main"], check=True, timeout=30)
+                    args.source_commit, "HEAD"], check=True, timeout=30)
     version = json.loads(subprocess.check_output(["git", "-C", str(args.source_repo), "show",
                         f"{args.source_commit}:plugins/providers/cursor/package.json"], timeout=30))["version"]
     require(re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version), "invalid Cursor version")

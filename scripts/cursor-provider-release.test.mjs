@@ -43,6 +43,10 @@ test("compiled author publication preserves exact confirmation and credential is
   for (const job of Object.values(author.jobs)) {
     assert.ok(job.steps.some((step) => step.run?.includes("scripts/cursor-release-stage.py")));
     assert.ok(job.steps.every((step) => !step.run?.includes("${{ inputs.")));
+    const checkouts = job.steps.filter((step) => step.uses?.startsWith("actions/checkout@"));
+    assert.equal(checkouts.length, 1);
+    assert.equal(checkouts[0].with.ref, "${{ github.sha }}");
+    assert.equal(checkouts[0].with["fetch-depth"], 0);
   }
   const credentials = author.jobs.publish.steps.filter((step) =>
     JSON.stringify(step).includes("secrets.CADENCR_AUTHOR_GITHUB_TOKEN"),
