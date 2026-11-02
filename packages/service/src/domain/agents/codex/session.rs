@@ -20,7 +20,6 @@ use super::async_questions::PendingAsyncQuestions;
 use super::event_loop::spawn_event_loop;
 use super::event_system::init_event;
 use super::event_turn_state::RootTurnTracker;
-use super::input::user_input_from_content;
 use super::mcp_status::parse_mcp_server_statuses;
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
@@ -31,8 +30,8 @@ use super::session_permissions::{
 use super::timeouts::{with_control_timeout, with_probe_timeout};
 use super::turn_start::{turn_start_params, TurnStartOptions};
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeAccessMode, RuntimeError, RuntimeEvent, RuntimeMcpServerStatus,
-    RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
+    AgentRuntimeSession, KnownSubagent, RuntimeAccessMode, RuntimeError, RuntimeEvent,
+    RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionResponse,
     RuntimePermissionResponseKind,
 };
 use stream::{error_receiver, spawn_local_forwarder, stream_channel};
@@ -47,6 +46,9 @@ pub(super) struct CodexSession {
     model: Arc<RwLock<Option<String>>>,
     effort: Arc<RwLock<Option<String>>>,
     effective_model: Arc<RwLock<Option<String>>>,
+    /// The running turn's model: Codex applies `set_model` at the next turn,
+    /// a `model/rerouted` within it.
+    turn_model: Arc<RwLock<Option<String>>>,
     effective_effort: Arc<RwLock<Option<String>>>,
     summary: Option<String>,
     fast_mode: Arc<RwLock<Option<bool>>>,
@@ -64,6 +66,7 @@ pub(super) struct CodexSession {
     compaction: Arc<compaction::CompactionState>,
     mcp_servers: Arc<RwLock<Vec<RuntimeMcpServerStatus>>>,
     context_window: Option<u64>,
+    known_subagents: Vec<KnownSubagent>,
 }
 
 pub(super) struct CodexSessionOptions {
@@ -95,6 +98,7 @@ impl CodexSession {
             child_turn_ids: Arc::new(RwLock::new(HashMap::new())),
             model: Arc::new(RwLock::new(options.model)),
             effort: Arc::new(RwLock::new(options.effort)),
+            turn_model: Arc::new(RwLock::new(options.effective_model.clone())),
             effective_model: Arc::new(RwLock::new(options.effective_model)),
             effective_effort: Arc::new(RwLock::new(options.effective_effort)),
             summary: options.summary,
@@ -113,6 +117,7 @@ impl CodexSession {
             compaction: Arc::default(),
             mcp_servers: Arc::new(RwLock::new(Vec::new())),
             context_window: options.context_window,
+            known_subagents: Vec::new(),
         }
     }
 
@@ -143,6 +148,8 @@ impl CodexSession {
         let model = self.model.read().await.clone();
         let effort = self.effort.read().await.clone();
         let collaboration_model = self.effective_model.read().await.clone();
+        // Before `turn/start`: its `turn/started` can arrive before the reply.
+        *self.turn_model.write().await = collaboration_model.clone();
         let collaboration_effort = self.effective_effort.read().await.clone();
         let fast_mode = *self.fast_mode.read().await;
         let permission_mode = self.permission_mode.read().await.clone();
@@ -169,15 +176,6 @@ impl CodexSession {
         *self.active_turn_id.write().await = Some(turn.id.clone());
         *self.last_root_turn_id.write().await = Some(turn.id);
         Ok(())
-    }
-
-    async fn convert_input(&self, content: Value) -> Result<Vec<Value>, RuntimeError> {
-        let mut new_files = Vec::new();
-        let input = user_input_from_content(content, &mut new_files)?;
-        if !new_files.is_empty() {
-            self.temp_files.lock().await.extend(new_files);
-        }
-        Ok(input)
     }
 }
 
@@ -211,12 +209,17 @@ impl AgentRuntimeSession for CodexSession {
                 root_thread_id: self.thread_id.clone(),
                 child_turn_ids: Arc::clone(&self.child_turn_ids),
             })
-            .model(self.effective_model.clone())
+            .model(Arc::clone(&self.turn_model))
             .closing(Arc::clone(&self.closing))
             .compaction(Arc::clone(&self.compaction))
+            .known_subagents(std::mem::take(&mut self.known_subagents))
             .call();
         spawn_local_forwarder(local_rx, tx);
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {

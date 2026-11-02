@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { providerPackageSchema } from "./marketplace-provider-package";
-import { tabPackageSchema } from "./marketplace-tab-package";
+import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
+import type { ThemeMarketplacePackage } from "./marketplace-theme-package";
 import type { ManagedThemeCatalogResponse } from "@/api/generated";
 import { THEME_TOKEN_KEYS, THEME_OPTIONAL_TOKEN_KEYS } from "./themes/tokens";
 import { toThemeDefinition } from "./themes/user-theme";
@@ -169,64 +169,6 @@ export const managedThemeEntrySchema = z
         message: "Unavailable theme requires a visible diagnostic",
       });
   });
-const themePackageSchema = z
-  .object({
-    theme: z
-      .object({
-        id: z.string(),
-        name: z.string(),
-        description: z.string(),
-        version: z.string(),
-        repository: z.string(),
-        license: z.string(),
-        document_version: z.literal(1),
-        distribution: z
-          .object({
-            repository: z.string().optional(),
-            archive: z.string().url(),
-            sha256: z.string().regex(/^[a-f0-9]{64}$/),
-          })
-          .strict(),
-      })
-      .strict(),
-    host: z
-      .object({
-        publisher: z.string(),
-        compatibility: z
-          .object({ min_app_version: z.string(), max_app_version: z.string().optional() })
-          .strict(),
-        assets: z
-          .object({
-            icon: z.string().optional(),
-            readme: z.string().nullable().optional(),
-            license: z.string().nullable().optional(),
-          })
-          .strict()
-          .optional(),
-      })
-      .strict(),
-  })
-  .strict();
-const mixedEntrySchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("theme"), package: themePackageSchema }).strict(),
-  z.object({ kind: z.literal("provider"), package: providerPackageSchema }).strict(),
-  z.object({ kind: z.literal("tab"), package: tabPackageSchema }).strict(),
-]);
-export const signedMixedCatalogSchema = z
-  .object({
-    signature: z
-      .object({ algorithm: z.literal("ed25519"), key_id: z.string(), value: z.string() })
-      .strict(),
-    signed: z
-      .object({
-        schema_version: z.literal(2),
-        generated_at: z.string(),
-        expires_at: z.string(),
-        packages: z.array(mixedEntrySchema),
-      })
-      .strict(),
-  })
-  .strict();
 export const themeCatalogSchema = z
   .object({
     verified: z.boolean(),
@@ -243,14 +185,12 @@ export const themeCatalogSchema = z
       .optional(),
   })
   .strict();
-export type ThemeMarketplacePackage = z.infer<typeof themePackageSchema>;
-
+/** The catalog's themes by id, standalone and plugin members alike, every version listed. */
 export function groupThemePackages(
   catalog?: ManagedThemeCatalogResponse,
 ): ThemeMarketplacePackage[][] {
   const groups = new Map<string, ThemeMarketplacePackage[]>();
-  for (const raw of catalog?.index?.signed.packages ?? []) {
-    const entry = mixedEntrySchema.parse(raw);
+  for (const entry of catalogMembers(catalog?.index?.signed.packages)) {
     if (entry.kind !== "theme") continue;
     const versions = groups.get(entry.package.theme.id);
     if (versions) versions.push(entry.package);

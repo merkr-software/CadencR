@@ -318,6 +318,140 @@ async fn collect_rich_after_permission(socket: &mut TestWebSocket) -> Vec<Value>
     }
 }
 
+/// Stream until the next gate. Erroring, ending, or switching permission modes
+/// first fails the test: a mode-less provider's gates must never trigger one.
+async fn next_gate(socket: &mut TestWebSocket, text: &mut String) -> PermissionRequestPayload {
+    let deadline = event_deadline();
+    loop {
+        let envelope = next_ws_envelope(socket, deadline).await;
+        if envelope.domain != "session" {
+            continue;
+        }
+        match envelope.action.as_str() {
+            "message" => {
+                let payload: SessionMessagePayload =
+                    serde_json::from_value(envelope.payload).expect("gate session.message");
+                text.push_str(&message_text(&payload));
+            }
+            "permission.request" => {
+                return serde_json::from_value(envelope.payload).expect("gate permission.request")
+            }
+            "mode.changed" => panic!("gate switched modes: {}", envelope.payload),
+            "error" => panic!("unexpected gate session error: {}", envelope.payload),
+            "ended" => panic!("gate turn ended early: {}", envelope.payload),
+            _ => {}
+        }
+    }
+}
+
+async fn finish_gate_turn(socket: &mut TestWebSocket, text: &mut String) -> SessionEndedPayload {
+    let deadline = event_deadline();
+    loop {
+        let envelope = next_ws_envelope(socket, deadline).await;
+        if envelope.domain != "session" {
+            continue;
+        }
+        match envelope.action.as_str() {
+            "message" => {
+                let payload: SessionMessagePayload =
+                    serde_json::from_value(envelope.payload).expect("gate session.message");
+                text.push_str(&message_text(&payload));
+            }
+            "ended" => {
+                return serde_json::from_value(envelope.payload).expect("gate session.ended")
+            }
+            "mode.changed" => panic!("gate switched modes: {}", envelope.payload),
+            "error" => panic!("unexpected gate session error: {}", envelope.payload),
+            _ => {}
+        }
+    }
+}
+
+fn gate_answer(
+    session_id: &str,
+    request_id: String,
+    decision: PermissionDecision,
+    feedback: Option<&str>,
+    updated_input: Option<Value>,
+) -> PermissionRespondPayload {
+    PermissionRespondPayload {
+        session_id: session_id.to_string(),
+        request_id,
+        message_uuid: None,
+        decision,
+        option_id: None,
+        feedback: feedback.map(ToOwned::to_owned),
+        updated_input,
+    }
+}
+
+/// The host conventions an installed provider relies on for input-collecting
+/// gates (`docs/PROVIDER_SPEC/INSTALLED_ACP_PROVIDERS.md`): a standard
+/// permission request whose tool `name` is `AskUserQuestion` reaches the client
+/// as a question carrying its `rawInput`, and the answer returns as
+/// `_meta.updatedInput` on the agent's own allow option. An `ExitPlanMode`
+/// request is a plan gate: rejecting it with feedback keeps the turn alive, and
+/// no permission-mode switch is attempted for a provider without modes.
+async fn exercise_installed_provider_gates(socket: &mut TestWebSocket, session_id: &str) {
+    send_session_payload(
+        socket,
+        "prompt.send",
+        prompt_payload(session_id, "open a gate"),
+    )
+    .await;
+    let mut text = String::new();
+    let question = next_gate(socket, &mut text).await;
+    assert_eq!(question.request_id, "gate-question-1");
+    assert_eq!(question.tool_name, "AskUserQuestion");
+    assert_eq!(question.tool_input["questions"][0]["question"], "Color?");
+    let mut answered = question.tool_input.clone();
+    answered["answers"] = json!({ "Color?": "Blue" });
+    send_session_payload(
+        socket,
+        "permission.respond",
+        gate_answer(
+            session_id,
+            question.request_id,
+            PermissionDecision::AllowOnce,
+            None,
+            Some(answered),
+        ),
+    )
+    .await;
+
+    let plan = next_gate(socket, &mut text).await;
+    assert_eq!(plan.request_id, "gate-plan-1");
+    assert_eq!(plan.tool_name, "ExitPlanMode");
+    assert_eq!(plan.tool_input["plan"], "1. Paint it blue");
+    send_session_payload(
+        socket,
+        "permission.respond",
+        gate_answer(
+            session_id,
+            plan.request_id,
+            PermissionDecision::Deny,
+            Some("Split step one"),
+            None,
+        ),
+    )
+    .await;
+
+    let ended = finish_gate_turn(socket, &mut text).await;
+    assert_eq!(ended.reason, "turn_complete", "{text}");
+    assert!(
+        text.contains("question=gate-accept|None|"),
+        "the answer must select the agent's allow option: {text}"
+    );
+    assert!(
+        text.contains(r#""answers": {"Color?": "Blue"}"#),
+        "the answer must arrive as _meta.updatedInput: {text}"
+    );
+    assert!(
+        text.contains("plan=gate-reject|Split step one|null"),
+        "plan feedback must arrive as _meta.feedback on the reject option: {text}"
+    );
+}
+
 fn prompt_payload(session_id: &str, text: &str) -> PromptSendPayload {
     PromptSendPayload {
         session_id: session_id.to_string(),
@@ -390,7 +524,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         &descriptor(MIXED_CAPABILITY_PROVIDER_ID, &mixed_wrapper),
     );
     // A second descriptor claiming a built-in id must lose to the built-in.
-    write_descriptor(&providers, "cursor.json", &descriptor("cursor", &agent));
+    write_descriptor(&providers, "opencode.json", &descriptor("opencode", &agent));
     // Disabled entries reserve names too, and aliases are part of the built-in
     // namespace: this must not be able to hijack `claude` on a later enable.
     let mut alias_collision = descriptor("claude", &agent);
@@ -414,7 +548,6 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         vec![
             "claude_code",
             "codex_cli",
-            "cursor",
             "opencode",
             PROVIDER_ID,
             CONFIG_PROVIDER_ID,
@@ -547,11 +680,11 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     collect_runtime_turn(resumable_runtime.as_mut()).await;
     non_resumable_runtime.close().await.unwrap();
     resumable_runtime.close().await.unwrap();
-    // The colliding descriptor was refused, and `cursor` still resolves to the
-    // built-in adapter.
+    // The colliding descriptor was refused, and `opencode` still resolves to
+    // the built-in adapter.
     let rejections = &installed::startup_load().rejections;
     assert_eq!(rejections.len(), 2, "{rejections:?}");
-    for rejected_id in ["claude", "cursor"] {
+    for rejected_id in ["claude", "opencode"] {
         let rejection = rejections
             .iter()
             .find(|rejection| rejection.provider_id.as_deref() == Some(rejected_id))
@@ -560,11 +693,11 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
     }
     assert_eq!(
         registry
-            .adapter("cursor")
-            .expect("cursor")
+            .adapter("opencode")
+            .expect("opencode")
             .catalog_entry()
             .label,
-        cadencr_service::domain::agents::cursor::CursorAdapter
+        cadencr_service::domain::agents::opencode::OpenCodeAdapter
             .catalog_entry()
             .label
     );
@@ -634,7 +767,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         quarantined.quarantine_code.as_deref(),
         Some(QuarantineCode::ExecutableNotFound.as_str())
     );
-    for rejected_id in ["claude", "cursor"] {
+    for rejected_id in ["claude", "opencode"] {
         let collision = diagnostics
             .rejected
             .iter()
@@ -1005,7 +1138,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
         &mut socket,
         "permission.respond",
         PermissionRespondPayload {
-            session_id: rich_session_id,
+            session_id: rich_session_id.clone(),
             request_id: permission.request_id,
             message_uuid: None,
             decision: PermissionDecision::AllowOnce,
@@ -1035,6 +1168,7 @@ async fn a_local_acp_executable_is_selectable_and_drives_a_full_turn() {
             "{expected} missing from {projected}"
         );
     }
+    exercise_installed_provider_gates(&mut socket, &rich_session_id).await;
     socket.close(None).await.expect("WebSocket should close");
 
     // --- restart-gated descriptor lifecycle -------------------------------

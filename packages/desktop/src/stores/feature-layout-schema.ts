@@ -21,7 +21,10 @@
 
 import { PLUGIN_TAB_ID_PATTERN } from "@/shared/plugin-tab-host";
 
-/** The six first-party tabs every feature page always carries. */
+/**
+ * The six first-party tabs every feature page always carries. A layout saved
+ * while the custom actions had a `runs` tab drops it on parse (see `parseLeaf`).
+ */
 export type BuiltinTabKind = "agent" | "terminal" | "git" | "editor" | "browser" | "preview";
 /**
  * A custom (plugin) tab, `plugin:<id>`. The id follows the manifest rule in
@@ -54,6 +57,12 @@ export interface LayoutLeaf {
   id: string;
   tabIds: TabKind[];
   activeTabId: TabKind | null;
+  /**
+   * Pop pane: folded to its header along its split edge until it takes
+   * focus, then it expands and pushes its sibling. Only `true` is
+   * stored; never set on the root leaf (see `popChildIndex`).
+   */
+  pop?: true;
 }
 
 export interface LayoutSplit {
@@ -77,7 +86,10 @@ export interface FeatureLayoutState {
    * the right pane when activating a tab.
    */
   focusedPaneId: string | null;
-  /** Id of the saved layout currently applied (for the "Update X" menu item). */
+  /**
+   * Id of the saved layout currently applied (for the "Update X" menu item).
+   * Persisted with the feature's current layout; may outlive its layout.
+   */
   appliedLayoutId: number | null;
   /**
    * Auto layout's size memory: the share (percent) the user last gave a pane
@@ -227,7 +239,8 @@ function parseLeaf(value: Record<string, unknown>): LayoutLeaf | null {
       : isTabKind(value.activeTabId)
         ? value.activeTabId
         : (tabIds[0] ?? null);
-  return { type: "leaf", id: value.id, tabIds, activeTabId };
+  const leaf: LayoutLeaf = { type: "leaf", id: value.id, tabIds, activeTabId };
+  return value.pop === true && value.id !== ROOT_LEAF_ID ? { ...leaf, pop: true } : leaf;
 }
 
 function parseLayoutNode(value: unknown): LayoutNode | null {
@@ -366,13 +379,18 @@ export function serializeLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify(state);
 }
 
-/** Serialize the per-feature current layout, preserving focus and size memory. */
+/**
+ * Serialize the per-feature current layout, preserving focus, size memory and
+ * the saved layout it was applied from — so "Update <layout>" survives a
+ * reload. (An id whose layout was deleted since matches no layout and is
+ * ignored by the menu.)
+ */
 export function serializeCurrentLayoutState(state: FeatureLayoutState): string {
   return JSON.stringify({
     version: 1,
     splitRoot: state.splitRoot,
     focusedPaneId: state.focusedPaneId,
-    appliedLayoutId: null,
+    appliedLayoutId: state.appliedLayoutId,
     autoShares: state.autoShares,
   });
 }

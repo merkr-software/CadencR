@@ -1,46 +1,48 @@
-import { forwardRef, useMemo, type HTMLAttributes } from "react";
-import { useIsFetching } from "@tanstack/react-query";
-import { Loader2, Paintbrush, SearchX } from "lucide-react";
+import { useMemo } from "react";
+import { SearchX } from "lucide-react";
 import { VirtuosoGrid } from "react-virtuoso";
-import { Button } from "@/components/ui/button";
-import { usePreviewThemes } from "@/hooks/useThemePreview";
 import type { MarketplaceListing, PluginKind } from "@/lib/marketplace-listings";
 import { cn } from "@/lib/utils";
-import { KIND_ORDER, KINDS } from "./kinds";
-import { useMarketplaceState } from "./MarketplaceContext";
+import { AGENT_KIND_ORDER, KIND_ORDER, KINDS } from "./kinds";
+import type { AgentExtensionKind } from "@/lib/agent-extensions";
+import { GridList, SHELF_SIZE, ShelfFrame } from "./MarketplaceGrid";
 import { MarketplaceEmpty, TILE_GRID } from "./MarketplaceStates";
 import { MarketplaceTile } from "./MarketplaceTile";
 
-export type KindFilter = PluginKind | "all";
-const SHELF_SIZE = 8;
+export type KindFilter = PluginKind | AgentExtensionKind | "all";
 
-const GridList = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(function GridList(
-  { className, ...props },
-  ref,
-) {
-  return <div ref={ref} {...props} className={cn(TILE_GRID, className)} />;
-});
-
-/** Kind filter: every kind the catalog serves, with how many plugins each has. */
+/**
+ * Kind filter: every kind the catalog serves, with how many plugins each has,
+ * then the kinds the agent CLIs install (counted once their catalogs answered).
+ */
 export function KindFilterBar({
   listings,
   kind,
   onKindChange,
+  agentKinds = [],
 }: {
   listings: MarketplaceListing[];
   kind: KindFilter;
   onKindChange: (kind: KindFilter) => void;
+  agentKinds?: { kind: AgentExtensionKind; count?: number }[];
 }): React.JSX.Element {
-  const options: { value: KindFilter; label: string; count: number; tone?: string }[] = [
-    { value: "all", label: "All", count: listings.length },
+  const options: { value: KindFilter; label: string; count?: number; tone?: string }[] = [
+    // Agent kinds have no total, so "All" carries a count only without them.
+    { value: "all", label: "All", count: agentKinds.length ? undefined : listings.length },
     ...KIND_ORDER.filter(
-      (value) => value === kind || listings.some((listing) => listing.kind === value),
+      (value) => value === kind || listings.some((listing) => listing.contributes.includes(value)),
     ).map((value) => ({
       value,
       label: KINDS[value].plural,
       count: listings.filter((listing) => listing.contributes.includes(value)).length,
       tone: KINDS[value].tone,
     })),
+    ...AGENT_KIND_ORDER.flatMap((value) => {
+      const agent = agentKinds.find((item) => item.kind === value);
+      return agent || value === kind
+        ? [{ value, label: KINDS[value].plural, count: agent?.count, tone: KINDS[value].tone }]
+        : [];
+    }),
   ];
   return (
     <div role="group" aria-label="Plugin type" className="flex flex-wrap items-center gap-1.5">
@@ -64,39 +66,15 @@ export function KindFilterBar({
           >
             {Icon && <Icon aria-hidden="true" className="size-3.5 text-[var(--mp-kind)]" />}
             {option.label}
-            <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
-              {option.count}
-            </span>
+            {option.count !== undefined && (
+              <span className="font-mono text-[10.5px] tabular-nums text-muted-foreground">
+                {option.count}
+              </span>
+            )}
           </button>
         );
       })}
     </div>
-  );
-}
-
-/**
- * Loads verified colors for every theme on the shelf that is not installed.
- * Stays available after a click: cached previews are skipped, failed ones retried.
- */
-function PreviewThemesButton({
-  listings,
-}: {
-  listings: MarketplaceListing[];
-}): React.JSX.Element | null {
-  const { themes } = useMarketplaceState();
-  const previewThemes = usePreviewThemes(themes.catalog.data?.index);
-  const fetching = useIsFetching({ queryKey: ["marketplace", "theme-preview"] }) > 0;
-  const unpainted = listings.filter((listing) => listing.inCatalog && !listing.installed);
-  if (!unpainted.length) return null;
-  return (
-    <Button variant="ghost" size="xs" disabled={fetching} onClick={() => previewThemes(unpainted)}>
-      {fetching ? (
-        <Loader2 aria-hidden="true" className="animate-spin" />
-      ) : (
-        <Paintbrush aria-hidden="true" />
-      )}
-      {fetching ? "Painting previews…" : "Preview colors"}
-    </Button>
   );
 }
 
@@ -109,35 +87,19 @@ function Shelf({
   listings: MarketplaceListing[];
   onSeeAll: () => void;
 }): React.JSX.Element {
-  const meta = KINDS[kind];
-  const Icon = meta.icon;
-  const shown = listings.slice(0, SHELF_SIZE);
   return (
-    <section aria-labelledby={`mp-shelf-${kind}`} className={cn("space-y-3", meta.tone)}>
-      <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-        <div className="min-w-0 flex-1">
-          <h2 id={`mp-shelf-${kind}`} className="flex items-center gap-2 text-[15px] font-semibold">
-            <Icon aria-hidden="true" className="size-4 text-[var(--mp-kind)]" />
-            {meta.plural}
-            <span className="font-mono text-[11px] font-normal tabular-nums text-muted-foreground">
-              {listings.length}
-            </span>
-          </h2>
-          <p className="text-xs text-muted-foreground">{meta.pitch}</p>
-        </div>
-        {kind === "theme" && <PreviewThemesButton listings={shown} />}
-        {listings.length > SHELF_SIZE && (
-          <Button variant="ghost" size="xs" onClick={onSeeAll}>
-            See all {listings.length}
-          </Button>
-        )}
-      </div>
+    <ShelfFrame
+      kind={kind}
+      count={listings.length}
+      seeAll={listings.length > SHELF_SIZE ? `See all ${listings.length}` : undefined}
+      onSeeAll={onSeeAll}
+    >
       <div className={TILE_GRID}>
-        {shown.map((listing) => (
+        {listings.slice(0, SHELF_SIZE).map((listing) => (
           <MarketplaceTile key={listing.key} listing={listing} />
         ))}
       </div>
-    </section>
+    </ShelfFrame>
   );
 }
 
@@ -156,7 +118,8 @@ export function MarketplaceDiscover({
   scrollParent: HTMLElement | null;
 }): React.JSX.Element {
   const visible = useMemo(
-    () => (kind === "all" ? listings : listings.filter((l) => l.contributes.includes(kind))),
+    () =>
+      kind === "all" ? listings : listings.filter((l) => l.contributes.some((c) => c === kind)),
     [listings, kind],
   );
   if (!visible.length)

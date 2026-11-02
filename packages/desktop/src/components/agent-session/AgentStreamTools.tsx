@@ -1,10 +1,11 @@
 import { memo, type ReactElement, type RefObject } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { ConversationSearch } from "./ConversationSearch";
 import { MessageNavigator } from "./MessageNavigator";
 import type { MessageNavigatorControls } from "./useMessageNavigator";
+import { useSubagentCardsStream } from "./subagent-reveal";
 
 interface AgentStreamToolsProps {
   items: DisplayItem[];
@@ -13,11 +14,16 @@ interface AgentStreamToolsProps {
   scrollerRef: RefObject<HTMLElement | null>;
   /** Agent tab focused: gates ⌘F search and the navigator's ⌥↑ / ⌥↓. */
   shortcutsEnabled: boolean;
-  /** Null hides the prompt rail (Settings → Interface). */
+  /** Null hides the prompt rail (Settings → Appearance → Agent transcript). */
   messageNavigator: MessageNavigatorControls | null;
+  /** Block holding the active search match, or null. */
+  onSearchBlockChange: (blockId: string | null) => void;
 }
 
-/** Overlays that find and jump through the transcript: ⌘F search and the prompt rail. */
+/**
+ * What finds and jumps through the transcript: ⌘F search, the prompt rail,
+ * and the cards' link behind the composer's agent list.
+ */
 export const AgentStreamTools = memo(function AgentStreamTools({
   items,
   toolResultMap,
@@ -25,7 +31,9 @@ export const AgentStreamTools = memo(function AgentStreamTools({
   scrollerRef,
   shortcutsEnabled,
   messageNavigator,
+  onSearchBlockChange,
 }: AgentStreamToolsProps): ReactElement {
+  useSubagentCardsStream(items, virtuosoRef, scrollerRef);
   return (
     <>
       {shortcutsEnabled && (
@@ -35,6 +43,7 @@ export const AgentStreamTools = memo(function AgentStreamTools({
           toolResultMap={toolResultMap}
           virtuosoRef={virtuosoRef}
           scrollerRef={scrollerRef}
+          onActiveBlockChange={onSearchBlockChange}
         />
       )}
       {messageNavigator && (

@@ -7,6 +7,7 @@
     "custom-tab",
     "plugin"
   ],
+  "homepage": "https://cadencr.com/docs/tab-sdk/",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

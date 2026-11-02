@@ -15,7 +15,7 @@ import {
   type useSessionControls,
   type useSessionFeatureData,
 } from "@/components/WebSocketSessionFeatureBlockHooks";
-import { COMPACT_ACTION_PROVIDERS } from "@/lib/providers";
+import { isCompactActionPrompt } from "@/lib/provider-host-capabilities";
 import type { UseSessionTabsArgs } from "./WebSocketSessionFeatureBlockTabs";
 
 import type { SessionConfigControls } from "./agent-session/types";
@@ -77,7 +77,7 @@ function AgentTabContent({
         status={controls.ws.status}
         isCompacting={controls.ws.isCompacting}
         lifecycle={controls.ws.lifecycle}
-        turnTiming={controls.ws.turnTiming}
+        turnClock={controls.ws.turnClock}
         onSend={onSend}
         onStop={controls.ws.interrupt}
         disabled={hasAccessModes && controls.isAccessModePending}
@@ -128,6 +128,7 @@ function AgentTabContent({
         sessionConfigControls={sessionConfigControls}
         slashCommandsOverride={data.session?.slashCommands ?? []}
         slashCommandsLoading={data.session?.slashCommandsLoading ?? false}
+        slashCommandsError={data.session?.slashCommandsError ?? null}
         promptCommandPolicy={data.session?.promptCommandPolicy}
         todos={agentVisible ? (data.session?.todos ?? null) : null}
         disableShortcuts={!hotkeysEnabled}
@@ -218,7 +219,7 @@ function useAgentSendHandler(args: {
         controls.ws.clearSession();
         return;
       }
-      if (text.trim() === "/compact" && COMPACT_ACTION_PROVIDERS.has(controls.activeProviderId)) {
+      if (isCompactActionPrompt(text, controls.compactAction)) {
         controls.ws.compactSession();
         return;
       }

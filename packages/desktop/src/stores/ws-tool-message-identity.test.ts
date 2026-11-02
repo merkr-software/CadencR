@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/agent-block-types";
+import type { AgentBlockData } from "@/types/agent-block";
 import { mergeCanonicalBlocks } from "./ws-user-message-reconciliation";
 
 function result(id: string, parentToolUseId: string | null = null): AgentBlockData {

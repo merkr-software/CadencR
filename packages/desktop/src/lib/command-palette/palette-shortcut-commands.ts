@@ -92,6 +92,11 @@ export const PALETTE_SHORTCUT_COMMANDS = {
     keywords: ["search", "transcript", "messages"],
   },
   "git-actions": { title: "Git actions…", group: "Git", keywords: ["git", "menu"] },
+  "custom-actions": {
+    title: "Custom actions…",
+    group: "Conversation",
+    keywords: ["run", "task", "script", "command", "runs"],
+  },
   "git-commit": { title: "Commit…", group: "Git", keywords: ["git", "save", "stage"] },
   "git-push": { title: "Push…", group: "Git", keywords: ["git", "upload", "remote"] },
   "git-pr": {

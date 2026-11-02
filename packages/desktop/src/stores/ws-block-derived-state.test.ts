@@ -5,7 +5,7 @@ import {
   rebuildDerivedAgentStreamState,
 } from "./ws-block-mutations";
 import { createStreamingState } from "./ws-message-processing";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createStructuredToolStream } from "./ws-structured-tool-stream";
 
 describe("rebuildDerivedAgentStreamState", () => {

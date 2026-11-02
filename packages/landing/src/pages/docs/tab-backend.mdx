@@ -1,0 +1,163 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "cadencr-tab-backend — native custom tab backends"
+description: "Write a Rust backend for a custom tab with stdio framing, scoped API access, and conformance checks."
+lastReviewed: "2026-10-31"
+---
+
+`cadencr-tab-backend` is the Rust helper for a custom tab's native executable. Cadencr starts the process on the first `backend.request()` and exchanges newline-delimited JSON over stdin/stdout. The crate handles the handshake, framing, worker pool, and error responses.
+
+[crates.io](https://crates.io/crates/cadencr-tab-backend) · [Rust API reference](https://docs.rs/cadencr-tab-backend) · [README and source](https://github.com/merkr-software/CadencR/tree/main/packages/tab-backend-sdk-rs)
+
+## Install
+
+Add these dependencies to your backend project's `Cargo.toml`:
+
+```toml
+[dependencies]
+cadencr-tab-backend = "0.1"
+serde_json = "1"
+```
+
+The crate uses std threads and blocking handlers; an async runtime is not required. Its version is independent of Cadencr's app version. The current stdio protocol is **1**.
+
+## Write a handler
+
+Create `src/main.rs`:
+
+```rust
+use std::process::ExitCode;
+
+use cadencr_tab_backend::{serve, Context, Error};
+use serde_json::{json, Value};
+
+fn handle(cx: &Context) -> Result<Value, Error> {
+    match cx.method() {
+        "greet" => {
+            let name: String = cx.params()?;
+            Ok(json!(format!("hello, {name}")))
+        }
+        other => Err(Error::unknown_method(other)),
+    }
+}
+
+fn main() -> ExitCode {
+    serve(handle)
+}
+```
+
+`cx.params::<T>()` deserializes the input and returns `INVALID_PARAMS` on a type mismatch. Return `Error` for application failures. A panic becomes `INTERNAL_ERROR`; malformed input is logged to stderr. Handlers must be `Send + Sync + 'static` because requests run concurrently, with eight workers by default.
+
+Use `serve_with(Config::builder().workers(n).build(), handler)` to set the worker count. Responses may arrive out of order and are matched by request ID.
+
+## Declare and call the backend
+
+Build native executables for the platforms you support, copy them into the tab folder, and add a `backend` field to its `tab.json`:
+
+```json
+{
+  "backend": {
+    "protocol": 1,
+    "reasoning": "Provides a native greeting service for this tab.",
+    "binary": {
+      "darwin-aarch64": "bin/darwin-aarch64/my-backend",
+      "darwin-x86_64": "bin/darwin-x86_64/my-backend",
+      "linux-x86_64": "bin/linux-x86_64/my-backend"
+    }
+  }
+}
+```
+
+This is a manifest fragment; keep the fields from your [custom tab manifest](/docs/libraries/#manifest-and-build). Only declare platforms for which you ship a binary. Paths are relative to the tab folder. Native executables need executable permissions and must match the declared OS and CPU; macOS arm64 binaries also need a valid signature. The manifest change requires user consent.
+
+Call the handler from your tab's JavaScript:
+
+```ts
+import { connect, isReportedByHost, toCadencrError } from "@cadencr/tab-sdk";
+
+const output = document.createElement("p");
+output.textContent = "Loading greeting…";
+document.body.append(output);
+
+try {
+  const client = await connect();
+  window.addEventListener("pagehide", () => client.close(), { once: true });
+  output.textContent = await client.backend.request<string>("greet", "Ada");
+} catch (error) {
+  output.textContent = isReportedByHost(error)
+    ? "Open this tab's Activity for backend details."
+    : toCadencrError(error).message;
+}
+```
+
+The host owns the process lifetime, with a backend per plugin/conversation. It may stop idle processes; keep durable state outside process memory. Open the tab's **Activity** to inspect startup failures, exits, and stderr logs.
+
+## Context and persistence
+
+| Handler API                     | Purpose                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `method()`, `id()`              | Current method and request ID.                                                                  |
+| `params::<T>()`, `raw_params()` | Typed or raw JSON arguments.                                                                    |
+| `hello()`                       | Plugin identity, project/feature IDs, worktree, granted scopes, and API connection information. |
+| `state_dir()`                   | Host-provided writable directory for this tab's state.                                          |
+| `api()`                         | Scoped blocking HTTP client, with the `api` feature enabled.                                    |
+
+Use `state_dir()` for your backend's own files. It is shared by this tab's conversations, whose backends may run concurrently; use feature-specific subdirectories or file locks to coordinate writes. Do not put backend state in the project's worktree or rely on the current working directory. Never log the API token from `hello()`.
+
+On Unix, `serve` reserves stdin/stdout for the protocol: other stdout writes go to stderr, and child processes inherit `/dev/null` as stdin. Call `serve` before reading stdin yourself. Use `eprintln!` for diagnostics.
+
+Native code runs with the user's operating-system rights. The host enforces API scopes and consent; it does not sandbox the process's filesystem or network access.
+
+## Optional features
+
+| Feature       | Default | Adds                                                                            |
+| ------------- | ------- | ------------------------------------------------------------------------------- |
+| `api`         | Off     | `Context::api()`, a blocking client using the backend's own scoped token.       |
+| `conformance` | Off     | Protocol checks for any backend executable, including non-Rust implementations. |
+
+For scoped API access:
+
+```toml
+cadencr-tab-backend = { version = "0.1", features = ["api"] }
+```
+
+```rust
+use cadencr_tab_backend::{Context, Error};
+use serde_json::Value;
+
+fn git_status(cx: &Context) -> Result<Value, Error> {
+    let path = format!("/api/git/status?feature_id={}", cx.hello().feature_id);
+    Ok(cx.api()?.get(&path)?)
+}
+```
+
+This request requires `git:read` in the tab manifest. The client restricts its base URL to loopback HTTP, ignores proxy environment variables, and decodes Cadencr's `{error, code}` failures. The token is for this backend's plugin API grant; it is not the desktop's main API token.
+
+## Test and validate
+
+Add this module after the `handle` function from the first example to test in-process:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::handle;
+    use cadencr_tab_backend::testing::TestHost;
+    use serde_json::json;
+
+    #[test]
+    fn greets_a_name() {
+        let host = TestHost::new(handle);
+        assert_eq!(host.call("greet", json!("Ada")), Ok(json!("hello, Ada")));
+    }
+}
+```
+
+`TestHost::session()` exercises the handshake and framing in memory. Test the actual executable too, with the Cadencr CLI:
+
+```bash
+cadencr plugin validate /absolute/path/to/example-tab --kind tab
+```
+
+With the current platform's binary present, validation runs the conformance suite and checks executable admission. `--no-run` skips execution, but still checks whether the host would accept the binary. Test each declared platform with its native build.
+
+For programmatic conformance, enable `conformance` and call `conformance::run(binary, &Options::default())`. For complete framing, lifecycle, limits, and distribution rules, see the [backend protocol specification](https://github.com/merkr-software/CadencR/blob/main/docs/TAB_BACKEND_PROTOCOL.md).

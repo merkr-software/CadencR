@@ -1,6 +1,7 @@
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
-import { parseAskUserQuestions, type AgentQuestion } from "@/components/AgentQuestionDrawer";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
+import { parseAskUserQuestions } from "@/lib/agent-question-parser";
+import type { AgentQuestion } from "@/types/agent-question";
+import type { PendingPermission } from "@/types/agent-permission";
 import {
   blocksPatchWithDerived,
   injectPlanIntoBlocks,

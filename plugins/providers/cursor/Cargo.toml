@@ -1,0 +1,31 @@
+[package]
+name = "cadencr-plugin-provider-cursor"
+# Connector version, independent of the Cadencr app and the Cursor CLI. Keep in
+# lockstep with package.json, package-template.json and readiness.json.
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+description = "Cadencr provider connector for the Cursor Agent CLI (ACP v1 proxy)"
+publish = false
+
+[[bin]]
+# Copied to the package's `bin/provider` by `scripts/build.mjs`.
+name = "cadencr-cursor-provider"
+path = "src/main.rs"
+
+[dependencies]
+agent-client-protocol = "3.4.0"
+bon.workspace = true
+cadencr-provider-sdk = { path = "../../../packages/provider-plugin-sdk-rs", version = "0.3" }
+regex-lite = "0.1"
+serde_json = "1"
+tokio = { version = "1", features = ["io-std", "io-util", "macros", "process", "rt", "signal", "sync", "time"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

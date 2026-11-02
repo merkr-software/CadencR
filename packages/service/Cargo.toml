@@ -15,7 +15,6 @@ cadencr-tab-backend = { path = "../tab-backend-sdk-rs" }
 claude-agent-sdk-rs = { path = "../claude-agent-sdk-rs" }
 cli-discovery = { path = "../cli-discovery" }
 codex-app-server-sdk-rs = { path = "../codex-app-server-sdk-rs" }
-cursor-agent-sdk-rs = { path = "../cursor-agent-sdk-rs" }
 opencode-sdk-rs = { path = "../opencode-sdk-rs" }
 tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["compat", "io"] }

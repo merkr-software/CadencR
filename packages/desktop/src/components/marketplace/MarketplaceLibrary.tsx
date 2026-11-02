@@ -5,6 +5,7 @@ import { Virtuoso } from "react-virtuoso";
 import { BLOCKED_COPY } from "@/components/plugin-tabs/plugin-tab-access";
 import { Button } from "@/components/ui/button";
 import { downloadableUpdate, type MarketplaceListing } from "@/lib/marketplace-listings";
+import { isStandalone } from "@/lib/marketplace-plugin-listings";
 import { cn } from "@/lib/utils";
 import { marketplaceError } from "@/lib/marketplace";
 import { KINDS } from "./kinds";
@@ -19,7 +20,11 @@ function InstalledFacts({ listing }: { listing: MarketplaceListing }): React.JSX
   const installed = listing.installed;
   if (!installed) return null;
   const facts: string[] = [];
-  if (listing.kind === "provider")
+  if (listing.partOf) facts.push(`Part of ${listing.partOf.name}`);
+  if (listing.kind === "plugin") {
+    const count = listing.members?.length ?? 0;
+    facts.push(`${count} component${count === 1 ? "" : "s"}`);
+  } else if (listing.kind === "provider")
     facts.push(installed.enabled ? "Starts with Cadencr" : "Disabled");
   else if (listing.kind === "tab")
     facts.push(installed.enabled ? "Enabled globally" : "Disabled globally");
@@ -41,6 +46,21 @@ function InstalledFacts({ listing }: { listing: MarketplaceListing }): React.JSX
 }
 
 type Actions = ReturnType<typeof usePluginActions>;
+
+/** A plugin update walking its members from this row: which one is in flight, or stopped it. */
+function PluginRunLine({ listingKey }: { listingKey: string }): React.JSX.Element | null {
+  const { pluginRun } = useMarketplaceState();
+  if (pluginRun?.key !== listingKey) return null;
+  return pluginRun.status === "running" ? (
+    <p role="status" className="mt-0.5 truncate text-[11px] text-muted-foreground">
+      Installing {pluginRun.member} ({pluginRun.step} of {pluginRun.total})…
+    </p>
+  ) : (
+    <p role="alert" className="mt-0.5 truncate text-[11px] text-destructive">
+      Stopped at {pluginRun.member}: {pluginRun.message}
+    </p>
+  );
+}
 
 const LibraryRow = memo(function LibraryRow({
   listing,
@@ -81,6 +101,7 @@ const LibraryRow = memo(function LibraryRow({
             {listing.installed.error}
           </p>
         )}
+        {listing.kind === "plugin" && <PluginRunLine listingKey={listing.key} />}
       </div>
       {/* The update button already says it; keep the badge for every other state. */}
       {(!update ||
@@ -133,70 +154,14 @@ export function MarketplaceLibrary({
   onDiscover: () => void;
 }): React.JSX.Element {
   const actions = usePluginActions();
-  const state = useMarketplaceState();
-  const hasUnfilteredResults = state.listings.some((listing) =>
-    view === "updates" ? !!listing.update : !!listing.installed,
-  );
-  const inventoryUnavailable =
-    state.providers.inventoryQuery.isError ||
-    state.themes.inventory.isError ||
-    state.tabs.inventory.isError ||
-    state.tabs.summaries.isError;
-  const updatesUnknown =
-    inventoryUnavailable ||
-    !state.catalogUsable.provider ||
-    !state.catalogUsable.theme ||
-    !state.catalogUsable.tab ||
-    state.providers.catalogQuery.isError ||
-    state.themes.catalog.isError ||
-    state.tabs.catalog.isError;
-  if (!listings.length && hasUnfilteredResults)
-    return (
-      <MarketplaceEmpty
-        icon={Search}
-        title={
-          view === "updates"
-            ? "No updates match your search"
-            : "No installed plugins match your search"
-        }
-        detail="Try another search or clear it to see all results."
-      />
-    );
-  if (!listings.length && (view === "updates" ? updatesUnknown : inventoryUnavailable))
-    return (
-      <MarketplaceEmpty
-        icon={CloudOff}
-        title={
-          view === "updates"
-            ? "Updates could not be determined"
-            : "Installed plugins could not be loaded"
-        }
-        detail="Check the notices above and try again. Installed plugins remain manageable when their inventory is available."
-        action={
-          !inventoryUnavailable && (
-            <CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} label="Try again" />
-          )
-        }
-      />
-    );
   if (!listings.length)
-    return view === "updates" ? (
-      <MarketplaceEmpty
-        icon={PackageOpen}
-        title="Everything is up to date"
-        detail={`Updates are never automatic: each one installs the exact version shown.${publishedAt ? ` Catalog published ${formatAgo(publishedAt)}.` : ""}`}
-        action={<CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} />}
-      />
-    ) : (
-      <MarketplaceEmpty
-        icon={PackageOpen}
-        title="Nothing installed from the marketplace yet"
-        detail="Themes, providers and custom tabs you install show up here, with their version and history."
-        action={
-          <Button size="sm" onClick={onDiscover}>
-            Discover plugins
-          </Button>
-        }
+    return (
+      <LibraryEmpty
+        view={view}
+        publishedAt={publishedAt}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onDiscover={onDiscover}
       />
     );
   return (
@@ -213,6 +178,95 @@ export function MarketplaceLibrary({
         )}
       </div>
     </div>
+  );
+}
+
+/** Why the Installed or Updates list is empty — never "up to date" when that is unknown. */
+function LibraryEmpty({
+  view,
+  publishedAt,
+  refreshing,
+  onRefresh,
+  onDiscover,
+}: {
+  view: "installed" | "updates";
+  publishedAt?: string | null;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onDiscover: () => void;
+}): React.JSX.Element {
+  const state = useMarketplaceState();
+  const hasUnfilteredResults = state.listings.some((listing) =>
+    view === "updates" ? !!listing.update && isStandalone(listing) : !!listing.installed,
+  );
+  const inventoryUnavailable =
+    state.providers.inventoryQuery.isError ||
+    state.themes.inventory.isError ||
+    state.tabs.inventory.isError ||
+    state.tabs.summaries.isError;
+  const updatesUnknown =
+    inventoryUnavailable ||
+    !state.catalogUsable.provider ||
+    !state.catalogUsable.theme ||
+    !state.catalogUsable.tab ||
+    state.providers.catalogQuery.isError ||
+    state.themes.catalog.isError ||
+    state.tabs.catalog.isError;
+  if (hasUnfilteredResults)
+    return (
+      <MarketplaceEmpty
+        icon={Search}
+        title={
+          view === "updates"
+            ? "No updates match your search"
+            : "No installed plugins match your search"
+        }
+        detail="Try another search or clear it to see all results."
+      />
+    );
+  if (view === "updates" && state.catalogMissing && !inventoryUnavailable)
+    return (
+      <MarketplaceEmpty
+        icon={CloudOff}
+        title="Updates aren't available in this build"
+        detail="This build isn't connected to a plugin catalog, so there is nothing to check installed plugins against."
+      />
+    );
+  if (view === "updates" ? updatesUnknown : inventoryUnavailable)
+    return (
+      <MarketplaceEmpty
+        icon={CloudOff}
+        title={
+          view === "updates"
+            ? "Updates could not be determined"
+            : "Installed plugins could not be loaded"
+        }
+        detail="Check the notices above and try again. Installed plugins remain manageable when their inventory is available."
+        action={
+          !inventoryUnavailable && (
+            <CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} label="Try again" />
+          )
+        }
+      />
+    );
+  return view === "updates" ? (
+    <MarketplaceEmpty
+      icon={PackageOpen}
+      title="Everything is up to date"
+      detail={`Updates are never automatic: each one installs the exact version shown.${publishedAt ? ` Catalog published ${formatAgo(publishedAt)}.` : ""}`}
+      action={<CheckCatalogButton refreshing={refreshing} onRefresh={onRefresh} />}
+    />
+  ) : (
+    <MarketplaceEmpty
+      icon={PackageOpen}
+      title="Nothing installed from the marketplace yet"
+      detail="Themes, providers and custom tabs you install show up here, with their version and history."
+      action={
+        <Button size="sm" onClick={onDiscover}>
+          Discover plugins
+        </Button>
+      }
+    />
   );
 }
 

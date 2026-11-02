@@ -102,6 +102,7 @@
   --chart-3: oklch(0.58 0.18 150);
   --chart-4: oklch(0.58 0.13 220);
   --chart-5: oklch(0.66 0.18 55);
+  --chart-6: oklch(0.6 0.13 185);
   --sidebar: oklch(0.965 0.008 290);
   --sidebar-foreground: oklch(0.205 0.04 285);
   --sidebar-primary: oklch(0.55 0.245 295);
@@ -244,6 +245,7 @@
   --chart-3: oklch(0.78 0.16 145);
   --chart-4: oklch(0.82 0.14 80);
   --chart-5: oklch(0.74 0.14 35);
+  --chart-6: oklch(0.76 0.11 195);
   --sidebar: oklch(0.25 0.012 257);
   --sidebar-foreground: oklch(0.82 0.014 257);
   --sidebar-primary: oklch(0.72 0.13 240);
@@ -400,6 +402,7 @@
   --chart-3: oklch(0.58 0.16 145);
   --chart-4: oklch(0.66 0.14 75);
   --chart-5: oklch(0.6 0.21 25);
+  --chart-6: oklch(0.58 0.11 195);
   --sidebar: oklch(0.98 0.004 80);
   --sidebar-foreground: oklch(0.33 0.012 80);
   --sidebar-primary: oklch(0.55 0.18 260);
@@ -561,6 +564,7 @@
   --chart-3: oklch(0.83 0.2 130);
   --chart-4: oklch(0.86 0.16 100);
   --chart-5: oklch(0.75 0.16 60);
+  --chart-6: oklch(0.7 0.18 300);
   --sidebar: oklch(0.24 0.012 110);
   --sidebar-foreground: oklch(0.95 0.01 110);
   --sidebar-primary: oklch(0.78 0.11 215);
@@ -703,6 +707,7 @@
   --chart-3: oklch(0.55 0.16 130);
   --chart-4: oklch(0.6 0.13 90);
   --chart-5: oklch(0.6 0.16 55);
+  --chart-6: oklch(0.55 0.18 300);
   --sidebar: oklch(0.975 0.006 100);
   --sidebar-foreground: oklch(0.33 0.012 100);
   --sidebar-primary: oklch(0.54 0.13 230);
@@ -858,6 +863,7 @@
   --chart-3: #a6e3a1;
   --chart-4: #89dceb;
   --chart-5: #fab387;
+  --chart-6: #89b4fa;
   /* Sidebar drops to crust — a step below the mantle workspace — so the nav
    * rail reads as a darker, recessed frame around the lighter workspace. */
   --sidebar: #11111b;
@@ -1006,6 +1012,7 @@
   --chart-3: #40a02b;
   --chart-4: #04a5e5;
   --chart-5: #fe640b;
+  --chart-6: #1e66f5;
   --sidebar: #e6e9ef;
   --sidebar-foreground: #4c4f69;
   --sidebar-primary: #8839ef;
@@ -1250,6 +1257,9 @@ html[data-animations="off"] *::after {
   --ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
   --animate-fade-up: fade-up 220ms var(--ease-fluid) both;
   --animate-fade-in: fade-in 180ms var(--ease-fluid) both;
+  /* Compact flow: one step scrolls out as the next scrolls in, ticker-style. */
+  --animate-step-in: step-in 220ms var(--ease-fluid) both;
+  --animate-step-out: step-out 220ms var(--ease-fluid) both;
 }
 
 @keyframes fade-up {
@@ -1260,6 +1270,28 @@ html[data-animations="off"] *::after {
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes step-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-100%);
   }
 }
 

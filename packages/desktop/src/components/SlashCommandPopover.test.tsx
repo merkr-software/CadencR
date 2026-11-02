@@ -1,11 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen } from "@/test-utils";
-import {
-  SlashCommandPopover,
-  slashCommandPopoverMaxHeight,
-  SLASH_COMMAND_POPOVER_MAX_HEIGHT,
-  SLASH_COMMAND_POPOVER_MIN_HEIGHT,
-} from "./SlashCommandPopover";
+import { SlashCommandPopover } from "./SlashCommandPopover";
 
 const commands = [
   {
@@ -29,20 +24,6 @@ const cadencrCommand = {
   argumentHint: "[focus]",
 };
 
-describe("slashCommandPopoverMaxHeight", () => {
-  it("caps at the shared max when there is plenty of space", () => {
-    expect(slashCommandPopoverMaxHeight(800)).toBe(SLASH_COMMAND_POPOVER_MAX_HEIGHT);
-  });
-
-  it("shrinks to available space above the prompt", () => {
-    expect(slashCommandPopoverMaxHeight(200)).toBe(192);
-  });
-
-  it("floors at the shared minimum", () => {
-    expect(slashCommandPopoverMaxHeight(50)).toBe(SLASH_COMMAND_POPOVER_MIN_HEIGHT);
-  });
-});
-
 describe("SlashCommandPopover", () => {
   it("does not show popover when closed", () => {
     render(
@@ -56,6 +37,40 @@ describe("SlashCommandPopover", () => {
       />,
     );
     expect(screen.queryByText("/commit")).not.toBeInTheDocument();
+  });
+
+  it("shows a discovery error above the commands that remain usable", () => {
+    render(
+      <SlashCommandPopover
+        listId="cmds"
+        open={true}
+        items={[cadencrCommand]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+        isLoading={false}
+        error="Provider commands could not be loaded: timed out"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Provider commands could not be loaded: timed out",
+    );
+    expect(screen.getByText("/cadencr:review")).toBeInTheDocument();
+  });
+
+  it("shows the error instead of 'no matching commands' when nothing is left", () => {
+    render(
+      <SlashCommandPopover
+        listId="cmds"
+        open={true}
+        items={[]}
+        selectedIndex={0}
+        onSelect={vi.fn()}
+        isLoading={false}
+        error="Provider commands could not be loaded: rejected"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("rejected");
+    expect(screen.queryByText("No matching commands")).not.toBeInTheDocument();
   });
 
   it("shows commands when open", () => {

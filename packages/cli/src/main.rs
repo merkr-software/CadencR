@@ -10,6 +10,7 @@ mod commands;
 mod metadata;
 mod output;
 mod pipeline;
+mod plugin;
 mod policy;
 mod publication;
 mod signing;

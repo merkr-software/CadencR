@@ -15,7 +15,11 @@ import {
   SquarePenIcon,
 } from "lucide-react";
 import type { Project } from "@/api/generated";
-import { NAV_GROUPS } from "@/components/settings/settings-nav-groups";
+import {
+  availableSettingsGroups,
+  currentSettingsPlatform,
+} from "@/components/settings/settings-availability";
+import { isMobileViewport } from "@/hooks/useIsMobile";
 import { PALETTE_SHORTCUT_ICONS } from "@/components/command-palette/palette-shortcut-icons";
 import {
   isPaletteShortcut,
@@ -23,9 +27,10 @@ import {
   type PaletteShortcutId,
 } from "@/lib/command-palette/palette-shortcut-commands";
 import { runShortcutAction, useShortcutActionStore } from "@/lib/command-palette/shortcut-actions";
+import { useCustomActionPaletteStore } from "@/lib/custom-actions/palette-commands";
 import type { PaletteCommand } from "@/lib/command-palette/palette-types";
 import { isDesktopShell } from "@/lib/desktop-bridge";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
+import { slugify } from "@/lib/utils";
 import type { ShortcutId } from "@/lib/shortcuts/registry";
 
 export interface PaletteCommandContext {
@@ -39,7 +44,7 @@ export interface PaletteCommandContext {
 type Navigate = ReturnType<typeof useNavigate>;
 
 function navigationCommands(navigate: Navigate): PaletteCommand[] {
-  const commands: PaletteCommand[] = [
+  return [
     {
       id: "go-agents",
       title: "Agents",
@@ -70,9 +75,7 @@ function navigationCommands(navigate: Navigate): PaletteCommand[] {
       description: "Global settings.",
       run: () => navigate({ to: "/settings" }),
     },
-  ];
-  if (MARKETPLACE_ENABLED) {
-    commands.push({
+    {
       id: "go-marketplace",
       title: "Marketplace",
       group: "Navigate",
@@ -80,23 +83,41 @@ function navigationCommands(navigate: Navigate): PaletteCommand[] {
       keywords: ["plugins", "themes", "providers", "extensions"],
       description: "Themes and provider connectors from the signed catalog.",
       run: () => navigate({ to: "/marketplace" }),
-    });
-  }
-  return commands;
+    },
+  ];
 }
 
-/** One command per settings section: "Appearance", "Git"… straight to its anchor. */
-function settingsCommands(navigate: Navigate): PaletteCommand[] {
-  return NAV_GROUPS.flatMap((group) =>
-    group.items.map((item) => ({
-      id: `settings-${item.id}`,
-      title: `Settings: ${item.label}`,
-      group: "Settings" as const,
-      icon: item.icon,
-      keywords: [group.label, "settings", "preferences"],
-      description: `Open the ${item.label} section of Settings.`,
-      run: () => navigate({ to: "/settings", search: { section: item.id } }),
-    })),
+/**
+ * One command per settings page ("Settings: Appearance") and per indexed
+ * setting ("Settings: Vim mode"), each opening its page at that setting.
+ */
+/** One command per settings page, and one per setting this client renders. */
+export function settingsCommands(navigate: Navigate): PaletteCommand[] {
+  const groups = availableSettingsGroups(currentSettingsPlatform(isMobileViewport()));
+  return groups.flatMap((group) =>
+    group.pages.flatMap((page) => [
+      {
+        id: `settings-${page.id}`,
+        title: `Settings: ${page.label}`,
+        group: "Settings" as const,
+        icon: page.icon,
+        keywords: [group.label, "settings", "preferences", ...(page.aliases ?? [])],
+        description: page.description,
+        run: () => navigate({ to: "/settings", search: { section: page.id } }),
+      },
+      ...page.entries
+        // A page-named entry would only repeat the page's own command.
+        .filter((entry) => entry.label !== page.label)
+        .map((entry) => ({
+          id: `settings-${page.id}-${slugify(entry.label)}`,
+          title: `Settings: ${entry.label}`,
+          group: "Settings" as const,
+          icon: page.icon,
+          keywords: [page.label, "settings", ...(entry.keywords ?? [])],
+          description: `In ${page.label} settings.`,
+          run: () => navigate({ to: "/settings", search: { section: entry.anchor ?? page.id } }),
+        })),
+    ]),
   );
 }
 
@@ -218,12 +239,14 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
   const ids = useShortcutActionStore(
     useShallow((state) => Object.keys(state.byId) as ShortcutId[]),
   );
+  const actionCommands = useCustomActionPaletteStore((state) => state.commands);
   return useMemo(() => {
     const all = [
       ...createCommands(context),
       ...modeCommands(context),
       ...navigationCommands(navigate),
       ...shortcutCommands(ids, context.activeFeatureId != null),
+      ...(context.activeFeatureId != null ? actionCommands : []),
       ...settingsCommands(navigate),
     ];
     const byId = new Map(all.map((command) => [command.id, command]));
@@ -234,5 +257,5 @@ export function usePaletteCommands(context: PaletteCommandContext): PaletteComma
       byId.get("go-agents"),
     ].filter((command): command is PaletteCommand => command !== undefined);
     return { all, suggestions };
-  }, [context, ids, navigate]);
+  }, [actionCommands, context, ids, navigate]);
 }

@@ -134,13 +134,6 @@ function bareIdentity(name: string): McpIdentity | undefined {
 }
 
 function normalizeAppIdentity(identity: McpIdentity, args: Record<string, unknown>): McpIdentity {
-  // Older Cursor ACP sessions persisted its unidentified `MCP: tool` event as
-  // `mcp__cursor__tool`. Cursor is the agent provider, not the MCP server, so
-  // keep historical transcripts honest until late permission metadata reveals
-  // the real server/tool identity.
-  if (identity.server === "cursor" && identity.tool === "tool") {
-    return { server: "mcp", tool: "tool" };
-  }
   if (identity.server !== "codex_apps") return identity;
   const appContext = recordValue(args.appContext);
   const contextApp = nonEmptyString(appContext?.appName)?.toLowerCase();

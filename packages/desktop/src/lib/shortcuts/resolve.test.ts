@@ -91,6 +91,15 @@ describe("resolveHotkeyTrigger", () => {
   });
 });
 
+describe("modified digit ranges", () => {
+  it("binds one combo per digit, keeping the modifiers", async () => {
+    platformMock.isMac = true;
+    const { resolveHotkeyTrigger } = await importResolve();
+    const combos = resolveHotkeyTrigger({ keys: ["mod", "alt", "1-3"] });
+    expect(combos).toEqual(["Mod+Alt+1", "Mod+Alt+2", "Mod+Alt+3"]);
+  });
+});
+
 describe("getRegistryShortcut", () => {
   it("returns the registry entry for a known id", async () => {
     platformMock.isMac = true;

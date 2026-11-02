@@ -30,6 +30,36 @@ pnpm --filter @cadencr/desktop <script>
 pnpm --filter @cadencr/service <script>
 ```
 
+### Packaged local builds
+
+Run:
+
+```bash
+pnpm build:local                 # macOS local package
+pnpm build:local:linux           # Linux local packages
+pnpm build:local --check-config  # validate configuration without compiling
+```
+
+These commands fetch the public marketplace, registry and Sentry/PostHog build
+variables from `merkr-software/CadencR`, validate them, then compile on your
+machine. Install GitHub CLI and authenticate with `gh auth login` to fetch the
+configuration and enable these features.
+If `gh` is absent, GitHub is unreachable, access is denied, or no build variables
+are configured, the build continues with the managed marketplace and all telemetry
+disabled. The command prints this fallback explicitly and removes inherited build
+variables so stale shell exports cannot reactivate those features. A successfully
+fetched but partial or malformed configuration still stops compilation.
+Values are passed directly to child processes without shell evaluation or
+writing a `.env` file. GitHub values replace inherited exports for these build
+variables, including removing exports that no longer exist in GitHub.
+
+All three telemetry variables (`CADENCR_SENTRY_DSN`, `CADENCR_POSTHOG_KEY`,
+`CADENCR_POSTHOG_HOST`) must be present in a configured build. They are embedded
+in the Rust service so the installed app can send telemetry according to the
+user's preferences.
+These commands do not upload Sentry source maps; see
+[Telemetry](./docs/TELEMETRY.md#renderer-source-maps-and-release-correlation).
+
 ## Rust Build Storage
 
 Cargo targets are intentionally isolated per Git worktree. The main checkout

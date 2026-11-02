@@ -13,18 +13,19 @@
 use crate::domain::agents::adapter::{RuntimeError, RuntimeSpawnConfig};
 
 use super::lifecycle::NegotiatedSession;
-use super::mode_switch::set_session_mode;
 use super::session::AcpRuntimeSession;
 
 /// No-op when:
 /// - `config.permission_mode` is `None` (caller didn't request a mode), or
 /// - the provider doesn't map that mode to a wire id, or
-/// - the agent is already in the target mode (handled by
-///   `set_session_mode`'s compare-and-skip).
+/// - the agent is already in the target mode (compare-and-skip against the
+///   live mode option, or `set_session_mode`'s current-mode check).
 ///
 /// "Agent doesn't implement `session/set_mode`" is downgraded to a warn
 /// log inside `send_set_mode` and surfaces as `Ok(())` here, so a missing
-/// capability never wedges spawn.
+/// capability never wedges spawn. A provider that exposes a mode-category
+/// config option is switched through `session/set_config_option`, and its
+/// refusal fails the spawn.
 pub(super) async fn apply_initial_permission_mode(
     session: &AcpRuntimeSession,
     negotiated: &NegotiatedSession,
@@ -36,14 +37,23 @@ pub(super) async fn apply_initial_permission_mode(
     let Some(target) = session.hooks.mode_for_permission_mode(mode) else {
         return Ok(());
     };
-    set_session_mode(
-        &session.client,
-        &negotiated.session_id,
-        &session.current_mode,
-        &session.supports_set_mode,
-        &target,
-    )
-    .await
+    session.apply_mode_id(&negotiated.session_id, &target).await
+}
+
+/// Apply the requested access mode before the first prompt. Only providers
+/// that map access modes onto a config option take part; the host filtered
+/// `config.access_mode` against the same mapping before spawning.
+pub(super) async fn apply_initial_access_mode(
+    session: &AcpRuntimeSession,
+    config: &RuntimeSpawnConfig,
+) -> Result<(), RuntimeError> {
+    let Some(mode) = config.access_mode.as_ref() else {
+        return Ok(());
+    };
+    if session.hooks.access_mode_config(mode).is_none() {
+        return Ok(());
+    }
+    session.apply_access_mode(mode).await
 }
 
 #[cfg(test)]

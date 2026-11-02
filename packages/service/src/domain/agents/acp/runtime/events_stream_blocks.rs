@@ -15,6 +15,7 @@ use serde_json::Value;
 use super::stream_events;
 use super::stream_events::message_start_event;
 use super::terminal_io::{TerminalOutput, DEFAULT_TERMINAL_OUTPUT_LIMIT};
+use super::turn_lifecycle::PromptCancel;
 use crate::domain::agents::adapter::{RuntimeContentBlock, RuntimeContentDelta, RuntimeEvent};
 
 #[derive(Default)]
@@ -50,9 +51,38 @@ pub struct EventIndexer {
     /// terminal exit update so the provider-neutral tool result contains the
     /// complete command output.
     terminal_outputs: HashMap<String, TerminalOutput>,
+    /// The session's cancel handle, so a tool call failing mid-cancel reads
+    /// as interrupted (see `events_tool_call_subagent`).
+    prompt_cancel: Option<PromptCancel>,
+    /// The model the running prompt was sent on. A `set_model` applies at the
+    /// next prompt, so the replies of this one keep it unless the agent itself
+    /// reports a different model.
+    turn_model: Option<String>,
+    /// Carriers declared background by `_meta.cadencr.subagent`; `true` once
+    /// the launching call completed and the sub-agent runs detached.
+    /// Survives turn ends: the finishing update can arrive in a later turn.
+    pub(super) background_subagents: HashMap<String, bool>,
 }
 
 impl EventIndexer {
+    pub fn latch_turn_model(&mut self, model: Option<String>) {
+        self.turn_model = model;
+    }
+
+    pub fn turn_model(&self) -> Option<&str> {
+        self.turn_model.as_deref()
+    }
+
+    pub fn watch_prompt_cancel(&mut self, prompt_cancel: PromptCancel) {
+        self.prompt_cancel = Some(prompt_cancel);
+    }
+
+    pub fn turn_interrupted(&self) -> bool {
+        self.prompt_cancel
+            .as_ref()
+            .is_some_and(PromptCancel::turn_interrupted)
+    }
+
     pub fn next_anonymous(&mut self) -> u64 {
         let i = self.next_index;
         self.next_index += 1;

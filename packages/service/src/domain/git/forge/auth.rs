@@ -213,6 +213,8 @@ pub fn normalize_hostname(hostname: &str) -> Result<String, ForgeError> {
 pub fn forge_to_app_error(error: ForgeError) -> AppError {
     if error.is_setup_failure() {
         AppError::BadRequest(error.to_string())
+    } else if matches!(error, ForgeError::Refused(_)) {
+        AppError::Conflict(error.to_string())
     } else {
         AppError::Internal(error.to_string())
     }

@@ -44,6 +44,7 @@ use crate::domain::prompt_queue::routes::prompt_queue_router;
 use crate::domain::schedules::routes::schedules_router;
 use crate::domain::search::routes::search_routes;
 use crate::domain::sessions::routes::sessions_router;
+use crate::domain::subagents::routes::subagents_router;
 use crate::domain::terminal::routes::terminal_router;
 use crate::domain::themes::themes_router;
 use crate::domain::usage_stats::routes::usage_stats_router;
@@ -84,6 +85,14 @@ pub async fn get_agent_catalog(
         query.profile.as_deref(),
     )
     .await;
+    if catalog.providers.iter().any(|entry| {
+        matches!(
+            entry.provider.status,
+            crate::domain::agents::runtime::ProviderStatus::Available
+        )
+    }) {
+        crate::domain::telemetry::provider_ready();
+    }
     Json(catalog)
 }
 
@@ -226,6 +235,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(openapi::routes())
         .merge(git_router())
         .merge(workspace_router())
+        .merge(crate::domain::telemetry::routes::router())
         .merge(projects_router())
         .merge(features_router())
         .merge(recent_routes())
@@ -234,6 +244,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(feature_layouts_router())
         .merge(diff_comments_router())
         .merge(prompt_queue_router())
+        .merge(subagents_router())
         .merge(side_question_router())
         .merge(sessions_router())
         .merge(schedules_router())
@@ -259,6 +270,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(crate::domain::plugin_tabs::plugin_tabs_router())
         .merge(crate::domain::plugin_tabs::managed::routes::router())
         .merge(prompt_commands_router())
+        .merge(crate::domain::agents::orchestration_skills::routes::virtual_skills_router())
         .merge(neovim_routes())
         .merge(neovim_ws_routes())
         // VAPID public key — shared, so the frontend can fetch it on either
@@ -299,6 +311,7 @@ pub fn build_router(state: AppState) -> Router {
         .merge(managed_provider_inventory_router())
         .merge(managed_provider_lifecycle_router())
         .merge(provider_update_actions_router())
+        .merge(crate::domain::agents::extensions::routes::agent_extensions_router())
         .merge(crate::domain::mcp::control::control_router())
         .merge(crate::domain::remote::loopback_router())
         // Custom tab grants, plugin-token routes and the plugin socket: a

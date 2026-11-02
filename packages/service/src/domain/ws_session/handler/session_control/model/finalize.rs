@@ -1,6 +1,7 @@
 //! Steps that follow a `session.model.set` switch: persistence, the context
 //! window reseed, clearing an unsupported fast mode, and the reply.
 
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use tracing::error;
 
 use super::super::super::super::persistence::WsSessionPersistence;
@@ -57,14 +58,13 @@ pub(super) async fn clear_unsupported_fast_mode(
     }
 }
 
+/// Persist what a model switch changes besides the model itself.
 pub(super) async fn persist_model_selection(
     app_state: &AppState,
     db_session_id: i64,
-    model: &str,
     runtime_provider: &str,
     context_window: Option<u64>,
 ) {
-    WsSessionPersistence::update_model_static(&app_state.write_pool, db_session_id, model).await;
     if let Err(error) = sqlx::query("UPDATE agent_sessions SET runtime_provider = ? WHERE id = ?")
         .bind(runtime_provider)
         .bind(db_session_id)
@@ -111,12 +111,11 @@ pub(super) async fn send_model_set_ok(
         sender,
         envelope_id,
         feature_id,
-        WsSessionAction::ModelSetOk,
-        ModelSetOkPayload {
+        &WsSessionEvent::ModelSetOk(ModelSetOkPayload {
             provider,
             model,
             context_window: seeded_window,
-        },
+        }),
     )
     .await;
 }

@@ -23,6 +23,7 @@ mod event_reasoning_state;
 mod event_state;
 mod event_subagent_activity;
 mod event_subagent_recovery;
+mod event_subagent_reports;
 mod event_subagent_routes;
 mod event_subagents;
 mod event_system;
@@ -30,6 +31,7 @@ mod event_turn_state;
 mod event_usage;
 mod event_web;
 mod events;
+pub mod extensions;
 mod input;
 mod instructions;
 mod launch;
@@ -45,6 +47,7 @@ mod permission_options_tests;
 mod permissions;
 mod profile_runtime;
 pub mod profiles;
+mod prompt_attachments;
 mod prompt_receipts;
 mod raw_tool_names;
 mod responses;
@@ -382,5 +385,13 @@ mod tests {
     fn advertises_session_branching_capability() {
         let adapter = CodexAdapter;
         assert!(adapter.session_branching().is_some());
+    }
+    #[test]
+    fn adapter_owns_legacy_access_mode_mirroring() {
+        assert_eq!(
+            CodexAdapter.legacy_access_mode_wire(Some("fullAccess")),
+            Some("fullAccess".into())
+        );
+        assert_eq!(CodexAdapter.legacy_access_mode_wire(None), None);
     }
 }

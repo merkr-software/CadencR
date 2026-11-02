@@ -1,11 +1,4 @@
-/**
- * Pure helpers + envelope-routing for `session-status-store`.
- *
- * Extracted to keep the store file under the 400-line limit. The store
- * still owns the WebSocket lifecycle and Zustand wiring; this file holds
- * the snapshot/update reducers, value validators, feature-lookup, and
- * notification trigger that the store imports.
- */
+/** App-envelope presentation effects and backend-confirmed status notifications. */
 import { invalidateByExactUrl, invalidateByUrlPrefix, queryClient } from "@/lib/queryClient";
 import { createLeadingSettleCoalescer } from "@/lib/coalesceInvalidation";
 import { invalidateChangedDocuments } from "@/lib/document-file";
@@ -14,11 +7,13 @@ import { scheduleThemeInvalidation } from "@/lib/themeInvalidation";
 import { handlePluginTabChanged } from "@/lib/plugin-tabs/live-instances";
 import {
   getAlacrittyConfigRouteQueryKey,
+  getGetFeatureQueryKey,
   getListFeaturesQueryKey,
   type Feature,
 } from "@/api/generated";
 import { invalidateScheduleLists } from "@/lib/schedules/invalidate";
 import { invalidatePromptQueue } from "@/lib/prompt-queue";
+import { applyCustomActionEvent } from "@/lib/custom-actions/events";
 import { GLOBAL_FEATURE_LIST_URLS, invalidateFeatureQueries } from "@/lib/featureUpdated";
 import { isViewingFeature, notifyAgentDone, notifyAgentNeedsInput } from "@/lib/notify-agent-done";
 import { openingClearsForMe } from "@/stores/for-me-ack";
@@ -29,19 +24,7 @@ import { handleAgentArchived } from "@/lib/agent-archived";
 import { applyStorageMaintenanceEvent } from "@/stores/storage-maintenance-store";
 import { applyProviderUpdatesEvent } from "@/stores/provider-updates";
 import { applyRestartContinuationsEvent } from "@/stores/restart-continuations";
-import type { LiveAgentStatus, PendingKind } from "@/types/agent";
-import type { SessionStatusEntry } from "@/stores/session-status-store";
-
-const STATUS_VALUES: LiveAgentStatus[] = ["idle", "agent", "question"];
-const PENDING_KIND_VALUES: PendingKind[] = ["permission", "question"];
-
-export function isStatus(val: unknown): val is LiveAgentStatus {
-  return typeof val === "string" && (STATUS_VALUES as string[]).includes(val);
-}
-
-export function isPendingKind(val: unknown): val is PendingKind {
-  return typeof val === "string" && (PENDING_KIND_VALUES as string[]).includes(val);
-}
+import type { LiveAgentStatus } from "@/types/agent";
 
 function isFeatureList(data: Feature[] | object | undefined): data is Feature[] {
   return Array.isArray(data);
@@ -49,16 +32,26 @@ function isFeatureList(data: Feature[] | object | undefined): data is Feature[] 
 
 /** A feature's record from any loaded project list, without a request. */
 export function lookupFeature(featureId: number): Feature | undefined {
+  return lookupListedFeature(featureId)?.feature;
+}
+
+/**
+ * A feature's record from a loaded project list, with when that list was
+ * fetched: 0 once the list is invalidated, so a cache seeded from it refetches
+ * instead of trusting a record a newer prompt already changed.
+ */
+export function lookupListedFeature(
+  featureId: number,
+): { feature: Feature; updatedAt: number } | undefined {
   // Prefix-match all per-project listFeatures caches via the orval-generated key.
   // Other per-feature queries share the prefix (a pending gate is
   // `["/api/features", id, "pending-gate", …]`): only lists hold features.
-  const queries = queryClient.getQueriesData<Feature[] | object>({
-    queryKey: getListFeaturesQueryKey(),
-  });
-  for (const [, data] of queries) {
+  const queries = queryClient.getQueryCache().findAll({ queryKey: getListFeaturesQueryKey() });
+  for (const { state } of queries) {
+    const data = state.data as Feature[] | object | undefined;
     if (!isFeatureList(data)) continue;
     const feature = data.find((f) => f.id === featureId);
-    if (feature) return feature;
+    if (feature) return { feature, updatedAt: state.isInvalidated ? 0 : state.dataUpdatedAt };
   }
   return undefined;
 }
@@ -107,187 +100,6 @@ function markUnseenOutcome(
   if (!endedTurn || (isViewingFeature(featureId) && openingClearsForMe())) return;
   if (failed) marks.markFailed(featureId);
   else marks.markUnread(featureId);
-}
-
-/** Where a snapshot sits in the server's event stream. */
-export function snapshotCursor(payload: Record<string, unknown>): {
-  seq: number;
-  epoch: number | null;
-} {
-  return {
-    seq: typeof payload.seq === "number" ? payload.seq : 0,
-    epoch: typeof payload.epoch === "number" ? payload.epoch : null,
-  };
-}
-
-/**
- * Apply a `session_status.snapshot` envelope to the per-session map. Pure
- * over `current` — see store comments for the seq-merge invariants.
- */
-export function applySnapshot(
-  current: Record<number, SessionStatusEntry>,
-  payload: Record<string, unknown>,
-  previousEpoch: number | null = null,
-): Record<number, SessionStatusEntry> {
-  const rawStates = (payload.states ?? {}) as Record<string, unknown>;
-  const { seq: snapshotSeq, epoch } = snapshotCursor(payload);
-  // A restarted server's seqs start over: nothing from before compares.
-  const prev = epoch != null && previousEpoch != null && epoch !== previousEpoch ? {} : current;
-  const next: Record<number, SessionStatusEntry> = {};
-
-  for (const [idKey, entryRaw] of Object.entries(rawStates)) {
-    const sessionId = Number(idKey);
-    if (!Number.isFinite(sessionId)) continue;
-    if (!entryRaw || typeof entryRaw !== "object") continue;
-    const obj = entryRaw as Record<string, unknown>;
-    const featureId = typeof obj.feature_id === "number" ? obj.feature_id : null;
-    if (featureId == null) continue;
-    const status = isStatus(obj.status) ? obj.status : null;
-    if (!status) continue;
-    const kind = isPendingKind(obj.kind) ? obj.kind : null;
-    const requestId = typeof obj.request_id === "string" ? obj.request_id : null;
-    const turnStartedAtMs =
-      typeof obj.turn_started_at_ms === "number" ? obj.turn_started_at_ms : null;
-
-    // Preserve a more recent live entry if it has overtaken the snapshot.
-    const existing = prev[sessionId];
-    if (existing && existing.seq > snapshotSeq) {
-      next[sessionId] = existing;
-      continue;
-    }
-    next[sessionId] = {
-      status,
-      kind,
-      requestId,
-      featureId,
-      seq: snapshotSeq,
-      turnStartedAtMs,
-    };
-
-    if (status === "question" && existing?.status !== "question") {
-      notifyTransition(featureId, existing?.status, status);
-    }
-  }
-
-  // Carry over live entries with seq > snapshotSeq that the snapshot
-  // didn't include (the backend filters Idle entries from snapshots, so
-  // a live "agent" event arriving just before the snapshot must be
-  // preserved here).
-  for (const [idKey, entry] of Object.entries(prev)) {
-    const sessionId = Number(idKey);
-    if (!Number.isFinite(sessionId)) continue;
-    if (sessionId in next) continue;
-    if (entry.seq > snapshotSeq) {
-      next[sessionId] = entry;
-    }
-  }
-
-  return next;
-}
-
-/**
- * Apply a `session_status.update` envelope. Returns the patched map plus
- * the prev/next status pair so the caller can fire native notifications.
- */
-export function applyUpdate(
-  prev: Record<number, SessionStatusEntry>,
-  payload: Record<string, unknown>,
-  snapshotSeq = 0,
-): {
-  next: Record<number, SessionStatusEntry> | null;
-  sessionId: number | null;
-  featureId: number | null;
-  prevStatus: LiveAgentStatus | undefined;
-  nextStatus: LiveAgentStatus | null;
-  /** The update ended a failed turn (`outcome: "failed"`). */
-  failed: boolean;
-  entry: Pick<SessionStatusEntry, "status" | "kind" | "requestId" | "turnStartedAtMs"> | null;
-} {
-  const sessionId = typeof payload.session_id === "number" ? payload.session_id : null;
-  const featureId = typeof payload.feature_id === "number" ? payload.feature_id : null;
-  const seq = typeof payload.seq === "number" ? payload.seq : 0;
-  const turnStartedAtMs =
-    typeof payload.turn_started_at_ms === "number" ? payload.turn_started_at_ms : null;
-  if (sessionId == null || featureId == null) {
-    return {
-      next: null,
-      sessionId: null,
-      featureId: null,
-      prevStatus: undefined,
-      nextStatus: null,
-      failed: false,
-      entry: null,
-    };
-  }
-  if (!isStatus(payload.status)) {
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: undefined,
-      nextStatus: null,
-      failed: false,
-      entry: null,
-    };
-  }
-  const kind = isPendingKind(payload.kind) ? payload.kind : null;
-  const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
-  const failed = payload.status === "idle" && payload.outcome === "failed";
-
-  const existing = prev[sessionId];
-  if ((existing && seq <= existing.seq) || seq <= snapshotSeq) {
-    // Out-of-order, or already folded into the last snapshot — drop.
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: existing?.status,
-      nextStatus: null,
-      failed: false,
-      entry: null,
-    };
-  }
-
-  const sameValue =
-    existing?.status === payload.status &&
-    (existing?.kind ?? null) === kind &&
-    (existing?.requestId ?? null) === requestId &&
-    (existing?.turnStartedAtMs ?? null) === turnStartedAtMs &&
-    existing?.featureId === featureId;
-
-  if (sameValue) {
-    // Skipping the `set` keeps every selector subscribed to `bySession`
-    // referentially stable through the long Agent-streaming runs.
-    return {
-      next: null,
-      sessionId,
-      featureId,
-      prevStatus: existing.status,
-      nextStatus: payload.status,
-      failed,
-      entry: { status: payload.status, kind, requestId, turnStartedAtMs },
-    };
-  }
-
-  return {
-    next: {
-      ...prev,
-      [sessionId]: {
-        status: payload.status,
-        kind,
-        requestId,
-        featureId,
-        seq,
-        turnStartedAtMs,
-      },
-    },
-    sessionId,
-    featureId,
-    prevStatus: existing?.status,
-    nextStatus: payload.status,
-    failed,
-    entry: { status: payload.status, kind, requestId, turnStartedAtMs },
-  };
 }
 
 /**
@@ -406,6 +218,10 @@ export function handleAppEnvelope(
     invalidatePromptQueue(typeof payload.session_id === "number" ? payload.session_id : undefined);
     return true;
   }
+  if (domain === "app" && action === "custom_action_event") {
+    applyCustomActionEvent(queryClient, payload);
+    return true;
+  }
   if (domain === "app" && action === "plugin_tab_changed") {
     handlePluginTabChanged(payload);
     return true;
@@ -423,8 +239,10 @@ export function handleAppEnvelope(
     // auto-name) also changed a title, so refresh the individual feature — an
     // open conversation header falls back to the REST title when this device
     // has no live WS title — via the shared invalidation helper. "reordered"
-    // (a new user message changed the most-recent-user-message sort key) only
-    // reshuffles its own project's list, so it's scoped to that project.
+    // (a new user message changed the most-recent-user-message sort key)
+    // reshuffles its own project's list, scoped to that project. That prompt
+    // also recorded the provider, model and effort it was sent with, which the
+    // individual record shows too (the "For me" rows read it).
     // create/delete reshape the lists too, but a created feature isn't cached
     // yet, so they fall back to invalidating every project's list. The
     // single-feature refetch (a guaranteed 404 after a delete) is skipped for
@@ -433,6 +251,7 @@ export function handleAppEnvelope(
     if (payload.action === "updated" && featureId != null) {
       invalidateFeatureQueries(featureId, ["title"]);
     } else if (payload.action === "reordered" && featureId != null) {
+      void queryClient.invalidateQueries({ queryKey: getGetFeatureQueryKey(featureId) });
       const projectId = lookupFeature(featureId)?.project_id;
       void queryClient.invalidateQueries({
         queryKey:

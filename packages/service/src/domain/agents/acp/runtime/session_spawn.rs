@@ -27,7 +27,7 @@ use super::session::{AcpRuntimeSession, MESSAGE_CHANNEL_CAPACITY};
 use super::session_config::AcpSessionConfigState;
 use super::session_permissions::SessionPermissions;
 use super::spawn_initial_config::{apply_initial_model, apply_initial_thinking_effort};
-use super::spawn_initial_mode::apply_initial_permission_mode;
+use super::spawn_initial_mode::{apply_initial_access_mode, apply_initial_permission_mode};
 use super::terminal_registry::TerminalRegistry;
 use super::turn_lifecycle::{drive_initial_prompt, PromptCancel};
 
@@ -103,8 +103,13 @@ pub async fn spawn_acp_runtime_session(
             .replay_suppression
             .store(true, std::sync::atomic::Ordering::SeqCst);
     }
+    indexer
+        .lock()
+        .expect("EventIndexer poisoned")
+        .watch_prompt_cancel(session.prompt_cancel.clone());
 
     apply_initial_permission_mode(&session, &negotiated, &config).await?;
+    apply_initial_access_mode(&session, &config).await?;
     // Push the user-selected model and thinking effort to the agent before
     // the first `session/prompt`, otherwise the agent runs at its own
     // default. Model goes first because its authoritative response may replace
@@ -274,7 +279,6 @@ impl AcpRuntimeSession {
             indexer,
             replay_suppression: Arc::new(AtomicBool::new(false)),
             pending_prompt_receipts: Arc::new(PendingPromptReceipts::default()),
-            pending_followups: Arc::new(RwLock::new(std::collections::VecDeque::new())),
             prompt_turn_lock: Arc::new(AsyncMutex::new(())),
             prompt_cancel: PromptCancel::new(),
         }

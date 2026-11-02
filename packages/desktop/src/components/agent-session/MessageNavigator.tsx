@@ -11,7 +11,7 @@ import {
   type RefObject,
 } from "react";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { DisplayItem } from "@/types/agent-stream";
 import { markIndexAtFraction, type UserMessageMark } from "@/lib/agent-message-navigator";
 import { cn } from "@/lib/utils";
 import { MessageNavigatorPreview, type RailBox } from "./MessageNavigatorPreview";
@@ -233,7 +233,7 @@ const MessageNavigatorRail = memo(function MessageNavigatorRail({
 /**
  * Discreet map of the user's prompts along the agent stream's right edge.
  * Hover a tick to preview the message, click it to scroll there; ⌥↑ / ⌥↓ walk
- * the same list from the keyboard. Disabled from Settings → Interface.
+ * the same list from the keyboard. Disabled from Settings → Appearance.
  */
 export const MessageNavigator = memo(function MessageNavigator({
   items,

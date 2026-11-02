@@ -1,5 +1,10 @@
 #[async_trait]
 impl AgentRuntimeAdapter for CodexAdapter {
+    fn prompt_attachment_block(&self, attachment: &super::adapter::RuntimePromptAttachment<'_>) -> Value {
+        prompt_attachments::attachment_block(attachment)
+    }
+    fn legacy_access_mode_wire(&self, access_mode: Option<&str>) -> Option<String> { access_mode.map(ToOwned::to_owned) }
+
     async fn resolve_profile_for_selection(
         &self,
         selection: Option<&str>,
@@ -109,6 +114,13 @@ impl AgentRuntimeAdapter for CodexAdapter {
         commands::runtime_slash_commands(cwd, profile).await
     }
 
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "codex",
+            &["resume", "{session_id}"],
+        ))
+    }
+
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {
         Some(RuntimeCompactionStrategy::LiveRuntime)
     }
@@ -135,8 +147,10 @@ impl AgentRuntimeAdapter for CodexAdapter {
         Some(Cow::Borrowed(self::model::ACCESS_MODE_SETTING_KEY))
     }
 
-    fn applies_access_mode_in_place(&self) -> bool {
-        true
+    /// The app server adopts the policy live; the next prompt relaunches the
+    /// thread with the matching sandbox.
+    fn access_mode_change(&self) -> super::adapter::RuntimeAccessModeChange {
+        super::adapter::RuntimeAccessModeChange::LiveThenRespawn
     }
 
     fn default_permission_mode_wire(&self) -> Cow<'static, str> {

@@ -1,7 +1,7 @@
 import { useRef, type ReactElement } from "react";
 import { SidebarConfigProvider } from "@/components/SidebarConfigProvider";
 import { SampleReplayButton } from "@/components/SidebarSampleBanner";
-import { SidebarSampleBlocks } from "@/components/SidebarSampleBlocks";
+import { SidebarSampleBlock } from "@/components/SidebarSampleBlock";
 import {
   SampleScope,
   SidebarSampleProvider,
@@ -12,6 +12,8 @@ import { SidebarSampleTree } from "@/components/SidebarSampleTree";
 import { SidebarLensHeading } from "@/components/SidebarLensMenu";
 import { SECTION_DIVIDER_CLASS } from "@/components/SidebarBlock";
 import { cn } from "@/lib/utils";
+import { useSidebarSectionExpanded } from "@/hooks/useSidebarSections";
+import { useSidebarOption } from "@/stores/sidebar-config-store";
 import {
   useSidebarDisplayAttributes,
   useSidebarHighlightAttribute,
@@ -56,17 +58,37 @@ function PreviewFrame(): ReactElement {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <SampleScope>
-          <SidebarSampleBlocks />
-          {/* As the sidebar's Projects header names it. */}
-          <div className={cn("mb-2 px-2", SECTION_DIVIDER_CLASS)}>
-            <SidebarLensHeading />
-          </div>
-          <div className="flex min-w-0 flex-col gap-0.5 px-1">
-            <SidebarSampleTree />
-          </div>
+          <PreviewSections />
           <SidebarSampleRail />
         </SampleScope>
       </div>
     </section>
+  );
+}
+
+/** The blocks and the projects, in the sidebar's own order and folds. */
+function PreviewSections(): ReactElement {
+  const order = useSidebarOption("sectionOrder");
+  const projectsExpanded = useSidebarSectionExpanded("projects");
+  return (
+    <>
+      {order.map((id) =>
+        id === "projects" ? (
+          <div key={id} className="not-last:mb-3">
+            {/* As the sidebar's Projects header names it. */}
+            <div className={cn("mb-2 px-2", SECTION_DIVIDER_CLASS)}>
+              <SidebarLensHeading />
+            </div>
+            {projectsExpanded && (
+              <div className="flex min-w-0 flex-col gap-0.5 px-1">
+                <SidebarSampleTree />
+              </div>
+            )}
+          </div>
+        ) : (
+          <SidebarSampleBlock key={id} id={id} />
+        ),
+      )}
+    </>
   );
 }

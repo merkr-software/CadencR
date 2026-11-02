@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } fro
 import { toast } from "sonner";
 import { toastError } from "@/lib/api-errors";
 import type { VirtuosoHandle } from "react-virtuoso";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { DisplayItem } from "@/types/agent-stream";
 import { useScopedShortcut } from "@/hooks/useShortcut";
 import {
   adjacentMarkIndex,
   markIndexAtRow,
   type UserMessageMark,
 } from "@/lib/agent-message-navigator";
+import type { StartJump } from "./agent-session-scroll-utils";
 import { jumpToRow, rowAtOffset } from "./message-navigator-scroll";
 import { useSessionPromptMarks } from "./useSessionPromptMarks";
 
@@ -21,7 +22,7 @@ const TOP_PROBE_PX = 16;
 
 /** What the navigator needs from the session's scroll owner. */
 export interface MessageNavigatorControls {
-  prepareJump: () => void;
+  startJump: StartJump;
   /**
    * Loads one unloaded prompt and the start of its turn in a single request;
    * resolves with whether the prompt is now in the transcript.
@@ -48,19 +49,26 @@ export interface MessageNavigatorState {
 }
 
 /**
- * Row of each display item, keyed by its first block id. Built on first use:
- * `items` changes on every streaming delta, but rows are only looked up on
- * scroll and on ⌥↑ / ⌥↓.
+ * Row of each display item, keyed by every block id it renders: a compact run's
+ * first anchor in the DOM is its newest step, not its first block.
+ */
+export function rowsByBlockId(items: readonly DisplayItem[]): Map<string, number> {
+  const rows = new Map<string, number>();
+  for (const [row, item] of items.entries()) {
+    if (item.kind === "block") rows.set(item.block.id, row);
+    else for (const block of item.blocks) rows.set(block.id, row);
+  }
+  return rows;
+}
+
+/**
+ * {@link rowsByBlockId}, built on first use: `items` changes on every streaming
+ * delta, but rows are only looked up on scroll and on ⌥↑ / ⌥↓.
  */
 function useRowByBlockId(items: readonly DisplayItem[]): () => Map<string, number> {
   return useMemo(() => {
     let map: Map<string, number> | null = null;
-    return () => {
-      map ??= new Map(
-        items.map((item, row) => [item.kind === "block" ? item.block.id : item.blocks[0].id, row]),
-      );
-      return map;
-    };
+    return () => (map ??= rowsByBlockId(items));
   }, [items]);
 }
 
@@ -120,8 +128,9 @@ function useJumpToMark(
   marks: UserMessageMark[],
   virtuosoRef: RefObject<VirtuosoHandle | null>,
   scrollerRef: RefObject<HTMLElement | null>,
-  { prepareJump, loadPromptTurn }: MessageNavigatorControls,
+  { startJump, loadPromptTurn }: MessageNavigatorControls,
 ) {
+  // The rail can unmount (agent tab hidden) while the session stays: stop its jump then.
   const cancelJumpRef = useRef<(() => void) | null>(null);
   useEffect(() => () => cancelJumpRef.current?.(), []);
   const [pendingKey, setPendingKey] = useState<string | null>(null);
@@ -136,17 +145,13 @@ function useJumpToMark(
   const scrollToMark = useCallback(
     (mark: UserMessageMark): void => {
       const scroller = scrollerRef.current;
-      if (!scroller || mark.rowIndex === null || mark.blockId === null) return;
-      prepareJump();
-      cancelJumpRef.current?.();
-      cancelJumpRef.current = jumpToRow({
-        scroller,
-        virtuoso: virtuosoRef.current,
-        blockId: mark.blockId,
-        rowIndex: mark.rowIndex,
-      });
+      const { rowIndex, blockId } = mark;
+      if (!scroller || rowIndex === null || blockId === null) return;
+      cancelJumpRef.current = startJump(() =>
+        jumpToRow({ scroller, virtuoso: virtuosoRef.current, blockId, rowIndex }),
+      );
     },
-    [prepareJump, scrollerRef, virtuosoRef],
+    [startJump, scrollerRef, virtuosoRef],
   );
 
   const loadThenJump = useCallback(

@@ -8,7 +8,7 @@ import {
   AGENT_OPTION_CARD_SELECTED,
   AGENT_OPTION_CARD_HIGHLIGHTED,
 } from "@/components/agent-prompt-option-card";
-import { agentQuestionOptionValue, type AgentQuestionOption } from "./types";
+import { agentQuestionOptionValue, type AgentQuestionOption } from "@/types/agent-question";
 
 interface AgentQuestionOptionListProps {
   options: AgentQuestionOption[];

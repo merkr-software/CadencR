@@ -2,7 +2,7 @@ import { recordDiagnosticEvent } from "@/lib/renderer-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { FollowOutputCallback, VirtuosoHandle } from "react-virtuoso";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isAutoScrollPinSuppressed } from "@/lib/agent-scroll-suppression";
 import { isIos } from "@/lib/is-ios";
 import { subscribeResize } from "@/lib/resize-coordinator";
@@ -10,6 +10,7 @@ import {
   canScrollStream,
   MAX_VIEWPORT_FILL_PAGES,
   pinToBottom,
+  type StartJump,
   type UseAgentSessionScrollResult,
 } from "./agent-session-scroll-utils";
 import { ScrollAnchorGuard } from "./stream-scroll-anchor";
@@ -256,6 +257,25 @@ function useScrollLifecycle(
   );
 }
 
+/**
+ * One programmatic jump at a time, whoever starts it (the prompt rail, the
+ * composer's agent list): a new one cancels the one still settling, so two
+ * never fight over `scrollTop`. Identity-stable, unlike `prepareJump`.
+ */
+export function useJumpOwner(prepareJump: () => void): StartJump {
+  const prepareRef = useRef(prepareJump);
+  prepareRef.current = prepareJump;
+  const cancelRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => cancelRef.current?.(), []);
+  return useCallback((run) => {
+    prepareRef.current();
+    cancelRef.current?.();
+    const cancel = run();
+    cancelRef.current = cancel;
+    return cancel;
+  }, []);
+}
+
 export function useAgentSessionScroll(
   options: UseAgentSessionScrollOptions,
 ): UseAgentSessionScrollResult {
@@ -273,6 +293,7 @@ export function useAgentSessionScroll(
     resetIntent();
     setAutoScrollEnabled(false);
   }, [anchorGuard, resetIntent, setAutoScrollEnabled]);
+  const startJump = useJumpOwner(prepareJump);
   useScrollLifecycle(state, pinning, history, options.conversationKey, options.blocks.length);
   const scrollContainerRef = useAgentSessionScrollInput({
     scrollerElRef: state.scrollerElRef,
@@ -298,13 +319,13 @@ export function useAgentSessionScroll(
       autoScrollEnabled: state.autoScrollEnabled,
       isLoadingOlder: state.isLoadingOlder,
       scrollToBottom: callbacks.scrollToBottom,
-      prepareJump,
+      startJump,
     }),
     [
       anchorGuard,
       callbacks,
-      prepareJump,
       scrollContainerRef,
+      startJump,
       state.autoScrollEnabled,
       state.isLoadingOlder,
       state.virtuosoRef,

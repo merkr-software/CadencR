@@ -19,6 +19,7 @@ export const ONBOARDING_STEPS = [
   "pick_agent",
   "notifications",
   "preferences",
+  "telemetry",
   "first_prompt",
   "completed",
 ] as const;

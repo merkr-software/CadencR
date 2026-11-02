@@ -30,8 +30,9 @@ impl std::error::Error for BoundedCommandError {}
 /// What to do when a stream outgrows [`MAX_OUTPUT_BYTES`].
 #[derive(Clone, Copy)]
 enum Overflow {
-    /// Kill the command and fail: the caller needs the whole output.
-    Fail,
+    /// Kill the command and fail past this many bytes: the caller needs the
+    /// whole output.
+    Fail(usize),
     /// Keep only the last [`MAX_OUTPUT_BYTES`]: the caller shows the end.
     KeepTail,
 }
@@ -46,7 +47,17 @@ pub async fn capture_bounded(
     command: tokio::process::Command,
     timeout: Duration,
 ) -> Result<Output, BoundedCommandError> {
-    capture(command, timeout, Overflow::Fail).await
+    capture(command, timeout, Overflow::Fail(MAX_OUTPUT_BYTES)).await
+}
+
+/// [`capture_bounded`] for a command whose complete output is legitimately
+/// larger than 1 MiB, like a CLI printing its whole plugin catalog as JSON.
+pub async fn capture_bounded_up_to(
+    command: tokio::process::Command,
+    timeout: Duration,
+    max_bytes: usize,
+) -> Result<Output, BoundedCommandError> {
+    capture(command, timeout, Overflow::Fail(max_bytes)).await
 }
 
 /// [`capture_bounded`] for output that is only read from the end, like a
@@ -147,21 +158,23 @@ async fn read_bounded(
         if count == 0 {
             break;
         }
-        if bytes.len().saturating_add(count) > MAX_OUTPUT_BYTES
-            && matches!(overflow, Overflow::Fail)
-        {
-            return Err(BoundedCommandError::new(format!(
-                "output exceeded {MAX_OUTPUT_BYTES} bytes"
-            )));
+        if let Overflow::Fail(limit) = overflow {
+            if bytes.len().saturating_add(count) > limit {
+                return Err(BoundedCommandError::new(format!(
+                    "output exceeded {limit} bytes"
+                )));
+            }
         }
         bytes.extend_from_slice(&buffer[..count]);
         // Trimmed in batches, so a long stream costs amortized O(1) per byte.
-        if bytes.len() > 2 * MAX_OUTPUT_BYTES {
+        if matches!(overflow, Overflow::KeepTail) && bytes.len() > 2 * MAX_OUTPUT_BYTES {
             bytes.drain(..bytes.len() - MAX_OUTPUT_BYTES);
         }
     }
-    let excess = bytes.len().saturating_sub(MAX_OUTPUT_BYTES);
-    bytes.drain(..excess);
+    if matches!(overflow, Overflow::KeepTail) {
+        let excess = bytes.len().saturating_sub(MAX_OUTPUT_BYTES);
+        bytes.drain(..excess);
+    }
     Ok(bytes)
 }
 
@@ -174,9 +187,12 @@ mod tests {
     #[tokio::test]
     async fn bounded_reader_rejects_output_immediately_after_the_limit() {
         let bytes = vec![b'x'; MAX_OUTPUT_BYTES + 1];
-        let error = read_bounded(std::io::Cursor::new(bytes), Overflow::Fail)
-            .await
-            .unwrap_err();
+        let error = read_bounded(
+            std::io::Cursor::new(bytes),
+            Overflow::Fail(MAX_OUTPUT_BYTES),
+        )
+        .await
+        .unwrap_err();
         assert!(error.to_string().contains("exceeded"));
     }
 

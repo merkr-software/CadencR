@@ -42,6 +42,7 @@ const DRACULA_CSS_VARS: ThemeCssVars = {
   "--chart-3": "oklch(0.871 0.219 148.046)",
   "--chart-4": "oklch(0.883 0.093 212.886)",
   "--chart-5": "oklch(0.834 0.124 66.552)",
+  "--chart-6": "oklch(0.7 0.19 25)",
   "--sidebar": "oklch(0.23 0.022 277.497)",
   "--sidebar-foreground": "oklch(0.977 0.008 106.793)",
   "--sidebar-primary": "oklch(0.742 0.149 301.871)",

@@ -88,7 +88,7 @@ pub struct AgentMessageOrigin {
     pub created_at: Option<String>,
 }
 
-#[derive(Debug, Serialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct AgentBlock {
     pub id: String,
     #[serde(rename = "messageUuid", skip_serializing_if = "Option::is_none")]
@@ -126,8 +126,38 @@ pub struct AgentBlock {
     /// `GET /api/sessions/messages/{id}/full`.
     #[serde(rename = "truncatedContent", skip_serializing_if = "Option::is_none")]
     pub truncated_content: Option<bool>,
+    /// UTF-8 size of the complete persisted content when `content` is a
+    /// bounded preview of it, so the client can say what loading it costs.
+    #[serde(rename = "fullContentBytes", skip_serializing_if = "Option::is_none")]
+    pub full_content_bytes: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub origin: Option<AgentMessageOrigin>,
+}
+
+impl AgentBlock {
+    /// A transcript row Cadencr writes itself (a turn's closing line, a model
+    /// switch), as both history and its live event deliver it.
+    pub fn system(id: String, type_: &str, content: String, created_at: Option<String>) -> Self {
+        Self {
+            id,
+            message_uuid: None,
+            prompt_delivery_state: None,
+            type_: type_.to_string(),
+            content,
+            tool_name: None,
+            tool_args: None,
+            is_error: None,
+            tool_use_id: None,
+            parent_tool_use_id: None,
+            child_blocks: None,
+            source_tool_name: None,
+            created_at,
+            model: None,
+            truncated_content: None,
+            full_content_bytes: None,
+            origin: None,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -312,6 +342,10 @@ pub struct SessionStatusSnapshotRow {
     pub pending_permission: bool,
     pub pending_question: bool,
     pub request_id: Option<String>,
+    pub turn_started_at_ms: Option<i64>,
+    pub turn_waiting_ms: i64,
+    pub turn_waiting_since_ms: Option<i64>,
+    pub turn_models: Option<String>,
 }
 
 /// Public-facing per-session status entry serialized in
@@ -327,12 +361,14 @@ pub struct SessionStatusSnapshotEntry {
     pub kind: Option<crate::domain::session_status::PendingKind>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
-    /// Server-stamped turn start (epoch ms) for a non-idle session, so a
-    /// (re)connecting client anchors its elapsed timer to the same instant as
-    /// every other device. Kept by the live status book; `None` for a gate
-    /// restored from the DB at boot (the DB has no per-turn start column).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_started_at_ms: Option<i64>,
+    /// The running turn's clock (start, time waiting on the user, reported
+    /// model), so a (re)connecting client shows the same timer as every other
+    /// device. Kept by the live status book and mirrored to the DB.
+    #[serde(flatten)]
+    pub clock: crate::domain::session_status::TurnClock,
+    /// The provider is compacting the conversation's context.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub compacting: bool,
 }
 
 #[cfg(test)]
@@ -357,6 +393,7 @@ mod tests {
             created_at: Some("2024-01-01".to_string()),
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -391,6 +428,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&block).unwrap();
@@ -418,6 +456,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let parent = AgentBlock {
@@ -436,6 +475,7 @@ mod tests {
             created_at: None,
             model: None,
             truncated_content: None,
+            full_content_bytes: None,
             origin: None,
         };
         let json = serde_json::to_string(&parent).unwrap();

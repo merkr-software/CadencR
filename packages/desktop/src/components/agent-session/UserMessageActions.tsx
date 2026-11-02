@@ -7,7 +7,7 @@ import { copyAs } from "@/lib/markdown-export";
 import { readBlobBase64, readPromptBlobBase64 } from "@/lib/prompt-image-cache";
 import { parseUserMessageContent, type PromptAttachmentPayload } from "@/types/agent-types";
 import { cn } from "@/lib/utils";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { useMessageBranchActions } from "./use-message-branch-actions";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useAgentSessionContext } from "./agent-session-context";
@@ -50,7 +50,7 @@ function UserMessageActionsImpl({ block, bubbleRef }: UserMessageActionsProps) {
   }, [parsedContent.text]);
 
   return (
-    <div className="mt-2 mb-2 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
+    <div className="stream-hover-actions right-0 mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/usermsg:opacity-100">
       <ActionButton onClick={handleCopy} title="Copy as Markdown">
         {copied ? (
           <>

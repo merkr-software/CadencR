@@ -50,9 +50,20 @@
   display: inline-flex;
 }
 
+/* Touch: the actions stay out (no reflow under the finger, see below). Hit areas
+ * grow up over the row padding and over half the gap, never onto the next line. */
 @media (hover: none) {
   .sidebar-row-actions {
     display: inline-flex;
+    gap: 0.5rem;
+  }
+  .sidebar-row-actions > button {
+    position: relative;
+  }
+  .sidebar-row-actions > button::after {
+    content: "";
+    position: absolute;
+    inset: calc(-1 * var(--sidebar-row-pad, 6px)) -0.25rem 0;
   }
 }
 
@@ -88,10 +99,12 @@
   --sidebar-row-pad: 10px;
 }
 
-/* The time and the row actions share a spot: hovering or focusing a row swaps
- * the time for the actions. */
-[data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-time] {
-  display: none;
+/* Pointer devices only: a tap sets :hover before its click lands, so on touch the
+ * time-for-actions swap slid pin under a tap on archive. Same for hover titles. */
+@media (hover: hover) {
+  [data-nav-type="feature"]:is(:hover, :focus-within) [data-feature-time] {
+    display: none;
+  }
 }
 
 /* Two-line and expand-on-hover titles: the fixed slots stay on the first
@@ -103,16 +116,20 @@
   white-space: normal;
   overflow-wrap: break-word;
 }
-[data-sidebar-title-lines="hover"] .sidebar-row:is(:hover, :focus-within) [data-feature-title] {
-  white-space: normal;
-  overflow-wrap: break-word;
-}
-/* Uniform rows hold the details beside the title on one clipped line; a title
+/* A fixed row height never grows on hover: the title stays on its line.
+ * Uniform rows hold the details beside the title on one clipped line; a title
  * shown in full on hover brings the ones that didn't fit along with it. */
-[data-sidebar-title-lines="hover"]
-  .sidebar-row:is(:hover, :focus-within)
-  [data-feature-title-fold] {
-  height: auto;
+@media (hover: hover) {
+  [data-sidebar-title-lines="hover"]:not([data-sidebar-row-height="fixed"])
+    .sidebar-row:is(:hover, :focus-within) {
+    & [data-feature-title] {
+      white-space: normal;
+      overflow-wrap: break-word;
+    }
+    & [data-feature-title-fold] {
+      height: auto;
+    }
+  }
 }
 :is([data-sidebar-title-lines="two"], [data-sidebar-title-lines="hover"]) {
   & [data-feature-title-line] {
@@ -120,14 +137,8 @@
   }
   &
     [data-feature-title-line]
-    > :is(
-      [data-sidebar-status],
-      svg,
-      .sidebar-row-actions,
-      [data-feature-time],
-      [data-feature-model],
-      [data-sidebar-identity-slot]
-    ) {
+    > :is([data-sidebar-status], svg, [data-feature-model], [data-sidebar-identity-slot]),
+  & [data-feature-trailing] > :is(.sidebar-row-actions, [data-feature-time]) {
     height: 1.5rem;
   }
   /* Margin, not padding: a clamped box shows its padding, so padding would
@@ -175,20 +186,70 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
 .sidebar-project-children {
   --sidebar-guide-x: calc(0.375rem + 0.4375rem - 0.5px);
   --sidebar-guide-pad: 0.25rem;
+  /* From the rows' edge back to the guide's line: its padding plus the line. */
+  --sidebar-guide-inset: calc(var(--sidebar-guide-pad) + 1px);
+  --sidebar-guide-color: color-mix(in oklab, var(--border) 60%, transparent);
   margin-inline-start: var(--sidebar-guide-x);
   margin-block-end: 0.5rem;
-  padding-inline-start: var(--sidebar-guide-pad);
-  border-inline-start: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  padding-inline-start: var(--sidebar-guide-inset);
 }
 .sidebar-project-children[data-active] {
-  border-inline-start-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+  --sidebar-guide-color: color-mix(in oklab, var(--foreground) 22%, transparent);
+}
+/* The guide is drawn by the list's items, not the container: each one over
+ * its own height and the list's gap above it (gap-0.5), so a top-level row
+ * whose chevron sits on the guide can leave a real hole around it, clear on
+ * every surface (frost ones included). The virtualized list hands its line to
+ * its own items, which follow each other without a gap. */
+.sidebar-project-children > * > *,
+.sidebar-project-children [data-project-feature-index] {
+  --sidebar-guide-lead: 0.125rem;
+  position: relative;
+}
+.sidebar-project-children > * > :first-child,
+.sidebar-project-children [data-project-feature-index] {
+  --sidebar-guide-lead: 0px;
+}
+.sidebar-project-children > * > *::after,
+.sidebar-project-children [data-project-feature-index]::after {
+  content: "";
+  position: absolute;
+  inset-block: calc(-1 * var(--sidebar-guide-lead)) 0;
+  inset-inline-start: calc(-1 * var(--sidebar-guide-inset));
+  width: 1px;
+  background: var(--sidebar-guide-color);
+  pointer-events: none;
+}
+/* A worktree group's segment hangs from its padding box: step back over its border. */
+.sidebar-project-children > * > .worktree-group::after {
+  inset-inline-start: calc(-1 * (var(--sidebar-guide-inset) + var(--border-width)));
+}
+.sidebar-project-children > * > [data-virtual-nav-list]:has([data-project-feature-index])::after {
+  inset-block-end: auto;
+  height: var(--sidebar-guide-lead);
+}
+/* The hole: the line stops 7px (half the twisty column) either side of the
+ * row's center, where the chevron sits; the item's lead shifts that center. */
+.sidebar-project-children
+  > *
+  > .sidebar-row:has(> [data-feature-hierarchy-gutter="0"] > button)::after,
+.sidebar-project-children
+  [data-project-feature-index]:has(
+    > :not(.worktree-group) > * > [data-feature-hierarchy-gutter="0"] > button
+  )::after {
+  --sidebar-guide-hole: 0.4375rem;
+  background:
+    linear-gradient(var(--sidebar-guide-color) 0 0) top / 1px
+      calc(50% + var(--sidebar-guide-lead) / 2 - var(--sidebar-guide-hole)) no-repeat,
+    linear-gradient(var(--sidebar-guide-color) 0 0) bottom / 1px
+      calc(50% - var(--sidebar-guide-lead) / 2 - var(--sidebar-guide-hole)) no-repeat;
 }
 /* The rows' twisty column (sub-conversation chevrons) sits on the guide
  * instead of taking a column of its own: moved back by the guide's offset,
  * line and padding, its space handed to the status and title. Rows inside a
  * worktree group keep theirs, inside the group's box. */
 .sidebar-project-children [data-feature-hierarchy-gutter] {
-  --sidebar-gutter-shift: calc(var(--sidebar-guide-x) + 1px + var(--sidebar-guide-pad));
+  --sidebar-gutter-shift: calc(var(--sidebar-guide-x) + var(--sidebar-guide-inset));
   translate: calc(-1 * var(--sidebar-gutter-shift)) 0;
   margin-inline-end: calc(-1 * var(--sidebar-gutter-shift));
 }
@@ -309,6 +370,17 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
 [data-sidebar-highlight="preview"] [data-feature-preview],
 [data-sidebar-highlight="uniformRows"] [data-feature-title-fold],
 [data-sidebar-highlight="compactRows"] .sidebar-row,
+[data-sidebar-highlight="rowHeight"] .sidebar-row,
+[data-sidebar-highlight="colorMode"]
+  :is(
+    [data-feature-time],
+    [data-feature-preview],
+    [data-feature-branch],
+    [data-feature-model],
+    [data-feature-todos],
+    [data-feature-activity-indicators]
+  ),
+[data-sidebar-highlight="sectionOrder"] :is([data-sidebar-block], [data-sidebar-lens-menu]),
 [data-sidebar-highlight="projectBadges"] [data-project-attention],
 [data-sidebar-highlight="dormantAfter"] [data-feature-fold="dormant"],
 [data-sidebar-highlight="lens"] :is([data-sidebar-lens-menu], [data-sidebar-lens-header]),
@@ -347,10 +419,12 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
   color: var(--foreground);
 }
 
-/* Manual order: where a dragged conversation would land, a 2px primary line
- * across the gap above or below the hovered row (`useRowReorder`), and the
- * dragged row stepping back while it travels. */
-.sidebar-row[data-drop-position]::before {
+/* Manual and section order: where a dragged conversation (`useRowReorder`)
+ * or section (a block or the project list, by its header,
+ * `useSidebarSectionReorder`) would land, a 2px primary line across the gap
+ * above or below the hovered one, and the dragged one stepping back while it
+ * travels. A section's line sits over its rows' own. */
+:is(.sidebar-row[data-drop-position], [data-section-drop])::before {
   content: "";
   position: absolute;
   inset-inline: 6px;
@@ -358,14 +432,19 @@ html[data-animations="off"] :is(.sidebar-status-working, .sidebar-status-dot-wor
   border-radius: 1px;
   background: var(--primary);
   pointer-events: none;
+}
+.sidebar-row[data-drop-position]::before {
   z-index: 1;
 }
-.sidebar-row[data-drop-position="before"]::before {
+[data-section-drop]::before {
+  z-index: 2;
+}
+:is(.sidebar-row[data-drop-position="before"], [data-section-drop="before"])::before {
   top: -2px;
 }
-.sidebar-row[data-drop-position="after"]::before {
+:is(.sidebar-row[data-drop-position="after"], [data-section-drop="after"])::before {
   bottom: -2px;
 }
-.sidebar-row[data-dragging] {
+:is(.sidebar-row[data-dragging], [data-section-dragging]) {
   opacity: 0.45;
 }

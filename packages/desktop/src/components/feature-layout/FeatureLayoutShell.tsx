@@ -8,6 +8,7 @@ import { useAgentBrowserActivityListener } from "@/lib/auto-layout/agent-browser
 import { useAutoLayoutTarget } from "@/lib/auto-layout/useAutoLayoutTarget";
 import {
   getFocusedTab,
+  isAgentAlone,
   selectFeatureLayout,
   useFeatureLayoutStore,
 } from "@/stores/feature-layout-store";
@@ -94,6 +95,9 @@ export function FeatureLayoutShell({
     [availableTabIds, effectiveLayout],
   );
   const splitRoot = visibleLayout.splitRoot;
+  // The agent alone on screen, its pop panes folded: it gets margins (see
+  // `[data-agent-solo]` in feature-panes.css). Any open split keeps every pixel.
+  const agentSolo = isAgentAlone(visibleLayout);
 
   const [activeSource, setActiveSource] = useState<DragSource | null>(null);
   const dnd = useFeatureDnd({
@@ -120,6 +124,7 @@ export function FeatureLayoutShell({
         ref={shellRef}
         data-feature-layout-shell
         data-has-floating-pane={splitRoot.type === "split" ? "true" : undefined}
+        data-agent-solo={agentSolo || undefined}
         className="relative h-full min-h-0 flex-1 overflow-hidden"
       >
         <SplitTreeRenderer

@@ -2,7 +2,7 @@
 
 use agent_client_protocol::schema::v1::{SessionConfigOption, SessionConfigOptionCategory};
 
-/// True when a `config_option_update` name or Cursor config id should mirror
+/// True when a `config_option_update` name or provider config id should mirror
 /// into Cadencr's thinking-effort session state.
 pub fn is_thought_level_config_name(name: &str) -> bool {
     matches!(

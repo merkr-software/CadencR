@@ -6,12 +6,22 @@ use super::CodexSession;
 use crate::domain::agents::adapter::{
     AgentRuntimeSession, RuntimeError, RuntimePermissionResponse,
 };
+use crate::domain::agents::codex::input::user_input_from_content;
 use crate::domain::agents::codex::session_permissions::plan_approval_prompt;
 use crate::domain::agents::codex::turn_steer_recovery::{
     steer_failure_recovery, SteerFailureRecovery,
 };
 
 impl CodexSession {
+    pub(super) async fn convert_input(&self, content: Value) -> Result<Vec<Value>, RuntimeError> {
+        let mut new_files = Vec::new();
+        let input = user_input_from_content(content, &mut new_files)?;
+        if !new_files.is_empty() {
+            self.temp_files.lock().await.extend(new_files);
+        }
+        Ok(input)
+    }
+
     pub(super) async fn stream_converted_input(
         &self,
         input: Vec<Value>,

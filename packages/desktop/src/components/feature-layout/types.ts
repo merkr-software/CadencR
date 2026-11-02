@@ -2,7 +2,12 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import type { ShortcutId } from "@/lib/shortcuts/registry";
-import type { BuiltinTabKind, PluginTabKind, TabKind } from "@/stores/feature-layout-schema";
+import type {
+  BuiltinTabKind,
+  PluginTabKind,
+  SplitOrientation,
+  TabKind,
+} from "@/stores/feature-layout-schema";
 
 /**
  * Per-tab metadata supplied by ws-session consumers.
@@ -56,3 +61,17 @@ export type DragSource = { kind: "pane"; paneId: string; tab: TabKind };
 export type DropTarget =
   | { kind: "pane-edge"; paneId: string; edge: "top" | "right" | "bottom" | "left" }
   | { kind: "pane-strip"; paneId: string };
+
+/** Where a pane sits in its parent split; places its pop header and toggle icon. */
+export interface PaneSlot {
+  orientation: SplitOrientation;
+  index: 0 | 1;
+  /** The pane pops in this split (see `pop-pane.tsx`). */
+  pops: boolean;
+  /** The pane pops and is folded to its header. */
+  popCollapsed: boolean;
+  /** A folded pop pane reports its header's size along the split axis here. */
+  onFoldedSize: (px: number) => void;
+  /** While a pop pane slides in or out, its open size in pixels. */
+  slidingPx: number | null;
+}

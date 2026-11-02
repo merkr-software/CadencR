@@ -17,8 +17,29 @@ older fixtures and also enables the extra fake boolean option.
 
 `--rich` implies session configuration and emits a representative v1 stream:
 commands, plans, usage, shell and edit tools, a permission request, a diff, and
-an MCP-shaped tool. The fixture remains provider-neutral — every shape is a
-standard ACP v1 message rather than a Cadencr extension.
+an MCP-shaped tool. A prompt containing "gate" instead raises the host's
+input-collecting gates: an `AskUserQuestion` and an `ExitPlanMode` permission
+request, echoing each answer (option id, `_meta.feedback`,
+`_meta.updatedInput`) back as text. The fixture remains provider-neutral —
+every shape is a standard ACP v1 message rather than a Cadencr extension.
+
+`--host` adds the optional host conventions from
+`docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md` and `INSTALLED_ACP_PROVIDERS.md`: a
+mode selector and an access-mode selector mapped through `_meta.cadencr`, a
+valid `host-integration` declaration, `promptCapabilities.embeddedContext`,
+agent-initiated mode switches, a `/compress` compaction command, embedded
+resource echoes and background sub-agents. `--host-integration-invalid` makes
+`host-integration` print a declaration the host must reject. Without either
+flag `host-integration` exits non-zero, like a package built before it existed.
+
+`slash-commands` follows the same pattern. `--slash-commands` lists `review`,
+a `deploy` skill and one command per line of `<cwd>/.fake-commands` (each run
+appends a line to `<cwd>/.fake-slash-runs`, and the process cwd must equal
+`--cwd`); `--slash-commands-invalid` prints a list the host must reject;
+`--slash-commands-failing` reports a failure as `{"message"}`. Without them
+the command exits non-zero. `--live-commands` sends an
+`available_commands_update` right after `session/new`, including a
+`server-only` command no listing knows.
 
 Behavior is keyed off the prompt text so a test can drive it exactly:
 
@@ -43,9 +64,19 @@ _write_lock = threading.Lock()
 _cancelled = threading.Event()
 _rich_enabled = "--rich" in sys.argv
 _durable_enabled = "--durable" in sys.argv
+_host_enabled = "--host" in sys.argv
 _extra_session_config_enabled = "--session-config" in sys.argv or _rich_enabled
 _safe_mode = False
 _model = "fake-small"
+_mode = "agent"
+_sandbox = "on"
+HOST_MODES = [("agent", "Agent", "default"), ("plan", "Plan", "plan"), ("ask", "Ask", "ask")]
+HOST_ACCESS = [("on", "Sandboxed", "default"), ("off", "Full access", "fullAccess")]
+HOST_INTEGRATION = {
+    "compactCommand": "compress",
+    "worktreeConfigPaths": [".fake/rules"],
+    "resumeCommand": {"program": "fake-agent", "args": ["--resume", "{session_id}"]},
+}
 _responses = {}
 _responses_condition = threading.Condition()
 _state_path = None
@@ -73,6 +104,35 @@ def load_memory():
     _memory = state.get("memory", "")
 
 
+def host_options():
+    """The mode and access selectors, values mapped onto host modes."""
+    return [
+        {
+            "id": "mode",
+            "name": "Mode",
+            "category": "mode",
+            "type": "select",
+            "currentValue": _mode,
+            "options": [
+                {"value": value, "name": name, "description": name + " mode",
+                 "_meta": {"cadencr": {"permissionMode": host}}}
+                for value, name, host in HOST_MODES
+            ] + [{"value": "debug", "name": "Debug (unmapped)"}],
+        },
+        {
+            "id": "sandbox",
+            "name": "Sandbox",
+            "type": "select",
+            "currentValue": _sandbox,
+            "_meta": {"cadencr": {"role": "access_mode"}},
+            "options": [
+                {"value": value, "name": name, "_meta": {"cadencr": {"accessMode": host}}}
+                for value, name, host in HOST_ACCESS
+            ],
+        },
+    ]
+
+
 def config_options():
     options = []
     if _extra_session_config_enabled:
@@ -96,6 +156,8 @@ def config_options():
                 {"value": "fake-large", "name": "Fake Large"},
             ],
         })
+    if _host_enabled:
+        options.extend(host_options())
     return options
 
 
@@ -135,8 +197,47 @@ def session_update(update):
     notify("session/update", {"sessionId": SESSION_ID, "update": update})
 
 
-def request_permission():
-    request_id = "rich-permission-1"
+LIVE_COMMANDS = [
+    {"name": "review", "description": "Review the current changes"},
+    {"name": "deploy", "description": "Deploy", "_meta": {"cadencr": {"kind": "skill"}}},
+    {"name": "server-only", "description": "Only the live session knows this one"},
+]
+
+
+def listed_slash_commands():
+    cwd = sys.argv[sys.argv.index("--cwd") + 1]
+    if os.path.realpath(os.getcwd()) != os.path.realpath(cwd):
+        print(json.dumps({"message": "slash-commands ran outside --cwd"}))
+        raise SystemExit(1)
+    with open(os.path.join(cwd, ".fake-slash-runs"), "a") as runs:
+        runs.write("run\n")
+    commands = [
+        {"name": "review", "description": "Review the current changes"},
+        {"name": "deploy", "description": "Deploy", "kind": "skill"},
+    ]
+    extra = os.path.join(cwd, ".fake-commands")
+    if os.path.exists(extra):
+        with open(extra) as lines:
+            commands.extend({"name": line.strip()} for line in lines if line.strip())
+    return commands
+
+
+RICH_BASH_OPTIONS = [
+    {"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"},
+    {"optionId": "allow-always", "name": "Always allow", "kind": "allow_always"},
+    {"optionId": "deny", "name": "Deny", "kind": "reject_once"},
+]
+
+# Input-collecting gates (`AskUserQuestion`, `ExitPlanMode`) offer one allow and
+# one reject option; Cadencr answers with the matching option id and returns
+# the user's input under `_meta.updatedInput` (feedback under `_meta.feedback`).
+GATE_OPTIONS = [
+    {"optionId": "gate-accept", "name": "Accept", "kind": "allow_once"},
+    {"optionId": "gate-reject", "name": "Reject", "kind": "reject_once"},
+]
+
+
+def request_permission(request_id, tool_call, options):
     send(
         {
             "jsonrpc": "2.0",
@@ -144,35 +245,72 @@ def request_permission():
             "method": "session/request_permission",
             "params": {
                 "sessionId": SESSION_ID,
-                "toolCall": {
-                    "toolCallId": "rich-bash-1",
-                    "title": "Bash",
-                    "kind": "execute",
-                    "rawInput": {"command": "printf rich-acp"},
-                },
-                "options": [
-                    {
-                        "optionId": "allow-once",
-                        "name": "Allow once",
-                        "kind": "allow_once",
-                    },
-                    {
-                        "optionId": "allow-always",
-                        "name": "Always allow",
-                        "kind": "allow_always",
-                    },
-                    {
-                        "optionId": "deny",
-                        "name": "Deny",
-                        "kind": "reject_once",
-                    },
-                ],
+                "toolCall": tool_call,
+                "options": options,
             },
         }
     )
     with _responses_condition:
         _responses_condition.wait_for(lambda: request_id in _responses, timeout=10)
         return _responses.pop(request_id, None)
+
+
+def gate_answer(response):
+    """Summarize a gate response as `optionId|feedback|updatedInput`."""
+    result = (response or {}).get("result") or {}
+    meta = result.get("_meta") or {}
+    selected = (result.get("outcome") or {}).get("optionId")
+    updated = json.dumps(meta.get("updatedInput"), sort_keys=True)
+    return "{}|{}|{}".format(selected, meta.get("feedback"), updated)
+
+
+def run_gate_turn(request_id):
+    """Raise an `AskUserQuestion` gate, then an `ExitPlanMode` plan gate."""
+    question_input = {
+        "questions": [
+            {
+                "question": "Color?",
+                "header": "Color",
+                "multiSelect": False,
+                "options": [{"label": "Blue"}, {"label": "Red"}],
+            }
+        ]
+    }
+    question = {
+        "toolCallId": "gate-question-1",
+        "title": "Ask the user",
+        "name": "AskUserQuestion",
+        "kind": "other",
+        "rawInput": question_input,
+    }
+    session_update(dict(question, sessionUpdate="tool_call"))
+    answer = request_permission("gate-question-1", question, GATE_OPTIONS)
+    session_update(
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "gate-question-1",
+            "status": "completed",
+        }
+    )
+    stream_chunk("question=" + gate_answer(answer) + "\n")
+    plan = {
+        "toolCallId": "gate-plan-1",
+        "title": "Ready to code?",
+        "name": "ExitPlanMode",
+        "kind": "switch_mode",
+        "rawInput": {"plan": "1. Paint it blue"},
+    }
+    session_update(dict(plan, sessionUpdate="tool_call"))
+    verdict = request_permission("gate-plan-1", plan, GATE_OPTIONS)
+    session_update(
+        {
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "gate-plan-1",
+            "status": "completed",
+        }
+    )
+    stream_chunk("plan=" + gate_answer(verdict))
+    reply(request_id, {"stopReason": "end_turn"})
 
 
 def run_rich_turn(request_id):
@@ -211,7 +349,16 @@ def run_rich_turn(request_id):
             "rawInput": {"command": "printf rich-acp"},
         }
     )
-    response = request_permission()
+    response = request_permission(
+        "rich-permission-1",
+        {
+            "toolCallId": "rich-bash-1",
+            "title": "Bash",
+            "kind": "execute",
+            "rawInput": {"command": "printf rich-acp"},
+        },
+        RICH_BASH_OPTIONS,
+    )
     if response is None or response.get("error") is not None:
         reply_error(request_id, -32000, "permission response missing")
         return
@@ -268,6 +415,79 @@ def run_rich_turn(request_id):
     reply(request_id, {"stopReason": "end_turn"})
 
 
+def run_background_turn(request_id):
+    """Two background sub-agents: one declared at launch, one only on the
+    completed update. The first finishes after the turn ended; the second
+    never reports back, like an agent that cannot."""
+    session_update({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "bg-launch",
+        "name": "Agent",
+        "title": "Explore in the background",
+        "kind": "other",
+        "rawInput": {"description": "Explore", "prompt": "Map the repo", "subagent_type": "explore"},
+        "_meta": {"cadencr": {"subagent": {"background": True}}},
+    })
+    session_update({"sessionUpdate": "tool_call_update", "toolCallId": "bg-launch", "status": "completed"})
+    session_update({
+        "sessionUpdate": "tool_call",
+        "toolCallId": "bg-late",
+        "name": "Agent",
+        "title": "Review in the background",
+        "kind": "other",
+        "rawInput": {"description": "Review", "prompt": "Review it", "subagent_type": "review"},
+    })
+    session_update({
+        "sessionUpdate": "tool_call_update",
+        "toolCallId": "bg-late",
+        "status": "completed",
+        "rawOutput": {"isBackground": True},
+        "_meta": {"cadencr": {"subagent": {"background": True}}},
+    })
+    stream_chunk("Background agents launched.")
+    reply(request_id, {"stopReason": "end_turn"})
+
+    def finish_later():
+        threading.Event().wait(0.5)
+        session_update({
+            "sessionUpdate": "tool_call_update",
+            "toolCallId": "bg-launch",
+            "status": "completed",
+            "_meta": {"cadencr": {"subagent": {"status": "completed", "summary": "Mapped the repo"}}},
+        })
+
+    finisher = threading.Thread(target=finish_later)
+    finisher.daemon = True
+    finisher.start()
+
+
+def run_host_turn(request_id, params, text):
+    """Host-convention prompts; returns False when the prompt is not one."""
+    global _mode
+    resources = [
+        block.get("resource") or {}
+        for block in params.get("prompt") or []
+        if isinstance(block, dict) and block.get("type") == "resource"
+    ]
+    if resources:
+        stream_chunk("resource=" + ",".join(r.get("mimeType", "") for r in resources))
+    elif text.strip() == "/compress":
+        stream_chunk("compacted")
+    elif "state" in text:
+        stream_chunk("mode={} access={} pid={}".format(_mode, _sandbox, os.getpid()))
+    elif text.startswith("switch to "):
+        _mode = text[len("switch to "):].strip()
+        session_update({"sessionUpdate": "config_option_update", "configOptions": config_options()})
+        stream_chunk("switched")
+    elif "background" in text:
+        run_background_turn(request_id)
+        return True
+    else:
+        return False
+    reply(request_id, {"stopReason": "end_turn"})
+    return True
+
+
 def prompt_text(params):
     blocks = params.get("prompt") or []
     return " ".join(
@@ -291,8 +511,13 @@ def run_turn(request_id, params):
         stream_chunk(_memory)
         reply(request_id, {"stopReason": "end_turn"})
         return
+    if _host_enabled and run_host_turn(request_id, params, text):
+        return
     if _rich_enabled and "rich" in text:
         run_rich_turn(request_id)
+        return
+    if _rich_enabled and "gate" in text:
+        run_gate_turn(request_id)
         return
     if "hang" in text:
         stream_chunk(CHUNKS[0])
@@ -308,7 +533,7 @@ def run_turn(request_id, params):
 
 
 def main():
-    global _memory, _model, _safe_mode
+    global _memory, _model, _mode, _safe_mode, _sandbox
     turn = None
     for line in sys.stdin:
         line = line.strip()
@@ -341,6 +566,7 @@ def main():
                     "agentCapabilities": {
                         "loadSession": _durable_enabled,
                         "sessionCapabilities": session_capabilities,
+                        "promptCapabilities": {"embeddedContext": _host_enabled},
                     },
                     "agentInfo": {"name": "fake-acp-agent", "version": "1.0.0"},
                 },
@@ -351,6 +577,10 @@ def main():
             result = {"sessionId": SESSION_ID}
             result["configOptions"] = config_options()
             reply(request_id, result)
+            if "--live-commands" in sys.argv:
+                session_update(
+                    {"sessionUpdate": "available_commands_update", "availableCommands": LIVE_COMMANDS}
+                )
         elif method in ("session/resume", "session/load"):
             if not _durable_enabled:
                 reply_error(request_id, -32601, f"method not found: {method}")
@@ -369,6 +599,10 @@ def main():
                 _safe_mode = value
             elif config_id == "model" and value in ("fake-small", "fake-large"):
                 _model = value
+            elif _host_enabled and config_id == "mode" and value in [m[0] for m in HOST_MODES]:
+                _mode = value
+            elif _host_enabled and config_id == "sandbox" and value in [a[0] for a in HOST_ACCESS]:
+                _sandbox = value
             else:
                 reply_error(request_id, -32602, "invalid config option")
                 continue
@@ -396,6 +630,17 @@ if __name__ == "__main__":
     command = sys.argv[1] if len(sys.argv) > 1 else None
     if command == "models":
         print(json.dumps(config_options()))
+    elif command == "host-integration" and _host_enabled:
+        print(json.dumps(HOST_INTEGRATION))
+    elif command == "host-integration" and "--host-integration-invalid" in sys.argv:
+        print(json.dumps({"compactCommand": "/not a command"}))
+    elif command == "slash-commands" and "--slash-commands" in sys.argv:
+        print(json.dumps(listed_slash_commands()))
+    elif command == "slash-commands" and "--slash-commands-invalid" in sys.argv:
+        print(json.dumps([{"name": "/not a command"}]))
+    elif command == "slash-commands" and "--slash-commands-failing" in sys.argv:
+        print(json.dumps({"message": "fake command directory is unreadable"}))
+        raise SystemExit(1)
     elif command == "run":
         main()
     else:

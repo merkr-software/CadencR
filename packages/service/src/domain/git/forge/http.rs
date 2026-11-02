@@ -7,6 +7,7 @@ use reqwest::{RequestBuilder, StatusCode};
 use serde::de::DeserializeOwned;
 use tokio::sync::Mutex;
 
+mod mutation;
 mod rate_limit;
 
 use self::rate_limit::{is_secondary_rate_limit, rate_limit_wait, DEFAULT_RATE_LIMIT_WAIT};
@@ -89,11 +90,7 @@ impl ForgeHttp {
             request.headers_mut().insert(IF_NONE_MATCH, value);
         }
 
-        let response = self
-            .client
-            .execute(request)
-            .await
-            .map_err(|error| ForgeError::Http(format!("forge request failed: {error}")))?;
+        let response = self.send_checked(request, host).await?;
         let status = response.status();
         if status == StatusCode::NOT_MODIFIED {
             let cached = self
@@ -108,18 +105,6 @@ impl ForgeHttp {
             return serde_json::from_slice(&cached.body).map_err(|error| {
                 ForgeError::Response(format!("cached forge response was invalid: {error}"))
             });
-        }
-        if status == StatusCode::TOO_MANY_REQUESTS {
-            let wait = rate_limit_wait(&response).unwrap_or(DEFAULT_RATE_LIMIT_WAIT);
-            return Err(self.arm_backoff(host, wait).await);
-        }
-        if status == StatusCode::UNAUTHORIZED {
-            return Err(ForgeError::Authentication(
-                "Forge rejected the configured token".into(),
-            ));
-        }
-        if status == StatusCode::FORBIDDEN {
-            return Err(self.classify_forbidden(host, response).await);
         }
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -159,6 +144,32 @@ impl ForgeHttp {
     /// with `403` as readily as with `429`, so a forbidden response is only an
     /// auth problem once every rate-limit signal has been ruled out — otherwise
     /// a throttled poll sends the user off to re-authenticate a working token.
+    /// Sends one request under the shared rate-limit and authentication
+    /// policy. The backoff check is the caller's: it comes before any cache
+    /// lookup. Every other status is the caller's to interpret.
+    async fn send_checked(
+        &self,
+        request: reqwest::Request,
+        host: String,
+    ) -> Result<reqwest::Response, ForgeError> {
+        let response = self
+            .client
+            .execute(request)
+            .await
+            .map_err(|error| ForgeError::Http(format!("forge request failed: {error}")))?;
+        match response.status() {
+            StatusCode::TOO_MANY_REQUESTS => {
+                let wait = rate_limit_wait(&response).unwrap_or(DEFAULT_RATE_LIMIT_WAIT);
+                Err(self.arm_backoff(host, wait).await)
+            }
+            StatusCode::UNAUTHORIZED => Err(ForgeError::Authentication(
+                "Forge rejected the configured token".into(),
+            )),
+            StatusCode::FORBIDDEN => Err(self.classify_forbidden(host, response).await),
+            _ => Ok(response),
+        }
+    }
+
     async fn classify_forbidden(&self, host: String, response: reqwest::Response) -> ForgeError {
         if let Some(wait) = rate_limit_wait(&response) {
             return self.arm_backoff(host, wait).await;

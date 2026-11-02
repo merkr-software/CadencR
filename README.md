@@ -6,7 +6,7 @@ The desktop workspace for managing AI coding agents. **Run Claude Code, Codex, C
 
 [**Download for macOS →**](https://github.com/merkr-software/CadencR/releases/latest) · [Website & demo](https://cadencr.com) · [Documentation](https://cadencr.com/docs/) · [What's new](https://cadencr.com/news/)
 
-**Free & open source · Local-first · No telemetry · Apache 2.0**
+**Free & open source · Local-first · Privacy controls · Apache 2.0**
 
 [![CadencR v0.14.1: four agent conversations in a unified grid, with model controls, a permission request, and the For me queue across projects.](./.github/assets/readme/hero.png)](./.github/assets/readme/hero.png)
 
@@ -83,10 +83,10 @@ When you need to inspect, test, or ship what an agent produced, open the relevan
 
 - **Local workspace.** CadencR runs on your computer and stores its workspace state locally. Remote access is opt-in.
 - **Your existing agent accounts.** Install and authenticate the native CLI you want to use. CadencR runs it locally; requests to the provider follow that agent's own configuration and service.
-- **No CadencR telemetry.** No additional CadencR subscription. Your agent provider's pricing and usage limits still apply.
+- **Privacy controls.** Diagnostics and detailed usage analytics start off. A separate monthly installation counter starts on when configured, independently of the detailed telemetry decision, and has its own off switch in Settings. Declining detailed telemetry leaves that counter setting unchanged. No prompts, your code, conversation content, session replay, or log dumps are sent. [Data and setup details](./docs/TELEMETRY.md). No additional CadencR subscription; your agent provider's pricing and usage limits still apply.
 - **Open source under Apache 2.0.** Inspect the implementation, build from source, and adapt it to your workflow.
 
-Built-in integrations support **Claude Code, Codex, Cursor, and OpenCode**. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)
+Built-in integrations support **Claude Code, Codex, and OpenCode**. **Cursor** is available as an official provider plugin from the marketplace. Local ACP connectors let you bring additional agents. Models, permission modes, rewind, and other controls depend on what each provider supports. [Provider setup and capabilities →](https://cadencr.com/docs/providers/)
 
 ## Install
 
@@ -100,7 +100,7 @@ brew install --cask merkr-software/cadencr/cadencr
 
 Or [download the latest DMG / ZIP from GitHub Releases](https://github.com/merkr-software/CadencR/releases/latest).
 
-1. **Install and authenticate an agent CLI:** Claude Code, Codex, Cursor, or OpenCode.
+1. **Install and authenticate an agent CLI:** Claude Code, Codex, or OpenCode. For Cursor, install the Cursor CLI, run `agent login`, then add the Cursor provider plugin from the marketplace.
 2. **Open CadencR and add a repository.** Start a task with a new worktree or an existing checkout.
 3. **Choose your agent and model.** Send a prompt, then open the editor, browser, terminal, or Git beside it.
 
@@ -122,9 +122,10 @@ Use the latest code or contribute to the product.
 | **pnpm**            | Run `corepack enable`; `package.json` pins the version.                                                      |
 | **Rust**            | Install with [rustup](https://rustup.rs/). `rust-toolchain.toml` selects the toolchain, rustfmt, and clippy. |
 | **watchexec**       | `pnpm dev` uses it to restart the service: `brew install watchexec`. `cargo-watch` is a fallback.            |
+| **Python 3.11+**    | The root script tests (run by the pre-commit hook) need it as `python3`; macOS's `/usr/bin/python3` is 3.9.  |
 | **An agent CLI**    | Install and authenticate at least one supported agent.                                                       |
 
-Using Nix? `nix develop` supplies Node 22, rustup, watchexec, and native libraries; Corepack supplies pnpm.
+Using Nix? `nix develop` supplies Node 22, Python 3, rustup, watchexec, and native libraries; Corepack supplies pnpm.
 
 #### Setup
 
@@ -150,6 +151,20 @@ In a linked worktree, use `pnpm dev:configure-worktree` in place of `pnpm setup:
 ```bash
 pnpm install && pnpm dev:configure-worktree && pnpm dev:precompile
 ```
+
+## Libraries
+
+Build custom tabs and agent providers with the public libraries below. Each
+package follows its own semver, independent of the desktop app.
+
+| Library                | Registry                                                   | Documentation                                                            | README                                                      |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `@cadencr/tab-sdk`     | [npm](https://www.npmjs.com/package/@cadencr/tab-sdk)      | [Host API, React hooks, and testing](https://cadencr.com/docs/tab-sdk/)  | [tab-sdk](./packages/tab-sdk/README.md)                     |
+| `@cadencr/tab-kit`     | [npm](https://www.npmjs.com/package/@cadencr/tab-kit)      | [Components, theme, and Tailwind v4](https://cadencr.com/docs/tab-kit/)  | [tab-kit](./packages/tab-kit/README.md)                     |
+| `cadencr-tab-backend`  | [crates.io](https://crates.io/crates/cadencr-tab-backend)  | [Native custom tab backends](https://cadencr.com/docs/tab-backend/)      | [tab-backend](./packages/tab-backend-sdk-rs/README.md)      |
+| `cadencr-provider-sdk` | [crates.io](https://crates.io/crates/cadencr-provider-sdk) | [Agent provider command harness](https://cadencr.com/docs/provider-sdk/) | [provider-sdk](./packages/provider-plugin-sdk-rs/README.md) |
+
+Start with the [libraries overview and custom tab quick start](https://cadencr.com/docs/libraries/).
 
 ## Development
 

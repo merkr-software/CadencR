@@ -1,5 +1,5 @@
-import type { AgentBlockData } from "./AgentBlock";
-import { isCountableTool } from "./agentStreamSummary";
+import type { AgentBlockData } from "@/types/agent-block";
+import { isCountableTool } from "@/lib/agent-stream-summary";
 import { isFileChangeTool, normalizeToolName } from "@/lib/tool-adapter";
 import { mcpToolKey, parseMcpTool, type McpTool } from "@/lib/mcp-tool-parser";
 import { semanticSkillPresentation } from "@/lib/tool-display-policy";

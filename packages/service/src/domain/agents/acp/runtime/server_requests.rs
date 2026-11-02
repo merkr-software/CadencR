@@ -22,7 +22,7 @@ use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
 
-use super::event_loop_state::sync_session_state_from_update;
+use super::event_loop_state::{latched_turn_model, sync_session_state_from_update};
 use super::events::session_update_to_events;
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call_metadata::is_empty_value;
@@ -35,7 +35,6 @@ use super::permissions::{
 };
 use super::prompt_receipts::PendingPromptReceipts;
 use super::provider_hooks::AcpProviderHooks;
-use super::server_request_extensions::{handle_extension_notification, handle_extension_request};
 use super::server_request_response::{
     describe_exit, emit_recovered, fs_outcome_from, respond_or_reject, terminal_id_param,
 };
@@ -143,7 +142,11 @@ async fn handle_notification(
     match notification {
         AcpNotification::SessionUpdate { .. } => {
             let params = notification.params();
-            sync_session_state_from_update(params, config).await;
+            let synced = sync_session_state_from_update(params, config).await;
+            if let Some(event) = synced.mode_changed {
+                let _ = tx.send(Ok(event)).await;
+            }
+            let agent_moved_model = synced.agent_moved_model;
             if config.replay_suppression.load(Ordering::SeqCst)
                 && is_transcript_session_update(params)
             {
@@ -169,10 +172,11 @@ async fn handle_notification(
                 // never across `await`. The prompt-turn path competes for
                 // this lock at turn end (see drain_open_blocks).
                 let mut indexer = config.indexer.lock().expect("EventIndexer poisoned");
+                let turn_model = latched_turn_model(&mut indexer, agent_moved_model, model);
                 session_update_to_events(
                     payload,
                     &mut indexer,
-                    model.as_deref(),
+                    turn_model.as_deref(),
                     session_id.as_deref(),
                     config.hooks.as_ref(),
                 )
@@ -186,8 +190,10 @@ async fn handle_notification(
                 let _ = tx.send(Ok(event)).await;
             }
         }
-        AcpNotification::Extension { method, params } => {
-            handle_extension_notification(method, params, tx, config).await;
+        AcpNotification::Extension { method, .. } => {
+            // Provider extensions are the connector's business: an installed
+            // provider translates them into standard ACP before they get here.
+            tracing::debug!(method, "ignoring ACP extension notification");
         }
     }
 }
@@ -294,9 +300,6 @@ async fn handle_server_request(
             respond_or_reject(client, id, fs_outcome_from(result)).await;
         }
         other => {
-            if handle_extension_request(client, &request, tx, config).await {
-                return;
-            }
             tracing::warn!(method = other, "unhandled ACP server request");
             if let Err(error) = client
                 .reject_server_request(id, -32601, "method not found")
@@ -332,14 +335,10 @@ async fn handle_permission_request(
     enrich_permission_from_recorded_tool_input(&mut permission, config);
     let normalized_name = config.hooks.normalize_tool_name(&permission.tool_name);
     permission.tool_name = normalized_name;
-    let raw_input = config.hooks.derive_permission_tool_input(
+    permission.tool_input = config.hooks.normalize_tool_input(
         &permission.tool_name,
         std::mem::take(&mut permission.tool_input),
-        request.params(),
     );
-    permission.tool_input = config
-        .hooks
-        .normalize_tool_input(&permission.tool_name, raw_input);
     permission.preview = derive_preview(&permission.tool_input);
     let session_id = config.session_id.read().await.clone();
     if permission.tool_name.starts_with("mcp__") {
@@ -347,7 +346,6 @@ async fn handle_permission_request(
     }
     if let Err(error) = dispatch_permission_request_with_cache(
         client,
-        config.hooks.as_ref(),
         &config.pending_permissions,
         &config.session_permissions,
         session_id,

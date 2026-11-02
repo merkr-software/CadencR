@@ -42,7 +42,7 @@ const STATE_TEXT_CLASS: Record<Exclude<AttentionState, "idle">, string> = {
   unread: "text-(--acc-green)",
 };
 
-function waitingLabel(kind: PendingKind | null): string {
+export function waitingLabel(kind: PendingKind | null): string {
   if (kind === "permission") return "Needs approval";
   if (kind === "question") return "Has a question";
   return ATTENTION_LABEL.waiting;

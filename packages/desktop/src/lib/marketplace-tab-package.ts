@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ManagedThemeCatalogResponse, PluginTabSummary } from "@/api/generated";
+import type { PluginTabSummary } from "@/api/generated";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/);
 const byteSize = z.number().int().positive();
@@ -106,20 +106,4 @@ export function runtimeNativeCode(summary: PluginTabSummary): TabNativeCode | nu
     protocol: backend.protocol,
     platforms: Object.keys(backend.binary),
   };
-}
-
-/** The catalog's custom tab packages by tab id, every version listed. */
-export function groupTabPackages(
-  catalog?: ManagedThemeCatalogResponse,
-): Map<string, TabMarketplacePackage[]> {
-  const groups = new Map<string, TabMarketplacePackage[]>();
-  for (const raw of catalog?.index?.signed.packages ?? []) {
-    const entry = z.object({ kind: z.string(), package: z.unknown() }).parse(raw);
-    if (entry.kind !== "tab") continue;
-    const item = tabPackageSchema.parse(entry.package);
-    const versions = groups.get(item.tab.id);
-    if (versions) versions.push(item);
-    else groups.set(item.tab.id, [item]);
-  }
-  return groups;
 }

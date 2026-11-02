@@ -60,7 +60,11 @@ pub async fn get_session_status_snapshot(
                                THEN pending_permission ELSE '{}' END,
                           '$.request_id'
                       )
-                  ) AS request_id
+                  ) AS request_id,
+                  turn_started_at_ms,
+                  turn_waiting_ms,
+                  turn_waiting_since_ms,
+                  turn_models
            FROM agent_sessions
            WHERE status = 'running'
               OR pending_questions IS NOT NULL
@@ -93,13 +97,29 @@ pub async fn get_session_status_snapshot(
                 status: derived.status,
                 kind: derived.kind,
                 request_id: row.request_id,
-                // The DB has no per-turn start column; only the live status
-                // book knows a running turn's start.
-                turn_started_at_ms: None,
+                clock: crate::domain::session_status::TurnClock::restored(
+                    row.turn_started_at_ms,
+                    row.turn_waiting_ms,
+                    row.turn_waiting_since_ms,
+                    parse_turn_models(row.turn_models.as_deref()),
+                ),
+                compacting: false,
             },
         );
     }
     Ok(result)
+}
+
+/// `agent_sessions.turn_models`: a JSON array of model ids. A malformed value
+/// only loses the model names of a turn, never its status or timer.
+pub(crate) fn parse_turn_models(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    serde_json::from_str(raw).unwrap_or_else(|error| {
+        tracing::warn!(%error, raw, "ignoring malformed agent_sessions.turn_models");
+        Vec::new()
+    })
 }
 
 /// Max characters of an agent reply surfaced in a preview.

@@ -18,3 +18,8 @@ const mobileQuery = mediaQueryStore(MOBILE_QUERY);
 export function useIsMobile(): boolean {
   return useSyncExternalStore(mobileQuery.subscribe, mobileQuery.getSnapshot, () => false);
 }
+
+/** The same answer read once, for code outside React (palette command lists). */
+export function isMobileViewport(): boolean {
+  return mobileQuery.getSnapshot();
+}

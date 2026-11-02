@@ -1,5 +1,6 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { repairPersistedBlocksAfterTurn, resyncMessagesOnReconnect } from "./ws-session-resync";
 import type { StoreAccessors } from "./ws-envelope-handler";
@@ -10,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   getFeatureAgentState: apiMocks.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
 }));
 
 vi.mock("@/hooks/useFeatureAgentState", () => ({
@@ -27,6 +29,7 @@ function createCtx(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>) => {
       state = { ...state, ...partial } as WsSessionStore;
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string) => state.sessions[sessionId],
   };
 }

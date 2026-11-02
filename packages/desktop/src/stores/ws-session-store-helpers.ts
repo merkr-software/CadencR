@@ -3,8 +3,8 @@ import type { PromptDispatchOptions, WsEnvelope } from "@/lib/ws-envelope";
 import { createAccessModeSet, createModeSet, createPromptSend } from "@/lib/ws-envelope";
 import type { QueuedPrompt } from "./ws-session-types";
 import { blocksPatchWithDerived } from "./ws-block-mutations";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import { getProviderModes } from "@/lib/provider-modes";
+import type { AgentBlockData } from "@/types/agent-block";
+import { canReplayPermissionMode } from "@/lib/provider-modes";
 import { providerAccessModeConfig } from "@/lib/provider-access-modes";
 export { buildSlashCommandsKey } from "@/lib/slash-command-key";
 
@@ -75,14 +75,13 @@ export function buildQueuedInitEnvelopes(session: SessionEntry): WsEnvelope[] {
   // `options.permission_mode` on the still-pending `SdkHandle`, and this
   // envelope is emitted before any queued `prompt.send` so the spawn picks
   // up the corrected mode.
-  // Installed ACP providers intentionally expose no host-owned permission
-  // modes: permissions are negotiated by the ACP runtime, not declared by a
-  // package descriptor. Avoid replaying the built-in frontend fallback
-  // (`acceptEdits`) to such providers after initialization. An empty provider
-  // is kept for older `session.initialized` payloads, where preserving the
-  // existing replay behavior is safer than dropping a legitimate selection.
+  // Providers without a built-in mode table hold exactly the modes their
+  // catalog declares (possibly none), so the built-in frontend fallback is
+  // never replayed to them. An empty provider is kept for older `session.initialized` payloads, where
+  // preserving the existing replay behavior is safer than dropping a
+  // legitimate selection.
   const providerId = session.currentSelection?.providerId;
-  if (!providerId || getProviderModes(providerId).length > 0) {
+  if (!providerId || canReplayPermissionMode(providerId, session.permissionMode)) {
     envelopes.push(createModeSet(session.serverSessionId, session.permissionMode));
   }
   // Initialization reports the persisted mode, which can predate a chip change.

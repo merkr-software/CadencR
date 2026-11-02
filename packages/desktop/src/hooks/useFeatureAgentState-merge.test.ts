@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentBlock } from "../api/generated";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { BLOCK_CONTENT_MAX_CHARS, TRUNCATION_NOTICE } from "@/lib/block-content-budget";
 import {
   applyToolCallUpdates,
@@ -94,6 +94,20 @@ describe("applyToolCallUpdates", () => {
     const parsed = JSON.parse(updated[0].toolArgs ?? "") as Record<string, unknown>;
     expect(parsed.file_path).toBe("/a.ts");
     expect(blocks[0].content).toBe("{}");
+  });
+
+  it("drops the hydrated full size once a revision replaces the content", () => {
+    const blocks: AgentBlockData[] = [
+      {
+        id: "t1",
+        type: "tool_call",
+        content: "{}",
+        truncatedContent: true,
+        fullContentBytes: 70_000,
+      },
+    ];
+    const updated = applyToolCallUpdates(blocks, { t1: '{"a":1}' });
+    expect(updated[0].fullContentBytes).toBeUndefined();
   });
 
   it("reports no change when the content already matches", () => {

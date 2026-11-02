@@ -3,9 +3,11 @@ import { Copy, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { marketplaceError } from "@/lib/marketplace";
-import type { MarketplaceListing } from "@/lib/marketplace-listings";
+import type { MarketplaceListing, PluginKind } from "@/lib/marketplace-listings";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { installedPluginMembers } from "@/lib/marketplace-plugin-listings";
 import { useMarketplaceState } from "./MarketplaceContext";
+import { memberLabel, usePluginActions } from "./usePluginActions";
 
 /** Removal across kinds and, for themes, duplicating into an editable author project. */
 export function PluginManage({
@@ -13,75 +15,48 @@ export function PluginManage({
 }: {
   listing: MarketplaceListing;
 }): React.JSX.Element | null {
-  const { providers, themes, tabs } = useMarketplaceState();
+  const state = useMarketplaceState();
+  const actions = usePluginActions();
   const [confirming, setConfirming] = useState(false);
-  const [label, setLabel] = useState("");
+  const [removing, setRemoving] = useState(false);
+  const [pluginError, setPluginError] = useState<string | null>(null);
   if (!listing.installed) return null;
+  const members = listing.kind === "plugin" ? installedPluginMembers(listing, state.listings) : [];
   const mutation =
-    listing.kind === "provider"
-      ? providers.mutation
-      : listing.kind === "tab"
-        ? tabs.mutation
-        : themes.mutation;
+    listing.kind === "plugin"
+      ? null
+      : { provider: state.providers, tab: state.tabs, theme: state.themes }[listing.kind].mutation;
   // The kind's mutation is shared; only this plugin's removal failure belongs in the dialog.
   const removalError =
-    mutation.variables?.kind === "remove" && mutation.variables.id === listing.id
+    mutation?.variables?.kind === "remove" && mutation.variables.id === listing.id
       ? marketplaceError(mutation.error)
-      : null;
+      : pluginError;
+  const busy = removing || actions.busy(listing);
   /** Resolves false on failure so the dialog stays open on its error. */
-  const remove = () =>
-    new Promise<boolean>((resolve) => {
-      const callbacks = { onSuccess: () => resolve(true), onError: () => resolve(false) };
-      if (listing.kind === "provider")
-        providers.mutation.mutate({ kind: "remove", id: listing.id }, callbacks);
-      else if (listing.kind === "tab")
-        tabs.mutation.mutate({ kind: "remove", id: listing.id }, callbacks);
-      else
-        themes.mutation.mutate(
-          { kind: "remove", id: listing.id, confirmFallback: true },
-          callbacks,
-        );
-    });
+  const remove = async () => {
+    setPluginError(null);
+    setRemoving(true);
+    try {
+      if (listing.kind === "plugin") await actions.removePlugin(listing);
+      else await actions.remove(listing);
+      return true;
+    } catch (error) {
+      // A single kind's error is read from its mutation above; a plugin's names its member.
+      if (listing.kind === "plugin") setPluginError(marketplaceError(error));
+      return false;
+    } finally {
+      setRemoving(false);
+    }
+  };
   return (
     <section className="space-y-3">
       <h2 className="text-[13px] font-semibold">Manage</h2>
-      {listing.kind === "theme" && (
-        <div className="space-y-1.5">
-          <p className="text-xs text-muted-foreground">
-            Make an editable copy in a new author project.
-          </p>
-          <div className="flex gap-2">
-            <Input
-              aria-label={`New author project name for ${listing.name}`}
-              placeholder="New theme name"
-              value={label}
-              onChange={(event) => setLabel(event.target.value)}
-              disabled={themes.mutation.isPending}
-              className="h-8 text-[13px]"
-            />
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={themes.mutation.isPending || !listing.installed.usable || !label.trim()}
-              onClick={() =>
-                themes.mutation.mutate(
-                  { kind: "duplicate", id: listing.id, label: label.trim() },
-                  { onSuccess: () => setLabel("") },
-                )
-              }
-            >
-              <Copy aria-hidden="true" />
-              Duplicate
-            </Button>
-          </div>
-        </div>
-      )}
+      {listing.kind === "theme" && <DuplicateTheme listing={listing} />}
       <Button
         variant="ghost"
         size="sm"
         className="px-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-        disabled={mutation.isPending}
+        disabled={busy}
         onClick={() => setConfirming(true)}
       >
         <Trash2 aria-hidden="true" />
@@ -91,10 +66,12 @@ export function PluginManage({
         open={confirming}
         onOpenChange={setConfirming}
         title={`Remove ${listing.name}?`}
-        description={removalDescription(listing)}
+        description={
+          listing.kind === "plugin" ? pluginRemoval(members) : removalDescription(listing.kind)
+        }
         variant="destructive"
-        confirmText={mutation.isPending ? "Removing…" : "Remove"}
-        busy={mutation.isPending}
+        confirmText={busy ? "Removing…" : "Remove"}
+        busy={busy}
         onConfirm={remove}
       >
         {removalError && (
@@ -107,10 +84,55 @@ export function PluginManage({
   );
 }
 
-function removalDescription(listing: MarketplaceListing): string {
-  if (listing.kind === "provider")
+function removalDescription(kind: PluginKind): string {
+  if (kind === "provider")
     return "The provider is disabled and dropped from the next startup. Existing conversations are kept.";
-  if (listing.kind === "tab")
+  if (kind === "tab")
     return "The tab is removed from the workspace. Its configuration and retained revisions are kept.";
   return "Any light, dark or manual selection using this theme returns to a built-in theme.";
+}
+
+/** Every installed member goes, each with its own kind's consequences. */
+function pluginRemoval(members: MarketplaceListing[]): string {
+  const names = members.map(memberLabel).join(", ");
+  const kinds = [...new Set(members.flatMap((member) => member.contributes))];
+  return [`Removes ${names}.`, ...kinds.map(removalDescription)].join(" ");
+}
+
+/** A signed theme revision is immutable: copy it into an author project to edit it. */
+function DuplicateTheme({ listing }: { listing: MarketplaceListing }): React.JSX.Element {
+  const { themes } = useMarketplaceState();
+  const [label, setLabel] = useState("");
+  return (
+    <div className="space-y-1.5">
+      <p className="text-xs text-muted-foreground">
+        Make an editable copy in a new author project.
+      </p>
+      <div className="flex gap-2">
+        <Input
+          aria-label={`New author project name for ${listing.name}`}
+          placeholder="New theme name"
+          value={label}
+          onChange={(event) => setLabel(event.target.value)}
+          disabled={themes.mutation.isPending}
+          className="h-8 text-[13px]"
+        />
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          disabled={themes.mutation.isPending || !listing.installed?.usable || !label.trim()}
+          onClick={() =>
+            themes.mutation.mutate(
+              { kind: "duplicate", id: listing.id, label: label.trim() },
+              { onSuccess: () => setLabel("") },
+            )
+          }
+        >
+          <Copy aria-hidden="true" />
+          Duplicate
+        </Button>
+      </div>
+    </div>
+  );
 }

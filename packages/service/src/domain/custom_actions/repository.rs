@@ -1,14 +1,12 @@
 mod action_mutations;
 mod actions;
 mod runs;
-mod schedules;
 mod variables;
 
-pub use action_mutations::{delete, update};
+pub use action_mutations::{delete, reorder, update};
 pub use actions::{get, insert, list_for_project};
-pub use runs::{fail_orphaned_runs, finalize_run, insert_run, list_runs, update_run_output};
-pub use schedules::{
-    delete_schedule, get_schedule, list_enabled_schedules, touch_schedule_last_run, upsert_schedule,
+pub use runs::{
+    fail_orphaned_runs, finalize_run, insert_run, list_runs, run_outcome, update_run_output,
 };
 pub use variables::{list_variables, upsert_variable};
 

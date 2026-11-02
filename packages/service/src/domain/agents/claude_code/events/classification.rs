@@ -177,10 +177,11 @@ fn classify_system_message(
 fn classify_unknown_message(raw: Value) -> RuntimeEventKind {
     if raw_type(&raw) == "system" {
         let subtype = raw.get("subtype").and_then(Value::as_str);
-        const IGNORED_SYSTEM_SUBTYPES: [&str; 4] = [
+        const IGNORED_SYSTEM_SUBTYPES: [&str; 5] = [
             "task_started",
             "task_notification",
             "task_progress",
+            "task_updated",
             "background_tasks_changed",
         ];
         if !subtype.is_some_and(|s| IGNORED_SYSTEM_SUBTYPES.contains(&s)) {

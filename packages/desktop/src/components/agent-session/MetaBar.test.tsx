@@ -1,6 +1,7 @@
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
+import { setProviderCatalogMetadata } from "@/lib/provider-catalog-registry";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { formatCompactCombo } from "@/lib/shortcuts/format";
 import { parseThinkingEffort } from "@/shared/thinking-effort";
@@ -27,19 +28,6 @@ const CODEX_ACCESS_MODES = [
     description: "Codex can automatically review approval requests.",
   },
 ];
-const CURSOR_ACCESS_MODES = [
-  { id: "default" as const, label: "Default", description: "Uses Cursor approval rules." },
-  {
-    id: "fullAccess" as const,
-    label: "Full Access",
-    description: "Starts Cursor with Run Everything enabled.",
-  },
-  {
-    id: "autoReview" as const,
-    label: "Auto Review",
-    description: "Cursor's classifier reviews other Shell, MCP, and Fetch calls.",
-  },
-];
 
 /**
  * The mode chip is the central UI of the per-provider mode alignment work, so
@@ -49,10 +37,6 @@ const CURSOR_ACCESS_MODES = [
  * props needed to render and only assert on the mode chip.
  */
 function renderChip(overrides: Partial<MetaBarProps> = {}) {
-  const accessProvider =
-    "currentSelection" in overrides
-      ? overrides.currentSelection?.providerId
-      : PROVIDER_IDS.CLAUDE_CODE;
   const baseProps: MetaBarProps = {
     showAutoScrollChip: false,
     autoScrollEnabled: false,
@@ -62,8 +46,7 @@ function renderChip(overrides: Partial<MetaBarProps> = {}) {
     onPermissionModeToggle: vi.fn(),
     permissionMode: "acceptEdits",
     currentSelection: { providerId: PROVIDER_IDS.CLAUDE_CODE, modelId: "claude-sonnet" },
-    providerAccessModes:
-      accessProvider === PROVIDER_IDS.CURSOR ? CURSOR_ACCESS_MODES : CODEX_ACCESS_MODES,
+    providerAccessModes: CODEX_ACCESS_MODES,
     ...overrides,
   };
   return render(<MetaBar {...baseProps} />);
@@ -184,20 +167,33 @@ describe("MetaBar mode chip", () => {
     expect(chip).toHaveAttribute("title", expect.not.stringMatching(/Shift\\+Tab/i));
   });
 
-  it("renders Cursor access mode with Cursor permission semantics", async () => {
-    const user = userEvent.setup();
+  it("shows no host access chip for an installed provider without catalog access modes", () => {
     renderChip({
-      currentSelection: { providerId: PROVIDER_IDS.CURSOR, modelId: "cursor-model" },
+      currentSelection: { providerId: "cursor", modelId: "cursor-model" },
       accessMode: "autoReview",
       onAccessModeChange: vi.fn(),
       runtimeSessionId: "cursor-chat-123",
     });
 
-    await user.click(screen.getByRole("button", { name: /Cursor access mode: Auto Review/i }));
+    expect(screen.queryByRole("button", { name: /access mode/i })).not.toBeInTheDocument();
+  });
 
-    expect(screen.getByText("Cursor access mode")).toBeInTheDocument();
-    expect(screen.getByText(/classifier reviews other Shell, MCP, and Fetch calls/i)).toBeVisible();
-    expect(screen.getByText(/Run Everything enabled/i)).toBeVisible();
+  it("renders the access chip from an installed provider's catalog access modes", () => {
+    setProviderCatalogMetadata([
+      { id: "cursor", label: "Cursor", access_modes: CODEX_ACCESS_MODES },
+    ]);
+    try {
+      renderChip({
+        currentSelection: { providerId: "cursor", modelId: "cursor-model" },
+        accessMode: "autoReview",
+        onAccessModeChange: vi.fn(),
+        runtimeSessionId: "cursor-chat-123",
+      });
+
+      expect(screen.getByRole("button", { name: /Cursor access mode/i })).toBeInTheDocument();
+    } finally {
+      setProviderCatalogMetadata([]);
+    }
   });
 
   it("opens a Codex access mode popover and selects a mode", async () => {

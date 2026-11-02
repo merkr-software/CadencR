@@ -2,26 +2,24 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { $getRoot, $getSelection, $isRangeSelection, $isTextNode, type TextNode } from "lexical";
 import { $createSlashCommandNode } from "../nodes/SlashCommandNode";
-import {
-  SLASH_COMMAND_GROUP_ORDER,
-  SlashCommandPopover,
-  slashCommandPopoverMaxHeight,
-} from "@/components/SlashCommandPopover";
+import { SLASH_COMMAND_GROUP_ORDER, SlashCommandPopover } from "@/components/SlashCommandPopover";
 import { useSlashCommand } from "@/hooks/useSlashCommand";
 import { useProjectMcpEnabled, useWorkspaceMcpEnabled } from "@/lib/mcp-settings";
 import type { PromptCommandTriggerChar } from "@/lib/prompt-command-policy";
 import { isSlashCommandDisabled, type SlashCommand } from "@/lib/slash-command";
 import {
-  CursorPopover,
+  AnchoredPopover,
   getTriggerMatch,
   replaceTriggerWithNode,
-  useEditorAnchorRect,
+  useComposerPopoverAnchor,
   usePopoverKeyboardCommands,
 } from "./trigger-utils";
 
 interface SlashCommandPluginProps {
   commands: SlashCommand[] | undefined;
   isLoading?: boolean;
+  /** Why the provider's own commands could not be listed, if they could not. */
+  error?: string | null;
   commandKindsAtPromptStart: readonly SlashCommand["kind"][];
   commandKindsMidPrompt: readonly SlashCommand["kind"][];
   triggerChar: PromptCommandTriggerChar;
@@ -79,6 +77,7 @@ function syncTriggerFromEditor(
 export function SlashCommandPlugin({
   commands,
   isLoading,
+  error,
   commandKindsAtPromptStart,
   commandKindsMidPrompt,
   triggerChar,
@@ -166,13 +165,15 @@ export function SlashCommandPlugin({
     listId,
   );
 
-  const popoverOpen = slash.isOpen && (!!isLoading || slash.filteredItems.length > 0);
-  const anchorRect = useEditorAnchorRect(editor, popoverOpen);
+  // An error opens the menu even when nothing matched: an empty list would
+  // read as "this provider has no commands".
+  const popoverOpen = slash.isOpen && (!!isLoading || !!error || slash.filteredItems.length > 0);
+  const popoverAnchor = useComposerPopoverAnchor(editor, popoverOpen);
 
-  if (!popoverOpen || !anchorRect) return null;
+  if (!popoverOpen || !popoverAnchor) return null;
 
   return (
-    <CursorPopover cursorRect={anchorRect} matchWidth>
+    <AnchoredPopover anchor={popoverAnchor}>
       <SlashCommandPopover
         listId={listId}
         open={true}
@@ -180,10 +181,11 @@ export function SlashCommandPlugin({
         selectedIndex={slash.selectedIndex}
         onSelect={handleSelect}
         isLoading={isLoading ?? false}
+        error={error}
         triggerChar={triggerChar}
         cadencrDisabled={!cadencrEnabled}
-        maxHeight={slashCommandPopoverMaxHeight(anchorRect.top)}
+        maxHeight={popoverAnchor.maxHeight}
       />
-    </CursorPopover>
+    </AnchoredPopover>
   );
 }

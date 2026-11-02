@@ -23,7 +23,6 @@ use crate::domain::agents::adapter::{
     RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue,
 };
 
-use super::provider_hooks::AcpProviderHooks;
 use super::thought_level::is_thought_level_config_name;
 
 /// Build the `RuntimeEvent` for a `config_option_update` notification.
@@ -71,7 +70,6 @@ fn legacy_select_value(value: Option<&RuntimeSessionConfigValue>) -> Option<Opti
 /// Mirror every known legacy field from a complete authoritative snapshot.
 pub async fn mirror_config_snapshot(
     snapshot: &RuntimeSessionConfigSnapshot,
-    hooks: &dyn AcpProviderHooks,
     current_model: &Arc<RwLock<Option<String>>>,
     current_effort: &Arc<RwLock<Option<String>>>,
 ) {
@@ -80,12 +78,7 @@ pub async fn mirror_config_snapshot(
             continue;
         };
         match option.category.as_deref() {
-            Some("model") => {
-                if let Some(model) = hooks.legacy_model_from_session_config(current_value, snapshot)
-                {
-                    write_if_changed(current_model, Some(model)).await;
-                }
-            }
+            Some("model") => write_if_changed(current_model, Some(current_value.clone())).await,
             Some("thought_level") => {
                 write_if_changed(current_effort, Some(current_value.clone())).await
             }

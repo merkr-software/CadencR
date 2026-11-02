@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useRef, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 import { useDroppable } from "@dnd-kit/core";
 
 import { Tabs, TabsList } from "@/components/ui/tabs";
@@ -9,9 +9,17 @@ import { cn } from "@/lib/utils";
 import { AutoLayoutToggle } from "./AutoLayoutToggle";
 import { LayoutMenu } from "./LayoutMenu";
 import { DraggableTabTrigger, StaticTabTrigger, tabCloseAction } from "./PaneTabTriggers";
-import type { DragSource, FeatureTabs } from "./types";
+import {
+  foldedFrameClass,
+  PopPaneRail,
+  PopPaneToggle,
+  slidingFrameStyle,
+  useReportFoldedSize,
+} from "./pop-pane";
+import type { FeatureTabs, PaneSlot } from "./types";
+import { usePaneStripDrop } from "./use-pane-strip-drop";
 
-interface PaneChromeProps {
+export interface PaneChromeProps {
   featureId: number;
   leaf: LayoutLeaf;
   tabs: FeatureTabs;
@@ -20,6 +28,8 @@ interface PaneChromeProps {
   splitsEnabled: boolean;
   /** Root pane only: extra controls trailing the strip, before AutoLayoutToggle. */
   stripActions?: ReactNode;
+  /** Where the pane sits in its parent split; absent for a lone root pane. */
+  slot?: PaneSlot;
   containerRef: RefObject<HTMLDivElement | null>;
   contentRef: (el: HTMLDivElement | null) => (() => void) | undefined;
   onFocusPane: () => void;
@@ -28,6 +38,8 @@ interface PaneChromeProps {
   onDockTab: (tab: TabKind) => void;
   /** Take a closable (plugin) tab out of the layout. */
   onCloseTab: (tab: TabKind) => void;
+  /** Make the pane a pop pane, or pin it open again. */
+  onTogglePop: (pop: boolean) => void;
 }
 
 export function PaneChrome({
@@ -38,6 +50,7 @@ export function PaneChrome({
   isFocused,
   splitsEnabled,
   stripActions,
+  slot,
   containerRef,
   contentRef,
   onFocusPane,
@@ -45,22 +58,32 @@ export function PaneChrome({
   onActivateTab,
   onDockTab,
   onCloseTab,
+  onTogglePop,
 }: PaneChromeProps): ReactNode {
+  const popCollapsed = slot?.popCollapsed ?? false;
+  const rail = popCollapsed && slot?.orientation === "horizontal";
+  const frameRef = useReportFoldedSize(slot);
   const autoRevealed = useAutoLayoutStore((s) =>
     s.revealed[featureId]?.paneId === leaf.id ? s.revealed[featureId].kind : undefined,
   );
   return (
     <div
+      ref={frameRef}
       // `data-pane-frame` lets CadencR themes equalize the floating-pane gutter
       // (the default `px-1.5 pb-1.5` has no top padding). Other themes ignore it.
       data-pane-frame={isRoot ? "root" : "floating"}
-      className={cn("h-full w-full", isRoot ? "pt-px" : "px-1.5 pb-1.5")}
+      className={cn(
+        popCollapsed && slot ? foldedFrameClass(slot) : "h-full w-full",
+        isRoot ? "pt-px" : "px-1.5 pb-1.5",
+      )}
+      style={slidingFrameStyle(slot)}
     >
       <div
         ref={containerRef}
         data-pane-id={leaf.id}
         data-pane-root={isRoot || undefined}
         data-pane-focused={isFocused}
+        data-pop-folded={popCollapsed || undefined}
         data-auto-revealed={autoRevealed}
         onAnimationEnd={(event) => {
           if (event.target !== event.currentTarget || !autoRevealed) return;
@@ -70,37 +93,96 @@ export function PaneChrome({
           "relative flex h-full w-full flex-col bg-background outline-none",
           !isRoot && "overflow-hidden rounded-lg border border-border shadow-md",
         )}
-        onPointerDownCapture={onFocusPane}
-        onFocusCapture={onFocusPane}
+        {...paneFocusHandlers(popCollapsed, onFocusPane)}
       >
-        <PaneTabStrip paneId={leaf.id} enabled={splitsEnabled}>
-          <PaneTabs
-            featureId={featureId}
+        {rail && slot ? (
+          <PopPaneRail
+            paneId={leaf.id}
             leaf={leaf}
             tabs={tabs}
-            isRoot={isRoot}
-            isFocused={isFocused}
+            slot={slot}
             splitsEnabled={splitsEnabled}
-            onTabChange={onTabChange}
             onActivateTab={onActivateTab}
-            onDockTab={onDockTab}
-            onCloseTab={onCloseTab}
+            onTogglePop={onTogglePop}
           />
-          {isRoot && (splitsEnabled || stripActions) && (
-            <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
-              {stripActions}
-              {splitsEnabled && <AutoLayoutToggle featureId={featureId} />}
-              {splitsEnabled && <LayoutMenu featureId={featureId} />}
-            </div>
-          )}
-        </PaneTabStrip>
-        <div className="relative min-h-0 flex-1 overflow-hidden">
-          <div ref={contentRef} className="h-full w-full" />
-          {splitsEnabled && <PaneEdgeDropZones paneId={leaf.id} />}
-        </div>
+        ) : (
+          <PaneTabStrip paneId={leaf.id} enabled={splitsEnabled}>
+            <PaneTabs
+              featureId={featureId}
+              leaf={leaf}
+              tabs={tabs}
+              isRoot={isRoot}
+              isFocused={isFocused}
+              splitsEnabled={splitsEnabled}
+              onTabChange={onTabChange}
+              onActivateTab={onActivateTab}
+              onDockTab={onDockTab}
+              onCloseTab={onCloseTab}
+            />
+            {isRoot && (splitsEnabled || stripActions) && (
+              <div className="ml-auto flex shrink-0 items-center gap-0.5 pr-2">
+                {stripActions}
+                {splitsEnabled && <AutoLayoutToggle featureId={featureId} />}
+                {splitsEnabled && <LayoutMenu featureId={featureId} />}
+              </div>
+            )}
+            {!isRoot && splitsEnabled && slot && (
+              <div data-pop-toggle-slot className="ml-auto flex shrink-0 items-center pr-1">
+                <PopPaneToggle slot={slot} pop={slot.pops} onToggle={onTogglePop} />
+              </div>
+            )}
+          </PaneTabStrip>
+        )}
+        <PaneBody
+          paneId={leaf.id}
+          hidden={popCollapsed}
+          splitsEnabled={splitsEnabled}
+          contentRef={contentRef}
+        />
       </div>
     </div>
   );
+}
+
+/**
+ * The tab content host. A folded pop pane's body stays mounted (its host keeps
+ * the tab content) but hidden, so the content sees no size and skips reflowing.
+ */
+function PaneBody({
+  paneId,
+  hidden,
+  splitsEnabled,
+  contentRef,
+}: {
+  paneId: string;
+  hidden: boolean;
+  splitsEnabled: boolean;
+  contentRef: PaneChromeProps["contentRef"];
+}): ReactNode {
+  return (
+    <div
+      data-pane-body
+      className={cn("relative min-h-0 flex-1 overflow-hidden", hidden && "hidden")}
+    >
+      <div ref={contentRef} className="h-full w-full" />
+      {splitsEnabled && <PaneEdgeDropZones paneId={paneId} />}
+    </div>
+  );
+}
+
+/**
+ * A press or focus inside the pane focuses it. A folded pop pane's header
+ * opens on the click instead, once the click has reached its button: the
+ * header moves (or turns from rail to strip) as the pane opens, and React
+ * renders that between an event's capture and bubble passes. (A strip's tab
+ * trigger still opens the pane on press, as it activates its tab then.)
+ */
+function paneFocusHandlers(
+  popCollapsed: boolean,
+  onFocusPane: () => void,
+): Pick<HTMLAttributes<HTMLDivElement>, "onPointerDownCapture" | "onFocusCapture" | "onClick"> {
+  if (popCollapsed) return { onClick: onFocusPane };
+  return { onPointerDownCapture: onFocusPane, onFocusCapture: onFocusPane };
 }
 
 interface PaneTabsProps {
@@ -190,8 +272,7 @@ function PaneTabs({
  * The pane's tab bar is itself the "merge into this pane" drop target. Drop a
  * dragged tab anywhere on the strip and it gets appended to this pane's tab
  * list — that's the natural gesture (matches how browsers move tabs between
- * windows). The strip only highlights when the source is *another* pane, so
- * dragging a tab over its own strip stays visually quiet.
+ * windows).
  */
 function PaneTabStrip({
   paneId,
@@ -202,21 +283,14 @@ function PaneTabStrip({
   enabled: boolean;
   children: ReactNode;
 }): ReactNode {
-  const droppable = useDroppable({
-    id: `strip:${paneId}`,
-    data: { kind: "pane-strip", paneId } as const,
-    disabled: !enabled,
-  });
-  const sourcePaneId = (droppable.active?.data.current as DragSource | undefined)?.paneId;
-  const showOver =
-    enabled && droppable.isOver && sourcePaneId !== undefined && sourcePaneId !== paneId;
+  const drop = usePaneStripDrop(paneId, enabled);
   return (
     <div
-      ref={enabled ? droppable.setNodeRef : undefined}
+      ref={drop.setNodeRef}
       data-pane-tab-strip
       className={cn(
         "flex shrink-0 items-stretch border-b border-border transition-colors",
-        showOver && "bg-primary/15",
+        drop.showOver && "bg-primary/15",
       )}
     >
       {children}

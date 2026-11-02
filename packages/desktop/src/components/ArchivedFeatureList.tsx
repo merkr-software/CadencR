@@ -55,8 +55,12 @@ export function ArchivedFeatureList({
 }) {
   return (
     <ArchivedFeatureSection features={features} expanded={expanded} onToggle={onToggle}>
-      <div className="max-h-[calc(5*2.25rem)] overflow-y-auto">
-        {features.map((feature) => renderFeature(feature))}
+      {/* The outer box carries the project's guide segment, which the
+          scroller would clip (sidebar-rows.css). */}
+      <div>
+        <div className="max-h-[calc(5*2.25rem)] overflow-y-auto">
+          {features.map((feature) => renderFeature(feature))}
+        </div>
       </div>
     </ArchivedFeatureSection>
   );

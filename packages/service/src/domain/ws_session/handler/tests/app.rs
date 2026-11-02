@@ -38,8 +38,7 @@ async fn test_app_subscribe_forwards_broadcast_updates() {
     let _ = rx.recv().await.unwrap();
 
     // Broadcast a status change for session 7 / feature 42.
-    WsSessionPersistence::broadcast_session_status(
-        &app_state.session_status_tx,
+    app_state.session_status_tx.broadcast(
         7,
         42,
         crate::domain::session_status::AgentStatus::Question,

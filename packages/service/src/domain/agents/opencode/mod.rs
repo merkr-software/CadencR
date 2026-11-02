@@ -3,6 +3,7 @@ pub(in crate::domain::agents) mod agents;
 mod branching;
 pub(in crate::domain::agents::opencode) mod commands;
 pub(crate) mod permissions;
+mod prompt_attachments;
 mod questions;
 mod runtime_error;
 mod stream_synthesizer;
@@ -34,6 +35,13 @@ fn normalize_resume_session_id(session_id: &str) -> Option<String> {
 
 #[async_trait]
 impl AgentRuntimeAdapter for OpenCodeAdapter {
+    fn prompt_attachment_block(
+        &self,
+        attachment: &super::adapter::RuntimePromptAttachment<'_>,
+    ) -> Value {
+        prompt_attachments::attachment_block(attachment)
+    }
+
     fn user_shell_strategy(&self) -> RuntimeUserShellStrategy {
         RuntimeUserShellStrategy::ProviderNative
     }
@@ -151,6 +159,13 @@ impl AgentRuntimeAdapter for OpenCodeAdapter {
         // it, and reap. Single-flighted per cwd so concurrent `/`
         // triggers share one probe.
         commands::refresh_via_acp(cwd).await
+    }
+
+    fn resume_command(&self) -> Option<crate::domain::agents::runtime::ProviderResumeCommand> {
+        Some(crate::domain::agents::runtime::ProviderResumeCommand::new(
+            "opencode",
+            &["--session", "{session_id}"],
+        ))
     }
 
     fn compaction_strategy(&self) -> Option<RuntimeCompactionStrategy> {

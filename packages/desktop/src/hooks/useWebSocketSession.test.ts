@@ -2,7 +2,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
-vi.mock("@/api/generated", () => ({
+vi.mock("@/api/generated", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/generated")>()),
   useGetFeatureAgentState: vi.fn(() => ({ data: undefined, isLoading: false })),
   getGetFeatureQueryKey: (id: number) => ["features", "detail", id],
   getGetFeatureSettingsQueryKey: (id: number) => ["features", "settings", id],
@@ -19,6 +20,7 @@ import { useWebSocketSession } from "./useWebSocketSession";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
+import { installSessionIntegration } from "@/lib/session-integration";
 
 // --- Mock WebSocket ---
 
@@ -76,7 +78,7 @@ beforeEach(() => {
   MockWebSocket.reset();
   // Reset Zustand store between tests
   useWsSessionStore.setState({ sessions: {} });
-  useSessionStatusStore.setState({ bySession: {}, ws: null, isConnected: false });
+  useSessionStatusStore.setState({ bySession: {}, connectionEpoch: 0, isConnected: false });
   vi.stubGlobal("WebSocket", MockWebSocket);
   vi.stubGlobal("window", { ...globalThis.window });
 });
@@ -115,95 +117,12 @@ describe("useWebSocketSession", () => {
     expect(result.current.currentSelection).toBeNull();
   });
 
-  it("anchors stale local timing to the server turn start when live status first reports agent", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
+  it("reads the turn clock and compaction from backend status, on every device alike", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-
-    act(() => {
-      useWsSessionStore.getState().setPersistedState("test-id", {
-        blocks: [],
-        lifecycle: { phase: "active" },
-        sessionDbId: 123,
-        featureId: 7,
-      });
-    });
-    act(() => {
-      useSessionStatusStore.setState({
-        bySession: {
-          123: { status: "idle", kind: null, featureId: 7, seq: 1 },
-        },
-      });
-    });
-    expect(result.current.status).toBe("idle");
-    expect(result.current.turnTiming.startedAt).toBe(1_000);
-
-    vi.setSystemTime(181_000);
-    act(() => {
-      useSessionStatusStore.getState().connect();
-    });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    const appWs = MockWebSocket.instances.at(-1)!;
-    act(() => {
-      appWs.simulateMessage({
-        domain: "app",
-        action: "session_status.update",
-        payload: {
-          session_id: 123,
-          feature_id: 7,
-          status: "agent",
-          kind: null,
-          seq: 2,
-          turn_started_at_ms: 180_500,
-        },
-      });
-    });
-
-    expect(result.current.turnTiming.startedAt).toBe(180_500);
-
-    vi.setSystemTime(185_000);
-    act(() => {
-      appWs.simulateMessage({
-        domain: "app",
-        action: "session_status.update",
-        payload: {
-          session_id: 123,
-          feature_id: 7,
-          status: "idle",
-          kind: null,
-          seq: 3,
-        },
-      });
-    });
-
-    expect(result.current.turnTiming.completed).toEqual({
-      totalMs: 4_500,
-      activeMs: 4_500,
-      userPendingMs: 0,
-    });
-    expect(result.current.blocks.at(-1)).toMatchObject({
-      type: "turn_summary",
-      content: "Worked - 4s · Agent 4s · Waiting 0s",
-    });
-    vi.useRealTimers();
-  });
-
-  it("derives turn timing and summaries from backend live status updates", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1_000);
-    const { result } = renderHook(() => useWebSocketSession("test-id"));
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
     act(() => {
       useWsSessionStore.getState().setPersistedState("test-id", {
         blocks: [],
@@ -228,36 +147,37 @@ describe("useWebSocketSession", () => {
           session_id: 123,
           feature_id: 7,
           status: "agent",
-          kind: null,
           seq: 1,
-        },
-      });
-    });
-    vi.setSystemTime(4_000);
-    act(() => {
-      appWs.simulateMessage({
-        domain: "app",
-        action: "session_status.update",
-        payload: {
-          session_id: 123,
-          feature_id: 7,
-          status: "idle",
-          kind: null,
-          seq: 2,
+          turn_started_at_ms: 180_500,
+          waiting_ms: 2_000,
+          model: "claude-opus-5-5",
+          compacting: true,
         },
       });
     });
 
-    expect(result.current.turnTiming.completed).toEqual({
-      totalMs: 3_000,
-      activeMs: 3_000,
-      userPendingMs: 0,
+    expect(result.current.status).toBe("agent");
+    expect(result.current.turnClock).toEqual({
+      startedAtMs: 180_500,
+      waitingMs: 2_000,
+      waitingSinceMs: null,
+      model: "claude-opus-5-5",
     });
-    expect(result.current.blocks.at(-1)).toMatchObject({
-      type: "turn_summary",
-      content: "Worked - 3s · Agent 3s · Waiting 0s",
+    expect(result.current.isCompacting).toBe(true);
+
+    act(() => {
+      appWs.simulateMessage({
+        domain: "app",
+        action: "session_status.update",
+        payload: { session_id: 123, feature_id: 7, status: "idle", seq: 2, waiting_ms: 0 },
+      });
     });
-    vi.useRealTimers();
+
+    expect(result.current.turnClock).toBeNull();
+    // A device that missed the compaction's end is corrected by the idle event.
+    expect(result.current.isCompacting).toBe(false);
+    // The closing line is a persisted row the backend sends, never synthesized here.
+    expect(result.current.blocks.some((block) => block.type === "turn_summary")).toBe(false);
   });
 
   it("loads persisted history with the initial message limit", async () => {
@@ -733,7 +653,7 @@ describe("useWebSocketSession", () => {
       ws.simulateMessage({
         domain: "session",
         action: "initialized",
-        payload: { session_id: "srv-multi" },
+        payload: { session_id: "srv-multi", session_db_id: 1 },
       });
     });
     expect(result.current.status).toBe("idle");
@@ -817,6 +737,21 @@ describe("useWebSocketSession", () => {
       });
     });
     expect(result.current.status).toBe("idle");
+    // The backend persists the turn's closing line and pushes it to every device.
+    act(() => {
+      ws.simulateMessage({
+        domain: "session",
+        action: "transcript_block",
+        payload: {
+          session_id: "1",
+          block: {
+            id: "msg-2",
+            type: "turn_summary",
+            content: '{"totalMs":1000,"waitingMs":0,"agentMs":1000,"models":["claude-opus-4-6"]}',
+          },
+        },
+      });
+    });
 
     // 6. Second prompt
     act(() => {
@@ -896,6 +831,18 @@ describe("useWebSocketSession", () => {
         domain: "session",
         action: "ended",
         payload: { reason: "done" },
+      });
+      ws.simulateMessage({
+        domain: "session",
+        action: "transcript_block",
+        payload: {
+          session_id: "1",
+          block: {
+            id: "msg-5",
+            type: "turn_summary",
+            content: '{"totalMs":1000,"waitingMs":0,"agentMs":1000,"models":["claude-opus-4-6"]}',
+          },
+        },
       });
     });
     expect(result.current.status).toBe("idle");
@@ -2981,3 +2928,10 @@ describe("useWebSocketSession", () => {
     expect(result.current.loadOlderMessages).toBe(before.loadOlderMessages);
   });
 });
+
+// Exercise the same explicit composition that production installs before mounting.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => disposeSessionIntegration());

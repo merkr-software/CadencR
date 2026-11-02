@@ -23,8 +23,7 @@ use crate::error::AppError;
 /// of headroom means a miss is a bug, not a tight bound.
 const MAX_DAY_SCAN: i64 = 62;
 
-/// Smallest interval we accept, matching the custom-action scheduler's floor.
-/// Anything tighter is a runaway loop, not a schedule.
+/// Smallest interval we accept. Anything tighter is a runaway loop, not a schedule.
 pub const MIN_INTERVAL_SECONDS: i64 = 60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

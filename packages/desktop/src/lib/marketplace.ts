@@ -5,7 +5,7 @@ import type {
   ManagedProviderPackage,
 } from "@/api/generated";
 import { providerPackageSchema } from "./marketplace-provider-package";
-import { signedMixedCatalogSchema } from "./theme-marketplace";
+import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
 
 const nullableText = z.string().nullable().optional();
 const signedProviderCatalogSchema = z.union([
@@ -114,6 +114,13 @@ export interface MarketplaceNotice {
   text: string;
 }
 
+/** The service's code for a build with no catalog feed compiled in (dev builds, forks). */
+export const CATALOG_SOURCE_NOT_CONFIGURED = "MANAGED_CATALOG_SOURCE_NOT_CONFIGURED";
+
+export function catalogSourceMissing(catalog?: ManagedCatalogResponse): boolean {
+  return catalog?.error_code === CATALOG_SOURCE_NOT_CONFIGURED;
+}
+
 export function usableCatalog(catalog?: ManagedCatalogResponse): boolean {
   return (
     catalog?.cache_status === "verified" &&
@@ -155,7 +162,13 @@ export function providerCatalogPackages(
   index?: NonNullable<ManagedCatalogResponse["index"]> | null,
 ): ManagedProviderPackage[] {
   if (!index) return [];
-  const signed = signedProviderCatalogSchema.parse(index).signed;
-  if (signed.schema_version === 1) return signed.packages;
-  return signed.packages.flatMap((entry) => (entry.kind === "provider" ? [entry.package] : []));
+  if (index.signed.schema_version === 1) {
+    const signed = signedProviderCatalogSchema.parse(index).signed;
+    if (signed.schema_version === 1) return signed.packages;
+  }
+  // Schema 2, standalone providers and plugin members alike: each installs by
+  // its own id. Entries are parsed (once per catalog) by `catalogMembers`.
+  return catalogMembers(index.signed.packages).flatMap((entry) =>
+    entry.kind === "provider" ? [entry.package] : [],
+  );
 }

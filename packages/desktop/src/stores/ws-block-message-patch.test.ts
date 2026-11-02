@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildMessagePatch } from "./ws-block-mutations";
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { BlockMutation } from "./ws-message-processing";
 
 describe("buildMessagePatch", () => {

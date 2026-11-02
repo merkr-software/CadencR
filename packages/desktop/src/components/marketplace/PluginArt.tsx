@@ -1,8 +1,9 @@
-import { Loader2, Paintbrush, PanelTop } from "lucide-react";
+import { Loader2, PanelTop, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useThemeArt } from "@/hooks/useThemePreview";
 import { marketplaceError } from "@/lib/marketplace";
 import { displayVersion, type MarketplaceListing } from "@/lib/marketplace-listings";
+import { pluginMembers } from "@/lib/marketplace-plugin-listings";
 import { useMarketplaceState } from "./MarketplaceContext";
 import { ProviderStage, ThemeStage } from "./PluginStages";
 
@@ -10,8 +11,8 @@ type Variant = "tile" | "spotlight" | "detail";
 
 /**
  * A plugin at the scale it lives at in Cadencr, for every surface that shows
- * one: tiles (passive), the showcase and the detail page (with a preview
- * action for themes whose colors are not loaded yet).
+ * one: tiles, the showcase and the detail page. Themes not installed paint
+ * from their verified preview, fetched as soon as they are shown.
  */
 export function PluginArt({
   listing,
@@ -22,10 +23,44 @@ export function PluginArt({
   variant: Variant;
   version?: string;
 }): React.JSX.Element {
+  if (listing.kind === "plugin")
+    return <PluginPackageArt listing={listing} variant={variant} version={version} />;
   if (listing.kind === "tab") return <TabArt listing={listing} />;
   if (listing.kind === "provider")
     return <ProviderStage listing={listing} compact={variant === "tile"} />;
   return <ThemeArt key={version} listing={listing} variant={variant} version={version} />;
+}
+
+/** What a plugin looks like: its most visible member (a theme, else a provider, else a tab). */
+const FACE_ORDER = ["theme", "provider", "tab"] as const;
+
+function PluginPackageArt({
+  listing,
+  variant,
+  version,
+}: {
+  listing: MarketplaceListing;
+  variant: Variant;
+  version?: string;
+}): React.JSX.Element {
+  const { listingsByKey } = useMarketplaceState();
+  const members = pluginMembers(listing, version, listingsByKey);
+  const face = FACE_ORDER.flatMap((kind) =>
+    members.flatMap((member) => (member.ref.kind === kind && member.listing) || []),
+  )[0];
+  if (!face)
+    return (
+      <>
+        <ThemeStage definition={null} />
+        <div className="absolute inset-0 grid place-items-center">
+          <span className="rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
+            No preview available
+          </span>
+        </div>
+      </>
+    );
+  // Members ship in their plugin's release, so the plugin version is the member's.
+  return <PluginArt listing={face} variant={variant} version={version} />;
 }
 
 function ThemeArt({
@@ -38,7 +73,7 @@ function ThemeArt({
   version?: string;
 }): React.JSX.Element {
   const { themes } = useMarketplaceState();
-  const art = useThemeArt(themes.inventory.data, themes.catalog.data?.index, listing, version);
+  const art = useThemeArt(themes, listing, version);
   const error = marketplaceError(art.error);
   if (art.definition)
     return (
@@ -54,47 +89,36 @@ function ThemeArt({
   return (
     <>
       <ThemeStage definition={null} />
-      {variant === "tile" ? (
-        <div className="absolute inset-0 grid place-items-center">
-          {error ? (
-            <span className="max-w-[85%] text-center text-[11px] text-destructive">{error}</span>
-          ) : art.isFetching ? (
-            <Loader2
-              aria-label="Loading preview"
-              className="size-4 animate-spin text-muted-foreground"
-            />
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-background/80 px-2.5 py-1 text-[11px] text-muted-foreground">
-              <Paintbrush aria-hidden="true" className="size-3" />
-              Preview not loaded
-            </span>
-          )}
-        </div>
-      ) : (
-        <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center gap-2 rounded-lg bg-background/90 px-3 py-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={!art.canPreview || art.isFetching}
-            onClick={art.preview}
-          >
-            {art.isFetching ? (
-              <Loader2 aria-hidden="true" className="animate-spin" />
-            ) : (
-              <Paintbrush aria-hidden="true" />
-            )}
-            {art.isFetching ? "Painting preview…" : `Preview ${version ?? "colors"}`}
-          </Button>
-          <span className="text-[11px] text-muted-foreground">
-            From the verified archive, without installing.
-          </span>
-          {error && (
-            <span role="alert" className="w-full text-[11px] text-destructive">
+      <div className="absolute inset-0 grid place-items-center">
+        {error ? (
+          <div className="flex max-w-[85%] flex-col items-center gap-2 text-center">
+            {/* A failing shelf would announce one alert per tile. */}
+            <span
+              role={variant === "tile" ? undefined : "alert"}
+              className="text-[11px] text-destructive"
+            >
               {error}
             </span>
-          )}
-        </div>
-      )}
+            {variant !== "tile" && (
+              <Button size="sm" variant="outline" disabled={art.loading} onClick={art.retry}>
+                <RotateCw aria-hidden="true" />
+                Retry preview
+              </Button>
+            )}
+          </div>
+        ) : art.loading ? (
+          <Loader2
+            aria-label="Loading preview"
+            className="size-4 animate-spin text-muted-foreground"
+          />
+        ) : (
+          !art.canPreview && (
+            <span className="rounded-full bg-background/85 px-2.5 py-1 text-[11px] text-muted-foreground">
+              No preview available
+            </span>
+          )
+        )}
+      </div>
     </>
   );
 }

@@ -1,5 +1,4 @@
 import { useCallback, useMemo } from "react";
-import { MARKETPLACE_ENABLED } from "@/lib/marketplace-gate";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +9,7 @@ import {
 } from "../api/generated";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { WorktreeList } from "./WorktreeList";
+import { CustomActionsManager } from "./custom-actions/CustomActionsManager";
 import { SettingsCard } from "@/components/settings/SettingsCard";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { ProjectColorField } from "@/components/settings/ProjectColorField";
@@ -81,32 +81,41 @@ export function ProjectSettingsDialog({
 
         <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-6 py-6">
           <ConfigurationSection projectId={projectId} enabled={open} />
-          {MARKETPLACE_ENABLED &&
-            (authoringTarget === "provider" ? (
-              <>
-                <ProviderPublicationPreparation projectId={projectId} enabled={open} />
-                <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
-              </>
-            ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
-              <>
-                <ProviderPublicationPreparation
-                  projectId={projectId}
-                  enabled={open}
-                  pluginKind={authoringTarget}
-                />
-                <ThemePublicationPackagePreparation
-                  projectId={projectId}
-                  enabled={open}
-                  pluginKind={authoringTarget}
-                />
-              </>
-            ) : null)}
+          {authoringTarget === "provider" ? (
+            <>
+              <ProviderPublicationPreparation projectId={projectId} enabled={open} />
+              <ProviderPublicationPackagePreparation projectId={projectId} enabled={open} />
+            </>
+          ) : authoringTarget === "theme" || authoringTarget === "tab" ? (
+            <>
+              <ProviderPublicationPreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+              <ThemePublicationPackagePreparation
+                projectId={projectId}
+                enabled={open}
+                pluginKind={authoringTarget}
+              />
+            </>
+          ) : null}
           <IdentitySection
             projectId={projectId}
             color={settings[PROJECT_SETTING_KEYS.color]}
             iconPath={settings[PROJECT_SETTING_KEYS.iconPath]}
             saveProjectSetting={saveProjectSetting}
           />
+          <SettingsSection
+            size="sm"
+            title="Custom actions"
+            subtitle="Header launcher"
+            description="This project's own actions, shown in its header before the global ones (Settings → Custom actions)."
+          >
+            <SettingsCard padded>
+              <CustomActionsManager scope="project" projectId={projectId} />
+            </SettingsCard>
+          </SettingsSection>
           <EditorToolingSection projectId={projectId} enabled={open} />
           <GitAutomationSection
             projectId={projectId}

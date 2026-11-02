@@ -116,6 +116,7 @@
   --cadencr-tab-track-border: #2c2f33;
   --cadencr-tab-active-bg: #26282c;
   --cadencr-pane-border: #2c2f33;
+  --cadencr-chart-6: #a68bf0;
 }
 
 :root[data-appearance="light"] {
@@ -229,4 +230,5 @@
   --cadencr-tab-track-border: #e2e4e9;
   --cadencr-tab-active-bg: #ffffff;
   --cadencr-pane-border: #e2e4e9;
+  --cadencr-chart-6: #6d3fd1;
 }

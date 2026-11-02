@@ -9,6 +9,7 @@
     "react",
     "tailwindcss"
   ],
+  "homepage": "https://cadencr.com/docs/tab-kit/",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

@@ -2,7 +2,7 @@
 //! These resolve the active settings dir from `dir::global_dir()`.
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::domain::workspace::models::Setting;
 use crate::error::AppError;
@@ -73,7 +73,10 @@ pub async fn global_set_many(
 }
 
 pub async fn global_write_content(content: &str) -> Result<Vec<SettingWarning>, AppError> {
-    let warnings = write_content(&global_path(), Scope::Workspace, content).await?;
+    crate::domain::telemetry::settings_changed();
+    let result = write_content(&global_path(), Scope::Workspace, content).await;
+    crate::domain::telemetry::settings_changed();
+    let warnings = result?;
     super::super::generation::bump_global();
     Ok(warnings)
 }
@@ -117,9 +120,18 @@ pub async fn global_modify_object<F>(key: &str, f: F) -> Result<(), AppError>
 where
     F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), AppError>,
 {
-    let path = global_path();
+    modify_object_at(&global_path(), key, f).await?;
+    super::super::generation::bump_global();
+    Ok(())
+}
+
+/// The path-based variant shares the same write lock and atomic document preservation.
+pub(crate) async fn modify_object_at<F>(path: &Path, key: &str, f: F) -> Result<(), AppError>
+where
+    F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), AppError>,
+{
     let _guard = lock::write_lock().lock().await;
-    let mut doc = load_document_for_write(&path)?;
+    let mut doc = load_document_for_write(path)?;
     let mut section = file::object_section(&doc, key);
     f(&mut section)?;
     if section.is_empty() {
@@ -127,8 +139,7 @@ where
     } else {
         doc.insert(key.to_string(), serde_json::Value::Object(section));
     }
-    file::write_atomic(&path, &file::serialize_document(&doc))?;
-    super::super::generation::bump_global();
+    file::write_atomic(path, &file::serialize_document(&doc))?;
     Ok(())
 }
 

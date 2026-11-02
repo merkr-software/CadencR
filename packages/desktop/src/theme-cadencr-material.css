@@ -56,6 +56,21 @@
   padding-top: calc(4px + 0.375rem / 2);
   padding-bottom: calc(4px + 0.375rem / 2);
 }
+/* Floating frames pad their top here, so stacked panes stand a full gutter +
+ * handle + gutter apart: the grid's bottom edge gets the same (its sides
+ * already do, feature-panes.css). */
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-feature-layout-shell][data-has-floating-pane="true"] {
+  padding-bottom: calc(0.375rem + 1px);
+}
+/* That bottom inset is the gutter the composer otherwise takes to bottom out
+ * with the floating cards (feature-panes.css): don't double it. */
+:root:is(:not([data-theme]), [data-theme="cadencr-dark"], [data-theme="cadencr-light"])
+  [data-feature-layout-shell][data-has-floating-pane="true"]
+  [data-pane-root]
+  [data-agent-prompt-bar] {
+  padding-bottom: 0;
+}
 
 /* ── Pane elevation ──────────────────────────────────────────────────────
  * Split panes (terminal / git / editor / browser) become raised instrument

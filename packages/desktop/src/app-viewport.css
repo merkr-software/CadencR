@@ -15,6 +15,18 @@
 html {
   --app-vh: 100dvh;
 }
+/*
+ * Home-indicator clearance for bottom-pinned chrome (composer, terminal key
+ * bar). While the on-screen keyboard is up the indicator is under it, yet an
+ * installed app still reports the inset, which opened a ~34px gap between the
+ * prompt and the keyboard. `useVisualViewportHeight` flags that state.
+ */
+html {
+  --app-inset-bottom: env(safe-area-inset-bottom, 0px);
+}
+html[data-keyboard-open] {
+  --app-inset-bottom: 0px;
+}
 html.is-standalone {
   --app-vh: min(100lvh, calc(var(--standalone-vh, 100dvh) + env(safe-area-inset-top, 0px)));
 }

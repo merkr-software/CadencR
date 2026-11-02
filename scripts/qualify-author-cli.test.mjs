@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { test } from "node:test";
+import { before, test } from "node:test";
+import { requirePython } from "./python-requirement.mjs";
+
+before(requirePython);
 
 test("distributed author CLI qualification guards and exact mocked network trace", () => {
   const result = spawnSync("python3", ["-B", "scripts/author-cli-qa/test_harness.py"], {

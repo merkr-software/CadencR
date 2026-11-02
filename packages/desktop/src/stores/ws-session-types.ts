@@ -2,25 +2,23 @@
  * Types and helpers for WebSocket session state.
  */
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { isCadencrPlanPresentationTool } from "@/lib/tool-call-parser";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
-import type { PendingPermission } from "@/components/ToolPermissionPrompt";
-import type { AgentQuestion } from "@/components/AgentQuestionDrawer";
+import type { PendingPermission } from "@/types/agent-permission";
+import type { AgentQuestion } from "@/types/agent-question";
 import type { SlashCommand } from "@/lib/slash-command";
 import {
   DEFAULT_PROMPT_COMMAND_POLICY,
   type PromptCommandPolicy,
 } from "@/lib/prompt-command-policy";
 import type { WorktreeStatus } from "@/types/workflow";
-import type { WsConnection } from "@/lib/ws-connection";
-import type { FirstPromptBranchSetup, WsEnvelope } from "@/lib/ws-envelope";
+import type { FirstPromptBranchSetup } from "@/lib/ws-envelope";
 import type { StreamingState } from "./ws-message-processing";
 import { createStreamingState } from "./ws-message-processing";
 import type { TurnLifecycle } from "./ws-turn-lifecycle";
 import { createIdleTurnLifecycle } from "./ws-turn-lifecycle";
-import { createTurnTiming, type TurnTimingState } from "./ws-turn-timing";
 import { DEFAULT_PROVIDER } from "../shared/models";
 import type { RuntimeSelection } from "../shared/models";
 import { defaultEditModeFor } from "../lib/provider-modes";
@@ -28,6 +26,7 @@ import type { PermissionMode } from "../types/permission-mode";
 import type { AccessMode } from "@/types/access-mode";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { RuntimeSessionConfigSnapshot } from "@/api/generated";
+import type { PersistenceStatus } from "./ws-persistence-status";
 
 export type { PermissionMode };
 
@@ -138,11 +137,10 @@ export interface SessionEntry extends SessionConfigState {
     fast_mode: boolean | null;
   };
   runtimeOverridesPending?: boolean;
-  conn: WsConnection | null;
   isConnected: boolean;
+  isConnecting: boolean;
   serverSessionId: string;
   lifecycle: TurnLifecycle;
-  turnTiming: TurnTimingState;
   streamingState: StreamingState;
   blocks: AgentBlockData[];
   /**
@@ -183,8 +181,6 @@ export interface SessionEntry extends SessionConfigState {
   pendingPlanApproval: PendingPlanApproval | null;
   compactRequestPending: boolean;
   pendingManualCompact: boolean;
-  /** True while the provider-neutral runtime reports an active compaction turn. */
-  runtimeCompacting: boolean;
   /**
    * The session's runtime provider/model pair, or `null` while the backend has
    * not confirmed one. Written whole or not at all — no code path may update
@@ -201,20 +197,13 @@ export interface SessionEntry extends SessionConfigState {
   slashCommands: SlashCommand[];
   promptCommandPolicy: PromptCommandPolicy;
   slashCommandsLoading: boolean;
+  /** Why the provider's own commands are missing from `slashCommands`. */
+  slashCommandsError: string | null;
   slashCommandsKey: string | null;
   slashCommandsRequestRef: string | null;
   todos: TodoItem[];
   featureTitle: string | null;
   isAutoNaming: boolean;
-  pendingWsRequests: Map<string, (payload: unknown) => void>;
-  /**
-   * Envelopes that could not be sent because the socket was not OPEN
-   * (reconnecting after a drop, or still CONNECTING). Flushed in order once
-   * the transport is back, right after the reconnect `session.init` replay.
-   * Mutated in place (like `pendingWsRequests`) — transport plumbing, not
-   * render state.
-   */
-  outboundQueue: WsEnvelope[];
   worktreeStatus: WorktreeStatus;
   worktreePath: string | null;
   worktreeBranch: string | null;
@@ -247,15 +236,16 @@ export interface SessionEntry extends SessionConfigState {
    * `"ok"`. See `StreamHealth`.
    */
   streamHealth: StreamHealth;
+  /** Transcript saving health; only a confirmed persistence update clears it. */
+  persistenceStatus: PersistenceStatus | null;
 }
 
 export function createSessionEntry(): SessionEntry {
   return {
-    conn: null,
     isConnected: false,
+    isConnecting: false,
     serverSessionId: "",
     lifecycle: createIdleTurnLifecycle(),
-    turnTiming: createTurnTiming(),
     streamingState: createStreamingState(),
     blocks: [],
     rootBlocks: [],
@@ -276,7 +266,6 @@ export function createSessionEntry(): SessionEntry {
     pendingPlanApproval: null,
     compactRequestPending: false,
     pendingManualCompact: false,
-    runtimeCompacting: false,
     currentSelection: null,
     runtimeSessionId: "",
     ...createSessionConfigState(),
@@ -289,13 +278,12 @@ export function createSessionEntry(): SessionEntry {
     slashCommands: [],
     promptCommandPolicy: DEFAULT_PROMPT_COMMAND_POLICY,
     slashCommandsLoading: false,
+    slashCommandsError: null,
     slashCommandsKey: null,
     slashCommandsRequestRef: null,
     todos: [],
     featureTitle: null,
     isAutoNaming: false,
-    pendingWsRequests: new Map(),
-    outboundQueue: [],
     worktreeStatus: "idle",
     worktreePath: null,
     worktreeBranch: null,
@@ -311,6 +299,7 @@ export function createSessionEntry(): SessionEntry {
     queuedPrompts: [],
     initRequestId: null,
     streamHealth: createStreamHealth(),
+    persistenceStatus: null,
   };
 }
 

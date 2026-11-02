@@ -24,7 +24,6 @@ const AGENT_PROTECTED_KEYS: &[&str] = &[
     "claude_bypass_permissions_enabled",
     "codex_full_access_enabled",
     "codex_permission_mode",
-    "cursor_access_mode",
     "claude_cli_path",
     "codex_cli_path",
     "opencode_cli_path",
@@ -92,7 +91,9 @@ struct KeyPattern {
 }
 
 fn is_agent_protected(key: &str) -> bool {
+    // A provider access-mode default can lift approval gates (`fullAccess`).
     AGENT_PROTECTED_KEYS.contains(&key)
+        || crate::domain::settings_allowlist::is_provider_access_mode_key(key)
 }
 
 /// The catalog for `scope`, narrowed to `only` when it names keys. Keys without
@@ -127,6 +128,7 @@ fn catalog_entry(scope: Scope, key: &'static str) -> CatalogEntry {
         Some(ValueKind::Enum(values)) => ("enum", Some(values), None, None),
         Some(ValueKind::Number) => ("number", None, None, None),
         Some(ValueKind::IntegerRange { min, max }) => ("integer", None, Some(min), Some(max)),
+        Some(ValueKind::IdList(values)) => ("list", Some(values), None, None),
         None => ("string", None, None, None),
     };
     CatalogEntry {
@@ -225,6 +227,10 @@ fn expected_shape(kind: ValueKind) -> String {
         ValueKind::Enum(values) => format!("expected one of {}", values.join(", ")),
         ValueKind::Number => "expected a number".into(),
         ValueKind::IntegerRange { min, max } => format!("expected an integer from {min} to {max}"),
+        ValueKind::IdList(values) => format!(
+            "expected a comma-separated list of distinct values among {}",
+            values.join(", ")
+        ),
     }
 }
 
@@ -321,6 +327,16 @@ mod tests {
     }
 
     #[test]
+    fn provider_access_mode_defaults_stay_user_only() {
+        let error = validate_updates(
+            SettingsScope::Global,
+            &values(json!({ "provider_access_mode.acme-agent": "fullAccess" })),
+        )
+        .unwrap_err();
+        assert!(error.contains("only the user can change"), "{error}");
+    }
+
+    #[test]
     fn privilege_and_credential_keys_stay_user_only() {
         for key in AGENT_PROTECTED_KEYS {
             assert!(
@@ -336,6 +352,18 @@ mod tests {
     #[test]
     fn empty_values_are_refused() {
         assert!(validate_updates(SettingsScope::Global, &serde_json::Map::new()).is_err());
+    }
+
+    #[test]
+    fn telemetry_consent_is_never_agent_writable() {
+        for key in [
+            "telemetry",
+            "diagnostics_enabled",
+            "usage_enabled",
+            "telemetry_diagnostics_enabled",
+        ] {
+            assert!(validate_updates(SettingsScope::Global, &values(json!({key: true}))).is_err());
+        }
     }
 
     #[test]

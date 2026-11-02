@@ -1,7 +1,10 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router";
 import { ManagedThemeRegistry } from "@/hooks/useManagedThemes";
+import { NavigationHistoryTracker } from "@/hooks/useNavigationHistory";
 import { AppShell } from "@/components/AppShell";
 import { AppWindowControls } from "@/components/AppWindowControls";
+import { CustomActionEditorHost } from "@/components/custom-actions/CustomActionEditorDialog";
+import { RunVariablesDialogHost } from "@/components/custom-actions/RunVariablesDialog";
 import { GlobalOperationToasts } from "@/components/GlobalOperationToasts";
 import { NotchChannelBridge } from "@/components/notch/NotchChannelBridge";
 import { RootErrorBoundary } from "@/components/RootErrorBoundary";
@@ -56,7 +59,10 @@ function RootLayout() {
           <SuspendedBanner />
           <GlobalOperationToasts />
           <ManagedThemeRegistry />
+          <NavigationHistoryTracker />
           <NotchChannelBridge />
+          <CustomActionEditorHost />
+          <RunVariablesDialogHost />
           <RootOverlays
             commandPaletteOpen={controller.commandPaletteOpen}
             setCommandPaletteOpen={controller.setCommandPaletteOpen}

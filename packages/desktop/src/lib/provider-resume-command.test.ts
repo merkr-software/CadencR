@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { buildResumeCommand } from "./provider-resume-command";
-import { PROVIDER_IDS } from "./providers";
+
+// The templates the built-in adapters declare in the catalog (`resume_command`).
+const CLAUDE = { program: "claude", args: ["--resume", "{session_id}"] };
+const OPENCODE = { program: "opencode", args: ["--session", "{session_id}"] };
+const CODEX = { program: "codex", args: ["resume", "{session_id}"] };
 
 describe("buildResumeCommand", () => {
-  it("builds claude_code resume command with cwd", () => {
+  it("builds the Claude resume command with cwd", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CLAUDE_CODE,
+      resumeCommand: CLAUDE,
       sessionId: "11111111-1111-4111-8111-111111111111",
       cwd: "/home/user/project",
     });
@@ -15,9 +19,9 @@ describe("buildResumeCommand", () => {
     );
   });
 
-  it("omits cd when cwd is missing for claude_code", () => {
+  it("omits cd when cwd is missing", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CLAUDE_CODE,
+      resumeCommand: CLAUDE,
       sessionId: "abc",
       cwd: undefined,
     });
@@ -27,7 +31,7 @@ describe("buildResumeCommand", () => {
 
   it("escapes double quotes in cwd", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CLAUDE_CODE,
+      resumeCommand: CLAUDE,
       sessionId: "abc",
       cwd: '/tmp/weird"dir',
     });
@@ -36,36 +40,34 @@ describe("buildResumeCommand", () => {
 
   it("escapes shell metacharacters in resume ids", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CODEX_CLI,
+      resumeCommand: CODEX,
       sessionId: 'abc"; echo $HOME `pwd`',
       cwd: "/tmp",
     });
     expect(result.command).toBe('cd "/tmp" && codex resume "abc\\"; echo \\$HOME \\`pwd\\`"');
   });
 
-  it("builds opencode resume command with --session flag", () => {
+  it("builds the OpenCode resume command with the --session flag", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.OPENCODE,
+      resumeCommand: OPENCODE,
       sessionId: "ses_abc123",
       cwd: "/home/user/project",
     });
-    expect(result.supported).toBe(true);
     expect(result.command).toBe('cd "/home/user/project" && opencode --session "ses_abc123"');
   });
 
-  it("builds codex resume command", () => {
+  it("builds the Codex resume command", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CODEX_CLI,
+      resumeCommand: CODEX,
       sessionId: "abc",
       cwd: "/tmp",
     });
-    expect(result.supported).toBe(true);
     expect(result.command).toBe('cd "/tmp" && codex resume "abc"');
   });
 
-  it("builds Cursor Agent resume command", () => {
+  it("builds an installed provider's declared resume command", () => {
     const result = buildResumeCommand({
-      providerId: PROVIDER_IDS.CURSOR,
+      resumeCommand: { program: "agent", args: ["--resume", "{session_id}"] },
       sessionId: "chat-123",
       cwd: "/tmp/project",
     });
@@ -73,12 +75,26 @@ describe("buildResumeCommand", () => {
     expect(result.command).toBe('cd "/tmp/project" && agent --resume "chat-123"');
   });
 
-  it("marks missing provider as unsupported", () => {
+  it("substitutes the placeholder inside an argument and quotes unsafe literals", () => {
     const result = buildResumeCommand({
-      providerId: undefined,
-      sessionId: "abc",
-      cwd: "/tmp",
+      resumeCommand: {
+        program: "acme",
+        args: ["--session={session_id}", "two words", "$X"],
+      },
+      sessionId: "s1",
+      cwd: undefined,
     });
-    expect(result.supported).toBe(false);
+    expect(result.command).toBe('acme "--session=s1" "two words" "\\$X"');
+  });
+
+  it("marks providers without a declared resume command as unsupported", () => {
+    for (const resumeCommand of [undefined, null]) {
+      const result = buildResumeCommand({
+        resumeCommand,
+        sessionId: "abc",
+        cwd: "/tmp",
+      });
+      expect(result).toEqual({ command: "", supported: false });
+    }
   });
 });

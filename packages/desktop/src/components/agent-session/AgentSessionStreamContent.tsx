@@ -1,6 +1,6 @@
 import { memo, type ComponentProps, type ReactElement } from "react";
 import { AgentStream } from "../AgentStream";
-import type { AgentBlockData } from "../AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
 
 type AgentStreamProps = ComponentProps<typeof AgentStream>;

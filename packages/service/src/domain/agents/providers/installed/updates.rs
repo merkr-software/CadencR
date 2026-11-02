@@ -6,14 +6,17 @@
 //! See `docs/PROVIDER_SPEC/PROVIDER_PACKAGE.md#optional-update-commands`.
 
 use std::ffi::OsString;
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde::Deserialize;
 
 use super::command_capture::run_provider_subcommand;
+use super::host_integration::HostIntegrationCache;
 use super::installation::LocalExecutable;
 use super::managed::process_policy::ManagedCommandOutput;
+use super::slash_commands::SlashCommandCatalog;
 use crate::domain::agents::updates::{
     display_tail, ProviderUpdater, ProviderVersionReport, UpdateContext, UpdateError,
     UPDATE_TIMEOUT,
@@ -27,11 +30,23 @@ const MAX_AVAILABLE_VERSIONS: usize = 100;
 #[derive(Debug)]
 pub struct PluginUpdater {
     executable: LocalExecutable,
+    /// Re-read after a successful update: the new build may declare different
+    /// host conventions and list slash commands differently.
+    host_integration: Arc<HostIntegrationCache>,
+    slash_commands: Arc<SlashCommandCatalog>,
 }
 
 impl PluginUpdater {
-    pub fn new(executable: LocalExecutable) -> Self {
-        Self { executable }
+    pub fn new(
+        executable: LocalExecutable,
+        host_integration: Arc<HostIntegrationCache>,
+        slash_commands: Arc<SlashCommandCatalog>,
+    ) -> Self {
+        Self {
+            executable,
+            host_integration,
+            slash_commands,
+        }
     }
 
     async fn run(
@@ -85,6 +100,8 @@ impl ProviderUpdater for PluginUpdater {
         let output = self.run("update", &args, UPDATE_TIMEOUT).await?;
         let message = parse_message(&output.stdout);
         if output.status.success() {
+            self.host_integration.invalidate();
+            self.slash_commands.invalidate().await;
             return Ok(message);
         }
         Err(UpdateError::failed(message.unwrap_or_else(|| {
@@ -158,9 +175,9 @@ fn validate_version(version: String) -> Result<String, UpdateError> {
     }
 }
 
-/// Optional `{"message": "..."}` printed by `update`, or by either command
-/// when it fails.
-fn parse_message(stdout: &[u8]) -> Option<String> {
+/// Optional `{"message": "..."}` printed by `update`, or by any optional
+/// command (`updates`, `update`, `slash-commands`) when it fails.
+pub(super) fn parse_message(stdout: &[u8]) -> Option<String> {
     #[derive(Deserialize)]
     struct WireMessage {
         message: Option<String>,
@@ -183,11 +200,19 @@ mod tests {
             "provider",
             body,
         );
-        PluginUpdater::new(LocalExecutable {
-            command,
-            args: Vec::new(),
-            env: BTreeMap::new(),
-        })
+        PluginUpdater::new(
+            LocalExecutable {
+                command,
+                args: Vec::new(),
+                env: BTreeMap::new(),
+            },
+            std::sync::Arc::new(
+                crate::domain::agents::providers::installed::host_integration::HostIntegrationCache::new(
+                    "provider",
+                ),
+            ),
+            std::sync::Arc::default(),
+        )
     }
 
     fn context() -> UpdateContext {
@@ -263,6 +288,46 @@ esac
             updater.update(&context(), None).await,
             Err(UpdateError::failed("bad target"))
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_successful_update_refreshes_the_slash_command_listing() {
+        use crate::domain::agents::providers::installed::installation::HostInstallation;
+        use crate::domain::agents::providers::installed::test_fixtures::{
+            descriptor, descriptor_json,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let runs = directory.path().join("runs");
+        let mut updater = script_updater(
+            &directory,
+            &format!(
+                "#!/bin/sh
+case \"$1\" in
+  update) echo '{{\"message\":\"done\"}}' ;;
+  \
+                 slash-commands) echo run >> '{}'; echo '[]' ;;
+esac
+",
+                runs.display()
+            ),
+        );
+        let catalog = std::sync::Arc::new(SlashCommandCatalog::default());
+        updater.slash_commands = std::sync::Arc::clone(&catalog);
+        let installation = HostInstallation::from_descriptor(
+            descriptor(descriptor_json(
+                "provider",
+                &updater.executable.command.to_string_lossy(),
+            )),
+            std::path::Path::new("/p/provider.json"),
+        )
+        .unwrap();
+        let cwd = directory.path().to_str().unwrap();
+        catalog.commands(&installation, cwd).await.unwrap();
+        catalog.commands(&installation, cwd).await.unwrap();
+        updater.update(&context(), None).await.unwrap();
+        catalog.commands(&installation, cwd).await.unwrap();
+        assert_eq!(std::fs::read_to_string(&runs).unwrap().lines().count(), 2);
     }
 
     #[tokio::test]

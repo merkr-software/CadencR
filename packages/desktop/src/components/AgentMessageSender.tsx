@@ -1,11 +1,11 @@
 import { useNavigate } from "@tanstack/react-router";
 import { Loader2Icon } from "lucide-react";
-import { memo, useCallback, useEffect, type ReactElement } from "react";
+import { memo, useCallback, type ReactElement } from "react";
 import { useGetFeature, type AgentMessageOrigin, type Feature } from "@/api/generated";
 import { navigateToFeatureIdOrHome } from "@/components/project-feature-navigation";
 import { formatStreamTimestamp } from "@/lib/date-utils";
 import { ProviderIcon } from "@/lib/provider-icons";
-import { useSidebarPointedFeatureStore } from "@/stores/sidebar-pointed-feature-store";
+import { usePointSidebarFeature } from "@/hooks/usePointSidebarFeature";
 
 interface AgentMessageSenderProps {
   origin: AgentMessageOrigin;
@@ -97,18 +97,4 @@ function SourceConversationButton({
       <span className="truncate">{feature.title}</span>
     </button>
   );
-}
-
-/** Lights the conversation up in the sidebar while the pointer or focus is on the caller. */
-function usePointSidebarFeature(featureId: number) {
-  const point = useCallback(() => {
-    useSidebarPointedFeatureStore.getState().setPointedFeature(featureId);
-  }, [featureId]);
-  const release = useCallback(() => {
-    const store = useSidebarPointedFeatureStore.getState();
-    if (store.pointedFeatureId === featureId) store.setPointedFeature(null);
-  }, [featureId]);
-  // The stream recycles rows: one can unmount under the pointer.
-  useEffect(() => release, [release]);
-  return { onMouseEnter: point, onMouseLeave: release, onFocus: point, onBlur: release };
 }

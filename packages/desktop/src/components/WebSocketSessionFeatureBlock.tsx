@@ -228,9 +228,13 @@ function WebSocketSessionFeatureBody(
   } = props;
   const isMobile = useIsMobile();
   const splitsEnabled = !embedded && !isMobile;
-  const layoutState = useFeatureLayoutStore(selectFeatureLayout(layoutFeatureId));
+  // Primitive slices only: the whole layout state changes on every pane focus
+  // and resize, and this block renders the entire workspace.
+  const layoutOf = selectFeatureLayout(layoutFeatureId);
+  const focusedTabId = useFeatureLayoutStore((s) => getFocusedTab(layoutOf(s)) ?? "agent");
+  const gitVisible = useFeatureLayoutStore((s) => isTabVisible(layoutOf(s), "git"));
+  const agentVisible = useFeatureLayoutStore((s) => isTabVisible(layoutOf(s), "agent"));
   const requestedFocusPending = useRequestedFeatureFocus(layoutFeatureId, requestedFocusTab);
-  const focusedTabId = getFocusedTab(layoutState) ?? "agent";
   const readiness = useNonAgentTabReadiness({
     embedded,
     focusedTabId,
@@ -238,7 +242,6 @@ function WebSocketSessionFeatureBody(
     sessionId,
   });
 
-  const gitVisible = isTabVisible(layoutState, "git");
   const data = useSessionFeatureData(sessionId, cwd, featureId, projectId, {
     gitMetadataEnabled: readiness.workEnabled && (!embedded || gitVisible),
     projectLookupEnabled: readiness.workEnabled,
@@ -292,7 +295,7 @@ function WebSocketSessionFeatureBody(
     data,
     controls,
     refs,
-    layoutState,
+    agentVisible,
     tabReady: readiness.tabReady,
     hotkeysEnabled,
     sendFromGitTab,

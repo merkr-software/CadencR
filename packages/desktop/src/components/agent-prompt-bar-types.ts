@@ -6,8 +6,8 @@ import type { WorktreeMode } from "@/lib/worktree-mode";
 import type { ContextUsageState, LiveAgentStatus } from "@/types/agent";
 import type { PromptAttachmentPayload } from "@/types/agent-types";
 import type { PermissionMode } from "@/types/permission-mode";
-import type { AgentQuestion, AgentQuestionAnswers } from "./AgentQuestionDrawer";
-import type { PendingPermission, PermissionDecisionValue } from "./ToolPermissionPrompt";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
+import type { PendingPermission, PermissionDecisionValue } from "@/types/agent-permission";
 
 export interface ReferencedWorktreeSelection {
   mode: WorktreeMode;
@@ -88,8 +88,10 @@ export interface AgentPromptBarProps {
   contextUsage?: ContextUsageState | null;
   /** First-prompt launch line (where the agent will work), shown atop the card. */
   launchManifest?: ReactNode;
-  /** Side questions asked from this conversation, stacked on top of the card. */
+  /** Side questions asked from this conversation, a section of the card's stack. */
   sideConversations?: ReactNode;
+  /** This conversation's armed schedules, a section of the card's stack. */
+  schedules?: ReactNode;
   /**
    * Session controls (mode, model/effort…) rendered at the start of the
    * composer card's instrument row, supplied by the session embedder.
@@ -98,6 +100,8 @@ export interface AgentPromptBarProps {
   slashCommandsOverride?: SlashCommand[];
   promptCommandPolicy?: PromptCommandPolicy;
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   pendingPermission?: PendingPermission | null;
   /**
    * Pre-first-prompt selection state used to offer the live worktree of a

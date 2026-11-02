@@ -18,6 +18,7 @@ pub fn marketplace_package_kind(value: &Value) -> Option<&str> {
         Some("provider") => Some("provider"),
         Some("theme") => Some("theme"),
         Some("tab") => Some("tab"),
+        Some("plugin") => Some("plugin"),
         _ => None,
     }
 }
@@ -38,11 +39,17 @@ pub(crate) fn descriptor(value: &Value) -> &Value {
     let body = body(value);
     body.get("tab")
         .or_else(|| body.get("theme"))
+        .or_else(|| body.get(crate::plugin_package::PLUGIN_KIND))
         .or_else(|| body.get("agent"))
         .unwrap_or(&Value::Null)
 }
+/// The entry's declared kind, `provider` for a legacy kind-less package. A
+/// kind this build does not know is returned as declared, never as provider.
 pub(crate) fn kind(value: &Value) -> &str {
-    marketplace_package_kind(value).unwrap_or("provider")
+    match value.get("kind") {
+        Some(kind) => kind.as_str().unwrap_or(""),
+        None => "provider",
+    }
 }
 
 /// How the index rules treat what a newer registry may sign.
@@ -68,11 +75,22 @@ pub(crate) fn validate_with(value: &Value, label: &str, rules: Rules, errors: &m
         return;
     };
     package::reject_unknown(object, &["kind", "package"], label, errors);
+    let content = value.get("package").unwrap_or(&Value::Null);
     let Some(kind) = marketplace_package_kind(value) else {
-        errors.push(format!("{label}.kind must equal provider, theme or tab"));
+        // A newer registry may sign kinds this build cannot install: the app
+        // skips them instead of rejecting the whole catalog.
+        let declared = value.get("kind").and_then(Value::as_str);
+        if rules == Rules::Publish || declared.is_none_or(str::is_empty) || !content.is_object() {
+            errors.push(format!(
+                "{label}.kind must equal provider, theme, tab or plugin"
+            ));
+        }
         return;
     };
-    let content = value.get("package").unwrap_or(&Value::Null);
+    if kind == crate::plugin_package::PLUGIN_KIND {
+        crate::plugin_package::validate(content, label, rules, errors);
+        return;
+    }
     if kind == "provider" {
         package::validate_provider_content(content, label, errors);
         return;
@@ -159,31 +177,7 @@ fn validate_content(
     }) {
         errors.push(format!("{label}.{kind}.id is invalid"));
     }
-    for field in ["name", "description", "license"] {
-        if theme
-            .get(field)
-            .and_then(Value::as_str)
-            .is_none_or(|s| s.trim().is_empty() || s.contains('\0'))
-        {
-            errors.push(format!("{label}.{kind}.{field} must not be empty"));
-        }
-    }
-    if theme
-        .get("version")
-        .and_then(Value::as_str)
-        .is_none_or(|s| semver::Version::parse(s).is_err())
-    {
-        errors.push(format!("{label}.{kind}.version must be semantic version"));
-    }
-    if !theme
-        .get("repository")
-        .and_then(Value::as_str)
-        .is_some_and(crate::submission::canonical_github_repository)
-    {
-        errors.push(format!(
-            "{label}.{kind}.repository must be a canonical HTTPS GitHub repository"
-        ));
-    }
+    validate_descriptor_text(theme, &format!("{label}.{kind}"), errors);
     if theme.get(version_field) != Some(&Value::from(1)) {
         errors.push(format!("{label}.{kind}.{version_field} must equal 1"));
     }
@@ -192,6 +186,41 @@ fn validate_content(
         crate::tab_backend::validate_descriptor(theme, label, rules, errors);
     }
     validate_theme_host(content, label, errors);
+}
+
+/// The descriptor text every theme, tab and plugin declares: a non-blank
+/// name, description and license, an exact semantic version and a canonical
+/// GitHub repository. `prefix` labels the descriptor (`package.theme`, …).
+pub(crate) fn validate_descriptor_text(
+    descriptor: &serde_json::Map<String, Value>,
+    prefix: &str,
+    errors: &mut Diagnostics,
+) {
+    for field in ["name", "description", "license"] {
+        if descriptor
+            .get(field)
+            .and_then(Value::as_str)
+            .is_none_or(|s| s.trim().is_empty() || s.contains('\0'))
+        {
+            errors.push(format!("{prefix}.{field} must not be empty"));
+        }
+    }
+    if descriptor
+        .get("version")
+        .and_then(Value::as_str)
+        .is_none_or(|s| semver::Version::parse(s).is_err())
+    {
+        errors.push(format!("{prefix}.version must be semantic version"));
+    }
+    if !descriptor
+        .get("repository")
+        .and_then(Value::as_str)
+        .is_some_and(crate::submission::canonical_github_repository)
+    {
+        errors.push(format!(
+            "{prefix}.repository must be a canonical HTTPS GitHub repository"
+        ));
+    }
 }
 
 /// Resolve the signed distribution origin independently from author provenance.
@@ -249,7 +278,7 @@ fn validate_theme_distribution(
     }
 }
 
-fn validate_theme_host(content: &Value, label: &str, errors: &mut Diagnostics) {
+pub(crate) fn validate_theme_host(content: &Value, label: &str, errors: &mut Diagnostics) {
     if let Some(host) = content.get("host").and_then(Value::as_object) {
         package::host::validate_optional_assets_host(host, label, errors);
     } else {

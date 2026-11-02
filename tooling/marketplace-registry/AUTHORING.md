@@ -270,6 +270,156 @@ signed catalog treat a newer platform or protocol as "not installable here"
 rather than rejecting the catalog. Paths are compared case-insensitively when
 checking that an executable stays out of the web archive.
 
+## Multi-export plugins
+
+A multi-export plugin ships several single-kind members — an ACP provider, a
+custom tab, a theme, in any combination of 1 to 6 — as one marketplace entry
+(`kind: "plugin"`) that releases and updates them together. Each member is
+still a complete provider, tab or theme: it is packed, verified, installed and
+revoked exactly like a standalone one, under its own id.
+
+Keep the members in one author folder with a `plugin.json` at its root:
+
+```text
+aurora/
+  plugin.json
+  agent/                # provider workspace: bin/provider, assets, README, LICENSE
+    aurora-agent.json   # its host descriptor (`<agent.id>.json`)
+  aurora-tab/           # custom tab: tab.json, icon, built web root
+  theme/                # declarative theme: theme.json (+ texture image)
+```
+
+```json
+{
+  "schema_version": 1,
+  "kind": "plugin",
+  "id": "aurora",
+  "name": "Aurora",
+  "version": "1.0.0",
+  "description": "Aurora agent, tab and theme",
+  "contributes": [
+    {
+      "kind": "provider",
+      "path": "agent",
+      "descriptor": "agent/aurora-agent.json"
+    },
+    { "kind": "tab", "path": "aurora-tab" },
+    { "kind": "theme", "path": "theme" }
+  ]
+}
+```
+
+`plugin.json` is closed (unknown keys are errors) and at most 64 KiB. `id` is
+lowercase ASCII letters and digits in segments joined by single `-`, at most
+64 bytes; `version` is a semantic version every member ships at; `name` is
+required and `description` optional. Each member names its `kind`
+(`provider`, `theme` or `tab`) and a normalized relative `path` (no `..`,
+leading `/`, backslash or `:`) to a directory inside the plugin folder; member
+paths are distinct and never nested in one another (compared
+case-insensitively). Provider members, and only they, name their host
+`descriptor` file the same way. Each member keeps its own kind's rules: a tab
+folder is named after its `tab.json` `id`, a descriptor file after its
+`agent.id`, and the descriptor's `installation.executable.command` is the
+absolute path of that member's `bin/provider`.
+
+```bash
+cadencr plugin validate ./aurora --kind plugin [--no-run]
+```
+
+The command validates `plugin.json`, then every member folder with the same
+validator as `--kind provider`, `--kind tab` (running this platform's backend
+through the conformance checks unless `--no-run`) or `--kind theme`, then the
+bindings: a tab manifest's `version` and a provider descriptor's
+`agent.version` must equal the plugin `version`, and the tab and provider ids
+must differ from each other and from the plugin id once reduced to lowercase
+letters and digits (`aurora-tab` and `auroratab` collide). Themes carry no id
+or version in `theme.json`; theirs are set in the package metadata. Every
+problem is reported at once, one line per member
+(``contributes[1] tab `aurora-tab`: [TAB_VALIDATION_FAILED] …``), under
+`PLUGIN_VALIDATION_FAILED`. `--descriptor` is refused: provider members name
+theirs in `plugin.json`.
+
+Pack each member with its own command, exactly as for a standalone release:
+`pack-provider` per provider target, `pack-tab` (and `pack-tab-backend` per
+backend platform) per tab, `pack-theme` per theme. Upload **every** archive
+to **one** author release, the one the submission's `source.tag` names, so
+give each a name that is unique in that release (for example
+`agent-darwin-aarch64.tar.gz`, `tab.tar.gz`, `tab-backend-linux-x86_64.tar.gz`,
+`theme.tar.gz`).
+
+Then compose the package JSON. `plugin.json` is an authoring aid only; the
+registry reads this entry (each member's `agent`, `tab`, `theme` and `host`
+object is elided here):
+
+```json
+{
+  "kind": "plugin",
+  "package": {
+    "plugin": {
+      "id": "aurora",
+      "name": "Aurora",
+      "description": "Aurora agent, tab and theme",
+      "version": "1.0.0",
+      "repository": "https://github.com/acme/aurora",
+      "license": "MIT"
+    },
+    "host": {
+      "publisher": "acme",
+      "compatibility": { "min_app_version": "0.16.0" }
+    },
+    "contributes": [
+      {
+        "kind": "provider",
+        "package": { "agent": { "id": "aurora-agent" }, "host": {} }
+      },
+      {
+        "kind": "tab",
+        "package": { "tab": { "id": "aurora-tab" }, "host": {} }
+      },
+      {
+        "kind": "theme",
+        "package": { "theme": { "id": "aurora-theme" }, "host": {} }
+      }
+    ]
+  }
+}
+```
+
+- Every member of `contributes` is a complete standalone provider, tab or
+  theme entry (`{kind, package}`), with the archive URLs and SHA-256 digests
+  its pack command printed. Plugins cannot contribute plugins.
+- Every member repeats the plugin's `version`, `repository`,
+  `host.publisher` and `host.compatibility` exactly.
+- Members are sorted by `kind`, then `id`, without duplicates; member ids
+  differ from each other and from the plugin id after the same normalization
+  as above.
+- A member id belongs to its plugin for good: it can never be published as a
+  standalone package or inside another plugin.
+- `plugin` takes exactly `id`, `name`, `description`, `version`, `repository`
+  (the canonical HTTPS GitHub repository) and `license`, all non-empty.
+- The plugin's own `host` takes only `publisher` and `compatibility`: a plugin
+  has no archive, so it declares no `assets` (members keep their own).
+- Provider members follow every standalone provider submission rule (reserved
+  ids, `host.assets`, binary targets).
+
+Submit it as a schema-2 submission: `{"schema_version": 2, "package": <the
+entry above>, "changelog": "…", "source": {"repository", "commit", "tag"}}`,
+with `source.repository` equal to `plugin.repository` and every member
+archive an asset of the `source.tag` release. `validate-submission` and
+`plan-publication` check this offline.
+
+The registry mirrors the whole plugin into **one** release,
+`plugin-<id>-v<version>` (`plugin-aurora-v1.0.0`). Each member target becomes
+`<kind>:<member id>:<target>` (`provider:aurora-agent:darwin-aarch64`,
+`tab:aurora-tab:tab`, `theme:aurora-theme:theme`) and each asset is prefixed
+`<kind>-<member id>-` (`theme-aurora-theme-theme.tar.gz`); the signed entry
+points at those mirrored assets. Cadencr apps flatten a plugin into its
+members, so installs, updates and blocklists stay per member kind and id:
+revoking `aurora-tab` in the custom-tab blocklist does not touch
+`aurora-agent` or `aurora-theme`. An app that does not know a member's kind
+(or the `plugin` kind itself) skips that entry instead of rejecting the
+catalog.
+
 ## Prepare the review submission
 
 Pin the source commit and release tag, record the changelog, and embed your final

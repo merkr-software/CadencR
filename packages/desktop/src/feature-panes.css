@@ -1,0 +1,41 @@
+/* -------------------------------------------------------------------------
+ * Feature panes: how the root pane's agent sits among split and pop panes
+ * (`FeatureLayoutShell`, `PaneChrome`, `pop-pane.tsx`).
+ * ------------------------------------------------------------------------- */
+
+/* In a split, two panes side by side stand a gutter (6px) + the resize handle
+ * (1px, `ResizableHandle`) + a gutter apart. The grid's outer edges have no
+ * handle and no neighbour, so the panes along them sat a single gutter from
+ * the sidebar and the window: the composer and the pop pane under it stood
+ * closer to the sidebar than to the pane beside them. The shell gives its
+ * sides the handle and the missing gutter. Stacked panes stand only a gutter +
+ * the handle apart (floating frames have no top padding), so the bottom gets
+ * just the handle; the CadencR pair, whose frames pad their top, takes the
+ * gutter as well (theme-cadencr-material.css). The top stays flush: the root
+ * pane's tab strip continues the page header there. */
+[data-feature-layout-shell][data-has-floating-pane="true"] {
+  padding: 0 calc(0.375rem + 1px) 1px;
+}
+
+/* In a split, the composer continues the floating pane cards' edges: the
+ * cards sit 6px inside their frames (`px-1.5 pb-1.5`), so the composer takes
+ * the same gutter on its sides and bottom instead of its own 12px / 16px. Its
+ * card then lines up with a pane below it and bottoms out with a pane beside
+ * it. (The CadencR pair, whose root frame already has that bottom gutter,
+ * drops the composer's in theme-cadencr-material.css.) */
+[data-feature-layout-shell][data-has-floating-pane="true"]
+  [data-pane-root]
+  [data-agent-prompt-bar] {
+  padding-inline: 0.375rem;
+  padding-bottom: 0.375rem;
+}
+
+/* The agent alone on screen, every pop pane folded to its header: transcript
+ * and composer get margins instead of running along the edges. An open split
+ * (a pop pane included) takes them back. They switch without a transition:
+ * animating the width of the tab host would re-wrap the transcript, and refit
+ * a terminal shown there, on every frame. Mobile never gets here, its layout
+ * is flat. */
+[data-feature-layout-shell][data-agent-solo] [data-pane-root] > [data-pane-body] {
+  padding-inline: clamp(0.75rem, 2.5%, 2.5rem);
+}

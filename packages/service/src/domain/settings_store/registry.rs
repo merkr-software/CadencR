@@ -23,6 +23,8 @@ pub enum ValueKind {
     Number,
     /// Parses as an integer within an inclusive range.
     IntegerRange { min: i64, max: i64 },
+    /// Comma-separated values from a fixed set, none twice; empty is the empty list.
+    IdList(&'static [&'static str]),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -49,8 +51,19 @@ impl SettingSpec {
                 .trim()
                 .parse::<i64>()
                 .is_ok_and(|number| (min..=max).contains(&number)),
+            ValueKind::IdList(allowed) => is_id_list(value, allowed),
         }
     }
+}
+
+fn is_id_list(value: &str, allowed: &[&str]) -> bool {
+    if value.is_empty() {
+        return true;
+    }
+    let ids: Vec<&str> = value.split(',').collect();
+    ids.iter()
+        .enumerate()
+        .all(|(index, id)| allowed.contains(id) && !ids[..index].contains(id))
 }
 
 const BOOL: ValueKind = ValueKind::Bool;
@@ -83,6 +96,12 @@ fn editor_tooling_spec(key: &str) -> Option<SettingSpec> {
 pub fn workspace_spec(key: &str) -> Option<SettingSpec> {
     if let Some(spec) = editor_tooling_spec(key).or_else(|| sidebar::sidebar_display_spec(key)) {
         return Some(spec);
+    }
+    if crate::domain::settings_allowlist::is_provider_access_mode_key(key) {
+        return Some(SettingSpec::new(
+            ValueKind::Enum(&["default", "fullAccess", "autoReview"]),
+            Some("default"),
+        ));
     }
     let spec = match key {
         // Booleans default to "false" — the historical "unset == off" behavior.
@@ -185,6 +204,17 @@ mod tests {
         assert!(spec.is_valid("false"));
         assert!(!spec.is_valid("yes"));
         assert_eq!(spec.default, Some("true"));
+    }
+
+    #[test]
+    fn provider_access_mode_defaults_accept_only_access_mode_ids() {
+        let spec = workspace_spec("provider_access_mode.acme-agent").unwrap();
+        for value in ["default", "fullAccess", "autoReview"] {
+            assert!(spec.is_valid(value), "{value}");
+        }
+        assert!(!spec.is_valid("bypassPermissions"));
+        assert_eq!(spec.default, Some("default"));
+        assert!(workspace_spec("provider_access_mode.Bad Id").is_none());
     }
 
     #[test]

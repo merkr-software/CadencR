@@ -1,4 +1,5 @@
-//! One firing of a schedule: evaluate its condition (if any), then deliver.
+//! One firing of a schedule: evaluate its condition (if any), then deliver —
+//! or, for a `custom_action` schedule, run the action (see `custom_action`).
 //!
 //! Shared by the poll loop and "Run now" so a manual run tests exactly what the
 //! timer will do — including running the command and staying quiet when it
@@ -7,6 +8,7 @@
 use std::path::PathBuf;
 
 use super::condition::{self, CheckRecord, Evaluation};
+use super::custom_action::{self, Wait};
 use super::dispatch;
 use super::models::{Schedule, ScheduleCheckStatus, ScheduleCondition, TargetKind};
 use super::repository;
@@ -16,7 +18,7 @@ use crate::domain::projects::service::resolve_project_root;
 use crate::domain::workflow::worktree::resolve_feature_cwd;
 
 pub enum FireOutcome {
-    /// The prompt reached the agent.
+    /// The prompt reached the agent, or the custom action ran successfully.
     Delivered { feature_id: i64 },
     /// Delivery, or the condition evaluation that gates it, failed.
     Failed { error: String },
@@ -38,6 +40,16 @@ pub async fn fire(
     occurrence: &str,
     skip_when_busy: bool,
 ) -> FireOutcome {
+    if schedule.target.kind == TargetKind::CustomAction {
+        // Only the timer passes `skip_when_busy`: it records the run's exit
+        // status, while a manual run reports as soon as the command started.
+        let wait = if skip_when_busy {
+            Wait::ForExit
+        } else {
+            Wait::ForStart
+        };
+        return custom_action::fire(state, schedule, wait).await;
+    }
     let Some(condition) = &schedule.condition else {
         return deliver(state, schedule, occurrence).await;
     };
@@ -131,7 +143,7 @@ async fn record(
 /// exist yet.
 async fn condition_cwd(state: &AppState, schedule: &Schedule) -> Result<PathBuf, String> {
     match schedule.target.kind {
-        TargetKind::Conversation => {
+        TargetKind::Conversation | TargetKind::CustomAction => {
             let feature_id = schedule
                 .target
                 .feature_id

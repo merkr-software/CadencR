@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { blockSearchableText, computeConversationMatches } from "./matches";
 
 function block(id: string, content: string, type: AgentBlockData["type"] = "text"): AgentBlockData {
@@ -144,6 +144,7 @@ describe("blockSearchableText", () => {
   it("ignores dividers and turn summaries", () => {
     expect(blockSearchableText(block("d", "ignored", "clear_divider"))).toBe("");
     expect(blockSearchableText(block("s", "ignored", "turn_summary"))).toBe("");
+    expect(blockSearchableText(block("m", '{"from":"a","to":"b"}', "model_switch"))).toBe("");
   });
 
   it("searches a Bash payload's command and visible output tail, not its hidden head", () => {

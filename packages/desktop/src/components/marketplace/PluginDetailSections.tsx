@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { ExternalLink, ShieldCheck } from "lucide-react";
 import type { ManagedProviderInventoryEntry } from "@/api/generated";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,7 @@ import { formatAgo } from "@/lib/date-utils";
 import { formatDay } from "./PluginBits";
 import { TabTrust } from "./TabTrust";
 
-function Section({
+export function Section({
   title,
   children,
 }: {
@@ -166,7 +167,7 @@ export function HistorySection({
   );
 }
 
-function ExternalLinkValue({ url }: { url: string }): React.JSX.Element {
+export function ExternalLinkValue({ url }: { url: string }): React.JSX.Element {
   return (
     <button
       type="button"
@@ -185,6 +186,17 @@ export function FactsSection({ listing }: { listing: MarketplaceListing }): Reac
     ["Identifier", <span className="break-all font-mono text-[11.5px]">{listing.id}</span>],
     ["License", listing.license ?? "Not specified"],
   ];
+  if (listing.partOf)
+    facts.push([
+      "Part of",
+      <Link
+        to="/marketplace/$kind/$id"
+        params={{ kind: "plugin", id: listing.partOf.id }}
+        className="text-primary hover:underline"
+      >
+        {listing.partOf.name}
+      </Link>,
+    ]);
   if (listing.authors.length) facts.push(["Authors", listing.authors.join(", ")]);
   if (listing.repository) facts.push(["Source", <ExternalLinkValue url={listing.repository} />]);
   if (listing.website) facts.push(["Website", <ExternalLinkValue url={listing.website} />]);
@@ -195,6 +207,15 @@ export function FactsSection({ listing }: { listing: MarketplaceListing }): Reac
       "Last updated",
       `${formatDay(listing.installed.updatedAt)} (${formatAgo(listing.installed.updatedAt)})`,
     ]);
+  return <DetailsSection facts={facts} />;
+}
+
+/** The "Details" label/value list of a detail page's sidebar. */
+export function DetailsSection({
+  facts,
+}: {
+  facts: readonly [string, React.ReactNode][];
+}): React.JSX.Element {
   return (
     <Section title="Details">
       <dl className="grid grid-cols-[96px_minmax(0,1fr)] gap-x-3 gap-y-2 text-[12.5px]">
@@ -218,7 +239,6 @@ export function TrustSection({
   version: string;
 }): React.JSX.Element {
   const { providers, themes, tabs } = useMarketplaceState();
-  const inventory = providers.inventoryQuery.data;
   // Each kind is verified against its own catalog; never show the other one's dates.
   const providerCatalog = listing.kind === "provider" ? providers.catalogQuery.data : undefined;
   const expiresAt = (
@@ -228,17 +248,6 @@ export function TrustSection({
         ? tabs.catalog.data
         : themes.catalog.data
   )?.index?.signed.expires_at;
-  const policy = inventory?.process_policy;
-  const unavailable = policy
-    ? [
-        { label: "Memory limit", control: policy.memory_limit },
-        { label: "Child-process limit", control: policy.child_count_limit },
-        { label: "CPU limit", control: policy.cpu_limit },
-        { label: "Descendant termination", control: policy.descendant_termination },
-      ].flatMap(({ label, control }) =>
-        control.status === "unavailable" ? [{ label, reason: control.reason }] : [],
-      )
-    : [];
   return (
     <Section title="Trust & safety">
       <div className="space-y-2 rounded-lg border border-border/80 bg-card p-3 text-xs text-muted-foreground">
@@ -246,40 +255,7 @@ export function TrustSection({
           <ShieldCheck aria-hidden="true" className="size-3.5 text-primary" />
           Signed catalog, verified archive
         </p>
-        {listing.kind === "theme" ? (
-          <p>
-            Themes are declarative: validated colors and bounded images, never executables. Signed
-            revisions are immutable — duplicate one to edit it. Installing does not switch your
-            theme.
-          </p>
-        ) : listing.kind === "tab" ? (
-          <TabTrust listing={listing} version={version} />
-        ) : (
-          <>
-            <p>
-              Installing downloads and runs this publisher’s executable. Cadencr verifies the signed
-              catalog, package integrity, compatibility and the ACP handshake — this is not an OS
-              sandbox: the executable runs with your access. Use an isolated environment for
-              untrusted providers. Changes may need a restart.
-            </p>
-            {inventory && inventory.trust.status !== "configured" && (
-              <p className="text-destructive">
-                Signing trust: {inventory.trust.status}. {inventory.trust.error}
-              </p>
-            )}
-            {inventory && (
-              <p>
-                Blocklist {inventory.blocklist.source_configured ? "configured" : "not configured"}{" "}
-                · cache {inventory.blocklist.cache_status}
-              </p>
-            )}
-            {unavailable.map(({ label, reason }) => (
-              <p key={label}>
-                {label}: unavailable — {reason}
-              </p>
-            ))}
-          </>
-        )}
+        <KindTrust listing={listing} version={version} />
         {expiresAt && (
           <p className="text-[11px]">
             {providerCatalog?.signer_key_id && (
@@ -294,5 +270,66 @@ export function TrustSection({
         )}
       </div>
     </Section>
+  );
+}
+
+/** What installing one single-kind package runs, in that kind's own words. */
+export function KindTrust({
+  listing,
+  version,
+}: {
+  listing: MarketplaceListing;
+  version: string;
+}): React.JSX.Element | null {
+  if (listing.kind === "theme")
+    return (
+      <p>
+        Themes are declarative: validated colors and bounded images, never executables. Signed
+        revisions are immutable — duplicate one to edit it. Installing does not switch your theme.
+      </p>
+    );
+  if (listing.kind === "tab") return <TabTrust listing={listing} version={version} />;
+  if (listing.kind === "provider") return <ProviderTrust />;
+  return null;
+}
+
+function ProviderTrust(): React.JSX.Element {
+  const inventory = useMarketplaceState().providers.inventoryQuery.data;
+  const policy = inventory?.process_policy;
+  const unavailable = policy
+    ? [
+        { label: "Memory limit", control: policy.memory_limit },
+        { label: "Child-process limit", control: policy.child_count_limit },
+        { label: "CPU limit", control: policy.cpu_limit },
+        { label: "Descendant termination", control: policy.descendant_termination },
+      ].flatMap(({ label, control }) =>
+        control.status === "unavailable" ? [{ label, reason: control.reason }] : [],
+      )
+    : [];
+  return (
+    <>
+      <p>
+        Installing downloads and runs this publisher’s executable. Cadencr verifies the signed
+        catalog, package integrity, compatibility and the ACP handshake — this is not an OS sandbox:
+        the executable runs with your access. Use an isolated environment for untrusted providers.
+        Changes may need a restart.
+      </p>
+      {inventory && inventory.trust.status !== "configured" && (
+        <p className="text-destructive">
+          Signing trust: {inventory.trust.status}. {inventory.trust.error}
+        </p>
+      )}
+      {inventory && (
+        <p>
+          Blocklist {inventory.blocklist.source_configured ? "configured" : "not configured"} ·
+          cache {inventory.blocklist.cache_status}
+        </p>
+      )}
+      {unavailable.map(({ label, reason }) => (
+        <p key={label}>
+          {label}: unavailable — {reason}
+        </p>
+      ))}
+    </>
   );
 }

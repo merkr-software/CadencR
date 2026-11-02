@@ -1,0 +1,49 @@
+/* Colors ("Colors: Increased"): besides what already carries a state (status,
+ * diff, pull request, label, request, ports), every detail takes a discreet
+ * color of its own, its accent mixed toward the muted ink, so each kind of
+ * information reads at a glance while the title stays the brightest text.
+ * Unique within a line; red stays for errors (a failed turn, failing checks,
+ * removed lines); an error or an empty placeholder keeps its own tone. */
+[data-sidebar-color="increased"] {
+  --row-tone-time: color-mix(in oklab, var(--acc-purple) 35%, var(--muted-foreground));
+  --row-tone-reply: color-mix(
+    in oklab,
+    var(--acc-cyan) 25%,
+    color-mix(in oklab, var(--muted-foreground) 65%, var(--sidebar-foreground))
+  );
+  --row-tone-branch: color-mix(
+    in oklab,
+    color-mix(in oklab, var(--acc-cyan), var(--acc-purple)) 72%,
+    var(--muted-foreground)
+  );
+  --row-tone-model: color-mix(in oklab, var(--acc-green) 50%, var(--muted-foreground));
+  --row-tone-todos: color-mix(in oklab, var(--acc-yellow) 72%, var(--muted-foreground));
+  --row-tone-shell: color-mix(in oklab, var(--acc-orange) 72%, var(--muted-foreground));
+  --row-tone-browser: color-mix(in oklab, var(--acc-cyan) 72%, var(--muted-foreground));
+  --row-tone-download: color-mix(in oklab, var(--acc-purple) 72%, var(--muted-foreground));
+
+  & [data-feature-time] {
+    color: var(--row-tone-time);
+  }
+  & [data-feature-preview]:not([data-feature-preview="empty"]) {
+    color: var(--row-tone-reply);
+  }
+  & :is([data-feature-branch], [data-feature-worktree-icon]) {
+    color: var(--row-tone-branch);
+  }
+  & [data-feature-model] {
+    color: var(--row-tone-model);
+  }
+  & [data-feature-todos] > :not(.text-destructive) {
+    color: var(--row-tone-todos);
+  }
+  & [data-feature-activity="shell"] > * {
+    color: var(--row-tone-shell);
+  }
+  & [data-feature-activity="browser"] > * {
+    color: var(--row-tone-browser);
+  }
+  & [data-feature-activity="download"] > * {
+    color: var(--row-tone-download);
+  }
+}

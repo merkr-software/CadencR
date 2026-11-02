@@ -33,6 +33,10 @@ env:
   CADENCR_MANAGED_THEME_INDEX_URL: ${{ vars.CADENCR_MANAGED_THEME_INDEX_URL }}
   CADENCR_MANAGED_THEME_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_THEME_BLOCKLIST_URL }}
   CADENCR_MANAGED_TAB_BLOCKLIST_URL: ${{ vars.CADENCR_MANAGED_TAB_BLOCKLIST_URL }}
+  # Public ingest configuration only; user consent is still off by default.
+  CADENCR_SENTRY_DSN: ${{ vars.CADENCR_SENTRY_DSN }}
+  CADENCR_POSTHOG_KEY: ${{ vars.CADENCR_POSTHOG_KEY }}
+  CADENCR_POSTHOG_HOST: ${{ vars.CADENCR_POSTHOG_HOST }}
 
 permissions:
   contents: write
@@ -114,7 +118,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Validate marketplace build configuration
-        run: node scripts/validate-marketplace-build-env.mjs
+        run: node scripts/validate-marketplace-build-env.mjs --require-catalog
 
       - name: Use bounded pnpm listing for packaging
         run: |
@@ -153,6 +157,14 @@ jobs:
 
       - name: Archive exact renderer bundles and source maps
         run: node packages/desktop/scripts/archive-renderer-diagnostics.mjs
+
+      - name: Upload optional Sentry renderer source maps
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_URL: ${{ vars.SENTRY_URL }}
+        run: node scripts/upload-sentry-renderer-maps.mjs
 
       - name: Build Rust service sidecar (x64)
         run: node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build:sidecars

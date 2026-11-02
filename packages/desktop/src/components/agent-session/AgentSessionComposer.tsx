@@ -74,9 +74,14 @@ const COLLAPSIBLE_ROOT_CLASS = "shrink-0";
 // The home-indicator clearance sits on this root so it applies whichever
 // optional row happens to be last. It used to hang off `ComposerContextUsage`,
 // which returns null until a session reports context usage — so before the
-// first prompt the bottom chips sat flush against the screen edge.
+// first prompt the bottom chips sat flush against the screen edge. It reads
+// `--app-inset-bottom`, which drops to 0 while the on-screen keyboard is up.
+//
+// `overflow-y-auto` alone computes `overflow-x` to `auto` too, so anything
+// poking past the card's sides (the running sweep did) let a sideways swipe
+// scroll the whole composer out of its column. It only ever scrolls vertically.
 const FULL_PAGE_ROOT_CLASS =
-  "flex min-h-0 flex-col overflow-y-auto pb-[env(safe-area-inset-bottom)]";
+  "flex min-h-0 flex-col overflow-x-hidden overflow-y-auto pb-[var(--app-inset-bottom)]";
 
 // Bottom safe-area clearance lives on the composer root (see above), so this row
 // only owns its own spacing — the same in both layouts.
@@ -101,6 +106,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
       instruments={instruments}
       sessionInfo={sessionInfo}
       onScheduleRequest={schedules.requestSchedule}
+      schedules={schedules.section}
     />
   ) : null;
   const utilities =
@@ -110,7 +116,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
 
   return (
     <div className={props.collapsible ? COLLAPSIBLE_ROOT_CLASS : FULL_PAGE_ROOT_CLASS}>
-      {props.shouldShowPromptBar && schedules.element}
+      {props.shouldShowPromptBar && schedules.dialog}
       {utilities}
       {promptBar ?? instruments}
       {!promptBar && (
@@ -205,6 +211,7 @@ function AgentSessionPrompt(
     instruments: ReactElement | null;
     sessionInfo: ReturnType<typeof useComposerSessionInfo>;
     onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
+    schedules: ReactElement | null;
   },
 ): ReactElement {
   const session = props.sessionProps;
@@ -284,9 +291,11 @@ function AgentSessionPrompt(
       steeringAcknowledged={session.steeringAcknowledged}
       launchManifest={launchManifest(props)}
       sideConversations={sideConversations}
+      schedules={props.schedules}
       instrumentLeading={props.instruments}
       slashCommandsOverride={session.slashCommandsOverride}
       slashCommandsLoading={session.slashCommandsLoading}
+      slashCommandsError={session.slashCommandsError}
       promptCommandPolicy={session.promptCommandPolicy}
       pendingPermission={session.pendingPermission}
       referencedWorktreeSelection={referencedWorktreeSelection}

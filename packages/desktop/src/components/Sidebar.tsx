@@ -11,16 +11,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { KbdShortcut, ResolvedShortcutHint } from "@/components/KbdShortcut";
-import { ProjectTree } from "@/components/ProjectTree";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SidebarRowActionsProvider } from "@/components/SidebarRowActionsProvider";
 import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
 import { SidebarConfigProvider } from "@/components/SidebarConfigProvider";
 import { useSidebarOption } from "@/stores/sidebar-config-store";
-import { SidebarPinnedConversations } from "@/components/SidebarPinnedConversations";
-import { SidebarForMeSection } from "@/components/SidebarForMeSection";
-import { SidebarRecentSection } from "@/components/SidebarRecentSection";
-import { SidebarWorkingSection } from "@/components/SidebarWorkingSection";
 import {
   SidebarAttentionShortcuts,
   SidebarRenameDialog,
@@ -55,9 +50,9 @@ import {
   useSidebarHighlightAttribute,
 } from "@/hooks/useSidebarDisplayAttributes";
 import { SidebarSampleBanner } from "@/components/SidebarSampleBanner";
-import { SidebarSampleBlocks } from "@/components/SidebarSampleBlocks";
-import { SampleScope } from "@/components/SidebarSampleProvider";
+import { SidebarSections } from "@/components/SidebarSections";
 import { SidebarSampleProvider } from "@/components/SidebarSampleProvider";
+import { SidebarDisplayOptionsHost } from "@/components/SidebarDisplayOptionsPopover";
 import { useSidebarShowsSamples } from "@/stores/sidebar-preview-store";
 import { HAS_MAC_WINDOW_CONTROLS } from "@/lib/mac-window-controls";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
@@ -68,7 +63,8 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   const isMobile = useIsMobile();
   const sidebarRef = useRef<HTMLElement>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<number | null>(null);
-  const { activeProjectId, effectiveFeatureId } = useSidebarActiveIds(selectedFeatureId);
+  const { activeProjectId, routeFeatureId, effectiveFeatureId } =
+    useSidebarActiveIds(selectedFeatureId);
   useSidebarKeyboardNavigation(sidebarRef, navigate, effectiveFeatureId);
   useSidebarRowShortcuts();
   useBrowserActivityBridge();
@@ -100,51 +96,44 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
           <SidebarHeader onCollapse={() => setCollapsed(true)} />
           {/* Flex column so the scroller gets the *remaining* height (not 100%, which
           overflows past the search bar and clips the scroll area's bottom). */}
-          <SidebarSampleProvider enabled={showsSamples}>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
-              <div className="mb-2 shrink-0 px-1">
-                <SidebarSearchButton onSearch={onSearch} />
-              </div>
-              {/* The unified agents grid is desktop-only — hide its entry on phones.
+          <SidebarDisplayOptionsHost collapsed={!isMobile && collapsed}>
+            <SidebarSampleProvider enabled={showsSamples}>
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden p-2">
+                <div className="mb-2 shrink-0 px-1">
+                  <SidebarSearchButton onSearch={onSearch} />
+                </div>
+                {/* The unified agents grid is desktop-only — hide its entry on phones.
             Schedules is a plain list, so it works everywhere. */}
-              <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
-                <MarketplaceSidebarLink />
-                {!isMobile && <UnifiedAgentsSidebarLink />}
-                <SchedulesSidebarLink />
-              </div>
-              <SidebarSampleBanner />
-              {!showsSamples && <SidebarFilterInput />}
-              <SidebarAttentionShortcuts
-                activeFeatureId={effectiveFeatureId}
-                onSelectFeature={setSelectedFeatureId}
-              />
-              <SidebarRowActionsProvider>
-                {/* One scroller for the blocks and the projects, so every block stays
-                reachable however many are open, on a phone as on desktop. */}
-                <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
-                  <div className="flex min-w-0 flex-col pb-2">
-                    {showsSamples ? (
-                      <div data-sidebar-sample className="flex flex-col">
-                        <SampleScope>
-                          <SidebarSampleBlocks />
-                        </SampleScope>
+                <div className="mb-2 flex shrink-0 flex-col gap-0.5 px-1">
+                  <MarketplaceSidebarLink />
+                  {!isMobile && <UnifiedAgentsSidebarLink />}
+                  <SchedulesSidebarLink />
+                </div>
+                <SidebarSampleBanner />
+                {!showsSamples && <SidebarFilterInput />}
+                <SidebarAttentionShortcuts
+                  activeFeatureId={effectiveFeatureId}
+                  openFeatureId={routeFeatureId}
+                  onSelectFeature={setSelectedFeatureId}
+                >
+                  <SidebarRowActionsProvider>
+                    {/* One scroller for the blocks and the projects, so every block stays
+                  reachable however many are open, on a phone as on desktop. */}
+                    <ScrollArea data-sidebar-scroll className="min-h-0 min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-col pb-2">
+                        <SidebarSections
+                          showsSamples={showsSamples}
+                          activeProjectId={activeProjectId}
+                          activeFeatureId={effectiveFeatureId}
+                          onSelectFeature={setSelectedFeatureId}
+                        />
                       </div>
-                    ) : (
-                      <SidebarBlocks
-                        activeFeatureId={effectiveFeatureId}
-                        onSelectFeature={setSelectedFeatureId}
-                      />
-                    )}
-                    <ProjectTree
-                      activeProjectId={activeProjectId}
-                      activeFeatureId={effectiveFeatureId}
-                      onSelectFeature={setSelectedFeatureId}
-                    />
-                  </div>
-                </ScrollArea>
-              </SidebarRowActionsProvider>
-            </div>
-          </SidebarSampleProvider>
+                    </ScrollArea>
+                  </SidebarRowActionsProvider>
+                </SidebarAttentionShortcuts>
+              </div>
+            </SidebarSampleProvider>
+          </SidebarDisplayOptionsHost>
           <SidebarFooter anchorsToasts={!isMobile && !collapsed} />
           <SidebarRenameDialog />
         </aside>
@@ -153,27 +142,17 @@ export function Sidebar({ onSearch }: { onSearch: () => void }) {
   );
 }
 
-/** The blocks above the project list, each hidden while its option is off. */
-function SidebarBlocks(props: {
-  activeFeatureId: number | null;
-  onSelectFeature: (featureId: number) => void;
-}): ReactElement {
-  return (
-    <>
-      <SidebarForMeSection {...props} />
-      <SidebarWorkingSection {...props} />
-      <SidebarRecentSection {...props} />
-      <SidebarPinnedConversations {...props} />
-    </>
-  );
-}
-
 function useSidebarActiveIds(selectedFeatureId: number | null): {
   activeProjectId: number | null;
+  routeFeatureId: number | null;
   effectiveFeatureId: number | null;
 } {
   const { projectId, featureId } = useRouteFeatureIds();
-  return { activeProjectId: projectId, effectiveFeatureId: featureId ?? selectedFeatureId };
+  return {
+    activeProjectId: projectId,
+    routeFeatureId: featureId,
+    effectiveFeatureId: featureId ?? selectedFeatureId,
+  };
 }
 
 function SidebarSearchButton({ onSearch }: { onSearch: () => void }): ReactElement {

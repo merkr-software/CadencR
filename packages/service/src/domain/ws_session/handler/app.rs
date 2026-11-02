@@ -33,6 +33,12 @@ pub(super) async fn handle_app_action(
             "prompt_queue_changed",
             OnLag::ResendBare,
         ),
+        "subscribe.custom_action_events" => forward_app_events(
+            sender,
+            app_state.custom_action_events_tx.subscribe(),
+            "custom_action_event",
+            OnLag::ResendBare,
+        ),
         "subscribe.alacritty_config_events" => {
             handle_subscribe_alacritty_config_events(sender, app_state).await
         }

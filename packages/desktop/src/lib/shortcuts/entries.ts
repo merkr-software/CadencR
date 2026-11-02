@@ -121,7 +121,19 @@ const APP_SHORTCUTS = [
   },
 
   // ─── Settings ────────────────────────────────────────────────────────
-  { id: "settings-back", keys: ["escape"], description: "Back to workspace", scope: "settings" },
+  {
+    id: "settings-back",
+    keys: ["escape"],
+    description: "Clear the settings search, else back to workspace",
+    scope: "settings",
+  },
+  {
+    id: "settings-search",
+    keys: ["mod", "f"],
+    description: "Search settings",
+    scope: "settings",
+    aliases: ["find"],
+  },
 
   // ─── Unified Agents ──────────────────────────────────────────────────
   {
@@ -239,6 +251,20 @@ const APP_SHORTCUTS = [
     scope: "feature",
   },
   {
+    id: "custom-actions",
+    keys: ["mod", "alt", "r"],
+    description: "Custom actions menu",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
+  },
+  {
+    id: "custom-action-run-1-9",
+    keys: ["mod", "alt", "1-9"],
+    description: "Run custom action 1–9",
+    scope: "feature",
+    aliases: ["run", "task", "script", "command"],
+  },
+  {
     id: "git-commit",
     keys: ["mod", "shift", "k"],
     description: "Open commit dialog",
@@ -303,6 +329,15 @@ const APP_SHORTCUTS = [
     keys: ["shift", "tab"],
     description: "Cycle permission mode",
     scope: "agent",
+  },
+  {
+    // Free in this scope: ⌘⇧C is only the Editor tab's "Copy file path".
+    // Toggles: from the prompt into the wizard, and from the wizard back.
+    id: "agent-skill-wizard",
+    keys: ["mod", "shift", "c"],
+    description: "Configure the invoked /cadencr skill, or return to the prompt",
+    scope: "agent",
+    aliases: ["skill", "wizard"],
   },
   {
     id: "agent-autoscroll",

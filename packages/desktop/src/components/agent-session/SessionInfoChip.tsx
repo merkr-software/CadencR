@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata } from "@/lib/providers";
 import { buildResumeCommand } from "@/lib/provider-resume-command";
+import { useCatalogProviderMetadata } from "@/hooks/useCatalogProviderMetadata";
 import type { ClaudeCodeProfile } from "@/api/agentRuntime";
 import { DEFAULT_CLAUDE_PROFILE_NAME, formatClaudeProfileLabel } from "@/lib/claude-profiles";
 import { cn } from "@/lib/utils";
@@ -80,8 +81,9 @@ function useSessionInfoCopy({
     };
   }, []);
 
+  const resumeCommand = useCatalogProviderMetadata(runtimeProvider)?.resumeCommand;
   const resume = buildResumeCommand({
-    providerId: runtimeProvider,
+    resumeCommand,
     sessionId: runtimeSessionId ?? "",
     cwd: projectPath,
   });

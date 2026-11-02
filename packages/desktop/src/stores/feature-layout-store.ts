@@ -16,10 +16,12 @@ import {
   findPaneContaining,
   getFirstLeafId,
   getLeaves,
+  isPopLeaf,
   makeLeaf,
   mapLeaf,
   mapSplitsAtPath,
   pluckTab,
+  setLeafPop,
   splitLeafAt,
   survivingFocus,
   withFocus,
@@ -78,6 +80,8 @@ interface FeatureLayoutStore {
   removeTab(featureId: number, tab: TabKind): void;
   /** Set which tab is shown inside a pane's strip. */
   setPaneActiveTab(featureId: number, paneId: string, tab: TabKind): void;
+  /** Make a non-root pane a pop pane (folded to its header until focused), or pin it open again. */
+  setPanePop(featureId: number, paneId: string, pop: boolean): void;
   // ---- resize ----
   setSplitSizes(featureId: number, splitPath: SplitPath, sizes: [number, number]): void;
   // ---- focus ----
@@ -180,6 +184,12 @@ export const useFeatureLayoutStore = create<FeatureLayoutStore>((set, get) => ({
   setPaneActiveTab: (featureId, paneId, tab) =>
     update(set, featureId, (st) => withPaneActiveTab(st, paneId, tab)),
 
+  setPanePop: (featureId, paneId, pop) =>
+    update(set, featureId, (st) => {
+      const splitRoot = setLeafPop(st.splitRoot, paneId, pop);
+      return splitRoot === st.splitRoot ? st : { ...st, splitRoot };
+    }),
+
   setSplitSizes: (featureId, splitPath, sizes) =>
     update(set, featureId, (st) => {
       const splitRoot = mapSplitsAtPath(st.splitRoot, splitPath, 0, (split) => ({
@@ -259,6 +269,13 @@ export function activateFeatureTab(featureId: number, tab: TabKind): boolean {
   return true;
 }
 
+/** Id of the feature's focused pane (see `getFocusedLeaf`). */
+export function useFocusedPaneId(featureId: number): string {
+  return useFeatureLayoutStore(
+    (s) => getFocusedLeaf(selectFeatureLayout(featureId)(s))?.id ?? ROOT_LEAF_ID,
+  );
+}
+
 /** Pane whose active tab should be treated as globally focused. */
 export function getFocusedLeaf(state: FeatureLayoutState): LayoutLeaf | null {
   const focusedLeaf = state.focusedPaneId
@@ -277,8 +294,30 @@ export function getFocusedTab(state: FeatureLayoutState): TabKind | null {
   return getFocusedLeaf(state)?.activeTabId ?? null;
 }
 
-/** Whether the given tab is currently visible (it's the host pane's active tab). */
+/** Whether a pop pane is folded to its header: it pops only while it holds focus. */
+export function isPopCollapsed(state: FeatureLayoutState, paneId: string): boolean {
+  return isPopLeaf(state.splitRoot, paneId) && getFocusedLeaf(state)?.id !== paneId;
+}
+
+/**
+ * Whether the agent is the only open pane of a split layout: the root pane
+ * shows it and every other pane is a folded pop pane.
+ */
+export function isAgentAlone(state: FeatureLayoutState): boolean {
+  const leaves = getLeaves(state.splitRoot);
+  return (
+    leaves.length > 1 &&
+    leaves.every((leaf) =>
+      leaf.id === ROOT_LEAF_ID ? leaf.activeTabId === "agent" : isPopCollapsed(state, leaf.id),
+    )
+  );
+}
+
+/**
+ * Whether the given tab is currently visible: it's the host pane's active tab,
+ * and that pane isn't a folded pop pane.
+ */
 export function isTabVisible(state: FeatureLayoutState, tab: TabKind): boolean {
   const leaf = findPaneContaining(state.splitRoot, tab);
-  return leaf?.activeTabId === tab;
+  return leaf?.activeTabId === tab && !isPopCollapsed(state, leaf.id);
 }

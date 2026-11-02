@@ -13,7 +13,7 @@ pub(crate) mod npm;
 pub mod routes;
 mod service;
 mod types;
-mod version;
+pub(crate) mod version;
 
 use std::time::Duration;
 

@@ -11,12 +11,12 @@ use super::event_state::IndexState;
 use super::event_subagent_recovery::recover_interacted_routes;
 use super::event_system::{permission_request_event, request_key};
 use super::event_turn_state::{update_turn_state, RootTurnTracker};
-use super::events::notification_events;
+use super::events::{notification_events, rerouted_model};
 use super::permissions::PendingCodexRequest;
 use super::prompt_receipts::PendingPromptReceipts;
 use super::responses::response_value;
 use super::trusted_mcp::trusted_cadencr_browser_permission_response;
-use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent};
+use crate::domain::agents::adapter::{KnownSubagent, RuntimeError, RuntimeEvent};
 
 #[bon::builder]
 pub(super) fn spawn_event_loop(
@@ -30,6 +30,8 @@ pub(super) fn spawn_event_loop(
     model: Arc<RwLock<Option<String>>>,
     closing: Arc<AtomicBool>,
     compaction: Arc<super::session::compaction::CompactionState>,
+    /// Sub-agents earlier runtimes spawned: a rehydrated child keeps its carrier.
+    known_subagents: Vec<KnownSubagent>,
 ) {
     let event_loop = EventLoop {
         client,
@@ -42,7 +44,7 @@ pub(super) fn spawn_event_loop(
         closing,
         compaction,
     };
-    tokio::spawn(async move { event_loop.run(source_rx).await });
+    tokio::spawn(async move { event_loop.run(source_rx, known_subagents).await });
 }
 
 struct EventLoop {
@@ -64,10 +66,12 @@ struct NotificationState {
 }
 
 impl EventLoop {
-    async fn run(&self, mut source: AppServerEventReceiver) {
+    async fn run(&self, mut source: AppServerEventReceiver, known_subagents: Vec<KnownSubagent>) {
+        let mut index_state = IndexState::for_root_thread(&self.turns.root_thread_id);
+        index_state.seed_known_subagents(known_subagents);
         let mut state = NotificationState {
             command_outputs: HashMap::new(),
-            index_state: IndexState::for_root_thread(&self.turns.root_thread_id),
+            index_state,
             lifecycle: SessionLifecycle::default(),
         };
         loop {
@@ -183,6 +187,12 @@ impl EventLoop {
         {
             if self.tx.send(Ok(receipt_event)).await.is_err() {
                 return false;
+            }
+        }
+        // A reroute of the root turn moves the model the rest of it runs on.
+        if method == "model/rerouted" && params["threadId"] == self.turns.root_thread_id.as_str() {
+            if let Some(model) = rerouted_model(&params) {
+                *self.model.write().await = Some(model.to_string());
             }
         }
         let current_model = self.model.read().await.clone();

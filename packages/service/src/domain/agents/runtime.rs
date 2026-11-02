@@ -132,6 +132,42 @@ pub struct ProviderCatalogResponseEntry {
     /// after the turn instead of promising a steer it can't confirm.
     #[serde(default)]
     pub steering_acknowledged: bool,
+    /// `/compact` is a session action Cadencr performs (manual compaction
+    /// through the live runtime) rather than text the runtime understands.
+    #[serde(default)]
+    pub compact_action: bool,
+    /// Terminal command that resumes a session outside Cadencr.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_command: Option<ProviderResumeCommand>,
+    /// Prompt content the provider accepts, as last negotiated over ACP
+    /// `initialize`. Absent until a runtime has been observed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_capabilities: Option<ProviderPromptCapabilities>,
+}
+
+/// A program and argument vector; `{session_id}` is the only placeholder.
+/// Never a shell string: the desktop quotes every element itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct ProviderResumeCommand {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+impl ProviderResumeCommand {
+    pub fn new(program: &str, args: &[&str]) -> Self {
+        Self {
+            program: program.to_string(),
+            args: args.iter().map(|arg| (*arg).to_string()).collect(),
+        }
+    }
+}
+
+/// ACP `promptCapabilities`: which non-text content blocks a prompt may carry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+pub struct ProviderPromptCapabilities {
+    pub image: bool,
+    pub audio: bool,
+    pub embedded_context: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

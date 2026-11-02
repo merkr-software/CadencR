@@ -287,8 +287,8 @@ importers:
         specifier: 1.1.3
         version: 1.1.3
       celeritty:
-        specifier: 1.2.6
-        version: 1.2.6
+        specifier: 1.3.1
+        version: 1.3.1
       chart.js:
         specifier: 4.5.1
         version: 4.5.1
@@ -613,6 +613,8 @@ importers:
       vitest:
         specifier: 4.1.12
         version: 4.1.12(@types/node@22.19.17)(@vitest/coverage-v8@4.1.12)(happy-dom@21.0.4)(jsdom@29.1.1(@noble/hashes@1.8.0))(msw@2.14.6(@types/node@22.19.17)(typescript@5.9.3))(vite@6.4.5(@types/node@22.19.17)(jiti@2.7.0)(lightningcss@1.33.0)(sass@1.104.0)(yaml@2.9.1))
+
+  plugins/providers/cursor: {}
 
   plugins/providers/pi:
     devDependencies:
@@ -5201,8 +5203,8 @@ packages:
   ccount@2.0.1:
     resolution: {integrity: sha512-eyrF0jiFpY+3drT6383f1qhkbGsLSifNAjA61IUjZjmLCWjItY6LB9ft9YhoDgwfmclB2zhu51Lc7+95b8NRAg==}
 
-  celeritty@1.2.6:
-    resolution: {integrity: sha512-9rvZSz/sug4xOgn0LGFHDX2ez8nR66txOMwe19c62zg/2Y8Dd/IjDoJIUkPmUR/NdxGeA6E4dYW0L1DrgiM0PA==}
+  celeritty@1.3.1:
+    resolution: {integrity: sha512-Jrml7g1wO5ec7CALDEwJwVK84dRVhttkdAlD/chGHJ6k2/27m+U6auEE/omdf45lbIB2CfZekDmliu8ClFFoNw==}
     engines: {node: '>=22.18.0 <25.0.0'}
 
   chai@6.2.2:
@@ -13335,7 +13337,7 @@ snapshots:
 
   ccount@2.0.1: {}
 
-  celeritty@1.2.6: {}
+  celeritty@1.3.1: {}
 
   chai@6.2.2: {}
 

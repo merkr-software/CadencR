@@ -1,5 +1,5 @@
-import type { AgentBlockData } from "@/components/AgentBlock";
-import type { DisplayItem } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayItem } from "@/types/agent-stream";
 import { DEFAULT_BASH_LINES } from "@/components/BashBlock";
 import { extractBashCommand, extractBashOutput, extractBashResultOutput } from "@/lib/tool-adapter";
 
@@ -43,8 +43,8 @@ export interface ConversationMatch {
  * display list before it reaches search (`useAgentStreamData`), so they can't
  * make up the difference on their own.
  *
- * Dividers and turn summaries carry no user-authored prose, so they're
- * excluded.
+ * Dividers, turn summaries and model switches carry no user-authored prose,
+ * so they're excluded.
  */
 export function blockSearchableText(
   block: AgentBlockData,
@@ -52,6 +52,7 @@ export function blockSearchableText(
 ): string {
   switch (block.type) {
     case "turn_summary":
+    case "model_switch":
     case "compact_divider":
     case "clear_divider":
     case "turn_interrupted":

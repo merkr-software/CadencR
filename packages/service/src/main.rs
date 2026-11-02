@@ -160,6 +160,7 @@ async fn main() -> anyhow::Result<()> {
             // CWD-relative `./cadencr-settings/settings.json`.
             let settings_dir = std::fs::canonicalize(&settings_dir).unwrap_or(settings_dir);
             domain::settings_store::init(settings_dir.clone());
+            domain::telemetry::initialize(config.app_version.as_deref());
             domain::agents::providers::installed::managed::trust::initialize_pinned_registry_trust(
             )
             .await?;
@@ -174,14 +175,9 @@ async fn main() -> anyhow::Result<()> {
             // table. Needs `write_pool` for the DROP and must run after the dir is
             // initialized so the JSON write lands in the right place.
             domain::agents::claude_code::profiles::migrate_from_sqlite(&write_pool).await;
-            // Strip per-device UI state (active tab, sidebar visibility,
-            // last-opened feature) that older versions wrote into the global
-            // file — it now lives in the frontend's localStorage.
-            match domain::settings_store::prune_ephemeral_global().await {
-                Ok(true) => info!("pruned legacy per-device UI keys from settings.json"),
-                Ok(false) => {}
-                Err(e) => tracing::warn!("failed to prune ephemeral settings keys: {e}"),
-            }
+            // Strip per-device UI state older versions wrote into the global
+            // file and carry renamed workspace keys over.
+            domain::settings_store::tidy_global_at_startup().await;
 
             // Turns a crash left 'running' are captured for resume, then paused.
             let app_version = config.app_version.as_deref();
@@ -243,16 +239,9 @@ async fn main() -> anyhow::Result<()> {
                 .remote_data_dir(&remote_data_dir)
                 .build();
 
-            // Gates persisted by the previous process must still show: seed the
-            // live status book (the snapshot every client reads) before any
-            // client can connect. Stale `running` rows were reset above.
-            let persisted_statuses =
-                domain::sessions::repository::get_session_status_snapshot(&state.read_pool)
-                    .await
-                    .map_err(|error| anyhow::anyhow!("failed to seed session statuses: {error}"))?;
-            state
-                .session_status_tx
-                .seed(persisted_statuses.into_values());
+            // Stale `running` rows were reset above; restore the status book
+            // every client reads before any of them can connect.
+            domain::session_status::restore_at_boot(&state).await?;
 
             // Watch the settings dir so external edits to the JSON files push a
             // live refresh to connected clients.
@@ -316,9 +305,8 @@ async fn main() -> anyhow::Result<()> {
                 Ok(_) => {}
                 Err(e) => tracing::warn!("failed to reconcile orphaned custom action runs: {e}"),
             }
-
-            // Resume periodic custom-action schedules from a previous launch.
-            state.custom_action_scheduler.bootstrap(&state).await;
+            // Same for sub-agents: none outlives the service that ran it.
+            domain::subagents::stop_runs_orphaned_by_restart(&state.write_pool).await;
 
             // Background dispatcher for user schedules (one poll loop for the
             // process lifetime; survives client disconnects).

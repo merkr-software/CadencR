@@ -9,7 +9,16 @@
     "packages/registry-publisher/**",
     "tooling/marketplace-registry/tests/contribution.test.mjs"
   ],
-  "globalPassThroughEnv": ["RUSTC_WRAPPER", "TMPDIR", "CADENCR_MANAGED_*", "CADENCR_REGISTRY_*"],
+  "globalPassThroughEnv": [
+    "RUSTC_WRAPPER",
+    "TMPDIR",
+    "CADENCR_MANAGED_*",
+    "CADENCR_REGISTRY_*",
+    "CADENCR_SENTRY_DSN",
+    "CADENCR_POSTHOG_KEY",
+    "CADENCR_POSTHOG_HOST",
+    "CADENCR_TELEMETRY_*"
+  ],
   "tasks": {
     "transit": {
       "dependsOn": ["^transit"]

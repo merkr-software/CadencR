@@ -108,6 +108,81 @@ pub(crate) async fn create_schedules_migration_prerequisites(pool: &SqlitePool) 
     ensure_user_message_count_prerequisites(pool).await;
 }
 
+/// The sub-agent registry migration (20261030120000) references
+/// `agent_sessions` and indexes `agent_messages` carriers by their tool
+/// columns and creation time, which late-baselined fixtures omit or declare
+/// without them.
+pub(crate) async fn ensure_subagent_runs_prerequisites(pool: &SqlitePool) {
+    sqlx::raw_sql(
+        "CREATE TABLE IF NOT EXISTS agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+         CREATE TABLE IF NOT EXISTS agent_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL
+         );",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
+    for (column, ddl_type) in [
+        ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
+        ("tool_name", "TEXT"),
+        ("tool_use_id", "TEXT"),
+        ("parent_tool_use_id", "TEXT"),
+        ("created_at", "TEXT"),
+    ] {
+        ensure_column(pool, "agent_messages", column, ddl_type).await;
+    }
+}
+
+/// The unified custom-action schedules migration (20261029100000) copies
+/// `custom_action_schedules` rows into `schedules` and drops the table, so it
+/// needs both tables with the columns the copy reads and writes. Fixtures
+/// baselined after the migrations that created them (20260425153153 and
+/// 20260724120000) either omit them or declare only the columns their own era
+/// needed; the missing pieces are added here, nullable where the copy fills
+/// them. Fixtures baselined earlier get the real tables from those migrations.
+pub(crate) async fn ensure_custom_action_schedule_prerequisites(pool: &SqlitePool) {
+    ensure_subagent_runs_prerequisites(pool).await;
+    if migration_applied(pool, 20260425153153).await {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS features (id INTEGER PRIMARY KEY AUTOINCREMENT);
+             CREATE TABLE IF NOT EXISTS custom_actions (id INTEGER PRIMARY KEY AUTOINCREMENT);
+             CREATE TABLE IF NOT EXISTS custom_action_schedules (id INTEGER PRIMARY KEY AUTOINCREMENT);",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        for (column, ddl_type) in [
+            ("action_id", "INTEGER NOT NULL DEFAULT 0"),
+            ("feature_id", "INTEGER NOT NULL DEFAULT 0"),
+            ("interval_seconds", "INTEGER NOT NULL DEFAULT 60"),
+            ("enabled", "INTEGER NOT NULL DEFAULT 1"),
+        ] {
+            ensure_column(pool, "custom_action_schedules", column, ddl_type).await;
+        }
+    }
+    if migration_applied(pool, 20260724120000).await {
+        sqlx::raw_sql(
+            "CREATE TABLE IF NOT EXISTS schedules (id INTEGER PRIMARY KEY AUTOINCREMENT)",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        for column in [
+            "prompt",
+            "target_kind",
+            "feature_id",
+            "recurrence_kind",
+            "interval_seconds",
+            "timezone",
+            "enabled",
+            "next_run_at",
+        ] {
+            ensure_column(pool, "schedules", column, "").await;
+        }
+    }
+}
+
 /// The sent-message counter migration (20261011120000) adds a column to
 /// `provider_usage_stats` and backfills it from `agent_messages` joined to
 /// `agent_sessions` and `agent_message_origins`, which minimal fixtures omit.
@@ -164,6 +239,9 @@ pub(crate) async fn ensure_user_message_count_prerequisites(pool: &SqlitePool) {
         ("created_at", "TEXT"),
         ("message_type", "TEXT NOT NULL DEFAULT 'text'"),
         ("parent_tool_use_id", "TEXT"),
+        // The sub-agent registry migration (20261030120000) indexes carriers.
+        ("tool_name", "TEXT"),
+        ("tool_use_id", "TEXT"),
     ] {
         ensure_column(pool, "agent_messages", column, ddl_type).await;
     }
@@ -171,6 +249,7 @@ pub(crate) async fn ensure_user_message_count_prerequisites(pool: &SqlitePool) {
         ensure_column(pool, "agent_messages", "message_uuid", "TEXT").await;
     }
     ensure_schedule_condition_prerequisites(pool).await;
+    ensure_custom_action_schedule_prerequisites(pool).await;
 }
 
 /// The command-condition migration (20261016120000) adds columns to

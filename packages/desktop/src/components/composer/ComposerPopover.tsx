@@ -7,6 +7,9 @@ export function composerOptionId(listId: string, index: number): string {
   return `${listId}-opt-${index}`;
 }
 
+/** Tallest a typeahead list grows; less when the room above the prompt is short. */
+export const COMPOSER_POPOVER_MAX_HEIGHT = 300;
+
 interface ComposerPopoverProps {
   /** Listbox id — the editor's `aria-controls` / `aria-activedescendant` point here. */
   listId: string;
@@ -15,6 +18,8 @@ interface ComposerPopoverProps {
   maxHeight?: number;
   /** Status row shown instead of options (loading, empty, error). */
   status?: ReactNode;
+  /** Alert shown above the options, which stay usable (a partial failure). */
+  notice?: ReactNode;
   /** Keyboard hints in the footer; defaults to navigate · insert · close. */
   hints?: ReadonlyArray<readonly [keys: readonly string[], label: string]>;
   children?: ReactNode;
@@ -37,7 +42,15 @@ const DEFAULT_HINTS = [
  */
 export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
   function ComposerPopover(
-    { listId, label, maxHeight = 300, status, hints = DEFAULT_HINTS, children },
+    {
+      listId,
+      label,
+      maxHeight = COMPOSER_POPOVER_MAX_HEIGHT,
+      status,
+      notice,
+      hints = DEFAULT_HINTS,
+      children,
+    },
     ref,
   ) {
     return (
@@ -46,6 +59,14 @@ export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
         className="glass-surface flex w-full flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground"
         style={{ maxHeight }}
       >
+        {notice ? (
+          <div
+            role="alert"
+            className="flex shrink-0 items-start gap-2 border-b border-border/60 px-3 py-2 text-xs text-destructive"
+          >
+            {notice}
+          </div>
+        ) : null}
         <div
           ref={ref}
           id={listId}
@@ -64,9 +85,10 @@ export const ComposerPopover = forwardRef<HTMLDivElement, ComposerPopoverProps>(
             children
           )}
         </div>
+        {/* Keyboard hints mean nothing to a finger: the room goes to the list. */}
         <div
           aria-hidden
-          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground"
+          className="flex shrink-0 items-center gap-3 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground pointer-coarse:hidden"
         >
           {hints.map(([keys, hintLabel]) => (
             <span key={hintLabel} className="inline-flex items-center gap-1">

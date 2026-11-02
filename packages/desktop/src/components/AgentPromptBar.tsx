@@ -3,24 +3,21 @@ import { cn } from "@/lib/utils";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 import { formatKey } from "@/lib/shortcuts/format";
 import { withSideQuestionSkill } from "@/lib/side-question-skill";
-import { AgentPromptPendingIndicator } from "./AgentPromptPendingIndicator";
 import type { AgentPromptBarHandle, AgentPromptBarProps } from "./agent-prompt-bar-types";
+import { AgentGateStack, AgentPromptStack } from "./AgentPromptStack";
 import { AgentQuestionDrawer } from "./AgentQuestionDrawer";
 import { PlanApprovalBar } from "./PlanApprovalBar";
 import { PromptBarActions } from "./PromptBarActions";
 import { PromptEditor } from "./prompt-editor/PromptEditor";
-import { ReferencedWorktreeTip } from "./ReferencedWorktreeTip";
 import { ShellCommandModeMarker } from "./ShellCommandModeMarker";
 import { SplitSendActions } from "./SplitSendActions";
 import { ToolPermissionPrompt } from "./ToolPermissionPrompt";
 import { AssistMenu } from "./composer/AssistMenu";
 import { CompactionHint } from "./composer/CompactionHint";
-import { ComposerHelp } from "./composer/ComposerHelp";
 import { ComposerContextProvider, ComposerDraftProvider } from "./composer/ComposerContext";
 import { ContextMeter } from "./composer/ContextMeter";
 import { ContextTray } from "./composer/ContextTray";
 import { HistoryButton } from "./composer/HistoryButton";
-import { QueueRail } from "./composer/QueueRail";
 import { RunningSweep } from "./composer/RunningSweep";
 import { StopArmHint } from "./composer/StopArmHint";
 import { useComposerContextValue } from "./composer/useComposerContextValue";
@@ -37,33 +34,15 @@ export type { AgentPromptBarHandle, SplitSendAction } from "./agent-prompt-bar-t
 export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarProps>(
   function AgentPromptBar(props, ref) {
     const controller = useAgentPromptBarController(props, ref);
+    const composerContext = useComposerContextValue(props, controller);
     return (
-      <>
-        <DeferredPromptIndicators props={props} controller={controller} />
+      <ComposerContextProvider value={composerContext}>
         <SpecialPrompt props={props} controller={controller} />
         <PromptComposer props={props} controller={controller} />
-      </>
+      </ComposerContextProvider>
     );
   },
 );
-
-function DeferredPromptIndicators({
-  props,
-  controller,
-}: {
-  props: AgentPromptBarProps;
-  controller: AgentPromptBarController;
-}) {
-  return (
-    <>
-      {controller.special.permissionDeferred && props.pendingPermission && (
-        <AgentPromptPendingIndicator kind="permission" detail={props.pendingPermission.toolName} />
-      )}
-      {controller.special.planApprovalDeferred && <AgentPromptPendingIndicator kind="plan" />}
-      {controller.special.questionsDeferred && <AgentPromptPendingIndicator kind="question" />}
-    </>
-  );
-}
 
 function SpecialPrompt({
   props,
@@ -114,9 +93,12 @@ function SpecialPrompt({
       />
     ) : null;
   return content ? (
-    <div data-permission-area={!!special.visiblePermission} data-question-area>
-      {content}
-    </div>
+    <>
+      <AgentGateStack schedules={props.schedules} />
+      <div data-permission-area={!!special.visiblePermission} data-question-area>
+        {content}
+      </div>
+    </>
   ) : null;
 }
 
@@ -128,50 +110,31 @@ function PromptComposer({
   controller: AgentPromptBarController;
 }) {
   const { state } = controller;
-  const composerContext = useComposerContextValue(props, controller);
   return (
-    <ComposerContextProvider value={composerContext}>
-      <ComposerDraftProvider value={state.text}>
-        <div
-          ref={state.wrapperRef}
-          data-agent-prompt-bar="true"
-          hidden={controller.special.hasSpecialState}
-          aria-hidden={controller.special.hasSpecialState}
-          className={cn(
-            "flex min-h-0 flex-col px-3 pb-4",
-            props.noTopPadding ? "pt-0" : "pt-3",
-            "group-data-[agent-dragover]/agent-section:ring-2 group-data-[agent-dragover]/agent-section:ring-inset group-data-[agent-dragover]/agent-section:ring-primary/50",
-          )}
-          {...state.attachments.dragHandlers}
-        >
-          {props.sideConversations}
-          <QueueRail />
-          {props.referencedWorktreeSelection && props.projectId != null ? (
-            <ReferencedWorktreeTip
-              prompt={state.text}
-              projectId={props.projectId}
-              selection={props.referencedWorktreeSelection}
-              agentTabActive={props.agentTabActive ?? true}
-              shortcutsDisabled={props.disableShortcuts ?? false}
-            />
-          ) : null}
-          {state.text === "?" && (
-            // A lone "?" asks how the composer works: answer in place.
-            <div className="mx-2 rounded-t-lg border border-b-0 border-border/70 bg-popover">
-              <ComposerHelp />
-            </div>
-          )}
-          <PromptSurface props={props} controller={controller} />
-          {props.splitSendActions && !controller.isRunning && !controller.isShellCommandMode && (
-            <SplitSendActions
-              actions={props.splitSendActions}
-              disabled={!controller.sending.canSend}
-              onAction={controller.sending.handleSplitAction}
-            />
-          )}
-        </div>
-      </ComposerDraftProvider>
-    </ComposerContextProvider>
+    <ComposerDraftProvider value={state.text}>
+      <div
+        ref={state.wrapperRef}
+        data-agent-prompt-bar="true"
+        hidden={controller.special.hasSpecialState}
+        aria-hidden={controller.special.hasSpecialState}
+        className={cn(
+          "flex min-h-0 flex-col px-3 pb-4",
+          props.noTopPadding ? "pt-0" : "pt-3",
+          "group-data-[agent-dragover]/agent-section:ring-2 group-data-[agent-dragover]/agent-section:ring-inset group-data-[agent-dragover]/agent-section:ring-primary/50",
+        )}
+        {...state.attachments.dragHandlers}
+      >
+        <AgentPromptStack props={props} controller={controller} />
+        <PromptSurface props={props} controller={controller} />
+        {props.splitSendActions && !controller.isRunning && !controller.isShellCommandMode && (
+          <SplitSendActions
+            actions={props.splitSendActions}
+            disabled={!controller.sending.canSend}
+            onAction={controller.sending.handleSplitAction}
+          />
+        )}
+      </div>
+    </ComposerDraftProvider>
   );
 }
 
@@ -194,12 +157,19 @@ function PromptSurface({
     () => withSideQuestionSkill(props.slashCommandsOverride, props.sessionId),
     [props.slashCommandsOverride, props.sessionId],
   );
+  // The 40% cap keeps a long draft from swallowing the transcript, but it
+  // counts this card's own chrome (manifest, chips, instrument row, ~170px on a
+  // first prompt). With the phone keyboard up, 40% of the visible height is
+  // less than that, so the editor got 0px and typed text was invisible. The
+  // rem floor keeps a few lines for the editor (in desktop windows under 640px
+  // tall too, which had the same squeeze); the composer's `min-h-0` chain still
+  // shrinks it to fit the frame.
   return (
     <div
       data-composer-card
       data-shell-command-mode={controller.isShellCommandMode || undefined}
       data-running={controller.isRunning || undefined}
-      className="glass-surface flex max-h-[calc(var(--app-vh,100dvh)*0.4)] min-h-0 flex-col rounded-lg border border-transparent bg-muted/40 transition-colors focus-within:bg-muted/55"
+      className="glass-surface flex max-h-[max(calc(var(--app-vh,100dvh)*0.4),16rem)] min-h-0 flex-col rounded-lg border border-transparent bg-muted/40 transition-colors focus-within:bg-muted/55"
       onClick={editorActions.handleSurfaceClick}
     >
       {controller.isRunning && <RunningSweep />}
@@ -235,6 +205,7 @@ function PromptSurface({
           mentionFeatureId={props.featureId}
           slashCommands={slashCommands}
           slashCommandsLoading={props.slashCommandsLoading}
+          slashCommandsError={props.slashCommandsError}
           promptCommandPolicy={controller.promptCommandPolicy}
           onPasteImages={state.attachments.addFiles}
           onPasteLongText={editorActions.handlePasteLongText}

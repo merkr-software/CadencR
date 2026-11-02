@@ -9,7 +9,7 @@ use crate::domain::agents::adapter::RuntimeError;
 
 use super::super::prompt_turn::{acp_prompt_blocks_from_content, build_prompt_params};
 use super::super::turn_lifecycle::{
-    await_event_loop_barrier, finalize_turn, request_prompt_with_cancel,
+    await_event_loop_barrier, finalize_turn, request_prompt_with_cancel, start_turn_on_model,
 };
 
 impl AcpRuntimeSession {
@@ -19,31 +19,13 @@ impl AcpRuntimeSession {
         client_message_id: Option<String>,
         finalize_response: bool,
     ) -> Result<(), RuntimeError> {
-        self.prompt_input_once(content, client_message_id, finalize_response)
-            .await?;
-        if finalize_response {
-            loop {
-                let followup = self.pending_followups.write().await.pop_front();
-                let Some((_, followup)) = followup else {
-                    break;
-                };
-                self.prompt_input_once(followup, None, true).await?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn prompt_input_once(
-        &self,
-        content: Value,
-        client_message_id: Option<String>,
-        finalize_response: bool,
-    ) -> Result<(), RuntimeError> {
         let session_id = self.require_session_id().await?;
         let prompt = acp_prompt_blocks_from_content(content);
+        self.hooks.validate_prompt_blocks(&prompt)?;
         let supports = self.supports_set_config_option.load(Ordering::SeqCst);
         let model = self.current_model.read().await.clone();
         let effort = self.current_effort.read().await.clone();
+        start_turn_on_model(self.local_tx(), &self.indexer, &session_id, model.clone()).await;
         let receipt_client_message_id = client_message_id.clone();
         if let Some(client_message_id) = client_message_id {
             self.pending_prompt_receipts

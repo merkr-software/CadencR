@@ -78,7 +78,13 @@ const NO_TABS_READY = {
   browser: false,
   preview: false,
 };
-const ALL_TABS_READY = { editor: true, git: true, terminal: true, browser: true, preview: true };
+const ALL_TABS_READY = {
+  editor: true,
+  git: true,
+  terminal: true,
+  browser: true,
+  preview: true,
+};
 
 // Two timer rounds drive the full reveal: round one fires the agent-first gate
 // timer, round two fires the per-tab stagger timers scheduled once the gate

@@ -10,6 +10,7 @@ pub mod document_file;
 pub mod env_file;
 pub mod file_digest;
 pub mod file_watch;
+pub mod frontmatter;
 pub mod fs_durability;
 pub mod git_cli;
 pub mod git_context;

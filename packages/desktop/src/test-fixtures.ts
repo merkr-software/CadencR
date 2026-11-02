@@ -3,6 +3,7 @@
  * Each factory returns realistic data matching DB schema types.
  */
 
+import type { CustomAction } from "./api/generated";
 import type { ProjectRow, FeatureRow, AgentMessageRow, AgentSessionRow } from "./types/db-rows";
 
 // ---------------------------------------------------------------------------
@@ -142,6 +143,31 @@ export function createMockDiffFile(overrides: Partial<MockDiffFile> = {}): MockD
     oldFileName: "src/example.ts",
     newFileName: "src/example.ts",
     hunks: [createMockDiffHunk()],
+    ...overrides,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Custom action
+// ---------------------------------------------------------------------------
+
+/** A project action that never ran, named after its id. */
+export function createMockCustomAction(
+  id: number,
+  overrides: Partial<CustomAction> = {},
+): CustomAction {
+  return {
+    id,
+    name: `Action ${id}`,
+    command: "true",
+    created_at: "",
+    updated_at: "",
+    position: id,
+    scope: "project",
+    project_id: 1,
+    run_in_terminal: false,
+    variable_names: [],
+    last_run: null,
     ...overrides,
   };
 }

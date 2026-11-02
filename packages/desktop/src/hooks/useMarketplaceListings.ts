@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { buildListings } from "@/lib/marketplace-listings";
+import { isStandalone } from "@/lib/marketplace-plugin-listings";
 import { providerCatalogQuery, providerInventoryQuery } from "./useMarketplace";
+import { tabCatalogQuery, tabInventoryQuery } from "./useTabMarketplace";
 import { themeCatalogQuery } from "./useThemeMarketplace";
 import { useManagedThemes } from "./useManagedThemes";
 
@@ -33,6 +35,8 @@ export function useMarketplaceUpdateCount(): number {
   const providerInventory = useQuery({ ...providerInventoryQuery, ...badge }).data;
   const themeCatalog = useQuery({ ...themeCatalogQuery, ...badge }).data;
   const themeInventory = useManagedThemes().data;
+  const tabCatalog = useQuery({ ...tabCatalogQuery, ...badge }).data;
+  const tabInventory = useQuery({ ...tabInventoryQuery, ...badge }).data;
   return useMemo(
     () =>
       buildListings({
@@ -40,7 +44,10 @@ export function useMarketplaceUpdateCount(): number {
         providerInventory: providerInventory?.providers,
         themeCatalog,
         themeInventory,
-      }).filter((listing) => listing.update).length,
-    [providerCatalog, providerInventory, themeCatalog, themeInventory],
+        tabCatalog,
+        tabInventory,
+        // A plugin's members update with it: its one update is the one counted.
+      }).filter((listing) => listing.update && isStandalone(listing)).length,
+    [providerCatalog, providerInventory, themeCatalog, themeInventory, tabCatalog, tabInventory],
   );
 }

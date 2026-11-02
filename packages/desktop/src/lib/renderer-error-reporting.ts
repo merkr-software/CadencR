@@ -1,5 +1,6 @@
 import { desktopBridge, type RendererErrorReportPayload } from "./desktop-bridge";
 
+import { relayBrowserDiagnostic } from "./telemetry-relay";
 import { toast } from "sonner";
 import { createDiagnosticGate, type DiagnosticContext } from "@/shared/renderer-diagnostics";
 import { captureDiagnosticContext, recordDiagnosticSuppression } from "./renderer-diagnostics";
@@ -110,8 +111,9 @@ export function createReactErrorReporter(report: ReportRendererError = defaultRe
   };
 }
 
-function defaultReportRendererError(payload: RendererErrorReportPayload): Promise<void> {
-  return desktopBridge.reportRendererError(payload);
+async function defaultReportRendererError(payload: RendererErrorReportPayload): Promise<void> {
+  await desktopBridge.reportRendererError(payload);
+  if (!desktopBridge.isElectron) relayBrowserDiagnostic(payload);
 }
 
 function reportSafely(report: ReportRendererError, payload: RendererErrorReportPayload): void {

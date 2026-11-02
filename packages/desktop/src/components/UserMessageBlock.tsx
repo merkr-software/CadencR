@@ -46,7 +46,7 @@ export function UserMessageBlock({
     : "border-primary/30 bg-primary/10";
 
   return (
-    <div className="group/usermsg my-1 flex flex-col items-end">
+    <div className="group/usermsg relative flex flex-col items-end">
       {/*
         A sender tab sits on the bubble's top-right edge in the bubble's own
         border and tint, their right sides running on as one; the bubble

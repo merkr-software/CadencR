@@ -1,7 +1,6 @@
 import { AlertCircle, Loader2, RefreshCw, SlidersHorizontal } from "lucide-react";
 import type {
   RuntimeSessionConfigOption,
-  RuntimeSessionConfigSelectOption,
   RuntimeSessionConfigSnapshot,
   RuntimeSessionConfigValue,
 } from "@/api/generated";
@@ -15,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { flattenChoices, isHostRenderedConfigOption } from "@/lib/host-rendered-config-options";
 import { cn } from "@/lib/utils";
 import { META_BAR_CHIP } from "./meta-bar-chip-styles";
 
@@ -130,7 +130,11 @@ function additionalSessionConfigOptions(
 }
 
 function isDedicatedControl(option: RuntimeSessionConfigOption): boolean {
-  return option.category === "model" || option.category === "thought_level";
+  return (
+    option.category === "model" ||
+    option.category === "thought_level" ||
+    isHostRenderedConfigOption(option)
+  );
 }
 
 function SessionConfigField({
@@ -212,16 +216,5 @@ function SessionConfigSelect({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-function flattenChoices(
-  option: Extract<RuntimeSessionConfigOption, { type: "select" }>,
-): Array<{ option: RuntimeSessionConfigSelectOption; group?: string }> {
-  if (option.choices.layout === "ungrouped") {
-    return option.choices.options.map((choice) => ({ option: choice }));
-  }
-  return option.choices.groups.flatMap((group) =>
-    group.options.map((choice) => ({ option: choice, group: group.name })),
   );
 }

@@ -77,7 +77,9 @@ pub(crate) fn prepare(
     }
     let payload = baseline::prepare(&manifest, base, packages, generated_at, expires_at)?;
     for (directory, expected, kind) in verifications {
-        if kind == "tab" {
+        if kind == cadencr_registry_core::PLUGIN_KIND {
+            crate::promote::public::verify_plugin_package(&expected, &directory, downloader)?;
+        } else if kind == "tab" {
             crate::promote::public::verify_tab_package(&expected, &directory, downloader)?;
         } else if kind == "theme" {
             crate::promote::public::verify_theme_package(&expected, &directory, downloader)?;

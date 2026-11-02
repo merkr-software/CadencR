@@ -424,6 +424,28 @@ describe("AgentPromptBar", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
   });
 
+  it("keeps the schedules in view above a permission prompt", () => {
+    render(
+      <AgentPromptBar
+        onSend={onSend}
+        onStop={onStop}
+        status="agent"
+        schedules={<section aria-label="Scheduled messages">Sends in 5 min</section>}
+        pendingPermission={{
+          toolName: "Bash",
+          input: { command: "ls /tmp" },
+          description: "Run a bash command",
+          pattern: "Bash(/tmp:*)",
+          requestId: "req-1",
+        }}
+        onPermissionDecision={vi.fn()}
+      />,
+    );
+    // Once above the gate; the composer's own copy is hidden with it.
+    expect(screen.getAllByRole("region", { name: "Scheduled messages" })).toHaveLength(1);
+    expect(screen.getByText(/Permission Required/)).toBeInTheDocument();
+  });
+
   it("starts empty when the feature draft hook has no draft", () => {
     render(<AgentPromptBar onSend={onSend} onStop={onStop} status="idle" />);
     expect(screen.getByRole("textbox")).toHaveTextContent("");

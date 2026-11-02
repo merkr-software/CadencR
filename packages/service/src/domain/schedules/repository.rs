@@ -51,6 +51,7 @@ pub(crate) mod test_support {
             target: ScheduleTarget {
                 kind: TargetKind::Conversation,
                 feature_id: Some(feature_id),
+                action_id: None,
                 project_id: None,
                 provider: None,
                 model: None,
@@ -83,6 +84,7 @@ pub(crate) mod test_support {
             target: ScheduleTarget {
                 kind: TargetKind::NewConversation,
                 feature_id: None,
+                action_id: None,
                 project_id: Some(project_id),
                 provider: None,
                 model: None,

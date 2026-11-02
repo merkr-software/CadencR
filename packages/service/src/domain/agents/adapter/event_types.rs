@@ -41,6 +41,11 @@ pub struct RuntimeEvent {
     /// Stable provider assistant-message identity, when the adapter exposes
     /// one. History import uses the same identity to correlate replayed usage.
     pub(super) provider_message_id: Option<String>,
+    /// Sub-agent facts this event carries (launch configuration, resolved
+    /// model, terminal status), keyed by carrier tool_use id. Adapters attach
+    /// them to the event that revealed them, or to an `Other` event when the
+    /// fact has no transcript block of its own.
+    pub(super) subagent_updates: Vec<super::subagent::RuntimeSubagentUpdate>,
 }
 
 /// Provider-neutral detail of a turn-ending result that reported failure.
@@ -153,6 +158,12 @@ pub enum RuntimeEventKind {
     /// Provider-native usage that is persisted by the accounting path only.
     /// It must not become a transcript block or a context-window update.
     UsageAccounting,
+    /// The agent itself switched its mode (ACP `current_mode_update` or a
+    /// mode-category `config_option_update`), mapped back to the host mode so
+    /// the composer chip follows agent-initiated switches.
+    PermissionModeChanged {
+        mode: super::config::RuntimePermissionMode,
+    },
     /// The provider emitted a message the adapter could not map to any known
     /// shape (Claude Code: `SdkMessage::Unknown` — a `type` the SDK has never
     /// seen). Rather than let it degrade to [`RuntimeEventKind::Other`] and

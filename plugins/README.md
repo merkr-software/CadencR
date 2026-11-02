@@ -10,6 +10,7 @@ trust and conformance rules for official and third-party packages.
 | Plugin                        | Source                                   | Candidate version |
 | ----------------------------- | ---------------------------------------- | ----------------- |
 | Pi provider                   | [`providers/pi`](providers/pi/README.md) | `0.4.1`           |
+| Cursor provider               | [`providers/cursor`](providers/cursor/README.md) | `0.1.0` |
 | Graphite, Ember, Fjord themes | [`themes`](themes/README.md)             | `0.1.0` each      |
 
 Sources were imported from reviewed local repositories without their Git data,
@@ -26,7 +27,16 @@ pnpm run check:plugin:pi
 pnpm run test:plugins
 pnpm run build:plugin:pi
 pnpm run package:plugin:pi --directory /absolute/new/pi-payload
+pnpm run check:plugin:cursor
+pnpm run test:plugin:cursor
+pnpm run build:plugin:cursor
+pnpm run package:plugin:cursor --directory /absolute/new/cursor-payload
 ```
+
+The Cursor connector is a Rust crate and a Cargo workspace member, so the
+workspace Rust checks (CI `rust` job, pre-commit Rust steps for its `.rs`,
+`Cargo.toml` and test-fixture files) also cover it. Its `package.json` only
+wraps those Cargo commands under the same plugin-scoped task names.
 
 Pi is a workspace package only to share dependency management and security
 policies. Its task names are explicitly plugin-scoped: generic Turbo application
@@ -45,6 +55,7 @@ Future plugin tags use an explicit namespace, for example:
 
 ```text
 plugins/provider-pi/v0.4.1
+plugins/provider-cursor/v0.1.0
 plugins/theme-graphite/v0.1.0
 plugins/theme-ember/v0.1.0
 plugins/theme-fjord/v0.1.0
@@ -70,6 +81,7 @@ repository; the marketplace stays hidden until a later activation decision.
 | Source | Machine-readable facts                                                                                                                               | Source-owned package inputs                                                                                                                                                                  |
 | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Pi     | [`providers/pi/readiness.json`](providers/pi/readiness.json): license/artwork digests, external runtimes, per-target native loopback evidence states | [`package-template.json`](providers/pi/package-template.json): fixed provider identity/assets, publisher `cadencr`, `min_app_version` `0.15.0`; archive URL/digest and publication `PENDING` |
+| Cursor | [`providers/cursor/readiness.json`](providers/cursor/readiness.json): license/artwork digests, external Cursor CLI, per-target build/qualification states (none qualified) | [`package-template.json`](providers/cursor/package-template.json): provider id `cursor`, publisher `cadencr`, `min_app_version` `0.15.1`; archive `PENDING`. No `release-policy.json` entry yet: compiled payloads need a per-target build-and-record step (see its README) |
 | Themes | [`themes/readiness.json`](themes/readiness.json): exact source/license/archive digests and visual-evidence boundary                                  | [`package-templates`](themes/package-templates/): three fixed identities and document version, publisher `cadencr`, `min_app_version` `0.15.0`; archive `PENDING`                            |
 
 These documents distinguish source facts and historical qualification from

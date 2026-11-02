@@ -64,6 +64,7 @@ fn save_request(source: &SessionScope, body: CreateScheduleRequest) -> SaveSched
         target: ScheduleTarget {
             kind: TargetKind::Conversation,
             feature_id: Some(source.feature_id),
+            action_id: None,
             project_id: None,
             provider: None,
             model: body.model,

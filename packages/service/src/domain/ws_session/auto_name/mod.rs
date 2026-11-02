@@ -1,3 +1,5 @@
+use crate::domain::ws_session::protocol::WsSessionEvent;
+
 use std::path::PathBuf;
 
 use axum::extract::ws::Message;
@@ -51,11 +53,8 @@ fn send_autonaming(senders: &[mpsc::UnboundedSender<Message>], feature_id: i64, 
         feature_id,
         in_progress,
     };
-    let envelope = WsEnvelope::new(
-        "session",
-        "feature.autonaming",
-        serde_json::to_value(&payload).unwrap(),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureAutonaming(payload.clone()))
+        .expect("session event payload should serialize");
     let json: String = envelope.into();
     send_to_all(senders, json);
 }
@@ -265,11 +264,8 @@ async fn run_auto_name(
         feature_id,
         title: name.clone(),
     };
-    let envelope = WsEnvelope::new(
-        "session",
-        "feature.renamed",
-        serde_json::to_value(&payload).unwrap(),
-    );
+    let envelope = WsEnvelope::session_event(&WsSessionEvent::FeatureRenamed(payload.clone()))
+        .expect("session event payload should serialize");
     let json: String = envelope.into();
     send_to_all(ws_senders, json);
     send_feature_updated(ws_senders, feature_id, &["title"]);

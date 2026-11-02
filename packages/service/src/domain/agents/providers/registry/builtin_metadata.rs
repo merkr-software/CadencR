@@ -5,6 +5,7 @@ use std::sync::Arc;
 use cli_discovery::DiscoverySpec;
 
 use super::{ProviderDiscoveryMetadata, ProviderRegistrationMetadata};
+use crate::domain::agents::extensions::ExtensionCli;
 use crate::domain::agents::updates::native_cli::{LatestVersionSource, NativeCliUpdater};
 
 pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
@@ -24,6 +25,9 @@ pub(super) fn claude_metadata() -> ProviderRegistrationMetadata {
             &["update"],
         )
     }
+    .with_extensions(Arc::new(
+        crate::domain::agents::claude_code::extensions::ClaudeExtensions,
+    ))
 }
 
 pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
@@ -43,37 +47,7 @@ pub(super) fn codex_metadata() -> ProviderRegistrationMetadata {
             &["update"],
         )
     }
-}
-
-pub(super) fn cursor_metadata() -> ProviderRegistrationMetadata {
-    ProviderRegistrationMetadata {
-        model_guidance: Some(Cow::Borrowed(
-            "Use model ids advertised by the Cursor Agent CLI, for example values returned by `agent models`.",
-        )),
-        ..with_native_updates(
-            discovery(
-                "cursor",
-                "cursor_cli_path",
-                cursor_agent_sdk_rs::cursor_discovery_spec(),
-                cursor_agent_sdk_rs::set_binary_override,
-            ),
-            crate::domain::agents::cursor::updates::latest_version,
-            &["update"],
-        )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::cursor_metadata;
-
-    #[test]
-    fn cursor_model_guidance_points_to_the_cli_catalog() {
-        let metadata = cursor_metadata();
-        assert!(metadata
-            .model_guidance()
-            .is_some_and(|guidance| guidance.contains("agent models")));
-    }
+    .with_extensions(Arc::new(crate::domain::agents::codex::extensions::CodexExtensions))
 }
 
 pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
@@ -92,6 +66,13 @@ pub(super) fn opencode_metadata() -> ProviderRegistrationMetadata {
             crate::domain::agents::opencode::updates::latest_version,
             &["upgrade"],
         )
+    }
+}
+
+impl ProviderRegistrationMetadata {
+    fn with_extensions(mut self, extensions: Arc<dyn ExtensionCli>) -> Self {
+        self.extensions = Some(extensions);
+        self
     }
 }
 

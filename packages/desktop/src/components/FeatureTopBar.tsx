@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { CopyIcon, PencilIcon, WandSparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAutoNameFeature, useGetFeature } from "@/api/generated";
-import { CustomActionsBar } from "./CustomActionsBar";
+import { CustomActionsLauncher } from "./custom-actions/CustomActionsLauncher";
 import { EmbeddedSessionHeader } from "./FeatureTopBarEmbedded";
 import { GitActionButton } from "./git-actions/GitActionButton";
 import { BranchChip } from "./branch-chip/BranchChip";
@@ -280,7 +280,7 @@ function FeatureHeaderChrome({
             />
           )}
         </div>
-        {showCustomActions && <CustomActionsBar featureId={featureId} projectId={projectId} />}
+        {showCustomActions && <CustomActionsLauncher featureId={featureId} projectId={projectId} />}
 
         {/*
          * Git header controls render in BOTH `feature` and `session` modes.

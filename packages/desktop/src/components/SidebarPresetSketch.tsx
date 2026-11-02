@@ -109,7 +109,7 @@ function SketchConversation({
         )}
       </div>
       <div className="flex flex-col gap-[3px] pl-3">
-        {row.long && config.titleLines === "two" && (
+        {row.long && config.titleLines === "two" && !layout.fixed && (
           <SketchLine width={42} tone="bg-foreground/60" />
         )}
         {details && !inlineDetails && <SketchDetails config={config} />}

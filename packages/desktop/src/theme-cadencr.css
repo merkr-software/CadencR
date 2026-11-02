@@ -154,6 +154,7 @@
 :root[data-theme="cadencr-dark"] {
   --pane-bg: #1a1b1d;
   --pane-border: #2c2f33;
+  --chart-6: #a68bf0;
   --pane-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 12px 32px -16px rgba(0, 0, 0, 0.65),
     0 2px 8px -4px rgba(0, 0, 0, 0.5);
@@ -208,6 +209,7 @@
   --chart-3: #3d7d14;
   --chart-4: #1d5ed8;
   --chart-5: #966c00;
+  --chart-6: #6d3fd1;
   --sidebar: #eff0f2;
   --sidebar-foreground: #222429;
   --sidebar-primary: #087653;

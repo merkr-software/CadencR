@@ -37,13 +37,20 @@
  * to right, then rests: the composer says "this agent is busy — what you type
  * steers it" to a glance, without pulling the eye off the transcript. The
  * track stops short of the rounded corners and fades at both ends, so the
- * reflection emerges from and melts back into the border. */
+ * reflection emerges from and melts back into the border.
+ *
+ * The track clips: the mask only hides the reflection's paint, while its
+ * translated box still overflowed the card's right edge by over a quarter of
+ * its width.
+ * That made the composer's scroller wide enough to swipe the whole prompt
+ * sideways, and leave it off-centre, for as long as the agent ran. */
 .composer-sweep {
   position: absolute;
   top: -1px;
   left: var(--composer-radius);
   right: var(--composer-radius);
   height: 1px;
+  overflow: clip;
   pointer-events: none;
   mask: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
@@ -152,6 +159,13 @@
   background-color: var(--border);
   pointer-events: none;
 }
+/* The skill wizard's instrument strip wraps on narrow trays, where a hairline
+ * would dangle at a line's end. */
+@container (max-width: 30rem) {
+  [data-virtual-skill-wizard] [data-composer-group]::before {
+    display: none;
+  }
+}
 /* Fast mode on: the bolt is lit, not the control. */
 .composer-fast-lit {
   filter: drop-shadow(0 0 4px color-mix(in oklab, var(--acc-yellow) 55%, transparent));
@@ -235,4 +249,53 @@
   .composer-stop-arm {
     animation: none;
   }
+}
+
+/* ── Stack on the card's top edge ───────────────────────────────────────── */
+
+/* One tray for everything stacked above the card (`ComposerStack`). Each
+ * section keeps one accent — icon and title ink, plus a wash faint enough that
+ * the tray still reads as one surface — so running agents, side questions,
+ * schedules, the queue and pending requests are told apart at a glance. */
+[data-stack-tone] {
+  --stack-tone: var(--muted-foreground);
+}
+/* Neutral sections (help, skill wizard) keep the tray's own wash. */
+[data-stack-tone]:not([data-stack-tone="neutral"]) {
+  background-color: color-mix(in oklab, var(--stack-tone) 5%, transparent);
+}
+/* The blue of a working agent everywhere (sidebar ring, sub-agent card). */
+[data-stack-tone="agents"] {
+  --stack-tone: var(--color-blue-500);
+}
+[data-stack-tone="side"] {
+  --stack-tone: var(--acc-purple);
+}
+[data-stack-tone="schedule"] {
+  --stack-tone: var(--acc-cyan);
+}
+[data-stack-tone="queue"] {
+  --stack-tone: var(--acc-orange);
+}
+[data-stack-tone="attention"] {
+  --stack-tone: var(--acc-yellow);
+}
+[data-stack-tone="question"] {
+  --stack-tone: var(--primary);
+}
+/* A call to action on the coming send, so the send button's color — not the
+ * `--chip-worktree-*` trio, which tones the chips reporting a session's state. */
+[data-stack-tone="worktree"] {
+  --stack-tone: var(--primary);
+}
+[data-stack-tone] [data-stack-ink] {
+  color: color-mix(in oklab, var(--stack-tone) 78%, var(--foreground));
+}
+[data-stack-tone="neutral"] [data-stack-ink] {
+  color: color-mix(in oklab, var(--foreground) 80%, transparent);
+}
+/* The skill wizard holding the keys takes the focused-card border for the
+ * whole tray: one of tray and card owns them at a time. */
+[data-composer-stack]:has([data-keys-active]) {
+  border-color: var(--composer-focus-border);
 }

@@ -1,7 +1,8 @@
+import { useAgentCatalog, type RuntimeProviderOption } from "@/api/agentRuntime";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { providerAccessModeConfig } from "@/lib/provider-access-modes";
 import { ProviderIcon } from "@/lib/provider-icons";
 import { getProviderMetadata, PROVIDER_IDS, type ProviderId } from "@/lib/providers";
-import { PROVIDER_UPDATES_SETTINGS_ANCHOR } from "@/lib/settings-anchors";
 import { CLAUDE_BYPASS_PERMISSIONS_SETTING_KEY } from "@/shared/permission-mode-settings";
 import { BinaryDiscoverySection } from "./BinaryDiscoverySection";
 import { ProviderAccessModeSetting } from "./ProviderAccessModeSetting";
@@ -11,33 +12,59 @@ import { DangerousModeToggle } from "./DangerousModeToggle";
 import { ProfilesSection } from "./ProfilesSection";
 import { ProviderDevelopmentCard } from "./ProviderDevelopmentCard";
 import { ProviderUpdatesCard } from "./ProviderUpdatesCard";
-import { SettingsCard } from "./SettingsCard";
-import { SettingsSection } from "./SettingsSection";
+import { SettingsGroup } from "./SettingsGroup";
+import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
+import { SettingsPageSection } from "./SettingsPageSection";
 import { SettingsSubsection } from "./SettingsSubsection";
 
 const PROVIDER_TABS: ProviderId[] = [
   PROVIDER_IDS.CLAUDE_CODE,
   PROVIDER_IDS.OPENCODE,
   PROVIDER_IDS.CODEX_CLI,
-  PROVIDER_IDS.CURSOR,
 ];
 
+/**
+ * Catalog providers without a built-in panel that still have something to
+ * configure here — today a catalog-declared access mode.
+ */
+function useConfigurableCatalogProviders(): RuntimeProviderOption[] {
+  const { data } = useAgentCatalog();
+  return (data?.providers ?? []).filter(
+    (provider) =>
+      !(PROVIDER_TABS as readonly string[]).includes(provider.id) &&
+      providerAccessModeConfig(provider.id, {
+        label: provider.label,
+        accessModes: provider.access_modes ?? [],
+      }) !== null,
+  );
+}
+
 export function ProvidersSection(): React.JSX.Element {
+  const catalogProviders = useConfigurableCatalogProviders();
   return (
-    <SettingsSection
-      id={PROVIDER_UPDATES_SETTINGS_ANCHOR}
-      title="Providers"
-      subtitle="Built-ins · Developer connectors"
-    >
+    <SettingsPageSection pageId="providers">
       <ProviderUpdatesCard />
-      <ProviderDevelopmentCard />
-      <SettingsCard padded={false}>
+      <SettingsGroup
+        id={SETTINGS_ANCHORS.providerConfig}
+        title="Configuration"
+        description="Each provider's install, profiles and permission options."
+      >
         <Tabs defaultValue={PROVIDER_IDS.CLAUDE_CODE}>
           <TabsList aria-label="Provider" className="px-2">
             {PROVIDER_TABS.map((id) => (
               <TabsTrigger key={id} value={id}>
                 <ProviderIcon providerId={id} alt="" className="size-4 rounded-sm shrink-0" />
                 <span>{getProviderMetadata(id)?.label ?? id}</span>
+              </TabsTrigger>
+            ))}
+            {catalogProviders.map((provider) => (
+              <TabsTrigger key={provider.id} value={provider.id}>
+                <ProviderIcon
+                  providerId={provider.id}
+                  alt=""
+                  className="size-4 rounded-sm shrink-0"
+                />
+                <span>{provider.label}</span>
               </TabsTrigger>
             ))}
           </TabsList>
@@ -50,12 +77,17 @@ export function ProvidersSection(): React.JSX.Element {
           <TabsContent value={PROVIDER_IDS.CODEX_CLI}>
             <CodexProviderPanel />
           </TabsContent>
-          <TabsContent value={PROVIDER_IDS.CURSOR}>
-            <CursorProviderPanel />
-          </TabsContent>
+          {catalogProviders.map((provider) => (
+            <TabsContent key={provider.id} value={provider.id}>
+              <SettingsSubsection>
+                <ProviderAccessModeSetting providerId={provider.id} />
+              </SettingsSubsection>
+            </TabsContent>
+          ))}
         </Tabs>
-      </SettingsCard>
-    </SettingsSection>
+      </SettingsGroup>
+      <ProviderDevelopmentCard />
+    </SettingsPageSection>
   );
 }
 
@@ -145,28 +177,6 @@ function CodexProviderPanel(): React.JSX.Element {
       </SettingsSubsection>
       <SettingsSubsection>
         <ProviderAccessModeSetting providerId={PROVIDER_IDS.CODEX_CLI} />
-      </SettingsSubsection>
-    </>
-  );
-}
-
-function CursorProviderPanel(): React.JSX.Element {
-  return (
-    <>
-      <SettingsSubsection>
-        <BinaryDiscoverySection
-          discoveryKey="cursor"
-          description={
-            <>
-              Every Cursor <strong>agent</strong> CLI install Cadencr found on disk. The selected
-              binary is spawned as <strong>agent acp</strong>; override via onboarding or the{" "}
-              <strong>cursor_cli_path</strong> workspace setting.
-            </>
-          }
-        />
-      </SettingsSubsection>
-      <SettingsSubsection>
-        <ProviderAccessModeSetting providerId={PROVIDER_IDS.CURSOR} />
       </SettingsSubsection>
     </>
   );

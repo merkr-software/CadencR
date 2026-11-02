@@ -83,6 +83,11 @@ mod tests {
             model: Some("openai/gpt-5.4".to_string()),
             tokens,
             finished: false,
+            completed_at: None,
+            finish: None,
+            error: None,
+            variant: None,
+            error_name: None,
         }
     }
 

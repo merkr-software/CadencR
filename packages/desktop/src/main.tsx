@@ -13,6 +13,7 @@ import { reactRootErrorHandlers } from "./lib/react-root-error-reporting";
 import { GlobalErrorBoundary } from "./components/GlobalErrorBoundary";
 import { detectStandalone } from "./hooks/useFullscreen";
 import { initializeStandaloneViewport } from "./lib/standalone-viewport";
+import { mountSessionApplication } from "./lib/session-integration";
 import "./index.css";
 
 // iOS caches the status-bar mode when installing a PWA. Seed its viewport
@@ -39,14 +40,18 @@ async function bootstrap(): Promise<void> {
   // when push is unsupported). Fire-and-forget — it must not block first paint,
   // and actually subscribing is a separate user-gesture flow in settings.
   void registerPushServiceWorker();
-  const root = createRoot(document.getElementById("root")!, reactRootErrorHandlers);
-  root.render(
-    <React.StrictMode>
-      <GlobalErrorBoundary>
-        <App />
-      </GlobalErrorBoundary>
-    </React.StrictMode>,
-  );
+  const dispose = mountSessionApplication(() => {
+    const root = createRoot(document.getElementById("root")!, reactRootErrorHandlers);
+    root.render(
+      <React.StrictMode>
+        <GlobalErrorBoundary>
+          <App />
+        </GlobalErrorBoundary>
+      </React.StrictMode>,
+    );
+    return () => root.unmount();
+  });
+  import.meta.hot?.dispose(dispose);
 }
 
 bootstrap().catch((err) => {

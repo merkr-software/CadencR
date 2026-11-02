@@ -57,17 +57,19 @@ pub fn preflight_publication_pipeline(
     let candidate = crate::parse_json_bytes(payload.canonical_payload())
         .map_err(|_| RegistryError::single("prepared payload is invalid"))?;
     crate::snapshot::continuity::validate_continuity(&prior["signed"], &candidate)?;
-    Ok(prior["signed"]["packages"]
+    prior["signed"]["packages"]
         .as_array()
         .expect("verified packages")
         .iter()
         .map(identity)
-        .collect())
+        .collect()
 }
 
-fn identity(package: &Value) -> String {
-    let (id, version) = crate::package::identity(package).expect("verified identity");
-    format!("{id}@{version}")
+fn identity(package: &Value) -> Result<String, RegistryError> {
+    let (id, version) = crate::package::identity(package).ok_or_else(|| {
+        RegistryError::single("previous catalog contains a package kind this build cannot read")
+    })?;
+    Ok(format!("{id}@{version}"))
 }
 
 /// Sign verified publication bytes only with the exact pinned public-key identity.

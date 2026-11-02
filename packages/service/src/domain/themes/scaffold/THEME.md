@@ -97,7 +97,7 @@ a glass `--card` is judged as it is actually seen.
 
 #### Chrome tokens
 
-Four tokens are optional. They color the shapes a theme opts into through
+Four chrome tokens are optional. They color the shapes a theme opts into through
 `chrome`, and each has a fallback derived from the palette, so leave them out
 unless the derived one is wrong.
 
@@ -116,6 +116,13 @@ darker than `--tab-track-bg`, or the selected tab disappears into the track.
 The two shadows the same chrome uses, `--tab-active-shadow` and `--page-shadow`,
 are *not* theme tokens: they hold `box-shadow` values rather than colors, and a
 theme's vocabulary is colors. They stay Cadencr's.
+
+#### Sixth chart color
+
+`--chart-6` is optional as well: the sixth categorical color, after
+`--chart-1`…`--chart-5` (the marketplace tints skills with it). Without it
+Cadencr mixes `--chart-2` and `--chart-4`. Set it to a hue the other five don't
+use, at the same lightness and chroma.
 
 ### `chrome`
 

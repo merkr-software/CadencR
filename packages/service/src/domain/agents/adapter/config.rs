@@ -181,6 +181,19 @@ pub enum RuntimeAccessMode {
     AutoReview,
 }
 
+/// How a live runtime takes an access-mode change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeAccessModeChange {
+    /// Only a respawn applies it: the mode lives in launch flags.
+    Respawn,
+    /// The live runtime adopts it now; the next prompt still respawns with
+    /// matching launch flags (Codex's app server).
+    LiveThenRespawn,
+    /// The live runtime adopts all of it (an installed connector's config
+    /// option, which restarts its own agent when the launch flags differ).
+    Live,
+}
+
 pub fn parse_access_mode_wire(mode: &str) -> Option<RuntimeAccessMode> {
     match mode {
         "default" => Some(RuntimeAccessMode::Default),
@@ -256,6 +269,7 @@ pub enum RuntimePurpose {
     AutoName,
 }
 
+#[derive(Clone)]
 pub struct RuntimeSpawnConfig {
     pub cwd: PathBuf,
     pub permission_mode: Option<RuntimePermissionMode>,

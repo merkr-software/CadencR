@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use super::events::normalize_event;
 use super::prompt_receipts::ClaudePromptReceipts;
+use super::subagents::ClaudeSubagentState;
 use crate::domain::agents::adapter::{
-    AgentRuntimeSession, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
+    AgentRuntimeSession, KnownSubagent, RuntimeError, RuntimeEvent, RuntimeMcpServerConfig,
     RuntimeMcpServerStatus, RuntimeMessageRx, RuntimePermissionMode, RuntimePermissionUpdate,
     RuntimeStreamEvent, RuntimeToolPermissionHandler, RuntimeToolPermissionRequest,
     RuntimeToolPermissionResult,
@@ -15,6 +15,11 @@ pub struct ClaudeCodeSession {
     pub(super) query: claude_agent_sdk_rs::Query,
     pub(super) turn_control: std::sync::Arc<tokio::sync::Mutex<()>>,
     pub(super) prompt_receipts: std::sync::Arc<ClaudePromptReceipts>,
+    /// Working directory the CLI runs in; custom agent definitions resolve
+    /// from it.
+    pub(super) cwd: std::path::PathBuf,
+    /// Sub-agents earlier runtimes launched, handed to the message pump.
+    pub(super) known_subagents: Vec<KnownSubagent>,
 }
 
 impl ClaudeCodeSession {
@@ -24,6 +29,8 @@ impl ClaudeCodeSession {
             query,
             turn_control: Default::default(),
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
+            cwd: std::path::PathBuf::new(),
+            known_subagents: Vec::new(),
         }
     }
 }
@@ -38,7 +45,8 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
         &self,
         request: claude_agent_sdk_rs::PermissionRequest,
     ) -> claude_agent_sdk_rs::PermissionResult {
-        match self
+        let is_question = request.tool_name == "AskUserQuestion";
+        let result = self
             .inner
             .can_use_tool(RuntimeToolPermissionRequest {
                 tool_name: request.tool_name,
@@ -53,8 +61,13 @@ impl claude_agent_sdk_rs::CanUseTool for ClaudeCanUseToolAdapter {
                 decision_reason: request.decision_reason,
                 input: request.input,
             })
-            .await
-        {
+            .await;
+        let result = if is_question {
+            super::question_answers::normalize_result(result)
+        } else {
+            result
+        };
+        match result {
             RuntimeToolPermissionResult::Allow {
                 updated_input,
                 updated_permissions,
@@ -115,6 +128,8 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         let mut source_rx = self.query.take_message_rx();
         let (tx, rx) = mpsc::channel(64);
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
+        let mut subagents =
+            ClaudeSubagentState::new(&self.cwd, std::mem::take(&mut self.known_subagents));
 
         tokio::spawn(async move {
             'messages: while let Some(msg) = source_rx.recv().await {
@@ -131,7 +146,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
                         if is_unmatched_replay_user_message(&sdk_msg) {
                             continue;
                         }
-                        let mapped = normalize_event(sdk_msg);
+                        let mapped = subagents.normalize(sdk_msg).await;
                         for event in
                             acknowledge_response_start_prompt_receipts(&mapped, &prompt_receipts)
                         {
@@ -153,6 +168,10 @@ impl AgentRuntimeSession for ClaudeCodeSession {
         });
 
         rx
+    }
+
+    fn seed_known_subagents(&mut self, known: Vec<KnownSubagent>) {
+        self.known_subagents = known;
     }
 
     async fn session_id(&self) -> Option<String> {
@@ -424,5 +443,45 @@ mod tests {
             map_permission_mode(RuntimePermissionMode::DontAsk),
             claude_agent_sdk_rs::PermissionMode::DontAsk
         );
+    }
+    struct EchoPermission;
+    #[async_trait::async_trait]
+    impl crate::domain::agents::adapter::RuntimeToolPermissionHandler for EchoPermission {
+        async fn can_use_tool(
+            &self,
+            request: crate::domain::agents::adapter::RuntimeToolPermissionRequest,
+        ) -> crate::domain::agents::adapter::RuntimeToolPermissionResult {
+            crate::domain::agents::adapter::RuntimeToolPermissionResult::Allow {
+                updated_input: request.input,
+                updated_permissions: None,
+                tool_use_id: Some(request.tool_use_id),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sdk_callback_normalizes_only_question_answers_at_provider_boundary() {
+        let adapter = super::ClaudeCanUseToolAdapter {
+            inner: std::sync::Arc::new(EchoPermission),
+        };
+        for (tool_name, expected_answers) in [
+            ("AskUserQuestion", json!({"Color?": "Blue, Green"})),
+            ("AnotherTool", json!([["Blue", "Green"]])),
+        ] {
+            let result = claude_agent_sdk_rs::CanUseTool::can_use_tool(&adapter, claude_agent_sdk_rs::PermissionRequest {
+                tool_name: tool_name.into(), input: json!({"questions":[{"question":"Color?"}],"answers":[["Blue","Green"]]}),
+                tool_use_id: "tool-1".into(), agent_id: None, suggestions: None, blocked_path: None, decision_reason: None,
+            }).await;
+            let claude_agent_sdk_rs::PermissionResult::Allow {
+                updated_input,
+                tool_use_id,
+                ..
+            } = result
+            else {
+                panic!("accepted")
+            };
+            assert_eq!(updated_input["answers"], expected_answers);
+            assert_eq!(tool_use_id.as_deref(), Some("tool-1"));
+        }
     }
 }

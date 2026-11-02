@@ -4,7 +4,7 @@ import { act, render, screen, waitFor } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
 import { AgentSession, shallowEqualSkipFunctions } from "./agent-session";
 import type { AgentSessionProps } from "./agent-session";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import type { HotkeyCallback } from "@tanstack/hotkeys";
 import { invokeRegisteredHotkey } from "@/test/hotkeys";
 
@@ -363,12 +363,11 @@ describe("AgentSession", () => {
         blocks={[]}
         status="agent"
         lifecycle={{ phase: "active" }}
-        turnTiming={{
-          startedAt: Date.now() - 12_000,
-          segmentStartedAt: Date.now() - 12_000,
-          activeMs: 0,
-          userPendingMs: 0,
-          completed: null,
+        turnClock={{
+          startedAtMs: Date.now() - 12_000,
+          waitingMs: 0,
+          waitingSinceMs: null,
+          model: null,
         }}
         onSend={onSend}
         onStop={onStop}
@@ -385,12 +384,11 @@ describe("AgentSession", () => {
         blocks={[makeBlock("1", "Need permission")]}
         status="question"
         lifecycle={{ phase: "paused", reason: "permission" }}
-        turnTiming={{
-          startedAt: Date.now() - 65_000,
-          segmentStartedAt: Date.now() - 5_000,
-          activeMs: 60_000,
-          userPendingMs: 0,
-          completed: null,
+        turnClock={{
+          startedAtMs: Date.now() - 65_000,
+          waitingMs: 0,
+          waitingSinceMs: Date.now() - 5_000,
+          model: null,
         }}
         onSend={onSend}
         onStop={onStop}

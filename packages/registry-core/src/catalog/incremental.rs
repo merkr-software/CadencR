@@ -74,11 +74,19 @@ pub fn prepare_incremental_publication_index(
             .map(|package| serde_json::json!({"kind":"provider","package":package}))
             .collect();
     }
+    // A baseline signed by a newer registry may carry kinds this build does
+    // not know; republishing it would drop or misjudge them.
     let positions = merged
         .iter()
         .enumerate()
-        .map(|(position, value)| (package_key(value).expect("verified identity"), position))
-        .collect::<HashMap<_, _>>();
+        .map(|(position, value)| {
+            package_key(value).map(|key| (key, position)).map_err(|_| {
+                RegistryError::single(
+                    "baseline catalog contains a package kind this publisher cannot republish",
+                )
+            })
+        })
+        .collect::<Result<HashMap<_, _>, _>>()?;
     let mut delta = HashSet::new();
     for package in packages {
         let key = package_key(&package)?;
@@ -237,6 +245,32 @@ mod tests {
         let renewed = prepare(&bytes, &key, vec![]).unwrap();
         let value: Value = serde_json::from_slice(renewed.canonical_payload()).unwrap();
         assert_eq!(value["packages"], json!(history));
+    }
+
+    #[test]
+    fn a_baseline_with_a_newer_kind_is_refused_not_a_panic() {
+        let key = SigningKey::from_bytes(&[7; 32]);
+        let (_, public) = baseline(vec![package("1.0.0")]);
+        let (generated, expires) = window(3);
+        let payload = json!({"schema_version":2,"generated_at":generated,"expires_at":expires,
+            "packages":[{"kind":"provider","package":package("1.0.0")},
+                {"kind":"skill","package":{"skill":{"id":"review","version":"1.0.0"}}}]});
+        let signature = key.sign(&crate::canonical_json_bytes(&payload));
+        let envelope = json!({"signed":payload,"signature":{
+            "algorithm":"ed25519", "key_id":"test-key", "value":BASE64_STANDARD.encode(signature.to_bytes())
+        }});
+        let (generated, expires) = window(1);
+        let error = prepare_incremental_publication_index()
+            .previous_bytes(&serde_json::to_vec(&envelope).unwrap())
+            .public_key_bytes(&public)
+            .key_id("test-key")
+            .packages(vec![])
+            .schema_version(2)
+            .generated_at(&generated)
+            .expires_at(&expires)
+            .call()
+            .unwrap_err();
+        assert!(error.to_string().contains("cannot republish"), "{error}");
     }
 
     #[test]

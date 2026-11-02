@@ -1,12 +1,12 @@
 import type { Loader2Icon } from "lucide-react";
-import type { AgentBlockData } from "../AgentBlock";
-import type { DisplayRowMode } from "../agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import type { DisplayRowMode } from "@/types/agent-stream";
 import type { AgentType } from "../../types/agent-types";
 import type { PromptAttachmentPayload } from "../../types/agent-types";
-import type { AgentQuestion, AgentQuestionAnswers } from "../AgentQuestionDrawer";
+import type { AgentQuestion, AgentQuestionAnswers } from "@/types/agent-question";
 import type { TodoItem } from "@/types/agent";
 import type { ContextUsageState } from "@/types/agent";
-import type { PendingPermission } from "../ToolPermissionPrompt";
+import type { PendingPermission } from "@/types/agent-permission";
 // `AgentSession` is a live UI consumer — it reads the canonical 3-value
 // status pushed by the backend. Workflow-level lifecycle decisions live
 // elsewhere (and use the legacy `AgentStatus`).
@@ -24,7 +24,7 @@ import type {
 import type { AgentCatalog } from "@/api/agentRuntime";
 import type { ClaudeProfileSelection } from "./useClaudeProfileSelection";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import type { TurnTimingState } from "@/stores/ws-turn-timing";
+import type { TurnClock } from "@/lib/turn-clock";
 import type { RuntimeSelection } from "@/shared/models";
 import type { RuntimeSessionConfigSnapshot, RuntimeSessionConfigValue } from "@/api/generated";
 
@@ -63,8 +63,8 @@ export interface AgentSessionProps {
   isCompacting?: boolean;
   /** Provider-neutral lifecycle for active/paused/terminal turn state. */
   lifecycle?: TurnLifecycle;
-  /** Provider-neutral timing accumulator for the current or latest turn. */
-  turnTiming?: TurnTimingState;
+  /** The running turn's clock, from the backend status book. */
+  turnClock?: TurnClock | null;
   /**
    * Called when the user sends a message via the prompt bar. May return a
    * Promise — the prompt bar awaits it before clearing the input so a
@@ -220,6 +220,8 @@ export interface AgentSessionProps {
   promptCommandPolicy?: PromptCommandPolicy;
   /** Whether the override commands are still loading */
   slashCommandsLoading?: boolean;
+  /** Why the provider's own commands could not be listed, shown in the `/` menu. */
+  slashCommandsError?: string | null;
   /** Whether older messages exist beyond current window */
   hasMore?: boolean;
   /**

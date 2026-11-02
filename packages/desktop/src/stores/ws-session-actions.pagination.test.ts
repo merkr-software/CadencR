@@ -1,6 +1,7 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { AgentBlockData } from "@/components/AgentBlock";
-import { buildDisplayItems } from "@/components/agentStreamDisplay";
+import type { AgentBlockData } from "@/types/agent-block";
+import { buildDisplayItems } from "@/lib/agent-stream-display";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { applyPersistedState, loadOlderSessionMessages } from "./ws-session-actions";
 import type { StoreAccessors } from "./ws-envelope-handler";
@@ -11,6 +12,7 @@ const apiMocks = vi.hoisted(() => ({
 
 vi.mock("@/api/generated", () => ({
   getFeatureAgentState: apiMocks.getFeatureAgentState,
+  getListFeatureSubagentsQueryKey: (featureId: number) => [`/api/features/${featureId}/subagents`],
 }));
 
 vi.mock("@/hooks/useFeatureAgentState", () => ({
@@ -33,6 +35,7 @@ function createCtx(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>) => {
       state = { ...state, ...partial } as WsSessionStore;
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string) => state.sessions[sessionId],
   };
 }
@@ -129,7 +132,7 @@ describe("ws session history pagination", () => {
     ]);
   });
 
-  it("preserves bounded compact chunks across consecutive history prepend seams", async () => {
+  it("preserves compact runs across consecutive history prepend seams", async () => {
     const currentBlocks = Array.from({ length: 50 }, (_, index) =>
       makeBlock(`msg-${300 + index}`, "read", "tool_call", { toolName: "Read" }),
     );
@@ -152,7 +155,8 @@ describe("ws session history pagination", () => {
     await loadOlderSessionMessages(ctx, "s1", { compactMode: true });
 
     const session = ctx.get().sessions.s1;
-    expect(session.historyPrependDisplayOffset).toBe(8);
+    // Each page adds one row ([170-199], then [160-169]) on top of the seeded 5.
+    expect(session.historyPrependDisplayOffset).toBe(7);
     expect(session.blocks.find((block) => block.id === "msg-170")?.compactFlowBreakBefore).toBe(
       true,
     );
@@ -164,7 +168,7 @@ describe("ws session history pagination", () => {
     );
   });
 
-  it("marks a cloned Task boundary without dropping newly merged children", async () => {
+  it("merges older children into a cloned Task boundary, which never folds", async () => {
     const task = makeBlock("msg-300", "{}", "tool_call", {
       toolName: "Task",
       toolUseId: "task-300",
@@ -198,7 +202,8 @@ describe("ws session history pagination", () => {
 
     const session = ctx.get().sessions.s1;
     const mergedTask = session.blocks.find((block) => block.id === task.id);
-    expect(mergedTask?.compactFlowBreakBefore).toBe(true);
+    // A sub-agent keeps its own row in compact flow, so no fold seam to mark.
+    expect(mergedTask?.compactFlowBreakBefore).toBeUndefined();
     expect(mergedTask?.childBlocks?.map((child) => child.id)).toEqual([
       "child-current",
       "child-older",

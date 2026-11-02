@@ -32,7 +32,15 @@ pub(crate) fn validate_continuity(
         .filter_map(|value| identity(value).map(|id| (id, value)))
         .collect::<HashMap<_, _>>();
     for prior in packages(previous) {
-        let id = identity(prior).expect("verified package identity");
+        let Some(id) = identity(prior) else {
+            // An entry of a kind this build does not know: kept verbatim.
+            if !packages(candidate).contains(prior) {
+                return Err(RegistryError::single(
+                    "catalog removes or mutates a previous entry of an unknown kind",
+                ));
+            }
+            continue;
+        };
         let label = format!("{}@{}", id.0, id.1);
         let Some(current) = next.get(&id) else {
             return Err(RegistryError::single(format!(
@@ -51,12 +59,14 @@ pub(crate) fn validate_continuity(
             )));
         }
     }
-    let owners = packages(previous)
-        .iter()
+    // Plugin members own their ids like standalone packages.
+    let owners = crate::plugin_package::identity_units(packages(previous))
         .filter_map(|value| identity(value).map(|(id, _)| (id, owner(value))))
         .collect::<HashMap<_, _>>();
-    for entry in packages(candidate) {
-        let (id, _) = identity(entry).expect("verified package identity");
+    for entry in crate::plugin_package::identity_units(packages(candidate)) {
+        let Some((id, _)) = identity(entry) else {
+            continue;
+        };
         if owners.get(id).is_some_and(|prior| prior != &owner(entry)) {
             return Err(RegistryError::single(format!(
                 "provider {id} changes publisher or source ownership"

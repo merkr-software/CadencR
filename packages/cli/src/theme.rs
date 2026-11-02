@@ -15,6 +15,11 @@ pub(crate) fn validate(
             "--descriptor is not used for declarative themes",
         ));
     }
+    validate_folder(folder).map(Some)
+}
+
+/// [`validate`] without the argument check, for `--kind plugin` members too.
+pub(crate) fn validate_folder(folder: &Path) -> Result<String, Diagnostic> {
     let theme = cadencr_plugin_core::theme::validate_theme_folder(folder).map_err(|issues| {
         operation_error(
             "THEME_VALIDATION_FAILED",
@@ -25,11 +30,11 @@ pub(crate) fn validate(
                 .join("; "),
         )
     })?;
-    Ok(Some(format!(
+    Ok(format!(
         "valid declarative theme: {} ({})",
         theme.document.label,
         theme.directory.display()
-    )))
+    ))
 }
 
 pub(crate) fn pack(directory: &Path, destination: &Path) -> Result<Option<String>, Diagnostic> {

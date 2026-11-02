@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@/test-utils";
 import { AgentBlock } from "./AgentBlock";
-import type { AgentBlockData } from "./AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 
 vi.mock("./InlineDiffBlock", () => ({
   InlineDiffBlock: ({ filePath }: { filePath: string }) => (
@@ -19,26 +19,11 @@ function makeBlock(overrides: Partial<AgentBlockData>): AgentBlockData {
 }
 
 describe("AgentBlock MCP tools", () => {
-  it("does not present Cursor as the server for an unidentified historical MCP call", () => {
+  it("prefers the MCP identity revealed in the late permission input", () => {
     render(
       <AgentBlock
         block={makeBlock({
-          toolName: "mcp__cursor__tool",
-          toolArgs: JSON.stringify({ description: "MCP: tool" }),
-        })}
-      />,
-    );
-
-    expect(screen.getByText("mcp")).toBeInTheDocument();
-    expect(screen.getByText("Tool")).toBeInTheDocument();
-    expect(screen.queryByText("cursor")).not.toBeInTheDocument();
-  });
-
-  it("uses the MCP identity Cursor reveals in the late permission input", () => {
-    render(
-      <AgentBlock
-        block={makeBlock({
-          toolName: "mcp__cursor__tool",
+          toolName: "mcp__agent__tool",
           toolArgs: JSON.stringify({
             server: "chrome-devtools",
             tool: "new_page",
@@ -51,7 +36,7 @@ describe("AgentBlock MCP tools", () => {
     expect(screen.getByText("chrome-devtools")).toBeInTheDocument();
     expect(screen.getByText("Opening page")).toBeInTheDocument();
     expect(screen.getByText("https://google.com")).toBeInTheDocument();
-    expect(screen.queryByText("cursor")).not.toBeInTheDocument();
+    expect(screen.queryByText("agent")).not.toBeInTheDocument();
   });
 
   it("renders a browser_open_url MCP call with custom styling", () => {
@@ -88,15 +73,15 @@ describe("AgentBlock MCP tools", () => {
     const { rerender } = render(
       <AgentBlock
         block={makeBlock({
-          toolName: "mcp__cadencr-project__project_spawn_session",
-          toolArgs: JSON.stringify({ title: "Investigate flaky login test" }),
+          toolName: "mcp__cadencr-project__project_list_sessions",
+          toolArgs: JSON.stringify({ query: "flaky login test" }),
         })}
       />,
     );
 
     expect(screen.getByText("project")).toBeInTheDocument();
-    expect(screen.getByText("Spawning session")).toBeInTheDocument();
-    expect(screen.getByText("Investigate flaky login test")).toBeInTheDocument();
+    expect(screen.getByText("Listing project sessions")).toBeInTheDocument();
+    expect(screen.getByText("flaky login test")).toBeInTheDocument();
 
     rerender(
       <AgentBlock

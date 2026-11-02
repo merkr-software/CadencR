@@ -19,12 +19,22 @@ pub(super) fn resolve_tool_name(body: &Value, hooks: &dyn AcpProviderHooks) -> S
     let hint = body
         .get("toolName")
         .and_then(Value::as_str)
+        .or_else(|| programmatic_name(body))
         .or_else(|| task_tool_from_input(body))
         .or_else(|| task_or_agent_title(body))
         .or_else(|| tool_name_from_kind(body))
         .or_else(|| body.get("title").and_then(Value::as_str))
         .unwrap_or("tool");
     hooks.normalize_tool_name(hint)
+}
+
+/// Standard ACP `ToolCall.name` / `ToolCallUpdateFields.name`: the
+/// programmatic tool name, when the agent provides one.
+fn programmatic_name(body: &Value) -> Option<&str> {
+    body.get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
 }
 
 /// OpenCode can first surface Task as `kind=think` (empty input), then fill
@@ -136,6 +146,15 @@ mod tests {
     fn explicit_tool_name_wins_over_coarse_kind() {
         let body = json!({ "toolName": "CustomRunner", "title": "run", "kind": "execute" });
         assert_eq!(resolve_tool_name(&body, &IdentityHooks), "CustomRunner");
+    }
+
+    #[test]
+    fn standard_acp_name_wins_over_kind_and_title() {
+        // ACP schema 1.12 `ToolCall.name` ("Programmatic name of the tool").
+        let body = json!({ "name": "Agent", "title": "Explore auth", "kind": "think" });
+        assert_eq!(resolve_tool_name(&body, &IdentityHooks), "Agent");
+        let blank = json!({ "name": "  ", "title": "run", "kind": "execute" });
+        assert_eq!(resolve_tool_name(&blank, &IdentityHooks), "Bash");
     }
 
     #[test]

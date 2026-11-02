@@ -1,27 +1,34 @@
+use std::sync::Arc;
+
+use crate::domain::ws_session::protocol::{ModeChangedPayload, WsSessionEvent};
 use tracing::error;
 
 use super::super::super::persistence::WsSessionPersistence;
-use super::super::super::protocol::{AccessModeSetPayload, WsEnvelope, WsSessionAction};
+use super::super::super::protocol::{AccessModeSetPayload, WsEnvelope};
 use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
-    access_mode_wire, parse_access_mode_wire, RuntimeAccessMode, RuntimeError,
+    access_mode_wire, parse_access_mode_wire, RuntimeAccessMode, RuntimeAccessModeChange,
+    RuntimeError, RuntimeSessionHandle,
 };
 use crate::domain::agents::runtime_adapter;
 
+/// Apply the change to the live runtime when its adapter takes it in place;
+/// returns the runtime it was applied to.
 async fn apply_active_access_mode(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
     access_mode: &RuntimeAccessMode,
-) -> Result<(), RuntimeError> {
+) -> Result<Option<RuntimeSessionHandle>, RuntimeError> {
     let query = {
         let sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
-            return Ok(());
+            return Ok(None);
         };
-        let applies_in_place = runtime_adapter(&handle.runtime_provider)
-            .is_some_and(|adapter| adapter.applies_access_mode_in_place());
+        let applies_in_place = runtime_adapter(&handle.runtime_provider).is_some_and(|adapter| {
+            adapter.access_mode_change() != RuntimeAccessModeChange::Respawn
+        });
         match (&handle.state, applies_in_place) {
             (QueryState::Active { query, .. }, true)
                 if handle.desired_access_mode.as_ref() != Some(access_mode) =>
@@ -31,14 +38,14 @@ async fn apply_active_access_mode(
             _ => None,
         }
     };
-    if let Some(query) = query {
+    if let Some(query) = &query {
         query
             .read()
             .await
             .set_access_mode(access_mode.clone())
             .await?;
     }
-    Ok(())
+    Ok(query)
 }
 
 pub(crate) async fn handle_access_mode_set(
@@ -50,15 +57,22 @@ pub(crate) async fn handle_access_mode_set(
     let Some(payload) = parse_payload(&envelope, sender) else {
         return;
     };
-    let Some((sdk_sessions, db_session_id, feature_id)) =
-        resolve_target(sender, sdk_sessions, app_state, &envelope.id, &payload).await
-    else {
-        return;
-    };
     let Some(access_mode) = parse_access_mode(sender, &envelope.id, &payload.mode) else {
         return;
     };
-    if !apply_access_mode(
+    let Some((sdk_sessions, db_session_id, feature_id)) = resolve_target(
+        sender,
+        sdk_sessions,
+        app_state,
+        &envelope.id,
+        &payload,
+        &access_mode,
+    )
+    .await
+    else {
+        return;
+    };
+    let Some(applied_to) = apply_access_mode(
         sender,
         &envelope.id,
         &sdk_sessions,
@@ -66,21 +80,22 @@ pub(crate) async fn handle_access_mode_set(
         &access_mode,
     )
     .await
-    {
+    else {
         return;
-    }
+    };
     let mode_wire = access_mode_wire(&access_mode);
     if !persist_access_mode(sender, &envelope.id, app_state, db_session_id, mode_wire).await {
         return;
     }
-    update_cached_access_mode(&sdk_sessions, db_session_id, access_mode).await;
+    update_cached_access_mode(&sdk_sessions, db_session_id, access_mode, applied_to).await;
     super::reply_and_broadcast(
         app_state,
         sender,
         &envelope.id,
         feature_id,
-        WsSessionAction::AccessModeChanged,
-        serde_json::json!({ "mode": mode_wire }),
+        &WsSessionEvent::AccessModeChanged(ModeChangedPayload {
+            mode: mode_wire.into(),
+        }),
     )
     .await;
 }
@@ -101,14 +116,22 @@ async fn resolve_target(
     app_state: &AppState,
     ref_id: &str,
     payload: &AccessModeSetPayload,
+    access_mode: &RuntimeAccessMode,
 ) -> Option<(SdkSessions, i64, i64)> {
     let db_session_id = parse_session_id(&payload.session_id).or_else(|| {
         send_error(sender, ref_id, "INVALID_SESSION_ID", "Invalid session_id");
         None
     })?;
     let effective_sessions =
-        super::resolve_owner_sessions(sdk_sessions, app_state, db_session_id).await;
-    let feature_id = validate_session(sender, &effective_sessions, ref_id, db_session_id).await?;
+        super::resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
+    let feature_id = validate_session(
+        sender,
+        &effective_sessions,
+        ref_id,
+        db_session_id,
+        access_mode,
+    )
+    .await?;
     Some((effective_sessions, db_session_id, feature_id))
 }
 
@@ -117,14 +140,16 @@ async fn validate_session(
     sdk_sessions: &SdkSessions,
     ref_id: &str,
     db_session_id: i64,
+    access_mode: &RuntimeAccessMode,
 ) -> Option<i64> {
     let sessions = sdk_sessions.lock().await;
     let Some(handle) = sessions.get(&db_session_id) else {
         send_error(sender, ref_id, "SESSION_NOT_FOUND", "Session not found");
         return None;
     };
+    // The requested mode itself: an installed provider maps only some of them.
     let supports_access = runtime_adapter(&handle.runtime_provider)
-        .is_some_and(|adapter| adapter.supports_access_mode(&RuntimeAccessMode::Default));
+        .is_some_and(|adapter| adapter.supports_access_mode(access_mode));
     if !supports_access {
         send_error(
             sender,
@@ -150,13 +175,15 @@ async fn apply_access_mode(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
     access_mode: &RuntimeAccessMode,
-) -> bool {
-    if let Err(error) = apply_active_access_mode(sdk_sessions, db_session_id, access_mode).await {
-        error!(db_session_id, %error, "failed to apply access mode to active runtime");
-        send_error(sender, ref_id, "MODE_REJECTED_BY_CLI", &error.to_string());
-        return false;
+) -> Option<Option<RuntimeSessionHandle>> {
+    match apply_active_access_mode(sdk_sessions, db_session_id, access_mode).await {
+        Ok(applied_to) => Some(applied_to),
+        Err(error) => {
+            error!(db_session_id, %error, "failed to apply access mode to active runtime");
+            send_error(sender, ref_id, "MODE_REJECTED_BY_CLI", &error.to_string());
+            None
+        }
     }
-    true
 }
 
 async fn persist_access_mode(
@@ -184,19 +211,25 @@ async fn update_cached_access_mode(
     sdk_sessions: &SdkSessions,
     db_session_id: i64,
     access_mode: RuntimeAccessMode,
+    applied_to: Option<RuntimeSessionHandle>,
 ) {
     let mut sessions = sdk_sessions.lock().await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         return;
     };
-    // When the live runtime already adopted the whole change in place and its
-    // launch flags are unchanged (Cursor Default <-> Auto Review), advance
-    // `spawned_access_mode` too so the next prompt doesn't force a redundant
-    // respawn. Launch-flag changes (Full Access) leave `spawned` stale so the
-    // respawn path still re-launches with the right flags.
-    let needs_respawn = runtime_adapter(&handle.runtime_provider).is_none_or(|adapter| {
-        adapter.access_mode_change_needs_respawn(handle.spawned_access_mode.as_ref(), &access_mode)
-    });
+    // When the runtime still live adopted the whole change, advance
+    // `spawned_access_mode` too so the next prompt doesn't respawn. Otherwise
+    // (respawn-only adapter, nothing applied, or another runtime launched in
+    // the meantime) it stays at the launched value and the respawn check
+    // sees the change.
+    let still_live = match (&handle.state, &applied_to) {
+        (QueryState::Active { query, .. }, Some(applied)) => Arc::ptr_eq(query, applied),
+        _ => false,
+    };
+    let adopted_live = still_live
+        && runtime_adapter(&handle.runtime_provider)
+            .is_some_and(|adapter| adapter.access_mode_change() == RuntimeAccessModeChange::Live);
+    let needs_respawn = !adopted_live;
     handle.desired_access_mode = Some(access_mode.clone());
     handle.config.access_mode = Some(access_mode.clone());
     if !needs_respawn {

@@ -43,6 +43,11 @@ function ZoomOutHarness({ onFire }: { onFire: () => void }): ReactElement {
   return <div data-testid="zoom-out-harness" tabIndex={0} />;
 }
 
+function SettingsSearchHarness({ onFire }: { onFire: () => void }): ReactElement {
+  useShortcut("settings-search", onFire);
+  return <input data-testid="settings-field" aria-label="A setting" />;
+}
+
 function GlobalHarness({ onFire }: { onFire: () => void }): ReactElement {
   useGlobalShortcutById("shortcuts-help", onFire);
   return <div data-testid="g" tabIndex={0} />;
@@ -310,5 +315,24 @@ describe("useGlobalShortcutById", () => {
       code: "KeyH",
     });
     expect(onFire).toHaveBeenCalledTimes(1);
+  });
+
+  it("binds settings search to the labelled F, from inside a settings field too", () => {
+    const onFire = vi.fn();
+    const { getByTestId } = render(<SettingsSearchHarness onFire={onFire} />);
+    const field = getByTestId("settings-field");
+    field.focus();
+
+    // QWERTY: the labelled key and the physical key agree.
+    fireEvent.keyDown(field, { key: "f", metaKey: true, code: "KeyF" });
+    expect(onFire).toHaveBeenCalledTimes(1);
+
+    // Dvorak: "f" sits on the physical Y key; the label wins.
+    fireEvent.keyDown(field, { key: "f", metaKey: true, code: "KeyY" });
+    expect(onFire).toHaveBeenCalledTimes(2);
+
+    // ...and the physical F key, which types "u" there, is not ⌘F.
+    fireEvent.keyDown(field, { key: "u", metaKey: true, code: "KeyF" });
+    expect(onFire).toHaveBeenCalledTimes(2);
   });
 });

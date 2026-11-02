@@ -47,13 +47,16 @@ contribution process are in [Marketplace V1](./MARKETPLACE_V1.md), the authorita
 delivery checklist for that deferred decision, not for v0.12.0. Public themes, custom tabs, and deeper
 plugin contributions follow independently; themes are no longer a prerequisite
 for shipping the provider marketplace.
+A single marketplace package may combine these contributions (a theme, a
+provider and a custom tab released together): see
+[Multi-export plugins](./MULTI_EXPORT_PLUGINS.md).
 
 ## 0. Thesis
 
 Extensibility has four capability tracks, each independently mergeable and valuable to users. The original theme-first ordering below is superseded for public marketplace delivery by the accepted provider-first V1:
 
 1. **Custom themes** — pure data, zero new security surface, immediate visible value. Establishes the import → validate → enable → persist pipeline everything later reuses.
-2. **Bring your own agent (ACP)** — the ACP layer (`packages/service/src/domain/agents/acp/`, ~13k lines) is a strong provider-neutral base; Cursor and OpenCode ride it today, but provider hooks and shared-code leaks still need the boundary work in `docs/PROVIDER_SPEC/BOUNDARIES.md`. Third-party integrations become **independently distributed, code-backed connector processes that speak standard ACP**. Their provider-native mapping code never becomes Cadencr source code.
+2. **Bring your own agent (ACP)** — the ACP layer (`packages/service/src/domain/agents/acp/`, ~13k lines) is a strong provider-neutral base; OpenCode rides it as a built-in and Cursor now ships as an external marketplace provider plugin (`plugins/providers/cursor/`), but provider hooks and shared-code leaks still need the boundary work in `docs/PROVIDER_SPEC/BOUNDARIES.md`. Third-party integrations become **independently distributed, code-backed connector processes that speak standard ACP**. Their provider-native mapping code never becomes Cadencr source code.
 3. **Custom tabs** — local plugins that add a web UI tab to the feature page. Each runs in an isolated `WebContentsView` (own process, partition and `cadencr-tab://` origin) and reaches Cadencr only through a `MessagePort` broker and a service-enforced grant. Amended 2026-10-16; contract in [Custom tabs](./CUSTOM_TABS.md).
 4. **Deeper behavior changes** — the plugin system proper: manifests, installer, a `plugin` WS domain, declarative UI contributions. **Declarative-first**: plugins describe UI, first-party React renders it. No third-party JS in the renderer, ever.
 
@@ -95,7 +98,7 @@ The strategic model is **Raycast/Figma/Zed (control by construction), not VS Cod
 
 ## 3. Step 2 — Bring your own agent (ACP)
 
-ACP is the interoperability standard selected for Cadencr's third-party agent boundary. Cadencr already uses the `agent-client-protocol` crate (`packages/service/Cargo.toml`), and `acp/mod.rs` says the client is "intended to be reused by future ACP-based providers." Cursor and OpenCode prove the shared path, but marketplace conformance still needs the generic fixtures and boundary cleanup defined in `docs/PROVIDER_SPEC/BOUNDARIES.md`.
+ACP is the interoperability standard selected for Cadencr's third-party agent boundary. Cadencr already uses the `agent-client-protocol` crate (`packages/service/Cargo.toml`), and `acp/mod.rs` says the client is "intended to be reused by future ACP-based providers." OpenCode (built-in) and the external Cursor and Pi connectors prove the shared path, but marketplace conformance still needs the generic fixtures and boundary cleanup defined in `docs/PROVIDER_SPEC/BOUNDARIES.md`.
 
 **What exists:** generic subprocess client (`acp/client.rs`, `client_spawn.rs`), session/permission/tool-call/terminal/fs machinery (`acp/runtime/`), capability probing, and a 33-method `AcpProviderHooks` trait with 4 required methods and 29 defaults as reviewed on 2026-08-02. The process boundary is useful, but it is **not an OS sandbox**: `permission_bridge`, `gate_registry`, and `terminal_sandbox` mediate Cadencr protocol operations; they do not stop the child executable from using its ambient filesystem or environment access.
 

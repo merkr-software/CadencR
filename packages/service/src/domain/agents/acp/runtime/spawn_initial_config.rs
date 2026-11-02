@@ -35,7 +35,6 @@ pub(super) async fn apply_initial_model(
         &session.client,
         &negotiated.session_id,
         &session.current_model,
-        &session.current_effort,
         &session.supports_set_config_option,
         &session.session_config,
         session.hooks.as_ref(),
@@ -52,12 +51,14 @@ async fn validate_live_model(session: &AcpRuntimeSession, model: &str) -> Result
     let config_id = session.hooks.model_config_id().ok_or_else(|| {
         RuntimeError::new("provider model discovery did not identify an ACP model selector")
     })?;
-    let wire_value = session.hooks.model_config_value(model);
     session
         .session_config
         .snapshot()
         .await
-        .validate_value(config_id, &RuntimeSessionConfigValue::Select(wire_value))
+        .validate_value(
+            config_id,
+            &RuntimeSessionConfigValue::Select(model.to_string()),
+        )
         .map_err(|error| RuntimeError::new(format!("live ACP model catalog mismatch: {error}")))
 }
 
@@ -65,14 +66,13 @@ async fn confirm_live_model(session: &AcpRuntimeSession, model: &str) -> Result<
     let config_id = session.hooks.model_config_id().ok_or_else(|| {
         RuntimeError::new("provider model discovery did not identify an ACP model selector")
     })?;
-    let expected = session.hooks.model_config_value(model);
     let snapshot = session.session_config.snapshot().await;
     let actual = snapshot.select_current_value(config_id).ok_or_else(|| {
         RuntimeError::new(format!(
             "live ACP response omitted model selector `{config_id}`"
         ))
     })?;
-    if actual != expected {
+    if actual != model {
         return Err(RuntimeError::new(format!(
             "provider did not confirm selected model `{model}`; live value is `{actual}`"
         )));
@@ -81,8 +81,7 @@ async fn confirm_live_model(session: &AcpRuntimeSession, model: &str) -> Result<
 }
 
 /// No-op when `config.thinking_effort` is `None`. Same fallback rules as
-/// `apply_initial_model`. Skips when the catalog model id already encodes
-/// effort that `apply_initial_model` will push as a companion option.
+/// `apply_initial_model`.
 pub(super) async fn apply_initial_thinking_effort(
     session: &AcpRuntimeSession,
     negotiated: &NegotiatedSession,
@@ -91,13 +90,6 @@ pub(super) async fn apply_initial_thinking_effort(
     let Some(effort) = config.thinking_effort.as_deref() else {
         return Ok(());
     };
-    if config
-        .model
-        .as_deref()
-        .is_some_and(|model| session.hooks.model_encodes_thinking_effort(model))
-    {
-        return Ok(());
-    }
     let update_guard = session.session_config.lock_updates().await;
     let response = set_config_option_thinking_effort(
         &session.client,

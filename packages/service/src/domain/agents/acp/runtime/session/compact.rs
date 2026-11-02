@@ -89,8 +89,8 @@ mod tests {
             None
         }
 
-        fn compact_prompt(&self) -> Option<&'static str> {
-            Some("/compact")
+        fn compact_prompt(&self) -> Option<String> {
+            Some("/compact".to_string())
         }
     }
 

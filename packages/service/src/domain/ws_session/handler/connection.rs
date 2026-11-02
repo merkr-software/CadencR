@@ -1,6 +1,6 @@
 //! WebSocket upgrade + per-connection loop, dispatch, and disconnect cleanup.
 
-use std::collections::HashMap;
+use crate::domain::ws_session::protocol::WsSessionEvent;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -19,7 +19,7 @@ use crate::domain::ws_session::protocol::{SessionErrorPayload, WsEnvelope};
 use crate::remote::RemoteContext;
 
 use super::dispatch::dispatch_envelope;
-use super::types::{QueryState, SdkSessions};
+use super::types::new_sdk_sessions;
 
 mod outbound;
 
@@ -34,6 +34,47 @@ const INBOUND_RATE_RETRY_AFTER_MS: u64 = 5_000;
 const GRACEFUL_CLOSE_SEND_TIMEOUT: Duration =
     Duration::from_secs(RETRY_CLOSE_SEND_TIMEOUT.as_secs() + 1);
 const GRACEFUL_CLOSE_ECHO_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Detach the viewer even when remote revocation cancels the connection future.
+struct ConnectionLifetime {
+    state: AppState,
+    sender: Option<mpsc::UnboundedSender<Message>>,
+    bridge: tokio::task::AbortHandle,
+    socket: tokio::task::AbortHandle,
+}
+
+impl ConnectionLifetime {
+    async fn finish(mut self) {
+        self.bridge.abort();
+        self.socket.abort();
+        if let Some(sender) = self.sender.as_ref() {
+            detach_viewer(&self.state, sender).await;
+        }
+        self.sender = None;
+    }
+}
+
+impl Drop for ConnectionLifetime {
+    fn drop(&mut self) {
+        self.bridge.abort();
+        self.socket.abort();
+        if let Some(sender) = self.sender.take() {
+            let state = self.state.clone();
+            tokio::spawn(async move {
+                detach_viewer(&state, &sender).await;
+            });
+        }
+    }
+}
+
+async fn detach_viewer(state: &AppState, sender: &mpsc::UnboundedSender<Message>) {
+    state.git_watcher.unsubscribe_sender(sender).await;
+    state.ws_feature_senders.unregister_sender(sender).await;
+    state
+        .session_runtimes
+        .prune_unobserved(&state.ws_feature_senders)
+        .await;
+}
 
 struct InboundRateLimit {
     window_started: Instant,
@@ -143,7 +184,6 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
     let (outbound_tx, outbound_rx) = mpsc::unbounded_channel::<Message>();
     let (socket_tx, socket_rx) = mpsc::channel::<Message>(OUTBOUND_SOCKET_CAPACITY);
     let (bridge_task, mut bridge_exit_rx) = spawn_outbound_bridge(outbound_rx, socket_tx);
-    let sdk_sessions: SdkSessions = std::sync::Arc::new(tokio::sync::Mutex::new(HashMap::new()));
     let mut inbound_rate = InboundRateLimit::new();
     let mut graceful_close_requested = false;
 
@@ -152,6 +192,12 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
     // still need to flush bytes it already accepted before it can enqueue the
     // close, so graceful teardown gives that bounded flush time to recover.
     let (mut send_task, close_tx) = spawn_socket_sender(ws_sink, socket_rx);
+    let lifetime = ConnectionLifetime {
+        state: state.clone(),
+        sender: Some(outbound_tx.clone()),
+        bridge: bridge_task.abort_handle(),
+        socket: send_task.abort_handle(),
+    };
 
     // Inbound loop: read messages from client. We `select!` against the
     // outbound task so a half-open TCP socket (e.g. laptop sleep, Wi-Fi
@@ -195,17 +241,12 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                                 retry_after_ms = INBOUND_RATE_RETRY_AFTER_MS,
                                 "WebSocket inbound message rate exceeded"
                             );
-                            let err_env = WsEnvelope::new(
-                                "session",
-                                "error",
-                                serde_json::to_value(SessionErrorPayload {
+                            let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
                                     code: "RATE_LIMITED".into(),
                                     message: "WebSocket message rate exceeded".into(),
                                     retry_after_ms: Some(INBOUND_RATE_RETRY_AFTER_MS),
                                     ..Default::default()
-                                })
-                                .unwrap(),
-                            );
+                                })).expect("session event payload should serialize");
                             let shutdown = retryable_error_shutdown(
                                 Message::Text(String::from(err_env).into()),
                                 "rate-limited",
@@ -219,25 +260,23 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
                         let text_str: &str = &text;
                         match WsEnvelope::try_from(text_str.to_string()) {
                             Ok(envelope) => {
-                                dispatch_envelope(
+                                let touched_session = dispatch_envelope(
                                     envelope,
                                     &outbound_tx,
-                                    &sdk_sessions,
+                                    &new_sdk_sessions(),
                                     &state,
                                 )
                                 .await;
+                                if let Some(id) = touched_session {
+                                    state.session_runtimes.prune_session(id, &state.ws_feature_senders).await;
+                                }
                             }
                             Err(e) => {
-                                let err_env = WsEnvelope::new(
-                                    "session",
-                                    "error",
-                                    serde_json::to_value(SessionErrorPayload {
+                                let err_env = WsEnvelope::session_event(&WsSessionEvent::Error(SessionErrorPayload {
                                         code: "PARSE_ERROR".into(),
                                         message: format!("Invalid envelope: {e}"),
                                         ..Default::default()
-                                    })
-                                    .unwrap(),
-                                );
+                                    })).expect("session event payload should serialize");
                                 let _ = outbound_tx
                                     .send(Message::Text(String::from(err_env).into()));
                             }
@@ -255,45 +294,7 @@ async fn handle_connection(socket: WebSocket, state: AppState) {
         finish_graceful_close(&mut send_task, &mut ws_stream).await;
     }
 
-    // Cleanup: this connection is going away, but a turn it started must keep
-    // running on the host. Drop only `Pending` handles — viewers with no live
-    // process. Every `Active` handle is left in place: its stream reader holds
-    // this map alive and performs *deferred teardown* once the turn finishes
-    // and the owner is gone (see `StreamReaderTask::maybe_teardown_orphaned`).
-    // Closing it here is exactly what stopped the agent when a remote client
-    // (e.g. a phone) went to sleep mid-turn. We deliberately do NOT mark the
-    // session paused or broadcast Idle: it is still running, and a reconnecting
-    // device should see it that way.
-    let mut sessions = sdk_sessions.lock().await;
-    let live_turns = sessions
-        .values()
-        .filter(|handle| matches!(handle.state, QueryState::Active { .. }))
-        .count();
-    debug!(
-        total = sessions.len(),
-        live_turns, "WS cleanup: keeping live turns, dropping pending handles"
-    );
-    sessions.retain(|_, handle| matches!(handle.state, QueryState::Active { .. }));
-    drop(sessions);
-
-    // A surviving turn keeps its weak registry ownership so other devices can
-    // answer gates and render its timer. The reader clears it at completion.
-    if live_turns == 0 {
-        state.active_turns.remove_owned_by(&sdk_sessions).await;
-    }
-
-    // Drop any `git.status` subscriptions for this WS. The sender-keyed sweep
-    // catches half-open shutdowns where the explicit unsubscribe never arrived.
-    state.git_watcher.unsubscribe_sender(&outbound_tx).await;
-
-    // Remove this connection's sender from every feature it was registered under.
-    state
-        .ws_feature_senders
-        .unregister_sender(&outbound_tx)
-        .await;
-
-    bridge_task.abort();
-    send_task.abort();
+    lifetime.finish().await;
 }
 
 #[cfg(test)]
@@ -309,5 +310,29 @@ mod tests {
         }
         assert!(!limiter.allow(start));
         assert!(limiter.allow(start + Duration::from_secs(1)));
+    }
+    #[tokio::test]
+    async fn cancelled_connection_detaches_observer_and_aborts_socket_tasks() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let state = AppState::with_pool(pool);
+        let (sender, _receiver) = mpsc::unbounded_channel();
+        state.ws_feature_senders.register(1, sender.clone()).await;
+        let bridge = tokio::spawn(std::future::pending::<()>());
+        let socket = tokio::spawn(std::future::pending::<()>());
+        drop(ConnectionLifetime {
+            state: state.clone(),
+            sender: Some(sender),
+            bridge: bridge.abort_handle(),
+            socket: socket.abort_handle(),
+        });
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !state.ws_feature_senders.get_senders(1).await.is_empty() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(bridge.await.unwrap_err().is_cancelled());
+        assert!(socket.await.unwrap_err().is_cancelled());
     }
 }

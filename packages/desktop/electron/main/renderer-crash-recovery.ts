@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
+import { relayRemoteDiagnostic } from "./telemetry-relay";
 import { app, dialog } from "electron";
 
 interface RendererGoneDetails {
@@ -53,6 +54,7 @@ export function installRendererCrashRecovery(
   const reloads: number[] = [];
   window.webContents.on("render-process-gone", (_event, details) => {
     if (details.reason === "clean-exit") return;
+    relayRemoteDiagnostic({ category: "renderer_process_exit", frames: [] });
     const now = options.now();
     const diagnostics = buildRendererCrashDiagnostics(details, options);
     try {

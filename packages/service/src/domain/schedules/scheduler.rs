@@ -3,8 +3,8 @@
 //! One loop for every schedule, not a timer per rule. Creating, editing,
 //! pausing or deleting a schedule is just a write to `schedules` — the next
 //! tick picks the change up, so there is no in-memory timer set to drift out of
-//! sync with the database (the failure mode the custom-action scheduler has to
-//! work around with explicit `apply_change` calls).
+//! sync with the database. Custom actions are scheduled here too (a
+//! `custom_action` target), not on timers of their own.
 
 use std::time::Duration;
 
@@ -12,7 +12,7 @@ use chrono::Utc;
 use tracing::{info, warn};
 
 use super::fire::{self, FireOutcome};
-use super::models::{Schedule, ScheduleRanEvent};
+use super::models::{Schedule, ScheduleRanEvent, TargetKind};
 use super::planner::{self, DueAction};
 use super::repository::{self, ClaimedSchedule, RunOutcome};
 use crate::app_state::AppState;
@@ -48,10 +48,13 @@ async fn tick(state: &AppState) -> Result<(), AppError> {
         let Some(claimed) = repository::claim_due(&state.write_pool).await? else {
             return Ok(());
         };
-        if claimed.schedule.condition.is_some() {
-            // A condition command can run for minutes; evaluated inline it
-            // would hold every other schedule behind it. The claim already
-            // keeps the row exclusive, so it can finish on its own task.
+        if claimed.schedule.condition.is_some()
+            || claimed.schedule.target.kind == TargetKind::CustomAction
+        {
+            // A condition command or a custom action can run for minutes;
+            // evaluated inline it would hold every other schedule behind it.
+            // The claim already keeps the row exclusive, so it can finish on
+            // its own task.
             let state = state.clone();
             tokio::spawn(async move { run_claimed(&state, claimed).await });
         } else {

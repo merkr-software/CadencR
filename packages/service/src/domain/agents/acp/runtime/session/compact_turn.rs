@@ -33,7 +33,7 @@ pub(super) struct CompactTurn {
     pub(super) running: Arc<AtomicBool>,
     pub(super) replay_suppression: Arc<AtomicBool>,
     pub(super) initial_session_id: String,
-    pub(super) compact_prompt: Option<&'static str>,
+    pub(super) compact_prompt: Option<String>,
     pub(super) hooks: Arc<dyn AcpProviderHooks>,
 }
 
@@ -60,7 +60,7 @@ impl CompactTurn {
         let compact_prompt = self
             .compact_prompt
             .ok_or_else(|| RuntimeError::new("ACP provider does not support manual compaction"))?;
-        let prompt = acp_prompt_blocks_from_content(Value::String(compact_prompt.to_string()));
+        let prompt = acp_prompt_blocks_from_content(Value::String(compact_prompt));
         let supports = self.supports_set_config_option.load(Ordering::SeqCst);
         let model = self.current_model.read().await.clone();
         let effort = self.current_effort.read().await.clone();

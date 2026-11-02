@@ -1,7 +1,8 @@
+import { SessionTransportRegistry } from "./ws-session-transport";
 import { describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
 
-import type { AgentBlockData } from "@/components/AgentBlock";
+import type { AgentBlockData } from "@/types/agent-block";
 import { handleEnvelope, type StoreAccessors } from "./ws-envelope-handler";
 import { createSessionEntry, type SessionEntry, type WsSessionStore } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
@@ -25,6 +26,7 @@ function createTestContext(session: SessionEntry): StoreAccessors {
     set: (partial: Partial<WsSessionStore>): void => {
       state = { ...state, ...partial };
     },
+    transport: new SessionTransportRegistry(),
     getSession: (sessionId: string): SessionEntry => state.sessions[sessionId],
   };
 }
@@ -461,6 +463,53 @@ describe("handleEnvelope commands.list", () => {
       userShell: true,
     });
   });
+
+  it("keeps the provider's discovery error for the menu", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-2";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-2",
+      payload: {
+        commands: [{ name: "cadencr:status", kind: "cadencr" }],
+        error: "Provider commands could not be loaded: output was rejected",
+      },
+    });
+
+    expect(ctx.getSession("s1").slashCommandsError).toBe(
+      "Provider commands could not be loaded: output was rejected",
+    );
+    expect(ctx.getSession("s1").slashCommands).toHaveLength(1);
+  });
+
+  it("lets a live update win over a pre-session list that lands after it", () => {
+    const session = createSessionEntry();
+    session.slashCommandsRequestRef = "commands-3";
+    session.slashCommandsLoading = true;
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "updated",
+      payload: { commands: [{ name: "live-only", kind: "command" }] },
+    });
+    handleEnvelope(ctx, "s1", {
+      domain: "commands",
+      action: "list",
+      ref: "commands-3",
+      payload: { commands: [{ name: "stale", kind: "command" }], error: "late" },
+    });
+
+    expect(ctx.getSession("s1").slashCommands).toEqual([
+      { name: "live-only", description: "", kind: "command" },
+    ]);
+    expect(ctx.getSession("s1").slashCommandsError).toBeNull();
+    expect(ctx.getSession("s1").slashCommandsLoading).toBe(false);
+  });
 });
 
 describe("handleEnvelope workflow worktree events", () => {
@@ -630,6 +679,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 
@@ -666,6 +716,7 @@ describe("handleEnvelope error handling", () => {
       set: (partial: Partial<WsSessionStore>): void => {
         state = { ...state, ...partial };
       },
+      transport: new SessionTransportRegistry(),
       getSession: (id: string): SessionEntry => state.sessions[id],
     };
 

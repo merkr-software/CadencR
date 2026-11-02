@@ -23,8 +23,8 @@ claude-agent-sdk-rs = { path = "../claude-agent-sdk-rs" }
 tokio = { version = "1", features = ["full"] }
 portable-pty = { path = "vendor/portable-pty" } # vendored
 
-[dependencies.cursor-agent-sdk-rs]
-path = "../cursor-agent-sdk-rs"
+[dependencies.opencode-sdk-rs]
+path = "../opencode-sdk-rs"
 
 [target.'cfg(windows)'.dependencies]
 win-only = { path = "../win-only" }
@@ -41,7 +41,7 @@ test("parses path dependencies from every non-dev dependency table", () => {
   assert.deepEqual(parsePathDependencies(SERVICE_MANIFEST), [
     "../claude-agent-sdk-rs",
     "vendor/portable-pty",
-    "../cursor-agent-sdk-rs",
+    "../opencode-sdk-rs",
     "../win-only",
   ]);
 });

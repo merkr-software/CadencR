@@ -28,11 +28,16 @@
 use serde::Serialize;
 
 mod broadcaster;
+mod journal;
 mod live;
 mod provider;
+mod turn_clock;
 
-pub use broadcaster::{SessionStatusBroadcaster, SessionStatusSnapshot};
+pub use broadcaster::{restore_at_boot, SessionStatusBroadcaster, SessionStatusSnapshot};
+use journal::close_stale_turns;
+pub use journal::{transcript_block_message, TurnJournal};
 pub use provider::{event_starts_fresh_turn, provider_signal_for_event, ProviderSignal};
+pub use turn_clock::{CompletedTurn, TurnClock};
 
 /// The canonical 3-value agent status, identical wire format on Rust and TS.
 ///
@@ -114,12 +119,17 @@ pub struct SessionStatusEvent {
     /// the same kind on the same session.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_id: Option<String>,
-    /// Server wall-clock (epoch ms) when the current turn started. Carried on
-    /// every non-idle event and snapshot entry — kept through gates — so every
-    /// client anchors its elapsed timer to one source of truth instead of each
-    /// device's local clock-at-first-render.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub turn_started_at_ms: Option<i64>,
+    /// The running turn's clock — start, time spent waiting on the user, the
+    /// model the CLI reports — carried on every non-idle event and snapshot
+    /// entry, so every client derives the same timer from one source of truth
+    /// instead of each device's local clock-at-first-render. Empty on idle.
+    #[serde(flatten)]
+    pub clock: TurnClock,
+    /// The provider is compacting the conversation's context. Lives here, not
+    /// on the session socket, so a device that missed its end still reads the
+    /// truth from the next event or snapshot.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub compacting: bool,
     /// Set on the `Idle` event that ends a failed turn, so clients can flag the
     /// conversation until someone opens it. Never part of a snapshot: like
     /// "unread", a failure is relative to who has seen it.

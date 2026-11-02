@@ -22,6 +22,11 @@ import type {
 
 import { customInstance } from "../client.ts";
 import type { ErrorType } from "../client.ts";
+export interface AccessModeSetPayload {
+  mode: string;
+  session_id: string;
+}
+
 export type AcpBinaryTargetEnv = { [key: string]: string };
 
 export interface AcpBinaryTarget {
@@ -149,6 +154,13 @@ export interface AgentBlock {
   content: string;
   /** @nullable */
   createdAt?: string | null;
+  /**
+   * UTF-8 size of the complete persisted content when `content` is a
+   * bounded preview of it, so the client can say what loading it costs.
+   * @minimum 0
+   * @nullable
+   */
+  fullContentBytes?: number | null;
   id: string;
   /** @nullable */
   isError?: boolean | null;
@@ -254,11 +266,40 @@ export interface ProviderProfileCapability {
   supports_config_inheritance: boolean;
 }
 
+/**
+ * ACP `promptCapabilities`: which non-text content blocks a prompt may carry.
+ */
+export interface ProviderPromptCapabilities {
+  audio: boolean;
+  embedded_context: boolean;
+  image: boolean;
+}
+
+/**
+ * A program and argument vector; `{session_id}` is the only placeholder.
+ * Never a shell string: the desktop quotes every element itself.
+ */
+export interface ProviderResumeCommand {
+  args: string[];
+  program: string;
+}
+
 export type ProviderCatalogResponseEntryAllOfProfileCapability = null | ProviderProfileCapability;
 
+export type ProviderCatalogResponseEntryAllOfPromptCapabilities = null | ProviderPromptCapabilities;
+
+export type ProviderCatalogResponseEntryAllOfResumeCommand = null | ProviderResumeCommand;
+
 export type ProviderCatalogResponseEntryAllOf = {
+  /**
+   * `/compact` is a session action Cadencr performs (manual compaction
+   * through the live runtime) rather than text the runtime understands.
+   */
+  compact_action?: boolean;
   origin: ProviderOrigin;
   profile_capability?: ProviderCatalogResponseEntryAllOfProfileCapability;
+  prompt_capabilities?: ProviderCatalogResponseEntryAllOfPromptCapabilities;
+  resume_command?: ProviderCatalogResponseEntryAllOfResumeCommand;
   /**
    * A prompt sent while the agent works is delivered into the running turn
    * and acknowledged (steering). When false the composer queues it for
@@ -533,6 +574,42 @@ export interface ArchivedCleanupRunResponse {
   status: ArchivedCleanupRunStatus;
 }
 
+export interface ForgeUser {
+  /** @nullable */
+  avatar_url?: string | null;
+  /** @nullable */
+  display_name?: string | null;
+  username: string;
+}
+
+export type AutoMergeStateEnabledBy = null | ForgeUser;
+
+/**
+ * How a proposal's commits land on the target branch. Each forge offers a
+ * subset, and which one is allowed is a repository (or branch) setting.
+ */
+export type MergeMethod = (typeof MergeMethod)[keyof typeof MergeMethod];
+
+export const MergeMethod = {
+  merge: "merge",
+  squash: "squash",
+  rebase: "rebase",
+  rebase_merge: "rebase_merge",
+  fast_forward: "fast_forward",
+  squash_fast_forward: "squash_fast_forward",
+} as const;
+
+export type AutoMergeStateMethod = null | MergeMethod;
+
+/**
+ * The proposal will merge itself once its checks (and, where the forge
+ * supports it, its approvals) pass.
+ */
+export interface AutoMergeState {
+  enabled_by?: AutoMergeStateEnabledBy;
+  method?: AutoMergeStateMethod;
+}
+
 export interface AutoNamePromptResponse {
   /**
    * The built-in auto-naming system prompt, used whenever the workspace
@@ -637,6 +714,13 @@ export interface BranchInfo {
   name: string;
 }
 
+export interface BranchNeedsConfirmPayload {
+  kind: string;
+  messageId: number;
+  reason: string;
+  sessionId: string;
+}
+
 /**
  * How a branch came to belong to a conversation.
  */
@@ -649,6 +733,19 @@ export const BranchOrigin = {
   manual: "manual",
   head: "head",
 } as const;
+
+/**
+ * Inbound payload shared by `branch.rewind` and `branch.fork`.
+ */
+export interface BranchPayload {
+  /**
+   * Rewind only: the user has acknowledged that uncommitted changes since the
+   * checkpoint will be discarded. Ignored by fork.
+   */
+  confirm_discard?: boolean;
+  message_id: number;
+  session_id: string;
+}
 
 export type CiState = (typeof CiState)[keyof typeof CiState];
 
@@ -672,14 +769,6 @@ export interface CiRollup {
 }
 
 export type BranchPrCi = null | CiRollup;
-
-export interface ForgeUser {
-  /** @nullable */
-  avatar_url?: string | null;
-  /** @nullable */
-  display_name?: string | null;
-  username: string;
-}
 
 export type ReviewState = (typeof ReviewState)[keyof typeof ReviewState];
 
@@ -818,6 +907,42 @@ export interface ClaudeCodeSuccessResponse {
   ok: boolean;
 }
 
+/**
+ * How an agent CLI reaches an MCP server.
+ */
+export type McpTransport = (typeof McpTransport)[keyof typeof McpTransport];
+
+export const McpTransport = {
+  stdio: "stdio",
+  http: "http",
+  sse: "sse",
+} as const;
+
+/**
+ * One MCP server as an agent CLI reports it.
+ */
+export interface CliMcpServer {
+  args: string[];
+  /** @nullable */
+  command?: string | null;
+  enabled: boolean;
+  /**
+   * Set when the server is owned by something else (a connector account,
+   * a plugin) and cannot be removed or updated from here.
+   * @nullable
+   */
+  managed_by?: string | null;
+  name: string;
+  /**
+   * Health as the CLI reported it (`Connected`, `Needs authentication`…).
+   * @nullable
+   */
+  status?: string | null;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
+}
+
 export type CodexProfileDraftEnv = { [key: string]: string };
 
 export interface CodexProfileDraft {
@@ -950,6 +1075,12 @@ export interface PromptCommandPolicyPayload {
 
 export interface CommandsListPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
   prompt_command_policy?: PromptCommandPolicyPayload;
   /**
    * `true` when the server is currently re-resolving the catalog in
@@ -971,6 +1102,11 @@ export interface CommandsListPayload {
  */
 export interface CommandsUpdatedPayload {
   commands: SlashCommandPayload[];
+  /**
+   * Same as the `error` of `CommandsListPayload`; absent on live pushes.
+   * @nullable
+   */
+  error?: string | null;
 }
 
 /**
@@ -1658,6 +1794,9 @@ export interface LastRunSummary {
    * @nullable
    */
   exit_code?: number | null;
+  /** The run's id, so the header can stop it without fetching the history. */
+  run_id: number;
+  started_at: string;
 }
 
 export type CustomActionLastRun = null | LastRunSummary;
@@ -1715,16 +1854,6 @@ export interface CustomActionRun {
   triggered_by: TriggeredBy;
 }
 
-export interface CustomActionSchedule {
-  action_id: number;
-  enabled: boolean;
-  feature_id: number;
-  id: number;
-  interval_seconds: number;
-  /** @nullable */
-  last_run_at?: string | null;
-}
-
 export interface CustomActionVariable {
   value: string;
   var_name: string;
@@ -1734,6 +1863,22 @@ export interface CustomModelsResponse {
   models: ModelCatalogEntry[];
 }
 
+export interface DeleteSourceBranch {
+  /**
+   * Whether the viewer may choose. False when the repository always deletes
+   * it, or when the source branch lives in another repository (a fork).
+   */
+  configurable: boolean;
+  /** What the forge (or repository setting) would do by default. */
+  default: boolean;
+  /**
+   * Whether the choice also holds when the merge is deferred (auto-merge, a
+   * queue). False when the forge only deletes on an immediate merge: the
+   * repository setting then decides.
+   */
+  deferred: boolean;
+}
+
 export interface DeleteThemeResponse {
   success: boolean;
 }
@@ -1741,6 +1886,50 @@ export interface DeleteThemeResponse {
 export interface DeletedResponse {
   /** @minimum 0 */
   deleted: number;
+}
+
+export type DeliveryStatus = (typeof DeliveryStatus)[keyof typeof DeliveryStatus];
+
+export const DeliveryStatus = {
+  disabled: "disabled",
+  not_configured: "not_configured",
+  ready: "ready",
+  delivery_failed: "delivery_failed",
+} as const;
+
+export type DiagnosticCategory = (typeof DiagnosticCategory)[keyof typeof DiagnosticCategory];
+
+export const DiagnosticCategory = {
+  react_boundary: "react_boundary",
+  renderer_unhandled_error: "renderer_unhandled_error",
+  renderer_unhandled_rejection: "renderer_unhandled_rejection",
+  renderer_recoverable: "renderer_recoverable",
+  electron_main: "electron_main",
+  electron_preload: "electron_preload",
+  renderer_process_exit: "renderer_process_exit",
+  service_process_exit: "service_process_exit",
+  service_internal: "service_internal",
+  service_database: "service_database",
+  service_git: "service_git",
+  service_panic: "service_panic",
+} as const;
+
+export interface DiagnosticFrame {
+  /** @minimum 0 */
+  colno: number;
+  filename: string;
+  /** @minimum 0 */
+  lineno: number;
+}
+
+/**
+ * The wire contract deliberately has no message, URL, context or arbitrary properties.
+ */
+export interface DiagnosticReport {
+  /** @nullable */
+  build_id?: string | null;
+  category: DiagnosticCategory;
+  frames?: DiagnosticFrame[];
 }
 
 export interface DiffComment {
@@ -1778,9 +1967,28 @@ export interface DiffViewedFile {
   viewed_at: string;
 }
 
+export interface DraftGetPayload {
+  session_id: number;
+}
+
 export interface DraftResponse {
   /** @nullable */
   draftPrompt?: string | null;
+}
+
+export interface DraftResultPayload {
+  /** @nullable */
+  draft?: string | null;
+}
+
+export interface DraftSavePayload {
+  /** @nullable */
+  draft?: string | null;
+  session_id: number;
+}
+
+export interface DraftSavedPayload {
+  success: boolean;
 }
 
 export interface DuplicateManagedThemeRequest {
@@ -1805,6 +2013,45 @@ export interface EffortSetPayload {
   session_id: string;
   /** @nullable */
   thinking_effort?: string | null;
+}
+
+/**
+ * A CLI that could not report its extensions; the others still answer.
+ */
+export interface ExtensionCliError {
+  message: string;
+  provider_id: string;
+}
+
+/**
+ * What a provider's CLI can install, list and update for Cadencr.
+ */
+export interface ExtensionSupport {
+  /** The CLI can attach arbitrary HTTP headers to a remote server. */
+  mcp_headers: boolean;
+  /** Transports `mcp add` accepts. Empty: the CLI cannot add MCP servers. */
+  mcp_transports: McpTransport[];
+  /** The CLI has a command that updates an installed skill pack. */
+  skill_update: boolean;
+  /** The CLI installs skill packs from its own plugin marketplaces. */
+  skills: boolean;
+}
+
+/**
+ * One agent CLI that can carry skills and MCP servers.
+ */
+export interface ExtensionCliSummary {
+  /** The CLI binary was found on this computer. */
+  installed: boolean;
+  label: string;
+  provider_id: string;
+  support: ExtensionSupport;
+  /** @nullable */
+  version?: string | null;
+}
+
+export interface ExtensionClisResponse {
+  clis: ExtensionCliSummary[];
 }
 
 export interface FastModeSetOkPayload {
@@ -1933,6 +2180,15 @@ export interface FeatureAgentStateResponse {
   sessions: SessionState[];
 }
 
+/**
+ * Server → Client: auto-naming is starting or finished for a feature.
+ * Frontend replaces the title with a skeleton while `in_progress: true`.
+ */
+export interface FeatureAutoNamingPayload {
+  feature_id: number;
+  in_progress: boolean;
+}
+
 export interface FeatureBranchBody {
   branch: string;
 }
@@ -2050,6 +2306,11 @@ export interface FeaturePorts {
   ports: AllocatedPort[];
 }
 
+export interface FeatureRenamedPayload {
+  feature_id: number;
+  title: string;
+}
+
 export interface FeatureRespondGateRequest {
   decision: FeatureGateDecision;
   request_id: string;
@@ -2058,6 +2319,7 @@ export interface FeatureRespondGateRequest {
 export interface FeatureRespondGateResponse {
   request_id: string;
   resolved: boolean;
+  warnings?: string[];
 }
 
 /**
@@ -2083,6 +2345,15 @@ export interface FeatureRowSummaryResponse {
 export interface FeatureSetting {
   key: string;
   value: string;
+}
+
+/**
+ * Server → Client: one or more aspects of a feature changed.
+ * The frontend uses `changed` to selectively invalidate React Query caches.
+ */
+export interface FeatureUpdatedPayload {
+  changed: string[];
+  feature_id: number;
 }
 
 /**
@@ -2516,6 +2787,23 @@ export interface HealthResponse {
   status: string;
 }
 
+export interface HistoryAddPayload {
+  content: string;
+  project_id: number;
+}
+
+export interface HistoryAddedPayload {
+  added: boolean;
+}
+
+export interface HistoryGetPayload {
+  project_id: number;
+}
+
+export interface HistoryResultPayload {
+  entries: string[];
+}
+
 /**
  * Host-local root for connector-owned assets such as the registry `icon`.
  */
@@ -2759,6 +3047,14 @@ export interface InstalledProviderEntry {
    */
   executable: string;
   /**
+   * Why this process applies no host integration (compaction, worktree
+   * config copying, resume-in-terminal) for the provider: its package has
+   * no `host-integration` command, or its declaration was rejected. Absent
+   * when the declaration was accepted or has not been read yet.
+   * @nullable
+   */
+  host_integration_issue?: string | null;
+  /**
    * A non-fatal packaging problem that prevented the declared icon from
    * loading. Runtime availability is independent from visual metadata.
    * @nullable
@@ -2818,6 +3114,46 @@ export interface InstalledProvidersResponse {
   directory: string;
   installed: InstalledProviderEntry[];
   rejected: InstalledProviderRejection[];
+}
+
+/**
+ * Where an installed skill came from.
+ */
+export type SkillSource = (typeof SkillSource)[keyof typeof SkillSource];
+
+export const SkillSource = {
+  plugin: "plugin",
+  local: "local",
+} as const;
+
+/**
+ * A skill or skill pack installed in one CLI.
+ */
+export interface InstalledSkill {
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  enabled?: boolean | null;
+  /** Plugin selector, or the skill folder name for a local skill. */
+  id: string;
+  /** @nullable */
+  installed_at?: string | null;
+  name: string;
+  /** @nullable */
+  path?: string | null;
+  provider_id: string;
+  /** @nullable */
+  scope?: string | null;
+  source: SkillSource;
+  /**
+   * Newer marketplace version, when the CLI's catalog shows one.
+   * @nullable
+   */
+  update?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  /** @nullable */
+  version?: string | null;
 }
 
 export interface IsEmptyResponse {
@@ -3306,6 +3642,185 @@ export interface MarkViewedRequest {
   file_path: string;
 }
 
+/**
+ * Where one value the user provides at install time goes.
+ */
+export type McpInputKind = (typeof McpInputKind)[keyof typeof McpInputKind];
+
+export const McpInputKind = {
+  env: "env",
+  header: "header",
+  argument: "argument",
+  url_variable: "url_variable",
+} as const;
+
+/**
+ * A value the registry entry asks for (API key, path, header…).
+ */
+export interface McpInput {
+  /** @nullable */
+  default?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** Stable key the install request uses, e.g. `env:GITHUB_TOKEN`. */
+  key: string;
+  kind: McpInputKind;
+  label: string;
+  /**
+   * Format hint from the registry, e.g. `Bearer {api_key}`.
+   * @nullable
+   */
+  placeholder?: string | null;
+  required: boolean;
+  secret: boolean;
+}
+
+/**
+ * One way to run a registry server: a package launched locally or a remote endpoint.
+ */
+export interface McpInstallOption {
+  /** @nullable */
+  identifier?: string | null;
+  inputs: McpInput[];
+  /** `npm`, `pypi`, `oci` or `remote`. */
+  kind: string;
+  /** What the agent will run or reach, e.g. `npx -y pkg@1.2.0`. */
+  summary: string;
+  transport: McpTransport;
+  /** @nullable */
+  url?: string | null;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * Values keyed by [`McpInput::key`].
+ */
+export type McpInstallRequestValues = { [key: string]: string };
+
+export interface McpInstallRequest {
+  /**
+   * Index into the registry server's `options`.
+   * @minimum 0
+   */
+  option: number;
+  provider_id: string;
+  registry_name: string;
+  /** Name the CLI registers the server under. */
+  server_name: string;
+  /** Values keyed by [`McpInput::key`]. */
+  values?: McpInstallRequestValues;
+}
+
+/**
+ * A package an installed server runs, read from its launch command.
+ */
+export interface McpPackageRef {
+  identifier: string;
+  /** `npm` or `pypi`. */
+  registry_type: string;
+  /**
+   * Pinned version. `None`: the launcher resolves the newest one each run.
+   * @nullable
+   */
+  version?: string | null;
+}
+
+export type McpInstallationPackage = null | McpPackageRef;
+
+/**
+ * One server installed in one CLI.
+ */
+export interface McpInstallation {
+  package?: McpInstallationPackage;
+  provider_id: string;
+  server: CliMcpServer;
+  /**
+   * Newer registry version this pinned installation can move to.
+   * @nullable
+   */
+  update?: string | null;
+  /**
+   * Why Cadencr cannot apply `update` itself: the CLI could not re-add the
+   * server exactly as it is. The user updates it in the CLI's config.
+   * @nullable
+   */
+  update_blocked?: string | null;
+}
+
+/**
+ * A server listed in the official MCP Registry (latest version).
+ */
+export interface McpRegistryServer {
+  description: string;
+  /** Reverse-DNS registry name, e.g. `io.github.owner/server`. */
+  name: string;
+  options: McpInstallOption[];
+  /** @nullable */
+  published_at?: string | null;
+  /** @nullable */
+  repository?: string | null;
+  /** @nullable */
+  title?: string | null;
+  /** @nullable */
+  updated_at?: string | null;
+  version: string;
+  /** @nullable */
+  website?: string | null;
+}
+
+export type McpListingRegistry = null | McpRegistryServer;
+
+/**
+ * Installed servers grouped by what they are: one registry server (or one
+ * unmatched name) across every CLI that carries it.
+ */
+export interface McpListing {
+  installations: McpInstallation[];
+  /** `registry:<name>` or `local:<server name>`. */
+  key: string;
+  name: string;
+  registry?: McpListingRegistry;
+}
+
+export interface McpInventoryResponse {
+  errors: ExtensionCliError[];
+  listings: McpListing[];
+}
+
+export interface McpRegistryPage {
+  /** @nullable */
+  next_cursor?: string | null;
+  servers: McpRegistryServer[];
+}
+
+export interface McpServerRequest {
+  provider_id: string;
+  server_name: string;
+}
+
+export interface McpServerStatusPayload {
+  name: string;
+  status: string;
+}
+
+export interface McpUpdateResponse {
+  version: string;
+}
+
+/**
+ * What the viewer can do to land the proposal, in the order the pane offers
+ * them — the first one is the primary button.
+ */
+export type MergeAction = (typeof MergeAction)[keyof typeof MergeAction];
+
+export const MergeAction = {
+  merge: "merge",
+  auto_merge: "auto_merge",
+  enqueue: "enqueue",
+  enqueue_when_ready: "enqueue_when_ready",
+} as const;
+
 export interface MergeConflictResult {
   conflict_files: string[];
   has_conflicts: boolean;
@@ -3329,6 +3844,54 @@ export interface MergeFeatureBranchBody {
   project_id?: number | null;
   save_as_default?: boolean;
 }
+
+export type MergeOutcome = (typeof MergeOutcome)[keyof typeof MergeOutcome];
+
+export const MergeOutcome = {
+  merged: "merged",
+  merging: "merging",
+  auto_merge_enabled: "auto_merge_enabled",
+  queued: "queued",
+} as const;
+
+export type MergeQueueEntryEnqueuedBy = null | ForgeUser;
+
+export interface MergeQueueEntry {
+  /**
+   * Entries that will land before this one; `None` when the forge does not
+   * report a position.
+   * @minimum 0
+   * @nullable
+   */
+  ahead?: number | null;
+  enqueued_by?: MergeQueueEntryEnqueuedBy;
+}
+
+/**
+ * A serialized landing lane the forge runs in front of the target branch:
+ * GitHub's merge queue, GitLab's merge trains.
+ */
+export type MergeQueueKind = (typeof MergeQueueKind)[keyof typeof MergeQueueKind];
+
+export const MergeQueueKind = {
+  merge_queue: "merge_queue",
+  merge_train: "merge_train",
+} as const;
+
+/**
+ * Where the proposal stands against the target branch's rules.
+ */
+export type MergeReadiness = (typeof MergeReadiness)[keyof typeof MergeReadiness];
+
+export const MergeReadiness = {
+  ready: "ready",
+  blocked: "blocked",
+  checking: "checking",
+  conflicts: "conflicts",
+  behind: "behind",
+  draft: "draft",
+  closed: "closed",
+} as const;
 
 export interface MergeResult {
   /**
@@ -3590,6 +4153,18 @@ export interface PermissionRespondPayload {
   session_id: string;
   updated_input?: unknown;
 }
+
+/**
+ * Transcript durability is independent of provider-stream and turn health.
+ */
+export type PersistenceStatusState =
+  (typeof PersistenceStatusState)[keyof typeof PersistenceStatusState];
+
+export const PersistenceStatusState = {
+  degraded: "degraded",
+  recovered: "recovered",
+  failed: "failed",
+} as const;
 
 export interface PluginBackendCallError {
   code: string;
@@ -4189,10 +4764,117 @@ export interface PluginTabWorkspace {
   project_id: number;
 }
 
+/**
+ * One reviewer's latest position on the proposal.
+ */
+export type ReviewerDecision = (typeof ReviewerDecision)[keyof typeof ReviewerDecision];
+
+export const ReviewerDecision = {
+  approved: "approved",
+  changes_requested: "changes_requested",
+  commented: "commented",
+  pending: "pending",
+} as const;
+
+export interface PrReviewer {
+  decision: ReviewerDecision;
+  user: ForgeUser;
+}
+
+export interface PrApprovals {
+  /** @minimum 0 */
+  approved_count: number;
+  /**
+   * Approvals the forge's rules demand before merging. `None` when the forge
+   * does not say (no rule, or the token cannot read the rule).
+   * @minimum 0
+   * @nullable
+   */
+  required?: number | null;
+  /** Approvers first, then requested changes, then everyone else. */
+  reviewers: PrReviewer[];
+  /**
+   * Whether the forge considers the approval requirement met. `None` when it
+   * has no opinion — no rule applies, or it cannot be read.
+   * @nullable
+   */
+  satisfied?: boolean | null;
+}
+
 export interface PrCommentsResponse {
   feature_id: number;
   fetched_at: number;
   threads: CommentThread[];
+}
+
+export interface PrMergeCancelResponse {
+  cancelled: boolean;
+}
+
+export type PrMergeRequestMethod = null | MergeMethod;
+
+export interface PrMergeRequest {
+  action: MergeAction;
+  delete_source_branch?: boolean;
+  /**
+   * The head the user confirmed (`PrMergeStatus::head_sha`). Cadencr
+   * refuses if the forge now reports another head; GitHub and GitLab also
+   * enforce it on their side, Bitbucket's merge API cannot.
+   */
+  expected_head_sha: string;
+  feature_id: number;
+  method?: PrMergeRequestMethod;
+  /** @minimum 0 */
+  pr_number: number;
+}
+
+export interface PrMergeResponse {
+  outcome: MergeOutcome;
+  /**
+   * Something the user should know even though the merge went through — a
+   * source branch that could not be deleted, say.
+   * @nullable
+   */
+  warning?: string | null;
+}
+
+export type PrMergeStatusAutoMerge = null | AutoMergeState;
+
+export type PrMergeStatusDefaultMethod = null | MergeMethod;
+
+export type PrMergeStatusQueue = null | MergeQueueKind;
+
+export type PrMergeStatusQueueEntry = null | MergeQueueEntry;
+
+export interface PrMergeStatus {
+  actions: MergeAction[];
+  approvals: PrApprovals;
+  auto_merge?: PrMergeStatusAutoMerge;
+  /**
+   * Whether the viewer is allowed to merge into the target branch. `None`
+   * when the forge would not say; the merge is then offered and the forge
+   * decides.
+   * @nullable
+   */
+  can_merge?: boolean | null;
+  /** Whether the viewer can take it off auto-merge or out of the queue. */
+  cancellable: boolean;
+  default_method?: PrMergeStatusDefaultMethod;
+  delete_source_branch: DeleteSourceBranch;
+  fetched_at: number;
+  /**
+   * The head the forge evaluated. Sent back with a merge so the forge
+   * refuses if someone pushed in between.
+   */
+  head_sha: string;
+  methods: MergeMethod[];
+  /** @minimum 0 */
+  pr_number: number;
+  queue?: PrMergeStatusQueue;
+  queue_entry?: PrMergeStatusQueueEntry;
+  readiness: MergeReadiness;
+  /** Why the proposal is not ready, in the forge's terms. Empty when ready. */
+  reasons: string[];
 }
 
 export type PrStatusSnapshotCi = null | CiRollup;
@@ -4387,6 +5069,12 @@ export interface PromptAttachmentPayload {
 
 export interface PromptCommandsResponse {
   commands: SlashCommandPayload[];
+  /**
+   * Why the provider's own commands are missing from `commands` (its
+   * discovery failed or timed out). Shown in the `/` menu.
+   * @nullable
+   */
+  error?: string | null;
   /**
    * Which trigger characters mean what for this provider — `$` for skills on
    * Codex, `/` everywhere on Claude, and so on.
@@ -5116,6 +5804,13 @@ export interface RenamePathResponse {
 }
 
 /**
+ * New order for one list of actions (the globals, or one project's).
+ */
+export interface ReorderCustomActionsRequest {
+  ids: number[];
+}
+
+/**
  * An action's `${VAR}`-interpolated command and resolved working directory,
  * returned without running it. The frontend uses this to spawn the command in
  * a dedicated terminal split when `run_in_terminal` is set.
@@ -5140,8 +5835,9 @@ export interface RestartContinuationEntry {
   outcome: RestartContinuationOutcome;
   project_id: number;
   /**
-   * Skip code (`awaiting_input`, `disabled`, `no_resume_id`, `loop_guard`,
-   * `archived`, `already_running`) or the delivery error.
+   * Skip code (`disabled`, `no_resume_id`, `loop_guard`, `archived`,
+   * `already_running`), the delivery error, or — on a resumed entry —
+   * `lost_gate`: the agent was waiting on the user and will ask again.
    * @nullable
    */
   reason?: string | null;
@@ -5173,6 +5869,16 @@ export interface RestartContinuationReport {
 export interface RetryWorktreeBody {
   feature_id: number;
   project_id: number;
+}
+
+export interface RetryWorktreeSetupOkPayload {
+  feature_id: number;
+}
+
+export interface RetryWorktreeSetupPayload {
+  feature_id: number;
+  /** @nullable */
+  session_id?: string | null;
 }
 
 export interface RollbackManagedProviderRequest {
@@ -5332,6 +6038,7 @@ export type TargetKind = (typeof TargetKind)[keyof typeof TargetKind];
 export const TargetKind = {
   conversation: "conversation",
   new_conversation: "new_conversation",
+  custom_action: "custom_action",
 } as const;
 
 /**
@@ -5341,15 +6048,21 @@ export const TargetKind = {
  */
 export interface ScheduleTarget {
   /**
-   * Provider access mode (Codex/Cursor sandboxing). Ignored by providers that
+   * Provider access mode (e.g. Codex sandboxing). Ignored by providers that
    * don't offer one.
    * @nullable
    */
   access_mode?: string | null;
+  /**
+   * Required when `kind = custom_action`: the action to run.
+   * @nullable
+   */
+  action_id?: number | null;
   /** @nullable */
   base_branch?: string | null;
   /**
-   * Required when `kind = conversation`.
+   * Required when `kind = conversation` or `custom_action` (the conversation
+   * whose working copy the action runs in).
    * @nullable
    */
   feature_id?: number | null;
@@ -5469,6 +6182,11 @@ export type ScheduleLastRunProperty = null | ScheduleLastRun;
  */
 export interface ScheduleContext {
   /**
+   * Name of the action a `custom_action` schedule runs.
+   * @nullable
+   */
+  action_name?: string | null;
+  /**
    * Title of the targeted conversation (`kind = conversation` only).
    * @nullable
    */
@@ -5542,11 +6260,26 @@ export interface ScheduleRunResult {
   ran: boolean;
 }
 
+export interface SessionAcknowledgedPayload {
+  action: string;
+}
+
 export interface SessionActionPayload {
   /** @nullable */
   message_uuid?: string | null;
   session_id: string;
 }
+
+export interface SessionClearedPayload {
+  /** @nullable */
+  previous_session_id?: string | null;
+  session_id: string;
+}
+
+/**
+ * @nullable
+ */
+export type SessionCompactStartedPayload = null;
 
 export interface SessionConfigSetPayload {
   config_id: string;
@@ -5557,6 +6290,45 @@ export interface SessionConfigSetPayload {
 export interface SessionConfigSnapshotPayload {
   config: RuntimeSessionConfigSnapshot;
   session_id: string;
+}
+
+export interface SessionDeletedPayload {
+  session_id: string;
+}
+
+export interface SessionEndedPayload {
+  reason: string;
+  /**
+   * Canonical message UUIDs whose prompt receipts were emitted during this turn. Repeating them on the
+   * terminal envelope lets clients reconcile a missed transient
+   * `prompt_received` without leaving a delivered steer pending forever.
+   */
+  received_prompt_message_uuids?: string[];
+}
+
+export interface SessionErrorPayload {
+  code: string;
+  message: string;
+  /**
+   * Optional context carrying the permission-mode wire id involved in
+   * the failure. Set only for mode-related rejections (e.g.
+   * `MODE_REJECTED_BY_CLI`) so the FE can advance past the rejected
+   * mode in the cycle without re-querying state.
+   * @nullable
+   */
+  mode?: string | null;
+  /**
+   * Prompt receipts observed before a terminal stream failure. Clients mark
+   * these received before failing any remaining pending prompts.
+   */
+  received_prompt_message_uuids?: string[];
+  /**
+   * Delay requested after a transient rate-limit response. Clients use this
+   * instead of immediately feeding a reconnect storm.
+   * @minimum 0
+   * @nullable
+   */
+  retry_after_ms?: number | null;
 }
 
 export interface SessionInitPayload {
@@ -5574,6 +6346,99 @@ export interface SessionInitPayload {
   system_prompt?: string | null;
   /** @nullable */
   thinking_effort?: string | null;
+}
+
+export interface SessionInitializedPayload {
+  /** @nullable */
+  access_mode?: string | null;
+  /** @nullable */
+  codex_permission_mode?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  context_window?: number | null;
+  fast_mode?: boolean;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  input_tokens?: number | null;
+  /** @nullable */
+  model?: string | null;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  output_tokens?: number | null;
+  /**
+   * Permission mode the session will run with — the requested one when the
+   * provider supports it, else the provider default. `None` for providers
+   * that negotiate permissions themselves (installed ACP).
+   * @nullable
+   */
+  permission_mode?: string | null;
+  /** @nullable */
+  profile?: string | null;
+  /** @nullable */
+  provider?: string | null;
+  runtime_overrides: RuntimeConfigOverrides;
+  session_id: string;
+  supports_prompt_receipts?: boolean;
+  /** @nullable */
+  thinking_effort?: string | null;
+}
+
+/**
+ * Discriminant for `SessionLifecyclePayload`.
+ *
+ * Currently only carries OS-power-driven transitions. `SuspendRequested` is
+ * emitted after the WS handler has captured the runtime session id and
+ * interrupted the live process in response to a `session.suspend` envelope
+ * (driven by Electron's `powerMonitor.suspend`); `Resumed` is the matching
+ * acknowledgement after `session.resume`. The frontend turn-lifecycle state
+ * machine consumes these via `ws-envelope-handler` — UI never flips on the
+ * raw OS event, only on this backend-confirmed envelope (see
+ * `no-optimistic-updates.md`).
+ */
+export type SessionLifecycleKind = (typeof SessionLifecycleKind)[keyof typeof SessionLifecycleKind];
+
+export const SessionLifecycleKind = {
+  suspend_requested: "suspend_requested",
+  resumed: "resumed",
+} as const;
+
+/**
+ * Server → Client: a lifecycle transition driven outside the normal turn
+ * flow (today: OS suspend/resume). Provider-neutral — every adapter emits
+ * the same shape and the frontend renders the same banner regardless of
+ * which provider is active.
+ */
+export interface SessionLifecyclePayload {
+  kind: SessionLifecycleKind;
+  session_id: string;
+}
+
+export interface SessionMcpServersPayload {
+  mcp_servers: McpServerStatusPayload[];
+}
+
+export interface SessionMessagePayload {
+  blocks: unknown[];
+  /**
+   * Per-stream monotonic sequence number stamped by the stream reader so a
+   * client can detect a dropped envelope (a gap) and resync from the DB
+   * instead of silently rendering a truncated message. `None` on
+   * non-streamed `session.message` emitters.
+   * @minimum 0
+   * @nullable
+   */
+  seq?: number | null;
+}
+
+export interface SessionPersistenceStatusPayload {
+  message: string;
+  status: PersistenceStatusState;
 }
 
 export interface SessionPrompt {
@@ -5623,18 +6488,46 @@ export interface SessionStreamStatusPayload {
   state: StreamStatusState;
 }
 
-export interface SetActiveProfileRequest {
-  name: string;
+/**
+ * A transcript row Cadencr wrote itself (a turn's closing line, a model
+ * switch), pushed to every device viewing the conversation.
+ */
+export interface SessionTranscriptBlockPayload {
+  block: AgentBlock;
+  session_id: string;
 }
 
-export interface SetCustomActionScheduleRequest {
-  /** @nullable */
-  enabled?: boolean | null;
+export interface SessionUsageUpdatePayload {
   /**
-   * `None` = clear the schedule.
+   * Authoritative context window for the active model. `None` means
+   * "unknown until the provider reports one" — distinct from 0.
+   *
+   * Each update carries the sender's *complete* usage snapshot, so an absent
+   * window means the window is currently unknown — not "unchanged". Clients
+   * must not fall back to one they saw earlier: that is how a retracted
+   * window (a mid-session model switch) would keep scaling the bar by a
+   * model that is no longer running.
+   * @minimum 0
    * @nullable
    */
-  interval_seconds?: number | null;
+  context_window?: number | null;
+  /** @minimum 0 */
+  input_tokens: number;
+  /** @minimum 0 */
+  output_tokens: number;
+}
+
+/**
+ * Non-terminal local warning after the provider accepted work. Receiving this
+ * event must preserve the live turn, pending receipts, and permission state.
+ */
+export interface SessionWarningPayload {
+  code: string;
+  message: string;
+}
+
+export interface SetActiveProfileRequest {
+  name: string;
 }
 
 export interface SetCustomActionVariableRequest {
@@ -5753,6 +6646,71 @@ export interface SideQuestionResponse {
   session_id: number;
 }
 
+export type SkillCatalogFilter = (typeof SkillCatalogFilter)[keyof typeof SkillCatalogFilter];
+
+export const SkillCatalogFilter = {
+  all: "all",
+  installed: "installed",
+  updates: "updates",
+} as const;
+
+/**
+ * A skill pack as a CLI's plugin marketplace offers it.
+ */
+export interface SkillOffer {
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  install_count?: number | null;
+  marketplace: string;
+  /** The CLI's own selector, e.g. `name@marketplace`. */
+  plugin_id: string;
+  provider_id: string;
+  /** @nullable */
+  version?: string | null;
+}
+
+/**
+ * One skill name across every CLI: what each offers and what each has installed.
+ */
+export interface SkillListing {
+  /** @nullable */
+  description?: string | null;
+  installed: InstalledSkill[];
+  /** Lowercased name: the same skill pack in two CLIs shares it. */
+  key: string;
+  name: string;
+  offers: SkillOffer[];
+}
+
+export interface SkillCatalogResponse {
+  errors: ExtensionCliError[];
+  skills: SkillListing[];
+  /**
+   * Matches before `offset`/`limit` were applied.
+   * @minimum 0
+   */
+  total: number;
+}
+
+export interface SkillRequest {
+  /** The CLI's plugin selector (`name@marketplace`). */
+  plugin_id: string;
+  provider_id: string;
+}
+
+/**
+ * Where a spawned session works, relative to the invoking conversation.
+ */
+export type SkillWorktree = (typeof SkillWorktree)[keyof typeof SkillWorktree];
+
+export const SkillWorktree = {
+  same: "same",
+  new: "new",
+  project: "project",
+} as const;
+
 export interface StartImportRequest {
   session_ids: string[];
 }
@@ -5802,6 +6760,70 @@ export interface StashPushBody {
   message?: string | null;
 }
 
+export type SubagentRunStatus = (typeof SubagentRunStatus)[keyof typeof SubagentRunStatus];
+
+export const SubagentRunStatus = {
+  running: "running",
+  completed: "completed",
+  failed: "failed",
+  stopped: "stopped",
+} as const;
+
+/**
+ * One sub-agent as the desktop renders it: the transcript's sub-agent card
+ * for its carrier. `action_count` is observed by Cadencr from the
+ * sub-agent's transcript; every other field is a provider fact.
+ */
+export interface SubagentRun {
+  /**
+   * Tool calls Cadencr saw in the sub-agent's transcript.
+   * @nullable
+   */
+  actionCount?: number | null;
+  /** @nullable */
+  agentName?: string | null;
+  /** @nullable */
+  agentType?: string | null;
+  background: boolean;
+  /** @nullable */
+  childSessionId?: string | null;
+  /** @nullable */
+  description?: string | null;
+  /** @nullable */
+  durationMs?: number | null;
+  /** @nullable */
+  endedAt?: string | null;
+  /** @nullable */
+  model?: string | null;
+  /** `model` is what the sub-agent ran on, not just what it was asked to use. */
+  modelResolved: boolean;
+  /**
+   * Carrier of the sub-agent that launched this one, when nested.
+   * @nullable
+   */
+  parentToolUseId?: string | null;
+  /** @nullable */
+  prompt?: string | null;
+  /** @nullable */
+  reasoningEffort?: string | null;
+  /** @nullable */
+  resultSummary?: string | null;
+  sessionId: number;
+  startedAt: string;
+  status: SubagentRunStatus;
+  /** @nullable */
+  statusReason?: string | null;
+  /**
+   * Tool calls the provider reports the sub-agent made.
+   * @nullable
+   */
+  toolUseCount?: number | null;
+  /** The carrier tool_use id: joins the run to its transcript block. */
+  toolUseId: string;
+  /** @nullable */
+  totalTokens?: number | null;
+}
+
 export interface SubmitPublicationRegistryRequest {
   bundle_id: string;
   bundle_ids?: string[];
@@ -5814,6 +6836,35 @@ export interface SubmitPublicationRegistryRequest {
 
 export interface SuccessResponse {
   success: boolean;
+}
+
+export interface TelemetryConsent {
+  /**
+   * Omit for a detailed telemetry decision to preserve the current counter setting.
+   * @nullable
+   */
+  audience_enabled?: boolean | null;
+  diagnostics_enabled: boolean;
+  usage_enabled: boolean;
+}
+
+export interface TelemetryPreferences {
+  audience_configured: boolean;
+  audience_enabled: boolean;
+  audience_status: DeliveryStatus;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  decision_version?: number | null;
+  diagnostics_configured: boolean;
+  diagnostics_enabled: boolean;
+  diagnostics_status: DeliveryStatus;
+  /** @nullable */
+  installation_id?: string | null;
+  usage_configured: boolean;
+  usage_enabled: boolean;
+  usage_status: DeliveryStatus;
 }
 
 /**
@@ -6103,6 +7154,26 @@ export interface VapidKeyResponse {
   public_key: string;
 }
 
+export interface VirtualSkillParametersPayload {
+  /** Provider, model, thinking level and permission mode are configurable. */
+  agent: boolean;
+  /**
+   * Offered worktree placements; the first is the default. Shown as a choice
+   * only when there are at least two.
+   */
+  worktrees: SkillWorktree[];
+}
+
+export interface VirtualSkillPayload {
+  /** @nullable */
+  argument_hint?: string | null;
+  /** The namespaced command, e.g. `cadencr:review`. */
+  command: string;
+  description: string;
+  details: string;
+  parameters: VirtualSkillParametersPayload;
+}
+
 export interface WorkingDirResponse {
   /** @nullable */
   path?: string | null;
@@ -6144,19 +7215,34 @@ export interface WriteThemeResponse {
 }
 
 /**
- * Authoritative list of session-domain server → client action names.
- *
- * Keep backend emitters and the generated frontend contract on this enum
- * instead of retyping bare strings at each call site.
+ * Envelope — every message in both directions uses this shape.
+ */
+export interface WsEnvelope {
+  action: string;
+  domain: string;
+  id: string;
+  payload: unknown;
+  /** @nullable */
+  ref?: string | null;
+}
+
+/**
+ * Canonical session-domain server action names. Legacy aliases are separate.
  */
 export type WsSessionAction = (typeof WsSessionAction)[keyof typeof WsSessionAction];
 
 export const WsSessionAction = {
   initialized: "initialized",
+  acknowledged: "acknowledged",
+  transcript_block: "transcript_block",
+  featurerenamed: "feature.renamed",
+  featureautonaming: "feature.autonaming",
+  branchneeds_confirm: "branch.needs_confirm",
   message: "message",
   usage_update: "usage_update",
   ended: "ended",
   error: "error",
+  warning: "warning",
   deleted: "deleted",
   cleared: "cleared",
   lifecycle: "lifecycle",
@@ -6184,7 +7270,903 @@ export const WsSessionAction = {
   permissionrequest: "permission.request",
   prompt_received: "prompt_received",
   stream_status: "stream_status",
+  persistence_status: "persistence_status",
+  subagent_updated: "subagent_updated",
 } as const;
+
+export type WsSessionCommandOneOfAction =
+  (typeof WsSessionCommandOneOfAction)[keyof typeof WsSessionCommandOneOfAction];
+
+export const WsSessionCommandOneOfAction = {
+  init: "init",
+} as const;
+
+export type WsSessionCommandOneOf = {
+  action: WsSessionCommandOneOfAction;
+  payload: SessionInitPayload;
+};
+
+export type WsSessionCommandOneOfThreeAction =
+  (typeof WsSessionCommandOneOfThreeAction)[keyof typeof WsSessionCommandOneOfThreeAction];
+
+export const WsSessionCommandOneOfThreeAction = {
+  promptsend: "prompt.send",
+} as const;
+
+export type WsSessionCommandOneOfThree = {
+  action: WsSessionCommandOneOfThreeAction;
+  payload: PromptSendPayload;
+};
+
+export type WsSessionCommandOneOfFiveAction =
+  (typeof WsSessionCommandOneOfFiveAction)[keyof typeof WsSessionCommandOneOfFiveAction];
+
+export const WsSessionCommandOneOfFiveAction = {
+  permissionrespond: "permission.respond",
+} as const;
+
+export type WsSessionCommandOneOfFive = {
+  action: WsSessionCommandOneOfFiveAction;
+  payload: PermissionRespondPayload;
+};
+
+export type WsSessionCommandOneOfSevenAction =
+  (typeof WsSessionCommandOneOfSevenAction)[keyof typeof WsSessionCommandOneOfSevenAction];
+
+export const WsSessionCommandOneOfSevenAction = {
+  gateclose: "gate.close",
+} as const;
+
+export type WsSessionCommandOneOfSeven = {
+  action: WsSessionCommandOneOfSevenAction;
+  payload: GateClosePayload;
+};
+
+export type WsSessionCommandOneOfNineAction =
+  (typeof WsSessionCommandOneOfNineAction)[keyof typeof WsSessionCommandOneOfNineAction];
+
+export const WsSessionCommandOneOfNineAction = {
+  providerset: "provider.set",
+} as const;
+
+export type WsSessionCommandOneOfNine = {
+  action: WsSessionCommandOneOfNineAction;
+  payload: ProviderSetPayload;
+};
+
+export type WsSessionCommandOneOfOneoneAction =
+  (typeof WsSessionCommandOneOfOneoneAction)[keyof typeof WsSessionCommandOneOfOneoneAction];
+
+export const WsSessionCommandOneOfOneoneAction = {
+  modelset: "model.set",
+} as const;
+
+export type WsSessionCommandOneOfOneone = {
+  action: WsSessionCommandOneOfOneoneAction;
+  payload: ModelSetPayload;
+};
+
+export type WsSessionCommandOneOfOnethreeAction =
+  (typeof WsSessionCommandOneOfOnethreeAction)[keyof typeof WsSessionCommandOneOfOnethreeAction];
+
+export const WsSessionCommandOneOfOnethreeAction = {
+  modeset: "mode.set",
+} as const;
+
+export type WsSessionCommandOneOfOnethree = {
+  action: WsSessionCommandOneOfOnethreeAction;
+  payload: ModeSetPayload;
+};
+
+export type WsSessionCommandOneOfOnefiveAction =
+  (typeof WsSessionCommandOneOfOnefiveAction)[keyof typeof WsSessionCommandOneOfOnefiveAction];
+
+export const WsSessionCommandOneOfOnefiveAction = {
+  access_modeset: "access_mode.set",
+} as const;
+
+export type WsSessionCommandOneOfOnefive = {
+  action: WsSessionCommandOneOfOnefiveAction;
+  payload: AccessModeSetPayload;
+};
+
+export type WsSessionCommandOneOfOnesevenAction =
+  (typeof WsSessionCommandOneOfOnesevenAction)[keyof typeof WsSessionCommandOneOfOnesevenAction];
+
+export const WsSessionCommandOneOfOnesevenAction = {
+  effortset: "effort.set",
+} as const;
+
+export type WsSessionCommandOneOfOneseven = {
+  action: WsSessionCommandOneOfOnesevenAction;
+  payload: EffortSetPayload;
+};
+
+export type WsSessionCommandOneOfOnenineAction =
+  (typeof WsSessionCommandOneOfOnenineAction)[keyof typeof WsSessionCommandOneOfOnenineAction];
+
+export const WsSessionCommandOneOfOnenineAction = {
+  configget: "config.get",
+} as const;
+
+export type WsSessionCommandOneOfOnenine = {
+  action: WsSessionCommandOneOfOnenineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfTwooneAction =
+  (typeof WsSessionCommandOneOfTwooneAction)[keyof typeof WsSessionCommandOneOfTwooneAction];
+
+export const WsSessionCommandOneOfTwooneAction = {
+  configset: "config.set",
+} as const;
+
+export type WsSessionCommandOneOfTwoone = {
+  action: WsSessionCommandOneOfTwooneAction;
+  payload: SessionConfigSetPayload;
+};
+
+export type WsSessionCommandOneOfTwothreeAction =
+  (typeof WsSessionCommandOneOfTwothreeAction)[keyof typeof WsSessionCommandOneOfTwothreeAction];
+
+export const WsSessionCommandOneOfTwothreeAction = {
+  fast_modeset: "fast_mode.set",
+} as const;
+
+export type WsSessionCommandOneOfTwothree = {
+  action: WsSessionCommandOneOfTwothreeAction;
+  payload: FastModeSetPayload;
+};
+
+export type WsSessionCommandOneOfTwofiveAction =
+  (typeof WsSessionCommandOneOfTwofiveAction)[keyof typeof WsSessionCommandOneOfTwofiveAction];
+
+export const WsSessionCommandOneOfTwofiveAction = {
+  profileset: "profile.set",
+} as const;
+
+export type WsSessionCommandOneOfTwofive = {
+  action: WsSessionCommandOneOfTwofiveAction;
+  payload: ProfileSetPayload;
+};
+
+export type WsSessionCommandOneOfTwosevenAction =
+  (typeof WsSessionCommandOneOfTwosevenAction)[keyof typeof WsSessionCommandOneOfTwosevenAction];
+
+export const WsSessionCommandOneOfTwosevenAction = {
+  runtime_overridesset: "runtime_overrides.set",
+} as const;
+
+export type WsSessionCommandOneOfTwoseven = {
+  action: WsSessionCommandOneOfTwosevenAction;
+  payload: RuntimeOverridesSetPayload;
+};
+
+export type WsSessionCommandOneOfTwonineAction =
+  (typeof WsSessionCommandOneOfTwonineAction)[keyof typeof WsSessionCommandOneOfTwonineAction];
+
+export const WsSessionCommandOneOfTwonineAction = {
+  interrupt: "interrupt",
+} as const;
+
+export type WsSessionCommandOneOfTwonine = {
+  action: WsSessionCommandOneOfTwonineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreeoneAction =
+  (typeof WsSessionCommandOneOfThreeoneAction)[keyof typeof WsSessionCommandOneOfThreeoneAction];
+
+export const WsSessionCommandOneOfThreeoneAction = {
+  branchrewind: "branch.rewind",
+} as const;
+
+export type WsSessionCommandOneOfThreeone = {
+  action: WsSessionCommandOneOfThreeoneAction;
+  payload: BranchPayload;
+};
+
+export type WsSessionCommandOneOfThreethreeAction =
+  (typeof WsSessionCommandOneOfThreethreeAction)[keyof typeof WsSessionCommandOneOfThreethreeAction];
+
+export const WsSessionCommandOneOfThreethreeAction = {
+  branchfork: "branch.fork",
+} as const;
+
+export type WsSessionCommandOneOfThreethree = {
+  action: WsSessionCommandOneOfThreethreeAction;
+  payload: BranchPayload;
+};
+
+export type WsSessionCommandOneOfThreefiveAction =
+  (typeof WsSessionCommandOneOfThreefiveAction)[keyof typeof WsSessionCommandOneOfThreefiveAction];
+
+export const WsSessionCommandOneOfThreefiveAction = {
+  suspend: "suspend",
+} as const;
+
+export type WsSessionCommandOneOfThreefive = {
+  action: WsSessionCommandOneOfThreefiveAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreesevenAction =
+  (typeof WsSessionCommandOneOfThreesevenAction)[keyof typeof WsSessionCommandOneOfThreesevenAction];
+
+export const WsSessionCommandOneOfThreesevenAction = {
+  resume: "resume",
+} as const;
+
+export type WsSessionCommandOneOfThreeseven = {
+  action: WsSessionCommandOneOfThreesevenAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfThreenineAction =
+  (typeof WsSessionCommandOneOfThreenineAction)[keyof typeof WsSessionCommandOneOfThreenineAction];
+
+export const WsSessionCommandOneOfThreenineAction = {
+  destroy: "destroy",
+} as const;
+
+export type WsSessionCommandOneOfThreenine = {
+  action: WsSessionCommandOneOfThreenineAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFouroneAction =
+  (typeof WsSessionCommandOneOfFouroneAction)[keyof typeof WsSessionCommandOneOfFouroneAction];
+
+export const WsSessionCommandOneOfFouroneAction = {
+  compact: "compact",
+} as const;
+
+export type WsSessionCommandOneOfFourone = {
+  action: WsSessionCommandOneOfFouroneAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFourthreeAction =
+  (typeof WsSessionCommandOneOfFourthreeAction)[keyof typeof WsSessionCommandOneOfFourthreeAction];
+
+export const WsSessionCommandOneOfFourthreeAction = {
+  delete: "delete",
+} as const;
+
+export type WsSessionCommandOneOfFourthree = {
+  action: WsSessionCommandOneOfFourthreeAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFourfiveAction =
+  (typeof WsSessionCommandOneOfFourfiveAction)[keyof typeof WsSessionCommandOneOfFourfiveAction];
+
+export const WsSessionCommandOneOfFourfiveAction = {
+  clear: "clear",
+} as const;
+
+export type WsSessionCommandOneOfFourfive = {
+  action: WsSessionCommandOneOfFourfiveAction;
+  payload: SessionActionPayload;
+};
+
+export type WsSessionCommandOneOfFoursevenAction =
+  (typeof WsSessionCommandOneOfFoursevenAction)[keyof typeof WsSessionCommandOneOfFoursevenAction];
+
+export const WsSessionCommandOneOfFoursevenAction = {
+  historyget: "history.get",
+} as const;
+
+export type WsSessionCommandOneOfFourseven = {
+  action: WsSessionCommandOneOfFoursevenAction;
+  payload: HistoryGetPayload;
+};
+
+export type WsSessionCommandOneOfFournineAction =
+  (typeof WsSessionCommandOneOfFournineAction)[keyof typeof WsSessionCommandOneOfFournineAction];
+
+export const WsSessionCommandOneOfFournineAction = {
+  historyadd: "history.add",
+} as const;
+
+export type WsSessionCommandOneOfFournine = {
+  action: WsSessionCommandOneOfFournineAction;
+  payload: HistoryAddPayload;
+};
+
+export type WsSessionCommandOneOfFiveoneAction =
+  (typeof WsSessionCommandOneOfFiveoneAction)[keyof typeof WsSessionCommandOneOfFiveoneAction];
+
+export const WsSessionCommandOneOfFiveoneAction = {
+  draftget: "draft.get",
+} as const;
+
+export type WsSessionCommandOneOfFiveone = {
+  action: WsSessionCommandOneOfFiveoneAction;
+  payload: DraftGetPayload;
+};
+
+export type WsSessionCommandOneOfFivethreeAction =
+  (typeof WsSessionCommandOneOfFivethreeAction)[keyof typeof WsSessionCommandOneOfFivethreeAction];
+
+export const WsSessionCommandOneOfFivethreeAction = {
+  draftsave: "draft.save",
+} as const;
+
+export type WsSessionCommandOneOfFivethree = {
+  action: WsSessionCommandOneOfFivethreeAction;
+  payload: DraftSavePayload;
+};
+
+export type WsSessionCommandOneOfFivefiveAction =
+  (typeof WsSessionCommandOneOfFivefiveAction)[keyof typeof WsSessionCommandOneOfFivefiveAction];
+
+export const WsSessionCommandOneOfFivefiveAction = {
+  retry_worktree_setup: "retry_worktree_setup",
+} as const;
+
+export type WsSessionCommandOneOfFivefive = {
+  action: WsSessionCommandOneOfFivefiveAction;
+  payload: RetryWorktreeSetupPayload;
+};
+
+/**
+ * Session-domain client commands, flattened beside the envelope id/domain.
+ */
+export type WsSessionCommand =
+  | WsSessionCommandOneOf
+  | WsSessionCommandOneOfThree
+  | WsSessionCommandOneOfFive
+  | WsSessionCommandOneOfSeven
+  | WsSessionCommandOneOfNine
+  | WsSessionCommandOneOfOneone
+  | WsSessionCommandOneOfOnethree
+  | WsSessionCommandOneOfOnefive
+  | WsSessionCommandOneOfOneseven
+  | WsSessionCommandOneOfOnenine
+  | WsSessionCommandOneOfTwoone
+  | WsSessionCommandOneOfTwothree
+  | WsSessionCommandOneOfTwofive
+  | WsSessionCommandOneOfTwoseven
+  | WsSessionCommandOneOfTwonine
+  | WsSessionCommandOneOfThreeone
+  | WsSessionCommandOneOfThreethree
+  | WsSessionCommandOneOfThreefive
+  | WsSessionCommandOneOfThreeseven
+  | WsSessionCommandOneOfThreenine
+  | WsSessionCommandOneOfFourone
+  | WsSessionCommandOneOfFourthree
+  | WsSessionCommandOneOfFourfive
+  | WsSessionCommandOneOfFourseven
+  | WsSessionCommandOneOfFournine
+  | WsSessionCommandOneOfFiveone
+  | WsSessionCommandOneOfFivethree
+  | WsSessionCommandOneOfFivefive;
+
+export type WsSessionEventOneOfAction =
+  (typeof WsSessionEventOneOfAction)[keyof typeof WsSessionEventOneOfAction];
+
+export const WsSessionEventOneOfAction = {
+  initialized: "initialized",
+} as const;
+
+export type WsSessionEventOneOf = {
+  action: WsSessionEventOneOfAction;
+  payload: SessionInitializedPayload;
+};
+
+export type WsSessionEventOneOfThreeAction =
+  (typeof WsSessionEventOneOfThreeAction)[keyof typeof WsSessionEventOneOfThreeAction];
+
+export const WsSessionEventOneOfThreeAction = {
+  acknowledged: "acknowledged",
+} as const;
+
+export type WsSessionEventOneOfThree = {
+  action: WsSessionEventOneOfThreeAction;
+  payload: SessionAcknowledgedPayload;
+};
+
+export type WsSessionEventOneOfFiveAction =
+  (typeof WsSessionEventOneOfFiveAction)[keyof typeof WsSessionEventOneOfFiveAction];
+
+export const WsSessionEventOneOfFiveAction = {
+  transcript_block: "transcript_block",
+} as const;
+
+export type WsSessionEventOneOfFive = {
+  action: WsSessionEventOneOfFiveAction;
+  payload: SessionTranscriptBlockPayload;
+};
+
+export type WsSessionEventOneOfSevenAction =
+  (typeof WsSessionEventOneOfSevenAction)[keyof typeof WsSessionEventOneOfSevenAction];
+
+export const WsSessionEventOneOfSevenAction = {
+  featurerenamed: "feature.renamed",
+} as const;
+
+export type WsSessionEventOneOfSeven = {
+  action: WsSessionEventOneOfSevenAction;
+  payload: FeatureRenamedPayload;
+};
+
+export type WsSessionEventOneOfNineAction =
+  (typeof WsSessionEventOneOfNineAction)[keyof typeof WsSessionEventOneOfNineAction];
+
+export const WsSessionEventOneOfNineAction = {
+  featureautonaming: "feature.autonaming",
+} as const;
+
+export type WsSessionEventOneOfNine = {
+  action: WsSessionEventOneOfNineAction;
+  payload: FeatureAutoNamingPayload;
+};
+
+export type WsSessionEventOneOfOneoneAction =
+  (typeof WsSessionEventOneOfOneoneAction)[keyof typeof WsSessionEventOneOfOneoneAction];
+
+export const WsSessionEventOneOfOneoneAction = {
+  branchneeds_confirm: "branch.needs_confirm",
+} as const;
+
+export type WsSessionEventOneOfOneone = {
+  action: WsSessionEventOneOfOneoneAction;
+  payload: BranchNeedsConfirmPayload;
+};
+
+export type WsSessionEventOneOfOnethreeAction =
+  (typeof WsSessionEventOneOfOnethreeAction)[keyof typeof WsSessionEventOneOfOnethreeAction];
+
+export const WsSessionEventOneOfOnethreeAction = {
+  message: "message",
+} as const;
+
+export type WsSessionEventOneOfOnethree = {
+  action: WsSessionEventOneOfOnethreeAction;
+  payload: SessionMessagePayload;
+};
+
+export type WsSessionEventOneOfOnefiveAction =
+  (typeof WsSessionEventOneOfOnefiveAction)[keyof typeof WsSessionEventOneOfOnefiveAction];
+
+export const WsSessionEventOneOfOnefiveAction = {
+  usage_update: "usage_update",
+} as const;
+
+export type WsSessionEventOneOfOnefive = {
+  action: WsSessionEventOneOfOnefiveAction;
+  payload: SessionUsageUpdatePayload;
+};
+
+export type WsSessionEventOneOfOnesevenAction =
+  (typeof WsSessionEventOneOfOnesevenAction)[keyof typeof WsSessionEventOneOfOnesevenAction];
+
+export const WsSessionEventOneOfOnesevenAction = {
+  ended: "ended",
+} as const;
+
+export type WsSessionEventOneOfOneseven = {
+  action: WsSessionEventOneOfOnesevenAction;
+  payload: SessionEndedPayload;
+};
+
+export type WsSessionEventOneOfOnenineAction =
+  (typeof WsSessionEventOneOfOnenineAction)[keyof typeof WsSessionEventOneOfOnenineAction];
+
+export const WsSessionEventOneOfOnenineAction = {
+  error: "error",
+} as const;
+
+export type WsSessionEventOneOfOnenine = {
+  action: WsSessionEventOneOfOnenineAction;
+  payload: SessionErrorPayload;
+};
+
+export type WsSessionEventOneOfTwooneAction =
+  (typeof WsSessionEventOneOfTwooneAction)[keyof typeof WsSessionEventOneOfTwooneAction];
+
+export const WsSessionEventOneOfTwooneAction = {
+  warning: "warning",
+} as const;
+
+export type WsSessionEventOneOfTwoone = {
+  action: WsSessionEventOneOfTwooneAction;
+  payload: SessionWarningPayload;
+};
+
+export type WsSessionEventOneOfTwothreeAction =
+  (typeof WsSessionEventOneOfTwothreeAction)[keyof typeof WsSessionEventOneOfTwothreeAction];
+
+export const WsSessionEventOneOfTwothreeAction = {
+  deleted: "deleted",
+} as const;
+
+export type WsSessionEventOneOfTwothree = {
+  action: WsSessionEventOneOfTwothreeAction;
+  payload: SessionDeletedPayload;
+};
+
+export type WsSessionEventOneOfTwofiveAction =
+  (typeof WsSessionEventOneOfTwofiveAction)[keyof typeof WsSessionEventOneOfTwofiveAction];
+
+export const WsSessionEventOneOfTwofiveAction = {
+  cleared: "cleared",
+} as const;
+
+export type WsSessionEventOneOfTwofive = {
+  action: WsSessionEventOneOfTwofiveAction;
+  payload: SessionClearedPayload;
+};
+
+export type WsSessionEventOneOfTwosevenAction =
+  (typeof WsSessionEventOneOfTwosevenAction)[keyof typeof WsSessionEventOneOfTwosevenAction];
+
+export const WsSessionEventOneOfTwosevenAction = {
+  lifecycle: "lifecycle",
+} as const;
+
+export type WsSessionEventOneOfTwoseven = {
+  action: WsSessionEventOneOfTwosevenAction;
+  payload: SessionLifecyclePayload;
+};
+
+export type WsSessionEventOneOfTwonineAction =
+  (typeof WsSessionEventOneOfTwonineAction)[keyof typeof WsSessionEventOneOfTwonineAction];
+
+export const WsSessionEventOneOfTwonineAction = {
+  retry_worktree_setupok: "retry_worktree_setup.ok",
+} as const;
+
+export type WsSessionEventOneOfTwonine = {
+  action: WsSessionEventOneOfTwonineAction;
+  payload: RetryWorktreeSetupOkPayload;
+};
+
+export type WsSessionEventOneOfThreeoneAction =
+  (typeof WsSessionEventOneOfThreeoneAction)[keyof typeof WsSessionEventOneOfThreeoneAction];
+
+export const WsSessionEventOneOfThreeoneAction = {
+  gateclosed: "gate.closed",
+} as const;
+
+export type WsSessionEventOneOfThreeone = {
+  action: WsSessionEventOneOfThreeoneAction;
+  payload: GateClosedPayload;
+};
+
+export type WsSessionEventOneOfThreethreeAction =
+  (typeof WsSessionEventOneOfThreethreeAction)[keyof typeof WsSessionEventOneOfThreethreeAction];
+
+export const WsSessionEventOneOfThreethreeAction = {
+  mcp_servers: "mcp_servers",
+} as const;
+
+export type WsSessionEventOneOfThreethree = {
+  action: WsSessionEventOneOfThreethreeAction;
+  payload: SessionMcpServersPayload;
+};
+
+export type WsSessionEventOneOfThreefiveAction =
+  (typeof WsSessionEventOneOfThreefiveAction)[keyof typeof WsSessionEventOneOfThreefiveAction];
+
+export const WsSessionEventOneOfThreefiveAction = {
+  user_message: "user_message",
+} as const;
+
+export type WsSessionEventOneOfThreefive = {
+  action: WsSessionEventOneOfThreefiveAction;
+  payload: UserMessagePayload;
+};
+
+export type WsSessionEventOneOfThreesevenAction =
+  (typeof WsSessionEventOneOfThreesevenAction)[keyof typeof WsSessionEventOneOfThreesevenAction];
+
+export const WsSessionEventOneOfThreesevenAction = {
+  historyresult: "history.result",
+} as const;
+
+export type WsSessionEventOneOfThreeseven = {
+  action: WsSessionEventOneOfThreesevenAction;
+  payload: HistoryResultPayload;
+};
+
+export type WsSessionEventOneOfThreenineAction =
+  (typeof WsSessionEventOneOfThreenineAction)[keyof typeof WsSessionEventOneOfThreenineAction];
+
+export const WsSessionEventOneOfThreenineAction = {
+  historyadded: "history.added",
+} as const;
+
+export type WsSessionEventOneOfThreenine = {
+  action: WsSessionEventOneOfThreenineAction;
+  payload: HistoryAddedPayload;
+};
+
+export type WsSessionEventOneOfFouroneAction =
+  (typeof WsSessionEventOneOfFouroneAction)[keyof typeof WsSessionEventOneOfFouroneAction];
+
+export const WsSessionEventOneOfFouroneAction = {
+  draftresult: "draft.result",
+} as const;
+
+export type WsSessionEventOneOfFourone = {
+  action: WsSessionEventOneOfFouroneAction;
+  payload: DraftResultPayload;
+};
+
+export type WsSessionEventOneOfFourthreeAction =
+  (typeof WsSessionEventOneOfFourthreeAction)[keyof typeof WsSessionEventOneOfFourthreeAction];
+
+export const WsSessionEventOneOfFourthreeAction = {
+  draftsaved: "draft.saved",
+} as const;
+
+export type WsSessionEventOneOfFourthree = {
+  action: WsSessionEventOneOfFourthreeAction;
+  payload: DraftSavedPayload;
+};
+
+export type WsSessionEventOneOfFourfiveAction =
+  (typeof WsSessionEventOneOfFourfiveAction)[keyof typeof WsSessionEventOneOfFourfiveAction];
+
+export const WsSessionEventOneOfFourfiveAction = {
+  access_modechanged: "access_mode.changed",
+} as const;
+
+export type WsSessionEventOneOfFourfive = {
+  action: WsSessionEventOneOfFourfiveAction;
+  payload: ModeChangedPayload;
+};
+
+export type WsSessionEventOneOfFoursevenAction =
+  (typeof WsSessionEventOneOfFoursevenAction)[keyof typeof WsSessionEventOneOfFoursevenAction];
+
+export const WsSessionEventOneOfFoursevenAction = {
+  providersetok: "provider.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFourseven = {
+  action: WsSessionEventOneOfFoursevenAction;
+  payload: ProviderSetOkPayload;
+};
+
+export type WsSessionEventOneOfFournineAction =
+  (typeof WsSessionEventOneOfFournineAction)[keyof typeof WsSessionEventOneOfFournineAction];
+
+export const WsSessionEventOneOfFournineAction = {
+  compactstarted: "compact.started",
+} as const;
+
+export type WsSessionEventOneOfFournine = {
+  action: WsSessionEventOneOfFournineAction;
+  payload: SessionCompactStartedPayload;
+};
+
+export type WsSessionEventOneOfFiveoneAction =
+  (typeof WsSessionEventOneOfFiveoneAction)[keyof typeof WsSessionEventOneOfFiveoneAction];
+
+export const WsSessionEventOneOfFiveoneAction = {
+  modelsetok: "model.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFiveone = {
+  action: WsSessionEventOneOfFiveoneAction;
+  payload: ModelSetOkPayload;
+};
+
+export type WsSessionEventOneOfFivethreeAction =
+  (typeof WsSessionEventOneOfFivethreeAction)[keyof typeof WsSessionEventOneOfFivethreeAction];
+
+export const WsSessionEventOneOfFivethreeAction = {
+  effortsetok: "effort.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFivethree = {
+  action: WsSessionEventOneOfFivethreeAction;
+  payload: EffortSetOkPayload;
+};
+
+export type WsSessionEventOneOfFivefiveAction =
+  (typeof WsSessionEventOneOfFivefiveAction)[keyof typeof WsSessionEventOneOfFivefiveAction];
+
+export const WsSessionEventOneOfFivefiveAction = {
+  configsnapshot: "config.snapshot",
+} as const;
+
+export type WsSessionEventOneOfFivefive = {
+  action: WsSessionEventOneOfFivefiveAction;
+  payload: SessionConfigSnapshotPayload;
+};
+
+export type WsSessionEventOneOfFivesevenAction =
+  (typeof WsSessionEventOneOfFivesevenAction)[keyof typeof WsSessionEventOneOfFivesevenAction];
+
+export const WsSessionEventOneOfFivesevenAction = {
+  fast_modesetok: "fast_mode.set.ok",
+} as const;
+
+export type WsSessionEventOneOfFiveseven = {
+  action: WsSessionEventOneOfFivesevenAction;
+  payload: FastModeSetOkPayload;
+};
+
+export type WsSessionEventOneOfFivenineAction =
+  (typeof WsSessionEventOneOfFivenineAction)[keyof typeof WsSessionEventOneOfFivenineAction];
+
+export const WsSessionEventOneOfFivenineAction = {
+  modechanged: "mode.changed",
+} as const;
+
+export type WsSessionEventOneOfFivenine = {
+  action: WsSessionEventOneOfFivenineAction;
+  payload: ModeChangedPayload;
+};
+
+export type WsSessionEventOneOfSixoneAction =
+  (typeof WsSessionEventOneOfSixoneAction)[keyof typeof WsSessionEventOneOfSixoneAction];
+
+export const WsSessionEventOneOfSixoneAction = {
+  profilechanged: "profile.changed",
+} as const;
+
+export type WsSessionEventOneOfSixone = {
+  action: WsSessionEventOneOfSixoneAction;
+  payload: ProfileChangedPayload;
+};
+
+export type WsSessionEventOneOfSixthreeAction =
+  (typeof WsSessionEventOneOfSixthreeAction)[keyof typeof WsSessionEventOneOfSixthreeAction];
+
+export const WsSessionEventOneOfSixthreeAction = {
+  runtime_overrideschanged: "runtime_overrides.changed",
+} as const;
+
+export type WsSessionEventOneOfSixthree = {
+  action: WsSessionEventOneOfSixthreeAction;
+  payload: RuntimeOverridesChangedPayload;
+};
+
+export type WsSessionEventOneOfSixfiveAction =
+  (typeof WsSessionEventOneOfSixfiveAction)[keyof typeof WsSessionEventOneOfSixfiveAction];
+
+export const WsSessionEventOneOfSixfiveAction = {
+  branchrewound: "branch.rewound",
+} as const;
+
+export type WsSessionEventOneOfSixfive = {
+  action: WsSessionEventOneOfSixfiveAction;
+  payload: BranchRewoundPayload;
+};
+
+export type WsSessionEventOneOfSixsevenAction =
+  (typeof WsSessionEventOneOfSixsevenAction)[keyof typeof WsSessionEventOneOfSixsevenAction];
+
+export const WsSessionEventOneOfSixsevenAction = {
+  branchforked: "branch.forked",
+} as const;
+
+export type WsSessionEventOneOfSixseven = {
+  action: WsSessionEventOneOfSixsevenAction;
+  payload: BranchForkedPayload;
+};
+
+export type WsSessionEventOneOfSixnineAction =
+  (typeof WsSessionEventOneOfSixnineAction)[keyof typeof WsSessionEventOneOfSixnineAction];
+
+export const WsSessionEventOneOfSixnineAction = {
+  runtime_session_id: "runtime_session_id",
+} as const;
+
+export type WsSessionEventOneOfSixnine = {
+  action: WsSessionEventOneOfSixnineAction;
+  payload: RuntimeSessionIdPayload;
+};
+
+export type WsSessionEventOneOfSevenoneAction =
+  (typeof WsSessionEventOneOfSevenoneAction)[keyof typeof WsSessionEventOneOfSevenoneAction];
+
+export const WsSessionEventOneOfSevenoneAction = {
+  permissionrequest: "permission.request",
+} as const;
+
+export type WsSessionEventOneOfSevenone = {
+  action: WsSessionEventOneOfSevenoneAction;
+  payload: PermissionRequestPayload;
+};
+
+export type WsSessionEventOneOfSeventhreeAction =
+  (typeof WsSessionEventOneOfSeventhreeAction)[keyof typeof WsSessionEventOneOfSeventhreeAction];
+
+export const WsSessionEventOneOfSeventhreeAction = {
+  prompt_received: "prompt_received",
+} as const;
+
+export type WsSessionEventOneOfSeventhree = {
+  action: WsSessionEventOneOfSeventhreeAction;
+  payload: PromptReceivedPayload;
+};
+
+export type WsSessionEventOneOfSevenfiveAction =
+  (typeof WsSessionEventOneOfSevenfiveAction)[keyof typeof WsSessionEventOneOfSevenfiveAction];
+
+export const WsSessionEventOneOfSevenfiveAction = {
+  stream_status: "stream_status",
+} as const;
+
+export type WsSessionEventOneOfSevenfive = {
+  action: WsSessionEventOneOfSevenfiveAction;
+  payload: SessionStreamStatusPayload;
+};
+
+export type WsSessionEventOneOfSevensevenAction =
+  (typeof WsSessionEventOneOfSevensevenAction)[keyof typeof WsSessionEventOneOfSevensevenAction];
+
+export const WsSessionEventOneOfSevensevenAction = {
+  persistence_status: "persistence_status",
+} as const;
+
+export type WsSessionEventOneOfSevenseven = {
+  action: WsSessionEventOneOfSevensevenAction;
+  payload: SessionPersistenceStatusPayload;
+};
+
+export type WsSessionEventOneOfSevennineAction =
+  (typeof WsSessionEventOneOfSevennineAction)[keyof typeof WsSessionEventOneOfSevennineAction];
+
+export const WsSessionEventOneOfSevennineAction = {
+  subagent_updated: "subagent_updated",
+} as const;
+
+export type WsSessionEventOneOfSevennine = {
+  action: WsSessionEventOneOfSevennineAction;
+  payload: SubagentRun;
+};
+
+/**
+ * Session-domain server events, flattened beside the envelope id/domain/ref.
+ */
+export type WsSessionEvent =
+  | WsSessionEventOneOf
+  | WsSessionEventOneOfThree
+  | WsSessionEventOneOfFive
+  | WsSessionEventOneOfSeven
+  | WsSessionEventOneOfNine
+  | WsSessionEventOneOfOneone
+  | WsSessionEventOneOfOnethree
+  | WsSessionEventOneOfOnefive
+  | WsSessionEventOneOfOneseven
+  | WsSessionEventOneOfOnenine
+  | WsSessionEventOneOfTwoone
+  | WsSessionEventOneOfTwothree
+  | WsSessionEventOneOfTwofive
+  | WsSessionEventOneOfTwoseven
+  | WsSessionEventOneOfTwonine
+  | WsSessionEventOneOfThreeone
+  | WsSessionEventOneOfThreethree
+  | WsSessionEventOneOfThreefive
+  | WsSessionEventOneOfThreeseven
+  | WsSessionEventOneOfThreenine
+  | WsSessionEventOneOfFourone
+  | WsSessionEventOneOfFourthree
+  | WsSessionEventOneOfFourfive
+  | WsSessionEventOneOfFourseven
+  | WsSessionEventOneOfFournine
+  | WsSessionEventOneOfFiveone
+  | WsSessionEventOneOfFivethree
+  | WsSessionEventOneOfFivefive
+  | WsSessionEventOneOfFiveseven
+  | WsSessionEventOneOfFivenine
+  | WsSessionEventOneOfSixone
+  | WsSessionEventOneOfSixthree
+  | WsSessionEventOneOfSixfive
+  | WsSessionEventOneOfSixseven
+  | WsSessionEventOneOfSixnine
+  | WsSessionEventOneOfSevenone
+  | WsSessionEventOneOfSeventhree
+  | WsSessionEventOneOfSevenfive
+  | WsSessionEventOneOfSevenseven
+  | WsSessionEventOneOfSevennine;
 
 export type GetAgentCatalogParams = {
   /**
@@ -6199,6 +8181,46 @@ export type GetAgentCatalogParams = {
    * Provider profile to scope the model probe to; defaults to the provider's active profile
    */
   profile?: string;
+};
+
+export type ListInstalledMcpServersParams = {
+  /**
+   * List every CLI again instead of the cached inventory.
+   */
+  refresh?: boolean;
+};
+
+export type SearchMcpRegistryParams = {
+  /**
+   * Substring of the registry name.
+   */
+  q?: string;
+  /**
+   * @nullable
+   */
+  cursor?: string | null;
+};
+
+export type GetMcpRegistryServerParams = {
+  name: string;
+};
+
+export type ListSkillsParams = {
+  q?: string;
+  filter?: SkillCatalogFilter;
+  /**
+   * @minimum 0
+   */
+  offset?: number;
+  /**
+   * @minimum 0
+   * @nullable
+   */
+  limit?: number | null;
+  /**
+   * Re-read every CLI's marketplaces from their sources first.
+   */
+  refresh?: boolean;
 };
 
 export type GetAgentProfilesParams = {
@@ -6251,7 +8273,11 @@ export type GetUnifiedAgentsParams = {
 };
 
 export type ListCustomActionsParams = {
-  project_id: number;
+  /**
+   * Omit to list only the global actions (the Settings page).
+   * @nullable
+   */
+  project_id?: number | null;
   /**
    * Optional feature id to embed `last_run` summaries on each action.
    * @nullable
@@ -6273,16 +8299,6 @@ export type GetCustomActionRunsParams = {
    * @nullable
    */
   limit?: number | null;
-};
-
-export type GetCustomActionScheduleParams = {
-  feature_id: number;
-};
-
-export type GetCustomActionSchedule200 = null | CustomActionSchedule;
-
-export type SetCustomActionScheduleParams = {
-  feature_id: number;
 };
 
 export type GetCustomActionVariablesParams = {
@@ -6567,6 +8583,22 @@ export type GetPrCommentsParams = {
 };
 
 export type LookupFeatureRepoPrParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type DeletePrMergeParams = {
+  feature_id: number;
+  /**
+   * @minimum 0
+   */
+  pr_number: number;
+};
+
+export type GetPrMergeStatusParams = {
   feature_id: number;
   /**
    * @minimum 0
@@ -6883,6 +8915,987 @@ export function useGetAgentCatalog<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const listExtensionClis = (signal?: AbortSignal) => {
+  return customInstance<ExtensionClisResponse>({
+    url: `/api/agent-extensions/clis`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListExtensionClisQueryKey = () => {
+  return [`/api/agent-extensions/clis`] as const;
+};
+
+export const getListExtensionClisQueryOptions = <
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListExtensionClisQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listExtensionClis>>> = ({ signal }) =>
+    listExtensionClis(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listExtensionClis>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListExtensionClisQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listExtensionClis>>
+>;
+export type ListExtensionClisQueryError = ErrorType<unknown>;
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listExtensionClis>>,
+          TError,
+          Awaited<ReturnType<typeof listExtensionClis>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListExtensionClis<
+  TData = Awaited<ReturnType<typeof listExtensionClis>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listExtensionClis>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListExtensionClisQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installMcpServer = (mcpInstallRequest: McpInstallRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpInstallRequest,
+    signal,
+  });
+};
+
+export const getInstallMcpServerMutationKey = () => ["installMcpServer"] as const;
+
+export const getInstallMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    TError,
+    InstallMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installMcpServer>>,
+    InstallMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof installMcpServer>>
+>;
+export type InstallMcpServerMutationBody = McpInstallRequest;
+export type InstallMcpServerMutationError = ErrorType<void>;
+export type InstallMcpServerMutationVariables = { data: McpInstallRequest };
+
+export const useInstallMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installMcpServer>>,
+      TError,
+      InstallMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installMcpServer>>,
+  TError,
+  InstallMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallMcpServerMutationOptions(options), queryClient);
+};
+
+export const listInstalledMcpServers = (
+  params?: ListInstalledMcpServersParams,
+  signal?: AbortSignal,
+) => {
+  return customInstance<McpInventoryResponse>({
+    url: `/api/agent-extensions/mcp/installed`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListInstalledMcpServersQueryKey = (params?: ListInstalledMcpServersParams) => {
+  return [`/api/agent-extensions/mcp/installed`, ...(params ? [params] : [])] as const;
+};
+
+export const getListInstalledMcpServersQueryOptions = <
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListInstalledMcpServersQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listInstalledMcpServers>>> = ({
+    signal,
+  }) => listInstalledMcpServers(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listInstalledMcpServers>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListInstalledMcpServersQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listInstalledMcpServers>>
+>;
+export type ListInstalledMcpServersQueryError = ErrorType<unknown>;
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListInstalledMcpServersParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listInstalledMcpServers>>,
+          TError,
+          Awaited<ReturnType<typeof listInstalledMcpServers>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListInstalledMcpServers<
+  TData = Awaited<ReturnType<typeof listInstalledMcpServers>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListInstalledMcpServersParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listInstalledMcpServers>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListInstalledMcpServersQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const searchMcpRegistry = (params?: SearchMcpRegistryParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryPage>({
+    url: `/api/agent-extensions/mcp/registry`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getSearchMcpRegistryQueryKey = (params?: SearchMcpRegistryParams) => {
+  return [`/api/agent-extensions/mcp/registry`, ...(params ? [params] : [])] as const;
+};
+
+export const getSearchMcpRegistryQueryOptions = <
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getSearchMcpRegistryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof searchMcpRegistry>>> = ({ signal }) =>
+    searchMcpRegistry(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof searchMcpRegistry>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type SearchMcpRegistryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof searchMcpRegistry>>
+>;
+export type SearchMcpRegistryQueryError = ErrorType<void>;
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params: undefined | SearchMcpRegistryParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof searchMcpRegistry>>,
+          TError,
+          Awaited<ReturnType<typeof searchMcpRegistry>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useSearchMcpRegistry<
+  TData = Awaited<ReturnType<typeof searchMcpRegistry>>,
+  TError = ErrorType<void>,
+>(
+  params?: SearchMcpRegistryParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof searchMcpRegistry>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getSearchMcpRegistryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const getMcpRegistryServer = (params: GetMcpRegistryServerParams, signal?: AbortSignal) => {
+  return customInstance<McpRegistryServer>({
+    url: `/api/agent-extensions/mcp/registry/server`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetMcpRegistryServerQueryKey = (params?: GetMcpRegistryServerParams) => {
+  return [`/api/agent-extensions/mcp/registry/server`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMcpRegistryServerQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMcpRegistryServerQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMcpRegistryServer>>> = ({ signal }) =>
+    getMcpRegistryServer(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMcpRegistryServer>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetMcpRegistryServerQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMcpRegistryServer>>
+>;
+export type GetMcpRegistryServerQueryError = ErrorType<void>;
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getMcpRegistryServer>>,
+          TError,
+          Awaited<ReturnType<typeof getMcpRegistryServer>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetMcpRegistryServer<
+  TData = Awaited<ReturnType<typeof getMcpRegistryServer>>,
+  TError = ErrorType<void>,
+>(
+  params: GetMcpRegistryServerParams,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof getMcpRegistryServer>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetMcpRegistryServerQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const removeMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/mcp/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getRemoveMcpServerMutationKey = () => ["removeMcpServer"] as const;
+
+export const getRemoveMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    TError,
+    RemoveMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeMcpServer>>,
+    RemoveMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof removeMcpServer>>
+>;
+export type RemoveMcpServerMutationBody = McpServerRequest;
+export type RemoveMcpServerMutationError = ErrorType<void>;
+export type RemoveMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useRemoveMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeMcpServer>>,
+      TError,
+      RemoveMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeMcpServer>>,
+  TError,
+  RemoveMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveMcpServerMutationOptions(options), queryClient);
+};
+
+export const updateMcpServer = (mcpServerRequest: McpServerRequest, signal?: AbortSignal) => {
+  return customInstance<McpUpdateResponse>({
+    url: `/api/agent-extensions/mcp/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: mcpServerRequest,
+    signal,
+  });
+};
+
+export const getUpdateMcpServerMutationKey = () => ["updateMcpServer"] as const;
+
+export const getUpdateMcpServerMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    TError,
+    UpdateMcpServerMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateMcpServerMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateMcpServer>>,
+    UpdateMcpServerMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateMcpServer(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateMcpServerMutationResult = NonNullable<
+  Awaited<ReturnType<typeof updateMcpServer>>
+>;
+export type UpdateMcpServerMutationBody = McpServerRequest;
+export type UpdateMcpServerMutationError = ErrorType<void>;
+export type UpdateMcpServerMutationVariables = { data: McpServerRequest };
+
+export const useUpdateMcpServer = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateMcpServer>>,
+      TError,
+      UpdateMcpServerMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateMcpServer>>,
+  TError,
+  UpdateMcpServerMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateMcpServerMutationOptions(options), queryClient);
+};
+
+export const listSkills = (params?: ListSkillsParams, signal?: AbortSignal) => {
+  return customInstance<SkillCatalogResponse>({
+    url: `/api/agent-extensions/skills`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getListSkillsQueryKey = (params?: ListSkillsParams) => {
+  return [`/api/agent-extensions/skills`, ...(params ? [params] : [])] as const;
+};
+
+export const getListSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListSkillsQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listSkills>>> = ({ signal }) =>
+    listSkills(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListSkillsQueryResult = NonNullable<Awaited<ReturnType<typeof listSkills>>>;
+export type ListSkillsQueryError = ErrorType<unknown>;
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ListSkillsParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListSkills<
+  TData = Awaited<ReturnType<typeof listSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ListSkillsParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListSkillsQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const installSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getInstallSkillMutationKey = () => ["installSkill"] as const;
+
+export const getInstallSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof installSkill>>,
+    TError,
+    InstallSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstallSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof installSkill>>,
+    InstallSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return installSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InstallSkillMutationResult = NonNullable<Awaited<ReturnType<typeof installSkill>>>;
+export type InstallSkillMutationBody = SkillRequest;
+export type InstallSkillMutationError = ErrorType<void>;
+export type InstallSkillMutationVariables = { data: SkillRequest };
+
+export const useInstallSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof installSkill>>,
+      TError,
+      InstallSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof installSkill>>,
+  TError,
+  InstallSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getInstallSkillMutationOptions(options), queryClient);
+};
+
+export const removeSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getRemoveSkillMutationKey = () => ["removeSkill"] as const;
+
+export const getRemoveSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof removeSkill>>,
+    TError,
+    RemoveSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemoveSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof removeSkill>>,
+    RemoveSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return removeSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type RemoveSkillMutationResult = NonNullable<Awaited<ReturnType<typeof removeSkill>>>;
+export type RemoveSkillMutationBody = SkillRequest;
+export type RemoveSkillMutationError = ErrorType<void>;
+export type RemoveSkillMutationVariables = { data: SkillRequest };
+
+export const useRemoveSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof removeSkill>>,
+      TError,
+      RemoveSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof removeSkill>>,
+  TError,
+  RemoveSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getRemoveSkillMutationOptions(options), queryClient);
+};
+
+export const updateSkill = (skillRequest: SkillRequest, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/agent-extensions/skills/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: skillRequest,
+    signal,
+  });
+};
+
+export const getUpdateSkillMutationKey = () => ["updateSkill"] as const;
+
+export const getUpdateSkillMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof updateSkill>>,
+    TError,
+    UpdateSkillMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdateSkillMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof updateSkill>>,
+    UpdateSkillMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return updateSkill(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type UpdateSkillMutationResult = NonNullable<Awaited<ReturnType<typeof updateSkill>>>;
+export type UpdateSkillMutationBody = SkillRequest;
+export type UpdateSkillMutationError = ErrorType<void>;
+export type UpdateSkillMutationVariables = { data: SkillRequest };
+
+export const useUpdateSkill = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof updateSkill>>,
+      TError,
+      UpdateSkillMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof updateSkill>>,
+  TError,
+  UpdateSkillMutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdateSkillMutationOptions(options), queryClient);
+};
 
 export const getAgentProfiles = (params: GetAgentProfilesParams, signal?: AbortSignal) => {
   return customInstance<ProviderProfilesResponse>({
@@ -9764,7 +12777,7 @@ export const useCodexDeleteProfile = <TError = ErrorType<unknown>, TContext = un
   return useMutation(getCodexDeleteProfileMutationOptions(options), queryClient);
 };
 
-export const listCustomActions = (params: ListCustomActionsParams, signal?: AbortSignal) => {
+export const listCustomActions = (params?: ListCustomActionsParams, signal?: AbortSignal) => {
   return customInstance<CustomAction[]>({
     url: `/api/custom-actions`,
     method: "GET",
@@ -9781,7 +12794,7 @@ export const getListCustomActionsQueryOptions = <
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9809,7 +12822,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params: undefined | ListCustomActionsParams,
   options: {
     query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9827,7 +12840,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>> &
       Pick<
@@ -9845,7 +12858,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9856,7 +12869,7 @@ export function useListCustomActions<
   TData = Awaited<ReturnType<typeof listCustomActions>>,
   TError = ErrorType<unknown>,
 >(
-  params: ListCustomActionsParams,
+  params?: ListCustomActionsParams,
   options?: {
     query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listCustomActions>>, TError, TData>>;
   },
@@ -9945,6 +12958,82 @@ export const useCreateCustomAction = <TError = ErrorType<unknown>, TContext = un
   TContext
 > => {
   return useMutation(getCreateCustomActionMutationOptions(options), queryClient);
+};
+
+export const reorderCustomActions = (
+  reorderCustomActionsRequest: ReorderCustomActionsRequest,
+  signal?: AbortSignal,
+) => {
+  return customInstance<SuccessResponse>({
+    url: `/api/custom-actions/order`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: reorderCustomActionsRequest,
+    signal,
+  });
+};
+
+export const getReorderCustomActionsMutationKey = () => ["reorderCustomActions"] as const;
+
+export const getReorderCustomActionsMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    TError,
+    ReorderCustomActionsMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  const mutationKey = getReorderCustomActionsMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof reorderCustomActions>>,
+    ReorderCustomActionsMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return reorderCustomActions(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ReorderCustomActionsMutationResult = NonNullable<
+  Awaited<ReturnType<typeof reorderCustomActions>>
+>;
+export type ReorderCustomActionsMutationBody = ReorderCustomActionsRequest;
+export type ReorderCustomActionsMutationError = ErrorType<unknown>;
+export type ReorderCustomActionsMutationVariables = { data: ReorderCustomActionsRequest };
+
+export const useReorderCustomActions = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof reorderCustomActions>>,
+      TError,
+      ReorderCustomActionsMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof reorderCustomActions>>,
+  TError,
+  ReorderCustomActionsMutationVariables,
+  TContext
+> => {
+  return useMutation(getReorderCustomActionsMutationOptions(options), queryClient);
 };
 
 export const updateCustomAction = (
@@ -10482,222 +13571,6 @@ export const useCancelCustomActionRun = <TError = ErrorType<unknown>, TContext =
   TContext
 > => {
   return useMutation(getCancelCustomActionRunMutationOptions(options), queryClient);
-};
-
-export const getCustomActionSchedule = (
-  id: number,
-  params: GetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<GetCustomActionSchedule200>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "GET",
-    params,
-    signal,
-  });
-};
-
-export const getGetCustomActionScheduleQueryKey = (
-  id: number,
-  params?: GetCustomActionScheduleParams,
-) => {
-  return [`/api/custom-actions/${id}/schedule`, ...(params ? [params] : [])] as const;
-};
-
-export const getGetCustomActionScheduleQueryOptions = <
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-) => {
-  const { query: queryOptions } = options ?? {};
-
-  const queryKey = queryOptions?.queryKey ?? getGetCustomActionScheduleQueryKey(id, params);
-
-  const queryFn: QueryFunction<Awaited<ReturnType<typeof getCustomActionSchedule>>> = ({
-    signal,
-  }) => getCustomActionSchedule(id, params, signal);
-
-  return {
-    queryKey,
-    queryFn,
-    enabled: id !== null && id !== undefined,
-    ...queryOptions,
-  } as UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-};
-
-export type GetCustomActionScheduleQueryResult = NonNullable<
-  Awaited<ReturnType<typeof getCustomActionSchedule>>
->;
-export type GetCustomActionScheduleQueryError = ErrorType<unknown>;
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options: {
-    query: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    > &
-      Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getCustomActionSchedule>>,
-          TError,
-          Awaited<ReturnType<typeof getCustomActionSchedule>>
-        >,
-        "initialData"
-      >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-export function useGetCustomActionSchedule<
-  TData = Awaited<ReturnType<typeof getCustomActionSchedule>>,
-  TError = ErrorType<unknown>,
->(
-  id: number,
-  params: GetCustomActionScheduleParams,
-  options?: {
-    query?: Partial<
-      UseQueryOptions<Awaited<ReturnType<typeof getCustomActionSchedule>>, TError, TData>
-    >;
-  },
-  queryClient?: QueryClient,
-): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-  const queryOptions = getGetCustomActionScheduleQueryOptions(id, params, options);
-
-  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
-    queryKey: DataTag<QueryKey, TData, TError>;
-  };
-
-  return withQueryKey(query, queryOptions.queryKey);
-}
-
-export const setCustomActionSchedule = (
-  id: number,
-  setCustomActionScheduleRequest: SetCustomActionScheduleRequest,
-  params: SetCustomActionScheduleParams,
-  signal?: AbortSignal,
-) => {
-  return customInstance<SuccessResponse>({
-    url: `/api/custom-actions/${id}/schedule`,
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    data: setCustomActionScheduleRequest,
-    params,
-    signal,
-  });
-};
-
-export const getSetCustomActionScheduleMutationKey = () => ["setCustomActionSchedule"] as const;
-
-export const getSetCustomActionScheduleMutationOptions = <
-  TError = ErrorType<unknown>,
-  TContext = unknown,
->(options?: {
-  mutation?: UseMutationOptions<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    TError,
-    SetCustomActionScheduleMutationVariables,
-    TContext
-  >;
-}): UseMutationOptions<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  const mutationKey = getSetCustomActionScheduleMutationKey();
-  const { mutation: mutationOptions } = options
-    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
-      ? options
-      : { ...options, mutation: { ...options.mutation, mutationKey } }
-    : { mutation: { mutationKey } };
-
-  const mutationFn: MutationFunction<
-    Awaited<ReturnType<typeof setCustomActionSchedule>>,
-    SetCustomActionScheduleMutationVariables
-  > = (props) => {
-    const { id, data, params } = props ?? {};
-
-    return setCustomActionSchedule(id, data, params);
-  };
-
-  return { mutationFn, ...mutationOptions };
-};
-
-export type SetCustomActionScheduleMutationResult = NonNullable<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>
->;
-export type SetCustomActionScheduleMutationBody = SetCustomActionScheduleRequest;
-export type SetCustomActionScheduleMutationError = ErrorType<unknown>;
-export type SetCustomActionScheduleMutationVariables = {
-  id: number;
-  data: SetCustomActionScheduleRequest;
-  params: SetCustomActionScheduleParams;
-};
-
-export const useSetCustomActionSchedule = <TError = ErrorType<unknown>, TContext = unknown>(
-  options?: {
-    mutation?: UseMutationOptions<
-      Awaited<ReturnType<typeof setCustomActionSchedule>>,
-      TError,
-      SetCustomActionScheduleMutationVariables,
-      TContext
-    >;
-  },
-  queryClient?: QueryClient,
-): UseMutationResult<
-  Awaited<ReturnType<typeof setCustomActionSchedule>>,
-  TError,
-  SetCustomActionScheduleMutationVariables,
-  TContext
-> => {
-  return useMutation(getSetCustomActionScheduleMutationOptions(options), queryClient);
 };
 
 export const getCustomActionVariables = (
@@ -14663,6 +17536,131 @@ export function useGetSessions<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getGetSessionsQueryOptions(featureId, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+export const listFeatureSubagents = (featureId: number, signal?: AbortSignal) => {
+  return customInstance<SubagentRun[]>({
+    url: `/api/features/${featureId}/subagents`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListFeatureSubagentsQueryKey = (featureId: number) => {
+  return [`/api/features/${featureId}/subagents`] as const;
+};
+
+export const getListFeatureSubagentsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListFeatureSubagentsQueryKey(featureId);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listFeatureSubagents>>> = ({ signal }) =>
+    listFeatureSubagents(featureId, signal);
+
+  return {
+    queryKey,
+    queryFn,
+    enabled: featureId !== null && featureId !== undefined,
+    ...queryOptions,
+  } as UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+};
+
+export type ListFeatureSubagentsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listFeatureSubagents>>
+>;
+export type ListFeatureSubagentsQueryError = ErrorType<unknown>;
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listFeatureSubagents>>,
+          TError,
+          Awaited<ReturnType<typeof listFeatureSubagents>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+/**
+ * @summary The sub-agents the feature's conversations launched, newest first.
+ */
+
+export function useListFeatureSubagents<
+  TData = Awaited<ReturnType<typeof listFeatureSubagents>>,
+  TError = ErrorType<unknown>,
+>(
+  featureId: number,
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof listFeatureSubagents>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListFeatureSubagentsQueryOptions(featureId, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -19785,6 +22783,252 @@ export function useLookupFeatureRepoPr<
   queryClient?: QueryClient,
 ): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
   const queryOptions = getLookupFeatureRepoPrQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const postPrMerge = (prMergeRequest: PrMergeRequest, signal?: AbortSignal) => {
+  return customInstance<PrMergeResponse>({
+    url: `/api/git/pr/merge`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: prMergeRequest,
+    signal,
+  });
+};
+
+export const getPostPrMergeMutationKey = () => ["postPrMerge"] as const;
+
+export const getPostPrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    TError,
+    PostPrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPostPrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof postPrMerge>>,
+    PostPrMergeMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return postPrMerge(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PostPrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof postPrMerge>>>;
+export type PostPrMergeMutationBody = PrMergeRequest;
+export type PostPrMergeMutationError = ErrorType<unknown>;
+export type PostPrMergeMutationVariables = { data: PrMergeRequest };
+
+export const usePostPrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof postPrMerge>>,
+      TError,
+      PostPrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof postPrMerge>>,
+  TError,
+  PostPrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getPostPrMergeMutationOptions(options), queryClient);
+};
+
+export const deletePrMerge = (params: DeletePrMergeParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeCancelResponse>({
+    url: `/api/git/pr/merge`,
+    method: "DELETE",
+    params,
+    signal,
+  });
+};
+
+export const getDeletePrMergeMutationKey = () => ["deletePrMerge"] as const;
+
+export const getDeletePrMergeMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    TError,
+    DeletePrMergeMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  const mutationKey = getDeletePrMergeMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deletePrMerge>>,
+    DeletePrMergeMutationVariables
+  > = (props) => {
+    const { params } = props ?? {};
+
+    return deletePrMerge(params);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeletePrMergeMutationResult = NonNullable<Awaited<ReturnType<typeof deletePrMerge>>>;
+
+export type DeletePrMergeMutationError = ErrorType<unknown>;
+export type DeletePrMergeMutationVariables = { params: DeletePrMergeParams };
+
+export const useDeletePrMerge = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof deletePrMerge>>,
+      TError,
+      DeletePrMergeMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof deletePrMerge>>,
+  TError,
+  DeletePrMergeMutationVariables,
+  TContext
+> => {
+  return useMutation(getDeletePrMergeMutationOptions(options), queryClient);
+};
+
+export const getPrMergeStatus = (params: GetPrMergeStatusParams, signal?: AbortSignal) => {
+  return customInstance<PrMergeStatus>({
+    url: `/api/git/pr/merge-status`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getGetPrMergeStatusQueryKey = (params?: GetPrMergeStatusParams) => {
+  return [`/api/git/pr/merge-status`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetPrMergeStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPrMergeStatusQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPrMergeStatus>>> = ({ signal }) =>
+    getPrMergeStatus(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPrMergeStatus>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPrMergeStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getPrMergeStatus>>>;
+export type GetPrMergeStatusQueryError = ErrorType<unknown>;
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPrMergeStatus>>,
+          TError,
+          Awaited<ReturnType<typeof getPrMergeStatus>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPrMergeStatus<
+  TData = Awaited<ReturnType<typeof getPrMergeStatus>>,
+  TError = ErrorType<unknown>,
+>(
+  params: GetPrMergeStatusParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPrMergeStatus>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPrMergeStatusQueryOptions(params, options);
 
   const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
     queryKey: DataTag<QueryKey, TData, TError>;
@@ -29913,6 +33157,330 @@ export const useRunArchivedCleanup = <TError = ErrorType<void>, TContext = unkno
   return useMutation(getRunArchivedCleanupMutationOptions(options), queryClient);
 };
 
+export const getPreferences = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({ url: `/api/telemetry`, method: "GET", signal });
+};
+
+export const getGetPreferencesQueryKey = () => {
+  return [`/api/telemetry`] as const;
+};
+
+export const getGetPreferencesQueryOptions = <
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetPreferencesQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getPreferences>>> = ({ signal }) =>
+    getPreferences(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getPreferences>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type GetPreferencesQueryResult = NonNullable<Awaited<ReturnType<typeof getPreferences>>>;
+export type GetPreferencesQueryError = ErrorType<unknown>;
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPreferences>>,
+          TError,
+          Awaited<ReturnType<typeof getPreferences>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useGetPreferences<
+  TData = Awaited<ReturnType<typeof getPreferences>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof getPreferences>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getGetPreferencesQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const putPreferences = (telemetryConsent: TelemetryConsent, signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry`,
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    data: telemetryConsent,
+    signal,
+  });
+};
+
+export const getPutPreferencesMutationKey = () => ["putPreferences"] as const;
+
+export const getPutPreferencesMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof putPreferences>>,
+    TError,
+    PutPreferencesMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  const mutationKey = getPutPreferencesMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof putPreferences>>,
+    PutPreferencesMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return putPreferences(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type PutPreferencesMutationResult = NonNullable<Awaited<ReturnType<typeof putPreferences>>>;
+export type PutPreferencesMutationBody = TelemetryConsent;
+export type PutPreferencesMutationError = ErrorType<unknown>;
+export type PutPreferencesMutationVariables = { data: TelemetryConsent };
+
+export const usePutPreferences = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof putPreferences>>,
+      TError,
+      PutPreferencesMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof putPreferences>>,
+  TError,
+  PutPreferencesMutationVariables,
+  TContext
+> => {
+  return useMutation(getPutPreferencesMutationOptions(options), queryClient);
+};
+
+export const activity = (signal?: AbortSignal) => {
+  return customInstance<void>({ url: `/api/telemetry/activity`, method: "POST", signal });
+};
+
+export const getActivityMutationKey = () => ["activity"] as const;
+
+export const getActivityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  const mutationKey = getActivityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof activity>>, void> = () => {
+    return activity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ActivityMutationResult = NonNullable<Awaited<ReturnType<typeof activity>>>;
+
+export type ActivityMutationError = ErrorType<unknown>;
+
+export const useActivity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<Awaited<ReturnType<typeof activity>>, TError, void, TContext>;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof activity>>, TError, void, TContext> => {
+  return useMutation(getActivityMutationOptions(options), queryClient);
+};
+
+export const ingestDiagnostic = (diagnosticReport: DiagnosticReport, signal?: AbortSignal) => {
+  return customInstance<void>({
+    url: `/api/telemetry/diagnostics`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: diagnosticReport,
+    signal,
+  });
+};
+
+export const getIngestDiagnosticMutationKey = () => ["ingestDiagnostic"] as const;
+
+export const getIngestDiagnosticMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    TError,
+    IngestDiagnosticMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  const mutationKey = getIngestDiagnosticMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof ingestDiagnostic>>,
+    IngestDiagnosticMutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return ingestDiagnostic(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type IngestDiagnosticMutationResult = NonNullable<
+  Awaited<ReturnType<typeof ingestDiagnostic>>
+>;
+export type IngestDiagnosticMutationBody = DiagnosticReport;
+export type IngestDiagnosticMutationError = ErrorType<unknown>;
+export type IngestDiagnosticMutationVariables = { data: DiagnosticReport };
+
+export const useIngestDiagnostic = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof ingestDiagnostic>>,
+      TError,
+      IngestDiagnosticMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof ingestDiagnostic>>,
+  TError,
+  IngestDiagnosticMutationVariables,
+  TContext
+> => {
+  return useMutation(getIngestDiagnosticMutationOptions(options), queryClient);
+};
+
+export const resetIdentity = (signal?: AbortSignal) => {
+  return customInstance<TelemetryPreferences>({
+    url: `/api/telemetry/reset-identity`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getResetIdentityMutationKey = () => ["resetIdentity"] as const;
+
+export const getResetIdentityMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext>;
+}): UseMutationOptions<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  const mutationKey = getResetIdentityMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetIdentity>>, void> = () => {
+    return resetIdentity();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type ResetIdentityMutationResult = NonNullable<Awaited<ReturnType<typeof resetIdentity>>>;
+
+export type ResetIdentityMutationError = ErrorType<unknown>;
+
+export const useResetIdentity = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof resetIdentity>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof resetIdentity>>, TError, void, TContext> => {
+  return useMutation(getResetIdentityMutationOptions(options), queryClient);
+};
+
 /**
  * @summary `GET /api/terminal/alacritty-config` — the user's parsed Alacritty
 config (font, colors, cursor style, scrollback depth), or Alacritty's
@@ -31665,6 +35233,105 @@ export const useDismissUsageRecordingIssue = <TError = ErrorType<unknown>, TCont
 > => {
   return useMutation(getDismissUsageRecordingIssueMutationOptions(options), queryClient);
 };
+
+export const listVirtualSkills = (signal?: AbortSignal) => {
+  return customInstance<VirtualSkillPayload[]>({
+    url: `/api/virtual-skills`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getListVirtualSkillsQueryKey = () => {
+  return [`/api/virtual-skills`] as const;
+};
+
+export const getListVirtualSkillsQueryOptions = <
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getListVirtualSkillsQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof listVirtualSkills>>> = ({ signal }) =>
+    listVirtualSkills(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof listVirtualSkills>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ListVirtualSkillsQueryResult = NonNullable<
+  Awaited<ReturnType<typeof listVirtualSkills>>
+>;
+export type ListVirtualSkillsQueryError = ErrorType<unknown>;
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listVirtualSkills>>,
+          TError,
+          Awaited<ReturnType<typeof listVirtualSkills>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useListVirtualSkills<
+  TData = Awaited<ReturnType<typeof listVirtualSkills>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof listVirtualSkills>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getListVirtualSkillsQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
 
 export const getAutoNamePrompt = (signal?: AbortSignal) => {
   return customInstance<AutoNamePromptResponse>({

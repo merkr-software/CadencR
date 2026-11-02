@@ -71,7 +71,6 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     "claude_bypass_permissions_enabled",
     "codex_full_access_enabled",
     "codex_permission_mode",
-    "cursor_access_mode",
     // UI chrome
     "sidebar_left_width",
     "sidebar_provider_logos",
@@ -276,6 +275,8 @@ pub const SIDEBAR_DISPLAY_KEYS: &[&str] = &[
     "sidebar_density",
     "sidebar_font_size",
     "sidebar_title_lines",
+    "sidebar_row_height",
+    "sidebar_color_mode",
     "sidebar_title_source",
     "sidebar_row_status",
     "sidebar_row_time",
@@ -312,6 +313,8 @@ pub const SIDEBAR_DISPLAY_KEYS: &[&str] = &[
     "sidebar_row_todos",
     "sidebar_uniform_rows",
     "sidebar_compact_rows",
+    "sidebar_block_order",
+    "sidebar_folded_blocks",
 ];
 
 #[cfg(test)]

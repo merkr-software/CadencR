@@ -1,3 +1,8 @@
+use super::message_store::insert_message;
+use super::WsSessionPersistence;
+use sqlx::SqlitePool;
+use tracing::error;
+
 impl WsSessionPersistence {
     /// Archive the current session id and clear the active runtime ids.
     pub async fn archive_and_clear(
@@ -30,25 +35,19 @@ impl WsSessionPersistence {
             .await;
         }
 
-        let _ = Self::insert_message(
-            pool,
-            session_id,
-            "system",
-            "clear_divider",
-            "clear_divider",
-            None,
-            None,
-            None,
-            None,
-        )
-        .await;
+        let _ = insert_message()
+            .pool(pool)
+            .session_id(session_id)
+            .role("system")
+            .content("clear_divider")
+            .message_type("clear_divider")
+            .call()
+            .await;
 
-        let _ = sqlx::query(
-            "UPDATE agent_sessions SET runtime_session_id = NULL WHERE id = ?",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await;
+        let _ = sqlx::query("UPDATE agent_sessions SET runtime_session_id = NULL WHERE id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await;
     }
 
     /// Mark in the transcript that the user stopped the turn, so the
@@ -56,18 +55,14 @@ impl WsSessionPersistence {
     /// of whatever the provider wrote for the aborted tool call — on every
     /// device and after a reload.
     pub async fn persist_turn_interrupted_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(error) = Self::insert_message(
-            pool,
-            session_id,
-            "system",
-            "",
-            "turn_interrupted",
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
+        if let Err(error) = insert_message()
+            .pool(pool)
+            .session_id(session_id)
+            .role("system")
+            .content("")
+            .message_type("turn_interrupted")
+            .call()
+            .await
         {
             tracing::error!(session_id, error = %error, "failed to persist the turn-interrupted marker");
         }
@@ -99,13 +94,11 @@ impl WsSessionPersistence {
         session_id: i64,
         runtime_session_id: &str,
     ) {
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET runtime_session_id = ? WHERE id = ?",
-        )
-        .bind(runtime_session_id)
-        .bind(session_id)
-        .execute(pool)
-        .await
+        if let Err(e) = sqlx::query("UPDATE agent_sessions SET runtime_session_id = ? WHERE id = ?")
+            .bind(runtime_session_id)
+            .bind(session_id)
+            .execute(pool)
+            .await
         {
             error!(error = %e, "failed to persist runtime session_id");
         }
@@ -205,12 +198,13 @@ mod session_archiving_tests {
                 .unwrap();
         assert!(row.0.is_none());
 
-        let archived: (String,) =
-            sqlx::query_as("SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let archived: (String,) = sqlx::query_as(
+            "SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(archived.0, "cli-sess-123");
 
         let msg: (String, String) = sqlx::query_as(
@@ -232,12 +226,13 @@ mod session_archiving_tests {
 
         WsSessionPersistence::archive_and_clear(&pool, id, Some("directly-passed-sid")).await;
 
-        let archived: (String,) =
-            sqlx::query_as("SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?")
-                .bind(id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let archived: (String,) = sqlx::query_as(
+            "SELECT runtime_session_id FROM session_runtime_ids WHERE session_id = ?",
+        )
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(archived.0, "directly-passed-sid");
 
         let row: (Option<String>,) =

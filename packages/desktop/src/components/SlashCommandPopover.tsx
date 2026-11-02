@@ -1,5 +1,5 @@
 import { memo, useRef, useEffect, type ReactNode } from "react";
-import { TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
+import { CircleAlertIcon, TerminalIcon, Loader2Icon, SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CadencrLogo } from "@/components/CadencrLogo";
 import { SlidingText } from "@/components/SlidingText";
@@ -14,17 +14,6 @@ import {
   ComposerPopoverOption,
 } from "./composer/ComposerPopover";
 
-export const SLASH_COMMAND_POPOVER_MAX_HEIGHT = 300;
-export const SLASH_COMMAND_POPOVER_MIN_HEIGHT = 120;
-
-/** Cap the list to available space above the prompt (with a usable floor). */
-export function slashCommandPopoverMaxHeight(spaceAbovePx: number): number {
-  return Math.max(
-    SLASH_COMMAND_POPOVER_MIN_HEIGHT,
-    Math.min(SLASH_COMMAND_POPOVER_MAX_HEIGHT, spaceAbovePx - 8),
-  );
-}
-
 interface SlashCommandPopoverProps {
   /** Listbox id shared with the editor's combobox ARIA. */
   listId: string;
@@ -34,6 +23,8 @@ interface SlashCommandPopoverProps {
   onSelect: (commandName: string) => void;
   /** Whether the commands query is loading */
   isLoading: boolean;
+  /** Why the provider's own commands could not be listed, if they could not. */
+  error?: string | null;
   triggerChar?: string;
   /** When true, Cadencr virtual skills (`kind === "cadencr"`) are shown but
    * disabled because a required MCP dependency (project or workspace) is off. */
@@ -153,9 +144,10 @@ export function SlashCommandPopover({
   selectedIndex,
   onSelect,
   isLoading,
+  error,
   triggerChar = "/",
   cadencrDisabled = false,
-  maxHeight = SLASH_COMMAND_POPOVER_MAX_HEIGHT,
+  maxHeight,
 }: SlashCommandPopoverProps) {
   const listRef = useRef<HTMLDivElement>(null);
 
@@ -186,9 +178,16 @@ export function SlashCommandPopover({
       <Loader2Icon className="size-3 animate-spin" />
       Loading commands…
     </>
-  ) : items.length === 0 ? (
+  ) : items.length === 0 && !error ? (
     "No matching commands"
   ) : null;
+  const notice =
+    error && !isLoading ? (
+      <>
+        <CircleAlertIcon className="mt-px size-3.5 shrink-0" />
+        <span className="min-w-0 break-words">{error}</span>
+      </>
+    ) : null;
 
   return (
     <ComposerPopover
@@ -197,6 +196,7 @@ export function SlashCommandPopover({
       label={triggerChar === "$" ? "Skills" : "Commands"}
       maxHeight={maxHeight}
       status={status}
+      notice={notice}
     >
       {runs && runs.length > 1
         ? runs.map((run) => (

@@ -8,7 +8,8 @@ use tokio::sync::broadcast;
 use crate::domain::agents::adapter::RuntimeEvent;
 use crate::domain::sessions::models::SessionStatusSnapshotEntry;
 
-use super::live::{LiveStatusBook, Source, Transition, TurnStart};
+use super::journal::{JournalEntry, TurnJournal};
+use super::live::{Applied, LiveStatusBook, Source, Transition};
 use super::{
     derive_broadcast_status, event_starts_fresh_turn, provider_signal_for_event, AgentStatus,
     PendingKind, SessionStatusEvent, TurnOutcome,
@@ -36,6 +37,7 @@ pub struct SessionStatusSnapshot {
 pub struct SessionStatusBroadcaster {
     tx: broadcast::Sender<SessionStatusEvent>,
     book: Arc<Mutex<LiveStatusBook>>,
+    journal: Arc<TurnJournal>,
     epoch: i64,
 }
 
@@ -44,8 +46,14 @@ impl SessionStatusBroadcaster {
         Self {
             tx,
             book: Arc::default(),
+            journal: Arc::default(),
             epoch: now_ms(),
         }
+    }
+
+    /// Where the book's turn clocks and finished turns wait to be written.
+    pub fn journal(&self) -> Arc<TurnJournal> {
+        Arc::clone(&self.journal)
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<SessionStatusEvent> {
@@ -122,11 +130,17 @@ impl SessionStatusBroadcaster {
         })
     }
 
-    /// Broadcast that a new turn starts now. Every later event of the turn
-    /// carries that start.
+    /// An agent prompt was dispatched: an idle session starts a turn, a busy
+    /// one keeps the turn it is in (the prompt steers it).
     pub fn broadcast_running(&self, session_id: i64, feature_id: i64) -> Option<u64> {
+        self.apply(Transition::new(session_id, feature_id, AgentStatus::Agent))
+    }
+
+    /// A user shell command runs in the conversation. It keeps the session busy
+    /// but is not an agent turn, so it gets no closing transcript line.
+    pub fn broadcast_shell_running(&self, session_id: i64, feature_id: i64) -> Option<u64> {
         self.apply(Transition {
-            turn_start: TurnStart::Fresh,
+            summarized: false,
             ..Transition::new(session_id, feature_id, AgentStatus::Agent)
         })
     }
@@ -155,6 +169,21 @@ impl SessionStatusBroadcaster {
             },
             ..Transition::new(session_id, feature_id, signal.status())
         })
+    }
+
+    /// The CLI reports the model running the session's root agent. Shown on
+    /// the "Working" line and recorded in the turn's closing line.
+    pub fn observe_model(&self, session_id: i64, model: &str) -> Option<u64> {
+        let mut book = self.lock();
+        let applied = book.observe_model(session_id, model, now_ms())?;
+        Some(self.publish(applied))
+    }
+
+    /// The provider started or finished compacting the session's context.
+    pub fn set_compacting(&self, session_id: i64, active: bool) -> Option<u64> {
+        let mut book = self.lock();
+        let applied = book.set_compacting(session_id, active, now_ms())?;
+        Some(self.publish(applied))
     }
 
     /// Mark idle every tracked session whose row is gone (its feature or
@@ -187,10 +216,30 @@ impl SessionStatusBroadcaster {
     /// fails when there are no receivers, the normal state with no client.
     fn apply(&self, transition: Transition) -> Option<u64> {
         let mut book = self.lock();
-        let event = book.apply(&transition, now_ms())?;
+        let applied = book.apply(&transition, now_ms())?;
+        Some(self.publish(applied))
+    }
+
+    /// Queue what the change persists and broadcast it. Runs under the book
+    /// lock, so the journal receives changes in `seq` order.
+    fn publish(&self, applied: Applied) -> u64 {
+        let Applied {
+            event,
+            completed,
+            persist,
+        } = applied;
+        if let Some(clock) = persist {
+            self.journal.push(JournalEntry::Clock {
+                session_id: event.session_id,
+                clock,
+            });
+        }
+        if let Some(turn) = completed {
+            self.journal.push(JournalEntry::Completed(turn));
+        }
         let seq = event.seq;
         let _ = self.tx.send(event);
-        Some(seq)
+        seq
     }
 
     fn lock(&self) -> MutexGuard<'_, LiveStatusBook> {
@@ -200,6 +249,28 @@ impl SessionStatusBroadcaster {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
+}
+
+/// Bring the status book back at boot, before any client can connect: close
+/// the turns a stopped service cut off (they ended with it), seed the gates and
+/// turn clocks it persisted, then start writing the book's changes.
+pub async fn restore_at_boot(state: &crate::app_state::AppState) -> anyhow::Result<()> {
+    let closed = super::close_stale_turns(&state.write_pool)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to close stale turns: {error}"))?;
+    if closed > 0 {
+        tracing::info!(closed, "closed turns a stopped service cut off");
+    }
+    let persisted =
+        crate::domain::sessions::repository::get_session_status_snapshot(&state.read_pool)
+            .await
+            .map_err(|error| anyhow::anyhow!("failed to seed session statuses: {error}"))?;
+    let broadcaster = &state.session_status_tx;
+    broadcaster.seed(persisted.into_values());
+    broadcaster
+        .journal()
+        .spawn_writer(state.write_pool.clone(), state.ws_feature_senders.clone());
+    Ok(())
 }
 
 fn now_ms() -> i64 {
@@ -229,6 +300,22 @@ mod tests {
                 parent_tool_use_id: None,
             },
         )
+    }
+
+    #[test]
+    fn a_turn_the_cli_opens_itself_records_its_model_once_it_is_open() {
+        let broadcaster = broadcaster();
+        // The stream reader reports the model before the event opens the turn:
+        // an idle session has no clock to carry it, so it reports it again.
+        assert!(broadcaster.observe_model(7, "opus").is_none());
+        assert!(broadcaster.set_compacting(7, true).is_none());
+
+        broadcaster.stream_event(7, 8, &message_start());
+        assert!(broadcaster.observe_model(7, "opus").is_some());
+        assert!(broadcaster.observe_model(7, "opus").is_none());
+
+        let entry = &broadcaster.snapshot().states["7"];
+        assert_eq!(entry.clock.model.as_deref(), Some("opus"));
     }
 
     #[tokio::test]
@@ -267,7 +354,10 @@ mod tests {
         assert_eq!(event.status, AgentStatus::Question);
         assert_eq!(event.kind, Some(PendingKind::Permission));
         assert_eq!(event.request_id.as_deref(), Some("req-42"));
-        assert_eq!(event.turn_started_at_ms, started.turn_started_at_ms);
+        assert_eq!(
+            event.clock.turn_started_at_ms,
+            started.clock.turn_started_at_ms
+        );
     }
 
     #[test]
@@ -306,12 +396,40 @@ mod tests {
         let snapshot = broadcaster.snapshot();
         assert_eq!(snapshot.seq, event.seq);
         assert_eq!(
-            snapshot.states["7"].turn_started_at_ms,
-            event.turn_started_at_ms
+            snapshot.states["7"].clock.turn_started_at_ms,
+            event.clock.turn_started_at_ms
         );
         let wire = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(wire["epoch"], broadcaster.epoch);
         assert!(wire["server_now_ms"].as_i64().unwrap() > 0);
+    }
+
+    #[tokio::test]
+    async fn model_and_compaction_reach_every_device_and_idle_clears_them() {
+        let broadcaster = broadcaster();
+        broadcaster.broadcast_running(7, 8);
+        let mut rx = broadcaster.subscribe();
+
+        broadcaster.observe_model(7, "claude-opus-5-5");
+        broadcaster.set_compacting(7, true);
+        let reported = rx.recv().await.unwrap();
+        assert_eq!(reported.clock.model.as_deref(), Some("claude-opus-5-5"));
+        let compacting = rx.recv().await.unwrap();
+        assert!(compacting.compacting);
+        assert_eq!(
+            serde_json::to_value(&compacting).unwrap()["compacting"],
+            true
+        );
+        assert!(broadcaster.snapshot().states["7"].compacting);
+
+        broadcaster.broadcast(7, 8, AgentStatus::Idle, None);
+        let idle = rx.recv().await.unwrap();
+        assert!(!idle.compacting);
+        assert!(serde_json::to_value(&idle)
+            .unwrap()
+            .get("compacting")
+            .is_none());
+        assert!(broadcaster.snapshot().states.is_empty());
     }
 
     #[tokio::test]

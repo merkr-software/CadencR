@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { CommandsListPayload } from "@/lib/ws-envelope";
 import type { McpServerStatus } from "./ws-session-types";
 import type {
+  ProviderSetOkPayload,
   RuntimeSessionConfigChoices,
   RuntimeSessionConfigOption,
   RuntimeSessionConfigSelectOption,
@@ -21,11 +22,13 @@ export function parseCommandsListPayload(payload: unknown): CommandsListPayload 
   if (!record) return null;
   const commands = optionalArray(record, "commands");
   const promptCommandPolicy = parsePromptCommandPolicy(record.prompt_command_policy);
+  const error = optionalString(record, "error");
+  const extras = {
+    ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
+    ...(error ? { error } : {}),
+  };
   if (!commands) {
-    return {
-      commands: [],
-      ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
-    };
+    return { commands: [], ...extras };
   }
   const parsed = commands
     .map(
@@ -58,10 +61,7 @@ export function parseCommandsListPayload(payload: unknown): CommandsListPayload 
         kind: "command" | "skill" | "cadencr";
       } => entry !== null,
     );
-  return {
-    commands: parsed,
-    ...(promptCommandPolicy ? { prompt_command_policy: promptCommandPolicy } : {}),
-  };
+  return { commands: parsed, ...extras };
 }
 
 function parsePromptCommandPolicy(
@@ -310,7 +310,7 @@ const providerPayloadSchema = z.object({
       fast_mode: z.boolean().nullable(),
     })
     .optional(),
-});
+}) satisfies z.ZodType<Partial<ProviderSetOkPayload>>;
 
 export function parseProviderPayload(
   payload: unknown,
@@ -371,13 +371,6 @@ export function parseFeatureUpdatedPayload(
     feature_id: optionalNumber(record, "feature_id"),
     changed,
   };
-}
-
-export function parseCompactingPayload(payload: unknown): { active: boolean } | null {
-  const record = asRecord(payload);
-  if (!record) return null;
-  const active = optionalBoolean(record, "active");
-  return active == null ? null : { active };
 }
 
 export * from "./ws-envelope-payload-session";

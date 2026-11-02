@@ -11,7 +11,7 @@ use super::SettingWarning;
 /// Top-level keys whose value is a nested object the store persists verbatim
 /// (e.g. `profiles.<name>.<ENV_KEY>`). They are not part of the flat scalar
 /// projection, so they are skipped silently rather than warned on.
-const STRUCTURED_KEYS: &[&str] = &["profiles", "codex_profiles"];
+const STRUCTURED_KEYS: &[&str] = &["profiles", "codex_profiles", "telemetry"];
 
 fn is_structured_key(key: &str) -> bool {
     STRUCTURED_KEYS.contains(&key)

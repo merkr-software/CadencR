@@ -6,8 +6,8 @@ use serde_json::Value;
 
 use super::branching::SessionBranching;
 use super::config::{
-    ResolvedRuntimeProfile, RuntimeAccessMode, RuntimeConfigOverrides, RuntimeEffectiveConfig,
-    RuntimePermissionMode, RuntimeSpawnConfig,
+    ResolvedRuntimeProfile, RuntimeAccessMode, RuntimeAccessModeChange, RuntimeConfigOverrides,
+    RuntimeEffectiveConfig, RuntimePermissionMode, RuntimeSpawnConfig,
 };
 use super::error::RuntimeError;
 use super::event_types::RuntimeEvent;
@@ -62,13 +62,29 @@ pub trait AgentRuntimeAdapter: Send + Sync {
     ) -> Result<Option<ResolvedRuntimeProfile>, RuntimeError> {
         Ok(None)
     }
+    /// Encode an attachment at the provider transport boundary.
+    fn prompt_attachment_block(&self, attachment: &super::RuntimePromptAttachment<'_>) -> Value {
+        super::prompt_attachments::default_prompt_attachment_block(attachment)
+    }
+    /// Optional scoped opt-in for permission bypass; None leaves provider policy unchanged.
+    async fn bypass_permission_opt_in(
+        &self,
+        _pool: &sqlx::SqlitePool,
+        _feature_id: i64,
+        _project_id: Option<i64>,
+    ) -> Option<bool> {
+        None
+    }
+    /// Compatibility mirror for the original access-mode field.
+    fn legacy_access_mode_wire(&self, _access_mode: Option<&str>) -> Option<String> {
+        None
+    }
+
     fn is_valid_resume_session_id(&self, _session_id: &str) -> bool {
         true
     }
 
-    /// Point-in-time context branching (rewind / fork). `None` (the default)
-    /// means the provider can't branch; the orchestrator reports the action
-    /// unsupported. Providers that can (today: Claude Code) return their impl.
+    /// Point-in-time rewind/fork support; None reports unsupported.
     fn session_branching(&self) -> Option<&dyn SessionBranching> {
         None
     }
@@ -96,18 +112,10 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.resolve_resume_session_id(runtime_session_id)
     }
 
-    /// Static catalog entry (available immediately at startup).
-    ///
-    /// Model entries are owned by this adapter. Shared legacy resolution uses
-    /// exact catalog membership rather than inferring ownership from model-id
-    /// spelling.
+    /// Startup catalog; shared resolution uses exact model membership.
     fn catalog_entry(&self) -> super::super::runtime::ProviderCatalogEntry;
 
-    /// Canonicalize a requested model id against this provider's catalog.
-    ///
-    /// The default is provider-neutral and preserves the caller's value.
-    /// Providers that support stable aliases can override this without leaking
-    /// provider-specific model semantics into shared orchestration code.
+    /// Canonicalize model aliases against this provider's catalog; default preserves input.
     fn canonicalize_model_id(
         &self,
         model_id: &str,
@@ -165,13 +173,8 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.default_model_id().await
     }
 
-    /// Configured profile to pin on a newly-created session for this provider.
-    ///
-    /// The profile name is persisted before the runtime is dispatched so a
-    /// headless spawn and a concurrently connecting UI reconstruct the same
-    /// provider configuration. `None` means the provider has no profile
-    /// concept; profile-aware providers may return their reserved built-in
-    /// profile name (for example `"default"`).
+    /// Profile persisted before dispatch so headless launch and UI use the same configuration.
+    /// None means this provider has no profile concept.
     fn profile_name_for_new_session(&self) -> Option<String> {
         None
     }
@@ -229,26 +232,23 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         source_project_path: &Path,
         worktree_path: &Path,
     ) -> Result<(), RuntimeError> {
-        let paths = self.worktree_config_paths();
-        if paths.is_empty() {
-            return Ok(());
-        }
         super::adapter_defaults::copy_worktree_config(
             &self.catalog_entry().label,
             source_project_path,
             worktree_path,
-            &paths,
+            &self.worktree_config_paths(),
         )
         .await
     }
 
+    /// The provider's own `/` catalog for `cwd`. The default has none, which
+    /// is not an error: the menu still lists host and Cadencr commands. An
+    /// `Err` is a failed discovery and is shown to the user.
     async fn runtime_slash_commands(
         &self,
         _cwd: &str,
     ) -> Result<Vec<RuntimeSlashCommand>, RuntimeError> {
-        Err(RuntimeError::new(
-            "runtime slash command discovery is not supported by this provider",
-        ))
+        Ok(Vec::new())
     }
 
     async fn runtime_slash_commands_for_profile(
@@ -296,6 +296,16 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         self.compaction_strategy().is_some()
     }
 
+    /// Terminal command resuming a session outside Cadencr (`{session_id}` placeholder).
+    fn resume_command(&self) -> Option<super::super::runtime::ProviderResumeCommand> {
+        None
+    }
+
+    /// Last-negotiated prompt content capabilities; `None` until observed.
+    fn prompt_capabilities(&self) -> Option<super::super::runtime::ProviderPromptCapabilities> {
+        None
+    }
+
     /// Whether this provider's CLI can run a permission mode; `mode.set` rejects
     /// the rest (frontend mirror: `lib/provider-modes.ts`). Defaults to none, so
     /// a new provider never silently accepts modes its CLI can't execute.
@@ -317,23 +327,9 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         None
     }
 
-    /// Whether a live runtime can apply an access-mode change without a
-    /// respawn. Providers with a live policy hook (Codex's app server, Cursor's
-    /// host-side Auto Review preflight) return true; providers whose whole
-    /// access mode lives in process launch flags return false.
-    fn applies_access_mode_in_place(&self) -> bool {
-        false
-    }
-
-    /// Whether an access-mode change still requires respawning (for example
-    /// when it changes launch flags). `from` is the last spawned mode.
-    /// Defaults to true; in-place adapters may opt out.
-    fn access_mode_change_needs_respawn(
-        &self,
-        _from: Option<&RuntimeAccessMode>,
-        _to: &RuntimeAccessMode,
-    ) -> bool {
-        true
+    /// How a live runtime takes an access-mode change.
+    fn access_mode_change(&self) -> RuntimeAccessModeChange {
+        RuntimeAccessModeChange::Respawn
     }
 
     async fn configured_access_mode(
@@ -451,6 +447,9 @@ mod tests {
             .is_none());
         assert!(!adapter.supports_prompt_receipts());
         assert!(!adapter.uses_legacy_permission_channel_on_response_error());
+        assert_eq!(adapter.legacy_access_mode_wire(Some("fullAccess")), None);
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        assert_eq!(adapter.bypass_permission_opt_in(&pool, 1, None).await, None);
         assert_eq!(adapter.profile_name_for_new_session(), None);
         assert_eq!(adapter.environment_for_new_session(), None);
         assert_eq!(

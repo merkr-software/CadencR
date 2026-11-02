@@ -70,17 +70,20 @@ export function tokensToHotkeyString(keys: ShortcutKey[]): string {
   return keys.map(tokenToEngine).join("+");
 }
 
+/** A trailing digit range (`["1-9"]`, `["mod", "alt", "1-9"]`) binds one combo per digit. */
 function expandShortcutKeys(keys: ShortcutKey[]): string[] {
-  if (keys.length !== 1) return [tokensToHotkeyString(keys)];
-
-  const range = /^([0-9])-([0-9])$/.exec(keys[0]);
+  const last = keys.at(-1);
+  const range = last === undefined ? null : /^([0-9])-([0-9])$/.exec(last);
   if (!range) return [tokensToHotkeyString(keys)];
 
   const start = Number(range[1]);
   const end = Number(range[2]);
   if (start > end) return [tokensToHotkeyString(keys)];
 
-  return Array.from({ length: end - start + 1 }, (_, index) => String(start + index));
+  const modifiers = keys.slice(0, -1);
+  return Array.from({ length: end - start + 1 }, (_, index) =>
+    tokensToHotkeyString([...modifiers, String(start + index)]),
+  );
 }
 
 /**

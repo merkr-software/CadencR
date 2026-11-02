@@ -6,13 +6,12 @@ import { useConversationReference } from "@/hooks/useConversationReference";
 import { useWorkspaceMcpEnabled } from "@/lib/mcp-settings";
 import { $createConversationReferenceNode } from "../nodes/ConversationReferenceNode";
 import {
-  CursorPopover,
+  AnchoredPopover,
   getTriggerMatch,
   replaceTriggerWithNode,
-  useEditorAnchorRect,
+  useComposerPopoverAnchor,
   usePopoverKeyboardCommands,
 } from "./trigger-utils";
-import { slashCommandPopoverMaxHeight } from "@/components/SlashCommandPopover";
 
 export function ConversationReferencePlugin({
   currentFeatureId,
@@ -66,14 +65,14 @@ export function ConversationReferencePlugin({
     selectValue,
     listId,
   );
-  const anchorRect = useEditorAnchorRect(editor, reference.isOpen);
+  const popoverAnchor = useComposerPopoverAnchor(editor, reference.isOpen);
 
-  if (!reference.isOpen || !anchorRect) return null;
+  if (!reference.isOpen || !popoverAnchor) return null;
   return (
-    <CursorPopover cursorRect={anchorRect} matchWidth>
+    <AnchoredPopover anchor={popoverAnchor}>
       <ConversationReferencePopover
         listId={listId}
-        maxHeight={slashCommandPopoverMaxHeight(anchorRect.top)}
+        maxHeight={popoverAnchor.maxHeight}
         items={reference.filteredItems}
         selectedIndex={reference.selectedIndex}
         isLoading={reference.isLoading}
@@ -81,7 +80,7 @@ export function ConversationReferencePlugin({
         disabled={!enabled}
         onSelect={handleSelect}
       />
-    </CursorPopover>
+    </AnchoredPopover>
   );
 }
 

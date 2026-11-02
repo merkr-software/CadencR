@@ -7,6 +7,9 @@ use crate::app_state::AppState;
 use crate::domain::agents::claude_code::routes as claude_code_routes;
 use crate::domain::agents::codex::routes as codex_routes;
 use crate::domain::agents::discovery::routes as discovery_routes;
+use crate::domain::agents::extensions as agent_extensions;
+use crate::domain::agents::extensions::routes as agent_extension_routes;
+use crate::domain::agents::orchestration_skills::routes as virtual_skills_routes;
 use crate::domain::agents::providers::development::routes as provider_development_routes;
 use crate::domain::agents::providers::installed::managed::routes as managed_provider_routes;
 use crate::domain::agents::providers::installed::routes as installed_provider_routes;
@@ -66,6 +69,11 @@ use crate::domain::ws_session::routes as ws_routes;
     info(title = "Cadencr Service API", version = "0.1.0"),
     paths(
         health,
+        crate::domain::telemetry::routes::get_preferences,
+        crate::domain::telemetry::routes::put_preferences,
+        crate::domain::telemetry::routes::reset_identity,
+        crate::domain::telemetry::routes::ingest_diagnostic,
+        crate::domain::telemetry::routes::activity,
         openapi_spec,
         editor_routes::read_file_handler,
         // `read-image` and `diff-image` are intentionally NOT exposed to orval: their responses
@@ -145,6 +153,7 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_routes::list_actions_handler,
         custom_actions_routes::create_action_handler,
         custom_actions_routes::update_action_handler,
+        custom_actions_routes::reorder_custom_actions_handler,
         custom_actions_routes::delete_action_handler,
         custom_actions_routes::list_variables_handler,
         custom_actions_routes::set_variable_handler,
@@ -152,8 +161,6 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_routes::resolve_command_handler,
         custom_actions_routes::list_runs_handler,
         custom_actions_routes::cancel_run_handler,
-        custom_actions_routes::get_schedule_handler,
-        custom_actions_routes::set_schedule_handler,
         schedules_routes::list_schedules_handler,
         schedules_routes::create_schedule_handler,
         schedules_routes::get_schedule_by_id_handler,
@@ -162,6 +169,7 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_routes::set_schedule_enabled_handler,
         schedules_routes::run_schedule_handler,
         ws_routes::get_prompt_commands,
+        virtual_skills_routes::list_virtual_skills,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
         feature_layouts_routes::update_layout_handler,
@@ -173,6 +181,7 @@ use crate::domain::ws_session::routes as ws_routes;
         prompt_queue_routes::update_session_queued_prompt,
         prompt_queue_routes::delete_session_queued_prompt,
         prompt_queue_routes::send_session_queued_prompt_now,
+        crate::domain::subagents::routes::list_feature_subagents,
         diff_comments_routes::list_diff_comments_handler,
         diff_comments_routes::create_diff_comment_handler,
         diff_comments_routes::update_diff_comment_handler,
@@ -211,6 +220,17 @@ use crate::domain::ws_session::routes as ws_routes;
         provider_update_routes::get_provider_updates,
         provider_update_routes::check_provider_updates,
         provider_update_routes::update_provider,
+        agent_extension_routes::list_extension_clis,
+        agent_extension_routes::search_mcp_registry,
+        agent_extension_routes::get_mcp_registry_server,
+        agent_extension_routes::list_installed_mcp_servers,
+        agent_extension_routes::install_mcp_server,
+        agent_extension_routes::remove_mcp_server,
+        agent_extension_routes::update_mcp_server,
+        agent_extension_routes::list_skills,
+        agent_extension_routes::install_skill,
+        agent_extension_routes::remove_skill,
+        agent_extension_routes::update_skill,
         provider_development_routes::create_provider_workspace_handler,
         installed_provider_routes::installed_providers_handler,
         installed_provider_routes::install_provider_handler,
@@ -305,8 +325,16 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_routes::open_file_route,
     ),
     components(schemas(
+        crate::domain::telemetry::models::TelemetryConsent,
+        crate::domain::telemetry::models::TelemetryPreferences,
+        crate::domain::telemetry::models::DeliveryStatus,
+        crate::domain::telemetry::models::DiagnosticReport,
+        crate::domain::telemetry::models::DiagnosticCategory,
+        crate::domain::telemetry::models::DiagnosticFrame,
         prompt_queue_store::QueuedPrompt,
         prompt_queue_store::QueuedPromptStatus,
+        crate::domain::subagents::SubagentRun,
+        crate::domain::subagents::SubagentRunStatus,
         crate::domain::mcp::control::side_question::SideQuestionRequest,
         crate::domain::mcp::control::side_question::SideQuestionResponse,
         prompt_queue_routes::QueuePromptRequest,
@@ -386,6 +414,8 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::agents::runtime::AgentCatalogResponse,
         crate::domain::agents::runtime::ProviderCatalogResponseEntry,
         crate::domain::agents::runtime::ProviderProfileCapability,
+        crate::domain::agents::runtime::ProviderResumeCommand,
+        crate::domain::agents::runtime::ProviderPromptCapabilities,
         crate::domain::agents::runtime::ProviderProfileEntry,
         crate::domain::agents::runtime::ProviderProfilesResponse,
         crate::domain::agents::adapter::RuntimeConfigOverrides,
@@ -406,6 +436,31 @@ use crate::domain::ws_session::routes as ws_routes;
         discovery_routes::DiscoveredCandidate,
         discovery_routes::DiscoveredSource,
         crate::domain::agents::updates::ProviderUpdatesResponse,
+        agent_extensions::ExtensionClisResponse,
+        agent_extensions::ExtensionCliSummary,
+        agent_extensions::ExtensionSupport,
+        agent_extensions::McpTransport,
+        agent_extensions::McpRegistryPage,
+        agent_extensions::McpRegistryServer,
+        agent_extensions::McpInstallOption,
+        agent_extensions::McpInput,
+        agent_extensions::McpInputKind,
+        agent_extensions::McpInventoryResponse,
+        agent_extensions::McpListing,
+        agent_extensions::McpInstallation,
+        agent_extensions::CliMcpServer,
+        agent_extensions::McpPackageRef,
+        agent_extensions::McpInstallRequest,
+        agent_extensions::McpServerRequest,
+        agent_extension_routes::McpUpdateResponse,
+        agent_extension_routes::SkillCatalogFilter,
+        agent_extensions::ExtensionCliError,
+        agent_extensions::SkillCatalogResponse,
+        agent_extensions::SkillListing,
+        agent_extensions::SkillOffer,
+        agent_extensions::InstalledSkill,
+        agent_extensions::SkillSource,
+        agent_extensions::SkillRequest,
         crate::domain::agents::updates::ProviderUpdateStatus,
         crate::domain::agents::updates::ProviderUpdateState,
         crate::domain::agents::updates::ProviderUpdateActivity,
@@ -557,11 +612,10 @@ use crate::domain::ws_session::routes as ws_routes;
         custom_actions_models::CustomAction,
         custom_actions_models::CustomActionVariable,
         custom_actions_models::CustomActionRun,
-        custom_actions_models::CustomActionSchedule,
         custom_actions_models::CreateCustomActionRequest,
         custom_actions_models::UpdateCustomActionRequest,
+        custom_actions_models::ReorderCustomActionsRequest,
         custom_actions_models::SetCustomActionVariableRequest,
-        custom_actions_models::SetCustomActionScheduleRequest,
         custom_actions_models::LastRunSummary,
         custom_actions_models::RunResponse,
         custom_actions_models::ResolvedCommand,
@@ -582,6 +636,9 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_models::ScheduleDeleted,
         schedules_models::ScheduleRunResult,
         ws_routes::PromptCommandsResponse,
+        virtual_skills_routes::VirtualSkillPayload,
+        virtual_skills_routes::VirtualSkillParametersPayload,
+        crate::domain::agents::orchestration_skills::SkillWorktree,
         ws_protocol::SlashCommandPayload,
         ws_protocol::SlashCommandKindPayload,
         ws_protocol::PromptCommandPolicyPayload,
@@ -678,7 +735,41 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_protocol::NeovimStartResponse,
         neovim_protocol::NeovimDetectResponse,
         neovim_protocol::OpenFileRequest,
+        ws_protocol::WsEnvelope,
+        ws_protocol::SessionInitializedPayload,
+        ws_protocol::SessionMessagePayload,
+        ws_protocol::SessionUsageUpdatePayload,
+        ws_protocol::SessionErrorPayload,
+        ws_protocol::SessionWarningPayload,
+        ws_protocol::SessionEndedPayload,
+        ws_protocol::SessionLifecyclePayload,
+        ws_protocol::SessionLifecycleKind,
+        ws_protocol::FeatureRenamedPayload,
+        ws_protocol::FeatureAutoNamingPayload,
+        ws_protocol::FeatureUpdatedPayload,
         ws_protocol::WsSessionAction,
+        ws_protocol::WsSessionEvent,
+        ws_protocol::SessionAcknowledgedPayload,
+        ws_protocol::SessionTranscriptBlockPayload,
+        ws_protocol::SessionCompactStartedPayload,
+        ws_protocol::SessionDeletedPayload,
+        ws_protocol::SessionClearedPayload,
+        ws_protocol::SessionMcpServersPayload,
+        ws_protocol::McpServerStatusPayload,
+        ws_protocol::HistoryResultPayload,
+        ws_protocol::HistoryAddedPayload,
+        ws_protocol::DraftResultPayload,
+        ws_protocol::DraftSavedPayload,
+        ws_protocol::BranchNeedsConfirmPayload,
+        ws_protocol::WsSessionCommand,
+        ws_protocol::AccessModeSetPayload,
+        ws_protocol::BranchPayload,
+        ws_protocol::HistoryGetPayload,
+        ws_protocol::HistoryAddPayload,
+        ws_protocol::DraftGetPayload,
+        ws_protocol::DraftSavePayload,
+        ws_protocol::RetryWorktreeSetupPayload,
+        ws_protocol::RetryWorktreeSetupOkPayload,
         ws_protocol::PermissionDecision,
         ws_protocol::SessionInitPayload,
         ws_protocol::PromptSendPayload,
@@ -710,6 +801,8 @@ use crate::domain::ws_session::routes as ws_routes;
         ws_protocol::RuntimeSessionIdPayload,
         ws_protocol::BranchRewoundPayload,
         ws_protocol::BranchForkedPayload,
+        ws_protocol::SessionPersistenceStatusPayload,
+        ws_protocol::PersistenceStatusState,
         ws_protocol::SessionStreamStatusPayload,
         ws_protocol::StreamStatusState,
         ws_protocol::CommandsGetPayload,
@@ -768,6 +861,107 @@ pub fn routes() -> Router<AppState> {
 #[cfg(test)]
 mod tests {
     use super::api_doc;
+
+    #[test]
+    fn session_commands_export_discriminated_payloads_used_by_runtime_routing() {
+        use crate::domain::ws_session::protocol::canonical_session_command_action;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionCommand"]["oneOf"].as_array().unwrap();
+        assert_eq!(variants.len(), 28);
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(
+                canonical_session_command_action(action).is_some(),
+                "{action}"
+            );
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+        }
+        for (action, payload) in [
+            ("prompt.send", "PromptSendPayload"),
+            ("access_mode.set", "AccessModeSetPayload"),
+            ("branch.rewind", "BranchPayload"),
+            ("history.add", "HistoryAddPayload"),
+            ("draft.save", "DraftSavePayload"),
+            ("retry_worktree_setup", "RetryWorktreeSetupPayload"),
+        ] {
+            let variant = variants
+                .iter()
+                .find(|variant| variant["properties"]["action"]["enum"][0] == action)
+                .unwrap();
+            assert_eq!(
+                variant["properties"]["payload"]["$ref"],
+                format!("#/components/schemas/{payload}")
+            );
+        }
+        for (schema, optional_fields) in [
+            (
+                "PromptSendPayload",
+                &[
+                    "images",
+                    "attachments",
+                    "message_uuid",
+                    "track_prompt_receipt",
+                ][..],
+            ),
+            ("BranchPayload", &["confirm_discard"][..]),
+        ] {
+            let required = schemas[schema]["required"].as_array().unwrap();
+            for field in optional_fields {
+                assert!(
+                    !required.contains(&serde_json::json!(field)),
+                    "{schema}.{field}"
+                );
+            }
+        }
+        assert!(schemas["WsEnvelope"]["properties"].get("ref").is_some());
+        assert!(!schemas["WsEnvelope"]["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("ref")));
+    }
+
+    #[test]
+    fn session_events_export_each_canonical_action_with_its_payload() {
+        use crate::domain::ws_session::protocol::WsSessionAction;
+
+        let document = serde_json::to_value(api_doc()).unwrap();
+        let schemas = &document["components"]["schemas"];
+        let variants = schemas["WsSessionEvent"]["oneOf"].as_array().unwrap();
+        let mut actions: std::collections::HashSet<_> = WsSessionAction::all()
+            .iter()
+            .map(|action| action.as_str())
+            .collect();
+        assert_eq!(variants.len(), actions.len());
+        for variant in variants {
+            let action = variant["properties"]["action"]["enum"][0].as_str().unwrap();
+            assert!(actions.remove(action), "unknown or repeated event {action}");
+            assert!(variant["required"]
+                .as_array()
+                .unwrap()
+                .contains(&serde_json::json!("payload")));
+            let payload_ref = variant["properties"]["payload"]["$ref"].as_str().unwrap();
+            let payload_name = payload_ref.strip_prefix("#/components/schemas/").unwrap();
+            assert!(
+                schemas.get(payload_name).is_some(),
+                "{action}: {payload_ref}"
+            );
+            if action == "compact.started" {
+                assert_eq!(schemas[payload_name]["type"], "null");
+            }
+        }
+        assert!(actions.is_empty());
+    }
 
     #[test]
     fn descriptor_optional_properties_are_not_advertised_as_nullable() {

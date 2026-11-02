@@ -37,6 +37,54 @@ async fn test_init_rejects_unsupported_provider() {
     }
 }
 
+/// Rows written while Cursor was a built-in keep `runtime_provider =
+/// 'cursor'`. Without an installed `cursor` plugin they must still load and
+/// fail visibly with a stable code rather than panic or be rewritten.
+#[tokio::test]
+async fn init_of_a_session_from_a_removed_builtin_fails_visibly() {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
+    let app_state = make_test_app_state().await;
+    sqlx::query(
+        "INSERT INTO agent_sessions (feature_id, agent_type, status, runtime_provider, runtime_session_id, model) VALUES (1, 'session', 'paused', 'cursor', 'chat-legacy', 'auto')"
+    )
+    .execute(&app_state.write_pool)
+    .await
+    .unwrap();
+
+    let envelope = make_envelope(
+        "session",
+        "init",
+        serde_json::json!({ "cwd": "/tmp/test", "feature_id": 1 }),
+    );
+    dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
+
+    let Message::Text(text) = rx.recv().await.unwrap() else {
+        panic!("expected text message");
+    };
+    let env: WsEnvelope = serde_json::from_str(&text).unwrap();
+    assert_eq!(env.action, "error");
+    let payload: SessionErrorPayload = serde_json::from_value(env.payload).unwrap();
+    assert_eq!(payload.code, "UNSUPPORTED_PROVIDER");
+    assert!(payload.message.contains("'cursor'"), "{}", payload.message);
+    let row: (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT runtime_provider, runtime_session_id FROM agent_sessions WHERE feature_id = 1",
+    )
+    .fetch_one(&app_state.read_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        row.0.as_deref(),
+        Some("cursor"),
+        "provider row is preserved"
+    );
+    assert_eq!(
+        row.1.as_deref(),
+        Some("chat-legacy"),
+        "resume id is preserved"
+    );
+}
+
 #[tokio::test]
 async fn test_init_accepts_opencode_provider() {
     let (tx, mut rx) = mpsc::unbounded_channel();

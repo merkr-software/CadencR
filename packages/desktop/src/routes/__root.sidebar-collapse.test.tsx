@@ -5,7 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, screen } from "@/test-utils";
 import { useSidebarCollapsed } from "@/components/SidebarContext";
 
@@ -83,6 +83,18 @@ vi.mock("@/components/Sidebar", () => ({
 vi.mock("@/components/CommandPalette", () => ({ CommandPalette: () => null }));
 
 import { Route } from "./__root";
+import { cleanup } from "@testing-library/react";
+import { installSessionIntegration } from "@/lib/session-integration";
+
+// These fixtures mount the route without main.tsx's application composition.
+let disposeSessionIntegration: () => void;
+beforeEach(() => {
+  disposeSessionIntegration = installSessionIntegration();
+});
+afterEach(() => {
+  cleanup();
+  disposeSessionIntegration();
+});
 
 const GROUP_WIDTH = 800;
 const GROUP_HEIGHT = 600;
