@@ -243,16 +243,6 @@ describe("ws-session queued prompt delivery", () => {
       "The session closed before the message was sent.",
     );
   });
-  it("rejects pending deliveries when the backend deletes the session", async () => {
-    const { ws } = await connectAndInit();
-    const delivery = track(useWsSessionStore.getState().deliverPrompt("s1", "hello"));
-
-    ws.simulateMessage({ domain: "session", action: "deleted", payload: {} });
-    await tick();
-
-    expect(delivery.outcome).toBeInstanceOf(Error);
-    expect(useWsSessionStore.getState().sessions.s1).toBeUndefined();
-  });
 
   it("rejects right away when the session entry does not exist", async () => {
     const delivery = track(useWsSessionStore.getState().deliverPrompt("missing", "hello"));

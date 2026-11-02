@@ -275,10 +275,6 @@ export function createSessionClear(sessionId: string): WsEnvelope {
   return createSessionEnvelope("clear", { session_id: sessionId });
 }
 
-export function createSessionDelete(sessionId: string): WsEnvelope {
-  return createSessionEnvelope("delete", { session_id: sessionId });
-}
-
 export function createSessionCompact(sessionId: string): WsEnvelope {
   return createSessionEnvelope("compact", {
     session_id: sessionId,

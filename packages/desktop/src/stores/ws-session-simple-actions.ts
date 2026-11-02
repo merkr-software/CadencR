@@ -2,7 +2,6 @@ import type { DisplayRowMode } from "@/types/agent-stream";
 import {
   createAccessModeSet,
   createCommandsGet,
-  createDestroy,
   createEffortSet,
   createFastModeSet,
   createSessionEnvelope,
@@ -15,14 +14,11 @@ import {
   createProviderSet,
   createSessionClear,
   createSessionCompact,
-  createSessionDelete,
   type GateCloseReason,
   type RuntimeConfigOverridePatch,
   type WsEnvelope,
 } from "@/lib/ws-envelope";
-import { clearReconnect, unregisterReconnector } from "@/lib/ws-reconnect";
 import { DEFAULT_PROMPT_COMMAND_POLICY } from "@/lib/prompt-command-policy";
-import { useConnectionStatusStore } from "@/stores/connection-status-store";
 import type { AccessMode } from "@/types/access-mode";
 import {
   applyApprovePlan,
@@ -31,7 +27,6 @@ import {
   loadOlderSessionMessages,
 } from "./ws-session-actions";
 import { loadSessionPromptTurn } from "./ws-session-prompt-turn";
-import { discardStreamDeltas } from "./ws-delta-coalescer";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parseErrorPayload, parseFastModePayload } from "./ws-envelope-payload";
 import { resyncMessagesOnReconnect } from "./ws-session-resync";
@@ -43,15 +38,12 @@ import type {
   WsSessionStore,
 } from "./ws-session-types";
 import { updateSession } from "./ws-session-types";
-import { transitionTurn } from "./ws-turn-lifecycle";
 
 type SimpleSessionActions = Pick<
   WsSessionStore,
   | "interrupt"
-  | "destroy"
   | "clearSession"
   | "compactSession"
-  | "deleteSession"
   | "setProvider"
   | "setModel"
   | "setThinkingEffort"
@@ -75,7 +67,6 @@ type SimpleSessionActions = Pick<
 interface SimpleSessionActionDeps {
   ctx: StoreAccessors;
   sendRaw: (sessionId: string, envelope: WsEnvelope) => void;
-  sourceKey: (sessionId: string) => string;
   planRestorePrefix: string;
 }
 
@@ -88,37 +79,12 @@ export function createWsSessionSimpleActions(deps: SimpleSessionActionDeps): Sim
 }
 
 function createLifecycleActions(deps: SimpleSessionActionDeps) {
-  const { ctx, sendRaw, sourceKey } = deps;
+  const { ctx, sendRaw } = deps;
   const { get, set, getSession } = ctx;
   return {
     interrupt(sessionId: string) {
       const session = getSession(sessionId);
       sendRaw(sessionId, createInterrupt(session.serverSessionId));
-    },
-
-    destroy(sessionId: string) {
-      clearReconnect(sourceKey(sessionId));
-      unregisterReconnector(sourceKey(sessionId));
-      useConnectionStatusStore.getState().clearSource(sourceKey(sessionId));
-      discardStreamDeltas(ctx, sessionId);
-      const session = get().sessions[sessionId];
-      const connection = ctx.transport.get(sessionId)?.conn;
-      if (session?.serverSessionId) connection?.sendJson(createDestroy(session.serverSessionId));
-      ctx.transport.remove(sessionId);
-      if (session?.queuedPrompts.length)
-        set(updateSession(get(), sessionId, { queuedPrompts: [] }));
-      if (!session || !connection) return;
-
-      set(
-        updateSession(get(), sessionId, {
-          isConnected: false,
-          isConnecting: false,
-          lifecycle: transitionTurn(session.lifecycle, {
-            type: "turn_ended",
-            reason: "completed",
-          }),
-        }),
-      );
     },
 
     clearSession(sessionId: string) {
@@ -135,11 +101,6 @@ function createLifecycleActions(deps: SimpleSessionActionDeps) {
           compactRequestPending: true,
         }),
       );
-    },
-
-    deleteSession(sessionId: string) {
-      const session = getSession(sessionId);
-      sendRaw(sessionId, createSessionDelete(session.serverSessionId));
     },
   };
 }

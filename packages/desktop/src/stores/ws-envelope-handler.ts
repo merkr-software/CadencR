@@ -34,7 +34,6 @@ import {
   handleGateClosed,
   handleInitialized,
   handleMcpServers,
-  handleMessage,
   handlePermissionRequest,
   handlePromptReceived,
   handleCanonicalUserMessage,
@@ -55,7 +54,6 @@ import {
   type LegacySessionActionName,
 } from "./ws-session-action-names";
 import { handleSubagentUpdated, handleTurnEndWithSubagents } from "./ws-subagent-handlers";
-import { discardStreamDeltas } from "./ws-delta-coalescer";
 export type { StoreAccessors } from "./ws-envelope-types";
 
 // Main envelope handler
@@ -170,8 +168,15 @@ const ignoreSessionAction: SessionActionHandler = () => {};
  * Replaces the three hand-mirrored string switches this file used to chain.
  * Exhaustive over `SessionActionName`, so adding a backend action to the
  * contract fails the type-check until it is handled (or explicitly ignored).
+ * Two actions are excluded. The socket handler coalesces every `session.message`
+ * stream delta (`ws-session-socket-handler.ts`), so none reaches this table.
+ * `session.deleted` only ever answers a `session.delete` request, which the
+ * desktop never sends.
  */
-type HandledSessionAction = SessionActionName | LegacySessionActionName;
+type HandledSessionAction = Exclude<
+  SessionActionName | LegacySessionActionName,
+  typeof SESSION_ACTION.message | typeof SESSION_ACTION.deleted
+>;
 
 const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler> = {
   [SESSION_ACTION.initialized]: handleInitialized,
@@ -185,7 +190,6 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.branchneeds_confirm]: ignoreSessionAction,
   [SESSION_ACTION.runtime_session_id]: handleRuntimeSessionId,
   [SESSION_ACTION.mcp_servers]: handleMcpServers,
-  [SESSION_ACTION.message]: handleMessage,
   [SESSION_ACTION.user_message]: handleCanonicalUserMessage,
   [SESSION_ACTION.permissionrequest]: handlePermissionRequest,
   [SESSION_ACTION.error]: handleError,
@@ -203,7 +207,6 @@ const SESSION_ACTION_HANDLERS: Record<HandledSessionAction, SessionActionHandler
   [SESSION_ACTION.compactstarted]: handleCompactStarted,
   [LEGACY_SESSION_ACTION.compactOk]: handleCompactOk,
   [SESSION_ACTION.cleared]: handleCleared,
-  [SESSION_ACTION.deleted]: handleDeleted,
   [SESSION_ACTION.usage_update]: handleUsageUpdate,
   [SESSION_ACTION.stream_status]: handleStreamStatus,
   [SESSION_ACTION.persistence_status]: handlePersistenceStatus,
@@ -360,13 +363,6 @@ function handleCompactOk(ctx: StoreAccessors, sessionId: string): void {
       pendingManualCompact: false,
     }),
   );
-}
-
-function handleDeleted(ctx: StoreAccessors, sessionId: string): void {
-  discardStreamDeltas(ctx, sessionId);
-  ctx.transport.remove(sessionId);
-  const { [sessionId]: _, ...rest } = ctx.get().sessions;
-  ctx.set({ sessions: rest });
 }
 
 function handleLifecyclePayload(ctx: StoreAccessors, sessionId: string, payload: unknown): void {

@@ -24,10 +24,6 @@ import { updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import type { StoreAccessors } from "./ws-envelope-types";
 
-export function handleMessage(ctx: StoreAccessors, sessionId: string, payload: unknown): void {
-  handleMessageBatch(ctx, sessionId, [payload]);
-}
-
 /**
  * Apply a burst of coalesced `session.message` payloads in a single store
  * commit. The delta coalescer (see `ws-delta-coalescer.ts`) buffers deltas per
