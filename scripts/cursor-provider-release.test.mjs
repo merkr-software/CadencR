@@ -28,6 +28,7 @@ test("native release jobs have four native targets and no publication credential
     "linux-x86_64",
   ]);
   assert.ok(build.jobs.native.steps.some((step) => step.run?.includes("scripts/qualify.py")));
+  assert.ok(build.jobs.native.steps.every((step) => !/cache/.test(step.uses ?? "")));
   assert.equal(JSON.stringify(build).includes("secrets."), false);
   assert.equal(build.jobs.native.environment, undefined);
   assert.equal(build.jobs.prepare.environment, undefined);
