@@ -2777,7 +2777,7 @@ describe("ws-session-store", () => {
       return connectInitializedSession();
     }
 
-    function streamExitPlanMode(ws: MockWebSocket) {
+    function streamExitPlanMode(ws: MockWebSocket, toolUseId = "toolu_plan") {
       ws.simulateMessage({
         domain: "session",
         action: "message",
@@ -2789,7 +2789,7 @@ describe("ws-session-store", () => {
                 content: [
                   {
                     type: "tool_use",
-                    id: "toolu_plan",
+                    id: toolUseId,
                     name: "ExitPlanMode",
                     input: { plan: "## My Plan" },
                   },
@@ -3147,6 +3147,28 @@ describe("ws-session-store", () => {
       const session = useWsSessionStore.getState().sessions["s1"];
       const planBlock = session.blocks.find((b) => b.toolName === "ExitPlanMode");
       expect(planBlock?.planApprovalStatus).toBe("approved");
+    });
+
+    it("marks the plan its late ack answered, not a newer plan streamed meanwhile", async () => {
+      const { ws } = await setupWithInit();
+      streamExitPlanMode(ws, "toolu_plan_a");
+      sendPlanPermissionRequest(ws);
+
+      useWsSessionStore.getState().approvePlan("s1");
+      // The app socket closes plan A's gate, then plan B streams before its
+      // own permission request, and only then does A's acknowledgement land.
+      useWsSessionStore.setState((state) =>
+        updateSession(state, "s1", { pendingRequestId: "", pendingPlanApproval: null }),
+      );
+      streamExitPlanMode(ws, "toolu_plan_b");
+      await ackPlanResponse(ws);
+
+      const plans = useWsSessionStore
+        .getState()
+        .sessions["s1"].blocks.filter((b) => b.toolName === "ExitPlanMode");
+      expect(plans.map((b) => b.toolUseId)).toEqual(["toolu_plan_a", "toolu_plan_b"]);
+      expect(plans[0].planApprovalStatus).toBe("approved");
+      expect(plans[1].planApprovalStatus).toBeUndefined();
     });
 
     it("turn_complete after gate-based approval does not re-trigger approval bar", async () => {

@@ -9,7 +9,8 @@ import { makeErrorBlock } from "./ws-session-store-helpers";
 import { blocksPatchWithDerived } from "./ws-message-processing";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import {
-  markLastPlanBlock,
+  lastPlanBlockId,
+  markPlanBlock,
   updateSession,
   type SessionEntry,
   type WsSessionStore,
@@ -20,13 +21,30 @@ type PermissionDecision = Parameters<typeof createPermissionRespond>[2];
 type PermissionOptions = Parameters<typeof createPermissionRespond>[3];
 export type PlanOutcome = "approved" | "rejected";
 
+/**
+ * A plan decision in flight. The plan block is captured when the decision is
+ * sent, so a late acknowledgement still marks the plan it answered, not a
+ * newer one streamed meanwhile.
+ */
+interface PlanDecision {
+  outcome: PlanOutcome;
+  planBlockId: string | null;
+}
+
+function markDecidedPlan(session: SessionEntry, plan: PlanDecision) {
+  return blocksPatchWithDerived(
+    session.streamingState,
+    markPlanBlock(session.blocks, plan.planBlockId, plan.outcome),
+  );
+}
+
 /** Mark the plan with the backend-accepted outcome and leave its gate. */
-function resolvedPlanPatch(session: SessionEntry, outcome: PlanOutcome): Partial<SessionEntry> {
+function resolvedPlanPatch(session: SessionEntry, plan: PlanDecision): Partial<SessionEntry> {
   return {
-    ...blocksPatchWithDerived(session.streamingState, markLastPlanBlock(session.blocks, outcome)),
+    ...markDecidedPlan(session, plan),
     pendingPlanApproval: null,
     lifecycle: transitionTurn(session.lifecycle, {
-      type: outcome === "approved" ? "plan_approved" : "plan_changes_requested",
+      type: plan.outcome === "approved" ? "plan_approved" : "plan_changes_requested",
     }),
   };
 }
@@ -37,7 +55,7 @@ function handlePermissionResponse(
   sessionId: string,
   currentRequestId: string,
   payload: unknown,
-  planOutcome?: PlanOutcome,
+  plan?: PlanDecision,
 ): void {
   const session = get().sessions[sessionId];
   if (!session) return;
@@ -46,15 +64,8 @@ function handlePermissionResponse(
   if (session.pendingRequestId !== currentRequestId) {
     // The gate already left through another path (the app socket clears it
     // once the backend reports the session out of "question"); an accepted
-    // plan decision still has to mark the plan block, unless a newer plan is
-    // already waiting.
-    const planPatch =
-      planOutcome && !failed && session.pendingPlanApproval == null
-        ? blocksPatchWithDerived(
-            session.streamingState,
-            markLastPlanBlock(session.blocks, planOutcome),
-          )
-        : null;
+    // plan decision still has to mark the plan block it answered.
+    const planPatch = plan && !failed ? markDecidedPlan(session, plan) : null;
     if (session.permissionResponseMessageUuids.has(currentRequestId) || planPatch) {
       const responseUuids = new Map(session.permissionResponseMessageUuids);
       responseUuids.delete(currentRequestId);
@@ -90,8 +101,8 @@ function handlePermissionResponse(
   }
   const responseUuids = new Map(session.permissionResponseMessageUuids);
   responseUuids.delete(currentRequestId);
-  const permissionPatch: Partial<SessionEntry> = planOutcome
-    ? resolvedPlanPatch(session, planOutcome)
+  const permissionPatch: Partial<SessionEntry> = plan
+    ? resolvedPlanPatch(session, plan)
     : session.pendingQuestions.length > 0
       ? {
           ...buildClearedGatePatch(session),
@@ -120,7 +131,7 @@ function submitResponse(
   requestId: string,
   decision: PermissionDecision,
   options: PermissionOptions,
-  planOutcome?: PlanOutcome,
+  plan?: PlanDecision,
 ): void {
   const session = get().sessions[sessionId];
   if (!session || !requestId || session.submittingPermissionRequestId === requestId) return;
@@ -139,9 +150,7 @@ function submitResponse(
   );
   void get()
     .sendRequest(sessionId, envelope)
-    .then((payload) =>
-      handlePermissionResponse(set, get, sessionId, requestId, payload, planOutcome),
-    );
+    .then((payload) => handlePermissionResponse(set, get, sessionId, requestId, payload, plan));
 }
 
 /** Answer a live plan gate: approve it, or deny it with change requests. */
@@ -153,11 +162,13 @@ export function submitPlanResponse(
   outcome: PlanOutcome,
   feedback: string,
 ): void {
+  const session = get().sessions[sessionId];
+  const plan = { outcome, planBlockId: session ? lastPlanBlockId(session.blocks) : null };
   if (outcome === "approved") {
-    submitResponse(set, get, sessionId, requestId, "allow_once", {}, outcome);
+    submitResponse(set, get, sessionId, requestId, "allow_once", {}, plan);
     return;
   }
-  submitResponse(set, get, sessionId, requestId, "deny", { feedback }, outcome);
+  submitResponse(set, get, sessionId, requestId, "deny", { feedback }, plan);
 }
 
 export function createPermissionActions(
