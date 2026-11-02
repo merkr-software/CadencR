@@ -91,7 +91,6 @@ export interface WsSessionStore {
   ) => void;
   respondToQuestion: (sessionId: string, response: AgentQuestionAnswers) => void;
   interrupt: (sessionId: string) => void;
-  destroy: (sessionId: string) => void;
   clearSession: (sessionId: string) => void;
   /** Rewind conversation + code back to before `messageId`, in place. */
   rewindToMessage: (sessionId: string, messageId: number, confirmDiscard?: boolean) => void;
@@ -104,7 +103,6 @@ export interface WsSessionStore {
   /** Clear `forkNavigation` once the source session has navigated to the fork. */
   consumeForkNavigation: (sessionId: string) => void;
   compactSession: (sessionId: string) => void;
-  deleteSession: (sessionId: string) => void;
   setProvider: (sessionId: string, providerId: string, modelId?: string) => void;
   setModel: (sessionId: string, modelId: string, providerId: string) => void;
   setThinkingEffort: (sessionId: string, thinkingEffort?: string) => void;

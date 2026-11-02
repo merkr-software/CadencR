@@ -28,9 +28,6 @@ import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
 import { markPromptDeliveryFailed, markPromptReceived } from "./ws-pending-prompts";
 import type { StoreAccessors } from "./ws-envelope-types";
-// Re-exported so the envelope dispatch table keeps importing `handleMessage`
-// from here; the implementation moved to `ws-message-envelope-handler.ts`.
-export { handleMessage } from "./ws-message-envelope-handler";
 
 /**
  * Append a row the backend wrote to the transcript itself — a turn's closing
