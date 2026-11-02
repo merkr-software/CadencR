@@ -6,7 +6,7 @@ The next milestone populates reviewed themes and Pi before a separately authoriz
 desktop activation. Local validation is not publication authority. All business
 validation/packaging/publication uses the Rust CLI, not registry JavaScript.
 Standalone preflight and expiry commands are included in the locally selected,
-qualified `0.15.2`. Selection does not deploy the production
+qualified `0.15.4`. Selection does not deploy the production
 workflow or grant publication authority.
 See [runtime and deployment gates](README.md#status-and-runtime).
 

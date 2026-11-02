@@ -13,6 +13,9 @@ permissions:
 
 jobs:
   prepare:
+    # Cursor is compiled/qualified by its isolated native build workflow and
+    # published by cursor-provider-author.yml, never by blob-only preparation.
+    if: ${{ !startsWith(github.ref, 'refs/tags/plugins/provider-cursor/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Read-only, no environment, credentials, signing, or source build.
