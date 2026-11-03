@@ -302,6 +302,7 @@ for (const name of ["desktop-release.yml", "desktop-linux-release.yml"]) {
     const workflow = parse(await readFile(`.github/workflows/${name}`, "utf8"));
     const job = workflow.jobs.release ?? workflow.jobs.build;
     const config = { ...workflow.env, ...job.env };
+    assert.equal(config.CADENCR_SENTRY_UPLOAD_CONFIGURED, "${{ secrets.SENTRY_AUTH_TOKEN != '' }}");
     for (const key of ["CADENCR_SENTRY_DSN", "CADENCR_POSTHOG_KEY", "CADENCR_POSTHOG_HOST"]) {
       assert.equal(config[key], `\${{ vars.${key} }}`);
     }
@@ -317,6 +318,9 @@ for (const name of ["desktop-release.yml", "desktop-linux-release.yml"]) {
       (step) => step.name === "Load Sentry uploader from workflow commit",
     );
     assert.ok(uploadIndex > loadIndex && loadIndex > archiveIndex);
+    for (const index of [loadIndex, uploadIndex]) {
+      assert.equal(steps[index].if, "env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'");
+    }
     assert.match(steps[loadIndex].run, /set -euo pipefail/);
     assert.match(steps[loadIndex].run, /upload-sentry-renderer-maps\.mjs\?ref=\$GITHUB_SHA/);
     assert.match(steps[loadIndex].run, /test -s/);
