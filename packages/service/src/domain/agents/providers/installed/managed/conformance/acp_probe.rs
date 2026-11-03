@@ -1,14 +1,12 @@
-use std::path::Path;
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     CancelNotification, ClientCapabilities, CloseSessionRequest, Implementation, InitializeRequest,
-    LoadSessionRequest, NewSessionRequest, ResumeSessionRequest, SessionConfigOption,
-    SetSessionConfigOptionRequest,
+    NewSessionRequest, SessionConfigOption, SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 
-use super::command_probe::model_contract;
+use super::model_reconciliation::{reconcile_model_catalog, reconcile_models};
 use super::{
     error, policy_error, ManagedConformanceError, ManagedConformanceErrorCode,
     ManagedConformanceReport, ManagedConformanceRequest, ManagedProbeOutcome, ModelContract,
@@ -21,6 +19,8 @@ use crate::domain::agents::providers::installed::managed::process_policy::{
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(15);
 const SESSION_TIMEOUT: Duration = Duration::from_secs(20);
 const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
+
+mod restore;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LifecycleCapabilities {
@@ -52,7 +52,7 @@ pub(super) async fn probe_acp(
         // Durable restore is a process boundary. Do not send terminal
         // `session/close` before the fresh process has resumed the opaque id.
         original.shutdown().await;
-        probe_fresh_restore(
+        restore::probe_fresh_restore(
             &request,
             &initial.session_id,
             initial.capabilities,
@@ -137,34 +137,6 @@ async fn probe_initial_session(
     })
 }
 
-async fn probe_fresh_restore(
-    request: &ManagedConformanceRequest,
-    session_id: &str,
-    expected_capabilities: LifecycleCapabilities,
-    discovered: &ModelContract,
-) -> Result<
-    (
-        ManagedProbeOutcome,
-        ManagedProbeOutcome,
-        ManagedProbeOutcome,
-    ),
-    ManagedConformanceError,
-> {
-    let client = spawn_client(request).await?;
-    let result = async {
-        let capabilities = initialize(&client, &request.expected_provider_version).await?;
-        if capabilities != expected_capabilities {
-            return Err(initialize_error(
-                "ACP lifecycle capabilities changed between fresh processes",
-            ));
-        }
-        restore_and_cleanup(&client, session_id, &request.cwd, capabilities, discovered).await
-    }
-    .await;
-    client.shutdown().await;
-    result
-}
-
 async fn initialize(
     client: &AcpClient,
     expected_version: &str,
@@ -217,7 +189,7 @@ async fn verify_and_set_model(
     options: Option<Vec<SessionConfigOption>>,
     expected: &ModelContract,
 ) -> Result<(), ManagedConformanceError> {
-    reconcile_models(
+    reconcile_model_catalog(
         options.as_deref(),
         expected,
         ManagedConformanceErrorCode::ModelContractMismatch,
@@ -240,78 +212,6 @@ async fn verify_and_set_model(
         ManagedConformanceErrorCode::ConfigurationFailed,
         "agent did not confirm the selected default model",
     )
-}
-
-async fn restore_and_cleanup(
-    client: &AcpClient,
-    session_id: &str,
-    cwd: &Path,
-    capabilities: LifecycleCapabilities,
-    expected: &ModelContract,
-) -> Result<
-    (
-        ManagedProbeOutcome,
-        ManagedProbeOutcome,
-        ManagedProbeOutcome,
-    ),
-    ManagedConformanceError,
-> {
-    let (options, outcomes) = if capabilities.resume {
-        let response = client
-            .send_request_typed(
-                ResumeSessionRequest::new(session_id.to_string(), cwd.to_path_buf()),
-                SESSION_TIMEOUT,
-            )
-            .await
-            .map_err(|failure| restore_error(format!("ACP session/resume failed: {failure}")))?;
-        let load = if capabilities.load {
-            ManagedProbeOutcome::Unprobed
-        } else {
-            ManagedProbeOutcome::NotAdvertised
-        };
-        (response.config_options, (ManagedProbeOutcome::Passed, load))
-    } else {
-        let response = client
-            .send_request_typed(
-                LoadSessionRequest::new(session_id.to_string(), cwd.to_path_buf()),
-                SESSION_TIMEOUT,
-            )
-            .await
-            .map_err(|failure| restore_error(format!("ACP session/load failed: {failure}")))?;
-        (
-            response.config_options,
-            (
-                ManagedProbeOutcome::NotAdvertised,
-                ManagedProbeOutcome::Passed,
-            ),
-        )
-    };
-    let reconciliation = reconcile_models(
-        options.as_deref(),
-        expected,
-        ManagedConformanceErrorCode::RestoreFailed,
-        "restored ACP session did not preserve the reconciled model configuration",
-    );
-    let cleanup = cleanup_session(client, session_id, capabilities.close).await;
-    reconciliation?;
-    let close = cleanup?;
-    Ok((outcomes.0, outcomes.1, close))
-}
-
-fn reconcile_models(
-    options: Option<&[SessionConfigOption]>,
-    expected: &ModelContract,
-    code: ManagedConformanceErrorCode,
-    message: &str,
-) -> Result<(), ManagedConformanceError> {
-    let actual = model_contract(options.unwrap_or_default(), code)?;
-    if actual.config_id != expected.config_id
-        || actual.model_ids != expected.model_ids
-        || actual.current_model != expected.current_model
-    {
-        return Err(error(code, message));
-    }
-    Ok(())
 }
 
 async fn cleanup_session(
@@ -366,10 +266,6 @@ fn session_error(message: impl Into<String>) -> ManagedConformanceError {
 
 fn configuration_error(message: impl Into<String>) -> ManagedConformanceError {
     error(ManagedConformanceErrorCode::ConfigurationFailed, message)
-}
-
-fn restore_error(message: impl Into<String>) -> ManagedConformanceError {
-    error(ManagedConformanceErrorCode::RestoreFailed, message)
 }
 
 #[cfg(test)]
