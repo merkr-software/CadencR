@@ -1,4 +1,6 @@
+mod provider;
 mod schema_two;
+use provider::validate_marketplace_package;
 use schema_two::validate_schema_two;
 use serde_json::Value;
 
@@ -61,52 +63,6 @@ pub(crate) fn validate_submission(value: &Value, errors: &mut Diagnostics) {
         errors.push(
             "submission.package.agent.repository must equal submission.source.repository".into(),
         );
-    }
-}
-
-fn validate_marketplace_package(package: &Value, label: &str, errors: &mut Diagnostics) {
-    let Some(agent) = package.get("agent").and_then(Value::as_object) else {
-        return;
-    };
-    if !agent.get("repository").is_some_and(Value::is_string) {
-        errors.push(format!("{label}.agent.repository is required"));
-    }
-    if agent
-        .get("license")
-        .and_then(Value::as_str)
-        .is_none_or(|value| ecmascript_trim(value).is_empty())
-    {
-        errors.push(format!(
-            "{label}.agent.license must be a non-empty declared license"
-        ));
-    }
-    if identity(package).is_some_and(|(id, _)| {
-        reserved_provider_ids().contains(normalized_provider_id(id).as_str())
-    }) {
-        errors.push(format!(
-            "{label}.agent.id is reserved by a built-in provider"
-        ));
-    }
-    if let Some(assets) = package.pointer("/host/assets").and_then(Value::as_object) {
-        for key in ["readme", "license"] {
-            if assets
-                .get(key)
-                .and_then(Value::as_str)
-                .is_none_or(|value| ecmascript_trim(value).is_empty())
-            {
-                errors.push(format!("{label}.host.assets.{key} is required"));
-            }
-        }
-    }
-    for runner in ["npx", "uvx"] {
-        if package
-            .pointer(&format!("/agent/distribution/{runner}"))
-            .is_some()
-        {
-            errors.push(format!(
-                "{label}.agent.distribution.{runner} is not supported by marketplace v1"
-            ));
-        }
     }
 }
 

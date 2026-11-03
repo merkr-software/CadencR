@@ -20,7 +20,9 @@ if os.environ.get('GITHUB_REF') != 'refs/heads/main':
     fail('AUTHOR_CONTEXT_INVALID')
 sha = os.environ.get('GITHUB_SHA', '')
 workflow = os.environ.get('GITHUB_WORKFLOW_REF', '')
-if not re.fullmatch('[0-9a-f]{40}', sha) or workflow != 'merkr-software/CadencR/.github/workflows/official-plugin-author.yml@refs/heads/main':
+allowed_workflows = tuple('merkr-software/CadencR/.github/workflows/' + name + '@refs/heads/main'
+                          for name in ('official-plugin-author.yml', 'cursor-provider-author.yml'))
+if not re.fullmatch('[0-9a-f]{40}', sha) or workflow not in allowed_workflows:
     fail('AUTHOR_CONTEXT_INVALID')
 if not re.fullmatch('[0-9a-f]{40}', os.environ['AUTHOR_SOURCE_COMMIT']) or not re.fullmatch('[0-9a-f]{64}', os.environ['AUTHOR_REQUEST_SHA256']):
     fail('AUTHOR_INPUT_INVALID')

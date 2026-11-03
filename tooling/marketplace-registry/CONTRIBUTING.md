@@ -6,7 +6,7 @@ The next milestone populates reviewed themes and Pi before a separately authoriz
 desktop activation. Local validation is not publication authority. All business
 validation/packaging/publication uses the Rust CLI, not registry JavaScript.
 Standalone preflight and expiry commands are included in the locally selected,
-qualified `0.15.2`. Selection does not deploy the production
+qualified `0.15.4`. Selection does not deploy the production
 workflow or grant publication authority.
 See [runtime and deployment gates](README.md#status-and-runtime).
 
@@ -76,6 +76,10 @@ checks continuity against the authenticated prior signed catalog.
 ## Identity, ownership and licensing
 
 - IDs use `^[a-z][a-z0-9-]*$`; normalized collisions and reserved identities fail.
+  The migrated `cursor` identity is accepted only for the official `cadencr`
+  publisher from a `merkr-software` repository, with an explicit minimum host
+  version of `0.16.0` or newer. Other built-in identities and normalized
+  lookalikes remain reserved.
 - New identities require proof of authority over the linked source project.
 - The `host.publisher` value `cadencr` (any letter case) is reserved for the
   official `merkr-software` GitHub organisation. A package or submission that

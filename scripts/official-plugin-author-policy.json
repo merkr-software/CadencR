@@ -4,15 +4,20 @@
   "repository": "merkr-software/CadencR",
   "repository_id": 1238684786,
   "author_account": "rle-mino",
-  "author_cli_version": "0.15.2",
-  "author_cli_sha256": "f4a719871f776bdbbb9845ac98eb381a85da5730237e0c9b50c2e15198fc4031",
-  "author_cli_qualification_sha256": "7aa92670ce988f41df3c08b7b541147a09539155ca9d271be88d68d46b2226c1",
-  "author_cli_pin_sha256": "29beb32ea3af992d4c027169da451ee7c1f8c7f50c14f6fffd4d5d68a0fefd8d",
+  "author_cli_version": "0.15.4",
+  "author_cli_sha256": "d925f203c3fd2e51621ad00ef1413bb25fdf8bc25792dbec9d5d2a67b1d4244d",
+  "author_cli_qualification_sha256": "1ebb55597ad4cad66f9a5972214de2e217b6d77a093b53034b24b97dfe628ea6",
+  "author_cli_pin_sha256": "e424850e2f9b7cb8cb1cb5de3ad8635ce959caba56d200b91aa2e3f827bc2f73",
   "environment_id": 25284345176,
   "admin_bypass_reviewed_disabled": true,
   "environment_review_policy": {
     "environment_id": 25284345176,
     "prevent_self_review": false,
-    "reviewers": [{ "type": "User", "id": 15014965 }]
+    "reviewers": [
+      {
+        "type": "User",
+        "id": 15014965
+      }
+    ]
   }
 }
