@@ -124,6 +124,7 @@ pub(super) fn catalog(scope: SettingsScope, only: &[String]) -> Catalog {
 fn catalog_entry(scope: Scope, key: &'static str) -> CatalogEntry {
     let spec = scope.spec(key);
     let (kind, allowed, min, max) = match spec.map(|spec| spec.kind) {
+        Some(ValueKind::LspLanguages | ValueKind::StringArray) => ("string", None, None, None),
         Some(ValueKind::Bool) => ("boolean", None, None, None),
         Some(ValueKind::Enum(values)) => ("enum", Some(values), None, None),
         Some(ValueKind::Number) => ("number", None, None, None),
@@ -224,6 +225,10 @@ fn coerce_value(raw: &Value) -> Option<String> {
 fn expected_shape(kind: ValueKind) -> String {
     match kind {
         ValueKind::Bool => "expected true or false".into(),
+        ValueKind::LspLanguages => {
+            "expected a language map with primary server ids or null, and linter id arrays".into()
+        }
+        ValueKind::StringArray => "expected a JSON array of nonempty strings".into(),
         ValueKind::Enum(values) => format!("expected one of {}", values.join(", ")),
         ValueKind::Number => "expected a number".into(),
         ValueKind::IntegerRange { min, max } => format!("expected an integer from {min} to {max}"),

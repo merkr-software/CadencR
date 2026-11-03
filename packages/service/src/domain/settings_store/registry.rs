@@ -17,12 +17,17 @@ mod sidebar;
 pub enum ValueKind {
     /// `"true"` or `"false"`.
     Bool,
+    LspLanguages,
+    StringArray,
     /// One of a fixed set of strings.
     Enum(&'static [&'static str]),
     /// Parses as a number.
     Number,
     /// Parses as an integer within an inclusive range.
-    IntegerRange { min: i64, max: i64 },
+    IntegerRange {
+        min: i64,
+        max: i64,
+    },
     /// Comma-separated values from a fixed set, none twice; empty is the empty list.
     IdList(&'static [&'static str]),
 }
@@ -42,6 +47,9 @@ impl SettingSpec {
     pub fn is_valid(&self, value: &str) -> bool {
         match self.kind {
             ValueKind::Bool => value == "true" || value == "false",
+            ValueKind::LspLanguages => crate::domain::lsp::selection::valid_preferences(value),
+            ValueKind::StringArray => serde_json::from_str::<Vec<String>>(value)
+                .is_ok_and(|ids| ids.iter().all(|id| !id.is_empty())),
             ValueKind::Enum(allowed) => allowed.contains(&value),
             ValueKind::Number => value
                 .trim()
@@ -74,6 +82,8 @@ const NUMBER: ValueKind = ValueKind::Number;
 /// at the other. Returns `None` for keys not in this set.
 fn editor_tooling_spec(key: &str) -> Option<SettingSpec> {
     let spec = match key {
+        "editor_lsp_languages" => SettingSpec::new(ValueKind::LspLanguages, None),
+        "editor_lsp_ignored_languages" => SettingSpec::new(ValueKind::StringArray, None),
         "editor_typescript_server" => SettingSpec::new(
             ValueKind::Enum(&["typescript-language-server", "tsgo"]),
             Some("typescript-language-server"),

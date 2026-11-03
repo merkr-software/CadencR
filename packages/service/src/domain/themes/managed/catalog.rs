@@ -10,7 +10,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 mod acquisition;
-pub use acquisition::{acquire, acquire_catalog};
+pub use acquisition::{acquire, acquire_catalog, cached_catalog};
 
 pub fn verify(
     index: &SignedMixedCatalog,

@@ -47,6 +47,8 @@ pub const PROJECT_ALLOWED_KEYS: &[&str] = &[
     // toggles auto-format on save.
     "editor_typescript_server",
     "editor_linter",
+    "editor_lsp_languages",
+    "editor_lsp_ignored_languages",
     "editor_formatter",
     "editor_format_on_save",
     // Project-scoped JSON map of exact-file and extension language-mode
@@ -121,6 +123,8 @@ pub const WORKSPACE_ALLOWED_KEYS: &[&str] = &[
     // project-then-workspace). Mirrored in PROJECT_ALLOWED_KEYS.
     "editor_typescript_server",
     "editor_linter",
+    "editor_lsp_languages",
+    "editor_lsp_ignored_languages",
     "editor_formatter",
     "editor_format_on_save",
     // File-tree icon set used by the editor's @pierre/trees-based file tree.
