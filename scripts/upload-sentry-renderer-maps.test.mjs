@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { createHash } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 import { parse } from "yaml";
 import { uploadSentryRendererMaps } from "./upload-sentry-renderer-maps.mjs";
 
@@ -77,6 +78,7 @@ test("uploads exact bytes to a regional API with matching release/dist and hidde
     release: "cadencr@0.15.1",
     dist: "exact-build",
     files: 2,
+    unmapped: [],
   });
   assert.deepEqual(calls[0].body, { version: "cadencr@0.15.1", projects: ["test-project"] });
   assert.equal(calls.length, 3);
@@ -98,6 +100,107 @@ test("uploads exact bytes to a regional API with matching release/dist and hidde
   assert.equal(calls.length, 4, "a rerun creates/reuses the release and skips identical files");
   assert.equal(stored.length, 2);
 });
+
+test("standalone uploader preserves mapless workers and never advertises fabricated maps", async () => {
+  const rendererDir = await fixture();
+  const workers = ["z-worker.js", "a-worker.js"];
+  for (const name of workers) await writeFile(path.join(rendererDir, "assets", name), `// ${name}`);
+  const copied = path.join(await mkdtemp(path.join(os.tmpdir(), "cadencr-uploader-")), "tool.mjs");
+  await copyFile(new URL("./upload-sentry-renderer-maps.mjs", import.meta.url), copied);
+  const { uploadSentryRendererMaps: standalone } = await import(pathToFileURL(copied).href);
+  const uploaded = [];
+  const stored = [];
+  const request = async (url, options) => {
+    assert.equal(url.origin, "https://de.sentry.io");
+    assert.equal(options.redirect, "error");
+    if (options.method === "GET") return Response.json(stored);
+    if (options.body instanceof FormData) {
+      uploaded.push(options.body);
+      stored.push({
+        name: options.body.get("name"),
+        dist: options.body.get("dist"),
+        sha1: createHash("sha1")
+          .update(Buffer.from(await options.body.get("file").arrayBuffer()))
+          .digest("hex"),
+      });
+    }
+    return new Response("{}", { status: 201 });
+  };
+  const args = { rendererDir, env, request };
+  const result = await standalone(args);
+  assert.deepEqual(result.unmapped, [...workers].sort());
+  assert.equal(result.files, 4);
+  for (const name of workers) {
+    const artifact = uploaded.find((body) => body.get("name") === `~/assets/${name}`);
+    assert.equal(await artifact.get("file").text(), `// ${name}`);
+    assert.equal(artifact.get("header"), null);
+    assert.equal(await readFile(path.join(rendererDir, "assets", name), "utf8"), `// ${name}`);
+    assert.ok(!uploaded.some((body) => body.get("name") === `~/assets/${name}.map`));
+  }
+  assert.equal(
+    uploaded.find((body) => body.get("name") === "~/assets/index-abc.js").get("header"),
+    "Sourcemap:~/assets/index-abc.js.map",
+  );
+  assert.deepEqual(await standalone(args), result);
+  assert.equal(uploaded.length, 4, "identical unmapped bundles are also skipped on retry");
+});
+
+test("missing entry maps and invalid maps after an unmapped worker fail before any request", async () => {
+  for (const scenario of ["index", "notch", "invalid", "directory"]) {
+    const rendererDir = await fixture();
+    const assets = path.join(rendererDir, "assets");
+    await writeFile(path.join(assets, "a-worker.js"), "// no source map");
+    if (scenario === "index") await unlink(path.join(assets, "index-abc.js.map"));
+    else if (scenario === "notch") await writeFile(path.join(assets, "notch-abc.js"), "// entry");
+    else {
+      await writeFile(path.join(assets, "z-worker.js"), "// worker");
+      if (scenario === "directory") await mkdir(path.join(assets, "z-worker.js.map"));
+      else await writeFile(path.join(assets, "z-worker.js.map"), '{"version":2}');
+    }
+    let requests = 0;
+    await assert.rejects(
+      uploadSentryRendererMaps({
+        rendererDir,
+        env,
+        request: async () => {
+          requests += 1;
+          throw new Error("unexpected request");
+        },
+      }),
+      /entry source map missing|Invalid source map|not a regular file/,
+    );
+    assert.equal(requests, 0, scenario);
+  }
+});
+
+test(
+  "an unreadable existing map remains an error before any request",
+  {
+    skip: process.platform === "win32" || process.getuid?.() === 0,
+  },
+  async () => {
+    const rendererDir = await fixture();
+    const map = path.join(rendererDir, "assets/index-abc.js.map");
+    let requests = 0;
+    await chmod(map, 0);
+    try {
+      await assert.rejects(
+        uploadSentryRendererMaps({
+          rendererDir,
+          env,
+          request: async () => {
+            requests += 1;
+            throw new Error("unexpected request");
+          },
+        }),
+        (error) => error.code === "EACCES",
+      );
+    } finally {
+      await chmod(map, 0o600);
+    }
+    assert.equal(requests, 0);
+  },
+);
 
 test("existing files are paginated; same name in another dist is ignored and conflicting bytes fail", async () => {
   const rendererDir = await fixture();
@@ -210,8 +313,21 @@ for (const name of ["desktop-release.yml", "desktop-linux-release.yml"]) {
     const archiveIndex = steps.findIndex(
       (step) => step.name === "Archive exact renderer bundles and source maps",
     );
-    assert.ok(uploadIndex > archiveIndex);
-    assert.equal(steps[uploadIndex].run, "node scripts/upload-sentry-renderer-maps.mjs");
+    const loadIndex = steps.findIndex(
+      (step) => step.name === "Load Sentry uploader from workflow commit",
+    );
+    assert.ok(uploadIndex > loadIndex && loadIndex > archiveIndex);
+    assert.match(steps[loadIndex].run, /set -euo pipefail/);
+    assert.match(steps[loadIndex].run, /upload-sentry-renderer-maps\.mjs\?ref=\$GITHUB_SHA/);
+    assert.match(steps[loadIndex].run, /test -s/);
+    assert.equal(steps[loadIndex].env.SENTRY_AUTH_TOKEN, undefined);
+    assert.equal(steps[loadIndex].env.GH_TOKEN, "${{ github.token }}");
+    assert.equal(steps[uploadIndex].run, 'node "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"');
+    assert.equal(steps[uploadIndex]["continue-on-error"], undefined);
+    assert.equal(
+      steps.find((step) => step.uses?.startsWith("actions/checkout@"))?.with.ref,
+      "refs/tags/${{ env.RELEASE_TAG }}",
+    );
     assert.equal(steps[uploadIndex].env.SENTRY_AUTH_TOKEN, "${{ secrets.SENTRY_AUTH_TOKEN }}");
     assert.equal(config.SENTRY_AUTH_TOKEN, undefined);
     assert.equal(steps[uploadIndex].env.SENTRY_URL, "${{ vars.SENTRY_URL }}");
