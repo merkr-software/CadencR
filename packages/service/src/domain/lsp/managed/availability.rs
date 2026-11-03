@@ -139,6 +139,8 @@ mod tests {
             "incompatible",
         ] {
             let mut entry = template.clone();
+            entry["package"]["host"]["compatibility"]["min_app_version"] =
+                env!("CARGO_PKG_VERSION").into();
             entry["package"]["lsp"]["id"] = id.into();
             let target = entry["package"]["lsp"]["distribution"]["binary"]["linux-x86_64"].clone();
             entry["package"]["lsp"]["distribution"]["binary"] = json!({(platform()):target});
