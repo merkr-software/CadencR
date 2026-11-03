@@ -30,11 +30,11 @@ invalid configuration means no delivery for that category, even when enabled.
 
 ## Data sent
 
-| Category        | Destination | Allowlisted data                                                                                                                                                                                          |
-| --------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Diagnostics     | Sentry      | Fixed failure category, timestamp and event ID, random installation ID, release, OS family, architecture, process, schema version; optional packaged app frame filename/line/column and renderer build ID |
-| Usage analytics | PostHog     | Fixed event name, timestamp, random installation ID, release, OS family, architecture, process and schema version; `turn_completed` also has fixed outcome, provider, actor and duration bucket values    |
-| Monthly audience | PostHog | One `active_installation_monthly` event per UTC calendar month and installation, with a fresh event-only distinct ID and privacy controls; no persistent installation ID or other app metadata |
+| Category         | Destination | Allowlisted data                                                                                                                                                                                          |
+| ---------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Diagnostics      | Sentry      | Fixed failure category, timestamp and event ID, random installation ID, release, OS family, architecture, process, schema version; optional packaged app frame filename/line/column and renderer build ID |
+| Usage analytics  | PostHog     | Fixed event name, timestamp, random installation ID, release, OS family, architecture, process and schema version; `turn_completed` also has fixed outcome, provider, actor and duration bucket values    |
+| Monthly audience | PostHog     | One `active_installation_monthly` event per UTC calendar month and installation, with a fresh event-only distinct ID and privacy controls; no persistent installation ID or other app metadata            |
 
 The installation ID is pseudonymous, not an account identity. It is created
 locally when diagnostics or detailed usage is first enabled and persists in global settings.
@@ -158,11 +158,11 @@ Copy the Sentry project's **public DSN** and the PostHog **Project API key**
 (`phc_…`, not a personal or secret API key). Use an EU PostHog project with
 [`https://eu.i.posthog.com`](https://posthog.com/docs/api) as its ingest host.
 
-| Variable                        | Purpose                                                                                      |
-| ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `CADENCR_SENTRY_DSN`            | Public Sentry ingest DSN; omit to disable diagnostic delivery                                |
-| `CADENCR_POSTHOG_KEY`           | Public PostHog project key; omit to disable detailed usage and monthly audience delivery    |
-| `CADENCR_POSTHOG_HOST`          | HTTPS PostHog ingest origin; defaults to `https://eu.i.posthog.com`                          |
+| Variable                        | Purpose                                                                                                   |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `CADENCR_SENTRY_DSN`            | Public Sentry ingest DSN; omit to disable diagnostic delivery                                             |
+| `CADENCR_POSTHOG_KEY`           | Public PostHog project key; omit to disable detailed usage and monthly audience delivery                  |
+| `CADENCR_POSTHOG_HOST`          | HTTPS PostHog ingest origin; defaults to `https://eu.i.posthog.com`                                       |
 | `CADENCR_TELEMETRY_DEV_ENABLED` | Debug builds require the exact value `true`, in addition to category preferences and ingest configuration |
 
 The service reads runtime environment values first and falls back to values
@@ -222,8 +222,16 @@ and [release file upload](https://docs.sentry.io/api/releases/upload-a-new-organ
 APIs after archival, before packaging. It uploads the existing bytes without
 injecting IDs or rebuilding, associates hidden maps through a `Sourcemap` header,
 and uses `~/assets/<bundle>.js` to match event frames `app:///assets/<bundle>.js`.
+Precompiled workers without maps are uploaded as JavaScript only and reported
+in `unmapped`, without a fabricated `Sourcemap` header. Renderer entry maps
+remain required, and every present map is validated before any upload.
 Reruns skip identical name/distribution/checksum artifacts; conflicts fail without
 overwriting or deleting existing files.
+
+The release workflows load this standalone uploader from their immutable
+workflow commit before the step receives its Sentry upload token. This lets a
+reviewed workflow fix resume publication while the application checkout remains
+pinned to its original release tag.
 
 Run the same uploader manually against an existing build with the four Sentry
 upload variables in the environment:
