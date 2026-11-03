@@ -158,13 +158,22 @@ jobs:
       - name: Archive exact renderer bundles and source maps
         run: node packages/desktop/scripts/archive-renderer-diagnostics.mjs
 
+      - name: Load Sentry uploader from workflow commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/upload-sentry-renderer-maps.mjs?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+          test -s "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
+
       - name: Upload optional Sentry renderer source maps
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
           SENTRY_URL: ${{ vars.SENTRY_URL }}
-        run: node scripts/upload-sentry-renderer-maps.mjs
+        run: node "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
 
       - name: Build Rust service sidecar (x64)
         run: node scripts/validate-marketplace-build-env.mjs -- pnpm --filter @cadencr/service build:sidecars

@@ -51,6 +51,39 @@ function identicalFile(files, name, dist, bytes) {
   return true;
 }
 
+async function rendererFiles(assetDir) {
+  const entries = await readdir(assetDir, { withFileTypes: true });
+  const byName = new Map(entries.map((entry) => [entry.name, entry]));
+  const names = entries
+    .filter((entry) => entry.isFile() && /^[\w.-]+\.js$/.test(entry.name))
+    .map((entry) => entry.name)
+    .sort();
+  if (!names.some((name) => /^index-.+\.js$/.test(name))) {
+    throw new Error("Renderer entry bundle missing");
+  }
+  const files = [];
+  for (const name of names) {
+    const bundle = await readFile(path.join(assetDir, name));
+    const mapEntry = byName.get(`${name}.map`);
+    if (!mapEntry) {
+      if (/^(?:index|notch)-.+\.js$/.test(name)) {
+        throw new Error(`Renderer entry source map missing: ${name}.map`);
+      }
+      // Vendored workers can be emitted without maps, even in a mapped build.
+      files.push({ name, bundle, map: null });
+      continue;
+    }
+    if (!mapEntry.isFile()) throw new Error(`Source map is not a regular file: ${name}.map`);
+    const map = await readFile(path.join(assetDir, `${name}.map`));
+    const parsed = JSON.parse(map.toString("utf8"));
+    if (parsed.version !== 3 || typeof parsed.mappings !== "string") {
+      throw new Error(`Invalid source map: ${name}.map`);
+    }
+    files.push({ name, bundle, map });
+  }
+  return files;
+}
+
 /** Upload existing build bytes only; never inject, rebuild, delete or rewrite artifacts. */
 export async function uploadSentryRendererMaps({
   rendererDir = "packages/desktop/out/renderer",
@@ -83,25 +116,8 @@ export async function uploadSentryRendererMaps({
   ) {
     throw new Error("Invalid renderer build metadata");
   }
-  const assetDir = path.join(rendererDir, "assets");
-  const names = (await readdir(assetDir, { withFileTypes: true }))
-    .filter((entry) => entry.isFile() && /^[\w.-]+\.js$/.test(entry.name))
-    .map((entry) => entry.name)
-    .sort();
-  if (!names.some((name) => /^index-.+\.js$/.test(name))) {
-    throw new Error("Renderer entry bundle missing");
-  }
-  // Read and validate every pair before making the first remote request.
-  const files = [];
-  for (const name of names) {
-    const bundle = await readFile(path.join(assetDir, name));
-    const map = await readFile(path.join(assetDir, `${name}.map`));
-    const parsed = JSON.parse(map.toString("utf8"));
-    if (parsed.version !== 3 || typeof parsed.mappings !== "string") {
-      throw new Error(`Invalid source map: ${name}.map`);
-    }
-    files.push({ name, bundle, map });
-  }
+  // Read every bundle and validate every present map before the first request.
+  const files = await rendererFiles(path.join(rendererDir, "assets"));
   const release = `cadencr@${info.version}`;
   const root = `/api/0/organizations/${encodeURIComponent(env.SENTRY_ORG)}/releases/`;
   const api = sentryApi(base, env.SENTRY_AUTH_TOKEN, request);
@@ -115,17 +131,20 @@ export async function uploadSentryRendererMaps({
   const endpoint = `${root}${encodeURIComponent(release)}/files/`;
   const existing = await existingFiles(api, endpoint);
   for (const file of files) {
-    for (const [suffix, bytes] of [
-      [".map", file.map],
-      ["", file.bundle],
-    ]) {
+    const artifacts = file.map
+      ? [
+          [".map", file.map],
+          ["", file.bundle],
+        ]
+      : [["", file.bundle]];
+    for (const [suffix, bytes] of artifacts) {
       const name = `~/assets/${file.name}${suffix}`;
       if (identicalFile(existing, name, info.buildId, bytes)) continue;
       const body = new FormData();
       body.set("name", name);
       body.set("dist", info.buildId);
       body.set("file", new Blob([bytes]), `${file.name}${suffix}`);
-      if (!suffix) body.append("header", `Sourcemap:~/assets/${file.name}.map`);
+      if (!suffix && file.map) body.append("header", `Sourcemap:~/assets/${file.name}.map`);
       const response = await api(endpoint, { method: "POST", body });
       await response.arrayBuffer();
       if (
@@ -136,7 +155,13 @@ export async function uploadSentryRendererMaps({
       }
     }
   }
-  return { skipped: false, release, dist: info.buildId, files: files.length * 2 };
+  return {
+    skipped: false,
+    release,
+    dist: info.buildId,
+    files: files.reduce((count, file) => count + (file.map ? 2 : 1), 0),
+    unmapped: files.filter((file) => !file.map).map((file) => file.name),
+  };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
