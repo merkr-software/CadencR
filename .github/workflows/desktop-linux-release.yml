@@ -195,8 +195,19 @@ jobs:
             --x64 \
             --publish never
 
+      # Packaging tests follow the immutable workflow commit, while application
+      # sources remain checked out at the existing release tag.
+      - name: Load Linux smoke test from workflow commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/contents/scripts/smoke-linux-packages.sh?ref=$GITHUB_SHA" --jq .content \
+            | node -e 'const fs=require("node:fs"); fs.writeFileSync(process.argv[1], Buffer.from(fs.readFileSync(0,"utf8"),"base64"));' "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh"
+          test -s "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh"
+
       - name: Smoke test Linux packages
-        run: scripts/smoke-linux-packages.sh packages/desktop/dist-electron "${RELEASE_TAG#v}" x64
+        run: bash "$RUNNER_TEMP/cadencr-smoke-linux-packages.sh" packages/desktop/dist-electron "${RELEASE_TAG#v}" x64
 
       - name: Stage renderer diagnostics beside Linux packages
         run: cp packages/desktop/diagnostics/*-renderer-diagnostics.tar.gz packages/desktop/dist-electron/
