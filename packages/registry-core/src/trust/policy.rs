@@ -31,6 +31,19 @@ impl VerifiedRegistryTrust {
             now,
         )
     }
+    pub fn verify_lsp_policy_baseline(
+        &self,
+        envelope: &Value,
+        now: DateTime<Utc>,
+    ) -> Result<(), crate::RegistryError> {
+        let prepared = crate::prepare_lsp_blocklist(&envelope["signed"], true, now)?;
+        self.verify_policy_baseline(
+            envelope,
+            prepared.signing.canonical_payload(),
+            &self.envelope.signed.recovery_lsp_policy_sha256,
+            now,
+        )
+    }
     /// Callers also validate provider-policy entry semantics before using this baseline.
     pub fn verify_provider_policy_baseline(
         &self,
@@ -224,6 +237,41 @@ mod tests {
         let theme_scoped = trust(now, true, "recovery_theme_policy_sha256", vec![digest]);
         assert!(theme_scoped.verify_tab_policy_baseline(&tab, now).is_err());
     }
+    #[test]
+    fn lsp_policy_recovery_is_scoped_and_never_grants_current_authority() {
+        let now = Utc::now();
+        let mut signed = policy(now)["signed"].clone();
+        signed["kind"] = json!("lsp-blocklist");
+        let signature =
+            SigningKey::from_bytes(&[19; 32]).sign(&crate::canonical_json_bytes(&signed));
+        let lsp = json!({"signed":signed,"signature":{"algorithm":"ed25519","key_id":"a","value":BASE64_STANDARD.encode(signature.to_bytes())}});
+        let ordinary = trust(now, false, "recovery_lsp_policy_sha256", vec![]);
+        ordinary.verify_lsp_policy_baseline(&lsp, now).unwrap();
+        assert!(ordinary.active_key("a").is_err());
+        assert!(ordinary.verify_theme_policy_baseline(&lsp, now).is_err());
+        let digest = VerifiedRegistryTrust::catalog_digest(&lsp);
+        let approved = trust(
+            now,
+            true,
+            "recovery_lsp_policy_sha256",
+            vec![digest.clone()],
+        );
+        approved.verify_lsp_policy_baseline(&lsp, now).unwrap();
+        assert!(approved.active_key("a").is_err());
+        for namespace in [
+            "recovery_theme_policy_sha256",
+            "recovery_tab_policy_sha256",
+            "recovery_provider_policy_sha256",
+        ] {
+            assert!(trust(now, true, namespace, vec![digest.clone()])
+                .verify_lsp_policy_baseline(&lsp, now)
+                .is_err());
+        }
+        let mut changed = lsp;
+        changed["signed"]["entries"] = json!([{"lsp_id":"server","reason":"new revocation"}]);
+        assert!(approved.verify_lsp_policy_baseline(&changed, now).is_err());
+    }
+
     #[test]
     fn malformed_signature_fields_never_panic_or_authenticate() {
         let now = Utc::now();

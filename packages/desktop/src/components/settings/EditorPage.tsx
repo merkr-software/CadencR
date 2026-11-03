@@ -3,7 +3,7 @@ import { Switch } from "@/components/ui/switch";
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { parseVimModeLevel, type VimModeLevel } from "@/lib/vim-mode-level";
 import { FileTreeIconSetSelector } from "./FileTreeIconSetSelector";
-import { LspServerList } from "./LspServerList";
+import { LanguageServerSettings } from "./LanguageServerSettings";
 import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
 import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
@@ -76,10 +76,10 @@ export function EditorPage(): React.JSX.Element {
       <SettingsGroup
         id={SETTINGS_ANCHORS.lsp}
         title="Language servers"
-        description="Power Cmd/Ctrl-click and F12 go-to-definition. Each server starts the first time you open a matching file."
+        description="Choose completions, navigation and diagnostics for each language. Installed servers start when you open a matching file."
       >
         <SettingsSubsection>
-          <LspServerList />
+          <LanguageServerSettings />
         </SettingsSubsection>
       </SettingsGroup>
       <SettingsGroup

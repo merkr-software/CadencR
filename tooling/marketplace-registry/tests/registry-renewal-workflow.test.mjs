@@ -1088,3 +1088,41 @@ test("renew-policies names an old pinned CLI instead of failing obscurely", (t) 
     assert.deepEqual(run.calls, []);
   }
 });
+
+test("optional LSP policy participates in planning only when configured", (t) => {
+  const file = "managed-lsp-blocklist.json";
+  const configured = {
+    CADENCR_REGISTRY_LSP_BLOCKLIST_URL: `https://raw.githubusercontent.com/acme/registry/refs/heads/marketplace-v2/${file}`,
+  };
+  const plan = planPolicies(t, {}, configured, (snapshot) => {
+    writeFileSync(path.join(snapshot, file), policy(1, { kind: "lsp-blocklist" }));
+  });
+  assert.equal(plan.result.status, 0, plan.result.stderr);
+  assert.deepEqual(JSON.parse(readFileSync(path.join(plan.work, "plan.json"), "utf8")).policies, [
+    { kind: "lsp", file, branch: "marketplace-v2" },
+  ]);
+  const missing = planPolicies(t, {}, configured);
+  assert.notEqual(missing.result.status, 0);
+  const foreign = planPolicies(
+    t,
+    {},
+    {
+      CADENCR_REGISTRY_LSP_BLOCKLIST_URL: configured.CADENCR_REGISTRY_LSP_BLOCKLIST_URL.replace(
+        "acme/registry",
+        "other/registry",
+      ),
+    },
+  );
+  assert.notEqual(foreign.result.status, 0);
+  for (const name of [
+    "Download the current published revocation policies",
+    "Plan revocation policy renewals",
+    "Renew the revocation policies",
+  ]) {
+    assert.equal(
+      workflow.jobs.renew.steps.find((step) => step.name === name).env
+        .CADENCR_REGISTRY_LSP_BLOCKLIST_URL,
+      "${{ vars.CADENCR_REGISTRY_LSP_BLOCKLIST_URL }}",
+    );
+  }
+});

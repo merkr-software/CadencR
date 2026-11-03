@@ -23,4 +23,4 @@ pub use descriptor::{
 pub use error::{DescriptorError, PluginValidationError, RejectionCode};
 pub use folder::{validate_plugin_folder, ValidatedPluginFolder};
 pub use relative_path::{is_normalized_relative_path, MAX_RELATIVE_PATH_BYTES};
-pub use safe_read::{read_regular_bounded, sha256_regular_bounded};
+pub use safe_read::{open_regular_bounded, read_regular_bounded, sha256_regular_bounded};

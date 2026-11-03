@@ -28,6 +28,7 @@ function InstalledFacts({ listing }: { listing: MarketplaceListing }): React.JSX
     facts.push(installed.enabled ? "Starts with Cadencr" : "Disabled");
   else if (listing.kind === "tab")
     facts.push(installed.enabled ? "Enabled globally" : "Disabled globally");
+  else if (listing.kind === "lsp") facts.push("Available to matching files");
   else if (installed.selected && !installed.active) facts.push("Saved in a theme slot");
   const installedOn = formatDay(installed.installedAt);
   if (installedOn) facts.push(`Installed ${installedOn}`);
@@ -203,15 +204,18 @@ function LibraryEmpty({
     state.providers.inventoryQuery.isError ||
     state.themes.inventory.isError ||
     state.tabs.inventory.isError ||
-    state.tabs.summaries.isError;
+    state.tabs.summaries.isError ||
+    state.lsps.inventory.isError;
   const updatesUnknown =
     inventoryUnavailable ||
     !state.catalogUsable.provider ||
     !state.catalogUsable.theme ||
     !state.catalogUsable.tab ||
+    !state.catalogUsable.lsp ||
     state.providers.catalogQuery.isError ||
     state.themes.catalog.isError ||
-    state.tabs.catalog.isError;
+    state.tabs.catalog.isError ||
+    state.lsps.catalog.isError;
   if (hasUnfilteredResults)
     return (
       <MarketplaceEmpty
@@ -260,7 +264,7 @@ function LibraryEmpty({
     <MarketplaceEmpty
       icon={PackageOpen}
       title="Nothing installed from the marketplace yet"
-      detail="Themes, providers and custom tabs you install show up here, with their version and history."
+      detail="Themes, providers, language servers and custom tabs you install show up here, with their version and history."
       action={
         <Button size="sm" onClick={onDiscover}>
           Discover plugins

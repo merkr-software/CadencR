@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ExternalLink, ShieldCheck } from "lucide-react";
+import { ExternalLink, Info, ShieldCheck } from "lucide-react";
 import type { ManagedProviderInventoryEntry } from "@/api/generated";
 import { Badge } from "@/components/ui/badge";
 import type { MarketplaceListing } from "@/lib/marketplace-listings";
@@ -238,22 +238,36 @@ export function TrustSection({
   /** The version the install panel acts on; the tab warning describes it. */
   version: string;
 }): React.JSX.Element {
-  const { providers, themes, tabs } = useMarketplaceState();
+  const { providers, themes, tabs, lsps } = useMarketplaceState();
+  const externalLsp = listing.kind === "lsp" && !!listing.installed && !listing.installed.managed;
+  const invalidLsp =
+    listing.kind === "lsp" && !!listing.installed?.managed && !listing.installed.usable;
+  const TrustIcon = externalLsp || invalidLsp ? Info : ShieldCheck;
   // Each kind is verified against its own catalog; never show the other one's dates.
   const providerCatalog = listing.kind === "provider" ? providers.catalogQuery.data : undefined;
-  const expiresAt = (
-    listing.kind === "provider"
+  const expiresAt =
+    !externalLsp &&
+    (listing.kind === "provider"
       ? providerCatalog
-      : listing.kind === "tab"
-        ? tabs.catalog.data
-        : themes.catalog.data
-  )?.index?.signed.expires_at;
+      : listing.kind === "lsp"
+        ? lsps.catalog.data
+        : listing.kind === "tab"
+          ? tabs.catalog.data
+          : themes.catalog.data
+    )?.index?.signed.expires_at;
   return (
     <Section title="Trust & safety">
       <div className="space-y-2 rounded-lg border border-border/80 bg-card p-3 text-xs text-muted-foreground">
         <p className="flex items-center gap-1.5 font-medium text-foreground">
-          <ShieldCheck aria-hidden="true" className="size-3.5 text-primary" />
-          Signed catalog, verified archive
+          <TrustIcon
+            aria-hidden="true"
+            className={cn("size-3.5", !externalLsp && !invalidLsp && "text-primary")}
+          />
+          {externalLsp
+            ? "Installed outside the marketplace"
+            : invalidLsp
+              ? "Marketplace installation unavailable"
+              : "Signed catalog, verified archive"}
         </p>
         <KindTrust listing={listing} version={version} />
         {expiresAt && (
@@ -290,6 +304,29 @@ export function KindTrust({
     );
   if (listing.kind === "tab") return <TabTrust listing={listing} version={version} />;
   if (listing.kind === "provider") return <ProviderTrust />;
+  if (listing.kind === "lsp" && listing.installed?.managed && !listing.installed.usable)
+    return (
+      <p>
+        Cadencr cannot currently verify or run this installation. Review its error, refresh the
+        marketplace or remove it.
+      </p>
+    );
+  if (listing.kind === "lsp" && listing.installed && !listing.installed.managed)
+    return (
+      <p>
+        Cadencr has not verified this executable against a signed marketplace package. Language
+        servers run with your access to provide completions, navigation and diagnostics. Manage this
+        installation with its original installer.
+      </p>
+    );
+  if (listing.kind === "lsp")
+    return (
+      <p>
+        Installing downloads a verified executable. Language servers run with your access to provide
+        completions, navigation and diagnostics. They start only for matching files after
+        installation.
+      </p>
+    );
   return null;
 }
 

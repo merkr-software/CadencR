@@ -19,10 +19,11 @@ pub const PLUGIN_KIND: &str = "plugin";
 /// Members one plugin may contribute (the author manifest's limit).
 pub const MAX_PLUGIN_MEMBERS: usize = cadencr_plugin_core::plugin::MAX_MEMBERS;
 /// The single kinds a plugin may contribute.
-pub const PLUGIN_MEMBER_KINDS: [&str; 3] = [
+pub const PLUGIN_MEMBER_KINDS: [&str; 4] = [
     PluginMemberKind::Provider.as_str(),
     PluginMemberKind::Theme.as_str(),
     PluginMemberKind::Tab.as_str(),
+    PluginMemberKind::Lsp.as_str(),
 ];
 const DESCRIPTOR_FIELDS: [&str; 6] = [
     "id",

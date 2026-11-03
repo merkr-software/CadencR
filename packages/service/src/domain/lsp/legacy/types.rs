@@ -4,7 +4,9 @@ use cli_discovery::DiscoverySpec;
 /// per language (e.g. a type checker plus a linter) without the catalog
 /// branching on provider identity. `lookup_all` returns every entry for a
 /// language id; `active-servers` on the frontend then picks one per role.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, utoipa::ToSchema)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, utoipa::ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerRole {
     /// Full language intelligence: completion, hover, go-to-definition,
@@ -54,44 +56,21 @@ pub struct CatalogEntry {
     pub version_must_contain: Option<&'static str>,
     /// Optional on-demand downloader recipe; `None` means "user must
     /// install this themselves".
-    pub download: Option<DownloadRecipe>,
+    pub legacy_install: Option<LegacyInstall>,
 }
 
-/// Recipe for installing the server into `~/.cadencr/lsp/<lsp_id>/<version>/`.
+/// Read-only locations produced by pre-marketplace releases. No network recipes remain.
 #[derive(Debug, Clone)]
-pub enum DownloadRecipe {
-    /// Single executable hosted as a `.gz` GitHub release asset.
-    GithubReleaseGz {
-        /// Pinned version string used for URL substitution and install dir.
-        version: &'static str,
-        /// URL template with `{version}`, `{arch}`, and `{os}` placeholders.
-        url_template: &'static str,
-        /// SHA-256 of the decompressed executable for each supported asset.
-        sha256_by_platform: &'static [PlatformSha256],
-    },
-    /// npm packages installed into a managed local prefix.
-    NpmPackage {
-        /// Pinned recipe version used as the `<version>` install directory.
-        version: &'static str,
-        /// Exact package specs passed to `npm install`.
-        packages: &'static [&'static str],
-    },
+pub enum LegacyInstall {
+    Native { version: &'static str },
+    Npm { version: &'static str },
 }
-
-impl DownloadRecipe {
+impl LegacyInstall {
     pub fn version(&self) -> &'static str {
         match self {
-            DownloadRecipe::GithubReleaseGz { version, .. } => version,
-            DownloadRecipe::NpmPackage { version, .. } => version,
+            Self::Native { version } | Self::Npm { version } => version,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct PlatformSha256 {
-    pub arch: &'static str,
-    pub os: &'static str,
-    pub sha256: &'static str,
 }
 
 impl CatalogEntry {

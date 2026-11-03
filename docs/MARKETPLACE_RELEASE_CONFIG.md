@@ -121,15 +121,16 @@ blocklist checks remain authoritative; build validation does not replace them.
 
 ## Public repository variables
 
-| Variable                                     | Configuration rule                                                                                                                                                                                                                                     |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CADENCR_MANAGED_PROVIDER_KEY_ID`            | Host-owned signing key ID; starts with an ASCII alphanumeric character, followed by ASCII alphanumeric, `.`, `_`, or `-`; at most 128 bytes.                                                                                                           |
-| `CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64` | Canonical base64 representation of the host-owned 32-byte Ed25519 public key. Never a private key.                                                                                                                                                     |
-| `CADENCR_MANAGED_PROVIDER_INDEX_URL`         | Credential-free HTTPS provider catalog URL. Existing schema-1 feeds remain supported; current clients may point at the signed mixed schema-2 feed.                                                                                                     |
-| `CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL`     | Credential-free HTTPS signed policy URL, configured together with the provider catalog and both key variables.                                                                                                                                         |
-| `CADENCR_MANAGED_THEME_INDEX_URL`            | Additional activation pair with the theme blocklist, requiring the complete four-variable trust group. It must point at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-index.json`.                         |
-| `CADENCR_MANAGED_THEME_BLOCKLIST_URL`        | Theme-only signed revocation policy at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-theme-blocklist.json`; same reviewed repository as the mixed catalog.                                                 |
-| `CADENCR_MANAGED_TAB_BLOCKLIST_URL`          | Custom-tab-only signed revocation policy (`kind: "tab-blocklist"`), e.g. `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-tab-blocklist.json`; same signing key and reviewed repository as the mixed catalog. |
+| Variable                                     | Configuration rule                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CADENCR_MANAGED_PROVIDER_KEY_ID`            | Host-owned signing key ID; starts with an ASCII alphanumeric character, followed by ASCII alphanumeric, `.`, `_`, or `-`; at most 128 bytes.                                                                                                                                                                                                               |
+| `CADENCR_MANAGED_PROVIDER_PUBLIC_KEY_BASE64` | Canonical base64 representation of the host-owned 32-byte Ed25519 public key. Never a private key.                                                                                                                                                                                                                                                         |
+| `CADENCR_MANAGED_PROVIDER_INDEX_URL`         | Credential-free HTTPS provider catalog URL. Existing schema-1 feeds remain supported; current clients may point at the signed mixed schema-2 feed.                                                                                                                                                                                                         |
+| `CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL`     | Credential-free HTTPS signed policy URL, configured together with the provider catalog and both key variables.                                                                                                                                                                                                                                             |
+| `CADENCR_MANAGED_THEME_INDEX_URL`            | Additional activation pair with the theme blocklist, requiring the complete four-variable trust group. It must point at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-index.json`.                                                                                                                             |
+| `CADENCR_MANAGED_THEME_BLOCKLIST_URL`        | Theme-only signed revocation policy at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-theme-blocklist.json`; same reviewed repository as the mixed catalog.                                                                                                                                                     |
+| `CADENCR_MANAGED_TAB_BLOCKLIST_URL`          | Custom-tab-only signed revocation policy (`kind: "tab-blocklist"`), e.g. `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-tab-blocklist.json`; same signing key and reviewed repository as the mixed catalog.                                                                                                     |
+| `CADENCR_MANAGED_LSP_BLOCKLIST_URL`          | Optional LSP-only signed revocation policy (`kind: "lsp-blocklist"`) at `https://raw.githubusercontent.com/<owner>/<repository>/refs/heads/marketplace-v2/managed-lsp-blocklist.json`; requires shared trust and the mixed catalog in the same reviewed repository. Without it, LSP installation is disabled; existing marketplace kinds remain available. |
 
 The first four variables are all-or-none. The two theme feeds are also all-or-none.
 The tab policy URL goes with the theme feeds: the desktop release workflow forwards it, and
@@ -559,13 +560,13 @@ Client behavior:
 
 ## Deployment cutover still pending
 
-The candidate template pins qualified `0.13.1-dev.39108033875.1` for existing
-contribution/build/publication commands; see its exact
-[qualification evidence](MARKETPLACE_CLI_QUALIFICATION_2026-10-18.md). The source
-now removes replaced JavaScript business tooling and adds Rust standalone
-metadata/submission/expiry commands. **Those new commands need a new CLI release
-and qualification before full template deployment.** The older binary is not a
-replacement pin for this expanded contract.
+The candidate template selects qualified `0.15.2` in
+[`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env); see its
+[qualification evidence](qa/MARKETPLACE_STABLE_CLI_2026_10_25.md). That binary covers
+the existing Rust contribution, metadata, submission, expiry and publication
+commands. **The new LSP package and policy commands need a new CLI release and
+qualification before LSP template deployment.** Keep the version, tag and digest
+pin unchanged until the replacement binary has been qualified.
 
 Merge/release/qualify the updated CLI, review the exact source/version/tag/digest,
 and regenerate all registry delivery payload hashes. Reinspect actual remote
@@ -578,3 +579,9 @@ performs that deployment, assigns authority or activates desktop UI.
 Author pins, official roots/feeds, signing environments, initial plugin releases
 and packaged-client certification remain separate gates. Fresh runners rebuild
 proof from verified remote evidence; raw recovery state is never uploaded/restored.
+
+## Language server revocation
+
+Language servers use the shared signed mixed catalog and a separate `lsp-blocklist` policy. Set `CADENCR_MANAGED_LSP_BLOCKLIST_URL` only after reviewing and publishing `managed-lsp-blocklist.json` on the catalog repository’s `marketplace-v2` branch. Both desktop release workflows forward this public build variable. The build validator rejects a supplied LSP policy without the shared catalog/trust configuration, a different repository or branch, unsafe URL components, and surrounding whitespace.
+
+The variable remains optional so existing provider, theme and custom tab feeds can continue to build. An absent LSP policy disables language server installation; opening a file or starting a session never downloads a server. Installation is an explicit marketplace or editor suggestion action.

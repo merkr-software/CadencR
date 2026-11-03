@@ -83,6 +83,7 @@ export function MarketplaceHome({
     state.providers.refresh.mutate();
     state.themes.refresh.mutate();
     state.tabs.refresh.mutate();
+    state.lsps.refresh.mutate();
     if (cliList.some((cli) => cli.installed)) refreshAgents.mutate();
   };
   const onKindChange = (next: KindFilter) => onChange({ kind: next });
@@ -256,12 +257,17 @@ function catalogStatus(state: ReturnType<typeof useMarketplaceState>) {
     state.providers.catalogQuery.data?.index?.signed.generated_at,
     state.themes.catalog.data?.index?.signed.generated_at,
     state.tabs.catalog.data?.index?.signed.generated_at,
+    state.lsps.catalog.data?.index?.signed.generated_at,
   );
   const refreshing =
     state.providers.refresh.isPending ||
     state.themes.refresh.isPending ||
-    state.tabs.refresh.isPending;
+    state.tabs.refresh.isPending ||
+    state.lsps.refresh.isPending;
   const anyCatalog =
-    state.catalogUsable.provider || state.catalogUsable.theme || state.catalogUsable.tab;
+    state.catalogUsable.provider ||
+    state.catalogUsable.theme ||
+    state.catalogUsable.tab ||
+    state.catalogUsable.lsp;
   return { publishedAt, refreshing, anyCatalog };
 }

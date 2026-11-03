@@ -24,7 +24,7 @@ pub fn discovery_url(repository: &str, branch: &str) -> Result<String, RegistryE
 }
 
 /// The raw URL of `file` on a discovery branch: the catalog or one of the
-/// three revocation policies, nothing else.
+/// four revocation policies, nothing else.
 pub fn discovery_object_url(
     repository: &str,
     branch: &str,
@@ -35,9 +35,14 @@ pub fn discovery_object_url(
     }
     validate_discovery_branch(branch)?;
     let known = file == DISCOVERY_FILENAME
-        || [PolicyKind::Provider, PolicyKind::Theme, PolicyKind::Tab]
-            .iter()
-            .any(|kind| kind.file_name() == file);
+        || [
+            PolicyKind::Provider,
+            PolicyKind::Theme,
+            PolicyKind::Tab,
+            PolicyKind::Lsp,
+        ]
+        .iter()
+        .any(|kind| kind.file_name() == file);
     if !known {
         return Err(RegistryError::single("discovery object name is invalid"));
     }

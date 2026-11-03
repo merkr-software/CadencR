@@ -390,3 +390,7 @@ html[data-animations="off"] .mp-spotlight-enter {
   opacity: 0.38;
   filter: grayscale(1);
 }
+
+.mp-kind-lsp {
+  --mp-kind: var(--acc-cyan);
+}

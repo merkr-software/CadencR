@@ -130,6 +130,7 @@ mod tests {
             PolicyKind::Provider => ("provider_id", None),
             PolicyKind::Theme => ("theme_id", Some("theme-blocklist")),
             PolicyKind::Tab => ("tab_id", Some("tab-blocklist")),
+            PolicyKind::Lsp => ("lsp_id", Some("lsp-blocklist")),
         };
         let mut value = json!({
             "schema_version": 1, "generated_at": generated, "expires_at": expires,
@@ -176,7 +177,12 @@ mod tests {
         )
     }
 
-    const KINDS: [PolicyKind; 3] = [PolicyKind::Provider, PolicyKind::Theme, PolicyKind::Tab];
+    const KINDS: [PolicyKind; 4] = [
+        PolicyKind::Provider,
+        PolicyKind::Theme,
+        PolicyKind::Tab,
+        PolicyKind::Lsp,
+    ];
 
     #[test]
     fn renews_each_kind_keeping_entries_and_advancing_the_window() {

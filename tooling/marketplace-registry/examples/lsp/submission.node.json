@@ -1,0 +1,58 @@
+{
+  "schema_version": 2,
+  "package": {
+    "kind": "lsp",
+    "package": {
+      "lsp": {
+        "id": "example-language-server",
+        "name": "Example language server",
+        "description": "Authoring example for a prepared server bundle",
+        "version": "1.0.0",
+        "repository": "https://github.com/acme/language-server",
+        "license": "MIT",
+        "protocol_version": 1,
+        "languages": [
+          {
+            "id": "typescript",
+            "extensions": ["ts"],
+            "filenames": []
+          },
+          {
+            "id": "typescriptreact",
+            "extensions": ["tsx"],
+            "filenames": []
+          }
+        ],
+        "root_markers": ["tsconfig.json", "package.json", ".git"],
+        "role": "type_checker",
+        "args": ["--stdio"],
+        "initialization_options": {},
+        "distribution": {
+          "binary": {
+            "linux-x86_64": {
+              "archive": "https://github.com/acme/language-server/releases/download/v1.0.0/lsp-linux-x86_64.tar.gz",
+              "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "size": 1,
+              "entry": "dist/server.js",
+              "entry_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "entry_size": 1,
+              "runtime": "node"
+            }
+          }
+        }
+      },
+      "host": {
+        "publisher": "acme",
+        "compatibility": {
+          "min_app_version": "0.15.1"
+        }
+      }
+    }
+  },
+  "source": {
+    "repository": "https://github.com/acme/language-server",
+    "commit": "0000000000000000000000000000000000000000",
+    "tag": "v1.0.0"
+  },
+  "changelog": "Initial release"
+}

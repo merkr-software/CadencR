@@ -36,7 +36,18 @@ pub(crate) fn web_archive(
 ) -> Result<BuiltArchive, RegistryError> {
     reject_output_location(&snapshot.root, output)?;
     archive_with(snapshot, output, |snapshot, file| {
-        write_owned_with_policy(snapshot, file, true, true)
+        write_owned_with_policy(snapshot, file, true, true, MAX_COMPRESSED_BYTES)
+    })
+}
+
+/// Prepared LSP Node bundles: normalized files only, with a smaller download budget.
+pub(crate) fn lsp_bundle_archive(
+    snapshot: &Snapshot,
+    output: &Path,
+) -> Result<BuiltArchive, RegistryError> {
+    reject_output_location(&snapshot.root, output)?;
+    archive_with(snapshot, output, |snapshot, file| {
+        write_owned_with_policy(snapshot, file, true, true, crate::MAX_LSP_ARCHIVE_BYTES)
     })
 }
 
@@ -103,7 +114,7 @@ fn write_owned_with_mode(
     file: File,
     declarative: bool,
 ) -> Result<BuiltArchive, RegistryError> {
-    write_owned_with_policy(snapshot, file, declarative, false)
+    write_owned_with_policy(snapshot, file, declarative, false, MAX_COMPRESSED_BYTES)
 }
 
 fn write_owned_with_policy(
@@ -111,8 +122,9 @@ fn write_owned_with_policy(
     file: File,
     declarative: bool,
     files_only: bool,
+    limit: u64,
 ) -> Result<BuiltArchive, RegistryError> {
-    let mut gzip = gzip_writer(file, MAX_COMPRESSED_BYTES);
+    let mut gzip = gzip_writer(file, limit);
     for entry in &snapshot.entries {
         if files_only && entry.directory {
             continue;

@@ -34,10 +34,18 @@ function releaseInstallable(plugin: MarketplaceListing, version: string): boolea
  * page that started the sequence has unmounted (per-call `mutate` callbacks
  * would not fire then, and a plugin install would stall on its next member).
  */
-function kindDispatch(providers: State["providers"], themes: State["themes"], tabs: State["tabs"]) {
+function kindDispatch(
+  providers: State["providers"],
+  themes: State["themes"],
+  tabs: State["tabs"],
+  lsps: State["lsps"],
+) {
   /** Install, or move an installed member to `version`. */
   const run = (listing: MarketplaceListing, version: string, mode: "mutate" | "mutateAsync") => {
-    const kind = listing.installed ? "update" : "install";
+    const kind =
+      listing.installed && !(listing.kind === "lsp" && !listing.installed.managed)
+        ? "update"
+        : "install";
     const providerIndex = providers.catalogQuery.data?.index;
     const themeIndex = themes.catalog.data?.index;
     const tabIndex = tabs.catalog.data?.index;
@@ -47,6 +55,8 @@ function kindDispatch(providers: State["providers"], themes: State["themes"], ta
       return themes.mutation[mode]({ kind, id: listing.id, version, index: themeIndex });
     if (listing.kind === "tab" && tabIndex)
       return tabs.mutation[mode]({ kind, id: listing.id, version, index: tabIndex });
+    if (listing.kind === "lsp" && lsps.catalog.data?.index)
+      return lsps.mutation[mode]({ kind, id: listing.id, version });
     throw new Error(NO_CATALOG);
   };
   /** Resolves once the backend confirmed and the kind's state was reloaded. */
@@ -61,6 +71,8 @@ function kindDispatch(providers: State["providers"], themes: State["themes"], ta
     // The confirmation dialog said selections fall back to a built-in theme.
     else if (listing.kind === "theme")
       await themes.mutation.mutateAsync({ kind: "remove", id: listing.id, confirmFallback: true });
+    else if (listing.kind === "lsp")
+      await lsps.mutation.mutateAsync({ kind: "remove", id: listing.id });
     else throw new Error("A plugin is removed member by member.");
   };
   return {
@@ -115,6 +127,7 @@ function pluginInstaller(
 export function usePluginActions() {
   const {
     providers,
+    lsps,
     themes,
     tabs,
     catalogUsable,
@@ -131,14 +144,20 @@ export function usePluginActions() {
       providers.inventoryQuery.data.trust.status === "configured";
     const kindReady: Record<PluginKind, boolean> = {
       provider: providerReady,
+      lsp: catalogUsable.lsp && lsps.inventory.isSuccess,
       theme: catalogUsable.theme && themes.inventory.isSuccess,
       tab: catalogUsable.tab && tabs.inventory.isSuccess,
     };
-    const mutations = { provider: providers.mutation, theme: themes.mutation, tab: tabs.mutation };
+    const mutations = {
+      provider: providers.mutation,
+      theme: themes.mutation,
+      tab: tabs.mutation,
+      lsp: lsps.mutation,
+    };
     const kindsOf = (listing: MarketplaceListing): PluginKind[] =>
       listing.kind === "plugin" ? listing.contributes : [listing.kind];
 
-    const { send, sendAsync, removeAsync } = kindDispatch(providers, themes, tabs);
+    const { send, sendAsync, removeAsync } = kindDispatch(providers, themes, tabs, lsps);
     const installPlugin = pluginInstaller(sendAsync, listingsByKey, setPluginRun);
 
     return {
@@ -194,5 +213,15 @@ export function usePluginActions() {
         }
       },
     };
-  }, [providers, themes, tabs, catalogUsable, listings, listingsByKey, pluginRun, setPluginRun]);
+  }, [
+    providers,
+    themes,
+    tabs,
+    lsps,
+    catalogUsable,
+    listings,
+    listingsByKey,
+    pluginRun,
+    setPluginRun,
+  ]);
 }

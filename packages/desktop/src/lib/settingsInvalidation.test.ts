@@ -55,11 +55,18 @@ describe("invalidateSettingsDerivedQueries", () => {
   it("refreshes the resolved agent selection, which a prompt can move", async () => {
     const client = new QueryClient();
     client.setQueryData(["/api/agent-runtime/selection"], { selections: {} });
+    client.setQueryData(["/api/lsp/resolve", { language_id: "custom", project_id: 3 }], {});
+    client.setQueryData(["/api/lsp/servers"], {});
     client.setQueryData(["/api/git/status"], { clean: true });
 
     await invalidateSettingsDerivedQueries(client);
 
     expect(client.getQueryState(["/api/agent-runtime/selection"])?.isInvalidated).toBe(true);
+    expect(
+      client.getQueryState(["/api/lsp/resolve", { language_id: "custom", project_id: 3 }])
+        ?.isInvalidated,
+    ).toBe(true);
+    expect(client.getQueryState(["/api/lsp/servers"])?.isInvalidated).toBe(true);
     expect(client.getQueryState(["/api/git/status"])?.isInvalidated).toBe(false);
   });
 });

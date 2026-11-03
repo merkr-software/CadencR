@@ -13,6 +13,7 @@ pub enum MarketplacePackage {
     Provider(ProviderPackage),
     Theme(ThemePackage),
     Tab(TabPackage),
+    Lsp(crate::LspPackage),
     Plugin(PluginPackage),
 }
 /// A multi-export plugin: complete single-kind members released together

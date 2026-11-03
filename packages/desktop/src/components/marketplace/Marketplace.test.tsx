@@ -31,9 +31,24 @@ import {
   tabFixture,
 } from "@/components/settings/custom-tabs/custom-tabs-fixtures";
 import { auroraPlugin, signedCatalog } from "@/lib/marketplace-plugin-fixtures";
+import { customInstance } from "@/api/client";
 import { MarketplaceProvider } from "./MarketplaceContext";
 import { MarketplaceHome } from "./MarketplaceHome";
 import { PluginDetail } from "./PluginDetail";
+vi.mock("@/api/client", () => ({
+  customInstance: vi.fn(async (request: { url: string }) => {
+    if (request.url === "/api/lsp/catalog") {
+      const response = await catalog();
+      return {
+        index: response.index ?? null,
+        verified: response.cache_status === "verified",
+        recommended_versions: {},
+      };
+    }
+    if (request.url === "/api/lsp/servers") return { servers: [] };
+    throw new Error(`Unexpected LSP request: ${request.url}`);
+  }),
+}));
 const tabMutations = vi.hoisted(() => ({ consent: vi.fn(), enable: vi.fn(), discard: vi.fn() }));
 
 vi.mock("@/hooks/useTheme", () => ({
@@ -1334,5 +1349,112 @@ describe("multi-export plugins in the marketplace", () => {
     );
     expect(removeManagedTab).toHaveBeenCalledWith("aurora-tab");
     expect(remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("language server marketplace", () => {
+  const lspPackage = {
+    kind: "lsp",
+    package: {
+      lsp: {
+        id: "custom-server",
+        name: "Custom server",
+        description: "Custom language tools",
+        version: "1.0.0",
+        repository: "https://github.com/acme/custom",
+        license: "MIT",
+        protocol_version: 1,
+        languages: [{ id: "custom", extensions: ["custom"], filenames: [] }],
+        root_markers: [],
+        role: "general",
+        args: [],
+        initialization_options: {},
+        distribution: { binary: {} },
+      },
+      host: { publisher: "acme", compatibility: { min_app_version: "0.15.0" } },
+    },
+  };
+  const server = {
+    lsp_id: "custom-server",
+    name: "Custom server",
+    description: "Custom language tools",
+    version: "1.0.0",
+    language_ids: ["custom"],
+    languages: [],
+    role: "general",
+    status: "legacy",
+  };
+  function stubLsp(reason?: string) {
+    let managed = false;
+    vi.mocked(customInstance).mockImplementation(async (request) => {
+      if (request.url === "/api/lsp/catalog")
+        return {
+          index: signedCatalog([lspPackage]),
+          verified: true,
+          recommended_versions: reason ? {} : { "custom-server": "1.0.0" },
+          unavailable_versions: reason ? { "custom-server": { "1.0.0": reason } } : {},
+        } as never;
+      if (request.url === "/api/lsp/install") managed = true;
+      if (request.url === "/api/lsp/servers" || request.url === "/api/lsp/install")
+        return { servers: [{ ...server, status: managed ? "managed" : "legacy" }] } as never;
+      throw new Error(`Unexpected LSP request ${request.url}`);
+    });
+  }
+
+  it("offers a managed install over an external server at the same version without a provider toggle", async () => {
+    stubLsp();
+    const { user } = inMarketplace(<PluginDetail kind="lsp" id="custom-server" />);
+    const button = await screen.findByRole("button", { name: "Install managed version 1.0.0" });
+    expect(screen.queryByRole("button", { name: "Enable" })).not.toBeInTheDocument();
+    expect(
+      vi.mocked(customInstance).mock.calls.some(([request]) => request.url === "/api/lsp/install"),
+    ).toBe(false);
+    await user.click(button);
+    await waitFor(() =>
+      expect(customInstance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "/api/lsp/install",
+          data: { lsp_id: "custom-server", version: "1.0.0" },
+        }),
+      ),
+    );
+    expect(await screen.findByRole("button", { name: "Installed" })).toBeDisabled();
+  });
+
+  it("keeps removal available when managed metadata is invalid and no catalog is available", async () => {
+    let removed = false;
+    vi.mocked(customInstance).mockImplementation(async (request) => {
+      if (request.url === "/api/lsp/catalog")
+        return { index: null, verified: false, recommended_versions: {} } as never;
+      if (request.url === "/api/lsp/remove") removed = true;
+      return {
+        servers: removed
+          ? []
+          : [{ ...server, status: "invalid", version: null, error: "Revocation policy expired" }],
+      } as never;
+    });
+    const { user } = inMarketplace(<PluginDetail kind="lsp" id="custom-server" />);
+    const remove = await screen.findByRole("button", { name: "Remove Custom server…" });
+    expect(screen.getAllByText(/Revocation policy expired/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Installed outside the marketplace")).not.toBeInTheDocument();
+    await user.click(remove);
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(customInstance).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "/api/lsp/remove", data: { lsp_id: "custom-server" } }),
+      ),
+    );
+  });
+
+  it.each([
+    ["node", "Needs Node.js on this machine"],
+    ["protocol", "Needs a newer Cadencr"],
+    ["policy", "Installation policy unavailable"],
+  ])("explains %s availability without offering install", async (reason, label) => {
+    stubLsp(reason);
+    inMarketplace(<PluginDetail kind="lsp" id="custom-server" />);
+    expect(await screen.findByRole("button", { name: label })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Install managed/ })).not.toBeInTheDocument();
   });
 });

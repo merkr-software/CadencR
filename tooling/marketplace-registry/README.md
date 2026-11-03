@@ -45,6 +45,16 @@ fallback. Author publication pins and production authority remain separate gates
 Legacy provider schemas remain reference contracts, not schemas for mixed theme/tab
 entries. Use the [Rust CLI contract](../../packages/cli/README.md) for all kinds.
 
+## Language-server source support
+
+The source CLI supports standalone `lsp` entries and LSP members of a plugin.
+See [prepared native and Node authoring examples](examples/lsp/README.md) and
+the reference [package schema](schemas/marketplace-lsp-package-v1.schema.json).
+These additions require releasing and qualifying a CLI with LSP support before
+the protected template can accept them; the existing qualified pin above is
+unchanged. Real package assets and the independent signed LSP policy must be
+published before enabling LSP installation in a production build.
+
 ## Contributor path
 
 1. Validate and test your provider, declarative theme or custom tab locally.

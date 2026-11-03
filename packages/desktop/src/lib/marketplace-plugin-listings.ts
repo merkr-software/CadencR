@@ -29,6 +29,8 @@ function memberId(entry: PluginPackage["contributes"][number]): PluginMemberRef 
       return { kind: "provider", id: entry.package.agent.id };
     case "tab":
       return { kind: "tab", id: entry.package.tab.id };
+    case "lsp":
+      return { kind: "lsp", id: entry.package.lsp.id };
     case "unknown":
       return null;
   }
@@ -60,7 +62,7 @@ function releaseUnavailable(
   if (unknownKinds.length) return "protocol";
   if (entries.some((entry) => entry?.unavailable === "platform")) return "platform";
   if (entries.some((entry) => entry?.unavailable === "protocol")) return "protocol";
-  return undefined;
+  return entries.find((entry) => entry?.unavailable)?.unavailable;
 }
 
 function releaseVersion(item: PluginPackage, lookup: Lookup): ListingVersion {
@@ -138,7 +140,9 @@ function releaseInstalled(
   const complete = release
     ? !release.unknownKinds?.length &&
       (release.members ?? []).every(
-        (member) => lookup.get(memberKey(member))?.installed?.version === version,
+        (member) =>
+          lookup.get(memberKey(member))?.installed?.version === version &&
+          !(member.kind === "lsp" && !lookup.get(memberKey(member))?.installed?.managed),
       )
     : current.every((listing) => listing.installed?.version === version);
   const dates = (field: "installedAt" | "updatedAt") =>
@@ -225,7 +229,12 @@ export function installedPluginMembers(
   plugin: MarketplaceListing,
   listings: MarketplaceListing[],
 ): MarketplaceListing[] {
-  return listings.filter((item) => item.partOf?.id === plugin.id && item.installed);
+  return listings.filter(
+    (item) =>
+      item.partOf?.id === plugin.id &&
+      item.installed &&
+      !(item.kind === "lsp" && !item.installed.managed),
+  );
 }
 
 /**
@@ -238,7 +247,11 @@ export function isStandalone(listing: MarketplaceListing): boolean {
 
 /** The members a move to `version` still has to install or change, in catalog order. */
 export function pluginSteps(members: PluginMember[], version: string): PluginMember[] {
-  return members.filter((member) => member.listing?.installed?.version !== version);
+  return members.filter(
+    (member) =>
+      member.listing?.installed?.version !== version ||
+      (member.listing.kind === "lsp" && !member.listing.installed?.managed),
+  );
 }
 
 /** How `version` relates to what is installed: install, update or change (or nothing left). */

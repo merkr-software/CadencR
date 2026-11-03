@@ -34,6 +34,9 @@ export interface Settled {
 export const LABELS = { install: "Install", update: "Update to", change: "Change to" } as const;
 
 export const SETTLED = {
+  runtime: { state: "settled", label: "Needs Node.js on this machine", icon: Ban },
+  policy: { state: "settled", label: "Installation policy unavailable", icon: Ban },
+  compatibility: { state: "settled", label: "Incompatible with this Cadencr", icon: Ban },
   installed: { state: "settled", label: "Installed", icon: Check },
   unavailable: { state: "settled", label: "Not available on this platform", icon: Ban },
   outdated: { state: "settled", label: "Needs a newer Cadencr", icon: Ban },
@@ -43,6 +46,9 @@ export const SETTLED = {
 } as const satisfies Record<string, Settled>;
 
 const PROBLEM_NOTES: Record<VersionProblem, string> = {
+  runtime: " · needs Node.js",
+  policy: " · installation policy unavailable",
+  compatibility: " · incompatible Cadencr version",
   outdated: " · needs a newer Cadencr",
   unavailable: " · not for this platform",
   blocked: " · blocked",
@@ -57,14 +63,15 @@ function versionNote(entry: ListingVersion): string {
 
 /** What the primary button offers for the chosen exact version. */
 function primaryAction(listing: MarketplaceListing, version: string): Offer | Settled {
-  const installed = listing.installed?.version;
+  const externalLsp = listing.kind === "lsp" && listing.installed && !listing.installed.managed;
+  const installed = externalLsp ? undefined : listing.installed?.version;
   if (installed && version === installed) return SETTLED.installed;
   const entry = listing.versions.find((item) => item.version === version);
   if (entry?.unavailable === "protocol") return SETTLED.outdated;
-  if (!listing.availableHere) return SETTLED.unavailable;
-  if (!entry) return SETTLED.choose;
+  if (!entry) return listing.availableHere ? SETTLED.choose : SETTLED.unavailable;
   const problem = versionProblem(entry);
   if (problem) return SETTLED[problem];
+  if (!listing.availableHere) return SETTLED.unavailable;
   // Already downloaded and verified: what is left is the user's review.
   if (version === listing.pendingVersion)
     return { state: "settled", label: `Update ${version} staged`, icon: null };
@@ -97,7 +104,9 @@ export function PluginInstallPanel({
             onClick={() => actions.install(listing, action.version)}
           >
             {pending && <Loader2 aria-hidden="true" className="animate-spin" />}
-            {pending ? "Applying…" : `${LABELS[action.state]} ${action.version}`}
+            {pending
+              ? "Applying…"
+              : `${listing.kind === "lsp" && listing.installed && !listing.installed.managed ? "Install managed version" : LABELS[action.state]} ${action.version}`}
           </Button>
         )}
         <KindAction listing={listing} />
@@ -178,7 +187,7 @@ export function SettledAction({ action }: { action: Settled }): React.JSX.Elemen
 export function KindAction({ listing }: { listing: MarketplaceListing }): React.JSX.Element | null {
   const { providers, themes, themeLoading } = useMarketplaceState();
   const installed = listing.installed;
-  if (!installed || listing.kind === "plugin") return null;
+  if (!installed || listing.kind === "plugin" || listing.kind === "lsp") return null;
   if (listing.kind === "tab") return <TabActivation id={listing.id} />;
   if (listing.kind === "theme")
     return (

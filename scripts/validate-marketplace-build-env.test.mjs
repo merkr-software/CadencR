@@ -10,6 +10,7 @@ import {
   THEME_ENV,
   THEME_POLICY_ENV,
   TAB_POLICY_ENV,
+  LSP_POLICY_ENV,
   validatedBuildEnv,
 } from "./validate-marketplace-build-env.mjs";
 
@@ -44,6 +45,7 @@ test("unconfigured releases omit empty compile-time trust values and retain ordi
         THEME_ENV,
         THEME_POLICY_ENV,
         TAB_POLICY_ENV,
+        LSP_POLICY_ENV,
       ].map((name) => [name, ""]),
     ),
     SENTINEL: "keep",
@@ -106,7 +108,7 @@ test("command wrapper forwards configured env and removes blank option_env pins"
     [THEME_POLICY_ENV]: policy,
     [TAB_POLICY_ENV]: tabPolicy,
   };
-  const code = `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify([...TRUST_ENV, ...GENERATION_ENV, MIN_GENERATION_ENV, THEME_ENV, THEME_POLICY_ENV, TAB_POLICY_ENV])}.map(k=>[k,process.env[k]??null]))))`;
+  const code = `console.log(JSON.stringify(Object.fromEntries(${JSON.stringify([...TRUST_ENV, ...GENERATION_ENV, MIN_GENERATION_ENV, THEME_ENV, THEME_POLICY_ENV, TAB_POLICY_ENV, LSP_POLICY_ENV])}.map(k=>[k,process.env[k]??null]))))`;
   const result = spawnSync(
     process.execPath,
     ["scripts/validate-marketplace-build-env.mjs", "--", process.execPath, "-e", code],
@@ -121,6 +123,7 @@ test("command wrapper forwards configured env and removes blank option_env pins"
     THEME_ENV,
     THEME_POLICY_ENV,
     TAB_POLICY_ENV,
+    LSP_POLICY_ENV,
   ])
     env[name] = "";
   const empty = spawnSync(
@@ -140,6 +143,7 @@ test("desktop release forwards all public pins and validates before sidecar comp
     THEME_ENV,
     THEME_POLICY_ENV,
     TAB_POLICY_ENV,
+    LSP_POLICY_ENV,
   ])
     assert.ok(text.includes(`${name}: \${{ vars.${name} }}`));
   assert.ok(
@@ -248,6 +252,46 @@ test("releases require the root-authorized trust and the catalog feeds", () => {
     assert.ok(
       readFileSync(`.github/workflows/${file}`, "utf8").includes(
         "run: node scripts/validate-marketplace-build-env.mjs --require-catalog\n",
+      ),
+    );
+});
+
+test("LSP policy is optional for existing feeds and requires the same reviewed mixed catalog when supplied", () => {
+  const base = generationConfigured();
+  assert.deepEqual(validatedBuildEnv(base, { requireCatalog: true }), base);
+  const lspPolicy = mixed.replace("managed-index.json", "managed-lsp-blocklist.json");
+  const configured = { ...base, [LSP_POLICY_ENV]: lspPolicy };
+  assert.deepEqual(validatedBuildEnv(configured, { requireCatalog: true }), configured);
+  assert.throws(() => validatedBuildEnv({ [LSP_POLICY_ENV]: lspPolicy }), /complete shared/);
+  assert.throws(
+    () =>
+      validatedBuildEnv({
+        ...configured,
+        [THEME_ENV]: undefined,
+        [THEME_POLICY_ENV]: undefined,
+        [TAB_POLICY_ENV]: undefined,
+      }),
+    /mixed marketplace catalog/,
+  );
+  for (const url of [
+    " ",
+    ` ${lspPolicy}`,
+    `${lspPolicy} `,
+    lspPolicy.replace("https:", "http:"),
+    lspPolicy.replace("marketplace-v2", "catalog"),
+    lspPolicy.replace("test-fixture", "other"),
+    lspPolicy.replace("registry/", "other/"),
+    `${lspPolicy}?secret=x`,
+    `${lspPolicy}#fragment`,
+    policy,
+    mixed,
+  ]) {
+    assert.throws(() => validatedBuildEnv({ ...base, [LSP_POLICY_ENV]: url }), url);
+  }
+  for (const file of ["desktop-release.yml", "desktop-linux-release.yml"])
+    assert.ok(
+      readFileSync(`.github/workflows/${file}`, "utf8").includes(
+        `${LSP_POLICY_ENV}: \${{ vars.${LSP_POLICY_ENV} }}`,
       ),
     );
 });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
+import type { ReactNode } from "react";
 import { render, screen } from "@/test-utils";
 import { ProjectSettingsDialog } from "./ProjectSettingsDialog";
 
@@ -7,6 +8,19 @@ const generatedMocks = vi.hoisted(() => ({
   getPublicationReadiness: vi.fn(),
   preparePublicationPackage: vi.fn(),
   setProjectSetting: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@tanstack/react-router")>()),
+  Link: ({
+    children,
+    to,
+    search,
+  }: {
+    children: ReactNode;
+    to: string;
+    search?: Record<string, string>;
+  }) => <a href={search ? `${to}?${new URLSearchParams(search)}` : to}>{children}</a>,
 }));
 
 vi.mock("../api/generated", async (importOriginal) => ({
@@ -69,6 +83,10 @@ describe("ProjectSettingsDialog", () => {
     );
     expect(screen.getByText("My Project")).toBeInTheDocument();
     expect(screen.getByText(/Project settings/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse language servers" })).toHaveAttribute(
+      "href",
+      "/marketplace?kind=lsp",
+    );
   });
 
   it("renders branch prefix input", () => {

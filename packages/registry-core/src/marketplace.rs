@@ -18,6 +18,7 @@ pub fn marketplace_package_kind(value: &Value) -> Option<&str> {
         Some("provider") => Some("provider"),
         Some("theme") => Some("theme"),
         Some("tab") => Some("tab"),
+        Some("lsp") => Some("lsp"),
         Some("plugin") => Some("plugin"),
         _ => None,
     }
@@ -37,7 +38,8 @@ pub(crate) fn body(value: &Value) -> &Value {
 }
 pub(crate) fn descriptor(value: &Value) -> &Value {
     let body = body(value);
-    body.get("tab")
+    body.get("lsp")
+        .or_else(|| body.get("tab"))
         .or_else(|| body.get("theme"))
         .or_else(|| body.get(crate::plugin_package::PLUGIN_KIND))
         .or_else(|| body.get("agent"))
@@ -82,13 +84,17 @@ pub(crate) fn validate_with(value: &Value, label: &str, rules: Rules, errors: &m
         let declared = value.get("kind").and_then(Value::as_str);
         if rules == Rules::Publish || declared.is_none_or(str::is_empty) || !content.is_object() {
             errors.push(format!(
-                "{label}.kind must equal provider, theme, tab or plugin"
+                "{label}.kind must equal provider, theme, tab, lsp or plugin"
             ));
         }
         return;
     };
     if kind == crate::plugin_package::PLUGIN_KIND {
         crate::plugin_package::validate(content, label, rules, errors);
+        return;
+    }
+    if kind == "lsp" {
+        crate::lsp::validate(content, label, rules, errors);
         return;
     }
     if kind == "provider" {

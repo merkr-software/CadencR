@@ -8,7 +8,7 @@ type Line = { tone: "error" | "info" | "done" | "busy"; text: string };
 const ICONS = { error: CircleAlert, info: Info, done: CheckCircle2, busy: Loader2 } as const;
 
 function useActivityLines(): Line[] {
-  const { providers, themes, tabs, catalogMissing } = useMarketplaceState();
+  const { providers, themes, tabs, lsps, catalogMissing } = useMarketplaceState();
   const lines: Line[] = [];
   const error = (label: string, value: unknown) => {
     const message = marketplaceError(value);
@@ -18,6 +18,7 @@ function useActivityLines(): Line[] {
     ["Providers", providers],
     ["Themes", themes],
     ["Custom tabs", tabs],
+    ["Language servers", lsps],
   ] as const) {
     if (kind.mutation.isPending)
       lines.push({ tone: "busy", text: `Applying ${kind.mutation.variables?.id} change…` });
@@ -28,6 +29,10 @@ function useActivityLines(): Line[] {
   error("Installed providers", providers.inventoryQuery.error);
   error("Theme catalog", themes.catalog.error ?? themes.refresh.error);
   error("Installed themes", themes.inventory.error ?? themes.recovery.error);
+  error("Language server catalog", lsps.catalog.error ?? lsps.refresh.error);
+  error("Installed language servers", lsps.inventory.error ?? lsps.recovery.error);
+  if (!catalogMissing && lsps.catalog.data?.error)
+    lines.push({ tone: "error", text: `Language server catalog: ${lsps.catalog.data.error}` });
   error("Tab catalog", tabs.catalog.error ?? tabs.refresh.error);
   error("Installed tabs", tabs.inventory.error ?? tabs.summaries.error ?? tabs.recovery.error);
   // A build with no feed says so once, on the page itself, not as three notices.
@@ -55,7 +60,7 @@ function useActivityLines(): Line[] {
  * pending changes, confirmed results, and failures with their stable codes.
  */
 export function MarketplaceActivity(): React.JSX.Element | null {
-  const { providers, themes, tabs } = useMarketplaceState();
+  const { providers, themes, tabs, lsps } = useMarketplaceState();
   const lines = useActivityLines();
   const queryFailed =
     providers.catalogQuery.isError ||
@@ -63,7 +68,9 @@ export function MarketplaceActivity(): React.JSX.Element | null {
     themes.catalog.isError ||
     tabs.catalog.isError ||
     tabs.inventory.isError ||
-    tabs.summaries.isError;
+    tabs.summaries.isError ||
+    lsps.catalog.isError ||
+    lsps.inventory.isError;
   const themeStateFailed = themes.inventory.isError || themes.mutation.isError;
   if (!lines.length) return null;
   return (
@@ -102,6 +109,8 @@ export function MarketplaceActivity(): React.JSX.Element | null {
                 providers.inventoryQuery.isFetching ||
                 themes.catalog.isFetching ||
                 tabs.catalog.isFetching ||
+                lsps.catalog.isFetching ||
+                lsps.inventory.isFetching ||
                 tabs.inventory.isFetching
               }
               onClick={() => {
@@ -111,6 +120,8 @@ export function MarketplaceActivity(): React.JSX.Element | null {
                 void tabs.catalog.refetch();
                 void tabs.inventory.refetch();
                 void tabs.summaries.refetch();
+                void lsps.catalog.refetch();
+                void lsps.inventory.refetch();
               }}
             >
               Retry loading

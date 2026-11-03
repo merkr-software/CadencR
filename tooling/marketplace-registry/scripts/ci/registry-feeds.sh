@@ -29,6 +29,10 @@ WINDOW_DAYS=13
 # The revocation policy feeds as kind:URL variable:file on the discovery
 # branch, in this order. The catalog is managed-index.json.
 POLICY_FEEDS="provider:CADENCR_REGISTRY_PROVIDER_BLOCKLIST_URL:managed-blocklist.json theme:CADENCR_REGISTRY_THEME_BLOCKLIST_URL:managed-theme-blocklist.json tab:CADENCR_REGISTRY_TAB_BLOCKLIST_URL:managed-tab-blocklist.json"
+# LSP is opt-in until the independent signed policy is deployed.
+if [ -n "${CADENCR_REGISTRY_LSP_BLOCKLIST_URL:-}" ]; then
+  POLICY_FEEDS="$POLICY_FEEDS lsp:CADENCR_REGISTRY_LSP_BLOCKLIST_URL:managed-lsp-blocklist.json"
+fi
 CATALOG_FILE=managed-index.json
 export RENEW_WITHIN_HOURS WINDOW_DAYS POLICY_FEEDS CATALOG_FILE
 

@@ -101,6 +101,15 @@ fn verify_entry_artifact(
     archive: &Path,
 ) -> Result<(), PublisherError> {
     match cadencr_registry_core::marketplace_package_kind(entry) {
+        Some("lsp") => {
+            let signed = cadencr_registry_core::signed_lsp_target(entry, target)?;
+            let bytes = crate::fs::read_bounded(
+                archive,
+                cadencr_registry_core::MAX_LSP_ARCHIVE_BYTES,
+                "staged LSP archive",
+            )?;
+            cadencr_registry_core::read_lsp_archive(&bytes, target, &signed)?;
+        }
         Some("theme") => cadencr_registry_core::verify_theme_archive(archive)?,
         Some("tab") => {
             let backend = cadencr_registry_core::signed_tab_backend(entry)
@@ -295,5 +304,48 @@ fn stage_target(
         (Err(primary), Ok(())) => Err(primary),
         (Err(primary), Err(error)) if error.kind() == std::io::ErrorKind::NotFound => Err(primary),
         (Err(primary), Err(_)) => Err(PublisherError::cleanup(primary, 1)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cadencr_registry_core::{pack_lsp, LspRuntime, PackLspRequest};
+    use serde_json::json;
+
+    #[test]
+    fn lsp_archives_are_verified_for_standalone_and_plugin_targets() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source");
+        std::fs::create_dir(&source).unwrap();
+        std::fs::write(source.join("server.js"), "process.stdin.resume()").unwrap();
+        let packed = pack_lsp(
+            PackLspRequest::builder()
+                .directory(&source)
+                .target("linux-x86_64")
+                .entry("server.js")
+                .runtime(LspRuntime::Node)
+                .output(&root.path().join("server.tar.gz"))
+                .build(),
+        )
+        .unwrap();
+        let mut member: Value = serde_json::from_str(include_str!(
+            "../../../../tooling/marketplace-registry/examples/lsp/package.node.json"
+        ))
+        .unwrap();
+        let mut target = serde_json::to_value(&packed).unwrap();
+        target.as_object_mut().unwrap().remove("target");
+        target["archive"] =
+            json!("https://github.com/acme/language-server/releases/download/v1.0.0/server.tar.gz");
+        member["package"]["lsp"]["distribution"]["binary"]["linux-x86_64"] = target;
+        verify_entry_artifact(&member, "linux-x86_64", &packed.archive).unwrap();
+        let plugin = json!({"kind":"plugin","package":{"contributes":[member.clone()]}});
+        let (entry, platform) =
+            plugin_member_target(&plugin, "lsp:example-language-server:linux-x86_64").unwrap();
+        verify_entry_artifact(entry, platform, &packed.archive).unwrap();
+        assert!(plugin_member_target(&plugin, "lsp:other:linux-x86_64").is_err());
+        member["package"]["lsp"]["distribution"]["binary"]["linux-x86_64"]["entry_sha256"] =
+            json!("f".repeat(64));
+        assert!(verify_entry_artifact(&member, "linux-x86_64", &packed.archive).is_err());
     }
 }

@@ -64,7 +64,7 @@ mod tests {
 
     #[test]
     fn decodes_only_canonical_safe_namespaced_release_tags() {
-        for kind in ["provider", "theme", "tab"] {
+        for kind in ["provider", "theme", "tab", "lsp"] {
             let raw = format!("https://github.com/merkr-software/CadencR/releases/download/plugins%2F{kind}-example%2Fv1.0.0/plugin.tar.gz");
             let parsed = parse_github_release_archive_url(&raw).unwrap();
             assert_eq!(

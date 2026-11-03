@@ -10,6 +10,7 @@ import { EditorStatusBar } from "./EditorStatusBar";
 import EditorSearchPanel from "./editor-search/EditorSearchPanel";
 import { bufferSearchExtension } from "./editor-search/search-extension";
 import { LargeFileBanner } from "./LargeFileBanner";
+import { useLspSuggestion } from "./lsp/useLspSuggestion";
 import { EditorCommandsSlot } from "./lsp/EditorLspLayer";
 import {
   useCodeMirrorEditorController,
@@ -25,6 +26,7 @@ const BUFFER_SEARCH_EXT = bufferSearchExtension();
 
 function CodeMirrorEditor(props: CodeMirrorEditorProps) {
   const controller = useCodeMirrorEditorController(props);
+  useLspSuggestion(props.projectId, controller.data.lsp.resolution);
   if (controller.data.fileQuery.error && !controller.data.fileQuery.data) {
     return (
       <div className="h-full flex items-center justify-center bg-background text-destructive text-sm px-6 text-center">

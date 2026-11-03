@@ -77,6 +77,18 @@ impl ManagedTrustStore {
             None => self.verify_policy_legacy(envelope),
         }
     }
+    pub(crate) fn authenticate_lsp_policy_baseline(
+        &self,
+        envelope: &Value,
+        now: chrono::DateTime<chrono::Utc>,
+    ) -> Result<(), ManagedTrustError> {
+        match &self.profile {
+            Some(profile) => profile
+                .verify_lsp_policy_baseline(envelope, now)
+                .map_err(trust_error),
+            None => self.verify_policy_legacy(envelope),
+        }
+    }
     pub(crate) fn authenticate_provider_policy_baseline(
         &self,
         envelope: &Value,

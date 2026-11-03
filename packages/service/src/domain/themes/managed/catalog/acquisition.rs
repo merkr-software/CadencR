@@ -33,6 +33,19 @@ pub async fn acquire(refresh: bool) -> ManagedThemeCatalogResponse {
 pub async fn acquire_catalog(refresh: bool) -> ManagedThemeCatalogResponse {
     acquire_with_policy(refresh, false).await
 }
+/// Read authenticated current metadata without ever requesting the network.
+pub async fn cached_catalog() -> Result<Option<SignedMixedCatalog>, AppError> {
+    worker(storage::root(), || {
+        match cache().symlink_metadata() {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(invalid(error)),
+            Ok(_) => {}
+        }
+        storage::secure(&storage::root())?;
+        load_cached(&pinned_index_trust_store()).map(|catalog| Some(catalog.index))
+    })
+    .await
+}
 async fn acquire_with_policy(refresh: bool, check_policy: bool) -> ManagedThemeCatalogResponse {
     let context = Context {
         root: storage::root(),
