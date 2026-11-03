@@ -138,18 +138,28 @@ the manifest. The three distributed-CLI archives were independently inspected
 after download. Local macOS arm64 upstream runtime smoke also passes; its
 source-built CLI smoke is separate from released-ELF qualification.
 
-The Intel job of [run 41724182698](https://github.com/merkr-software/cadencr-registry-qa/actions/runs/41724182698)
-also passes on actual macOS `15.7.9`, `x86_64`, Node `22.19.0` (`x64`). It consumes
-the exact Ubuntu artifact ID `13271544663` from that same workflow run, verifies
-all bundle hashes and 145 files, then runs the same stdio smoke with an empty
-environment, private home and tested `sandbox-exec` network denial. This certifies
-the upstream runtime on that hosted system, not managed client installation.
+[Run 41727012894](https://github.com/merkr-software/cadencr-registry-qa/actions/runs/41727012894)
+passes the complete Linux preparation and both native macOS runtime jobs. Each
+Mac job consumes the exact Ubuntu artifact ID `13275322365` from that same run,
+verifies bundle hashes and all 145 files, and runs the stdio smoke with an empty
+environment, private home and tested `sandbox-exec` network denial.
+
+| Actual macOS system | Node | Runtime evidence SHA-256 |
+| --- | --- | --- |
+| `15.8.2`, `arm64` | `22.19.0`, `arm64` | `87945568774d38908d0d67d810f7de19715f0870eaacaffd990941297fcf78c5` |
+| `15.7.9`, `x86_64` | `22.19.0`, `x64` | `a1aceaa4f49fa9229352372ef1b80a6d472ef04a18e214611e398a8b4e80d3e5` |
+
+The earlier [run 41724182698](https://github.com/merkr-software/cadencr-registry-qa/actions/runs/41724182698)
+remains failed: Linux and Intel succeeded, but GitHub cancelled the `macos-26`
+ARM job without assigning a runner or executing a step, reporting hosted runner
+capacity constraints. The succeeding run changes the ARM label to `macos-15`;
+it preserves the same source lock and exact archive bytes. Earlier partial
+proofs are retained separately and are not represented as a successful matrix.
 
 These are held QA artifacts, not a public LSP release or catalog admission.
 Manifest URLs name a planned release that does not yet exist. No submission
-source commit or public package release is invented. The macOS ARM hosted job is still queued as this record is prepared; the local
-ARM smoke is separately identified above. Minimum macOS `12` and packaged client
-installation remain unqualified.
+source commit or public package release is invented. Minimum macOS `12` and
+packaged client installation remain unqualified.
 
 ## Existing application compatibility
 
