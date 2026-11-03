@@ -14,3 +14,13 @@ c1a2cb732d40519fecaeaf550c529e0bed0ed379a8bc0b0aa2c044fcbd0f1191
 # Fingerprints bind detector, exact fixture value, commit, file, and line.
 bbcea29d5459347adca66a1d10696cedc56afbd4b4f6e9ff4079397701f3c183
 62a8f90abe87582827426629db550419c7cd049cc50c9d5151cb24f0ec91ecaf
+# v0.16.0 deliberately invalid URI credentials in rejection/redaction tests.
+# Independently reviewed; exact detector/value/commit/file/line fingerprints.
+# scripts/build-local.test.mjs:97,108 (819a2f7689): rejected before build/network.
+99ba7c4777c48d04b6f7186057150348b2ab73413ba00879be98da73d8c3b4b8
+9ef6ec97d5efcd553ee3bdc7ff93f1b66971df0b999043cc274a9168fcc868f0
+# agents/extensions/cli.rs:297 (11332c7186): shell error redaction, no network.
+ee42bd47a5d8dbbc590bd2f4d3c4649f2453f2d30c0d8250045778f36de060f3
+# telemetry/configuration.rs:107,119 (0a854795b5): reject credential-bearing URLs.
+1bfc8144af4d7ab4bcd3f61a7e8814f7987364f153fd2cbe8544a15ab814ec17
+d1131dbbc7fd24ab665c56242c23e1dd642d53659d0d32ff6350ce18cafb5e24
