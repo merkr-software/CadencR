@@ -560,16 +560,21 @@ Client behavior:
 
 ## Deployment cutover still pending
 
-The candidate template selects qualified `0.15.2` in
+The candidate template selects released `0.15.5` in
 [`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env); see its
-[qualification evidence](qa/MARKETPLACE_STABLE_CLI_2026_10_25.md). That binary covers
-the existing Rust contribution, metadata, submission, expiry and publication
-commands. **The new LSP package and policy commands need a new CLI release and
-qualification before LSP template deployment.** Keep the version, tag and digest
-pin unchanged until the replacement binary has been qualified.
+[qualification evidence](qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md), including the
+LSP package and policy commands. This is a template selection, not a deployment
+of the production registry or its author pins.
 
-Merge/release/qualify the updated CLI, review the exact source/version/tag/digest,
-and regenerate all registry delivery payload hashes. Reinspect actual remote
+**LSP production rollout is held for application `v0.16.1`.** Keep LSP entries
+out of the shared production catalog and leave
+`CADENCR_MANAGED_LSP_BLOCKLIST_URL` unset until the reviewed cutover. A CLI
+release, QA catalog, prepared package archive or local pin change does not
+authorize an earlier production activation. No application release is part of
+this CLI delivery.
+
+Review the exact qualified source/version/tag/digest and regenerate all registry
+delivery payload hashes before deployment. Reinspect actual remote
 `main` and protections rather than reuse stale bootstrap approvals. If the trusted
 base lacks helpers, deliver them first while preserving validation; then switch
 workflows from that merged base and observe real hosted three-kind checks.
