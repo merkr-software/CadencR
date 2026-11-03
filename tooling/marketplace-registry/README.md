@@ -18,11 +18,11 @@ and production trust/feed configuration are unchanged by this migration.
 
 | Runtime contract                                                                             | Local selection / delivery status                                                                                                                 |
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contribution validation, schema-2 index building and protected publication                   | `ci/released-cli.env` locally selects qualified `0.15.4`                                                                                          |
-| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified release; see [provider-author and offline qualification](../../docs/qa/MARKETPLACE_STABLE_CLI_0154_2026_11_02.md) |
+| Contribution validation, schema-2 index building and protected publication                   | `ci/released-cli.env` locally selects qualified `0.15.5`                                                                                          |
+| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified release; see [offline and LSP author qualification](../../docs/qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md) |
 | Bootstrap, CI cutover and production adoption                                                | Review preparation only; fresh payload approvals, bootstrap merge and hosted checks remain pending                                                |
 
-The [qualification record](../../docs/qa/MARKETPLACE_STABLE_CLI_0154_2026_11_02.md)
+The [qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md)
 binds this selection to released artifacts and qualification. It does not adopt a
 production pin or grant author/catalog publication authority.
 
@@ -50,15 +50,16 @@ entries. Use the [Rust CLI contract](../../packages/cli/README.md) for all kinds
 The source CLI supports standalone `lsp` entries and LSP members of a plugin.
 See [prepared native and Node authoring examples](examples/lsp/README.md) and
 the reference [package schema](schemas/marketplace-lsp-package-v1.schema.json).
-These additions require releasing and qualifying a CLI with LSP support before
-the protected template can accept them; the existing qualified pin above is
-unchanged. Real package assets and the independent signed LSP policy must be
-published before enabling LSP installation in a production build.
+The selected CLI `0.15.5` includes these commands; the qualification record above
+separates offline, publication and runtime evidence. LSP rollout is held for
+application `v0.16.1`: do not add LSP entries to the shared production catalog or
+activate its production feed before that cutover. Real package assets and the
+independent signed LSP policy still need reviewed production publication.
 
 ## Contributor path
 
-1. Validate and test your provider, declarative theme or custom tab locally.
-2. Package inert staging with `registry pack-provider`, `pack-theme` or `pack-tab`.
+1. Validate and test your provider, declarative theme, custom tab or language server locally.
+2. Package prepared staging with the matching `registry pack-provider`, `pack-theme`, `pack-tab` or `pack-lsp` command.
 3. Publish immutable assets and exact source bindings in the author's repository.
 4. Add matching package and submission JSON files in a registry PR.
 5. Run trusted Rust validation against the accepted base and proposed tree; maintainers
@@ -67,7 +68,7 @@ published before enabling LSP installation in a production build.
 ```sh
 cadencr registry validate --base /reviewed/base --candidate /reviewed/candidate
 
-# Use the locally selected qualified CLI 0.15.4.
+# Use the locally selected qualified CLI 0.15.5.
 cadencr registry validate-metadata /reviewed/package.json
 cadencr registry validate-submission /reviewed/submission.json
 ```

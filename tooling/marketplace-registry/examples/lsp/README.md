@@ -1,8 +1,14 @@
 # Prepare a language-server release
 
 These source examples use placeholder repository URLs, lengths and digests. They
-are authoring templates, not published packages. Use the CLI built from this
-checkout; adopting or publishing that CLI is a separate release operation.
+are authoring templates, not published packages. Use the qualified released CLI
+`0.15.5` selected by this template; see the
+[qualification record](../../../../docs/qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md).
+
+LSP production rollout is held for application `v0.16.1`. The examples declare
+that minimum version. Keep LSP entries out of the shared production catalog and
+leave the production LSP feed unconfigured until the reviewed cutover. QA
+packages, prepared archives and CLI publication do not activate that rollout.
 
 ## Distribution contract
 

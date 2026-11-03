@@ -1,12 +1,13 @@
-# Contributing a Provider, Theme or Custom Tab
+# Contributing a Provider, Theme, Custom Tab or Language Server
 
-## Before public activation
+## Runtime selection and LSP rollout
 
-The next milestone populates reviewed themes and Pi before a separately authorized
-desktop activation. Local validation is not publication authority. All business
-validation/packaging/publication uses the Rust CLI, not registry JavaScript.
+LSP entries are held outside the shared production catalog until application
+`v0.16.1`. Existing marketplace kinds follow their reviewed publication process.
+Local validation is not publication authority. All business validation,
+packaging and publication uses the Rust CLI, not registry JavaScript.
 Standalone preflight and expiry commands are included in the locally selected,
-qualified `0.15.4`. Selection does not deploy the production
+qualified `0.15.5`. Selection does not deploy the production
 workflow or grant publication authority.
 See [runtime and deployment gates](README.md#status-and-runtime).
 
@@ -27,6 +28,7 @@ See [runtime and deployment gates](README.md#status-and-runtime).
 | ACP provider                     | `cadencr plugin validate <folder> --descriptor <descriptor.json>`                                                    | `cadencr registry pack-provider --package <metadata.json> --target <target> --directory <staging> --output <new.tar.gz>` for each declared target                                            |
 | Declarative theme                | `cadencr plugin validate <folder> --kind theme`                                                                      | `cadencr registry pack-theme --directory <staging> --output <new.tar.gz>`                                                                                                                    |
 | Custom tab                       | `cadencr plugin validate <folder> --kind tab`                                                                        | `cadencr registry pack-tab --directory <compiled-staging> --output <new.tar.gz>`                                                                                                             |
+| Prepared language server         | `cadencr plugin validate <folder> --kind lsp`                                                                        | `cadencr registry pack-lsp --directory <prepared-staging> --target <platform> --runtime native\|node --entry <entry> --output <new.tar.gz>`                                                    |
 | Custom tab with a native backend | `cadencr plugin validate <folder> --kind tab` (runs this platform's backend through the protocol conformance checks) | `pack-tab` for the web archive, then `cadencr registry pack-tab-backend --directory <tab-folder> --target <platform> --output <new.tar.gz>` for each platform in `tab.json` `backend.binary` |
 | Multi-export plugin              | `cadencr plugin validate <folder> --kind plugin` (`plugin.json`, then each member with its own kind's validator)     | Each member with its own kind's command above, every archive in one author release; see [Multi-export plugins](AUTHORING.md#multi-export-plugins)                                            |
 

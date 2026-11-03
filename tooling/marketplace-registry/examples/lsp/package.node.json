@@ -42,7 +42,7 @@
     "host": {
       "publisher": "acme",
       "compatibility": {
-        "min_app_version": "0.15.1"
+        "min_app_version": "0.16.1"
       }
     }
   }
