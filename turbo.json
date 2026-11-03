@@ -42,6 +42,9 @@
     "@cadencr/service#build": {
       "cache": false
     },
+    "@cadencr/service#build:local": {
+      "cache": false
+    },
     "@cadencr/service#build:debug": {
       "cache": false
     },
@@ -65,7 +68,7 @@
       "cache": false
     },
     "@cadencr/desktop#build:local": {
-      "dependsOn": ["^build", "@cadencr/service#build"],
+      "dependsOn": ["^build", "@cadencr/service#build:local"],
       "outputs": ["out/**", "dist-electron/**"],
       "cache": false
     },

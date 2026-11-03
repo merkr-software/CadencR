@@ -1,14 +1,12 @@
 {
   "name": "@cadencr/service",
-  "private": true,
   "version": "0.16.0",
-  "description": "Cadencr Rust backend service \u2014 HTTP/WebSocket API powering the desktop app.",
+  "private": true,
+  "description": "Cadencr Rust backend service — HTTP/WebSocket API powering the desktop app.",
   "license": "Apache-2.0",
-  "dependencies": {
-    "@cadencr/claude-agent-sdk-rs": "workspace:*"
-  },
   "scripts": {
-    "build": "node ../../scripts/cargo-env.mjs cargo build --release && node ../../scripts/cargo-env.mjs pnpm copy:release && pnpm check:macos-runtime-deps",
+    "build": "node ../../scripts/cargo-env.mjs cargo build --locked --release --bin cadencr-service && node ../../scripts/cargo-env.mjs pnpm copy:release && pnpm check:macos-runtime-deps",
+    "build:local": "node ../../scripts/cargo-env.mjs cargo build --locked --profile local --bin cadencr-service && node ../../scripts/cargo-env.mjs node ./scripts/copy-service-binary.mjs local && pnpm check:macos-runtime-deps",
     "build:macos-sidecars": "node ./scripts/build-macos-sidecars.mjs",
     "build:sidecars": "node ./scripts/build-sidecars.mjs",
     "build:debug": "node ../../scripts/cargo-env.mjs cargo build && node ../../scripts/cargo-env.mjs pnpm copy:debug",
@@ -21,5 +19,8 @@
     "copy:debug": "node ./scripts/copy-service-binary.mjs debug",
     "check:macos-runtime-deps": "node ./scripts/check-macos-runtime-deps.mjs",
     "smoke:packaged-sidecar": "node ./scripts/smoke-test-packaged-sidecar.mjs"
+  },
+  "dependencies": {
+    "@cadencr/claude-agent-sdk-rs": "workspace:*"
   }
 }

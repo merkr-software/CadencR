@@ -92,6 +92,14 @@ jobs:
       - name: Install Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
+      # Seeded on main by release-rust-cache.yml: caches saved on a version tag
+      # cannot be restored by the next tag. Keep release artifacts out of it.
+      # Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: desktop-release-macos-15
+          save-if: "false"
+
       - name: Verify release tag matches desktop version
         if: startsWith(github.ref, 'refs/tags/') || inputs.release_tag != ''
         run: |

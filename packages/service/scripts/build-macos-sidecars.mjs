@@ -26,7 +26,7 @@ run("rustup", ["target", "add", ...triples]);
 // One target per cargo run keeps a single release LTO link in memory at a time
 // on the ~7 GB CI runner.
 for (const triple of triples) {
-  run("cargo", ["build", "--release", "--target", triple]);
+  run("cargo", ["build", "--locked", "--release", "--bin", "cadencr-service", "--target", triple]);
 }
 
 for (const [arch, triple] of Object.entries(TARGETS)) {
