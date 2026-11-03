@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 mod acp_probe;
 mod command_probe;
+mod model_reconciliation;
 
 const CONFORMANCE_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -53,8 +54,9 @@ pub struct ManagedConformanceReport {
 pub enum ManagedProbeOutcome {
     Passed,
     NotAdvertised,
-    /// Visible but unsafe to verify without a real user turn. Conformance never
-    /// upgrades this state to `Passed`.
+    /// Not verified without a real user turn, including optional restore/close
+    /// when the disposable empty session was explicitly not retained. Also used
+    /// for legacy load when stable resume was tested instead. Never `Passed`.
     Unprobed,
 }
 
@@ -137,4 +139,124 @@ pub(super) fn policy_error(error: impl fmt::Display) -> ManagedConformanceError 
         ManagedConformanceErrorCode::ProcessPolicyRejected,
         error.to_string(),
     )
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use serde_json::Value;
+
+    use super::*;
+
+    async fn probe_fixture(
+        flags: &[&str],
+    ) -> (
+        Result<ManagedConformanceReport, ManagedConformanceError>,
+        Vec<Value>,
+    ) {
+        let cwd = tempfile::tempdir().unwrap();
+        let state = cwd.path().join("state.json");
+        let forbidden = cwd.path().join("forbidden-method");
+        let mut args = vec![
+            "--state".into(),
+            state.to_string_lossy().into_owned(),
+            "--forbidden".into(),
+            forbidden.to_string_lossy().into_owned(),
+        ];
+        args.extend(flags.iter().map(|flag| flag.to_string()));
+        let result = verify_managed_provider(
+            ManagedConformanceRequest::builder()
+                .executable(
+                    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/fixtures/managed_reject_active_resume_agent.py"),
+                )
+                .args(args)
+                .env(BTreeMap::new())
+                .cwd(cwd.path().to_path_buf())
+                .expected_provider_version("1.2.3".to_string())
+                .build(),
+        )
+        .await;
+        assert!(
+            !forbidden.exists(),
+            "conformance must not send a prompt or authenticate"
+        );
+        let calls: Vec<Value> = std::fs::read_to_string(state.with_extension("json.calls"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|call| call["method"] == "session/new")
+                .count(),
+            1,
+            "restore must never fall back to replacement context"
+        );
+        (result, calls)
+    }
+
+    #[tokio::test]
+    async fn admission_applies_the_discovered_model_before_strict_confirmation_and_restore() {
+        let (result, calls) = probe_fixture(&["--different-initial-model"]).await;
+        let report = result.unwrap();
+        let selected = calls
+            .iter()
+            .find(|call| call["method"] == "session/set_config_option")
+            .unwrap();
+        assert_eq!(selected["params"]["value"], "fixture/default");
+        assert_eq!(report.default_model, "fixture/default");
+        assert_eq!(report.resume, ManagedProbeOutcome::Passed);
+        assert_eq!(report.close, ManagedProbeOutcome::Passed);
+        assert_eq!(report.prompt, ManagedProbeOutcome::Unprobed);
+    }
+
+    #[tokio::test]
+    async fn an_explicitly_unretained_empty_session_does_not_claim_restore_or_close_success() {
+        for flags in [
+            vec!["--empty-not-retained"],
+            vec!["--empty-not-retained", "--load-only"],
+        ] {
+            let (result, _) = probe_fixture(&flags).await;
+            let report = result.unwrap();
+            assert_eq!(
+                report.resume,
+                if flags.contains(&"--load-only") {
+                    ManagedProbeOutcome::NotAdvertised
+                } else {
+                    ManagedProbeOutcome::Unprobed
+                }
+            );
+            assert_eq!(report.load, ManagedProbeOutcome::Unprobed);
+            assert_eq!(report.close, ManagedProbeOutcome::Unprobed);
+            assert_eq!(report.prompt, ManagedProbeOutcome::Unprobed);
+        }
+    }
+
+    #[tokio::test]
+    async fn invalid_selectors_ignored_selection_and_other_restore_failures_still_reject() {
+        use ManagedConformanceErrorCode::{
+            ConfigurationFailed, ModelContractMismatch, RestoreFailed,
+        };
+
+        for (flags, expected) in [
+            (vec!["--invalid-live-model"], ModelContractMismatch),
+            (vec!["--changed-live-catalog"], ModelContractMismatch),
+            (
+                vec!["--different-initial-model", "--ignore-model-selection"],
+                ConfigurationFailed,
+            ),
+            (vec!["--restore-wrong-model"], RestoreFailed),
+            (vec!["--restore-method-missing"], RestoreFailed),
+            (vec!["--other-session-missing"], RestoreFailed),
+        ] {
+            let (result, calls) = probe_fixture(&flags).await;
+            assert_eq!(result.unwrap_err().code, expected, "{flags:?}");
+            if expected == ModelContractMismatch {
+                assert!(!calls
+                    .iter()
+                    .any(|call| call["method"] == "session/set_config_option"));
+            }
+        }
+    }
 }

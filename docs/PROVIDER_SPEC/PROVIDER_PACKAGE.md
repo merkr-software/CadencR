@@ -602,7 +602,7 @@ Conformance is compatibility evidence, not a trust or authentication decision:
 | `version`            | Exits successfully within bounds and returns one connector version.                                                                                         |
 | `models`             | Returns a verified non-empty model selector/default within the existing 10-second and 1-MiB limits.                                                         |
 | `initialize`         | Negotiates ACP v1 and reports parseable capabilities.                                                                                                       |
-| Disposable session   | `session/new` returns an ID and a live selector compatible with pre-session discovery.                                                                      |
+| Disposable session   | `session/new` returns an ID and the same selector ID and ordered model choices as discovery. Its initial model may differ, but must be a valid choice.      |
 | Model reconciliation | The selected model can be set and is authoritatively confirmed before prompting.                                                                            |
 | Cleanup              | The disposable session is closed when advertised and the complete process tree is drained within a bound without sending a billable prompt.                 |
 | Resume compatibility | If advertised, `session/resume` is probed; legacy `session/load` is tested only as fallback. Unsupported explicit resume must fail rather than start fresh. |
@@ -614,6 +614,15 @@ selector ID, advertised resume/load/close probe outcomes, explicit unprobed
 prompt state, and whether an OS sandbox was applied. It never invokes or tests
 provider-account authentication; a preconfigured native CLI is a user
 prerequisite, and missing configuration is an actionable availability error.
+
+Some agents retain a conversation only after its first user turn. If the fresh
+restore returns JSON-RPC `-32602` with `data.message` exactly identifying this
+probe's disposable session as `Session "<id>" not found`, its advertised restore
+and unverified close outcomes remain `Unprobed`, never `Passed`. Conformance does
+not send a prompt to make the session persistent or create replacement context.
+Other restore failures and mismatched restored configuration still reject the
+package. This exception applies only to the empty installation probe; runtime
+resume/load keeps rejecting absent conversation IDs without starting anew.
 
 ### Registry, blocklist, and process policy
 
