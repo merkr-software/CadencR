@@ -21,11 +21,19 @@ export function PluginManage({
   const [removing, setRemoving] = useState(false);
   const [pluginError, setPluginError] = useState<string | null>(null);
   if (!listing.installed) return null;
+  if (listing.kind === "lsp" && !listing.installed.managed)
+    return (
+      <p className="text-xs text-muted-foreground">
+        This server is installed outside the marketplace. Manage it with its original installer.
+      </p>
+    );
   const members = listing.kind === "plugin" ? installedPluginMembers(listing, state.listings) : [];
   const mutation =
     listing.kind === "plugin"
       ? null
-      : { provider: state.providers, tab: state.tabs, theme: state.themes }[listing.kind].mutation;
+      : { provider: state.providers, tab: state.tabs, theme: state.themes, lsp: state.lsps }[
+          listing.kind
+        ].mutation;
   // The kind's mutation is shared; only this plugin's removal failure belongs in the dialog.
   const removalError =
     mutation?.variables?.kind === "remove" && mutation.variables.id === listing.id
@@ -87,6 +95,8 @@ export function PluginManage({
 function removalDescription(kind: PluginKind): string {
   if (kind === "provider")
     return "The provider is disabled and dropped from the next startup. Existing conversations are kept.";
+  if (kind === "lsp")
+    return "The managed server is removed. Saved language preferences are kept; open editors disconnect when their server becomes unavailable.";
   if (kind === "tab")
     return "The tab is removed from the workspace. Its configuration and retained revisions are kept.";
   return "Any light, dark or manual selection using this theme returns to a built-in theme.";

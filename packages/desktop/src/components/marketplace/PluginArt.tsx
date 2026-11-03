@@ -1,4 +1,4 @@
-import { Loader2, PanelTop, RotateCw } from "lucide-react";
+import { Code2, Loader2, PanelTop, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useThemeArt } from "@/hooks/useThemePreview";
 import { marketplaceError } from "@/lib/marketplace";
@@ -25,6 +25,7 @@ export function PluginArt({
 }): React.JSX.Element {
   if (listing.kind === "plugin")
     return <PluginPackageArt listing={listing} variant={variant} version={version} />;
+  if (listing.kind === "lsp") return <LspArt listing={listing} />;
   if (listing.kind === "tab") return <TabArt listing={listing} />;
   if (listing.kind === "provider")
     return <ProviderStage listing={listing} compact={variant === "tile"} />;
@@ -32,7 +33,7 @@ export function PluginArt({
 }
 
 /** What a plugin looks like: its most visible member (a theme, else a provider, else a tab). */
-const FACE_ORDER = ["theme", "provider", "tab"] as const;
+const FACE_ORDER = ["theme", "provider", "tab", "lsp"] as const;
 
 function PluginPackageArt({
   listing,
@@ -137,6 +138,16 @@ function TabArt({ listing }: { listing: MarketplaceListing }): React.JSX.Element
         <PanelTop className="size-8" aria-hidden />
         <span className="text-xs">Custom workspace tab</span>
       </div>
+    </div>
+  );
+}
+
+function LspArt({ listing }: { listing: MarketplaceListing }): React.JSX.Element {
+  return (
+    <div className="mp-kind-lsp flex h-full w-full flex-col items-center justify-center gap-3 bg-card p-4 text-[var(--mp-kind)]">
+      <Code2 className="size-8" aria-hidden />
+      <span className="text-sm font-medium">{listing.name}</span>
+      <span className="text-xs text-muted-foreground">Completions · navigation · diagnostics</span>
     </div>
   );
 }

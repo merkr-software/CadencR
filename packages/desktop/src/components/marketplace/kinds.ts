@@ -1,4 +1,13 @@
-import { Bot, Boxes, Palette, PanelTop, Plug, ScrollText, type LucideIcon } from "lucide-react";
+import {
+  Code2,
+  Bot,
+  Boxes,
+  Palette,
+  PanelTop,
+  Plug,
+  ScrollText,
+  type LucideIcon,
+} from "lucide-react";
 import { PLUGIN_KINDS, type ListingKind } from "@/lib/marketplace-listings";
 import { AGENT_EXTENSION_KINDS, type AgentExtensionKind } from "@/lib/agent-extensions";
 
@@ -29,6 +38,13 @@ export const KINDS: Record<MarketplaceKind, KindMeta> = {
     icon: Boxes,
     tone: "mp-kind-plugin",
     pitch: "Several contributions in one release, installed and updated together.",
+  },
+  lsp: {
+    label: "Language server",
+    plural: "Language servers",
+    icon: Code2,
+    tone: "mp-kind-lsp",
+    pitch: "Add completions, navigation and diagnostics for your project languages.",
   },
   tab: {
     label: "Custom tab",

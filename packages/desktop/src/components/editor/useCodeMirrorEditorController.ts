@@ -73,7 +73,11 @@ function useEditorFileData(props: CodeMirrorEditorProps) {
     featureId: props.featureId,
     paneId: props.paneId,
     editorLanguageId: language.languageId,
-    enabled: !largeFile.largeMode,
+    explicitPlainText:
+      language.languageId === "plaintext" &&
+      (language.preference !== "auto" ||
+        language.inheritedLanguageId !== language.detectedLanguageId),
+    enabled: !largeFile.largeMode && !language.isLoading && !language.loadError,
   });
   const isBlameEnabled = (gitBlameSetting ?? "false") === "true";
   const blame = useGetBlame(

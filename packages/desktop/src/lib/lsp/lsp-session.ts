@@ -50,6 +50,7 @@ export async function buildSession(
   const bucketKey = lspId ?? languageId;
   const client = new LSPClient({
     rootUri: pathToFileUri(workspaceRoot),
+    initializationOptions: session.initialization_options,
     workspace: (c) => {
       workspaceRef = new CadencrWorkspace(c);
       return workspaceRef;

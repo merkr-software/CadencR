@@ -28,7 +28,9 @@ const memberIds = (packages: unknown[]) =>
       ? entry.package.theme.id
       : entry.kind === "tab"
         ? entry.package.tab.id
-        : entry.package.agent.id,
+        : entry.kind === "lsp"
+          ? entry.package.lsp.id
+          : entry.package.agent.id,
   );
 
 describe("signed catalog parsing", () => {

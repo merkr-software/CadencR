@@ -2918,6 +2918,11 @@ export interface ImportJobState {
   total: number;
 }
 
+export interface InstallLspRequest {
+  lsp_id: string;
+  version: string;
+}
+
 /**
  * Algorithms accepted by index schema v1.
  */
@@ -3172,6 +3177,12 @@ export interface ListImportConversationsResponse {
   conversations: ImportConversationSummary[];
 }
 
+export interface LspLanguage {
+  extensions: string[];
+  filenames: string[];
+  id: string;
+}
+
 /**
  * The job an LSP server does for a file. Lets a project run several servers
  * per language (e.g. a type checker plus a linter) without the catalog
@@ -3192,47 +3203,88 @@ export type ServerProbeStatus = (typeof ServerProbeStatus)[keyof typeof ServerPr
 export const ServerProbeStatus = {
   on_path: "on_path",
   managed: "managed",
-  missing: "missing",
+  legacy: "legacy",
+  invalid: "invalid",
 } as const;
 
-/**
- * One catalog row's installation state.
- */
 export interface ServerProbe {
-  /** Bare binary name searched on `$PATH`. */
+  args: string[];
   bin_name: string;
-  /**
-   * `true` iff the catalog has a downloader recipe — i.e. opening a file
-   * in this language would trigger an automatic install.
-   */
+  description: string;
+  /** Installation is always explicit through the marketplace. */
   downloadable: boolean;
-  /** All LSP `languageId`s served by this entry. */
+  /** @nullable */
+  error?: string | null;
+  initialization_options: unknown;
   language_ids: string[];
-  /** Stable id (`typescript-language-server`, `rust-analyzer`, …). */
+  languages: LspLanguage[];
   lsp_id: string;
-  /**
-   * Absolute path on disk when found. `None` otherwise.
-   * @nullable
-   */
+  name: string;
+  /** @nullable */
   path?: string | null;
-  /**
-   * The role this server fills (type checker, linter, …). Lets the renderer
-   * build the per-file active-server set from this catalog data instead of
-   * duplicating the catalog client-side.
-   */
   role: ServerRole;
-  /** Where the binary was found, or `missing` if not installed. */
+  root_markers: string[];
   status: ServerProbeStatus;
-  /**
-   * Version string when reported by the binary itself (or pinned by the
-   * downloader recipe for managed installs). `None` if unknown.
-   * @nullable
-   */
+  /** @nullable */
   version?: string | null;
 }
 
 export interface ListServersResponse {
   servers: ServerProbe[];
+}
+
+export type LspCatalogResponseBlockedVersions = { [key: string]: { [key: string]: string } };
+
+export type LspCatalogResponseIndex = null | SignedMixedCatalog;
+
+export type LspCatalogResponseRecommendedVersions = { [key: string]: string };
+
+export type LspVersionUnavailable =
+  (typeof LspVersionUnavailable)[keyof typeof LspVersionUnavailable];
+
+export const LspVersionUnavailable = {
+  platform: "platform",
+  protocol: "protocol",
+  node: "node",
+  policy: "policy",
+  compatibility: "compatibility",
+} as const;
+
+export type LspCatalogResponseUnavailableVersions = {
+  [key: string]: { [key: string]: LspVersionUnavailable };
+};
+
+export interface LspCatalogResponse {
+  blocked_versions: LspCatalogResponseBlockedVersions;
+  /** @nullable */
+  error?: string | null;
+  host_platform: string;
+  index?: LspCatalogResponseIndex;
+  recommended_versions: LspCatalogResponseRecommendedVersions;
+  unavailable_versions: LspCatalogResponseUnavailableVersions;
+  verified: boolean;
+}
+
+export interface LspSuggestion {
+  lsp_id: string;
+  reason: string;
+  version: string;
+}
+
+export interface LspResolveResponse {
+  candidates: ServerProbe[];
+  /** @nullable */
+  catalog_warning?: string | null;
+  /** @nullable */
+  error?: string | null;
+  ignored: boolean;
+  language_id: string;
+  linters: string[];
+  /** @nullable */
+  primary?: string | null;
+  primary_disabled: boolean;
+  servers: ServerProbe[];
+  suggestions: LspSuggestion[];
 }
 
 export interface LspRootResponse {
@@ -4050,6 +4102,7 @@ export interface OpenLspSessionRequest {
 }
 
 export interface OpenLspSessionResponse {
+  initialization_options: unknown;
   /**
    * Opaque single-use id. Connect within 30 s by upgrading
    * `GET /api/lsp/sessions/{session_id}/connect` to WebSocket.
@@ -5773,6 +5826,10 @@ export interface RemoteStatus {
    * @nullable
    */
   tunnel_host?: string | null;
+}
+
+export interface RemoveLspRequest {
+  lsp_id: string;
 }
 
 export interface RemoveManagedThemeRequest {
@@ -8644,6 +8701,25 @@ export type DeleteWorktreeParams = {
 
 export type ListProjectWorktreesParams = {
   project_id: number;
+};
+
+export type Catalog2Params = {
+  refresh?: boolean;
+};
+
+export type ResolveParams = {
+  /**
+   * @nullable
+   */
+  project_id?: number | null;
+  /**
+   * @nullable
+   */
+  language_id?: string | null;
+  /**
+   * @nullable
+   */
+  file_path?: string | null;
 };
 
 export type LspRootParams = {
@@ -24864,6 +24940,358 @@ export function useGetImportJob<
   return withQueryKey(query, queryOptions.queryKey);
 }
 
+export const catalog2 = (params?: Catalog2Params, signal?: AbortSignal) => {
+  return customInstance<LspCatalogResponse>({
+    url: `/api/lsp/catalog`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getCatalog2QueryKey = (params?: Catalog2Params) => {
+  return [`/api/lsp/catalog`, ...(params ? [params] : [])] as const;
+};
+
+export const getCatalog2QueryOptions = <
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getCatalog2QueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof catalog2>>> = ({ signal }) =>
+    catalog2(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof catalog2>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type Catalog2QueryResult = NonNullable<Awaited<ReturnType<typeof catalog2>>>;
+export type Catalog2QueryError = ErrorType<unknown>;
+
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | Catalog2Params,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalog2>>,
+          TError,
+          Awaited<ReturnType<typeof catalog2>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof catalog2>>,
+          TError,
+          Awaited<ReturnType<typeof catalog2>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useCatalog2<
+  TData = Awaited<ReturnType<typeof catalog2>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: Catalog2Params,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof catalog2>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getCatalog2QueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const install2 = (installLspRequest: InstallLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/install`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installLspRequest,
+    signal,
+  });
+};
+
+export const getInstall2MutationKey = () => ["install2"] as const;
+
+export const getInstall2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof install2>>,
+    TError,
+    Install2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof install2>>,
+  TError,
+  Install2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getInstall2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof install2>>,
+    Install2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return install2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Install2MutationResult = NonNullable<Awaited<ReturnType<typeof install2>>>;
+export type Install2MutationBody = InstallLspRequest;
+export type Install2MutationError = ErrorType<unknown>;
+export type Install2MutationVariables = { data: InstallLspRequest };
+
+export const useInstall2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof install2>>,
+      TError,
+      Install2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof install2>>,
+  TError,
+  Install2MutationVariables,
+  TContext
+> => {
+  return useMutation(getInstall2MutationOptions(options), queryClient);
+};
+
+export const remove2 = (removeLspRequest: RemoveLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/remove`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: removeLspRequest,
+    signal,
+  });
+};
+
+export const getRemove2MutationKey = () => ["remove2"] as const;
+
+export const getRemove2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof remove2>>,
+    TError,
+    Remove2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof remove2>>,
+  TError,
+  Remove2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getRemove2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof remove2>>,
+    Remove2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return remove2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Remove2MutationResult = NonNullable<Awaited<ReturnType<typeof remove2>>>;
+export type Remove2MutationBody = RemoveLspRequest;
+export type Remove2MutationError = ErrorType<unknown>;
+export type Remove2MutationVariables = { data: RemoveLspRequest };
+
+export const useRemove2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof remove2>>,
+      TError,
+      Remove2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof remove2>>,
+  TError,
+  Remove2MutationVariables,
+  TContext
+> => {
+  return useMutation(getRemove2MutationOptions(options), queryClient);
+};
+
+export const resolve = (params?: ResolveParams, signal?: AbortSignal) => {
+  return customInstance<LspResolveResponse>({
+    url: `/api/lsp/resolve`,
+    method: "GET",
+    params,
+    signal,
+  });
+};
+
+export const getResolveQueryKey = (params?: ResolveParams) => {
+  return [`/api/lsp/resolve`, ...(params ? [params] : [])] as const;
+};
+
+export const getResolveQueryOptions = <
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getResolveQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof resolve>>> = ({ signal }) =>
+    resolve(params, signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof resolve>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type ResolveQueryResult = NonNullable<Awaited<ReturnType<typeof resolve>>>;
+export type ResolveQueryError = ErrorType<unknown>;
+
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params: undefined | ResolveParams,
+  options: {
+    query: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>> &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof resolve>>,
+          TError,
+          Awaited<ReturnType<typeof resolve>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>> &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof resolve>>,
+          TError,
+          Awaited<ReturnType<typeof resolve>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useResolve<
+  TData = Awaited<ReturnType<typeof resolve>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: ResolveParams,
+  options?: {
+    query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof resolve>>, TError, TData>>;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getResolveQueryOptions(params, options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
 /**
  * @summary Resolve the nearest ancestor root for `file_path`, bounded by
 `workspace_root`. Pure + filesystem-reading, but takes no app state so it's
@@ -25132,6 +25560,77 @@ export const useOpenSession = <TError = ErrorType<void>, TContext = unknown>(
   TContext
 > => {
   return useMutation(getOpenSessionMutationOptions(options), queryClient);
+};
+
+export const update2 = (installLspRequest: InstallLspRequest, signal?: AbortSignal) => {
+  return customInstance<ListServersResponse>({
+    url: `/api/lsp/update`,
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    data: installLspRequest,
+    signal,
+  });
+};
+
+export const getUpdate2MutationKey = () => ["update2"] as const;
+
+export const getUpdate2MutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof update2>>,
+    TError,
+    Update2MutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof update2>>,
+  TError,
+  Update2MutationVariables,
+  TContext
+> => {
+  const mutationKey = getUpdate2MutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof update2>>,
+    Update2MutationVariables
+  > = (props) => {
+    const { data } = props ?? {};
+
+    return update2(data);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type Update2MutationResult = NonNullable<Awaited<ReturnType<typeof update2>>>;
+export type Update2MutationBody = InstallLspRequest;
+export type Update2MutationError = ErrorType<unknown>;
+export type Update2MutationVariables = { data: InstallLspRequest };
+
+export const useUpdate2 = <TError = ErrorType<unknown>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof update2>>,
+      TError,
+      Update2MutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof update2>>,
+  TError,
+  Update2MutationVariables,
+  TContext
+> => {
+  return useMutation(getUpdate2MutationOptions(options), queryClient);
 };
 
 export const getManagedTabs = (signal?: AbortSignal) => {

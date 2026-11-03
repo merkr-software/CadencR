@@ -6,7 +6,7 @@ import type { TabNativeCode } from "./marketplace-tab-package";
  * What a marketplace package adds to Cadencr — the single kinds the signed
  * catalog serves, standalone or as members of a plugin.
  */
-export const PLUGIN_KINDS = ["theme", "provider", "tab"] as const;
+export const PLUGIN_KINDS = ["theme", "provider", "tab", "lsp"] as const;
 export type PluginKind = (typeof PLUGIN_KINDS)[number];
 /** What a listing is: one single-kind package, or a plugin contributing several. */
 export type ListingKind = PluginKind | "plugin";
@@ -38,7 +38,7 @@ export interface ListingVersion {
    * Why it can't be installed on this computer — a provider or tab backend with
    * no binary for this platform, or a newer backend protocol. Absent: it can.
    */
-  unavailable?: TabVersionUnavailable;
+  unavailable?: TabVersionUnavailable | "node" | "policy" | "compatibility";
   /** Custom tab: the native backend this exact version ships (`null`: none). */
   nativeCode?: TabNativeCode | null;
   /** Custom tab: why Cadencr's revocation policy blocks this exact version here. */
@@ -56,11 +56,21 @@ export interface ListingVersion {
   incomplete?: string[];
 }
 
-export type VersionProblem = "outdated" | "unavailable" | "blocked" | "incomplete";
+export type VersionProblem =
+  | "outdated"
+  | "unavailable"
+  | "blocked"
+  | "incomplete"
+  | "runtime"
+  | "policy"
+  | "compatibility";
 
 /** What keeps this exact version from installing here, if anything. */
 export function versionProblem(entry: ListingVersion): VersionProblem | null {
   if (entry.unavailable === "protocol") return "outdated";
+  if (entry.unavailable === "node") return "runtime";
+  if (entry.unavailable === "policy") return "policy";
+  if (entry.unavailable === "compatibility") return "compatibility";
   if (entry.unavailable) return "unavailable";
   // On Cadencr's revocation list: the service refuses it, so it is not offered.
   if (entry.blocked) return "blocked";
@@ -82,6 +92,8 @@ export interface InstalledState {
   error?: string | null;
   /** Custom tab: on Cadencr's revocation list, with its reason. */
   blocked?: string | null;
+  /** Language server: only managed installations can be removed here. */
+  managed?: boolean;
   installedAt?: string;
   updatedAt?: string;
   /** Plugin: some members are missing or at another version. */
@@ -153,8 +165,6 @@ export function baseListing(
     installed,
     update: newerVersion(recommended, installed?.version),
     inCatalog: versions.length > 0,
-    availableHere:
-      versions.length === 0 ||
-      versions.some((entry) => !entry.unavailable && !entry.incomplete?.length),
+    availableHere: versions.length === 0 || versions.some((entry) => !versionProblem(entry)),
   };
 }

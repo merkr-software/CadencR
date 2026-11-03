@@ -1,3 +1,5 @@
+import { lspListings } from "./marketplace-lsp-listings";
+import type { LspCatalog, LspInventory } from "./lsp/marketplace";
 import type {
   ManagedCatalogResponse,
   ManagedProviderInventoryEntry,
@@ -220,6 +222,8 @@ function tabListings(sources: ListingSources): MarketplaceListing[] {
 }
 
 interface ListingSources {
+  lspCatalog?: LspCatalog;
+  lspInventory?: LspInventory;
   providerCatalog?: ManagedCatalogResponse;
   providerInventory?: ManagedProviderInventoryEntry[];
   themeCatalog?: ManagedThemeCatalogResponse;
@@ -247,6 +251,7 @@ export function buildListings(sources: ListingSources): MarketplaceListing[] {
   const themeIds = new Set([...themeGroups.keys(), ...themeEntries.keys()]);
   const members = [
     ...tabListings(sources),
+    ...lspListings(sources.lspCatalog, sources.lspInventory),
     ...[...providerIds].map((id) =>
       providerListing(
         id,
@@ -296,6 +301,7 @@ function pluginCatalogs(sources: ListingSources): (readonly unknown[] | undefine
     provider?.schema_version === 2 ? provider.packages : undefined,
     sources.themeCatalog?.index?.signed.packages,
     sources.tabCatalog?.index?.signed.packages,
+    sources.lspCatalog?.index?.signed.packages,
   ];
 }
 

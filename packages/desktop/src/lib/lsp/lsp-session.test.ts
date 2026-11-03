@@ -15,7 +15,10 @@ const { transport, handlers } = vi.hoisted(() => {
 });
 
 vi.mock("@/api/generated", () => ({
-  openSession: vi.fn(async () => ({ session_id: "session-qa" })),
+  openSession: vi.fn(async () => ({
+    session_id: "session-qa",
+    initialization_options: { typescript: { tsdk: "/runtime/typescript/lib" } },
+  })),
 }));
 vi.mock("./transport", () => ({ connectLspWs: vi.fn(async () => transport) }));
 
@@ -41,7 +44,10 @@ describe("buildSession handshake", () => {
     expect(ready).toBe(false);
     expect(JSON.parse(transport.send.mock.calls[0][0])).toMatchObject({
       method: "initialize",
-      params: { rootUri: "file:///workspace" },
+      params: {
+        rootUri: "file:///workspace",
+        initializationOptions: { typescript: { tsdk: "/runtime/typescript/lib" } },
+      },
     });
 
     respond({ result: { capabilities: { textDocumentSync: 2 } } });

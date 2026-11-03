@@ -1,4 +1,5 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
+import { useLspMarketplace } from "@/hooks/useLspMarketplace";
 import { useMarketplace } from "@/hooks/useMarketplace";
 import { useTabMarketplace } from "@/hooks/useTabMarketplace";
 import { useThemeMarketplace } from "@/hooks/useThemeMarketplace";
@@ -18,6 +19,7 @@ export type PluginRun =
   | { key: string; status: "failed"; member: string; message: string };
 
 interface MarketplaceState {
+  lsps: ReturnType<typeof useLspMarketplace>;
   providers: ReturnType<typeof useMarketplace>;
   themes: ReturnType<typeof useThemeMarketplace>;
   tabs: ReturnType<typeof useTabMarketplace>;
@@ -30,7 +32,7 @@ interface MarketplaceState {
   themeLoading: boolean;
   loading: boolean;
   /** At least one kind has a current, verified catalog to install from. */
-  catalogUsable: { provider: boolean; theme: boolean; tab: boolean };
+  catalogUsable: { provider: boolean; theme: boolean; tab: boolean; lsp: boolean };
   /** This build has no catalog feed and nothing cached: there is nothing to browse, by design. */
   catalogMissing: boolean;
   /** "Update all" is walking its queue (kept here so it survives navigation). */
@@ -49,6 +51,9 @@ const MarketplaceContext = createContext<MarketplaceState | null>(null);
  */
 export function MarketplaceProvider({ children }: { children: ReactNode }): React.JSX.Element {
   const providers = useMarketplace();
+  const lsps = useLspMarketplace();
+  const lspCatalog = lsps.catalog.data;
+  const lspInventory = lsps.inventory.data;
   const themes = useThemeMarketplace();
   const tabs = useTabMarketplace();
   const tabCatalog = tabs.catalog.data;
@@ -61,29 +66,18 @@ export function MarketplaceProvider({ children }: { children: ReactNode }): Reac
   const providerInventory = providers.inventoryQuery.data;
   const themeCatalog = themes.catalog.data;
   const themeInventory = themes.inventory.data;
-  const listings = useMemo(
-    () =>
-      buildListings({
-        providerCatalog,
-        providerInventory: providerInventory?.providers,
-        themeCatalog,
-        themeInventory,
-        displayedThemeId: themeId,
-        tabCatalog,
-        tabInventory,
-        tabSummaries,
-      }),
-    [
-      providerCatalog,
-      providerInventory,
-      themeCatalog,
-      themeInventory,
-      themeId,
-      tabCatalog,
-      tabInventory,
-      tabSummaries,
-    ],
-  );
+  const listings = useListings({
+    lspCatalog,
+    lspInventory,
+    providerCatalog,
+    providerInventory: providerInventory?.providers,
+    themeCatalog,
+    themeInventory,
+    displayedThemeId: themeId,
+    tabCatalog,
+    tabInventory,
+    tabSummaries,
+  });
   const listingsByKey = useMemo(() => listingIndex(listings), [listings]);
   const browsable = useMemo(() => browsableListings(listings), [listings]);
   const loading =
@@ -92,23 +86,28 @@ export function MarketplaceProvider({ children }: { children: ReactNode }): Reac
     themes.catalog.isPending ||
     themes.inventory.isPending ||
     tabs.catalog.isPending ||
-    tabs.inventory.isPending;
+    tabs.inventory.isPending ||
+    lsps.catalog.isPending ||
+    lsps.inventory.isPending;
   const catalogUsable = useMemo(
     () => ({
       provider: usableCatalog(providerCatalog),
       theme: usableThemeCatalog(themeCatalog),
       tab: usableThemeCatalog(tabCatalog),
+      lsp: !!lspCatalog?.verified && !!lspCatalog.index,
     }),
-    [providerCatalog, themeCatalog, tabCatalog],
+    [providerCatalog, themeCatalog, tabCatalog, lspCatalog],
   );
   const catalogMissing =
     catalogSourceMissing(providerCatalog) &&
     !catalogUsable.provider &&
     !catalogUsable.theme &&
-    !catalogUsable.tab;
+    !catalogUsable.tab &&
+    !catalogUsable.lsp;
   const value = useMemo(
     () => ({
       providers,
+      lsps,
       themes,
       tabs,
       listings,
@@ -125,6 +124,7 @@ export function MarketplaceProvider({ children }: { children: ReactNode }): Reac
     }),
     [
       providers,
+      lsps,
       themes,
       tabs,
       listings,
@@ -145,4 +145,22 @@ export function useMarketplaceState(): MarketplaceState {
   const state = useContext(MarketplaceContext);
   if (!state) throw new Error("useMarketplaceState must be used inside <MarketplaceProvider>");
   return state;
+}
+
+function useListings(sources: Parameters<typeof buildListings>[0]) {
+  return useMemo(
+    () => buildListings(sources),
+    [
+      sources.lspCatalog,
+      sources.lspInventory,
+      sources.providerCatalog,
+      sources.providerInventory,
+      sources.themeCatalog,
+      sources.themeInventory,
+      sources.displayedThemeId,
+      sources.tabCatalog,
+      sources.tabInventory,
+      sources.tabSummaries,
+    ],
+  );
 }

@@ -11,6 +11,8 @@ const matchesWorkspaceSettingsUrl = urlPrefixPredicate([
   "/api/workspace/provider-settings",
   // Resolved from settings, including the last-used pair a prompt records.
   "/api/agent-runtime/selection",
+  "/api/lsp/resolve",
+  "/api/lsp/servers",
 ]);
 
 /**

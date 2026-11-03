@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { lspPackageSchema } from "./marketplace-lsp-package";
 import type { ManagedThemeCatalogResponse } from "@/api/generated";
 import { providerPackageSchema } from "./marketplace-provider-package";
 import { tabPackageSchema, type TabMarketplacePackage } from "./marketplace-tab-package";
@@ -15,6 +16,7 @@ const memberEntrySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("theme"), package: themePackageSchema }).strict(),
   z.object({ kind: z.literal("provider"), package: providerPackageSchema }).strict(),
   z.object({ kind: z.literal("tab"), package: tabPackageSchema }).strict(),
+  z.object({ kind: z.literal("lsp"), package: lspPackageSchema }).strict(),
 ]);
 
 /** An entry of a kind this build does not know: only its declared kind is kept. */

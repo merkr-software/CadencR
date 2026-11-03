@@ -27,6 +27,7 @@ import {
 import { formatCompactCombo } from "@/lib/shortcuts/format";
 import { getRegistryShortcut } from "@/lib/shortcuts/resolve";
 import { LabeledControl } from "./LabeledControl";
+import { LanguageServerSettings } from "./LanguageServerSettings";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 
 interface ToolingOption {
@@ -38,22 +39,6 @@ interface ToolingOption {
 const FORMAT_DOCUMENT_COMBO = formatCompactCombo(
   getRegistryShortcut("editor-format-document").keys,
 );
-
-const TS_SERVER_OPTIONS: readonly ToolingOption[] = [
-  {
-    value: "typescript-language-server",
-    label: "typescript-language-server",
-    description: "Standard TS/JS server (default).",
-  },
-  { value: "tsgo", label: "tsgo", description: "Go-native TypeScript preview server." },
-];
-
-const LINTER_OPTIONS: readonly ToolingOption[] = [
-  { value: "off", label: "Off", description: "No linter." },
-  { value: "eslint", label: "ESLint", description: "vscode-eslint-language-server." },
-  { value: "biome", label: "Biome", description: "Biome lint diagnostics." },
-  { value: "oxlint", label: "oxlint", description: "Fast Rust-based linter." },
-];
 
 const FORMATTER_OPTIONS: readonly ToolingOption[] = [
   {
@@ -107,21 +92,8 @@ export function ProjectEditorToolingSettings({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <ToolingSelect
-          label="TypeScript server"
-          value={tooling.typescriptServer}
-          options={TS_SERVER_OPTIONS}
-          disabled={setSetting.isPending}
-          onChange={(next) => update("editor_typescript_server", next)}
-        />
-        <ToolingSelect
-          label="Linter"
-          value={tooling.linter}
-          options={LINTER_OPTIONS}
-          disabled={setSetting.isPending}
-          onChange={(next) => update("editor_linter", next)}
-        />
+      {enabled && <LanguageServerSettings projectId={projectId} />}
+      <div className="grid gap-4">
         <ToolingSelect
           label="Formatter"
           value={tooling.formatter}
