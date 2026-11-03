@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/tab-sdk",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "SDK for Cadencr custom tabs: connect to the host, read context and theme, call the plugin API, subscribe to streams.",
   "keywords": [
     "cadencr",

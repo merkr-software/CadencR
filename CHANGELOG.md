@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.16.0 - 2026-11-03
+
+Previous release: v0.15.1 - 2026-10-28
+
+![CadencR v0.16.0 marketplace announcement, with four minimal tilted tiles over a subtle emerald gradient on graphite](https://raw.githubusercontent.com/merkr-software/cadencr/v0.16.0/docs/changelog/v0.16.0/marketplace-minimal.png)
+
+### ✨ Added
+
+- [**Desktop**] Opened the marketplace for discovering, installing, and updating agent providers, themes, and custom tabs, with theme previews, compatible versions, and packages that combine several extensions. Skills and MCP servers appear alongside them, managed through each supported agent CLI in its active profile, with per-CLI installation state and updates — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added pop panes: turn a split pane into a header or side rail that expands when focused and folds away when another pane takes focus. Keep tools within reach while giving the active pane more space, with smooth transitions and the layout preserved — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added automatic recovery for agent turns interrupted by an update, restart, or crash. The quit dialog lets you resume working agents next time or stop them, with visible transcript markers and a manual Resume action; recovery can be disabled in Settings — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added pull-request approval details and merge controls in the pull-request tab, including the available merge methods, auto-merge, and merge queues where the forge supports them. Readiness, missing approvals, and blocking checks remain visible before confirmation — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added a composer wizard for `/cadencr` skills that spawn conversations, so you can choose their provider, model, thinking effort, mode, and worktree before sending — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Added sidebar block and project reordering, remembered folds, fixed-height rows, and stronger detail colors, with shared display options for project conversations, For me, In progress, and Recent — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Introduced telemetry with separate opt-ins for diagnostics and detailed usage, both off until enabled. A minimal monthly installation counter is on when configured and has its own switch; all three channels can be disabled in Settings → About → Privacy and telemetry. Remote payloads exclude code, prompts, replies, terminal output, and credentials — [@rle-mino](https://github.com/rle-mino).
+
+### 🔧 Changed
+
+- [**Desktop**] Cursor now runs through the official marketplace provider plugin. Install the Cursor connector and restart Cadencr to continue existing Cursor conversations; access choices are configured per conversation, and the unsupported `/compact` and terminal-resume actions are no longer offered — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Rebuilt Settings as focused pages with searchable individual settings, direct command-palette entries, and a live sidebar preview — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Reworked custom actions around one header launcher with a searchable menu, live output and run history, remembered per-conversation variables, and project/global action management. Background actions can also run from the Schedules page, once or on interval, daily, weekly, and monthly rules — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Made compact flow the default: consecutive tools and thinking fold into one line showing the latest step, with expandable history and more even conversation spacing — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Refreshed sub-agent cards with live status, the latest action and available run details, including agents that pause or resume. Spawned Cadencr conversations use the same cards and open directly from the transcript — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Brought running agents, side questions, schedules, the prompt queue, deferred requests, and skill setup into a shared stack above the prompt. Crowded sections fold into summaries, while the block you are using stays open — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Turn timers now retain agent time, time waiting on you, and reported model changes across reloads and connected devices, with the same saved summary in conversation history — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Marking the open For me conversation done now opens the next waiting entry automatically, or shows “All caught up” when the list is empty — [@rle-mino](https://github.com/rle-mino).
+
+### 🐛 Fixed
+
+- [**Desktop**] Fixed conversations silently switching back to an older or default model when a scheduled prompt, another connection, or a retry started the next turn. For me also refreshes stale provider and model details — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed question drafts disappearing when switching conversations and preserved entered answers after a failed submission — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed the mobile prompt being covered by the on-screen keyboard, composer suggestions extending off-screen, and sideways prompt scrolling while an agent runs — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed sidebar taps triggering the wrong row action on touchscreens and project guide lines crossing the expand/collapse chevrons — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed terminal history replay injecting old query replies into the shell prompt, and updated the terminal renderer for focused-pane cursor and query-reply ordering fixes — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed hidden tool results appearing in previews. Truncated results now render in place with their full size and explicit Show all / Show less controls, while image payloads stay out of bounded previews — [@rle-mino](https://github.com/rle-mino).
+- [**Backend**] Made transcript-save failures visible and reconciled recovered persistence without interrupting an agent whose work was already accepted — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Fixed Escape failing to dismiss keyboard-opened shortcut tooltips — [@rle-mino](https://github.com/rle-mino).
+- [**Desktop**] Retained important React diagnostic evidence when ResizeObserver notifications fill the report — [@rle-mino](https://github.com/rle-mino).
+
 ## v0.15.1 - 2026-10-27
 
 Previous release: v0.15.0 - 2026-10-26

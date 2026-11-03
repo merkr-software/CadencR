@@ -2,7 +2,7 @@
 name = "cadencr-tab-backend"
 # Own semver, independent of the Cadencr app version. Released by hand with
 # .github/workflows/crates-release.yml.
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license.workspace = true
 description = "Helper for writing native backends of Cadencr custom tabs (stdio protocol v1)"

@@ -1,6 +1,6 @@
 {
   "name": "@cadencr/tab-kit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Cadencr's look for custom tabs: theme tokens, a Tailwind v4 preset, the Inter UI font, and the desktop app's React components.",
   "keywords": [
     "cadencr",
