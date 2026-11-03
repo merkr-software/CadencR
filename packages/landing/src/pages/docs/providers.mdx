@@ -2,8 +2,8 @@
 layout: "@/layouts/DocLayout.astro"
 title: "Providers & profiles"
 description: "Configure local agent CLIs, select native profiles, or author a local ACP connector."
-lastReviewed: "2026-11-01"
-version: "0.13.0"
+lastReviewed: "2026-11-03"
+version: "0.16.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
@@ -13,8 +13,8 @@ CadencR runs agent CLIs installed on your host. Built-in integrations support **
 
 <DocScreenshot
   src={pageImage}
-  alt="The current CLI Providers settings. Availability is discovered from installed local CLIs."
-  caption="The current CLI Providers settings. Availability is discovered from installed local CLIs."
+  alt="CLI Providers settings from v0.13.0. Availability is discovered from installed local CLIs."
+  caption="Built-in CLI provider settings in v0.13.0. In the current version, install additional connectors through Marketplace."
   bordered={false}
   rounded
   elevated
@@ -73,10 +73,12 @@ Restart CadencR after connector or registration changes. Then choose its discove
 
 Import an existing **Git repository** whose connector is already built at the required path. The host validates the executable and discovers its models. Importing source alone does not build the connector for you.
 
-Local connector projects and their registrations are distinct from signed published packages. The **public marketplace remains inactive in v0.13.0**; do not expect a generated project to be publicly installable.
+Local connector projects and their registrations are distinct from signed published packages. To distribute a connector, prepare its platform bundles, publish an author GitHub release, and submit a registry PR. Follow [Publish to the marketplace](../marketplace-publishing/); a generated project alone is not publicly installable.
 
 ## Related guides
 
+- [Marketplace](../marketplace/) — install, enable, update, and remove provider plugins.
+- [Publish to the marketplace](../marketplace-publishing/) — release your own connector.
 - [Prompt](../prompting/) — per-conversation runtime controls.
 - [Approvals & permissions](../approvals/) — modes and gates.
 - [MCP & orchestration](../mcp/) — built-in tools exposed to agents.
