@@ -16,6 +16,7 @@ pub(crate) enum PolicyKindArg {
     Provider,
     Theme,
     Tab,
+    Lsp,
 }
 
 impl PolicyKindArg {
@@ -24,6 +25,7 @@ impl PolicyKindArg {
             PolicyKindArg::Provider => PolicyKind::Provider,
             PolicyKindArg::Theme => PolicyKind::Theme,
             PolicyKindArg::Tab => PolicyKind::Tab,
+            PolicyKindArg::Lsp => PolicyKind::Lsp,
         }
     }
 }

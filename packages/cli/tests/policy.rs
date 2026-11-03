@@ -54,6 +54,7 @@ impl Fixture {
         let (id, tag) = match kind {
             "provider" => ("provider_id", None),
             "theme" => ("theme_id", Some("theme-blocklist")),
+            "lsp" => ("lsp_id", Some("lsp-blocklist")),
             _ => ("tab_id", Some("tab-blocklist")),
         };
         let mut value = json!({
@@ -138,7 +139,7 @@ fn read(path: &Path) -> Value {
     serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
 }
 
-const KINDS: [&str; 3] = ["provider", "theme", "tab"];
+const KINDS: [&str; 4] = ["provider", "theme", "tab", "lsp"];
 
 #[test]
 fn provider_blocklist_signs_verifies_and_never_overwrites() {
@@ -169,7 +170,7 @@ fn provider_blocklist_signs_verifies_and_never_overwrites() {
 }
 
 #[test]
-fn the_three_policy_domains_are_not_interchangeable() {
+fn policy_domains_are_not_interchangeable() {
     let fixture = Fixture::new();
     for signer in KINDS {
         for payload in KINDS.into_iter().filter(|payload| *payload != signer) {

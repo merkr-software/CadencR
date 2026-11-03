@@ -81,11 +81,11 @@ Two workflows automate the routine part of the renewal runbook below. Both are
 repository exists, the variables and environment below are configured by an
 authorized operator, and a real alert path has been exercised.
 
-| Workflow                  | Schedule           | Authority                                                                                              |
-| ------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------ |
-| `renew-protected-catalog` | Daily, plus manual | Environment `protected-marketplace-renewal`; can only re-sign the catalog and renew the three policies |
-| `watch-registry-expiry`   | Daily, plus manual | `contents: read`, no environment, no secrets                                                           |
-| `bootstrap-revocation-policies` | Manual only | Reviewed environment `protected-marketplace-publisher`; publishes the three missing policies, empty, once |
+| Workflow                        | Schedule           | Authority                                                                                                 |
+| ------------------------------- | ------------------ | --------------------------------------------------------------------------------------------------------- |
+| `renew-protected-catalog`       | Daily, plus manual | Environment `protected-marketplace-renewal`; can only re-sign the catalog and renew the three policies    |
+| `watch-registry-expiry`         | Daily, plus manual | `contents: read`, no environment, no secrets                                                              |
+| `bootstrap-revocation-policies` | Manual only        | Reviewed environment `protected-marketplace-publisher`; publishes the three missing policies, empty, once |
 
 **Renewal-only by construction.** `scripts/ci/registry-feeds.sh` downloads the
 current published catalog from this repository's own discovery URL (HTTPS on
@@ -336,3 +336,19 @@ request, commit and timestamps rather than replacing them to manufacture success
 See [trust-generation procedures](../../docs/MARKETPLACE_RELEASE_CONFIG.md#root-authorized-trust-generations)
 for exact manifests and command syntax. A local fixture drill is not production key
 rotation, revocation delivery or deployed monitoring evidence.
+
+## Optional LSP policy rollout
+
+After qualifying a CLI release that supports LSP packages and policies, configure
+`CADENCR_REGISTRY_LSP_BLOCKLIST_URL` with this repository's canonical
+`refs/heads/<catalog-branch>/managed-lsp-blocklist.json` URL. The template's
+bootstrap, renewal and expiry-watch workflows then include the independent
+`lsp-blocklist` policy. Leaving the variable unset keeps existing three-policy
+deployments working. Bootstrap remains an explicit operator action; setting the
+URL alone does not create a policy or publish packages.
+
+The desktop build's separate `CADENCR_MANAGED_LSP_BLOCKLIST_URL` must point to
+that verified policy before marketplace LSP installation is enabled. Publish
+real prepared native or Node assets and reviewed package metadata as described
+in the [LSP authoring examples](examples/lsp/README.md). The example metadata
+contains placeholders and is not a migration of the former bundled catalog.

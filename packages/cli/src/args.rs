@@ -77,6 +77,7 @@ pub(crate) enum PluginKind {
     Provider,
     Theme,
     Tab,
+    Lsp,
     /// A multi-export plugin: `plugin.json` and each member folder it names.
     Plugin,
 }
@@ -93,6 +94,8 @@ pub(crate) enum RegistryCommand {
     Diagnostics(crate::metadata::MetadataCommand),
     #[command(flatten)]
     TabBackend(TabBackendCommand),
+    #[command(flatten)]
+    Lsp(crate::lsp::LspCommand),
     #[command(flatten)]
     Policy(crate::policy::PolicyCommand),
     /// Validate a candidate contribution relative to a base registry.
@@ -249,6 +252,7 @@ impl Cli {
                 ) | RegistryCommand::PackProvider { .. }
                     | RegistryCommand::PackTheme { .. }
                     | RegistryCommand::PackTab { .. }
+                    | RegistryCommand::Lsp(crate::lsp::LspCommand::PackLsp { .. })
                     | RegistryCommand::TabBackend(TabBackendCommand::PackTabBackend { .. })
             })
         )

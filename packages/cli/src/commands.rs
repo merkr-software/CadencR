@@ -28,6 +28,7 @@ pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
                 },
         }) => match kind {
             PluginKind::Provider => validate_provider(folder, descriptor.as_deref()),
+            PluginKind::Lsp => crate::lsp::validate(folder, descriptor.as_deref()),
             PluginKind::Theme => crate::theme::validate(folder, descriptor.as_deref()),
             PluginKind::Tab => crate::tab::validate(folder, descriptor.as_deref(), !no_run),
             PluginKind::Plugin => crate::plugin::validate(folder, descriptor.as_deref(), !no_run),
@@ -72,6 +73,7 @@ pub(crate) fn provider_message(folder: &Path) -> String {
 fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic> {
     match command {
         RegistryCommand::Diagnostics(command) => crate::metadata::run(command),
+        RegistryCommand::Lsp(command) => crate::lsp::run(command),
         RegistryCommand::TabBackend(command) => crate::tab_backend::run(command),
         RegistryCommand::Policy(command) => crate::policy::run(command),
         RegistryCommand::Validate { base, candidate } => validate_registry(base, candidate),

@@ -20,8 +20,12 @@ pub(super) use crate::test_support::ScriptedFeed;
 pub(super) const KEY_ID: &str = "release-2026";
 pub(super) const REPOSITORY: &str = "acme/registry";
 pub(super) const BRANCH: &str = "marketplace-v2";
-pub(super) const KINDS: [PolicyKind; 3] =
-    [PolicyKind::Provider, PolicyKind::Theme, PolicyKind::Tab];
+pub(super) const KINDS: [PolicyKind; 4] = [
+    PolicyKind::Provider,
+    PolicyKind::Theme,
+    PolicyKind::Tab,
+    PolicyKind::Lsp,
+];
 
 pub(super) fn blob_sha(bytes: &[u8]) -> String {
     let mut hash = Sha1::new();
@@ -74,6 +78,7 @@ impl Workspace {
             PolicyKind::Provider => ("provider_id", None),
             PolicyKind::Theme => ("theme_id", Some("theme-blocklist")),
             PolicyKind::Tab => ("tab_id", Some("tab-blocklist")),
+            PolicyKind::Lsp => ("lsp_id", Some("lsp-blocklist")),
         };
         let mut value = json!({
             "schema_version": 1,

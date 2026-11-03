@@ -158,6 +158,9 @@ fn mirror_member(
     prefix: &Prefix,
 ) -> Result<Mirrored, RegistryError> {
     let kind = crate::marketplace::kind(entry);
+    if kind == "lsp" {
+        return mirror_lsp(entry, repository, release, prefix);
+    }
     let distribution = &entry["package"][kind]["distribution"];
     let source_url = distribution["archive"]
         .as_str()
@@ -200,6 +203,36 @@ fn mirror_member(
         targets,
         package: mirrored,
     })
+}
+
+fn mirror_lsp(
+    entry: &Value,
+    repository: &str,
+    release: &str,
+    prefix: &Prefix,
+) -> Result<Mirrored, RegistryError> {
+    let binary = entry
+        .pointer("/package/lsp/distribution/binary")
+        .and_then(Value::as_object)
+        .ok_or_else(|| RegistryError::single("LSP targets missing"))?;
+    let mut package = entry.clone();
+    let mut targets = Vec::new();
+    for platform in binary.keys() {
+        let signed = crate::signed_lsp_target(entry, platform)?;
+        let planned = prefix.target(
+            platform,
+            &format!("{platform}-{}.tar.gz", signed.sha256),
+            release,
+            &json!(signed.archive),
+            &json!(signed.sha256),
+        );
+        package["package"]["lsp"]["distribution"]["binary"][platform]["archive"] =
+            planned["destination_url"].clone();
+        targets.push(planned);
+    }
+    package["package"]["lsp"]["distribution"]["repository"] =
+        json!(format!("https://github.com/{repository}"));
+    Ok(Mirrored { targets, package })
 }
 
 #[cfg(test)]

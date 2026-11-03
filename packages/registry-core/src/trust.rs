@@ -39,6 +39,9 @@ pub struct RegistryTrustManifest {
     /// Custom-tab policy checkpoints, independent from every other feed's.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recovery_tab_policy_sha256: Vec<String>,
+    /// LSP-policy checkpoints never authorize a different policy domain.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recovery_lsp_policy_sha256: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +214,7 @@ fn validate(
         || manifest.recovery_theme_policy_sha256.len() > 16
         || manifest.recovery_provider_policy_sha256.len() > 16
         || manifest.recovery_tab_policy_sha256.len() > 16
+        || manifest.recovery_lsp_policy_sha256.len() > 16
     {
         return Err(invalid("trust manifest shape or bounds are invalid"));
     }
@@ -258,6 +262,7 @@ fn validate(
         .chain(&manifest.recovery_theme_policy_sha256)
         .chain(&manifest.recovery_provider_policy_sha256)
         .chain(&manifest.recovery_tab_policy_sha256)
+        .chain(&manifest.recovery_lsp_policy_sha256)
     {
         if !crate::digest::is_lower_sha256(hash) || !checkpoints.insert(hash) {
             return Err(invalid(

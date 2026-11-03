@@ -10,8 +10,8 @@ use crate::blocklist::{prepare_blocklist, timestamp, MAX_BLOCKLIST_BYTES, SIGNED
 use crate::provider_blocklist::prepare_provider_blocklist;
 use crate::signing::{parse_public_key, reject_unknown, validate_signature};
 use crate::{
-    canonical_json_bytes, parse_json_bytes, validate_signing_key_id, PreparedSigningPayload,
-    RegistryError, TabBlocklistEntry, ThemeBlocklistEntry,
+    canonical_json_bytes, parse_json_bytes, validate_signing_key_id, LspBlocklistEntry,
+    PreparedSigningPayload, RegistryError, TabBlocklistEntry, ThemeBlocklistEntry,
 };
 
 /// Which revocation policy a document is. Domains never mix: each kind
@@ -21,6 +21,7 @@ pub enum PolicyKind {
     Provider,
     Theme,
     Tab,
+    Lsp,
 }
 
 impl PolicyKind {
@@ -30,6 +31,7 @@ impl PolicyKind {
             PolicyKind::Provider => "provider",
             PolicyKind::Theme => "theme",
             PolicyKind::Tab => "tab",
+            PolicyKind::Lsp => "lsp",
         }
     }
 
@@ -39,6 +41,7 @@ impl PolicyKind {
             PolicyKind::Provider => "managed-blocklist.json",
             PolicyKind::Theme => "managed-theme-blocklist.json",
             PolicyKind::Tab => "managed-tab-blocklist.json",
+            PolicyKind::Lsp => "managed-lsp-blocklist.json",
         }
     }
 
@@ -50,7 +53,9 @@ impl PolicyKind {
     pub fn max_signed_bytes(self) -> usize {
         match self {
             PolicyKind::Provider => MAX_BLOCKLIST_BYTES,
-            PolicyKind::Theme | PolicyKind::Tab => MAX_BLOCKLIST_BYTES + SIGNED_OVERHEAD_BYTES,
+            PolicyKind::Theme | PolicyKind::Tab | PolicyKind::Lsp => {
+                MAX_BLOCKLIST_BYTES + SIGNED_OVERHEAD_BYTES
+            }
         }
     }
 
@@ -68,6 +73,8 @@ impl PolicyKind {
                 prepare_blocklist::<ThemeBlocklistEntry>(value, allow_expired, now)
                     .map(|prepared| prepared.signing)
             }
+            PolicyKind::Lsp => prepare_blocklist::<LspBlocklistEntry>(value, allow_expired, now)
+                .map(|prepared| prepared.signing),
             PolicyKind::Tab => prepare_blocklist::<TabBlocklistEntry>(value, allow_expired, now)
                 .map(|prepared| prepared.signing),
         }

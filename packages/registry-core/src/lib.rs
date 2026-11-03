@@ -18,7 +18,16 @@ pub use marketplace::theme_distribution_repository;
 pub use metadata::{check_metadata_expiry, validate_metadata_file, validate_submission_file};
 mod marketplace_plan;
 pub use marketplace_plan::{plugin_web_archive_kind, split_plugin_target};
+mod lsp;
+mod lsp_types;
 mod marketplace_types;
+pub use lsp::{
+    pack_lsp, read_lsp_archive, signed_lsp_target, validate_lsp_entry, PackLspRequest, PackedLsp,
+    MAX_LSP_ARCHIVE_BYTES, MAX_LSP_UNCOMPRESSED_BYTES,
+};
+pub use lsp_types::{
+    LspDescriptor, LspDistribution, LspLanguage, LspPackage, LspRole, LspRuntime, LspTarget,
+};
 mod plugin_package;
 pub use marketplace::{
     marketplace_package_identity, marketplace_package_kind, valid_theme_id,
@@ -70,6 +79,11 @@ pub use tab_backend::{
     pack_tab_backend, plan_target_platform, read_tab_backend_archive, signed_tab_backend,
     PackTabBackendRequest, PackedTabBackend, SignedTabBackend, SignedTabBinary, TabBackendRefusal,
     MAX_TAB_BACKEND_ARCHIVE_BYTES, MAX_TAB_BACKEND_EXECUTABLE_BYTES, TAB_BINARY_FIELDS,
+};
+mod lsp_blocklist;
+pub use lsp_blocklist::{
+    prepare_lsp_blocklist, LspBlocklist, LspBlocklistEntry, PreparedLspBlocklist,
+    MAX_LSP_BLOCKLIST_BYTES, MAX_SIGNED_LSP_BLOCKLIST_BYTES,
 };
 mod tab_blocklist;
 pub use tab_blocklist::{

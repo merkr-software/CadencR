@@ -32,7 +32,7 @@ pub struct PluginManifest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PluginMember {
-    /// `provider`, `theme` or `tab`.
+    /// `provider`, `theme`, `tab` or `lsp`.
     pub kind: String,
     /// The member folder, relative to the plugin folder.
     pub path: String,
@@ -55,16 +55,18 @@ pub enum PluginMemberKind {
     Provider,
     Theme,
     Tab,
+    Lsp,
 }
 
 impl PluginMemberKind {
-    pub const ALL: [Self; 3] = [Self::Provider, Self::Theme, Self::Tab];
+    pub const ALL: [Self; 4] = [Self::Provider, Self::Theme, Self::Tab, Self::Lsp];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Provider => "provider",
             Self::Theme => "theme",
             Self::Tab => "tab",
+            Self::Lsp => "lsp",
         }
     }
 
@@ -171,7 +173,7 @@ fn validate_member(index: usize, member: &PluginMember, findings: &mut PluginFin
             Code::MemberKindInvalid,
             format!("{field}.kind"),
             format!(
-                "must be provider, theme or tab (plugins cannot contribute `{}`)",
+                "must be provider, theme, tab or lsp (plugins cannot contribute `{}`)",
                 member.kind
             ),
         );
@@ -196,11 +198,13 @@ fn validate_member(index: usize, member: &PluginMember, findings: &mut PluginFin
                 format!("{field}.descriptor"),
                 "must be a normalized relative file path inside the plugin folder",
             ),
-        (PluginMemberKind::Theme | PluginMemberKind::Tab, Some(_)) => findings.error(
-            Code::MemberDescriptorUnexpected,
-            format!("{field}.descriptor"),
-            format!("{kind} members declare no descriptor"),
-        ),
+        (PluginMemberKind::Theme | PluginMemberKind::Tab | PluginMemberKind::Lsp, Some(_)) => {
+            findings.error(
+                Code::MemberDescriptorUnexpected,
+                format!("{field}.descriptor"),
+                format!("{kind} members declare no descriptor"),
+            )
+        }
         _ => {}
     }
 }

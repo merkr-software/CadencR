@@ -127,6 +127,11 @@ fn check_member(
         }
         PluginMemberKind::Tab => crate::tab::validate_folder(&member.directory, run_backend)
             .map(|(manifest, message)| (Declared::of(&manifest.id, &manifest.version), message)),
+        PluginMemberKind::Lsp => {
+            crate::lsp::validate_folder(&member.directory).map(|(descriptor, message)| {
+                (Declared::of(&descriptor.id, &descriptor.version), message)
+            })
+        }
         PluginMemberKind::Theme => crate::theme::validate_folder(&member.directory)
             .map(|message| (Declared::default(), message)),
     }
