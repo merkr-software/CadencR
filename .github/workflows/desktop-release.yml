@@ -29,6 +29,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 90
     env:
+      CADENCR_SENTRY_UPLOAD_CONFIGURED: ${{ secrets.SENTRY_AUTH_TOKEN != '' }}
       # Public host-owned trust only; empty repository variables keep acquisition
       # disabled. The build wrapper removes empty values before Rust option_env!.
       CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
@@ -155,6 +156,7 @@ jobs:
         run: node packages/desktop/scripts/archive-renderer-diagnostics.mjs
 
       - name: Load Sentry uploader from workflow commit
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -164,6 +166,7 @@ jobs:
           test -s "$RUNNER_TEMP/cadencr-sentry-uploader.mjs"
 
       - name: Upload optional Sentry renderer source maps
+        if: env.CADENCR_SENTRY_UPLOAD_CONFIGURED == 'true'
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
