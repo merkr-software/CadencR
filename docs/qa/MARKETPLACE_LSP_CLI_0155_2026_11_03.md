@@ -60,6 +60,14 @@ Both runs verify two retries, including fresh scratch, and reject changed asset
 bytes and changed requests without modifying the public inventory. The second
 run does not repeat the interruption claim.
 
+The generic author publication implementation is unchanged between qualified
+`0.15.4` source `3ebb603160d9dcf054adbb6315c68cb8702cf7ce` and this `0.15.5`
+source (`packages/cli/src/author_release.rs`,
+`packages/registry-publisher/src/author_release.rs` and its sibling directory).
+Together with the current ELF general offline and real LSP author gates, this
+supports the local shared author-contract pin promotion. It does not claim a new
+official provider/theme/tab publication; the earlier `0.15.4` record is retained.
+
 ## Registry and policy campaign
 
 The additive registry campaign is restricted to QA, with exact request/plan
@@ -151,6 +159,16 @@ consumption filters well-formed unknown kinds. The frontend also skips unknown
 entries while retaining the original signed envelope for mutations. This is
 source inspection, not a historical packaged-application execution. It does not
 change the production hold or establish managed LSP behavior in older clients.
+
+## Retained public proofs
+
+Key-free public receipts, exact signed catalogs, offline evidence and runtime
+smokes are retained in the QA repository's
+[campaign proof manifest](https://github.com/merkr-software/cadencr-registry-qa/blob/main/requests/stable-0155-lsp-20261103/proofs/manifest.json).
+The manifest records each source run, byte size and SHA-256; original policy
+failure artifacts are preserved separately in the adjacent `policy-recovery/`
+directory. These files preserve evidence beyond Actions artifact retention and
+do not serve as publication or recovery authority.
 
 ## Production boundary
 
