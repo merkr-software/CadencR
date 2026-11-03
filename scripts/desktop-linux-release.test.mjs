@@ -43,6 +43,7 @@ function runWithFakeGh(script, { ghOutput = "", ghStatus = 0, notes = "" } = {})
         PATH: `${scratch}:${process.env.PATH}`,
         RUNNER_TEMP: scratch,
         GITHUB_REPOSITORY: "merkr-software/CadencR",
+        GITHUB_SHA: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         RELEASE_TAG: "v0.15.0",
         GH_CALLS_FILE: callsFile,
         GH_SCRATCH: scratch,
@@ -54,7 +55,9 @@ function runWithFakeGh(script, { ghOutput = "", ghStatus = 0, notes = "" } = {})
     });
     const edited = join(scratch, "edited-notes.md");
     const editedNotes = existsSync(edited) ? readFileSync(edited, "utf8") : null;
-    return { result, calls: readFileSync(callsFile, "utf8"), editedNotes };
+    const smoke = join(scratch, "cadencr-smoke-linux-packages.sh");
+    const smokeScript = existsSync(smoke) ? readFileSync(smoke, "utf8") : null;
+    return { result, calls: readFileSync(callsFile, "utf8"), editedNotes, smokeScript };
   } finally {
     rmSync(scratch, { recursive: true });
   }
@@ -118,10 +121,30 @@ test("the build smoke-tests the packages on the oldest supported glibc", () => {
     "Build Linux AppImage, DEB, and RPM",
     "Smoke test Linux packages",
   ].map((name) => names.indexOf(name));
-  assert.ok(order.every((index, position) => index > (order[position - 1] ?? -1)), `${order}`);
+  assert.ok(
+    order.every((index, position) => index > (order[position - 1] ?? -1)),
+    `${order}`,
+  );
   assert.match(step("build", "Build Linux AppImage, DEB, and RPM").run, /--publish never/);
   assert.ok(!text.includes("--publish always"));
   assert.ok(!text.includes("PRIVATE_KEY"));
+});
+
+test("Linux smoke orchestration comes from the workflow commit and download errors are fatal", () => {
+  const load = step("build", "Load Linux smoke test from workflow commit");
+  const source = readFileSync("scripts/smoke-linux-packages.sh", "utf8");
+  const { result, calls, smokeScript } = runWithFakeGh(load.run, {
+    ghOutput: Buffer.from(source).toString("base64"),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(smokeScript, source);
+  assert.match(calls, /smoke-linux-packages\.sh\?ref=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/);
+  for (const options of [{ ghStatus: 1 }, { ghOutput: "" }]) {
+    assert.notEqual(runWithFakeGh(load.run, options).result.status, 0);
+  }
+  const smoke = step("build", "Smoke test Linux packages");
+  assert.match(smoke.run, /bash "\$RUNNER_TEMP\/cadencr-smoke-linux-packages\.sh"/);
+  assert.equal(smoke["continue-on-error"], undefined);
 });
 
 test("attach uploads every updater target, verifies them, then flags the notes", () => {

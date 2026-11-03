@@ -55,11 +55,11 @@ check() {
   fi
 }
 
-# AppImage: extract without FUSE and check the bundled sidecar.
-work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
-cp "$dist_dir/$appimage" "$work/"
-check "AppImage payload ($appimage)" docker run --rm --platform "$platform" -v "$work:/work" -w /work debian:12 bash -eu -c "
+# Keep extraction inside the container: a root-owned payload on a host bind
+# mount cannot be cleaned up by the unprivileged runner after a successful test.
+# The original AppImage stays read-only, like the DEB and RPM below.
+check "AppImage payload ($appimage)" docker run --rm --platform "$platform" -v "$dist_dir:/pkg:ro" -w /tmp debian:12 bash -eu -c "
+  cp '/pkg/$appimage' .
   chmod +x '$appimage'
   ./'$appimage' --appimage-extract > /dev/null
   test -x squashfs-root/resources/cadencr-service
