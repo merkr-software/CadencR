@@ -62,3 +62,11 @@ strip = "symbols"
 # Proc macros must load on the build host; only strip the shipped binaries.
 [profile.release.build-override]
 strip = "none"
+
+# Packaged local builds keep release behavior (no debug assertions / dev .env)
+# without paying for cross-crate LTO and single-unit code generation.
+# Artifacts live in target/local, separate from the distributed release build.
+[profile.local]
+inherits = "release"
+lto = false
+codegen-units = 16

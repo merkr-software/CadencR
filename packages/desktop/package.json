@@ -14,7 +14,7 @@
     "dev": "node ./scripts/electron-vite.mjs dev",
     "dev:electron": "node ./scripts/electron-vite.mjs dev",
     "build:local": "node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.local.yml",
-    "build:local:linux": "pnpm --filter @cadencr/service build:sidecars && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml --linux AppImage deb",
+    "build:local:linux": "pnpm --filter @cadencr/service build:local && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml --linux AppImage deb",
     "build": "pnpm --filter @cadencr/service build:sidecars && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml",
     "build:electron": "pnpm --filter @cadencr/service build:sidecars && node ./scripts/electron-vite.mjs build && electron-builder --config electron-builder.yml",
     "package:electron": "electron-builder --config electron-builder.yml",

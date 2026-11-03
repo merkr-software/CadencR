@@ -1,7 +1,10 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
-const profile = process.argv[2] === "debug" ? "debug" : "release";
+const profile = process.argv[2] ?? "release";
+if (!["debug", "release", "local"].includes(profile)) {
+  throw new Error(`Unsupported service build profile: ${profile}`);
+}
 const exe = process.platform === "win32" ? ".exe" : "";
 const targetDir = process.env.CARGO_TARGET_DIR || join("..", "..", "target");
 const source = join(targetDir, profile, `cadencr-service${exe}`);

@@ -109,6 +109,13 @@ jobs:
       - name: Install Rust toolchain from rust-toolchain.toml
         run: rustup toolchain install
 
+      # Same glibc baseline and Cargo layout as release-rust-cache.yml.
+      # Swatinem/rust-cache@v2.9.3
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          shared-key: desktop-release-ubuntu-22.04
+          save-if: "false"
+
       - name: Install Linux packaging tools
         # rpmbuild for the RPM target; vendored OpenSSL needs perl + make.
         run: sudo apt-get update && sudo apt-get install -y rpm perl make

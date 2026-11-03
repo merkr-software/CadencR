@@ -40,6 +40,13 @@ pnpm build:local:linux           # Linux local packages
 pnpm build:local --check-config  # validate configuration without compiling
 ```
 
+Local packages use the Cargo `local` profile: release behavior and size
+optimization, but no cross-crate LTO and 16 codegen units. This trades binary
+size/runtime optimization for faster compilation; use `pnpm build` when checking
+the production optimization profile. The first local build populates its own
+`target/local/` cache; later builds reuse it. Both local and release packaging
+compile only `cadencr-service`, not developer utility binaries such as `dump-openapi`.
+
 These commands fetch the public marketplace, registry and Sentry/PostHog build
 variables from `merkr-software/CadencR`, validate them, then compile on your
 machine. Install GitHub CLI and authenticate with `gh auth login` to fetch the
@@ -59,6 +66,22 @@ in the Rust service so the installed app can send telemetry according to the
 user's preferences.
 These commands do not upload Sentry source maps; see
 [Telemetry](./docs/TELEMETRY.md#renderer-source-maps-and-release-correlation).
+
+### Release compilation cache
+
+`release-rust-cache.yml` warms Rust release dependencies on `main` when Cargo
+manifests, lockfiles, the toolchain or cache tooling change. It uses the same
+macOS ARM/Intel targets and Ubuntu 22.04 baseline as the release workflows.
+Only dependencies are cached; each release recompiles workspace code with its
+own marketplace and telemetry configuration and retains all smoke tests,
+signing and notarization checks.
+
+GitHub caches are scoped by ref: one version tag cannot read another tag's
+cache, so warming on `main` is necessary. Wait for the warm job before tagging
+to benefit from it. After eviction (for example, a long idle period), manually
+run **Warm release Rust dependencies** on `main`. A missing cache is safe and
+falls back to a full build. Warming adds CI work when dependency inputs change
+but moves that compilation off the release's critical path.
 
 ## Rust Build Storage
 
