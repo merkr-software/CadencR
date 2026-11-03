@@ -7,7 +7,7 @@ tags: ["release", "marketplace", "plugins", "workspace", "agents"]
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
-import announcement from "../../../../../docs/changelog/v0.16.0/marketplace-minimal.png";
+import announcement from "@/assets/news/v0.16.0/marketplace-minimal.svg";
 import marketplaceScreenshot from "@/assets/news/v0.16.0/marketplace.webp";
 import skillsScreenshot from "@/assets/news/v0.16.0/marketplace-skills-detail.webp";
 import popFoldedScreenshot from "@/assets/news/v0.16.0/pop-tabs-folded-detail.webp";
@@ -17,6 +17,7 @@ import composerBlockScreenshot from "@/assets/news/v0.16.0/composer-skill-block.
 
 <DocScreenshot
   src={announcement}
+  preserveSource
   alt="CadencR v0.16.0 marketplace announcement with four minimal tilted tiles, one emerald and three dark, over a subtle emerald gradient on graphite"
   caption="Find your tools. Make them yours."
   bordered={false}
@@ -34,6 +35,7 @@ The **Marketplace** is now open from the sidebar. Browse agent providers, themes
 
 <DocScreenshot
   src={marketplaceScreenshot}
+  preserveSource
   alt="Cadencr's running marketplace showing Discover, the Ember theme showcase, three theme listings, and the Providers shelf"
   caption="Browse the catalogue from your workspace, then open a listing to inspect its versions and installation details."
 />
@@ -48,6 +50,7 @@ Cadencr uses each CLI's own commands and active profile to manage these extensio
 
 <DocScreenshot
   src={skillsScreenshot}
+  preserveSource
   alt="A real skill listing in the Cadencr marketplace with its description and separate installation controls for the supported agent CLIs"
   caption="See where a skill is installed and manage it for the agent CLI you use."
 />
@@ -66,12 +69,14 @@ Enable **Pop pane** on a split pane to let it fold to its header or a slim side 
 
 <DocScreenshot
   src={popFoldedScreenshot}
+  preserveSource
   alt="Close-up of the bottom of Cadencr's workspace, with the Git pop pane folded into a single tab bar beneath the editor and its enabled Pop pane button at the right"
   caption="Folded: Git takes only the bottom tab bar. Click its tab to open it; the green button on the right shows that Pop pane is enabled."
 />
 
 <DocScreenshot
   src={popOpenScreenshot}
+  preserveSource
   alt="The same close-up after selecting Git, with its pop pane expanded beneath the editor to show the commit graph and the Pop pane button still enabled"
   caption="Open: selecting Git expands the pane to its saved height. Focus the editor to fold it back to the bar, or click the green Pop pane button to keep it open."
 />
@@ -99,12 +104,14 @@ The area above the composer now uses a **shared stack of blocks**. Work in progr
 
 <DocScreenshot
   src={runningAgentsScreenshot}
+  preserveSource
   alt="Demonstration conversation about search keyboard navigation, with Accessibility and Test coverage agents listed in the Running agents block directly above an unsent follow-up prompt"
   caption="Demonstration conversation: keep both running agents in view while drafting a follow-up. Select an agent to jump back to its card in the conversation."
 />
 
 <DocScreenshot
   src={composerBlockScreenshot}
+  preserveSource
   alt="Close-up of an unsent cadencr:review prompt with its skill-configuration block directly above the composer, showing the reviewer model, mode, thinking effort, and worktree controls"
   caption="One example of the new blocks: configure the reviewer above your draft before sending it. The block's controls apply to the session the skill will spawn."
 />
