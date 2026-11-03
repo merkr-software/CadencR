@@ -25,6 +25,7 @@ const configured = {
   CADENCR_MANAGED_PROVIDER_BLOCKLIST_URL: `${feed}managed-blocklist.json`,
   CADENCR_MANAGED_THEME_INDEX_URL: `${feed}managed-index.json`,
   CADENCR_MANAGED_THEME_BLOCKLIST_URL: `${feed}managed-theme-blocklist.json`,
+  CADENCR_MANAGED_LSP_BLOCKLIST_URL: `${feed}managed-lsp-blocklist.json`,
   CADENCR_MANAGED_TAB_BLOCKLIST_URL: `${feed}managed-tab-blocklist.json`,
   CADENCR_SENTRY_DSN: "https://public@example.invalid/42",
   CADENCR_POSTHOG_KEY: "phc_public-test-key",
