@@ -149,10 +149,18 @@ const DOC_PAGES: DocPage[] = [
     section: "Features",
   },
   {
+    slug: "marketplace",
+    title: "Marketplace",
+    navLabel: "Marketplace",
+    description:
+      "Discover, install, update, and manage plugins, themes, providers, custom tabs, skills, and MCP servers.",
+    section: "Features",
+  },
+  {
     slug: "themes",
     title: "Themes & appearance",
     navLabel: "Themes",
-    description: "Choose a built-in theme or create, edit, and export your own local color theme.",
+    description: "Install a marketplace theme or create, edit, export, and publish your own.",
     section: "Features",
   },
   {
@@ -205,6 +213,14 @@ const DOC_PAGES: DocPage[] = [
     navLabel: "Libraries overview",
     description:
       "Choose an npm package or Rust crate to build a Cadencr custom tab or agent provider.",
+    section: "Libraries",
+  },
+  {
+    slug: "marketplace-publishing",
+    title: "Publish to the marketplace",
+    navLabel: "Publish to the marketplace",
+    description:
+      "Prepare an extension, publish immutable GitHub Release assets, and submit a marketplace registry pull request.",
     section: "Libraries",
   },
   {

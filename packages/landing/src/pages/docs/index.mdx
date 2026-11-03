@@ -2,8 +2,8 @@
 layout: "@/layouts/DocLayout.astro"
 title: "Docs"
 description: "Practical guides to the current CadencR workspace, agents, and review workflows."
-lastReviewed: "2026-10-13"
-version: "0.13.0"
+lastReviewed: "2026-11-03"
+version: "0.16.0"
 ---
 
 import DocPageGrid from "@/components/docs/DocPageGrid.astro";
@@ -11,16 +11,18 @@ import DocScreenshot from "@/components/docs/DocScreenshot.astro";
 import { DOC_SECTIONS, getDocHref } from "@/lib/docs";
 import overviewImage from "@/assets/docs/v0.13.0/index.png";
 
-Use these guides to set up your agents, choose a task's working context, and review its result. They cover **CadencR v0.13.0**, with current screenshots from a separate example workspace. Open a screenshot to inspect it at full size.
+Use these guides to set up your agents, choose a task's working context, and review its result. The marketplace guides cover **CadencR v0.16.0**; each guide shows its reviewed version. Some screenshots illustrate earlier versions from a separate example workspace. Open a screenshot to inspect it at full size.
 
 Ready to install the desktop app? Follow the [macOS and Linux installation guide](./installation/).
 
 Building an extension? The [libraries overview](./libraries/) links to dedicated **npm packages** and **Rust crates** guides for custom tabs and agent providers. Library versions are independent of the desktop version shown above.
 
+Find extensions in the [Marketplace](./marketplace/), or follow [Publish to the marketplace](./marketplace-publishing/) to release your own.
+
 <DocScreenshot
   src={overviewImage}
   alt="CadencR v0.13.0 with an example conversation, project sidebar, and workspace tools"
-  caption="The current workspace: conversations across projects, the agent, and tools for inspecting its work. The conversation is example data."
+  caption="Workspace example from v0.13.0: conversations across projects, the agent, and tools for inspecting its work. The conversation is example data."
   bordered={false}
   rounded
   elevated
@@ -28,16 +30,18 @@ Building an extension? The [libraries overview](./libraries/) links to dedicated
 
 ## Choose a starting point
 
-| Your goal                   | Start here                                | Then read                                                     |
-| --------------------------- | ----------------------------------------- | ------------------------------------------------------------- |
-| Set up an agent             | [Providers](./providers/)                 | [Prompt](./prompting/) and [Approvals](./approvals/)          |
-| Understand the app          | [Concept](./concept/)                     | [Workspace pages](./workspace-pages/)                         |
-| Work on a task              | [Feature workspace](./feature-workspace/) | [Worktrees](./worktrees/) and [Git](./git/)                   |
-| Supervise several agents    | [Sidebar](./sidebar/)                     | [Unified agent list](./unified-agent-list/) and [MCP](./mcp/) |
-| Repeat work automatically   | [Schedules](./schedules/)                 | [Custom actions](./custom-actions/)                           |
-| Continue from another point | [Rewind & Fork](./rewind-and-fork/)       | [Session view](./session-view/)                               |
-| Customize or inspect usage  | [Settings](./settings/)                   | [Themes](./themes/) and [Usage Stats](./usage-stats/)         |
-| Use another device          | [Remote access](./remote-access/)         | [Terminal](./terminal/)                                       |
+| Your goal                   | Start here                                              | Then read                                                     |
+| --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------- |
+| Set up an agent             | [Providers](./providers/)                               | [Prompt](./prompting/) and [Approvals](./approvals/)          |
+| Understand the app          | [Concept](./concept/)                                   | [Workspace pages](./workspace-pages/)                         |
+| Work on a task              | [Feature workspace](./feature-workspace/)               | [Worktrees](./worktrees/) and [Git](./git/)                   |
+| Supervise several agents    | [Sidebar](./sidebar/)                                   | [Unified agent list](./unified-agent-list/) and [MCP](./mcp/) |
+| Repeat work automatically   | [Schedules](./schedules/)                               | [Custom actions](./custom-actions/)                           |
+| Continue from another point | [Rewind & Fork](./rewind-and-fork/)                     | [Session view](./session-view/)                               |
+| Customize or inspect usage  | [Settings](./settings/)                                 | [Themes](./themes/) and [Usage Stats](./usage-stats/)         |
+| Install extensions          | [Marketplace](./marketplace/)                           | [Providers](./providers/) and [Themes](./themes/)             |
+| Publish an extension        | [Publish to the marketplace](./marketplace-publishing/) | [Libraries](./libraries/)                                     |
+| Use another device          | [Remote access](./remote-access/)                       | [Terminal](./terminal/)                                       |
 
 ## Browse every guide
 
@@ -62,4 +66,4 @@ Building an extension? The [libraries overview](./libraries/) links to dedicated
 3. Check the provider/model and branch/worktree controls.
 4. Describe one task, then inspect files, checks, and Git before publishing changes.
 
-New conversations use the provider and model from your last accepted manual prompt across projects, unless the conversation has an override. Local ACP connectors can add providers; the public marketplace remains inactive in this version.
+New conversations use the provider and model from your last accepted manual prompt across projects, unless the conversation has an override. Add providers through the [Marketplace](./marketplace/) or a local ACP connector.

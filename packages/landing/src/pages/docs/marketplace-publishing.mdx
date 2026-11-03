@@ -1,0 +1,177 @@
+---
+layout: "@/layouts/DocLayout.astro"
+title: "Publish to the marketplace"
+description: "Prepare an extension, publish immutable GitHub Release assets, and submit a marketplace registry pull request."
+lastReviewed: "2026-11-03"
+version: "0.16.0"
+---
+
+Publishing a CadencR extension has three stages: **prepare a local bundle**, **publish an author GitHub release**, and **submit a registry pull request**. After review, maintainers mirror the accepted assets and publish the signed catalog that users browse in the [Marketplace](../marketplace/).
+
+Creating a project, exporting a theme, or publishing a GitHub release alone does not list it in the marketplace.
+
+## Choose your extension format
+
+| Format              | Build and test first                                                               | Distribution                                                                |
+| ------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Provider            | Implement model discovery and ACP v1; test the connector with its native agent CLI | One compiled executable archive per declared platform                       |
+| Theme               | Validate `theme.json` and any declared raster asset                                | One platform-independent data archive                                       |
+| Custom tab          | Build its web interface; validate `tab.json`, permissions, and allowed origins     | One web archive, plus separate platform archives if it has a native backend |
+| Multi-export plugin | Validate `plugin.json` and every provider, theme, or tab member                    | Each member's archives, all in one author release                           |
+
+Start with [Themes](../themes/) for a theme project or [Libraries](../libraries/) for custom tabs and providers. A local host descriptor or `tab.json` describes runtime behavior; **marketplace package metadata** additionally declares publisher, version, license, repository, host compatibility, and immutable archive URLs and checksums.
+
+Skills are published through the marketplaces supported by their agent CLI. MCP servers are published through the official MCP Registry. See the separate [skill](../marketplace/#install-skills-in-an-agent-cli) and [MCP server](../marketplace/#add-an-mcp-server) installation workflows; they do not use the CadencR registry submission below.
+
+## Prepare the source and metadata
+
+Before preparing a release:
+
+- Use an existing **public GitHub repository** you are authorized to publish from. Set the project's `origin` to the repository declared by the package.
+- Choose an exact semantic version, publisher, license, minimum CadencR version, and release tag. Use your own publisher identity; `cadencr` is reserved for official packages.
+- Build and test every platform you declare. macOS Apple Silicon, macOS Intel, and Linux need their corresponding native executables; a theme and a tab's web archive are platform-independent.
+- Review the distributable files, permissions, dependencies, README, and license. Exclude credentials and private keys from archives and metadata.
+- Plan all archive URLs under the **same author GitHub release** named by the submission's source tag.
+
+The registry records a full source commit, tag, repository, and changelog alongside the package metadata. Keep those values consistent with the bytes you actually release.
+
+## Publish from the desktop app
+
+The guided workflow is available in **Project settings** for projects marked as a **provider**, **theme**, or **custom tab** author project. It supports web-only tabs; tabs with native backends and multi-export plugins use the CLI workflow below. An ordinary project does not show the bundle preparation controls.
+
+### 1. Prepare a local bundle
+
+| Author project | Action and inputs                                                                                                                                                                                                                      |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Provider       | Open **Prepare a local provider bundle**, supply managed package metadata, select a declared binary target, and choose an absolute staging directory outside the project tree. Include only reviewed distributable files.              |
+| Theme          | Open **Prepare a declarative theme bundle** and supply theme package metadata. CadencR snapshots the validated theme document and its declared raster asset.                                                                           |
+| Custom tab     | Open **Prepare a custom tab bundle** after building the web interface. Supply tab package metadata. CadencR snapshots the manifest, icon, and compiled web directory. Use the CLI workflow below for separate native backend archives. |
+
+Acknowledge the file review and choose the preparation action. The result shows the archive path, SHA-256, and size. Keep the **Prepared bundle UUID**, taken from the archive's parent directory, for later review or retries.
+
+For a provider release, declare all supported targets in the metadata and prepare a bundle for each. Enter the other UUIDs in **Other platform bundle UUIDs** so they publish as one version. Preparation writes local artifacts; it does not build your code or upload a release.
+
+### 2. Publish the author release
+
+1. Configure CadencR's GitHub connection with an account that has push access to your public author repository.
+2. Commit and push the exact source, then push the release tag yourself. The worktree must be clean and the remote tag must resolve to local `HEAD`. CadencR does not push source or create this tag.
+3. Enter the prepared bundle UUID or UUIDs and **Release notes**.
+4. Choose **Review GitHub publication**. Inspect the account, destination, tag, source commit, version, assets, sizes, and digests.
+5. Confirm the displayed plan and choose **Publish GitHub release**.
+
+CadencR creates or resumes the matching draft, uploads the prepared artifacts and metadata, then publishes the release. Changed inputs require a new review. Conflicting assets or release state are reported instead of being replaced.
+
+### 3. Submit for marketplace review
+
+After the author release is published:
+
+1. Choose **Review registry submission**.
+2. Review the destination **`merkr-software/cadencr-registry`**, account, pinned base commit, branch, package and submission paths, version, and notes.
+3. Confirm that exact plan, then choose **Create registry pull request**.
+4. Follow the returned PR URL, complete the human review claims, and address registry CI or maintainer feedback.
+
+The app uses a personal fork and dedicated branch to open the PR. An exact existing open PR can be reused. It does not merge or approve the contribution. **Prepare registry contribution** is an alternative that exports the metadata files and `PULL_REQUEST.md` locally; review them and submit through your fork yourself.
+
+If publication or PR creation times out, inspect the operation status and GitHub before retrying. A draft, branch, or PR may already exist. Review the plan again when required; do not replace conflicting assets or rewrite an accepted version to force a retry.
+
+## Package and submit with the CLI
+
+Use this route for scripted releases, multi-export plugins, or custom tabs with native backends. The Rust **`cadencr` CLI** is distributed separately from the desktop app; consult the [CLI reference](https://github.com/merkr-software/CadencR/blob/main/packages/cli/README.md) for release artifacts and command contracts. In a source checkout, the equivalent command prefix is `pnpm rust -- run -p cadencr-cli --` in place of `cadencr`.
+
+### Validate and package
+
+```bash
+# Run the command for your extension kind.
+cadencr plugin validate ./my-provider --descriptor ./my-provider/my-provider.json
+cadencr plugin validate ./my-theme --kind theme
+cadencr plugin validate ./my-tab --kind tab
+cadencr plugin validate ./my-plugin --kind plugin
+```
+
+Tab validation runs a present backend for the current platform through protocol conformance checks. `--no-run` skips that execution. Missing build outputs can be warnings, so confirm the release files exist and test the extension in CadencR before packaging.
+
+Create a dedicated staging directory and an existing output directory, then use the command for the content you are distributing:
+
+```bash
+# Provider: repeat for each declared target using that target's staged files.
+cadencr registry pack-provider --package ./package.json \
+  --target darwin-aarch64 --directory ./provider-stage \
+  --output ./out/provider-darwin-aarch64.tar.gz
+
+# Theme: only theme.json and its declared raster asset belong in staging.
+cadencr registry pack-theme --directory ./theme-stage \
+  --output ./out/theme.tar.gz
+
+# Tab: stage tab.json, its icon, and the compiled web root.
+cadencr registry pack-tab --directory ./tab-stage --output ./out/tab.tar.gz
+
+# Native tab backend: repeat for every declared backend platform.
+cadencr registry pack-tab-backend --directory ./my-tab \
+  --target linux-x86_64 --output ./out/tab-backend-linux-x86_64.tar.gz
+```
+
+Packers do not build the extension. Outputs must be new files outside staging. Copy the returned SHA-256 and any required size and executable fields into the metadata. Provider packaging needs structurally valid metadata beforehand; a 64-zero digest may be used locally for that first pack, then replaced with the actual digest before submission.
+
+For a native tab, keep the executable out of the web archive. Set `tab.backend` to the manifest's protocol and reasoning, and populate `tab.distribution.binary` from each backend packer's output. Supported backend keys are `darwin-aarch64`, `darwin-x86_64`, and `linux-x86_64`. Validate the final web/metadata binding with `pack-tab --package ./package.json` using a new output path. See the [native tab authoring contract](https://github.com/merkr-software/CadencR/blob/main/tooling/marketplace-registry/AUTHORING.md#custom-tabs-with-a-native-backend) for exact fields and executable requirements.
+
+### Write the package and source-pinned submission
+
+For a theme, a schema-2 package file has this shape. Replace the example identity and URL, and replace the local placeholder digest with the packer's actual SHA-256:
+
+```json
+{
+  "kind": "theme",
+  "package": {
+    "theme": {
+      "id": "my-theme",
+      "name": "My Theme",
+      "description": "A dark theme with warm accents",
+      "version": "1.0.0",
+      "repository": "https://github.com/acme/my-theme",
+      "license": "MIT",
+      "document_version": 1,
+      "distribution": {
+        "archive": "https://github.com/acme/my-theme/releases/download/v1.0.0/theme.tar.gz",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    "host": {
+      "publisher": "acme",
+      "compatibility": { "min_app_version": "0.16.0" }
+    }
+  }
+}
+```
+
+Save it as `packages/my-theme-1.0.0.json`. The matching `submissions/my-theme-1.0.0.json` contains `schema_version: 2`, the **whole package entry above** in `package`, a non-empty `changelog`, and `source` with `repository`, the full 40-character lowercase Git commit, and `tag: "v1.0.0"`.
+
+The source repository must match the package repository. Every archive must be an asset of that source tag's release. Legacy provider-only submissions use schema 1; use the documented format for your package kind rather than changing a schema number alone. The [authoring reference](https://github.com/merkr-software/CadencR/blob/main/tooling/marketplace-registry/AUTHORING.md) covers provider metadata and multi-export plugin assembly.
+
+### Publish the assets and open a PR
+
+1. Push your reviewed source commit and tag to the author repository.
+2. Publish all immutable archives in that tag's GitHub release. Verify the uploaded bytes against the recorded digests.
+3. Fork **`merkr-software/cadencr-registry`**, create a contribution branch, and add the matching `packages/` and `submissions/` JSON files.
+4. Validate the files and complete candidate against a checkout of the accepted registry base:
+
+```bash
+cadencr registry validate-metadata ./candidate/packages/my-theme-1.0.0.json
+cadencr registry validate-submission ./candidate/submissions/my-theme-1.0.0.json
+cadencr registry validate --base ./accepted-registry --candidate ./candidate
+```
+
+5. Open a PR to the official registry and complete its review checklist. Follow the [registry contribution policy](https://github.com/merkr-software/CadencR/blob/main/tooling/marketplace-registry/CONTRIBUTING.md) for ownership, licensing, provenance, and native platform review.
+
+Standalone metadata validation checks structure and semantic rules; it does not authenticate a signed catalog or establish that a binary was built from the claimed source.
+
+## Release a new version
+
+Use a new exact version, new immutable release assets, and new package/submission files. Repeat validation and review. Previously accepted versions, checksums, permissions, ownership, and URLs cannot be rewritten through an ordinary version PR. Correct a release with a new version.
+
+For a multi-export plugin, release its members at the same version and keep their publisher, repository, and compatibility aligned. Package every member with its own kind's command and upload all archives to one author release. Follow the [multi-export format](https://github.com/merkr-software/CadencR/blob/main/tooling/marketplace-registry/AUTHORING.md#multi-export-plugins); a member's identity cannot later move to a standalone package or another plugin.
+
+## After submission
+
+Registry CI and maintainers review ownership, source bindings, licenses, permissions, and artifacts. Accepted packages are mirrored into registry-owned GitHub Releases before maintainers sign and publish the catalog. Authors do not need registry signing keys or the protected registry publication commands.
+
+Availability depends on a published, current catalog and a compatible CadencR build. Local validation or a successful PR creation is not a guarantee of acceptance or installation. Return to [Marketplace](../marketplace/) for the user installation and troubleshooting steps.

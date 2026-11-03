@@ -1,9 +1,9 @@
 ---
 layout: "@/layouts/DocLayout.astro"
 title: "Themes & appearance"
-description: "Choose a built-in theme or create, edit, and export your own local color theme."
-lastReviewed: "2026-10-13"
-version: "0.13.0"
+description: "Install a marketplace theme or create, edit, export, and publish your own."
+lastReviewed: "2026-11-03"
+version: "0.16.0"
 ---
 
 import DocScreenshot from "@/components/docs/DocScreenshot.astro";
@@ -13,8 +13,8 @@ Open **Settings → Appearance** to choose light, dark, or system-following appe
 
 <DocScreenshot
   src={pageImage}
-  alt="The current theme picker with built-in dark and light themes."
-  caption="The current theme picker previews colors against your last workspace screen."
+  alt="Theme picker from v0.13.0 with built-in dark and light themes."
+  caption="Appearance settings in v0.13.0. Marketplace themes can also be installed in the current version."
   bordered={false}
   rounded
   elevated
@@ -40,7 +40,13 @@ The project is an ordinary workspace for authoring the local theme. Keep its the
 
 Export a custom theme to share its portable files. Deleting a user theme moves it safely to the Trash. Built-in themes remain available as starting points.
 
-The public marketplace is **not activated in v0.13.0**. Local creation, editing, and export are the available workflow; internal signed-package preparation does not make public downloading available.
+## Install or publish a marketplace theme
+
+Open **Marketplace → Themes**, inspect a theme and its exact version, then choose **Install** and **Use this theme**. Manage its appearance-mode selection in **Settings → Appearance**. To edit an installed marketplace theme, use **Duplicate** on its detail page to create an author project; signed installed revisions are immutable.
+
+To publish your own, open the theme project's settings and use **Prepare a declarative theme bundle**, then review and publish the author GitHub release and submit a registry PR. The [publishing guide](../marketplace-publishing/) walks through metadata, source tags, and review. Local export alone does not create a marketplace listing.
+
+Remove an installed marketplace theme from its detail page. Any active selections using it return to a built-in theme.
 
 ## Fonts, motion, and density
 
@@ -55,6 +61,8 @@ Font discovery runs on demand. Neovim and the terminal share font family/size re
 
 ## Related guides
 
+- [Marketplace](../marketplace/) — installation, updates, and catalog troubleshooting.
+- [Publish to the marketplace](../marketplace-publishing/) — share your theme through the registry.
 - [Settings](../settings/) — appearance modes and other preferences.
 - [Sidebar](../sidebar/) — quiet or detailed navigation.
 - [Terminal](../terminal/) — Alacritty settings.
