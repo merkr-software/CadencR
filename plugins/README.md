@@ -12,11 +12,18 @@ trust and conformance rules for official and third-party packages.
 | Pi provider                   | [`providers/pi`](providers/pi/README.md) | `0.4.1`           |
 | Cursor provider               | [`providers/cursor`](providers/cursor/README.md) | `0.1.0` |
 | Graphite, Ember, Fjord themes | [`themes`](themes/README.md)             | `0.1.0` each      |
+| TypeScript / JavaScript LSP | [`lsp/typescript-language-server`](lsp/typescript-language-server/README.md) | `0.1.0` |
 
-Sources were imported from reviewed local repositories without their Git data,
+The initial provider/theme sources were imported from reviewed local repositories without their Git data,
 dependencies, generated payloads, credentials or QA profiles. The original local
 repositories remain untouched. Plugin-specific licenses are retained beside the
 sources; Pi artwork provenance still requires review before publication.
+
+The TypeScript LSP source is a reviewed prepared snapshot of two locked official
+npm distributions, including TypeScript and their notices. A single canonical
+archive is tracked for trusted reconstruction of the three qualified targets.
+Its minimum app version is `0.16.1`; publishing its GitHub assets does not admit
+it to the production marketplace.
 
 ## Separate commands
 

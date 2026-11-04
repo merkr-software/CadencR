@@ -36,6 +36,7 @@ export function fixture() {
     "official-plugin-author-gate.sh",
     "official-plugin-author-stage.sh",
     "official_plugin_author_review.py",
+    "official_plugin_tags.py",
     "official-plugin-author-policy.json",
     "official-plugin-author-cli.env",
   ])

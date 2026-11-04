@@ -19,6 +19,7 @@ repo, commit, tag, expected_digest, output = sys.argv[1:]
 root = pathlib.Path(os.environ['ROOT'])
 sys.path.insert(0, str(root/'scripts'))
 from official_plugin_author_review import validate_review_policy, validate_remote_reviewers
+from official_plugin_tags import release_tag, release_notes
 if not re.fullmatch('[0-9a-f]{40}', commit) or not re.fullmatch('[0-9a-f]{64}', expected_digest): fail('AUTHOR_INPUT_INVALID')
 try:
     policy = json.loads((root/'scripts/official-plugin-author-policy.json').read_bytes())
@@ -37,10 +38,11 @@ try:
     if ('CADENCR_RELEASE_SHA256='+policy['author_cli_sha256']+'\n').encode() not in pin: fail('AUTHOR_POLICY_INVALID')
     if not re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?',policy.get('author_cli_version','')) or ('CADENCR_RELEASE_VERSION='+policy['author_cli_version']+'\n').encode() not in pin: fail('AUTHOR_POLICY_INVALID')
     if tracked('plugins/release-policy.json') != release_bytes: fail('AUTHOR_POLICY_MISMATCH')
-    match = re.fullmatch(r'plugins/((?:theme|provider|tab)-[a-z][a-z0-9-]*)/v((?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*))',tag)
-    if not match: fail('AUTHOR_TAG_INVALID')
-    entry = release.get('plugins',{}).get(match.group(1))
-    if release.get('schema_version') != 2 or not isinstance(entry,dict) or entry.get('version') != match.group(2) or entry.get('preparation') != 'READY': fail('AUTHOR_PLUGIN_UNAPPROVED')
+    try: plugin, version = release_tag(tag, release)
+    except ValueError: fail('AUTHOR_TAG_INVALID')
+    entry = release.get('plugins',{}).get(plugin)
+    if release.get('schema_version') != 2 or not isinstance(entry,dict) or entry.get('version') != version or entry.get('preparation') != 'READY': fail('AUTHOR_PLUGIN_UNAPPROVED')
+    notes = release_notes(entry, tag)
     if git('rev-parse','--verify', 'refs/tags/'+tag+'^{commit}').decode().strip() != commit: fail('AUTHOR_TAG_INVALID')
     # Numeric repository identity is checked independently of origin spelling.
     url = 'https://api.github.com/repos/'+policy['repository']
@@ -96,7 +98,7 @@ try:
     if metadata.get('package') != package: fail('AUTHOR_ASSET_INVALID')
     allowed = set(names + ['package.json','submission.json','release.json','SHA256SUMS'])
     if {path.name for path in out.iterdir()} != allowed: fail('AUTHOR_EXTRA_CONTENT')
-    request = {'schema_version':1,'repository':policy['repository'],'expected_repository_id':policy['repository_id'],'expected_account':policy['author_account'],'tag':tag,'source_commit':commit,'release_notes':'Official plugin release '+tag,'prerelease':False,'archive':asset(names[0]),'metadata':package,'additional_archives':[asset(name) for name in names[1:]]}
+    request = {'schema_version':1,'repository':policy['repository'],'expected_repository_id':policy['repository_id'],'expected_account':policy['author_account'],'tag':tag,'source_commit':commit,'release_notes':notes,'prerelease':False,'archive':asset(names[0]),'metadata':package,'additional_archives':[asset(name) for name in names[1:]]}
     data = (json.dumps(request,sort_keys=True,separators=(',',':'))+'\n').encode()
     actual = digest(data)
     if expected_digest != '0'*64 and actual != expected_digest: fail('AUTHOR_REQUEST_DIGEST_MISMATCH')
