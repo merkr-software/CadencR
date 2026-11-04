@@ -170,6 +170,9 @@ for (const kind of ["theme", "provider", "tab"]) {
       "official-plugin-release.sh",
       "official-plugin-prepare.py",
       "official_plugin_pack.py",
+      "official_plugin_tags.py",
+      "official_plugin_lsp.py",
+      "official_plugin_lsp_archive.py",
     ])
       cpSync(resolve("scripts", name), join(f.root, "scripts", name));
     cpSync(join(c.root, "mock/git"), join(f.root, "mock/git"));

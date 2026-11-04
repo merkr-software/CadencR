@@ -13,10 +13,7 @@
           "directory": "plugins/themes/graphite",
           "closed_directories": ["."],
           "files": {
-            "theme.json": {
-              "sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5",
-              "mode": "100644"
-            }
+            "theme.json": {"sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5", "mode": "100644"}
           }
         }
       }
@@ -33,10 +30,7 @@
           "directory": "plugins/themes/ember",
           "closed_directories": ["."],
           "files": {
-            "theme.json": {
-              "sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079",
-              "mode": "100644"
-            }
+            "theme.json": {"sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079", "mode": "100644"}
           }
         }
       }
@@ -53,10 +47,7 @@
           "directory": "plugins/themes/fjord",
           "closed_directories": ["."],
           "files": {
-            "theme.json": {
-              "sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e",
-              "mode": "100644"
-            }
+            "theme.json": {"sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e", "mode": "100644"}
           }
         }
       }
@@ -73,364 +64,123 @@
           "directory": "plugins/providers/pi",
           "closed_directories": ["src"],
           "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
+            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
+            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
+            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
+            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
+            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
+            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
+            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
+            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
+            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
+            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
+            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
+            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
+            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
+            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
+            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
           }
         },
         "darwin-x86_64": {
           "directory": "plugins/providers/pi",
           "closed_directories": ["src"],
           "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
+            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
+            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
+            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
+            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
+            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
+            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
+            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
+            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
+            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
+            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
+            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
+            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
+            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
+            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
+            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
           }
         },
         "linux-aarch64": {
           "directory": "plugins/providers/pi",
           "closed_directories": ["src"],
           "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
+            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
+            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
+            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
+            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
+            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
+            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
+            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
+            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
+            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
+            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
+            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
+            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
+            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
+            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
+            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
           }
         },
         "linux-x86_64": {
           "directory": "plugins/providers/pi",
           "closed_directories": ["src"],
           "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
+            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
+            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
+            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
+            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
+            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
+            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
+            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
+            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
+            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
+            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
+            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
+            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
+            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
+            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
+            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
           }
         }
       },
       "version_file": "plugins/providers/pi/package.json"
+    },
+    "lsp-typescript-language-server": {
+      "kind": "lsp",
+      "id": "typescript-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/typescript-language-server",
+      "package": "plugins/lsp/typescript-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/typescript-language-server/payload",
+          "closed_directories": ["."],
+          "files": {
+            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
+            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/typescript-language-server/payload",
+          "closed_directories": ["."],
+          "files": {
+            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
+            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/typescript-language-server/payload",
+          "closed_directories": ["."],
+          "files": {
+            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
+            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+          }
+        }
+      },
+      "release_notes": "TypeScript / JavaScript language server package 0.1.0\n\nIncludes typescript-language-server 5.3.0 and TypeScript 6.0.3, prepared together with their license notices. Requires an existing Node.js >=20; runtime qualification used Node.js 22.19.0 on Linux x86_64, macOS ARM64 and macOS Intel. No npm install or lifecycle scripts run in Cadencr.\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission and the LSP revocation feed remain held for the application 0.16.1 rollout. Managed client install/update/remove/revocation and minimum macOS 12 certification remain separate rollout checks.\n\nQualified archives: SHA-256 295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286 (5,014,231 bytes each). Runtime qualification: https://github.com/merkr-software/cadencr-registry-qa/actions/runs/41727012894"
     }
   },
   "publication": "APPROVED"

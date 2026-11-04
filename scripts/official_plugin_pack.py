@@ -58,6 +58,9 @@ def relative(value):
 
 def pack(run, work, entry, package, stages, tag, version):
     kind = entry["kind"]
+    if kind == "lsp":
+        from official_plugin_lsp import pack_lsp
+        return pack_lsp(run, work, entry, package, stages, tag, version)
     body = package["package"]
     identity = body["agent" if kind == "provider" else kind]
     distribution = identity.get("distribution", {})

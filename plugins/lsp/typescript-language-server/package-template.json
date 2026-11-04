@@ -1,0 +1,98 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "TypeScript/JavaScript intelligence: TLS5.3.0 and TypeScript6.0.3; requires Node.js20+.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-typescript-language-server-v0.1.0/lsp-typescript-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "lib/cli.mjs",
+            "entry_sha256": "86ef128358dcd71d0c684d786d7751ee09fbbbbb2a521482b160007b8228be2e",
+            "entry_size": 890213,
+            "runtime": "node",
+            "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+            "size": 5014231
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-typescript-language-server-v0.1.0/lsp-typescript-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "lib/cli.mjs",
+            "entry_sha256": "86ef128358dcd71d0c684d786d7751ee09fbbbbb2a521482b160007b8228be2e",
+            "entry_size": 890213,
+            "runtime": "node",
+            "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+            "size": 5014231
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-typescript-language-server-v0.1.0/lsp-typescript-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "lib/cli.mjs",
+            "entry_sha256": "86ef128358dcd71d0c684d786d7751ee09fbbbbb2a521482b160007b8228be2e",
+            "entry_size": 890213,
+            "runtime": "node",
+            "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+            "size": 5014231
+          }
+        }
+      },
+      "id": "typescript-language-server",
+      "initialization_options": {
+        "disableAutomaticTypingAcquisition": true
+      },
+      "languages": [
+        {
+          "extensions": [
+            "ts",
+            "mts",
+            "cts"
+          ],
+          "filenames": [],
+          "id": "typescript"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        },
+        {
+          "extensions": [
+            "js",
+            "mjs",
+            "cjs"
+          ],
+          "filenames": [],
+          "id": "javascript"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        }
+      ],
+      "license": "Apache-2.0",
+      "name": "TypeScript language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "tsconfig.json",
+        "jsconfig.json",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

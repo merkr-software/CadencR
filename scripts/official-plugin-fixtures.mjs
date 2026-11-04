@@ -125,6 +125,9 @@ function copyPreparation(root) {
     "official-plugin-release.sh",
     "official-plugin-prepare.py",
     "official_plugin_pack.py",
+    "official_plugin_tags.py",
+    "official_plugin_lsp.py",
+    "official_plugin_lsp_archive.py",
   ])
     cpSync(resolve("scripts", name), join(root, "scripts", name));
 }

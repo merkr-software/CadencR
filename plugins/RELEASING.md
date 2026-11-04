@@ -1,5 +1,37 @@
 # Independent official plugin releases
 
+## TypeScript LSP publication — 2026-11-04
+
+The local registry, qualification and author pins select qualified CLI `0.15.5`.
+The existing approved author policy and protected `official-plugin-publication`
+environment govern publication. Source, policy, account, repository identity,
+exact request digest and environment protections are rechecked independently by
+the inspection and publication jobs; no protection or author authority is changed.
+
+The allowlisted `typescript-language-server` package `0.1.0` uses the separate tag
+`lsp-typescript-language-server-v0.1.0`, not a desktop `v*` tag. It is prepared from
+[tracked canonical payload and source lock](lsp/typescript-language-server/README.md).
+The preparer verifies every locked regular file before the shared Rust CLI packs
+each declared target twice and compares the result with the qualified bytes.
+Neither the server nor any candidate script executes during publication.
+
+Use the manual `official-plugin-author.yml` workflow with the actual primary
+source commit, its existing exact tag, and a zero request digest for inspection.
+Review the reconstructed inputs, then publish with the exact inspected digest
+through the unchanged protected environment. The author job reconstructs from
+Git blobs again; uploaded inspection or QA artifacts are never publication inputs.
+The CLI uploads the three archives and full `package.json` metadata.
+
+This is package publication only: minimum app `0.16.1`, production catalog LSP
+admission, revocation-feed activation and application release remain distinct.
+The prepared Node bundle retains both upstream license notices and requires an
+existing Node.js >=20; runtime qualification used Node.js `22.19.0` on Linux,
+macOS ARM and macOS Intel. Packaged-client lifecycle, native server distribution
+and the minimum macOS version remain separate qualification work.
+
+The earlier preparation notes below retain historical `PENDING` states. Current
+machine policies and the package-specific source record govern this publication.
+
 ## Scope
 
 - Tags: `plugins/provider-pi/v0.4.1`, `plugins/theme-graphite/v0.1.0`,
