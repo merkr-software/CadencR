@@ -2,6 +2,8 @@ import { CadencrError } from "../errors.js";
 import {
   negotiateApiVersion,
   type ApiRequestParams,
+  type EditorAppearance,
+  type SurfaceIdentity,
   type ApiVersionRange,
   type JsonValue,
   type MethodName,
@@ -19,6 +21,9 @@ export interface HostState {
   theme: ThemeSnapshot;
   capabilities: string[];
   visible: boolean;
+  surface?: SurfaceIdentity;
+  focused?: boolean;
+  editorAppearance?: EditorAppearance;
   shortcuts: string[];
   instanceId: string;
   plugin: { id: string; version: string };
@@ -58,6 +63,9 @@ export function createDefaultHandlers(state: HostState): Handlers {
         theme: state.theme,
         capabilities: state.capabilities,
         visible: state.visible,
+        surface: state.surface,
+        focused: state.focused,
+        editorAppearance: state.editorAppearance,
         shortcuts: state.shortcuts,
       };
     },

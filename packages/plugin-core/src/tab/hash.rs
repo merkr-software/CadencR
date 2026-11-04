@@ -10,6 +10,9 @@
 //! stops matching and the user is asked again: a new scope, origin or program,
 //! a backend, a platform's binary added or moved, a protocol change. Labels,
 //! reasons, version bumps and configuration do not.
+//! An editor contribution adds `"editor":{"label":...,"open_method":...}`
+//! after the backend. This binds the editor the user selected; omitted when
+//! absent so every pre-editor consent hash remains unchanged.
 //!
 //! A local tab's binaries are identified by path only: the user consents to
 //! whatever its author builds there. A marketplace tab's binary also carries
@@ -24,7 +27,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use super::manifest::TabManifest;
+use super::{manifest::TabManifest, TabEditorContribution};
 
 #[derive(Serialize)]
 struct Canonical<'a> {
@@ -34,6 +37,8 @@ struct Canonical<'a> {
     commands: Vec<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     backend: Option<CanonicalBackend<'a>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    editor: Option<&'a TabEditorContribution>,
 }
 
 /// A backend as consent sees it. Field order is the canonical key order.
@@ -53,6 +58,7 @@ pub(crate) struct CanonicalBackend<'a> {
 pub(crate) struct Execution<'a> {
     pub commands: Vec<&'a str>,
     pub backend: Option<CanonicalBackend<'a>>,
+    pub editor: Option<&'a TabEditorContribution>,
 }
 
 pub(crate) fn permissions_hash(
@@ -71,6 +77,7 @@ pub(crate) fn permissions_hash(
         allowed_origins,
         commands,
         backend: execution.backend,
+        editor: execution.editor,
     })
     .expect("a struct of string lists always serializes");
     Sha256::digest(&canonical)
@@ -95,6 +102,10 @@ impl TabManifest {
             .zip(digest)
             .map(|(platform, digest)| BTreeMap::from([(platform.as_str(), digest)]));
         let execution = Execution {
+            editor: self
+                .contributes
+                .as_ref()
+                .and_then(|contributes| contributes.editor.as_ref()),
             commands: self
                 .commands
                 .iter()
@@ -120,6 +131,35 @@ mod tests {
 
     fn strings(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn editor_consent_preserves_old_hashes_and_binds_the_contribution() {
+        let make = crate::tab::test_support::manifest;
+        let old = make(serde_json::json!({})).permissions_hash();
+        assert_eq!(
+            old,
+            make(serde_json::json!({"schema_version": 2})).permissions_hash()
+        );
+        assert_eq!(
+            old,
+            make(serde_json::json!({"schema_version": 2, "contributes": {}})).permissions_hash()
+        );
+        let editor = |label, method| {
+            make(serde_json::json!({"schema_version": 2,
+                "contributes": {"editor": {"label": label, "open_method": method}}
+            }))
+            .permissions_hash()
+        };
+        assert_ne!(old, editor("Editor", "editor.open"));
+        assert_ne!(
+            editor("Editor", "editor.open"),
+            editor("Editor", "file.open")
+        );
+        assert_ne!(
+            editor("Editor", "editor.open"),
+            editor("Other editor", "editor.open")
+        );
     }
 
     #[test]
@@ -190,6 +230,7 @@ mod tests {
         let git = || Execution {
             commands: vec!["jq", "git"],
             backend: None,
+            editor: None,
         };
         let with_commands = permissions_hash(&strings(&["a"]), &[], git());
         assert_ne!(plain, with_commands);
@@ -200,7 +241,8 @@ mod tests {
                 &[],
                 Execution {
                     commands: vec!["git", "jq"],
-                    backend: None
+                    backend: None,
+                    editor: None
                 }
             )
         );
@@ -217,6 +259,7 @@ mod tests {
             Execution {
                 commands: vec!["git", "jq"],
                 backend: backend(1, &[("linux-x86_64", "bin/l"), ("darwin-aarch64", "bin/m")]),
+                editor: None,
             },
         );
         assert_ne!(with_commands, with_backend);
@@ -227,6 +270,7 @@ mod tests {
                 Execution {
                     commands: vec!["git", "jq"],
                     backend: backend(protocol, binary),
+                    editor: None,
                 },
             )
         };

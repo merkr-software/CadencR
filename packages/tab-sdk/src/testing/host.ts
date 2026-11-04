@@ -5,6 +5,8 @@ import {
   SUPPORTED_API_VERSIONS,
   isGuestToHost,
   type ApiRequestParams,
+  type EditorAppearance,
+  type SurfaceIdentity,
   type ApiVersionRange,
   type EventMap,
   type EventName,
@@ -45,6 +47,9 @@ export interface TestHostOptions {
   capabilities?: string[];
   /** Whether the tab starts shown. Default: true. */
   visible?: boolean;
+  surface?: SurfaceIdentity;
+  focused?: boolean;
+  editorAppearance?: EditorAppearance;
   /** The active manifest shortcut ids `hello` reports. Default: none. */
   shortcuts?: string[];
   instanceId?: string;
@@ -112,8 +117,11 @@ class FakeHost implements TestHost {
       theme: options.theme ?? DEFAULT_TEST_THEME,
       capabilities: options.capabilities ?? [],
       visible: options.visible ?? true,
+      surface: options.surface,
+      focused: options.focused,
+      editorAppearance: options.editorAppearance,
       shortcuts: options.shortcuts ?? [],
-      instanceId: options.instanceId ?? "test-instance",
+      instanceId: options.instanceId ?? options.surface?.instanceId ?? "test-instance",
       plugin: options.plugin ?? { id: "test-tab", version: "0.0.0" },
       apiVersions: options.apiVersions ?? SUPPORTED_API_VERSIONS,
       config: options.config ?? {},

@@ -8,7 +8,7 @@ use utoipa::{IntoParams, ToSchema};
 use super::managed::storage::{InstalledBackend, ManagedFacts};
 pub use cadencr_plugin_core::tab::{
     TabAccessLevel, TabBackend, TabCommand, TabConfigField, TabConfigFieldType, TabConfigScope,
-    TabIssue, TabIssueCode, TabPlatform, TabShortcut,
+    TabEditorContribution, TabIssue, TabIssueCode, TabPlatform, TabShortcut,
 };
 
 /// One local custom tab, valid or not.
@@ -39,6 +39,8 @@ pub struct PluginTabSummary {
     pub shortcuts: Vec<TabShortcut>,
     /// The native process the tab ships, which runs with the user's rights.
     pub backend: Option<TabBackend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor: Option<TabEditorContribution>,
     /// Whether `backend` can run where Cadencr runs; `None` without one.
     pub backend_availability: Option<PluginTabBackendAvailability>,
     /// A marketplace tab's installed backend binary (what consent binds),
@@ -92,6 +94,8 @@ pub struct PluginTabPendingUpdate {
     pub network: PluginTabNetwork,
     pub commands: Vec<TabCommand>,
     pub backend: Option<TabBackend>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub editor: Option<TabEditorContribution>,
     /// The staged revision's backend binary, to compare with the installed
     /// `backend_binary`; `None` when the update ships no backend.
     pub backend_binary: Option<PluginTabBackendBinary>,

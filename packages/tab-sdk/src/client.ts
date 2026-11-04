@@ -19,17 +19,20 @@ import {
 } from "./namespaces.js";
 import type {
   EventMap,
+  EditorAppearance,
   HelloResult,
   MethodName,
   MethodParams,
   MethodResult,
   TabContext,
   ThemeSnapshot,
+  SurfaceIdentity,
 } from "./protocol.js";
 import type { Requester } from "./requester.js";
 import { StreamRegistry, type CadencrStreams } from "./streams.js";
 import { applyTheme } from "./theme.js";
 import type { PortSource } from "./transport.js";
+import { SurfaceState } from "./surface-state.js";
 
 export interface ClientOptions {
   source: PortSource;
@@ -60,6 +63,7 @@ export class CadencrClient {
 
   private hello: HelloResult | null = null;
   private isVisible = true;
+  private readonly surfaceState = new SurfaceState();
   private readonly connection: Connection;
   private readonly registry: StreamRegistry;
   private readonly backendStreams: BackendStreams;
@@ -81,7 +85,10 @@ export class CadencrClient {
       {
         onReady: (hello, reconnected) => this.onReady(hello, reconnected),
         onEvent: (event, payload) => this.onEvent(event, payload),
-        onConnectionChange: (connected) => this.connectionChanges.emit(connected),
+        onConnectionChange: (connected) => {
+          if (!connected) this.surfaceState.setFocused(false);
+          this.connectionChanges.emit(connected);
+        },
         onError: (error) => this.reportError(error),
       },
     );
@@ -146,6 +153,26 @@ export class CadencrClient {
     return this.isVisible;
   }
 
+  get surface(): SurfaceIdentity {
+    return this.current.surface ?? { kind: "tab", instanceId: this.instanceId };
+  }
+
+  get focused(): boolean {
+    return this.surfaceState.focused;
+  }
+
+  get editorAppearance(): EditorAppearance | null {
+    return this.surfaceState.appearance;
+  }
+
+  onFocusChange(listener: (focused: boolean) => void): () => void {
+    return this.surfaceState.focusChanges.on(listener);
+  }
+
+  onEditorAppearanceChange(listener: (appearance: EditorAppearance) => void): () => void {
+    return this.surfaceState.appearanceChanges.on(listener);
+  }
+
   /** The ids of the manifest's `shortcuts` that can fire (not taken by Cadencr). */
   get shortcuts(): readonly string[] {
     return this.current.shortcuts ?? [];
@@ -200,6 +227,7 @@ export class CadencrClient {
   /** Drops every subscription and listener and stops talking to the host.
    *  The port itself stays open: the page may connect again. */
   close(): void {
+    this.surfaceState.clear();
     releaseDefaultClient(this);
     this.registry.closeAll();
     this.backendStreams.closeAll();
@@ -227,6 +255,7 @@ export class CadencrClient {
   }
 
   private onReady(hello: HelloResult, reconnected: boolean): void {
+    this.surfaceState.ready(hello);
     const previous = this.hello;
     const sameContext =
       !!previous && JSON.stringify(previous.context) === JSON.stringify(hello.context);
@@ -253,6 +282,14 @@ export class CadencrClient {
 
   private onEvent(event: string, payload: unknown): void {
     switch (event) {
+      case "focus.changed":
+        this.surfaceState.setFocused((payload as EventMap["focus.changed"]).focused);
+        return;
+      case "editor.appearance.changed":
+        this.surfaceState.setAppearance(
+          (payload as EventMap["editor.appearance.changed"]).appearance,
+        );
+        return;
       case "context.changed": {
         const { context } = payload as EventMap["context.changed"];
         if (this.hello) this.hello = { ...this.hello, context };

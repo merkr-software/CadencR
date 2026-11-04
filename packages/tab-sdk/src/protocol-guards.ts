@@ -8,6 +8,7 @@ import {
   type MethodName,
   type WireError,
 } from "./protocol.js";
+import { isEditorAppearance } from "./surface-protocol.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -36,6 +37,8 @@ const EVENT_PAYLOADS: { [E in EventName]: (payload: Record<string, unknown>) => 
     isRecord(context) && isRecord(context.project) && isRecord(context.feature),
   "theme.changed": ({ theme }) => isRecord(theme),
   "visibility.changed": ({ visible }) => typeof visible === "boolean",
+  "focus.changed": ({ focused }) => typeof focused === "boolean",
+  "editor.appearance.changed": ({ appearance }) => isEditorAppearance(appearance),
   "stream.event": (payload) =>
     hasSubscription(payload) &&
     typeof payload.seq === "number" &&

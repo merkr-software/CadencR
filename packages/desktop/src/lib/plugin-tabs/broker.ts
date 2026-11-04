@@ -5,6 +5,8 @@ import {
   isGuestToHost,
   negotiateApiVersion,
   type EventMap,
+  type EditorAppearance,
+  type SurfaceIdentity,
   type EventName,
   type GuestToHost,
   type HelloResult,
@@ -43,6 +45,8 @@ export interface PluginTabBrokerOptions {
   plugin: PluginIdentity;
   context: TabContext;
   visible: boolean;
+  surface?: SurfaceIdentity;
+  appearance?: EditorAppearance;
 }
 
 /** Seams for tests; production uses the real service, socket and theme. */
@@ -77,6 +81,9 @@ export class PluginTabBroker {
   private context: TabContext;
   private contextKey: string;
   private visible: boolean;
+  private focused = false;
+  private readonly surface: SurfaceIdentity;
+  private appearance: EditorAppearance | undefined;
   private disposed = false;
   private readonly runtime: BrokerRuntime;
   private readonly methods: ReadonlyMap<string, MethodHandler>;
@@ -89,6 +96,10 @@ export class PluginTabBroker {
     this.context = options.context;
     this.contextKey = JSON.stringify(options.context);
     this.visible = options.visible;
+    this.surface = options.surface ?? { kind: "tab", instanceId: options.instanceId };
+    if (this.surface.instanceId !== options.instanceId)
+      throw new Error("Surface identity mismatch");
+    this.appearance = options.appearance;
     this.theme = deps.theme ?? currentPluginTabTheme;
     this.backendFailures = new BackendFailureWatch(options.instanceId, deps.backendFailures);
     const grant = new GrantHolder(options.plugin.id, options.featureId, deps.grant);
@@ -166,9 +177,27 @@ export class PluginTabBroker {
   }
 
   setVisible(visible: boolean): void {
+    if (!visible) this.setFocused(false);
     if (visible === this.visible) return;
     this.visible = visible;
     this.emit("visibility.changed", { visible });
+  }
+
+  setFocused(focused: boolean): void {
+    const active = focused && this.visible;
+    if (this.focused === active) return;
+    this.focused = active;
+    this.emit("focus.changed", { focused: active });
+  }
+
+  setEditorAppearance(appearance: EditorAppearance): void {
+    if (
+      this.appearance?.fontFamily === appearance.fontFamily &&
+      this.appearance.fontSize === appearance.fontSize
+    )
+      return;
+    this.appearance = appearance;
+    this.emit("editor.appearance.changed", { appearance });
   }
 
   /** One of the tab's active shortcuts was pressed while it had focus. */
@@ -190,6 +219,7 @@ export class PluginTabBroker {
    */
   suspend(): void {
     if (this.disposed) return;
+    this.setFocused(false);
     this.detachPort();
     this.runtime.streams.reset();
     this.runtime.nativeDelivery.reset();
@@ -267,6 +297,9 @@ export class PluginTabBroker {
       capabilities: await this.capabilities(),
       // A page recreated while hidden (a rebuild) gets no visibility change.
       visible: this.visible,
+      surface: this.surface,
+      focused: this.focused,
+      editorAppearance: this.appearance,
       shortcuts: [...this.runtime.plugin.shortcuts],
     };
     return { result };
@@ -286,11 +319,22 @@ export class PluginTabBroker {
     };
     const methods = METHOD_NAMES.filter((method) => declared[method] ?? true);
     try {
-      return [...methods, ...(await this.runtime.grant.get()).scopes];
+      return [
+        ...methods,
+        "surface.identity",
+        "surface.focus",
+        ...(this.appearance ? ["editor.appearance"] : []),
+        ...(await this.runtime.grant.get()).scopes,
+      ];
     } catch {
       // No grant (the tab is off for this project): the handshake still
       // succeeds, and each API call reports the actual refusal.
-      return methods;
+      return [
+        ...methods,
+        "surface.identity",
+        "surface.focus",
+        ...(this.appearance ? ["editor.appearance"] : []),
+      ];
     }
   }
 

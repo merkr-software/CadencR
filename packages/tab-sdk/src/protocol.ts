@@ -6,6 +6,12 @@
  * the renderer broker imports the same types for the host side. It must stay
  * dependency-free and side-effect-free.
  */
+import type { EditorAppearance, SurfaceIdentity } from "./surface-protocol.js";
+export type {
+  EditorAppearance,
+  EditorOpenFileParams,
+  SurfaceIdentity,
+} from "./surface-protocol.js";
 
 /** The `v` field every message carries. */
 export const PROTOCOL_VERSION = 1 as const;
@@ -155,6 +161,10 @@ export interface HelloResult {
   capabilities: string[];
   /** Whether the tab is shown right now; later changes arrive as `visibility.changed`. */
   visible: boolean;
+  /** Absent on older hosts: an ordinary tab surface. */
+  surface?: SurfaceIdentity;
+  focused?: boolean;
+  editorAppearance?: EditorAppearance;
   /**
    * The ids of the manifest's `shortcuts` that are active: those colliding
    * with a Cadencr shortcut are left out. Absent from hosts older than the
@@ -294,6 +304,8 @@ export interface EventMap {
   "context.changed": { context: TabContext };
   "theme.changed": { theme: ThemeSnapshot };
   "visibility.changed": { visible: boolean };
+  "focus.changed": { focused: boolean };
+  "editor.appearance.changed": { appearance: EditorAppearance };
   "stream.event": { subscriptionId: string; seq: number; data: StreamEnvelope };
   /** The plugin should refetch: events were lost. */
   "stream.resync": { subscriptionId: string };
@@ -318,6 +330,8 @@ export const EVENT_NAMES = [
   "context.changed",
   "theme.changed",
   "visibility.changed",
+  "focus.changed",
+  "editor.appearance.changed",
   "stream.event",
   "stream.resync",
   "stream.error",

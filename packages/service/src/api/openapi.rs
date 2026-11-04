@@ -401,6 +401,7 @@ use crate::domain::ws_session::routes as ws_routes;
         crate::domain::plugin_tabs::models::TabAccessLevel,
         crate::domain::plugin_tabs::models::TabCommand,
         crate::domain::plugin_tabs::models::TabBackend,
+        crate::domain::plugin_tabs::models::TabEditorContribution,
         crate::domain::plugin_tabs::models::PluginTabBackendAvailability,
         crate::domain::plugin_tabs::models::PluginTabPendingUpdate,
         crate::domain::plugin_tabs::models::PluginTabBackendBinary,

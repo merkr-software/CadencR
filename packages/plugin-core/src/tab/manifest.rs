@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::platform::TabPlatform;
+use super::TabContributions;
 
 /// A custom tab's manifest (`<plugins>/tabs/<id>/tab.json`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
@@ -31,6 +32,8 @@ pub struct TabManifest {
     pub entry: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tab: Option<TabSection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub contributes: Option<TabContributions>,
     #[serde(default)]
     pub permissions: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

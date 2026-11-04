@@ -4569,6 +4569,14 @@ export type PluginTabPendingUpdateBackend = null | TabBackend;
 
 export type PluginTabPendingUpdateBackendBinary = null | PluginTabBackendBinary;
 
+export interface TabEditorContribution {
+  label: string;
+  /** Plugin-defined method receiving `{path, line?, column?}` (1-based positions). */
+  open_method: string;
+}
+
+export type PluginTabPendingUpdateEditor = null | TabEditorContribution;
+
 /**
  * How far a tab reaches beyond its page, from least to most. Shown on the
  * tab's card and drives how insistent the consent dialog is.
@@ -4608,6 +4616,7 @@ export interface PluginTabPendingUpdate {
    */
   blocked_reason?: string | null;
   commands: TabCommand[];
+  editor?: PluginTabPendingUpdateEditor;
   network: PluginTabNetwork;
   permissions: string[];
   /** What accepting it records; differs from the installed revision's. */
@@ -4643,6 +4652,8 @@ export type PluginTabSummaryBackend = null | TabBackend;
 export type PluginTabSummaryBackendAvailability = null | PluginTabBackendAvailability;
 
 export type PluginTabSummaryBackendBinary = null | PluginTabBackendBinary;
+
+export type PluginTabSummaryEditor = null | TabEditorContribution;
 
 export type PluginTabSummaryPendingUpdate = null | PluginTabPendingUpdate;
 
@@ -4697,6 +4708,7 @@ export const TabIssueCode = {
   SHORTCUT_KEYS_INVALID: "SHORTCUT_KEYS_INVALID",
   SHORTCUT_KEYS_DUPLICATE: "SHORTCUT_KEYS_DUPLICATE",
   SHORTCUT_DESCRIPTION_INVALID: "SHORTCUT_DESCRIPTION_INVALID",
+  EDITOR_CONTRIBUTION_INVALID: "EDITOR_CONTRIBUTION_INVALID",
 } as const;
 
 /**
@@ -4763,6 +4775,7 @@ export interface PluginTabSummary {
   description?: string | null;
   /** Absolute path of the tab folder. */
   dir: string;
+  editor?: PluginTabSummaryEditor;
   enablement: PluginTabEnablement;
   /** @nullable */
   entry?: string | null;
