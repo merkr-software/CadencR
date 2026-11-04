@@ -4,6 +4,7 @@ import { render, screen } from "@/test-utils";
 import { waitFor } from "@testing-library/react";
 import FeatureEditorTab from "../FeatureEditorTab";
 
+let mockEditorKind = "codemirror";
 const mockUseFileWatcher = vi.fn();
 const mockUseScopedShortcut = vi.fn();
 const mockUseScopedGlobalShortcutById = vi.fn();
@@ -22,6 +23,13 @@ const mockUseSetting = vi.fn<
     setValue: typeof mockPersistCollapsed;
   }
 >(() => ({ value: null, setValue: mockPersistCollapsed }));
+
+vi.mock("@/hooks/useEditorBackend", () => ({
+  useEditorBackend: () => ({ kind: mockEditorKind, id: mockEditorKind }),
+}));
+vi.mock("../SelectedEditorSurface", () => ({
+  SelectedEditorSurface: ({ children }: { children: ReactNode }) => children,
+}));
 
 vi.mock("@/hooks/useShortcut", () => ({
   useScopedShortcut: (...args: unknown[]) => mockUseScopedShortcut(...args),
@@ -42,6 +50,7 @@ vi.mock("@/stores/feature-layout-store", () => ({
   useFeatureLayoutStore: vi.fn(() => true),
   selectFeatureLayout: () => () => ({}),
   getFocusedTab: () => "editor",
+  isTabVisible: () => true,
 }));
 
 vi.mock("@/hooks/useSetting", () => ({
@@ -133,6 +142,7 @@ vi.mock("@/components/ui/button", () => ({
 
 describe("FeatureEditorTab", () => {
   beforeEach(() => {
+    mockEditorKind = "codemirror";
     mockUseFileWatcher.mockReset();
     mockUseScopedShortcut.mockReset();
     mockUseScopedGlobalShortcutById.mockReset();
@@ -208,6 +218,7 @@ describe("FeatureEditorTab", () => {
   });
 
   it("focuses the Neovim renderer input when no CodeMirror view is registered", async () => {
+    mockEditorKind = "neovim";
     mockRegisterEditorView = false;
     const input = document.createElement("textarea");
     const host = document.createElement("div");

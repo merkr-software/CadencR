@@ -246,7 +246,12 @@ export const SETTINGS_NAV_GROUPS: readonly SettingsNavGroup[] = [
         icon: icon(Code2),
         description: "The built-in code editor, its language servers and the file tree.",
         entries: [
-          { label: "Vim mode", anchor: A.editing, keywords: ["neovim", "vim motions"] },
+          {
+            label: "Editor backend",
+            anchor: A.editing,
+            keywords: ["neovim", "codemirror", "plugin"],
+          },
+          { label: "Vim motions", anchor: A.editing, keywords: ["vim mode"] },
           { label: "Auto-save", anchor: A.editing },
           { label: "Git blame", anchor: A.editing, keywords: ["annotation"] },
           { label: "Max open tabs", anchor: A.editing, keywords: ["tab limit"] },

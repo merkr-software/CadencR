@@ -8,6 +8,13 @@ import {
 } from "@/lib/desktop-bridge";
 import { createPluginTabsBridgeMock, pluginTabSummary } from "../plugin-tabs/plugin-tab-fixtures";
 import { PluginEditorSurface } from "./PluginEditorSurface";
+import { FeatureLayoutProvider } from "@/components/feature-layout/FeatureLayoutContext";
+import {
+  activateFeatureTab,
+  getFocusedTab,
+  selectFeatureLayout,
+  useFeatureLayoutStore,
+} from "@/stores/feature-layout-store";
 
 const leases = vi.hoisted(() => ({ release: vi.fn(), acquire: vi.fn() }));
 vi.mock("@/lib/plugin-tabs/surface-presence", () => ({
@@ -35,6 +42,18 @@ beforeEach(() => {
 afterEach(clearDesktopBridgeOverrideForTests);
 
 describe("PluginEditorSurface", () => {
+  it("gives editor shortcuts the correct layout focus when the native guest is clicked", () => {
+    activateFeatureTab(99, "agent");
+    render(
+      <FeatureLayoutProvider featureId={99}>
+        <PluginEditorSurface featureId={7} summary={summary} context={context} visible />
+      </FeatureLayoutProvider>,
+    );
+    act(() => bridge.emit({ instanceId: "8:editor:graph", type: "focused" }));
+    expect(getFocusedTab(selectFeatureLayout(99)(useFeatureLayoutStore.getState()))).toBe("agent");
+    act(() => bridge.emit({ instanceId: "7:editor:graph", type: "focused" }));
+    expect(getFocusedTab(selectFeatureLayout(99)(useFeatureLayoutStore.getState()))).toBe("editor");
+  });
   it("keeps its lease through hiding and recycling, then releases on logical close", async () => {
     const props = { featureId: 7, summary, context };
     const view = render(<PluginEditorSurface {...props} visible />);

@@ -32,6 +32,11 @@ const mocks = vi.hoisted(() => {
   };
 });
 
+vi.mock("@/hooks/useEditorBackend", () => ({
+  useEditorBackend: () => ({ kind: "codemirror", id: "codemirror" }),
+}));
+vi.mock("@/hooks/useOpenEditorFile", () => ({ useOpenEditorFile: () => vi.fn() }));
+
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: (_path: string) => (opts: { component: unknown; validateSearch: unknown }) => ({
     options: opts,

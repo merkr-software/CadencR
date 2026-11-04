@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { TabContext } from "@cadencr/tab-sdk/protocol";
 import type { PluginTabSummary } from "@/api/generated";
 import { Button } from "@/components/ui/button";
@@ -8,10 +8,19 @@ import { pluginTabsAvailable } from "@/lib/plugin-tabs/availability";
 import { pluginEditorInstanceId } from "@/lib/plugin-tabs/instance-id";
 import { staticOverlayState } from "../plugin-tabs/PluginTabView";
 import { PluginTabExternalOpenDialog } from "../plugin-tabs/PluginTabExternalOpenDialog";
+import { PluginTabActivityDialog } from "../plugin-tabs/PluginTabActivityDialog";
 import { useActiveTabShortcuts } from "../plugin-tabs/useTabShortcuts";
 import { useEditorAppearance } from "./useEditorAppearance";
 import { usePluginIdentity } from "./usePluginIdentity";
 import { usePluginSurface } from "./usePluginSurface";
+import { desktopBridge } from "@/lib/desktop-bridge";
+import { useFeatureLayoutContext } from "@/components/feature-layout/FeatureLayoutContext";
+import {
+  activateFeatureTab,
+  getFocusedTab,
+  selectFeatureLayout,
+  useFeatureLayoutStore,
+} from "@/stores/feature-layout-store";
 
 export interface PluginEditorSurfaceProps {
   featureId: number;
@@ -28,9 +37,23 @@ export const PluginEditorSurface = memo(function PluginEditorSurface({
   visible,
 }: PluginEditorSurfaceProps) {
   const instanceId = pluginEditorInstanceId(featureId, summary.id);
+  const layoutFeatureId = useFeatureLayoutContext()?.featureId ?? featureId;
+  useEffect(
+    () =>
+      desktopBridge.pluginTabs.onEvent((event) => {
+        if (
+          event.instanceId === instanceId &&
+          event.type === "focused" &&
+          getFocusedTab(selectFeatureLayout(layoutFeatureId)(useFeatureLayoutStore.getState())) !==
+            "editor"
+        )
+          activateFeatureTab(layoutFeatureId, "editor");
+      }),
+    [instanceId, layoutFeatureId],
+  );
   const surface = useMemo(() => ({ kind: "editor" as const, instanceId }), [instanceId]);
   const [placeholder, setPlaceholder] = useState<HTMLDivElement | null>(null);
-  const shortcuts = useActiveTabShortcuts(summary.shortcuts);
+  const shortcuts = useActiveTabShortcuts(summary.shortcuts, "editor");
   const plugin = usePluginIdentity(summary, shortcuts);
   const appearance = useEditorAppearance();
   const documentVisible = useDocumentVisible();
@@ -80,6 +103,7 @@ export const PluginEditorSurface = memo(function PluginEditorSurface({
         </div>
       )}
       {live && <PluginTabExternalOpenDialog instanceId={instanceId} />}
+      <PluginTabActivityDialog instanceId={instanceId} featureId={featureId} summary={summary} />
     </div>
   );
 });

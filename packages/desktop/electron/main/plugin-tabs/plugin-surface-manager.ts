@@ -267,7 +267,7 @@ export class PluginSurfaceManager {
    * the tab; the tab's own go to its page as a `shortcut` event.
    */
   private handleKey(instance: PluginTabInstance, input: PluginTabKeyInput): boolean {
-    const match = this.shortcuts.match(instance.instanceId, input);
+    const match = this.shortcuts.match(instance.instanceId, input, instance.surface.kind);
     if (!match) return false;
     if (match.kind === "tab") {
       this.emit(instance.instanceId, "shortcut", match.id);

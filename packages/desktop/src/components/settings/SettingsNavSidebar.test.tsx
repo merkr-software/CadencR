@@ -58,7 +58,7 @@ describe("SettingsNavSidebar", () => {
     const results = screen.getByRole("navigation", { name: "Search results" });
     expect(within(results).getByRole("button", { name: "Editor" })).toBeInTheDocument();
     expect(within(results).queryByRole("button", { name: "Git" })).toBeNull();
-    fireEvent.click(within(results).getByRole("button", { name: "Vim mode" }));
+    fireEvent.click(within(results).getByRole("button", { name: "Vim motions" }));
     expect(onNavigate).toHaveBeenCalledWith("editing");
   });
 

@@ -3,10 +3,10 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useSetting } from "@/hooks/useSetting";
 import { useSettingDraft } from "@/hooks/useSettingDraft";
-import { parseVimModeLevel, type VimModeLevel } from "@/lib/vim-mode-level";
 import { FileTreeIconSetSelector } from "./FileTreeIconSetSelector";
 import { LanguageServerSettings } from "./LanguageServerSettings";
-import { RadioCardGroup, type RadioCardOption } from "./RadioCardGroup";
+import { EditorBackendSetting } from "./EditorBackendSetting";
+import { VimMotionsSetting } from "./VimMotionsSetting";
 import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
 import { SettingsPageSection } from "./SettingsPageSection";
@@ -14,24 +14,8 @@ import { SettingsSubsection } from "./SettingsSubsection";
 import { SettingsSwitchRow } from "./SettingsSwitchRow";
 import { SETTINGS_ANCHORS } from "./settings-anchor-ids";
 
-const VIM_MODE_LEVEL_OPTIONS: RadioCardOption<VimModeLevel>[] = [
-  { value: "0", label: "Off", description: "Standard editing, no vim motions." },
-  {
-    value: "1",
-    label: "Vim motion",
-    description: "Modal editing via the built-in vim emulation.",
-  },
-  {
-    value: "2",
-    label: "Full Neovim",
-    description:
-      "A real Neovim instance with your own config, plugins and UI, rendered in the editor panel.",
-  },
-];
-
 /** Settings → Editor: the built-in code editor, its language servers and file tree. */
 export function EditorPage(): React.JSX.Element {
-  const vimModeLevel = useSetting("editor_vim_mode_level");
   const autoSave = useSetting("editor_auto_save");
   const gitBlame = useSetting("editor_git_blame");
 
@@ -39,20 +23,9 @@ export function EditorPage(): React.JSX.Element {
     <SettingsPageSection pageId="editor">
       <SettingsGroup id={SETTINGS_ANCHORS.editing} title="Editing">
         <SettingsSubsection>
-          <div className="mb-3 space-y-0.5">
-            <div className="text-sm font-medium">Vim mode</div>
-            <p className="text-xs text-muted-foreground">
-              How vim motions apply to the built-in editor.
-            </p>
-          </div>
-          <RadioCardGroup<VimModeLevel>
-            ariaLabel="Vim mode level"
-            value={parseVimModeLevel(vimModeLevel.value)}
-            onChange={(next) => vimModeLevel.setValue(next)}
-            options={VIM_MODE_LEVEL_OPTIONS}
-            layout="stack"
-          />
+          <EditorBackendSetting />
         </SettingsSubsection>
+        <VimMotionsSetting />
         <SettingsSwitchRow
           label="Auto-save"
           description="Save files automatically after a short delay."

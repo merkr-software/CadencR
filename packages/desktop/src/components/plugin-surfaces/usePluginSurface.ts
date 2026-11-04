@@ -10,6 +10,7 @@ import type { PluginIdentity } from "@/lib/plugin-tabs/broker-runtime";
 import { registerLivePluginTab, reloadLivePluginTab } from "@/lib/plugin-tabs/live-instances";
 import { acquirePluginSurfacePresence } from "@/lib/plugin-tabs/surface-presence";
 import { ensurePluginTabThemeSync } from "@/lib/plugin-tabs/theme-sync";
+import { mountedEditorSurface } from "@/lib/editors/mounted-editor-surface";
 import type { PluginTabEventType, PluginTabOwnShortcut } from "@/shared/plugin-tab-host";
 
 /** Where the guest view of a live instance stands. */
@@ -99,7 +100,14 @@ function startGuest({
 }: StartGuestArgs): () => void {
   const bridge = desktopBridge.pluginTabs;
   ensurePluginTabThemeSync();
-  const broker = new PluginTabBroker({ instanceId, featureId, ...initial });
+  const editor =
+    initial.surface?.kind === "editor"
+      ? mountedEditorSurface(instanceId, (): PluginTabBroker => broker)
+      : undefined;
+  const broker: PluginTabBroker = new PluginTabBroker(
+    { instanceId, featureId, ...initial },
+    { connectionChanged: editor?.connectionChanged },
+  );
   brokerRef.current = broker;
   setPhase(LOADING);
   const offEvents = bridge.onEvent((event) => {
@@ -148,6 +156,7 @@ function startGuest({
     offLive();
     offEvents();
     brokerRef.current = null;
+    editor?.dispose();
     broker.dispose();
     void bridge
       .close(instanceId)

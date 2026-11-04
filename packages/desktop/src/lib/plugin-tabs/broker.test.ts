@@ -87,6 +87,7 @@ function createBroker(
     surface?: import("@cadencr/tab-sdk/protocol").SurfaceIdentity;
     appearance?: import("@cadencr/tab-sdk/protocol").EditorAppearance;
     shortcuts?: string[];
+    connectionChanged?: (connected: boolean) => void;
   } = {},
 ): PluginTabBroker {
   const broker = new PluginTabBroker(
@@ -114,6 +115,7 @@ function createBroker(
       fetch: options.fetch ?? vi.fn(),
       theme: () => THEME,
       windowPorts: false,
+      connectionChanged: options.connectionChanged,
       socket:
         options.socket ??
         (() => {
@@ -847,5 +849,33 @@ describe("surface metadata", () => {
       visible: false,
       editorAppearance: { ...appearance, fontSize: 18 },
     });
+  });
+});
+
+describe("host-initiated editor navigation", () => {
+  it("uses the same scoped grant after hello and withdraws availability on recycle", async () => {
+    const connectionChanged = vi.fn();
+    const fetch = vi.fn<FetchLike>(async () => Response.json({ result: { opened: true } }));
+    const broker = createBroker({ hasBackend: true, fetch, connectionChanged });
+    await expect(broker.requestBackend("files.open", { path: "main.rs" })).rejects.toThrow(
+      "unavailable",
+    );
+    const guest = connect(broker);
+    await guest.request("hello", { sdkVersion: "0.1.0", apiVersions: [1, 1] });
+    expect(connectionChanged).toHaveBeenLastCalledWith(true);
+    expect(await broker.requestBackend("files.open", { path: "main.rs", line: 2 })).toEqual({
+      result: { opened: true },
+    });
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(new URL(String(url)).pathname).toBe("/api/plugin-tabs/self/backend");
+    expect(JSON.parse(String(init?.body))).toEqual({
+      method: "files.open",
+      params: { path: "main.rs", line: 2 },
+    });
+    broker.suspend();
+    expect(connectionChanged).toHaveBeenLastCalledWith(false);
+    await expect(broker.requestBackend("files.open", { path: "next.rs" })).rejects.toThrow(
+      "unavailable",
+    );
   });
 });

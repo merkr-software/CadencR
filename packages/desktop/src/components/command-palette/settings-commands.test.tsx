@@ -25,7 +25,7 @@ describe("settingsCommands", () => {
 
   it("opens a setting at its anchor", () => {
     const { navigate, list } = commands();
-    void list.find((command) => command.id === "settings-editor-vim-mode")?.run?.();
+    void list.find((command) => command.id === "settings-editor-vim-motions")?.run?.();
     expect(navigate).toHaveBeenCalledWith({ to: "/settings", search: { section: "editing" } });
   });
 });
