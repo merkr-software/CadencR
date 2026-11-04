@@ -14,7 +14,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 ## 1. Overview
 
 A custom tab may ship one native executable per platform. Cadencr starts it
-— once per tab and conversation, on the first `backend.request` — and talks
+— once per tab and conversation, on the first `backend.request` or v2
+subscription — and talks
 to it over its standard streams:
 
 ```

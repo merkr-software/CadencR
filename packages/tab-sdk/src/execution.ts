@@ -1,4 +1,10 @@
 import { CadencrError } from "./errors.js";
+import type {
+  BackendEvent,
+  BackendStreams,
+  BackendSubscribeOptions,
+  BackendSubscription,
+} from "./backend-streams.js";
 import type { ExecRunResult, JsonValue } from "./protocol.js";
 import type { Requester } from "./requester.js";
 
@@ -24,6 +30,12 @@ export interface BackendRequestOptions {
 
 /** Talks to the tab's native `backend` (docs/CUSTOM_TABS.md §4.7). */
 export interface CadencrBackend {
+  /** Resolves after the host registers the listener. Subscribe before attaching a producer. */
+  subscribe(
+    topic: string,
+    handler: (event: BackendEvent) => void,
+    options?: BackendSubscribeOptions,
+  ): Promise<BackendSubscription>;
   /**
    * Send `method` to the backend, which Cadencr starts on the first call.
    * Resolves the backend's `result` — JSON the SDK does not check, typed as
@@ -52,8 +64,9 @@ export function createExec(send: Requester): CadencrExec {
   };
 }
 
-export function createBackend(send: Requester): CadencrBackend {
+export function createBackend(send: Requester, streams: BackendStreams): CadencrBackend {
   return {
+    subscribe: (topic, handler, options) => streams.subscribe(topic, handler, options),
     async request<T>(
       method: string,
       params?: JsonValue,

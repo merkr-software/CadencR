@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "tab",
+  "id": "backend-clock",
+  "name": "Backend clock",
+  "version": "0.1.0",
+  "api_version": 1,
+  "entry": "dist/index.html",
+  "tab": { "label": "Clock" },
+  "permissions": [],
+  "backend": {
+    "protocol": 2,
+    "reasoning": "Publishes a counter from a native background thread to demonstrate realtime backend events.",
+    "binary": {
+      "darwin-aarch64": "bin/clock",
+      "darwin-x86_64": "bin/clock",
+      "linux-x86_64": "bin/clock"
+    }
+  }
+}

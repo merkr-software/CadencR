@@ -150,6 +150,7 @@ function usePluginIdentity(
   const origins = summary.network.allowed_origins.join("\n");
   const hasCommands = summary.commands.length > 0;
   const hasBackend = summary.backend != null;
+  const backendProtocol = summary.backend?.protocol;
   return useMemo(
     () => ({
       id,
@@ -158,9 +159,10 @@ function usePluginIdentity(
       allowedOrigins: lines(origins),
       hasCommands,
       hasBackend,
+      backendProtocol,
       shortcuts: shortcuts.map((shortcut) => shortcut.id),
     }),
-    [id, name, origins, version, hasCommands, hasBackend, shortcuts],
+    [id, name, origins, version, hasCommands, hasBackend, backendProtocol, shortcuts],
   );
 }
 

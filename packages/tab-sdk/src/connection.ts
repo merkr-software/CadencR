@@ -16,6 +16,8 @@ export interface ConnectionEvents {
   onEvent(event: string, payload: unknown): void;
   onConnectionChange(connected: boolean): void;
   onError(error: CadencrError): void;
+  /** A new port replaced the previous one, before its handshake completes. */
+  onPortReplaced?(): void;
 }
 
 export interface ConnectionOptions {
@@ -119,6 +121,7 @@ export class Connection {
 
   private attach(port: MessagePort): void {
     if (this.closed) return;
+    if (this.current) this.events.onPortReplaced?.();
     this.current?.dispose(disconnected("The Cadencr host replaced the connection"));
     const conn: RpcConnection = new RpcConnection(
       port,

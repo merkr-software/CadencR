@@ -4,6 +4,7 @@ import { badRequest } from "./broker-errors";
 import type { GrantHolder } from "./broker-grant";
 import type { PluginHttp } from "./broker-http";
 import type { PluginStreamSocket } from "./broker-streams";
+import type { NativeDelivery } from "./broker-native-delivery";
 
 /** What the broker knows about the plugin behind an instance. */
 export interface PluginIdentity {
@@ -15,6 +16,8 @@ export interface PluginIdentity {
   hasCommands: boolean;
   /** Whether tab.json declares a `backend` (`backend.request`). */
   hasBackend: boolean;
+  /** Native protocol of the declared backend; absent on older summaries. */
+  backendProtocol?: number;
   /** The ids of tab.json's `shortcuts` that can fire (none taken by Cadencr). */
   shortcuts: readonly string[];
 }
@@ -26,6 +29,7 @@ export interface BrokerRuntime {
   grant: GrantHolder;
   http: PluginHttp;
   streams: PluginStreamSocket;
+  nativeDelivery: NativeDelivery;
 }
 
 export interface MethodOutcome {

@@ -26,16 +26,18 @@ pub enum Topic {
     ForgeStatus,
     FeatureEvents,
     SessionStatus,
+    BackendEvents,
 }
 
 impl Topic {
-    pub const ALL: [Topic; 6] = [
+    pub const ALL: [Topic; 7] = [
         Topic::GitStatus,
         Topic::SessionStream,
         Topic::FilesChanges,
         Topic::ForgeStatus,
         Topic::FeatureEvents,
         Topic::SessionStatus,
+        Topic::BackendEvents,
     ];
 
     pub fn parse(name: &str) -> Option<Topic> {
@@ -50,18 +52,20 @@ impl Topic {
             Topic::ForgeStatus => "forge.status",
             Topic::FeatureEvents => "feature.events",
             Topic::SessionStatus => "session.status",
+            Topic::BackendEvents => "backend.events",
         }
     }
 
-    pub const fn scope(self) -> Scope {
-        match self {
+    pub const fn scope(self) -> Option<Scope> {
+        Some(match self {
             Topic::GitStatus => Scope::GitRead,
             Topic::SessionStream => Scope::AgentObserve,
             Topic::FilesChanges => Scope::FilesRead,
             Topic::ForgeStatus => Scope::ForgeRead,
             Topic::FeatureEvents => Scope::FeaturesRead,
             Topic::SessionStatus => Scope::WorkspaceRead,
-        }
+            Topic::BackendEvents => return None,
+        })
     }
 }
 
@@ -74,6 +78,7 @@ pub async fn start(
     state: &AppState,
     grant: &Grant,
     emitter: Emitter,
+    backend_topic: String,
 ) -> Result<Started, StartError> {
     match topic {
         Topic::GitStatus => git_status(state, grant.feature_id, emitter).await,
@@ -103,6 +108,9 @@ pub async fn start(
             let rx = state.session_status_tx.subscribe();
             Ok(detached(session_status(state.clone(), rx, emitter)))
         }
+        Topic::BackendEvents => super::backend::start(state, grant, backend_topic, emitter)
+            .await
+            .map_err(super::backend::problem),
     }
 }
 
@@ -336,6 +344,7 @@ mod tests {
             assert_eq!(Topic::parse(topic.name()), Some(topic));
         }
         assert_eq!(Topic::parse("session.control"), None);
-        assert_eq!(Topic::SessionStatus.scope(), Scope::WorkspaceRead);
+        assert_eq!(Topic::SessionStatus.scope(), Some(Scope::WorkspaceRead));
+        assert_eq!(Topic::BackendEvents.scope(), None);
     }
 }

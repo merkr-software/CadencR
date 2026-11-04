@@ -1,5 +1,6 @@
 import { createApi, type CadencrApi } from "./api.js";
 import { Connection } from "./connection.js";
+import { BackendStreams } from "./backend-streams.js";
 import { Emitter } from "./emitter.js";
 import { CadencrError } from "./errors.js";
 import { createBackend, createExec, type CadencrBackend, type CadencrExec } from "./execution.js";
@@ -61,6 +62,7 @@ export class CadencrClient {
   private isVisible = true;
   private readonly connection: Connection;
   private readonly registry: StreamRegistry;
+  private readonly backendStreams: BackendStreams;
   private readonly contextChanges = new Emitter<TabContext>();
   private readonly themeChanges = new Emitter<ThemeSnapshot>();
   private readonly visibilityChanges = new Emitter<boolean>();
@@ -80,6 +82,7 @@ export class CadencrClient {
         onReady: (hello, reconnected) => this.onReady(hello, reconnected),
         onEvent: (event, payload) => this.onEvent(event, payload),
         onConnectionChange: (connected) => this.connectionChanges.emit(connected),
+        onPortReplaced: () => this.backendStreams.connectionReplaced(),
         onError: (error) => this.reportError(error),
       },
     );
@@ -93,7 +96,12 @@ export class CadencrClient {
     this.config = createConfig(send);
     this.net = createNet(send);
     this.exec = createExec(send);
-    this.backend = createBackend(send);
+    this.backendStreams = new BackendStreams(
+      send,
+      () => this.capabilities.isSupported("backend.subscribe"),
+      (error) => this.reportError(error),
+    );
+    this.backend = createBackend(send, this.backendStreams);
     this.ui = createUi(send);
     const capabilities = (): readonly string[] => this.hello?.capabilities ?? [];
     this.capabilities = {
@@ -195,6 +203,7 @@ export class CadencrClient {
   close(): void {
     releaseDefaultClient(this);
     this.registry.closeAll();
+    this.backendStreams.closeAll();
     this.connection.close();
     for (const emitter of [
       this.contextChanges,
@@ -240,6 +249,7 @@ export class CadencrClient {
     if (!sameContext) this.contextChanges.emit(hello.context);
     if (!sameTheme) this.themeChanges.emit(hello.theme);
     this.registry.resubscribeAll();
+    this.backendStreams.resubscribeAll();
   }
 
   private onEvent(event: string, payload: unknown): void {
@@ -269,6 +279,11 @@ export class CadencrClient {
       case "stream.resync":
       case "stream.error":
         this.registry.handleEvent(event, payload as EventMap[typeof event]);
+        return;
+      case "backend.event":
+      case "backend.resync":
+      case "backend.error":
+        this.backendStreams.handleEvent(event, payload as EventMap[typeof event]);
         return;
       default:
         // Events from a newer host are ignored: they are additive by design.

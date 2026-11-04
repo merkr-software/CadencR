@@ -11,6 +11,8 @@ import {
   type HostToGuest,
   type TabContext,
   type ThemeSnapshot,
+  type StreamEnvelope,
+  type WireError,
 } from "@cadencr/tab-sdk/protocol";
 import { z } from "zod";
 
@@ -29,6 +31,8 @@ import {
   type PluginIdentity,
 } from "./broker-runtime";
 import { PluginStreamSocket, type SocketFactory } from "./broker-streams";
+import { backendEventPayload } from "./broker-stream-messages";
+import { NativeDelivery } from "./broker-native-delivery";
 import { subscribePluginTabPorts } from "./port-registry";
 import { releasePluginTabInstance, setPluginTabBadge } from "./runtime-store";
 import { currentPluginTabTheme, subscribePluginTabTheme } from "./theme-sync";
@@ -92,10 +96,12 @@ export class PluginTabBroker {
       instanceId: options.instanceId,
       grant,
       sink: {
-        event: (subscriptionId, seq, data) =>
-          this.emit("stream.event", { subscriptionId, seq, data }),
-        resync: (subscriptionId) => this.emit("stream.resync", { subscriptionId }),
-        error: (subscriptionId, error) => this.emit("stream.error", { subscriptionId, error }),
+        event: (subscriptionId, seq, data) => this.streamEvent(subscriptionId, seq, data),
+        resync: (subscriptionId) => {
+          if (subscriptionId.startsWith("b")) this.runtime.nativeDelivery.resync(subscriptionId);
+          else this.emit("stream.resync", { subscriptionId });
+        },
+        error: (subscriptionId, error) => this.streamError(subscriptionId, error),
       },
       createSocket: deps.socket,
     });
@@ -105,6 +111,7 @@ export class PluginTabBroker {
       grant,
       http: createPluginHttp(grant, deps.fetch),
       streams,
+      nativeDelivery: new NativeDelivery((name, payload) => this.emit(name, payload)),
     };
     // A Map, not an object: a guest naming `constructor` or `toString` must
     // not reach an Object.prototype function.
@@ -137,6 +144,7 @@ export class PluginTabBroker {
     this.detachPort();
     // A new port is a new page: the previous page's subscriptions are dead.
     this.runtime.streams.reset();
+    this.runtime.nativeDelivery.reset();
     this.port = port;
     port.onmessage = (event: MessageEvent) => {
       if (this.port === port) void this.handleMessage(port, event.data);
@@ -184,6 +192,7 @@ export class PluginTabBroker {
     if (this.disposed) return;
     this.detachPort();
     this.runtime.streams.reset();
+    this.runtime.nativeDelivery.reset();
     this.runtime.grant.release();
   }
 
@@ -193,6 +202,7 @@ export class PluginTabBroker {
     for (const cleanup of this.cleanups.splice(0)) cleanup();
     this.detachPort();
     this.runtime.streams.dispose();
+    this.runtime.nativeDelivery.reset();
     this.runtime.grant.dispose();
     this.backendFailures.dispose();
     releasePluginTabInstance(this.instanceId);
@@ -270,6 +280,9 @@ export class PluginTabBroker {
       "net.fetch": plugin.allowedOrigins.length > 0,
       "exec.run": plugin.hasCommands,
       "backend.request": plugin.hasBackend,
+      "backend.subscribe": plugin.backendProtocol === 2,
+      "backend.unsubscribe": plugin.backendProtocol === 2,
+      "backend.ack": plugin.backendProtocol === 2,
     };
     const methods = METHOD_NAMES.filter((method) => declared[method] ?? true);
     try {
@@ -289,6 +302,7 @@ export class PluginTabBroker {
           params,
           "streams.subscribe",
         );
+        if (topic === "backend.events") throw badRequest("Native events require backend.subscribe");
         return { result: { subscriptionId: await runtime.streams.subscribe(topic, topicParams) } };
       },
       "streams.unsubscribe": async (params, runtime) => {
@@ -297,6 +311,8 @@ export class PluginTabBroker {
           params,
           "streams.unsubscribe",
         );
+        if (subscriptionId.startsWith("b"))
+          throw badRequest("Native subscriptions require backend.unsubscribe");
         runtime.streams.unsubscribe(subscriptionId);
         return { result: null };
       },
@@ -305,6 +321,32 @@ export class PluginTabBroker {
 
   private emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     if (this.port) this.post(this.port, { v: PROTOCOL_VERSION, kind: "event", event, payload });
+  }
+
+  private streamEvent(subscriptionId: string, seq: number, data: StreamEnvelope): void {
+    if (!subscriptionId.startsWith("b")) {
+      this.emit("stream.event", { subscriptionId, seq, data });
+      return;
+    }
+    const parsed = backendEventPayload.safeParse(data.payload);
+    if (!parsed.success) {
+      this.streamError(subscriptionId, { code: "HOST_ERROR", message: "Invalid backend event" });
+      return;
+    }
+    const event = parsed.data;
+    this.runtime.nativeDelivery.event({
+      subscriptionId,
+      seq,
+      topic: event.topic,
+      runId: event.run_id,
+      processSeq: event.seq,
+      payload: event.payload,
+    });
+  }
+
+  private streamError(subscriptionId: string, error: WireError): void {
+    if (subscriptionId.startsWith("b")) this.runtime.nativeDelivery.error(subscriptionId, error);
+    else this.emit("stream.error", { subscriptionId, error });
   }
 
   private post(port: MessagePort, message: HostToGuest, transfer?: Transferable[]): void {
