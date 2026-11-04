@@ -121,6 +121,8 @@ Rules (validated by `cadencr-plugin-core::tab`, the service and
   replaced: the agent's own surface and its browser tools need them. A
   declaration, not a permission: it leaves the hash unchanged.
 - `api_version`: integer; v1 hosts accept `1`.
+- `schema_version`: `1` or `2`. New scaffolds use `2`; existing v1 manifests
+  keep working. `contributes.editor` requires v2 and a native `backend`.
 - `entry`, `icon`: relative, normalized, no `..`, no absolute paths, no
   backslashes; `icon` must end in `.svg`.
 - `permissions`: unique values from the scope list in §6. Unknown scopes are
@@ -189,7 +191,41 @@ manifest — a new scope, origin, program, backend, or a platform's binary
 added or moved — requires a new consent. Reasons, labels and
 versions do not. `"trust":1` marks consent to commands given with the
 explicit code-trust acknowledgment (§6.2): consents to commands recorded
-before it was required no longer match and are asked for again.
+before it was required no longer match and are asked for again. An editor
+contribution adds
+`"editor":{"label":<label>,"open_method":<method>}` after `backend` in the
+canonical JSON. Adding or changing that contribution requires fresh consent.
+When no editor is declared, even with an empty `contributes` object or a v2
+manifest, the old hash is unchanged.
+
+### 3.1 Editor contribution
+
+```json
+{
+  "schema_version": 2,
+  "contributes": {
+    "editor": { "label": "Example editor", "open_method": "editor.open" }
+  }
+}
+```
+
+This fragment extends the ordinary tab manifest. `label` is 1–24 characters;
+`open_method` is a plugin-defined method of 1–128 ASCII letters, digits or
+`._:-`. The host passes `EditorOpenFileParams { path, line?, column? }` with
+1-based positions. The native backend must acknowledge the navigation before
+the editor controller focuses the surface. An editor contribution appears as
+`editor` in the installed tab's API summary and staged update.
+
+Tabs and editors share the Electron surface host, isolation, theme, shortcut
+relay, port bootstrap, overlay suppression and hidden-guest recycling. Their
+instance identities are distinct: `<feature>:plugin:<id>` for a tab and
+`<feature>:editor:<id>` for an editor. A surface cannot change kind in place.
+Backend presence follows the logical surface, independent of guest visibility
+and recycling. Tab and editor leases can coexist for the same backend; closing
+one does not stop a backend still leased by the other.
+
+The host primitive is `PluginEditorSurface`; editor selection and navigation
+are connected independently. Web/mobile clients cannot create native surfaces.
 
 ## 4. Service
 
@@ -198,19 +234,19 @@ before it was required no longer match and are asked for again.
 - `projects.authoring_target` CHECK widens to `('theme','provider','tab')`
   (table rebuild — see the `migration-safety` skill).
 - `plugin_tab_enablements(plugin_id TEXT, project_id INTEGER NULL REFERENCES
-projects(id) ON DELETE CASCADE, enabled INTEGER NOT NULL, updated_at TEXT)`.
+  projects(id) ON DELETE CASCADE, enabled INTEGER NOT NULL, updated_at TEXT)`.
   `project_id IS NULL` is the global row. Unique per `(plugin_id)` for global and
   per `(plugin_id, project_id)` for project rows.
 - `plugin_tab_consents(plugin_id TEXT PRIMARY KEY, permissions_hash TEXT NOT
-NULL, consented_at TEXT NOT NULL, setup_pending INTEGER NOT NULL)`.
+  NULL, consented_at TEXT NOT NULL, setup_pending INTEGER NOT NULL)`.
   `setup_pending` is set by the creation's consent (§8) and cleared by the
   first stored enablement choice.
 - `plugin_tab_config(plugin_id, project_id NULL, key, value TEXT, is_secret,
-updated_at)` — global and project values; secrets live here too and are
+  updated_at)` — global and project values; secrets live here too and are
   never returned. `is_secret` is kept with the value, so a manifest that
   re-declares a secret field as a plain one cannot read the saved secret.
 - `plugin_tab_storage(plugin_id, project_id INTEGER NOT NULL, key, value TEXT,
-updated_at)` — the plugin's own key/value store, per project.
+  updated_at)` — the plugin's own key/value store, per project.
 
 Effective enablement for a project = project row ?? global row ?? off, **and**
 a consent row whose hash equals the current permissions hash, **and** a valid
@@ -313,7 +349,7 @@ starting at 1; `envelope` is the internal event, forwarded unchanged.
 | `forge.status`   | `forge:read`     | forge status                                        | grant feature / project       |
 | `feature.events` | `features:read`  | feature events                                      | filtered to the grant project |
 | `session.status` | `workspace:read` | app session status                                  | none                          |
-| `backend.events` | native consent | native protocol-v2 events, `params: {topic}` | grant plugin and feature |
+| `backend.events` | native consent   | native protocol-v2 events, `params: {topic}`        | grant plugin and feature      |
 
 A plugin socket never accepts session-control actions (prompt, permission,
 interrupt…). Outbound envelopes not matching a live subscription are dropped.
@@ -870,9 +906,9 @@ type HostToGuest =
 | `net.fetch`                                                       | `{url, method?, headers?, body?: ArrayBuffer}` → `{status, headers, body: ArrayBuffer}`                                                  |
 | `exec.run`                                                        | `{program, args?, timeoutMs?}` → `{exitCode: number\|null, success, stdout, stderr, durationMs}` (§4.6)                                  |
 | `backend.request`                                                 | `{method, params?, timeoutMs?}` → `{result?}` or `{error?: {code, message}}` — the backend's own answer (§4.7)                           |
-| `backend.subscribe` | `{topic}` → `{subscriptionId}`; requires native protocol 2 |
-| `backend.unsubscribe` | `{subscriptionId}` → `null` |
-| `backend.ack` | `{subscriptionId, seq}` → `null`; internal SDK consumption acknowledgement |
+| `backend.subscribe`                                               | `{topic}` → `{subscriptionId}`; requires native protocol 2                                                                               |
+| `backend.unsubscribe`                                             | `{subscriptionId}` → `null`                                                                                                              |
+| `backend.ack`                                                     | `{subscriptionId, seq}` → `null`; internal SDK consumption acknowledgement                                                               |
 | `ui.toast`                                                        | `{title, description?, variant?: "default"\|"success"\|"error"}`                                                                         |
 | `ui.openExternal`                                                 | `{url}` — `https:` only, after a host confirmation                                                                                       |
 | `ui.setBadge`                                                     | `{text: string\|null}` — ≤ 4 chars, shown on the tab trigger                                                                             |
@@ -891,6 +927,24 @@ of the manifest's `shortcuts`, pressed while the tab had focus; §5.1). Events
 are additive: a guest ignores one it does not know (`@cadencr/tab-sdk` from
 0.2; 0.1 reports it as a `HOST_ERROR`). `hello` also answers `shortcuts`: the
 ids of the manifest's shortcuts that can fire.
+
+The shared surface host adds optional handshake fields:
+
+```ts
+surface: { kind: "tab" | "editor"; instanceId: string };
+focused: boolean;
+editorAppearance?: { fontFamily: string; fontSize: number }; // CSS pixels
+```
+
+Capabilities `surface.identity`, `surface.focus` and `editor.appearance` announce
+these fields. The SDK exposes `client.surface`, `client.focused`,
+`client.editorAppearance`, `onFocusChange` and `onEditorAppearanceChange`.
+The latter field is limited to the monospace font family and code font size;
+it provides no access to arbitrary host settings. Changes arrive as
+`focus.changed {focused}` and `editor.appearance.changed {appearance}`.
+Hiding, suppressing or destroying a surface clears its focus. Each handshake
+returns current values, including for hidden/recycled guests. On older hosts,
+the SDK falls back to a tab identity, `focused=false` and no editor appearance.
 
 Native guest events are `backend.event {subscriptionId, topic, runId, seq,
 processSeq, payload}`, `backend.resync {subscriptionId}` and `backend.error

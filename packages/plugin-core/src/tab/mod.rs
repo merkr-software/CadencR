@@ -8,6 +8,7 @@
 
 mod binary;
 mod configuration;
+mod contributions;
 mod elf;
 mod execution;
 mod folder;
@@ -29,6 +30,7 @@ pub use binary::{
     check_backend_binary, check_backend_bytes, resolve_backend_binary, BinaryProblem,
     ExecutableFormat, FORMAT_HEADER_BYTES,
 };
+pub use contributions::{TabContributions, TabEditorContribution};
 pub use execution::{
     is_denied_program, is_valid_program_name, reasoning_ok, supported_backend_protocols,
     DENIED_PROGRAMS, MAX_COMMANDS, MAX_REASONING_CHARS,
@@ -49,7 +51,8 @@ pub use validate::{
 };
 
 pub const MANIFEST_FILE_NAME: &str = "tab.json";
-pub const SUPPORTED_SCHEMA_VERSION: u32 = 1;
+pub const SUPPORTED_SCHEMA_VERSION: u32 = 2;
+pub const SUPPORTED_SCHEMA_VERSIONS: [u32; 2] = [1, 2];
 /// The plugin API version this host speaks. v1 hosts accept exactly `1`.
 pub const SUPPORTED_API_VERSION: u32 = 1;
 /// The backend stdio protocol versions this host speaks (§4.7): a manifest

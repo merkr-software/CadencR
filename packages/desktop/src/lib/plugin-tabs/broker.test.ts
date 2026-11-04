@@ -84,6 +84,8 @@ function createBroker(
     backendProtocol?: number;
     socket?: SocketFactory;
     visible?: boolean;
+    surface?: import("@cadencr/tab-sdk/protocol").SurfaceIdentity;
+    appearance?: import("@cadencr/tab-sdk/protocol").EditorAppearance;
     shortcuts?: string[];
   } = {},
 ): PluginTabBroker {
@@ -103,6 +105,8 @@ function createBroker(
       },
       context: CONTEXT,
       visible: options.visible ?? true,
+      surface: options.surface,
+      appearance: options.appearance,
     },
     {
       grant: options.grant ?? grantDeps(),
@@ -788,5 +792,60 @@ describe("PluginTabBroker backend failures", () => {
     // Same code from another method: not the backend's launch.
     errorCode(await guest.request("exec.run", { program: "git" }));
     expect(sink.report).not.toHaveBeenCalled();
+  });
+});
+
+describe("surface metadata", () => {
+  it("handshakes a hidden editor and coalesces focus and appearance changes", async () => {
+    const surface = { kind: "editor" as const, instanceId: "7:editor:graph" };
+    const appearance = { fontFamily: "Mono", fontSize: 12 };
+    const broker = createBroker({
+      instanceId: surface.instanceId,
+      surface,
+      appearance,
+      visible: false,
+    });
+    const guest = connect(broker);
+    expect(
+      ok(await guest.request("hello", { sdkVersion: "0.1", apiVersions: [1, 1] })),
+    ).toMatchObject({
+      surface,
+      focused: false,
+      editorAppearance: appearance,
+      visible: false,
+      capabilities: expect.arrayContaining([
+        "surface.identity",
+        "surface.focus",
+        "editor.appearance",
+      ]),
+    });
+    broker.setFocused(true);
+    broker.setVisible(true);
+    broker.setFocused(true);
+    broker.setFocused(true);
+    broker.setEditorAppearance({ ...appearance, fontSize: 18 });
+    broker.setVisible(false);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(
+      guest.events.filter((event) => event.kind === "event" && event.event === "focus.changed"),
+    ).toEqual([
+      { v: 1, kind: "event", event: "focus.changed", payload: { focused: true } },
+      { v: 1, kind: "event", event: "focus.changed", payload: { focused: false } },
+    ]);
+    expect(guest.events).toContainEqual({
+      v: 1,
+      kind: "event",
+      event: "editor.appearance.changed",
+      payload: { appearance: { ...appearance, fontSize: 18 } },
+    });
+    const reloaded = connect(broker);
+    expect(
+      ok(await reloaded.request("hello", { sdkVersion: "0.1", apiVersions: [1, 1] })),
+    ).toMatchObject({
+      surface,
+      focused: false,
+      visible: false,
+      editorAppearance: { ...appearance, fontSize: 18 },
+    });
   });
 });

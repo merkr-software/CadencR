@@ -5,3 +5,7 @@
 export function pluginTabInstanceId(featureId: number, pluginId: string): string {
   return `${featureId}:plugin:${pluginId}`;
 }
+
+export function pluginEditorInstanceId(featureId: number, pluginId: string): string {
+  return `${featureId}:editor:${pluginId}`;
+}

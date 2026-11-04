@@ -203,3 +203,45 @@ describe("theme option", () => {
     host.close();
   });
 });
+
+describe("editor surfaces", () => {
+  it("exposes identity, focus and appearance from the handshake and updates", async () => {
+    const surface = { kind: "editor" as const, instanceId: "10:editor:demo" };
+    const appearance = { fontFamily: "JetBrains Mono", fontSize: 14 };
+    const { host, client } = await connected({
+      surface,
+      focused: true,
+      editorAppearance: appearance,
+    });
+    expect(client.surface).toEqual(surface);
+    expect(client.focused).toBe(true);
+    expect(client.editorAppearance).toEqual(appearance);
+    const focus = vi.fn();
+    const changed = vi.fn();
+    client.onFocusChange(focus);
+    client.onEditorAppearanceChange(changed);
+    host.emit("focus.changed", { focused: false });
+    host.emit("editor.appearance.changed", { appearance: { ...appearance, fontSize: 18 } });
+    await flush();
+    expect(client.focused).toBe(false);
+    expect(focus).toHaveBeenCalledWith(false);
+    expect(client.editorAppearance?.fontSize).toBe(18);
+    expect(changed).toHaveBeenCalledWith({ ...appearance, fontSize: 18 });
+    host.emit("focus.changed", { focused: true });
+    await flush();
+    host.disconnect();
+    await flush();
+    expect(client.focused).toBe(false);
+    client.close();
+    host.close();
+  });
+
+  it("falls back to a tab identity with an older host", async () => {
+    const { host, client } = await connected();
+    expect(client.surface).toEqual({ kind: "tab", instanceId: client.instanceId });
+    expect(client.focused).toBe(false);
+    expect(client.editorAppearance).toBeNull();
+    client.close();
+    host.close();
+  });
+});

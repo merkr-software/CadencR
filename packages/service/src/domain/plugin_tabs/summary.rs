@@ -121,6 +121,7 @@ fn build(
             .map(|manifest| manifest.replaces().to_vec())
             .unwrap_or_default(),
         backend: manifest.and_then(|manifest| manifest.backend.clone()),
+        editor: manifest.and_then(|manifest| manifest.contributes.as_ref()?.editor.clone()),
         backend_availability: manifest.and_then(|manifest| manifest.backend.as_ref()).map(
             |backend| {
                 managed_availability.unwrap_or_else(|| PluginTabBackendAvailability::of(backend))
@@ -168,6 +169,10 @@ fn pending_update(pending: &PendingTab) -> Option<PluginTabPendingUpdate> {
         network: network(manifest),
         commands: manifest.commands.clone(),
         backend: manifest.backend.clone(),
+        editor: manifest
+            .contributes
+            .as_ref()
+            .and_then(|contributes| contributes.editor.clone()),
         backend_binary: backend_binary(&pending.managed.facts),
         blocked_reason: pending.blocked.clone(),
     })
