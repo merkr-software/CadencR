@@ -65,6 +65,19 @@ async function execRun(params: unknown, runtime: BrokerRuntime) {
 
 async function backendRequest(params: unknown, runtime: BrokerRuntime) {
   const request = parseParams(backendSchema, params, "backend.request");
+  if (runtime.plugin.backendProtocol === 2) {
+    const result = await runtime.streams.backendRequest(
+      {
+        method: request.method,
+        params: request.params ?? null,
+        timeout_ms: request.timeoutMs,
+      },
+      (request.timeoutMs ?? 30_000) + 5_000,
+    );
+    const parsed = backendResultSchema.safeParse(result);
+    if (!parsed.success) throw unexpectedShape("backend.request");
+    return { result: parsed.data as BackendRequestResult };
+  }
   const response = await runtime.http.sendOk({
     method: "POST",
     path: `${SELF}/backend`,
@@ -84,4 +97,38 @@ async function backendRequest(params: unknown, runtime: BrokerRuntime) {
 export const RUN_METHODS: Readonly<Record<string, MethodHandler>> = {
   "exec.run": execRun,
   "backend.request": backendRequest,
+  "backend.subscribe": async (params, runtime) => {
+    const { topic } = parseParams(
+      z.object({
+        topic: z
+          .string()
+          .min(1)
+          .refine((name) => new TextEncoder().encode(name).length <= 128 && !/\p{Cc}/u.test(name)),
+      }),
+      params,
+      "backend.subscribe",
+    );
+    const subscriptionId = await runtime.streams.subscribe("backend.events", { topic }, true);
+    runtime.nativeDelivery.register(subscriptionId);
+    return { result: { subscriptionId } };
+  },
+  "backend.unsubscribe": async (params, runtime) => {
+    const { subscriptionId } = parseParams(
+      z.object({ subscriptionId: z.string().startsWith("b") }),
+      params,
+      "backend.unsubscribe",
+    );
+    runtime.streams.unsubscribe(subscriptionId);
+    runtime.nativeDelivery.release(subscriptionId);
+    return { result: null };
+  },
+  "backend.ack": async (params, runtime) => {
+    const { subscriptionId, seq } = parseParams(
+      z.object({ subscriptionId: z.string(), seq: z.number().int().positive() }),
+      params,
+      "backend.ack",
+    );
+    runtime.nativeDelivery.ack(subscriptionId, seq);
+    return { result: null };
+  },
 };

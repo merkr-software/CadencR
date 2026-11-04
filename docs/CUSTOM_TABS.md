@@ -135,7 +135,7 @@ Rules (validated by `cadencr-plugin-core::tab`, the service and
   `open`, `start`…), with or without a Windows suffix or a version suffix
   (`python3.12`, `node18`, `php-8.2`; `cadencr_plugin_core::tab::DENIED_PROGRAMS`). Listing a program names
   _which_ program runs, not what it does with its arguments.
-- `backend.protocol`: the stdio protocol version, `1` in this release
+- `backend.protocol`: the stdio protocol version, `1` or `2`
   (`BACKEND_PROTOCOL_UNSUPPORTED` otherwise). `backend.binary`: at least one
   entry (`BACKEND_BINARY_REQUIRED`) mapping a platform — `darwin-aarch64`,
   `darwin-x86_64` or `linux-x86_64`; anything else, Windows included, is
@@ -279,6 +279,10 @@ plugin's own, plugin enablement/consent/grants/authoring themselves.
 - `subscribe {topic, params?}` → reply `subscribed {subscription_id}` or an
   `error {code, message}` reply.
 - `unsubscribe {subscription_id}`.
+- `backend.request {method, params?, timeout_ms?}` → `backend.response
+  {result?}` or `{error?: {code, message}}`; relay failures are correlated
+  `error {code, message}` replies. The authenticated grant selects the
+  backend; extra plugin/project/conversation parameters never change it.
 
 Server events: `{domain:"plugin", action:"event", payload:{subscription_id,
 topic, seq, envelope:{domain, action, payload}}}` — `seq` is per subscription,
@@ -292,12 +296,13 @@ starting at 1; `envelope` is the internal event, forwarded unchanged.
 | `forge.status`   | `forge:read`     | forge status                                        | grant feature / project       |
 | `feature.events` | `features:read`  | feature events                                      | filtered to the grant project |
 | `session.status` | `workspace:read` | app session status                                  | none                          |
+| `backend.events` | native consent | native protocol-v2 events, `params: {topic}` | grant plugin and feature |
 
 A plugin socket never accepts session-control actions (prompt, permission,
 interrupt…). Outbound envelopes not matching a live subscription are dropped.
 
 - The `subscribed` reply always precedes the subscription's first event.
-- One source per topic per socket: a repeated `subscribe` to a topic gets its
+- One source per topic per socket (per native topic for `backend.events`): a repeated `subscribe` to a topic gets its
   own `subscription_id` and `seq` but shares the source, and receives a
   `resync` before its first event (it missed the snapshot). The source stops
   when its last subscription leaves (≤ 32 subscriptions per socket).
@@ -310,7 +315,9 @@ interrupt…). Outbound envelopes not matching a live subscription are dropped.
   actions, never replies) and buffered per subscription up to 256 frames; a
   subscription that falls behind drops its backlog and gets a `resync`. The
   agent stream never waits on a plugin.
-- Inbound frames are ≤ 16 KiB and ≤ 20/s; past that they are dropped unread
+- Inbound frames are ≤ 1 MiB + 4 KiB, with native params separately limited
+  to 1 MiB. Subscription actions are ≤ 20/s; native requests have a separate
+  ≤ 200/s budget and ≤ 64 pending calls. Past a budget, frames are dropped
   with one `RATE_LIMITED` error per second, and 5 seconds over budget in a row
   close the socket with 1008.
 
@@ -387,6 +394,28 @@ conversation's open instances. The stdio contract between Cadencr and the
 backend is specified, normatively, in
 [`TAB_BACKEND_PROTOCOL.md`](TAB_BACKEND_PROTOCOL.md); this section covers how
 the service resolves, starts, relays to and stops it.
+
+Protocol `1` keeps the HTTP broker path. Protocol `2` uses the authenticated
+plugin socket for guest requests and subscriptions; the HTTP endpoint stays
+available for backend compatibility. `backend.subscribe(topic, handler)`
+resolves after registration, starting the process if necessary. Topics and
+payloads belong to the plugin. Native events carry a host-owned `run_id` and
+process-wide `seq`; the outer subscription sequence detects losses even when
+only one native topic is selected.
+
+The slot's native queue holds 64 events. A lagged receiver, process start or
+stop owes a resync; process exit and invalid native events also yield visible
+subscription errors. A subscription follows subsequent explicitly started
+processes in the same slot. Neither the service nor broker replays a method
+after disconnect, timeout or restart.
+
+The broker also limits each guest subscription to 32 unacknowledged native
+events on its `MessagePort`. The SDK acknowledges consumption automatically,
+including duplicates and callbacks that throw. A stalled guest drops further
+events and receives a resync when capacity returns. Repeated error and resync
+notifications are coalesced until an event is acknowledged.
+The guest's `streams.*` methods are for built-in topics; native subscriptions
+use `backend.*`, including their consumption acknowledgements.
 
 - 403 `PLUGIN_BACKEND_UNDECLARED` without a `backend` in the granted manifest.
 - **Marketplace tabs.** A signed tab package ships its backend as one
@@ -806,6 +835,9 @@ type HostToGuest =
 | `net.fetch`                                                       | `{url, method?, headers?, body?: ArrayBuffer}` → `{status, headers, body: ArrayBuffer}`                                                  |
 | `exec.run`                                                        | `{program, args?, timeoutMs?}` → `{exitCode: number\|null, success, stdout, stderr, durationMs}` (§4.6)                                  |
 | `backend.request`                                                 | `{method, params?, timeoutMs?}` → `{result?}` or `{error?: {code, message}}` — the backend's own answer (§4.7)                           |
+| `backend.subscribe` | `{topic}` → `{subscriptionId}`; requires native protocol 2 |
+| `backend.unsubscribe` | `{subscriptionId}` → `null` |
+| `backend.ack` | `{subscriptionId, seq}` → `null`; internal SDK consumption acknowledgement |
 | `ui.toast`                                                        | `{title, description?, variant?: "default"\|"success"\|"error"}`                                                                         |
 | `ui.openExternal`                                                 | `{url}` — `https:` only, after a host confirmation                                                                                       |
 | `ui.setBadge`                                                     | `{text: string\|null}` — ≤ 4 chars, shown on the tab trigger                                                                             |
@@ -824,6 +856,14 @@ of the manifest's `shortcuts`, pressed while the tab had focus; §5.1). Events
 are additive: a guest ignores one it does not know (`@cadencr/tab-sdk` from
 0.2; 0.1 reports it as a `HOST_ERROR`). `hello` also answers `shortcuts`: the
 ids of the manifest's shortcuts that can fire.
+
+Native guest events are `backend.event {subscriptionId, topic, runId, seq,
+processSeq, payload}`, `backend.resync {subscriptionId}` and `backend.error
+{subscriptionId, error}`. `seq` increases per subscription across socket
+reconnects, while `processSeq` is the backend process's sequence. The SDK
+calls `onResync` on a gap, reconnect or changed `runId`. `hello.capabilities`
+announces `backend.subscribe`, `backend.unsubscribe` and `backend.ack` only for protocol 2.
+An SDK on an older host rejects subscription with `CAPABILITY_DENIED`.
 
 Error codes: `PLUGIN_API_UNSUPPORTED`, `CAPABILITY_DENIED`,
 `PLUGIN_SCOPE_DENIED`, `PLUGIN_BINDING_DENIED`, `PLUGIN_NETWORK_DENIED`,

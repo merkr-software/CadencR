@@ -81,6 +81,7 @@ function createBroker(
     origins?: string[];
     hasCommands?: boolean;
     hasBackend?: boolean;
+    backendProtocol?: number;
     socket?: SocketFactory;
     visible?: boolean;
     shortcuts?: string[];
@@ -97,6 +98,7 @@ function createBroker(
         allowedOrigins: options.origins ?? [],
         hasCommands: options.hasCommands ?? false,
         hasBackend: options.hasBackend ?? false,
+        backendProtocol: options.backendProtocol,
         shortcuts: options.shortcuts ?? [],
       },
       context: CONTEXT,
@@ -143,6 +145,15 @@ afterEach(() => {
 });
 
 describe("PluginTabBroker handshake", () => {
+  it("advertises native subscriptions only for protocol 2", async () => {
+    for (const protocol of [1, 2]) {
+      const guest = connect(createBroker({ hasBackend: true, backendProtocol: protocol }));
+      const hello = ok(await guest.request("hello", { sdkVersion: "0.1.0", apiVersions: [1, 1] }));
+      const capabilities = (hello as { capabilities: string[] }).capabilities;
+      expect(capabilities.includes("backend.subscribe")).toBe(protocol === 2);
+      expect(capabilities).toContain("backend.request");
+    }
+  });
   it("answers hello with the negotiated version, context, theme and scopes", async () => {
     const guest = connect(createBroker({ instanceId: "7:plugin:graph" }));
     const result = ok(await guest.request("hello", { sdkVersion: "0.1.0", apiVersions: [1, 3] }));
@@ -201,6 +212,93 @@ describe("PluginTabBroker handshake", () => {
     for (const method of ["shell.exec", "constructor", "toString", "hasOwnProperty"]) {
       expect(errorCode(await guest.request(method, {}))).toBe("BAD_REQUEST");
     }
+  });
+});
+
+describe("PluginTabBroker native events", () => {
+  it("keeps native subscriptions on the bounded backend channel", async () => {
+    const socket = vi.fn<SocketFactory>();
+    const guest = connect(createBroker({ hasBackend: true, backendProtocol: 2, socket }));
+    expect(
+      errorCode(
+        await guest.request("streams.subscribe", {
+          topic: "backend.events",
+          params: { topic: "clock.tick" },
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+    expect(errorCode(await guest.request("streams.unsubscribe", { subscriptionId: "b1" }))).toBe(
+      "BAD_REQUEST",
+    );
+    expect(socket).not.toHaveBeenCalled();
+  });
+
+  it("relays v2 calls and opaque events using the grant socket", async () => {
+    const fetch = vi.fn();
+    const sockets: FakePluginSocket[] = [];
+    const guest = connect(
+      createBroker({
+        fetch,
+        hasBackend: true,
+        backendProtocol: 2,
+        socket: (url, protocol) => {
+          const socket = new FakePluginSocket(url, protocol);
+          sockets.push(socket);
+          return socket;
+        },
+      }),
+    );
+    const subscribing = guest.request("backend.subscribe", { topic: "clock.tick" });
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    const socket = sockets[0]!;
+    socket.open();
+    await vi.waitFor(() => expect(socket.sent).toHaveLength(1));
+    expect(socket.lastRequest()).toMatchObject({
+      action: "subscribe",
+      payload: { topic: "backend.events", params: { topic: "clock.tick" } },
+    });
+    socket.acceptSubscribe("backend.events", "server-native");
+    const { subscriptionId } = ok(await subscribing) as { subscriptionId: string };
+    const calling = guest.request("backend.request", { method: "start" });
+    await vi.waitFor(() => expect(socket.lastRequest().action).toBe("backend.request"));
+    socket.receive({
+      id: "reply",
+      domain: "plugin",
+      action: "backend.response",
+      ref: socket.lastRequest().id,
+      payload: { result: { started: true } },
+    });
+    expect(ok(await calling)).toEqual({ result: { started: true } });
+    socket.receive({
+      id: "event",
+      domain: "plugin",
+      action: "event",
+      payload: {
+        subscription_id: "server-native",
+        seq: 1,
+        envelope: {
+          domain: "backend",
+          action: "event",
+          payload: { run_id: "run-1", seq: 7, topic: "clock.tick", payload: [1, "opaque"] },
+        },
+      },
+    });
+    await vi.waitFor(() =>
+      expect(guest.events).toContainEqual({
+        v: 1,
+        kind: "event",
+        event: "backend.event",
+        payload: {
+          subscriptionId,
+          seq: 1,
+          processSeq: 7,
+          runId: "run-1",
+          topic: "clock.tick",
+          payload: [1, "opaque"],
+        },
+      }),
+    );
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

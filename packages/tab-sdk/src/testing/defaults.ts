@@ -79,6 +79,16 @@ export function createDefaultHandlers(state: HostState): Handlers {
       state.seqs.delete(subscriptionId);
       return null;
     },
+    "backend.subscribe": ({ topic }) => {
+      const subscriptionId = `backend-${++state.subscriptionCounter}`;
+      state.subscriptions.set(subscriptionId, { topic });
+      return { subscriptionId };
+    },
+    "backend.unsubscribe": ({ subscriptionId }) => {
+      state.subscriptions.delete(subscriptionId);
+      return null;
+    },
+    "backend.ack": () => null,
     "storage.get": ({ key }) => state.storage.get(key) ?? null,
     "storage.set": ({ key, value }) => {
       state.storage.set(key, value);

@@ -12,6 +12,7 @@
 //! revocation policy blocks its tab, or from the tab's Activity dialog.
 
 mod ending;
+pub mod events;
 mod first_start;
 mod handshake;
 mod history;
@@ -22,6 +23,7 @@ mod process;
 mod protocol;
 mod request;
 mod stop_reason;
+mod subscription;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -67,6 +69,7 @@ impl Key {
 
 #[derive(Default)]
 struct Slot {
+    events: events::Events,
     running: Option<Arc<Running>>,
     history: Arc<History>,
     orphaned_since: Option<Instant>,
@@ -212,7 +215,13 @@ impl BackendSupervisor {
         if slot.stops != stops {
             return Err(process::exited_error("it was stopped while starting"));
         }
-        let running = process::spawn(launch, prepared, grants, history.clone())
+        let running = process::spawn()
+            .launch(launch)
+            .prepared(prepared)
+            .grants(grants)
+            .history(history.clone())
+            .events(slot.events.clone())
+            .call()
             .map_err(|error| failed_start(history, error))?;
         slot.running = Some(running.clone());
         slot.orphaned_since = None;
@@ -540,6 +549,68 @@ mod tests {
         supervisor.reap(&presence).await;
         assert!(!running().await);
         supervisor.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn native_events_survive_a_restart_and_stay_in_their_conversation() {
+        let (_root, _dir, mut launch) = fixture_tab("events");
+        launch.backend.protocol = 2;
+        let supervisor = BackendSupervisor::default();
+        let grants = GrantStore::default();
+        let mut rx = supervisor.subscribe(&grants, launch.clone()).await.unwrap();
+        let mut other = launch.clone();
+        other.feature_id = 3;
+        let mut isolated = supervisor.subscribe(&grants, other).await.unwrap();
+        let _ = isolated.try_recv(); // Its own start notification.
+        for n in [1, 2] {
+            supervisor
+                .request(
+                    &grants,
+                    launch.clone(),
+                    request("emit", json!({"n":n}), None),
+                )
+                .await
+                .unwrap();
+            loop {
+                let update = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                    .await
+                    .unwrap()
+                    .unwrap();
+                if let events::Update::Event(event) = update {
+                    assert_eq!(event.payload, json!({"n":n}));
+                    assert_eq!(event.seq, n);
+                    assert_ne!(event.run_id, "forged");
+                    break;
+                }
+            }
+        }
+        assert!(isolated.try_recv().is_err());
+        supervisor.stop("tab", 2).await;
+        supervisor
+            .request(&grants, launch.clone(), request("emit", json!(3), None))
+            .await
+            .unwrap();
+        loop {
+            let update = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+                .await
+                .unwrap()
+                .unwrap();
+            if let events::Update::Event(event) = update {
+                assert_eq!(event.seq, 1);
+                break;
+            }
+        }
+        supervisor.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn v1_backends_refuse_event_subscriptions() {
+        let (_root, _dir, launch) = fixture_tab("backend");
+        let supervisor = BackendSupervisor::default();
+        let grants = GrantStore::default();
+        let error = supervisor.subscribe(&grants, launch).await.unwrap_err();
+        assert_eq!(error_code(&error), "PLUGIN_BACKEND_EVENTS_UNSUPPORTED");
+        assert!(supervisor.status("tab", 2).await.is_none());
     }
 
     #[tokio::test]
