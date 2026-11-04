@@ -7,6 +7,7 @@ import { useLspResolution, type LspResolution } from "./useLspResolution";
 import { CadencrWorkspace } from "./cadencr-workspace";
 import { acquireLspClient, releaseLspClient } from "./client-manager";
 
+vi.mock("@/hooks/useOpenEditorFile", () => ({ useOpenEditorFile: () => vi.fn() }));
 vi.mock("./useLspResolution", () => ({ useLspResolution: vi.fn() }));
 vi.mock("./client-manager", () => ({
   acquireLspClient: vi.fn(),

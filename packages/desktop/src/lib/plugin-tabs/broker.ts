@@ -15,13 +15,14 @@ import {
   type ThemeSnapshot,
   type StreamEnvelope,
   type WireError,
+  type BackendRequestResult,
 } from "@cadencr/tab-sdk/protocol";
 import { z } from "zod";
 
-import { BackendFailureWatch, type BackendFailureDeps } from "./broker-backend-failures";
+import { BackendFailureWatch } from "./broker-backend-failures";
 import { BrokerError, badRequest, toWireError } from "./broker-errors";
-import { GrantHolder, type GrantDeps } from "./broker-grant";
-import { createPluginHttp, type FetchLike } from "./broker-http";
+import { GrantHolder } from "./broker-grant";
+import { createPluginHttp } from "./broker-http";
 import { DATA_METHODS } from "./broker-methods-data";
 import { RUN_METHODS } from "./broker-methods-run";
 import { UI_METHODS } from "./broker-methods-ui";
@@ -32,33 +33,15 @@ import {
   type MethodOutcome,
   type PluginIdentity,
 } from "./broker-runtime";
-import { PluginStreamSocket, type SocketFactory } from "./broker-streams";
+import { PluginStreamSocket } from "./broker-streams";
 import { backendEventPayload } from "./broker-stream-messages";
 import { NativeDelivery } from "./broker-native-delivery";
 import { subscribePluginTabPorts } from "./port-registry";
 import { releasePluginTabInstance, setPluginTabBadge } from "./runtime-store";
 import { currentPluginTabTheme, subscribePluginTabTheme } from "./theme-sync";
 
-export interface PluginTabBrokerOptions {
-  instanceId: string;
-  featureId: number;
-  plugin: PluginIdentity;
-  context: TabContext;
-  visible: boolean;
-  surface?: SurfaceIdentity;
-  appearance?: EditorAppearance;
-}
-
-/** Seams for tests; production uses the real service, socket and theme. */
-export interface PluginTabBrokerDeps {
-  grant?: GrantDeps;
-  backendFailures?: BackendFailureDeps;
-  fetch?: FetchLike;
-  socket?: SocketFactory;
-  theme?: () => ThemeSnapshot;
-  /** Whether to listen for ports posted to `window` (default true). */
-  windowPorts?: boolean;
-}
+import type { PluginTabBrokerOptions, PluginTabBrokerDeps } from "./broker-options";
+export type { PluginTabBrokerOptions, PluginTabBrokerDeps } from "./broker-options";
 
 const helloSchema = z.object({
   sdkVersion: z.string(),
@@ -85,6 +68,7 @@ export class PluginTabBroker {
   private readonly surface: SurfaceIdentity;
   private appearance: EditorAppearance | undefined;
   private disposed = false;
+  private connected = false;
   private readonly runtime: BrokerRuntime;
   private readonly methods: ReadonlyMap<string, MethodHandler>;
   private readonly theme: () => ThemeSnapshot;
@@ -92,7 +76,10 @@ export class PluginTabBroker {
   /** Tells the user when the backend can't run at all; the page still gets the error. */
   private readonly backendFailures: BackendFailureWatch;
 
-  constructor(options: PluginTabBrokerOptions, deps: PluginTabBrokerDeps = {}) {
+  constructor(
+    options: PluginTabBrokerOptions,
+    private readonly deps: PluginTabBrokerDeps = {},
+  ) {
     this.context = options.context;
     this.contextKey = JSON.stringify(options.context);
     this.visible = options.visible;
@@ -146,7 +133,18 @@ export class PluginTabBroker {
     return this.runtime.instanceId;
   }
 
-  /** Adopt the guest's newest port; the previous one (a reloaded page) is closed. */
+  async requestBackend(method: string, params: unknown): Promise<BackendRequestResult> {
+    if (this.disposed || !this.connected) throw new Error("The plugin surface is unavailable.");
+    const outcome = await RUN_METHODS["backend.request"]!({ method, params }, this.runtime);
+    return outcome.result as BackendRequestResult;
+  }
+
+  private setConnected(connected: boolean): void {
+    if (this.connected === connected) return;
+    this.connected = connected;
+    this.deps.connectionChanged?.(connected);
+  }
+
   attachPort(port: MessagePort): void {
     if (this.disposed) {
       port.close();
@@ -162,7 +160,6 @@ export class PluginTabBroker {
     };
   }
 
-  /** Name/version/origins/levels after a manifest change (hot reload). */
   setPlugin(plugin: PluginIdentity): void {
     this.runtime.plugin = plugin;
   }
@@ -240,6 +237,7 @@ export class PluginTabBroker {
   }
 
   private detachPort(): void {
+    this.setConnected(false);
     const previous = this.port;
     this.port = null;
     if (!previous) return;
@@ -257,6 +255,7 @@ export class PluginTabBroker {
         { v: PROTOCOL_VERSION, kind: "response", id: data.id, result: outcome.result },
         outcome.transfer,
       );
+      if (data.method === "hello" && this.port === port && !this.disposed) this.setConnected(true);
     } catch (error) {
       if (data.method === "backend.request" && !this.disposed) {
         this.backendFailures.failed(this.runtime.plugin.name, error);

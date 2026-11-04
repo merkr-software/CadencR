@@ -80,7 +80,10 @@ export interface PluginTabTheme {
 }
 
 /** A chord in shortcut tokens (`["mod", "shift", "k"]`), with an optional alternate. */
-export type PluginTabShortcutBinding = BrowserShortcutBinding;
+export interface PluginTabShortcutBinding extends BrowserShortcutBinding {
+  /** Container actions may apply only to editor surfaces, never ordinary tabs. */
+  surface?: "editor";
+}
 
 /** One of a tab's own `tab.json` shortcuts, delivered to its page as a `shortcut` event. */
 export interface PluginTabOwnShortcut {

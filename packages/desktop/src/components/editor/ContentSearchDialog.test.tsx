@@ -13,8 +13,8 @@ vi.mock("@/api/generated", () => ({
   useContentSearch: mockContentSearch,
 }));
 
-vi.mock("@/hooks/useEditorState", () => ({
-  useEditorState: () => ({ activePaneId: "main", openFile: mockOpenFile }),
+vi.mock("@/hooks/useOpenEditorFile", () => ({
+  useOpenEditorFile: () => mockOpenFile,
 }));
 
 vi.mock("@/hooks/useDebouncedSetting", () => ({

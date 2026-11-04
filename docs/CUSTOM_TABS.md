@@ -206,8 +206,49 @@ Backend presence follows the logical surface, independent of guest visibility
 and recycling. Tab and editor leases can coexist for the same backend; closing
 one does not stop a backend still leased by the other.
 
-The host primitive is `PluginEditorSurface`; editor selection and navigation
-are connected independently. Web/mobile clients cannot create native surfaces.
+The host primitive is `PluginEditorSurface`, mounted once per conversation
+outside CodeMirror's split tree. Web/mobile clients show CodeMirror with a
+visible explanation instead of creating native surfaces.
+
+#### Editor selection and navigation
+
+Settings → Editor stores `editor_backend` in the existing workspace settings:
+
+| Value         | Editor                                         |
+| ------------- | ---------------------------------------------- |
+| `codemirror`  | Built-in CodeMirror                            |
+| `neovim`      | Built-in Neovim during the coexistence release |
+| `plugin:<id>` | The installed plugin's `contributes.editor`    |
+
+An absent key preserves `editor_vim_mode_level`: `2` selects built-in Neovim;
+other levels select CodeMirror. Vim motions are a separate control. Changing
+them first records the legacy editor identity if necessary, and neither
+setting's new value enters the cache before the service confirms its write.
+
+File tree actions, file/content search, the command palette, conversation and
+diff links, LSP navigation and theme editing use `useOpenEditorFile` or
+`useEditorFileNavigator`. Preview remains a separate document action. Common
+line and column values are 1-based, including the CodeMirror fallback.
+
+The controller reveals the Editor, waits up to 15 seconds for the connected
+surface, calls its declared method through the broker's existing scoped grant,
+then focuses after acknowledgement. Ordering is per conversation and begins
+before asynchronous settings resolution. A response from an older opening,
+an obsolete editor choice or a recycled surface cannot regain focus.
+
+Missing, disabled, blocked, unsupported or unbuilt editors produce an
+explanation above CodeMirror. A transport/backend failure is also reported and
+opens that file in CodeMirror. Requests with effects are never automatically
+replayed; the user can retry the editor explicitly.
+
+Editor presence persists after leaving its conversation page and releases
+when the contribution becomes unavailable, the selected editor changes or
+the conversation is deleted. Only conversations that mounted the editor
+acquire presence; choosing a plugin does not start it for every conversation.
+
+The shortcut relay reserves the host's fuzzy file search and Explorer toggle
+only on editor surfaces, including user remapping and non-QWERTY layouts.
+Buffer commands such as save remain the editor plugin's responsibility.
 
 ## 4. Service
 

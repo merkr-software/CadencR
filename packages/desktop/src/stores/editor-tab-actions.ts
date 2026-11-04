@@ -50,7 +50,7 @@ function createBasicTabActions(
       );
     },
 
-    openFile: (featureId, paneId, filePath, maxTabs = DEFAULT_MAX_TABS, goToLine?) =>
+    openFile: (featureId, paneId, filePath, maxTabs = DEFAULT_MAX_TABS, goToLine?, goToColumn?) =>
       set((state) => {
         const feature = state.features[featureId] ?? { ...defaultFeatureState };
         const next = updatePane(feature, paneId, (pane) => {
@@ -58,7 +58,9 @@ function createBasicTabActions(
             // File already open — update pendingGoToLine if specified
             const tabs = goToLine
               ? pane.tabs.map((t) =>
-                  t.filePath === filePath ? { ...t, pendingGoToLine: goToLine } : t,
+                  t.filePath === filePath
+                    ? { ...t, pendingGoToLine: goToLine, pendingGoToColumn: goToColumn }
+                    : t,
                 )
               : pane.tabs;
             return { ...pane, tabs, activeFilePath: filePath };
@@ -70,13 +72,14 @@ function createBasicTabActions(
             fileName,
             disambiguatedName: fileName,
             isDirty: false,
-            cursorPosition: { line: goToLine ?? 1, col: 1 },
+            cursorPosition: { line: goToLine ?? 1, col: goToColumn ?? 1 },
             pendingGoToLine: goToLine,
+            pendingGoToColumn: goToColumn,
           };
 
           let tabs = [...pane.tabs, newTab];
 
-          if (tabs.length > maxTabs) {
+          if (maxTabs > 0 && tabs.length > maxTabs) {
             const oldestNonDirtyIdx = tabs.findIndex((t) => !t.isDirty);
             if (oldestNonDirtyIdx !== -1) {
               tabs = tabs.filter((_, i) => i !== oldestNonDirtyIdx);
@@ -305,7 +308,9 @@ function createTabMetadataActions(
         const next = updatePane(feature, paneId, (pane) => ({
           ...pane,
           tabs: pane.tabs.map((tab) =>
-            tab.filePath === filePath ? { ...tab, pendingGoToLine: undefined } : tab,
+            tab.filePath === filePath
+              ? { ...tab, pendingGoToLine: undefined, pendingGoToColumn: undefined }
+              : tab,
           ),
         }));
         return updateFeature(state, featureId, next);

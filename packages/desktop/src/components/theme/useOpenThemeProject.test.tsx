@@ -19,6 +19,10 @@ const themeState = vi.hoisted(() => ({
 }));
 const systemAppearance = vi.hoisted(() => ({ value: "dark" as "light" | "dark" }));
 
+vi.mock("@/hooks/useOpenEditorFile", () => ({
+  useEditorFileNavigator: () => (featureId: number, params: { path: string }) =>
+    useEditorStore.getState().openFile(featureId, DEFAULT_PANE_ID, params.path),
+}));
 vi.mock("@tanstack/react-router", () => ({ useNavigate: () => navigate }));
 vi.mock("@/api/generated", () => ({
   useThemeWorkspace: () => ({ mutateAsync: workspace }),
