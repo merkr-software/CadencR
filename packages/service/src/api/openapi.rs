@@ -31,6 +31,7 @@ use crate::domain::features::settings_routes as features_settings_routes;
 use crate::domain::imports::models as imports_models;
 use crate::domain::imports::routes as imports_routes;
 use crate::domain::lsp::routes as lsp_routes;
+use crate::domain::neovim::migration as neovim_migration;
 use crate::domain::neovim::protocol as neovim_protocol;
 use crate::domain::neovim::routes as neovim_routes;
 use crate::domain::ports::models as ports_models;
@@ -336,6 +337,8 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_routes::stop_route,
         neovim_routes::detect_route,
         neovim_routes::open_file_route,
+        neovim_migration::migration_status_route,
+        neovim_migration::migrate_to_plugin_route,
     ),
     components(schemas(
         crate::domain::telemetry::models::TelemetryConsent,
@@ -766,6 +769,9 @@ use crate::domain::ws_session::routes as ws_routes;
         neovim_protocol::NeovimStartResponse,
         neovim_protocol::NeovimDetectResponse,
         neovim_protocol::OpenFileRequest,
+        neovim_migration::NeovimMigrationStatus,
+        neovim_migration::NeovimMigrationResponse,
+        neovim_migration::NeovimMigrationPluginState,
         ws_protocol::WsEnvelope,
         ws_protocol::SessionInitializedPayload,
         ws_protocol::SessionMessagePayload,
