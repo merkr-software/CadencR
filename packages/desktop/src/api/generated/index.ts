@@ -4047,6 +4047,43 @@ export interface NeovimDetectResponse {
   available: boolean;
 }
 
+/**
+ * Why the plugin cannot take over the editor right now.
+ */
+export type NeovimMigrationPluginState =
+  (typeof NeovimMigrationPluginState)[keyof typeof NeovimMigrationPluginState];
+
+export const NeovimMigrationPluginState = {
+  not_installed: "not_installed",
+  blocked: "blocked",
+  not_an_editor: "not_an_editor",
+  not_built: "not_built",
+  backend_unavailable: "backend_unavailable",
+  consent_required: "consent_required",
+  disabled: "disabled",
+  ready: "ready",
+} as const;
+
+export interface NeovimMigrationResponse {
+  editor_backend: string;
+  /** `false` when the setting already held the target value (idempotent). */
+  migrated: boolean;
+}
+
+export interface NeovimMigrationStatus {
+  /**
+   * Current `editor_backend` value (`null` when unset: the legacy
+   * `editor_vim_mode_level` interpretation applies).
+   * @nullable
+   */
+  current_backend?: string | null;
+  plugin: NeovimMigrationPluginState;
+  /** Feature ids with a built-in Neovim process alive right now. */
+  sessions_running: number[];
+  /** The value a successful migration writes. */
+  target: string;
+}
+
 export interface NeovimStartResponse {
   version: string;
 }
@@ -26426,6 +26463,176 @@ export function useDetectRoute<
 
   return withQueryKey(query, queryOptions.queryKey);
 }
+
+export const migrationStatusRoute = (signal?: AbortSignal) => {
+  return customInstance<NeovimMigrationStatus>({
+    url: `/api/neovim/migration`,
+    method: "GET",
+    signal,
+  });
+};
+
+export const getMigrationStatusRouteQueryKey = () => {
+  return [`/api/neovim/migration`] as const;
+};
+
+export const getMigrationStatusRouteQueryOptions = <
+  TData = Awaited<ReturnType<typeof migrationStatusRoute>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: Partial<UseQueryOptions<Awaited<ReturnType<typeof migrationStatusRoute>>, TError, TData>>;
+}) => {
+  const { query: queryOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getMigrationStatusRouteQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof migrationStatusRoute>>> = ({ signal }) =>
+    migrationStatusRoute(signal);
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof migrationStatusRoute>>,
+    TError,
+    TData
+  > & { queryKey: DataTag<QueryKey, TData, TError> };
+};
+
+export type MigrationStatusRouteQueryResult = NonNullable<
+  Awaited<ReturnType<typeof migrationStatusRoute>>
+>;
+export type MigrationStatusRouteQueryError = ErrorType<unknown>;
+
+export function useMigrationStatusRoute<
+  TData = Awaited<ReturnType<typeof migrationStatusRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options: {
+    query: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof migrationStatusRoute>>, TError, TData>
+    > &
+      Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof migrationStatusRoute>>,
+          TError,
+          Awaited<ReturnType<typeof migrationStatusRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useMigrationStatusRoute<
+  TData = Awaited<ReturnType<typeof migrationStatusRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof migrationStatusRoute>>, TError, TData>
+    > &
+      Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof migrationStatusRoute>>,
+          TError,
+          Awaited<ReturnType<typeof migrationStatusRoute>>
+        >,
+        "initialData"
+      >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+export function useMigrationStatusRoute<
+  TData = Awaited<ReturnType<typeof migrationStatusRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof migrationStatusRoute>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+export function useMigrationStatusRoute<
+  TData = Awaited<ReturnType<typeof migrationStatusRoute>>,
+  TError = ErrorType<unknown>,
+>(
+  options?: {
+    query?: Partial<
+      UseQueryOptions<Awaited<ReturnType<typeof migrationStatusRoute>>, TError, TData>
+    >;
+  },
+  queryClient?: QueryClient,
+): UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+  const queryOptions = getMigrationStatusRouteQueryOptions(options);
+
+  const query = useQuery(queryOptions, queryClient) as UseQueryResult<TData, TError> & {
+    queryKey: DataTag<QueryKey, TData, TError>;
+  };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+export const migrateToPluginRoute = (signal?: AbortSignal) => {
+  return customInstance<NeovimMigrationResponse>({
+    url: `/api/neovim/migration`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getMigrateToPluginRouteMutationKey = () => ["migrateToPluginRoute"] as const;
+
+export const getMigrateToPluginRouteMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof migrateToPluginRoute>>,
+    TError,
+    void,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof migrateToPluginRoute>>,
+  TError,
+  void,
+  TContext
+> => {
+  const mutationKey = getMigrateToPluginRouteMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof migrateToPluginRoute>>,
+    void
+  > = () => {
+    return migrateToPluginRoute();
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type MigrateToPluginRouteMutationResult = NonNullable<
+  Awaited<ReturnType<typeof migrateToPluginRoute>>
+>;
+
+export type MigrateToPluginRouteMutationError = ErrorType<void>;
+
+export const useMigrateToPluginRoute = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof migrateToPluginRoute>>,
+      TError,
+      void,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<Awaited<ReturnType<typeof migrateToPluginRoute>>, TError, void, TContext> => {
+  return useMutation(getMigrateToPluginRouteMutationOptions(options), queryClient);
+};
 
 export const startRoute = (startRouteBody: number, signal?: AbortSignal) => {
   return customInstance<NeovimStartResponse>({

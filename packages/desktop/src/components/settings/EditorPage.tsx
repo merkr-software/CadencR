@@ -4,6 +4,7 @@ import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { FileTreeIconSetSelector } from "./FileTreeIconSetSelector";
 import { LanguageServerSettings } from "./LanguageServerSettings";
 import { EditorBackendSetting } from "./EditorBackendSetting";
+import { NeovimPluginMigration } from "./NeovimPluginMigration";
 import { VimMotionsSetting } from "./VimMotionsSetting";
 import { SettingsGroup } from "./SettingsGroup";
 import { SettingsRow } from "./SettingsRow";
@@ -22,6 +23,7 @@ export function EditorPage(): React.JSX.Element {
       <SettingsGroup id={SETTINGS_ANCHORS.editing} title="Editing">
         <SettingsSubsection>
           <EditorBackendSetting />
+          <NeovimPluginMigration />
         </SettingsSubsection>
         <VimMotionsSetting />
         <SettingsSwitchRow
