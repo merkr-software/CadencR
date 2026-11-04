@@ -283,27 +283,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Provider format and lint
-        run: pnpm run check:plugin:pi
-
-      - name: Fake-only provider and supplemental theme tests
+      - name: Supplemental theme tests
         run: pnpm run test:plugins
-
-      - name: Build the separate Pi connector
-        run: |
-          pnpm run build:plugin:pi
-          expected=$(node -p "require('./plugins/providers/pi/package.json').version")
-          test "$(plugins/providers/pi/bin/provider version)" = "$expected"
 
       - name: Fetch the pinned released CLI for read-only compatibility checks
         run: |
           sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
             scripts/cli-qualification.env "$RUNNER_TEMP/official-plugin-cli"
-
-      - name: Canonical Pi candidate preparation
-        run: |
-          CADENCR_PI_CANDIDATE_TEST_CLI="$RUNNER_TEMP/official-plugin-cli/cadencr" \
-            node --test plugins/providers/pi/test/candidate-package.test.mjs
 
       - name: Canonical theme validation and deterministic packaging
         run: |

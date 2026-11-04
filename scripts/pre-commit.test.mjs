@@ -23,8 +23,8 @@ const labels = (result) => result.steps.map(({ label }) => label);
 const AGENTS = "node scripts/build-agents-md.mjs --check";
 const ROOT_TESTS = "pnpm run test:scripts";
 const PLUGINS = [
-  "pnpm run check:plugin:pi",
-  "pnpm run test:plugin:pi",
+  "pnpm run check:plugin:cursor",
+  "pnpm run test:plugin:cursor",
   "pnpm run test:plugin:themes",
 ];
 const RUST = [
@@ -207,13 +207,16 @@ test("root tooling changes and CADENCR_PRECOMMIT_FULL run everything", () => {
     "pnpm run check:provider-boundaries",
     ROOT_TESTS,
     "pnpm run test:release-scripts",
-    ...PLUGINS,
+    PLUGINS[2],
     FULL,
   ]);
 });
 
 test("official plugin changes run dedicated checks without application tasks", () => {
-  for (const path of ["plugins/providers/pi/src/provider.mjs", "plugins/providers/pi/README.md"]) {
+  for (const path of [
+    "plugins/providers/cursor/src/provider.mjs",
+    "plugins/providers/cursor/README.md",
+  ]) {
     assert.deepEqual(commands(plan([path])), [AGENTS, ROOT_TESTS, ...PLUGINS.slice(0, 2)]);
   }
   assert.deepEqual(commands(plan(["plugins/themes/fjord/theme.json"])), [
@@ -222,25 +225,33 @@ test("official plugin changes run dedicated checks without application tasks", (
     PLUGINS[2],
   ]);
   assert.deepEqual(commands(plan(["plugins/README.md"])), [AGENTS, ROOT_TESTS, ...PLUGINS]);
-  assert.deepEqual(commands(plan([{ path: "plugins/providers/pi/src/old.mjs", deleted: true }])), [
-    AGENTS,
-    ROOT_TESTS,
-    ...PLUGINS.slice(0, 2),
-  ]);
+  assert.deepEqual(
+    commands(plan([{ path: "plugins/providers/cursor/src/old.mjs", deleted: true }])),
+    [AGENTS, ROOT_TESTS, ...PLUGINS.slice(0, 2)],
+  );
 });
 
-test("Rust connector sources also run the workspace Rust checks", () => {
+test("Rust connector sources reuse workspace checks without repeating Cursor checks", () => {
   for (const path of [
     "plugins/providers/cursor/src/proxy/mod.rs",
     "plugins/providers/cursor/Cargo.toml",
     "plugins/providers/cursor/tests/fixtures/fake_agent.py",
   ]) {
     assert.deepEqual(classifyPath(path), ["other", "providerPlugins", "rust"]);
-    const result = commands(plan([path]));
-    for (const command of [...PLUGINS.slice(0, 2), ...RUST]) assert.ok(result.includes(command));
+    for (const entries of [
+      [path],
+      [path, "plugins/providers/cursor/README.md"],
+      [{ path, deleted: true }],
+    ]) {
+      const result = commands(plan(entries));
+      assert.deepEqual(result, [AGENTS, ROOT_TESTS, ...RUST]);
+    }
   }
-  assert.deepEqual(classifyPath("plugins/providers/cursor/README.md"), ["other", "providerPlugins"]);
-  assert.deepEqual(classifyPath("plugins/providers/pi/test/fixtures/x.mjs"), [
+  assert.deepEqual(classifyPath("plugins/providers/cursor/README.md"), [
+    "other",
+    "providerPlugins",
+  ]);
+  assert.deepEqual(classifyPath("plugins/providers/cursor/test/fixtures/x.mjs"), [
     "other",
     "providerPlugins",
   ]);
@@ -249,8 +260,8 @@ test("Rust connector sources also run the workspace Rust checks", () => {
 test("mixed application and plugin edits union checks without duplicate plugin tests", () => {
   const result = commands(
     plan([
-      "plugins/providers/pi/src/provider.mjs",
-      "plugins/providers/pi/test/provider.test.mjs",
+      "plugins/providers/cursor/src/provider.mjs",
+      "plugins/providers/cursor/test/provider.test.mjs",
       "plugins/themes/graphite/theme.json",
       "packages/desktop/src/lib/foo.ts",
     ]),
@@ -258,8 +269,18 @@ test("mixed application and plugin edits union checks without duplicate plugin t
   for (const command of PLUGINS) assert.equal(result.filter((item) => item === command).length, 1);
   assert.ok(result.some((command) => command.includes("--filter=@cadencr/desktop")));
   for (const path of ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"]) {
-    for (const command of PLUGINS) assert.ok(commands(plan([path])).includes(command));
+    const full = commands(plan([path]));
+    assert.ok(full.includes(PLUGINS[2]));
+    assert.ok(full.includes(FULL));
+    for (const command of PLUGINS.slice(0, 2)) assert.equal(full.includes(command), false);
   }
+});
+
+test("mixed provider scripts and service edits share workspace Rust checks", () => {
+  const result = commands(
+    plan(["plugins/providers/cursor/scripts/build.mjs", "packages/service/src/main.rs"]),
+  );
+  assert.deepEqual(result, [AGENTS, "pnpm run check:provider-boundaries", ROOT_TESTS, ...RUST]);
 });
 
 test("checks do not inherit the hook's git index variables", () => {

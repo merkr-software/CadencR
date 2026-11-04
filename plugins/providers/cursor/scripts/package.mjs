@@ -1,5 +1,5 @@
 // Assemble a host-native candidate payload (bin/provider, README, LICENSE,
-// icon) plus its SHA256SUMS. Mirrors plugins/providers/pi/scripts/package.mjs.
+// icon) plus its SHA256SUMS.
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { dirname, resolve } from "node:path";
