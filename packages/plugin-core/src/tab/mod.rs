@@ -54,7 +54,7 @@ pub const SUPPORTED_API_VERSION: u32 = 1;
 /// The backend stdio protocol versions this host speaks (§4.7): a manifest
 /// declaring another is invalid, and a backend whose `ready` line names
 /// another is stopped.
-pub const SUPPORTED_BACKEND_PROTOCOLS: [u32; 1] = [1];
+pub const SUPPORTED_BACKEND_PROTOCOLS: [u32; 2] = [1, 2];
 pub const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 pub const MAX_ICON_BYTES: u64 = 32 * 1024;
 

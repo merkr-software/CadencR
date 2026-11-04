@@ -20,6 +20,14 @@ pub mod codes {
     pub const RESPONSE_TOO_LARGE: &str = "RESPONSE_TOO_LARGE";
     /// Too many requests are already waiting for a worker; retry later.
     pub const BUSY: &str = "BUSY";
+    /// Publishing requires protocol v2, but this run uses v1.
+    pub const EVENTS_UNSUPPORTED: &str = "EVENTS_UNSUPPORTED";
+    /// An event is malformed or has an invalid topic.
+    pub const INVALID_EVENT: &str = "INVALID_EVENT";
+    /// An event exceeds the protocol's 64 KiB wire limit.
+    pub const EVENT_TOO_LARGE: &str = "EVENT_TOO_LARGE";
+    /// Writing an event failed or the protocol output is already closed.
+    pub const OUTPUT_ERROR: &str = "OUTPUT_ERROR";
 }
 
 /// A failed request: a stable `SCREAMING_SNAKE_CASE` code and a message for
