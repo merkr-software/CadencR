@@ -247,7 +247,7 @@ mod tests {
         let mut index = merged(&[&foreign.receipt.index, &native.receipt.index, &ui.index]);
         let mut future = native.receipt.index.signed.packages[0].clone();
         future["package"]["tab"]["id"] = "future".into();
-        future["package"]["tab"]["backend"]["protocol"] = serde_json::json!(2);
+        future["package"]["tab"]["backend"]["protocol"] = serde_json::json!(3);
         index.signed.packages.push(future);
         let review = review(&index, None);
         assert_eq!(

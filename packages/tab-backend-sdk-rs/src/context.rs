@@ -6,7 +6,9 @@ use std::sync::Arc;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
+use crate::emitter::EventEmitter;
 use crate::error::Error;
+use crate::output::Output;
 use crate::protocol::{Hello, RequestId};
 
 /// Handles every request of one backend. Called concurrently from several
@@ -42,13 +44,15 @@ where
 /// State shared by every request of one run.
 pub(crate) struct Session {
     pub hello: Hello,
+    emitter: EventEmitter,
     #[cfg(feature = "api")]
     pub api: std::sync::OnceLock<Result<crate::api::Api, crate::api::ApiError>>,
 }
 
 impl Session {
-    pub fn new(hello: Hello) -> Self {
+    pub fn new(hello: Hello, output: Output) -> Self {
         Self {
+            emitter: EventEmitter::new(hello.protocol, output),
             hello,
             #[cfg(feature = "api")]
             api: std::sync::OnceLock::new(),
@@ -77,6 +81,12 @@ impl Context {
     /// The `hello` the host sent at startup.
     pub fn hello(&self) -> &Hello {
         &self.session.hello
+    }
+
+    /// A clonable publisher for unsolicited v2 events, including from tasks
+    /// that outlive this request. In v1, publishing fails explicitly.
+    pub fn emitter(&self) -> EventEmitter {
+        self.session.emitter.clone()
     }
 
     /// [`Hello::state_dir`]: the writable directory for this tab's state.
@@ -132,7 +142,10 @@ mod tests {
 
     #[test]
     fn decodes_params_or_reports_them_invalid() {
-        let session = Arc::new(Session::new(sample_hello()));
+        let session = Arc::new(Session::new(
+            sample_hello(),
+            Output::new(Box::new(std::io::sink())),
+        ));
         let cx = |params| Context::new(session.clone(), "1".into(), "m".into(), params);
         assert_eq!(cx(json!({"n": 3})).params::<Params>().unwrap().n, 3);
         let error = cx(json!({"n": "x"})).params::<Params>().err().unwrap();

@@ -117,6 +117,7 @@ the tab's Activity.
 | `params::<T>()`, `raw_params()` | Decoded or raw JSON params; decoding failures return `INVALID_PARAMS`.           |
 | `hello()`                       | Plugin identity, project/feature IDs, worktree, scopes, and API connection info. |
 | `state_dir()`                   | Host-provided writable directory for backend state.                              |
+| `emitter()`                     | Clonable, thread-safe publisher for unsolicited protocol-v2 events.              |
 | `api()`                         | Scoped blocking HTTP client (requires the `api` feature).                        |
 
 Handlers are `Send + Sync + 'static` and can run concurrently. Store durable
@@ -126,6 +127,38 @@ the tab's conversations: coordinate concurrent writes with feature-specific
 subdirectories or file locks. Never log the token in `hello()`.
 Native backends run with the user's OS rights; Cadencr enforces API scopes
 and consent, but does not sandbox their filesystem or network access.
+
+## Protocol-v2 events
+
+Declare `"protocol": 2` in `backend` to publish updates independently of
+request responses. This requires a host that supports v2; existing v1
+manifests and request handlers keep working.
+
+```rust,no_run
+use cadencr_tab_backend::{Context, Error};
+use serde_json::{json, Value};
+
+fn start_worker(cx: &Context) -> Result<Value, Error> {
+    let events = cx.emitter();
+    std::thread::spawn(move || {
+        if let Err(error) = events.emit("worker.progress", json!({"percent": 100})) {
+            eprintln!("could not publish progress: {error}");
+        }
+    });
+    Ok(Value::Null)
+}
+```
+
+The publisher shares the responses' atomic stdout writer and adds no queue.
+Publishing blocks if the host pipe is full. Keep producers off the input
+reader, stop them on `OUTPUT_ERROR`, and bound any producer-side queues.
+
+Topics belong to the plugin: 1–128 UTF-8 bytes without control characters.
+Any JSON payload is allowed, including `null`. The entire serialized event
+must fit in 64 KiB; JSON escaping counts. Split larger updates.
+`emit()` returns errors explicitly: `EVENTS_UNSUPPORTED` in a v1 run,
+`INVALID_EVENT`, `EVENT_TOO_LARGE`, or `OUTPUT_ERROR`. Validation failures
+write nothing. Retained publishers fail once serving ends.
 
 ## Features
 
@@ -190,8 +223,10 @@ for a complete backend.
 
 ## Versioning
 
-The crate is versioned independently of the Cadencr app. It speaks protocol
-version 1.
+The crate is versioned independently of the Cadencr app. It supports protocol
+versions 1 and 2, echoes the requested version in `ready`, and only allows
+events in v2. `PROTOCOL_VERSION` and conformance's default stay at `1` for
+compatibility; `EVENT_PROTOCOL_VERSION` is `2`.
 
 ## License
 
