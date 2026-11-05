@@ -188,6 +188,7 @@ pub(super) mod tests {
             entry_sha256: "b".repeat(64),
             entry_size: 1,
             runtime: cadencr_registry_core::LspRuntime::Node,
+            node_min_version: None,
         };
         let _guard = configure(
             &root,

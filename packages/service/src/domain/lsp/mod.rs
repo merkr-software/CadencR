@@ -26,6 +26,7 @@ pub mod root;
 pub mod routes;
 pub mod selection;
 pub mod spawn;
+mod watchers;
 
 pub use registry::LspRegistry;
 pub use routes::lsp_router;

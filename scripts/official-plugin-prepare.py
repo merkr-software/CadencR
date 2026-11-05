@@ -17,6 +17,9 @@ from official_plugin_tags import release_tag
 
 MAX_FILE = 32 * 1024 * 1024
 MAX_TREE = 64 * 1024 * 1024
+# LSP archives may reach the core 64 MiB ceiling; one bounded 16 MiB lock accompanies them.
+MAX_LSP_FILE = 64 * 1024 * 1024
+MAX_LSP_TREE = 80 * 1024 * 1024
 
 
 def git(repo, *args):
@@ -62,12 +65,12 @@ def read_policy(repo, commit, tag, mode):
     return policy, entry, plugin, version
 
 
-def read_blobs(repo, objects):
+def read_blobs(repo, objects, *, max_file=MAX_FILE, max_tree=MAX_TREE):
     process = subprocess.Popen(["git", "-C", repo, "cat-file", "--batch"],
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
     timer = threading.Timer(60, process.kill)
     timer.start()
-    remaining = MAX_TREE
+    remaining = max_tree
     try:
         for name, object_id in objects:
             if not re.fullmatch("[0-9a-f]{40}", object_id):
@@ -79,7 +82,7 @@ def read_blobs(repo, objects):
                     or not header[2].isdigit()):
                 fail("invalid tracked blob response")
             size = int(header[2])
-            if size > MAX_FILE or size > remaining:
+            if size > max_file or size > remaining:
                 fail("source payload exceeds preparation limit")
             remaining -= size
             data = process.stdout.read(size)
@@ -151,7 +154,8 @@ def stage_payload(repo, commit, entry, target, specification, stage):
         if not re.fullmatch("[0-9a-f]{64}", declaration["sha256"]):
             fail("payload digest review is PENDING")
         objects.append((name, actual[sources[name]][2]))
-    with contextlib.closing(read_blobs(repo, objects)) as blobs:
+    limits = {"max_file": MAX_LSP_FILE, "max_tree": MAX_LSP_TREE} if entry["kind"] == "lsp" else {}
+    with contextlib.closing(read_blobs(repo, objects, **limits)) as blobs:
         for name, data in blobs:
             declaration = files[name]
             if digest(data) != declaration["sha256"]:

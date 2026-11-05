@@ -21,7 +21,7 @@ pub fn parse_version_string(raw: &str) -> Option<VersionKey> {
 fn parse_version(raw: &str) -> Option<(VersionKey, String)> {
     static MATCHER: OnceCell<Regex> = OnceCell::new();
     let regex = MATCHER.get_or_init(|| {
-        Regex::new(r"\b(\d+)\.(\d+)\.(\d+)\b(?:-[0-9A-Za-z][0-9A-Za-z.]*)?")
+        Regex::new(r"\bv?(\d+)\.(\d+)\.(\d+)\b(?:-[0-9A-Za-z][0-9A-Za-z.]*)?")
             .expect("static semver regex compiles")
     });
     let captures = regex.captures(raw)?;
@@ -104,6 +104,14 @@ mod tests {
         assert_eq!(
             parse_version_string("ERROR service=models.dev\n1.1.65\n"),
             Some(VersionKey(1, 1, 65))
+        );
+        assert_eq!(
+            parse_version_string("v22.19.0\n"),
+            Some(VersionKey(22, 19, 0))
+        );
+        assert_eq!(
+            parse_version_string("node v24.1.2"),
+            Some(VersionKey(24, 1, 2))
         );
         assert_eq!(parse_version_string("no version here"), None);
     }

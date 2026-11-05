@@ -3,8 +3,7 @@ import re
 
 SEMVER = r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)"
 LEGACY_TAG = re.compile(r"plugins/((?:provider|theme|tab)-[a-z][a-z0-9-]*)/v(" + SEMVER + r")")
-LSP_TAG = re.compile(r"(lsp-typescript-language-server)-v(" + SEMVER + r")")
-LSP_SOURCE = "plugins/lsp/typescript-language-server"
+LSP_TAG = re.compile(r"(lsp-[a-z][a-z0-9-]*)-v(" + SEMVER + r")")
 
 
 def release_tag(tag, policy):
@@ -16,10 +15,12 @@ def release_tag(tag, policy):
         raise ValueError("invalid official plugin tag")
     plugin, version = match.groups()
     entry = policy.get("plugins", {}).get(plugin)
+    identity = plugin.removeprefix("lsp-")
+    source = "plugins/lsp/" + identity
     if (not isinstance(entry, dict) or entry.get("kind") != "lsp"
-            or entry.get("id") != "typescript-language-server" or entry.get("version") != version
-            or entry.get("source_path") != LSP_SOURCE
-            or entry.get("package") != LSP_SOURCE + "/package-template.json"
+            or entry.get("id") != identity or entry.get("version") != version
+            or entry.get("source_path") != source
+            or entry.get("package") != source + "/package-template.json"
             or entry.get("preparation") != "READY"):
         raise ValueError("flat LSP tag is not admitted by the trusted source policy")
     return plugin, version

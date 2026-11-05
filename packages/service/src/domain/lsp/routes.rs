@@ -238,11 +238,28 @@ pub async fn connect_handler(
         }
     };
 
+    let runtime_root = match spec.server.managed_revision.as_ref() {
+        Some(proof) => {
+            match super::managed::storage::revision(&proof.root, &proof.id, &proof.pointer) {
+                Ok(root) => Some(root),
+                Err(error) => return error.into_response(),
+            }
+        }
+        None => None,
+    };
     let ws = ws.protocols(selected_proto);
     let display_name = spec.server.display_name.clone();
     let crash_tracker = state.lsp_crashes.clone();
     let live = state.remote.live();
     ws.on_upgrade(move |socket| async move {
+        let proxy = run_proxy()
+            .ws(socket)
+            .child(child)
+            .display_name(&display_name)
+            .crash_tracker(crash_tracker)
+            .crash_key(crash_key)
+            .maybe_runtime_root(runtime_root)
+            .call();
         match device_id {
             // Remote session: race the proxy against the device's cancel token so
             // revoking the device force-closes the LSP socket immediately, like
@@ -252,13 +269,13 @@ pub async fn connect_handler(
                 // event is the main WS's job, so ignore the first-socket flag.
                 let (guard, _) = live.register(id);
                 tokio::select! {
-                    _ = run_proxy(socket, child, &display_name, crash_tracker, crash_key) => {}
+                    _ = proxy => {}
                     _ = guard.token.cancelled() => {
                         tracing::debug!(device_id = id, "remote LSP force-closed (device revoked)");
                     }
                 }
             }
-            None => run_proxy(socket, child, &display_name, crash_tracker, crash_key).await,
+            None => proxy.await,
         }
     })
     .into_response()

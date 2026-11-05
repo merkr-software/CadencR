@@ -22,17 +22,14 @@ pub fn read_lsp_archive(
     }
     let decoded = gunzip_bounded(bytes, MAX_LSP_UNCOMPRESSED_BYTES)
         .map_err(|_| invalid("invalid, oversized or trailing gzip data"))?;
-    let mode = if target.runtime == LspRuntime::Native {
-        0o755
-    } else {
-        0o644
-    };
-    let limit = if target.runtime == LspRuntime::Native {
-        1
-    } else {
-        4096
-    };
-    let files = crate::theme_verify::read_tar_with_mode(&decoded, limit, true, mode)?;
+    let files =
+        crate::theme_verify::read_tar_with_modes(&decoded, super::MAX_LSP_ENTRIES, true, |path| {
+            if target.runtime == LspRuntime::Native && path == target.entry {
+                0o755
+            } else {
+                0o644
+            }
+        })?;
     validate_paths(&files)?;
     let entry = files
         .get(&target.entry)
@@ -91,6 +88,7 @@ mod tests {
             entry_sha256: sha256_hex(entry),
             entry_size: entry.len() as u64,
             runtime: LspRuntime::Node,
+            node_min_version: None,
         }
     }
     #[test]
@@ -168,5 +166,37 @@ mod tests {
             signed.entry_size = script.len() as u64;
             assert!(read_lsp_archive(&bytes, platform.as_str(), &signed).is_err());
         }
+    }
+
+    #[test]
+    fn native_data_files_cannot_smuggle_an_executable_mode() {
+        use cadencr_plugin_core::tab::{test_support::native_executable, TabPlatform};
+        let executable = native_executable(TabPlatform::LinuxX86_64);
+        for (entry_mode, data_mode) in [(0o755, 0o755), (0o644, 0o644)] {
+            let bytes = archive(&[
+                ("bin/server", entry_mode, b'0', &executable),
+                ("lib/library", data_mode, b'0', b"data"),
+            ]);
+            let mut signed = target(&bytes, &executable);
+            signed.entry = "bin/server".into();
+            signed.runtime = LspRuntime::Native;
+            assert!(read_lsp_archive(&bytes, "linux-x86_64", &signed).is_err());
+        }
+    }
+
+    #[test]
+    fn node_archives_still_reject_more_than_the_lsp_file_budget() {
+        let js = b"process.stdin.resume();";
+        let names = (0..super::super::MAX_LSP_ENTRIES)
+            .map(|index| format!("typeshed/module{index}.pyi"))
+            .collect::<Vec<_>>();
+        let mut entries = vec![("dist/server.js", 0o644, b'0', &js[..])];
+        entries.extend(
+            names
+                .iter()
+                .map(|name| (name.as_str(), 0o644, b'0', &b"stub"[..])),
+        );
+        let bytes = archive(&entries);
+        assert!(read_lsp_archive(&bytes, "linux-x86_64", &target(&bytes, js)).is_err());
     }
 }

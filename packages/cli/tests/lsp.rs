@@ -1,6 +1,6 @@
 //! LSP authoring through the real offline binary; no server code is executed.
 use serde_json::{json, Value};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
@@ -134,4 +134,155 @@ fn lsp_authoring_refuses_metadata_and_entry_links_without_following_them() {
     let output = root.path().join("refused.tar.gz");
     assert!(!pack(&folder, &output).status.success());
     assert!(!output.exists());
+}
+
+#[cfg(unix)]
+fn native_targets(root: &Path) -> (Value, Vec<(String, PathBuf, PathBuf)>) {
+    use cadencr_plugin_core::tab::{test_support::native_executable, TabPlatform};
+    use std::os::unix::fs::PermissionsExt;
+    let mut package: Value = serde_json::from_str(include_str!(
+        "../../../tooling/marketplace-registry/examples/lsp/package.node.json"
+    ))
+    .unwrap();
+    let mut targets = serde_json::Map::new();
+    let mut trees = Vec::new();
+    for platform in TabPlatform::ALL {
+        let target = platform.as_str();
+        let folder = root.join(target);
+        std::fs::create_dir(&folder).unwrap();
+        let entry = folder.join("server");
+        std::fs::write(&entry, native_executable(platform)).unwrap();
+        std::fs::set_permissions(&entry, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::write(folder.join("LICENSE"), "upstream notice").unwrap();
+        let archive = root.join(format!("{target}.tar.gz"));
+        let mut receipt = success(&run(&[
+            "registry",
+            "pack-lsp",
+            "--directory",
+            path(&folder),
+            "--target",
+            target,
+            "--runtime",
+            "native",
+            "--entry",
+            "server",
+            "--output",
+            path(&archive),
+        ]));
+        for field in ["kind", "target"] {
+            receipt.as_object_mut().unwrap().remove(field);
+        }
+        receipt["archive"] = json!(format!(
+            "https://github.com/acme/language-server/releases/download/v1.0.0/{target}.tar.gz"
+        ));
+        targets.insert(target.to_string(), receipt);
+        trees.push((target.to_string(), folder, archive));
+    }
+    package["package"]["lsp"]["distribution"]["binary"] = Value::Object(targets);
+    for (_, folder, _) in &trees {
+        write_json(&folder.join("lsp.json"), &package);
+    }
+    (package, trees)
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_native_targets_validate_the_complete_manifest_and_exact_archives_without_execution() {
+    let root = tempfile::tempdir().unwrap();
+    let (package, trees) = native_targets(root.path());
+    for (target, folder, archive) in &trees {
+        let args = [
+            "plugin",
+            "validate",
+            path(folder),
+            "--kind",
+            "lsp",
+            "--target",
+            target,
+            "--archive",
+            path(archive),
+        ];
+        let receipt = success(&run(&args));
+        assert!(receipt["message"]
+            .as_str()
+            .unwrap()
+            .contains("signed archive verified"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&std::fs::read(folder.join("lsp.json")).unwrap())
+                .unwrap(),
+            package
+        );
+        assert!(!run(&["plugin", "validate", path(folder), "--kind", "lsp"])
+            .status
+            .success());
+        let foreign = trees.iter().find(|(other, _, _)| other != target).unwrap();
+        assert!(!run(&[
+            "plugin",
+            "validate",
+            path(folder),
+            "--kind",
+            "lsp",
+            "--target",
+            target,
+            "--archive",
+            path(&foreign.2)
+        ])
+        .status
+        .success());
+        let mut invalid = package.clone();
+        invalid["package"]["lsp"]["distribution"]["binary"][&foreign.0]["sha256"] =
+            json!("invalid");
+        write_json(&folder.join("lsp.json"), &invalid);
+        assert!(
+            !run(&args).status.success(),
+            "unselected target metadata must still validate"
+        );
+        write_json(&folder.join("lsp.json"), &package);
+        std::fs::write(folder.join("server"), "changed").unwrap();
+        assert!(
+            !run(&args).status.success(),
+            "the local entry must still match the signed archive"
+        );
+    }
+}
+
+#[test]
+fn lsp_target_selection_refuses_ambiguous_or_unrelated_inputs() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = &root.path().join("runtime");
+    std::fs::create_dir(folder).unwrap();
+    std::fs::write(folder.join("server.js"), "throw new Error('never execute')").unwrap();
+    let receipt = success(&pack(folder, &root.path().join("archive.tar.gz")));
+    author_package(folder, &receipt);
+    for args in [
+        vec![
+            "plugin",
+            "validate",
+            path(folder),
+            "--kind",
+            "lsp",
+            "--target",
+            "darwin-aarch64",
+        ],
+        vec![
+            "plugin",
+            "validate",
+            path(folder),
+            "--kind",
+            "theme",
+            "--target",
+            "linux-x86_64",
+        ],
+        vec![
+            "plugin",
+            "validate",
+            path(folder),
+            "--kind",
+            "lsp",
+            "--archive",
+            "archive.tar.gz",
+        ],
+    ] {
+        assert!(!run(&args).status.success());
+    }
 }

@@ -22,6 +22,11 @@ test("LSP Git-blob reconstruction preserves qualified metadata and all three can
   assert.equal(release.tag, lspTag);
   assert.equal(release.archives.length, 3);
   assert.deepEqual(readFileSync(join(result.output, "package.json")), readFileSync(fixture.entry.package));
+  const calls = readFileSync(join(fixture.root, "calls"), "utf8").trim().split("\n").map(JSON.parse);
+  assert.equal(calls.filter((args) => args[1] === "pack-lsp").length, 6);
+  const validations = calls.filter((args) => args[1] === "validate");
+  assert.equal(validations.length, 1);
+  assert.deepEqual(validations[0].slice(3), ["--kind", "lsp"]);
   for (const archive of release.archives) {
     assert.equal(archive.sha256, "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286");
     assert.equal(archive.size, 5014231);

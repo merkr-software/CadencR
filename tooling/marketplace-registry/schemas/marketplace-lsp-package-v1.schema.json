@@ -179,6 +179,21 @@
                       },
                       "runtime": {
                         "enum": ["native", "node"]
+                      },
+                      "node_min_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?![\\s\\S])",
+                        "description": "Optional minimum stable Node.js version; omitted Node bundles require 20.0.0."
+                      }
+                    },
+                    "dependentSchemas": {
+                      "node_min_version": {
+                        "properties": {
+                          "runtime": {
+                            "const": "node"
+                          }
+                        }
                       }
                     }
                   }

@@ -29,12 +29,21 @@ pub async fn acquire(index: SignedMixedCatalog) -> Result<Availability, AppError
         .any(|entry| {
             entry["package"]["lsp"]["distribution"]["binary"][platform()]["runtime"] == "node"
         });
-    let node_available = !needs_node || super::super::spawn::node().await.is_ok();
-    tokio::task::spawn_blocking(move || evaluate(&index, node_available))
+    let node_version = if needs_node {
+        super::super::spawn::node_candidate()
+            .await
+            .and_then(|candidate| candidate.version)
+    } else {
+        None
+    };
+    tokio::task::spawn_blocking(move || evaluate(&index, node_version))
         .await
         .map_err(invalid)
 }
-fn evaluate(index: &SignedMixedCatalog, node_available: bool) -> Availability {
+fn evaluate(
+    index: &SignedMixedCatalog,
+    node_version: Option<cli_discovery::VersionKey>,
+) -> Availability {
     let mut result = Availability::default();
     let policy = policy::snapshot();
     for entry in cadencr_registry_core::catalog_members(&index.signed.packages)
@@ -79,8 +88,11 @@ fn evaluate(index: &SignedMixedCatalog, node_available: bool) -> Availability {
                     }
                     Err(_) => Some(LspVersionUnavailable::Policy),
                     Ok(())
-                        if !node_available
-                            && target.runtime == cadencr_registry_core::LspRuntime::Node =>
+                        if target.runtime == cadencr_registry_core::LspRuntime::Node
+                            && !super::super::spawn::node_version_satisfies(
+                                node_version,
+                                target.node_minimum(),
+                            ) =>
                     {
                         Some(LspVersionUnavailable::Node)
                     }
@@ -133,6 +145,7 @@ mod tests {
         index.signed.packages.clear();
         for id in [
             "ready-node",
+            "requires-node22",
             "future",
             "wrong-platform",
             "blocked",
@@ -145,6 +158,10 @@ mod tests {
             let target = entry["package"]["lsp"]["distribution"]["binary"]["linux-x86_64"].clone();
             entry["package"]["lsp"]["distribution"]["binary"] = json!({(platform()):target});
             match id {
+                "requires-node22" => {
+                    entry["package"]["lsp"]["distribution"]["binary"][platform()]
+                        ["node_min_version"] = "22.18.0".into()
+                }
                 "future" => entry["package"]["lsp"]["protocol_version"] = 2.into(),
                 "wrong-platform" => entry["package"]["lsp"]["distribution"]["binary"] = json!({}),
                 "incompatible" => {
@@ -154,7 +171,7 @@ mod tests {
             }
             index.signed.packages.push(entry);
         }
-        let without_node = evaluate(&index, false);
+        let without_node = evaluate(&index, None);
         assert!(without_node.recommended.is_empty());
         assert_eq!(
             without_node.unavailable["ready-node"]["1.0.0"],
@@ -174,7 +191,19 @@ mod tests {
         );
         assert!(without_node.blocked["blocked"]["1.0.0"].contains("unsafe"));
         assert_eq!(
-            evaluate(&index, true).recommended,
+            evaluate(&index, Some(cli_discovery::VersionKey(22, 17, 9))).unavailable
+                ["requires-node22"]["1.0.0"],
+            LspVersionUnavailable::Node
+        );
+        assert_eq!(
+            evaluate(&index, Some(cli_discovery::VersionKey(22, 18, 0))).recommended,
+            BTreeMap::from([
+                ("ready-node".into(), "1.0.0".into()),
+                ("requires-node22".into(), "1.0.0".into())
+            ])
+        );
+        assert_eq!(
+            evaluate(&index, Some(cli_discovery::VersionKey(20, 0, 0))).recommended,
             BTreeMap::from([("ready-node".into(), "1.0.0".into())])
         );
     }

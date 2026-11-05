@@ -62,6 +62,19 @@ pub struct LspTarget {
     pub entry_sha256: String,
     pub entry_size: u64,
     pub runtime: LspRuntime,
+    /// Optional signed full stable Node version; absent bundles retain the Node 20 baseline.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "node_min_version"
+    )]
+    pub node_min_version: Option<String>,
+}
+
+fn node_min_version<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<String>, D::Error> {
+    String::deserialize(deserializer).map(Some)
 }
 /// Node means a prepared JS bundle, including its dependencies. The host only
 /// launches an existing Node executable; installation never runs npm or scripts.

@@ -25,14 +25,31 @@ pub(crate) fn run(cli: &Cli) -> Result<Option<String>, Diagnostic> {
                     descriptor,
                     kind,
                     no_run,
+                    target,
+                    archive,
                 },
-        }) => match kind {
-            PluginKind::Provider => validate_provider(folder, descriptor.as_deref()),
-            PluginKind::Lsp => crate::lsp::validate(folder, descriptor.as_deref()),
-            PluginKind::Theme => crate::theme::validate(folder, descriptor.as_deref()),
-            PluginKind::Tab => crate::tab::validate(folder, descriptor.as_deref(), !no_run),
-            PluginKind::Plugin => crate::plugin::validate(folder, descriptor.as_deref(), !no_run),
-        },
+        }) => {
+            if *kind != PluginKind::Lsp && (target.is_some() || archive.is_some()) {
+                return Err(operation_error(
+                    "PLUGIN_VALIDATION_FAILED",
+                    "--target and --archive are only supported for --kind lsp",
+                ));
+            }
+            match kind {
+                PluginKind::Provider => validate_provider(folder, descriptor.as_deref()),
+                PluginKind::Lsp => crate::lsp::validate()
+                    .folder(folder)
+                    .maybe_descriptor(descriptor.as_deref())
+                    .maybe_target(target.as_deref())
+                    .maybe_archive(archive.as_deref())
+                    .call(),
+                PluginKind::Theme => crate::theme::validate(folder, descriptor.as_deref()),
+                PluginKind::Tab => crate::tab::validate(folder, descriptor.as_deref(), !no_run),
+                PluginKind::Plugin => {
+                    crate::plugin::validate(folder, descriptor.as_deref(), !no_run)
+                }
+            }
+        }
         Command::Registry(registry) => run_registry(&registry.command),
     }
 }

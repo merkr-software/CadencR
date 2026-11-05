@@ -67,6 +67,16 @@ pub(crate) fn read_tar_with_mode(
     nested: bool,
     mode: usize,
 ) -> Result<BTreeMap<String, Vec<u8>>, RegistryError> {
+    read_tar_with_modes(bytes, max_files, nested, |_| mode)
+}
+
+/// Apply a path-specific mode policy without accepting links or directory entries.
+pub(crate) fn read_tar_with_modes(
+    bytes: &[u8],
+    max_files: usize,
+    nested: bool,
+    mode: impl Fn(&str) -> usize,
+) -> Result<BTreeMap<String, Vec<u8>>, RegistryError> {
     let mut files = BTreeMap::new();
     let mut offset = 0;
     while offset + 512 <= bytes.len() {
@@ -81,7 +91,6 @@ pub(crate) fn read_tar_with_mode(
             || &header[257..263] != b"ustar\0"
             || &header[263..265] != b"00"
             || header[156] != b'0'
-            || octal(&header[100..108])? != mode
             || octal(&header[108..116])? != 0
             || octal(&header[116..124])? != 0
             || header[157..257].iter().any(|b| *b != 0)
@@ -115,6 +124,9 @@ pub(crate) fn read_tar_with_mode(
         } else {
             format!("{prefix}/{name}")
         };
+        if octal(&header[100..108])? != mode(&name) {
+            return Err(invalid());
+        }
         if !name.split('/').all(|s| !matches!(s, "" | "." | ".."))
             || name.contains(['\\', '\0'])
             || name.starts_with('/')

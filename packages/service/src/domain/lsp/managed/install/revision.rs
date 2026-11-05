@@ -249,7 +249,11 @@ mod tests {
         );
         std::fs::rename(retained, archive).unwrap();
         let spec = crate::domain::lsp::spawn::ServerSpec {
-            command: crate::domain::lsp::spawn::node().await.unwrap(),
+            command: crate::domain::lsp::spawn::node(
+                cadencr_registry_core::LspTarget::DEFAULT_NODE_MIN_VERSION,
+            )
+            .await
+            .unwrap(),
             args: vec![probe.path.unwrap()],
             display_name: "fixture".into(),
             managed_revision: None,

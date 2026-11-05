@@ -9,10 +9,12 @@ use std::collections::HashSet;
 
 mod archive;
 mod pack;
+mod runtime;
 pub use archive::{read_lsp_archive, validate_lsp_entry};
 pub use pack::{pack_lsp, PackLspRequest, PackedLsp};
 pub const MAX_LSP_ARCHIVE_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_LSP_UNCOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_LSP_ENTRIES: usize = 16_384;
 
 pub(crate) fn invalid(message: impl Into<String>) -> RegistryError {
     RegistryError::single(format!("invalid LSP package: {}", message.into()))
@@ -123,6 +125,7 @@ pub(crate) fn validate_target(
     target: &LspTarget,
     repository: Option<&String>,
 ) -> Result<(), RegistryError> {
+    runtime::validate_node_minimum(target)?;
     let explicit = repository.map(|s| Value::from(s.clone()));
     crate::theme_distribution_repository(&target.archive, explicit.as_ref())?;
     if !crate::digest::is_lower_sha256(&target.sha256)

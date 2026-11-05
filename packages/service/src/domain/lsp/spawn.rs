@@ -84,7 +84,7 @@ async fn resolve(mut entry: ServerProbe) -> Result<(ServerSpec, ServerProbe), Ap
         );
         if target.runtime == cadencr_registry_core::LspRuntime::Node {
             args.insert(0, command.to_string_lossy().into_owned());
-            command = node().await?;
+            command = node(target.node_minimum()).await?;
         }
         entry = verified;
     } else {
@@ -127,7 +127,7 @@ pub(in crate::domain::lsp) fn verify_reserved(
     }
     Ok(())
 }
-pub async fn node() -> Result<PathBuf, AppError> {
+pub(in crate::domain::lsp) async fn node_candidate() -> Option<cli_discovery::Candidate> {
     let spec = cli_discovery::DiscoverySpec {
         bin_name: "node".into(),
         well_known_relative_to_home: vec![],
@@ -140,16 +140,36 @@ pub async fn node() -> Result<PathBuf, AppError> {
         version_must_contain: None,
     };
     let candidates = cli_discovery::discover_all(&spec, None).await;
-    cli_discovery::select_best(&candidates)
-        .map(|best| best.canonical.clone())
-        .ok_or_else(|| {
-            AppError::coded(
-                axum::http::StatusCode::CONFLICT,
-                "LSP_NODE_REQUIRED",
-                "This language server requires Node.js. Install Node.js, then retry.",
-            )
-        })
+    cli_discovery::select_best(&candidates).cloned()
 }
+pub(in crate::domain::lsp) fn node_version_satisfies(
+    version: Option<cli_discovery::VersionKey>,
+    minimum: &str,
+) -> bool {
+    match (version, cli_discovery::parse_version_string(minimum)) {
+        (Some(version), Some(minimum)) => version >= minimum,
+        _ => false,
+    }
+}
+pub async fn node(minimum: &str) -> Result<PathBuf, AppError> {
+    require_node(node_candidate().await, minimum)
+}
+fn require_node(
+    candidate: Option<cli_discovery::Candidate>,
+    minimum: &str,
+) -> Result<PathBuf, AppError> {
+    if let Some(candidate) = candidate {
+        if node_version_satisfies(candidate.version, minimum) {
+            return Ok(candidate.canonical);
+        }
+    }
+    Err(AppError::coded(
+        axum::http::StatusCode::CONFLICT,
+        "LSP_NODE_REQUIRED",
+        format!("This language server requires Node.js {minimum} or newer. Install a compatible Node.js version, then retry."),
+    ))
+}
+
 pub fn spawn_server(spec: &ServerSpec, workspace_root: &Path) -> Result<Child, AppError> {
     Command::new(&spec.command)
         .args(&spec.args)
@@ -167,6 +187,57 @@ pub fn spawn_server(spec: &ServerSpec, workspace_root: &Path) -> Result<Child, A
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_requirements_compare_the_complete_version_on_both_platforms() {
+        use cli_discovery::VersionKey;
+        for (installed, minimum, accepted) in [
+            (Some(VersionKey(20, 0, 0)), "20.0.0", true),
+            (Some(VersionKey(19, 99, 99)), "20.0.0", false),
+            (Some(VersionKey(22, 17, 99)), "22.18.0", false),
+            (Some(VersionKey(22, 18, 0)), "22.18.0", true),
+            (Some(VersionKey(24, 0, 0)), "22.18.0", true),
+            (None, "20.0.0", false),
+        ] {
+            assert_eq!(node_version_satisfies(installed, minimum), accepted);
+        }
+    }
+
+    #[test]
+    fn absent_old_and_unversioned_node_require_the_signed_version() {
+        for path in ["/opt/homebrew/bin/node", "/usr/bin/node"] {
+            let candidate = |version| cli_discovery::Candidate {
+                path: PathBuf::from(path),
+                canonical: PathBuf::from(path),
+                version,
+                version_text: None,
+                source: cli_discovery::CandidateSource::EnvPath,
+            };
+            for value in [
+                None,
+                Some(candidate(None)),
+                Some(candidate(Some(cli_discovery::VersionKey(22, 17, 9)))),
+            ] {
+                let error = require_node(value, "22.18.0").unwrap_err();
+                assert!(matches!(
+                    &error,
+                    AppError::Coded {
+                        code: "LSP_NODE_REQUIRED",
+                        ..
+                    }
+                ));
+                assert!(error.to_string().contains("22.18.0"));
+            }
+            assert_eq!(
+                require_node(
+                    Some(candidate(Some(cli_discovery::VersionKey(22, 18, 0)))),
+                    "22.18.0"
+                )
+                .unwrap(),
+                PathBuf::from(path)
+            );
+        }
+    }
 
     #[tokio::test]
     async fn external_and_legacy_launches_keep_the_inventory_arguments() {

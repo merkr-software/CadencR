@@ -40,14 +40,21 @@ pub(crate) fn web_archive(
     })
 }
 
-/// Prepared LSP Node bundles: normalized files only, with a smaller download budget.
+/// Prepared LSP bundles: normalized regular files with a smaller download budget.
 pub(crate) fn lsp_bundle_archive(
     snapshot: &Snapshot,
     output: &Path,
+    runtime: crate::LspRuntime,
 ) -> Result<BuiltArchive, RegistryError> {
     reject_output_location(&snapshot.root, output)?;
     archive_with(snapshot, output, |snapshot, file| {
-        write_owned_with_policy(snapshot, file, true, true, crate::MAX_LSP_ARCHIVE_BYTES)
+        write_owned_with_policy(
+            snapshot,
+            file,
+            runtime == crate::LspRuntime::Node,
+            true,
+            crate::MAX_LSP_ARCHIVE_BYTES,
+        )
     })
 }
 
@@ -62,7 +69,7 @@ fn archive_with(
 }
 
 /// A tab backend archive: exactly one regular-file entry `name` holding
-/// `bytes`, mode 0755 (the only archive kind that keeps an execute bit),
+/// `bytes`, mode 0755,
 /// owner 0:0, mtime 0, no directory entries, at most
 /// [`MAX_TAB_BACKEND_ARCHIVE_BYTES`] compressed (enforced while writing).
 pub(crate) fn single_executable_archive(
@@ -288,7 +295,7 @@ fn verify_snapshot(snapshot: &Snapshot) -> Result<(), RegistryError> {
     if scan::current_identity(&snapshot.root)? != snapshot.root_identity {
         return Err(bad("staging root changed while packaging"));
     }
-    let after = scan::collect(&snapshot.root)?;
+    let after = scan::collect_bounded(&snapshot.root, snapshot.entry_limit)?;
     if after.entries != snapshot.entries {
         return Err(bad("staging tree changed while packaging"));
     }
