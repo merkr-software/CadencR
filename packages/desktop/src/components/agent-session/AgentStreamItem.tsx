@@ -42,11 +42,13 @@ function UserHeader({ createdAt }: { createdAt: string }) {
  * lines, markers — stack tight. Prose breathes the same on both sides. A
  * prompt opens a turn with the widest gap, the same above its "User" line as
  * under its bubble. The turn's closing line sits one prose gap under the turn.
+ * Compact flow keeps the hover actions in flow (`actionsInFlow`), so a prompt
+ * or prose and its action line together take the same gap on both sides.
  */
-function rowSpacingClass(block: AgentBlockData): string {
-  if (block.type === "user_message") return "pt-6 pb-5";
+function rowSpacingClass(block: AgentBlockData, actionsInFlow: boolean): string {
+  if (block.type === "user_message") return actionsInFlow ? "pt-6 pb-6" : "pt-6 pb-5";
   if (block.type === "text" || rendersResultAsProse(block)) {
-    return "pt-3 pb-3.5";
+    return actionsInFlow ? "pt-3 pb-3" : "pt-3 pb-3.5";
   }
   if (block.type === "turn_summary") return TURN_CLOSING_SPACING;
   return "py-0.5";
@@ -147,8 +149,15 @@ export const AgentStreamItem = memo(function AgentStreamItem({
   const isSessionReply = sessionReply !== null;
   const showHeader = !isSessionReply && block.type === "user_message" && !hasSenderTab(block);
 
+  // Compact flow's one-line steps sit tight under a message: an action line
+  // floating over that gap would land on (or crowd) the next step.
+  const actionsInFlow = verbosityMode === "compact";
   const item = (
-    <div className={rowSpacingClass(block)} data-block-id={block.id}>
+    <div
+      className={rowSpacingClass(block, actionsInFlow)}
+      data-block-id={block.id}
+      data-stream-actions-in-flow={actionsInFlow || undefined}
+    >
       {showHeader && block.createdAt && <UserHeader createdAt={block.createdAt} />}
       {block.type === "turn_summary" ? (
         <TurnSummaryDivider content={block.content} />
