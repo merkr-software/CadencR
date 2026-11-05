@@ -10,6 +10,28 @@ import sys
 from handoff import require
 
 
+def verify_linux_storage(work):
+    from linux_sandbox import WORK_BYTES, TEMP_BYTES, DIAGNOSTIC_BYTES, mount_table
+    mounts = mount_table()
+    root = work.parent.resolve()
+    writable = {str(root): WORK_BYTES, str(root / "reports"): DIAGNOSTIC_BYTES,
+                "/tmp": TEMP_BYTES, "/dev/shm": 16 * 1024 ** 2}
+    require(os.statvfs("/").f_flag & os.ST_RDONLY, "runtime root filesystem must be read-only")
+    for path, limit in writable.items():
+        entries = [item for item in mounts if item["path"] == path]
+        require(entries and entries[-1]["type"] == "tmpfs", "bounded writable tmpfs required: " + path)
+        size = next((option[5:] for option in entries[-1]["options"] if option.startswith("size=")), "")
+        units = {"k": 1024, "m": 1024 ** 2, "g": 1024 ** 3}
+        actual = int(size[:-1]) * units[size[-1]] if size and size[-1] in units else int(size or "0")
+        require(0 < actual <= limit, "writable tmpfs exceeds its reviewed size budget")
+    for item in mounts:
+        if "rw" in item["flags"] and item["path"] not in writable:
+            path = Path(item["path"])
+            require(path.parent == Path("/root") and path.name.startswith("cadencr-lsp-export-")
+                    and not os.access(path, os.W_OK | os.X_OK), "unexpected writable runtime mount: " + str(path))
+    return {"root": "read-only", "writable": writable}
+
+
 def host_target():
     target = {("Linux", "x86_64"): "linux-x86_64", ("Darwin", "arm64"): "darwin-aarch64",
               ("Darwin", "x86_64"): "darwin-x86_64"}.get((platform.system(), platform.machine()))
@@ -37,7 +59,9 @@ def verify(read_only, work):
         require(int(status["CapEff"].strip(), 16) == 0 and int(status["CapBnd"].strip(), 16) == 0
                 and status["NoNewPrivs"].strip() == "1", "all Linux privileges must be dropped before runtime")
         require(all(os.statvfs(path).f_flag & os.ST_RDONLY for path in read_only), "input and helper mounts must be read-only")
-        return {"network": "unshare-net", "privileges": "setpriv-no-capabilities", "inputs": "read-only-mounts"}
+        storage = verify_linux_storage(work)
+        return {"network": "unshare-net", "privileges": "setpriv-no-capabilities", "inputs": "read-only-mounts",
+                "storage": storage}
     require(sys.platform == "darwin" and Path("/usr/bin/sandbox-exec").is_file(), "active macOS sandbox is required")
     protected = work / "isolation-probe"
     protected.mkdir()

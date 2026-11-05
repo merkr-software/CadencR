@@ -284,6 +284,7 @@ class IsolationTests(unittest.TestCase):
              patch.object(runtime.isolation.os, "geteuid", return_value=1000), \
              patch.object(runtime.isolation.socket, "if_nameindex", return_value=[(1, "lo")]), \
              patch.object(runtime.isolation.Path, "iterdir", side_effect=AssertionError("sysfs may belong to the old namespace")), \
+             patch.object(runtime.isolation, "verify_linux_storage", return_value={"root": "read-only"}), \
              patch.object(runtime.isolation.Path, "read_text", return_value="CapEff: 0\nCapBnd: 0\nNoNewPrivs: 1\n"):
             self.assertEqual(runtime.isolation.verify([], Path("/unused"))["network"], "unshare-net")
 
@@ -308,7 +309,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("name: lsp-source-cli-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}", text)
         self.assertIn("path: ${{ runner.temp }}/lsp-source-cli/", text)
         self.assertIn("--manifest-sha256", text)
-        self.assertIn("sudo unshare --mount --net --fork", text)
+        self.assertIn("sudo unshare --mount --net --pid --fork --mount-proc --kill-child", text)
         self.assertIn("env -i PATH=/usr/bin:/bin", text)
         self.assertIn("pnpm rust -- build --locked --release -p cadencr-cli", text)
         for runner in ("ubuntu-24.04", "ubuntu-22.04", "macos-15", "macos-15-intel"):
@@ -317,9 +318,7 @@ class WorkflowTests(unittest.TestCase):
             self.assertRegex(action, r"@[a-f0-9]{40}$")
         self.assertIn("lsp-runtime-diagnostics-${{ matrix.label }}", text)
         sandbox = (handoff.ROOT / "scripts/lsp-catalog-qa/linux-sandbox.sh").read_text()
-        self.assertIn("mount -o remount,bind,ro", sandbox)
-        self.assertIn("--bounding-set=-all --no-new-privs env -i", sandbox)
-        self.assertLess(sandbox.index("mount -o remount,bind,ro"), sandbox.index("exec setpriv"))
+        self.assertIn('"$checkout/scripts/lsp-catalog-qa/linux_sandbox.py"', sandbox)
 
 
 if __name__ == "__main__":

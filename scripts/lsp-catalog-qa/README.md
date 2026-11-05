@@ -117,6 +117,25 @@ For real runtime, first call `prerequisites.py` with `--node`, `--source-commit`
 Linux namespace launcher or native macOS invocation. An ordinary Linux shell is
 intentionally rejected. Every work/evidence/diagnostic directory must be new.
 
+The Linux launcher uses private mount, network and PID namespaces. Existing mounts
+are read-only; writable storage is limited to tmpfs volumes: work 2 GiB / 131,072
+inodes, temporary files 512 MiB, shared memory 16 MiB and reports 128 MiB. The
+launcher terminates and reaps all candidate descendants before exporting regular
+bounded evidence through a root-only mount. Links and special files are refused.
+`sandbox.json` preserves runtime and export failures separately.
+
+Semantic report writers retain an 8 MiB file-size limit. Native servers receive a
+separate 2 TiB file-size limit because CoreCLR reserves a sparse anonymous memfd
+for executable double mapping; this is not a 2 TiB memory or disk allocation. The
+bounded writable filesystems still limit ordinary file writes. Root collectors
+enforce 8 MiB budgets on each runner output stream, and native server stderr has
+the same total budget with a 5,000-byte retained tail. Output overflow fails the
+probe even when semantic assertions or the process exit otherwise succeeded.
+No JIT, W^X or GC setting is changed. Actual memory use remains subject to the
+host's memory/cgroup constraints and existing process timeouts.
+The reservation and the Rosetta-specific fallback are documented in the official
+[CoreCLR double-mapping implementation](https://github.com/dotnet/runtime/blob/v9.0.9/src/coreclr/minipal/Unix/doublemapping.cpp).
+
 ## Evidence and failures
 
 | Output | Contents |

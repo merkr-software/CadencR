@@ -14,6 +14,8 @@ import isolation
 sys.path.insert(0, str(ROOT / "scripts"))
 from official_plugin_lsp_archive import inventory, unpack
 from official_plugin_pack import parse_json
+sys.path.insert(0, str(ROOT / "scripts/lsp-catalog-prepare"))
+from bounded_output import OUTPUT_BUDGET, RUNTIME_FILE_LIMIT
 
 
 class ProbeFailure(ValueError):
@@ -109,7 +111,8 @@ def probe(arguments, work, report, diagnostics):
         completed = subprocess.run([str(value) for value in arguments], cwd=ROOT,
             env={"PATH": "/usr/bin:/bin", "HOME": str(work), "TMPDIR": str(work), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"},
             stdout=stdout, stderr=stderr, timeout=180, check=False,
-            preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (8 * 1024 * 1024, 8 * 1024 * 1024)))
+            preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE,
+                (OUTPUT_BUDGET, RUNTIME_FILE_LIMIT if sys.platform == "linux" else OUTPUT_BUDGET)))
     require(report.is_file(), "semantic probe produced no report")
     result = parse_json(regular(report, 4 * 1024 * 1024))
     if completed.returncode or result.get("status") != "passed":

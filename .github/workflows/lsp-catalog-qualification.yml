@@ -210,7 +210,7 @@ jobs:
         run: |
           set -eu
           node_root=$(node -p 'require("path").dirname(require("path").dirname(require("fs").realpathSync(process.execPath)))')
-          sudo unshare --mount --net --fork -- sh scripts/lsp-catalog-qa/linux-sandbox.sh \
+          sudo unshare --mount --net --pid --fork --mount-proc --kill-child -- sh scripts/lsp-catalog-qa/linux-sandbox.sh \
             "$(id -u)" "$(id -g)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/lsp-handoff" \
             "$RUNNER_TEMP/lsp-prerequisites" "$RUNNER_TEMP/lsp-runtime-run" \
             "$MANIFEST_SHA256" "$SOURCE_COMMIT" "$PREREQUISITES_SHA256" "$node_root" \
@@ -247,6 +247,7 @@ jobs:
           name: lsp-runtime-diagnostics-${{ matrix.label }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/lsp-runtime-run/diagnostics/
+            ${{ runner.temp }}/lsp-runtime-run/sandbox.json
             ${{ runner.temp }}/lsp-runtime-run/launcher.log
             ${{ runner.temp }}/lsp-runtime-run/prerequisites.log
           if-no-files-found: warn

@@ -14,6 +14,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lsp-catalog-prepare"))
 from node_smoke import Connection
+from bounded_output import BoundedOutput, RUNTIME_FILE_LIMIT
 
 
 FIXTURES = {
@@ -110,6 +111,14 @@ def finish_process(process, evidence):
         evidence["cleanup_returncode"] = cleanup_returncode
 
 
+def runtime_file_limit():
+    if sys.platform == "linux":
+        _, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        if hard != resource.RLIM_INFINITY and hard < RUNTIME_FILE_LIMIT:
+            raise ValueError("native runtime requires a 2 TiB sparse-file hard limit")
+        resource.setrlimit(resource.RLIMIT_FSIZE, (RUNTIME_FILE_LIMIT, RUNTIME_FILE_LIMIT))
+
+
 def run(args):
     recipe = json.loads(args.recipe.read_text())
     fixture = FIXTURES[recipe["id"]]
@@ -146,10 +155,15 @@ def run(args):
         evidence = {"id": recipe["id"], "target": args.target, "credentials": "none", "network": "denied", "status": "failed"}
         evidence["process_limits"] = {name: resource.getrlimit(getattr(resource, name)) for name in (
             "RLIMIT_AS", "RLIMIT_FSIZE", "RLIMIT_NPROC", "RLIMIT_NOFILE", "RLIMIT_STACK", "RLIMIT_CORE")}
+        if sys.platform == "linux":
+            evidence["supervisor_file_limit"] = evidence["process_limits"]["RLIMIT_FSIZE"]
+            evidence["process_limits"]["RLIMIT_FSIZE"] = [RUNTIME_FILE_LIMIT, RUNTIME_FILE_LIMIT]
         evidence["cpu_count"] = os.cpu_count()
-        with (root / "stderr.log").open("wb") as stderr:
-            process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE, stderr=stderr, start_new_session=True, bufsize=0)
+        process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, bufsize=0,
+            preexec_fn=runtime_file_limit)
+        stderr = BoundedOutput(process, process.stderr)
+        try:
             def configuration(section):
                 if recipe["id"] == "taplo":
                     return {"schema": {"enabled": False, "catalogs": []}}
@@ -172,10 +186,15 @@ def run(args):
                         cleanup = ["/usr/bin/sandbox-exec", "-p", profile, *cleanup]
                     subprocess.run(cleanup, cwd=workspace, env=env,
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=True)
+        finally:
+            try:
+                stderr.finish()
+            except ValueError as error:
+                evidence.update(status="failed", error=str(error))
         evidence["messages"] = connection.received[-12:]
-        with (root / "stderr.log").open("rb") as stderr:
-            stderr.seek(max(0, stderr.seek(0, os.SEEK_END) - 5000))
-            evidence["stderr"] = stderr.read(5000).decode(errors="replace")
+        evidence["stderr"] = stderr.tail.decode(errors="replace")
+        evidence["stderr_bytes"] = stderr.total
+        evidence["stderr_budget_exceeded"] = stderr.exceeded
         args.output.write_text(json.dumps(evidence, indent=2) + "\n")
         print(json.dumps({key: evidence[key] for key in ("id", "target", "status")}), flush=True)
         return evidence["status"] == "passed"
