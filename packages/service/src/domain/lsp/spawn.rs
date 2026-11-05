@@ -37,12 +37,37 @@ pub async fn resolve_server_by_id(
     let entry = catalog::lookup_by_id(id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Language server {id} is not installed")))?;
+    let entry = validate_requested_server(entry, language, |id| async move {
+        let root = managed::storage::root()?;
+        tokio::task::spawn_blocking(move || {
+            managed::storage::read(&root, &id).map(|(probe, _)| probe)
+        })
+        .await
+        .map_err(managed::invalid)?
+    })
+    .await?;
+    resolve(entry).await
+}
+pub(in crate::domain::lsp) async fn validate_requested_server<F>(
+    mut entry: ServerProbe,
+    language: &str,
+    revalidate: impl FnOnce(String) -> F,
+) -> Result<ServerProbe, AppError>
+where
+    F: std::future::Future<Output = Result<ServerProbe, AppError>>,
+{
+    if entry.status == ServerProbeStatus::Invalid {
+        // Quarantine clears untrusted language metadata and retains only display
+        // text. Recheck its receipt before interpreting that empty language set.
+        entry = revalidate(entry.lsp_id).await?;
+    }
     if !entry.language_ids.iter().any(|id| id == language) {
         return Err(AppError::BadRequest(format!(
-            "Language server {id} does not support {language}"
+            "Language server {} does not support {language}",
+            entry.lsp_id
         )));
     }
-    resolve(entry).await
+    Ok(entry)
 }
 async fn resolve(mut entry: ServerProbe) -> Result<(ServerSpec, ServerProbe), AppError> {
     if let Some(error) = &entry.error {
@@ -210,6 +235,31 @@ fn configure_runtime_cache(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn healthy_probe_controls_language_validation_without_revalidation() {
+        let package: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tooling/marketplace-registry/examples/lsp/package.node.json"
+        )))
+        .unwrap();
+        let mut current =
+            managed::storage::probe(&package["package"], ServerProbeStatus::Managed).unwrap();
+        current.language_ids = vec!["current-language".into()];
+        let accepted = validate_requested_server(current.clone(), "current-language", |_| async {
+            panic!("healthy inventory must not be revalidated")
+        })
+        .await
+        .unwrap();
+        assert_eq!(accepted.language_ids, ["current-language"]);
+        assert!(matches!(
+            validate_requested_server(current, "old-language", |_| async {
+                panic!("healthy inventory must not be revalidated")
+            }).await,
+            Err(AppError::BadRequest(message))
+                if message == "Language server example-language-server does not support old-language"
+        ));
+    }
 
     #[tokio::test]
     async fn managed_runtime_cache_is_private_and_distinct_for_each_server() {

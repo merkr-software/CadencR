@@ -72,7 +72,14 @@ function primaryAction(listing: MarketplaceListing, version: string): Offer | Se
   if (installed && version === installed) return SETTLED.installed;
   const entry = listing.versions.find((item) => item.version === version);
   if (entry?.unavailable === "protocol") return SETTLED.outdated;
-  if (!entry) return listing.availableHere ? SETTLED.choose : SETTLED.unavailable;
+  if (!entry) {
+    if (
+      listing.versions.length > 0 &&
+      listing.versions.every((item) => versionProblem(item) === "blocked")
+    )
+      return SETTLED.blocked;
+    return listing.availableHere ? SETTLED.choose : SETTLED.unavailable;
+  }
   const problem = versionProblem(entry);
   if (problem === "operating_system" && entry.macosMinVersion)
     return {

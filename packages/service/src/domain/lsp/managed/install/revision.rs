@@ -195,6 +195,57 @@ mod tests {
             let pointer = storage::pointer(&self.root, "fixture").unwrap();
             storage::read_revision_trusted(&self.root, "fixture", &pointer, &self.trust).unwrap()
         }
+        async fn validate_session(
+            &self,
+            probe: crate::domain::lsp::probe::ServerProbe,
+            language: &str,
+        ) -> Result<crate::domain::lsp::probe::ServerProbe, AppError> {
+            crate::domain::lsp::spawn::validate_requested_server(probe, language, |id| async move {
+                let pointer = storage::pointer(&self.root, &id)?;
+                storage::read_revision_trusted(&self.root, &id, &pointer, &self.trust)
+                    .map(|(probe, _)| probe)
+            })
+            .await
+        }
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn quarantined_session_reports_revocation_and_uses_current_metadata_after_recovery() {
+        use crate::domain::lsp::probe::ServerProbeStatus;
+        let fixture = Harness::new();
+        let allowed =
+            crate::domain::lsp::managed::policy::tests::configure(&fixture.root, json!([]));
+        fixture.install(0, false).unwrap();
+        drop(allowed);
+        let blocked = crate::domain::lsp::managed::policy::tests::configure(
+            &fixture.root,
+            json!([{"lsp_id":"fixture","reason":"revoked after installation"}]),
+        );
+        let quarantined = storage::inventory_trusted(&fixture.root, &fixture.trust)
+            .unwrap()
+            .remove(0);
+        assert_eq!(quarantined.status, ServerProbeStatus::Invalid);
+        assert!(quarantined.language_ids.is_empty());
+        assert!(quarantined.path.is_none());
+        let error = fixture
+            .validate_session(quarantined.clone(), "fixturelang")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(error, AppError::Coded { status, code: "LSP_BLOCKED", ref message }
+            if status == axum::http::StatusCode::FORBIDDEN && message.contains("revoked after installation"))
+        );
+        drop(blocked);
+        let _allowed =
+            crate::domain::lsp::managed::policy::tests::configure(&fixture.root, json!([]));
+        let recovered = fixture
+            .validate_session(quarantined, "fixturelang")
+            .await
+            .unwrap();
+        assert_eq!(recovered.status, ServerProbeStatus::Managed);
+        assert_eq!(recovered.language_ids, ["fixturelang"]);
+        assert_eq!(recovered.version.as_deref(), Some("1.0.0"));
+        assert!(recovered.path.is_some());
+        assert!(recovered.error.is_none());
     }
     #[cfg(target_os = "macos")]
     #[test]
