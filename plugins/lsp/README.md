@@ -55,6 +55,10 @@ and required project configuration live in each recipe. Native recipes are in
   The application has no server-ID-specific dispatch.
 - Native bundles retain required standard libraries, data and redistribution
   notices. They contain one executable entry; other retained files are data.
+- The host provides `CADENCR_LSP_CACHE_ROOT`, a writable cache directory isolated
+  by server ID. LuaLS expands this variable in its `--logpath` and `--metapath`
+  arguments so generated metadata, logs and caches stay outside its installed
+  runtime. Installed payloads must retain their reviewed inventory after use.
 
 ## Qualification and promotion
 

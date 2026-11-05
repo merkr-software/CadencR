@@ -171,7 +171,15 @@ fn require_node(
 }
 
 pub fn spawn_server(spec: &ServerSpec, workspace_root: &Path) -> Result<Child, AppError> {
-    Command::new(&spec.command)
+    let mut command = Command::new(&spec.command);
+    if let Some(revision) = &spec.managed_revision {
+        configure_runtime_cache(
+            &mut command,
+            &crate::shared::app_paths::cache_dir().map_err(managed::invalid)?,
+            &revision.id,
+        )?;
+    }
+    command
         .args(&spec.args)
         .current_dir(workspace_root)
         .stdin(Stdio::piped())
@@ -184,9 +192,63 @@ pub fn spawn_server(spec: &ServerSpec, workspace_root: &Path) -> Result<Child, A
         })
 }
 
+/// Managed servers keep generated metadata outside their immutable signed revision.
+/// Arguments remain literal; a server may expand this variable using its own CLI contract.
+fn configure_runtime_cache(
+    command: &mut Command,
+    cache_root: &Path,
+    id: &str,
+) -> Result<(), AppError> {
+    let root = cache_root.join("lsp");
+    let path = managed::storage::owner(&root, id)?;
+    managed::storage::secure(&root)?;
+    managed::storage::secure(&path)?;
+    command.env("CADENCR_LSP_CACHE_ROOT", path);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn managed_runtime_cache_is_private_and_distinct_for_each_server() {
+        let cache = tempfile::tempdir().unwrap();
+        for id in ["lua-language-server", "other-server"] {
+            let mut command = Command::new("/bin/sh");
+            command.args(["-c", "printf %s \"$CADENCR_LSP_CACHE_ROOT\""]);
+            command.env("CADENCR_LSP_CACHE_ROOT", "/untrusted/inherited/path");
+            configure_runtime_cache(&mut command, cache.path(), id).unwrap();
+            let output = command.output().await.unwrap();
+            assert!(output.status.success());
+            let expected = cache.path().join("lsp").join(id);
+            assert_eq!(
+                String::from_utf8(output.stdout).unwrap(),
+                expected.to_string_lossy()
+            );
+            assert!(expected.is_dir());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                assert_eq!(
+                    std::fs::metadata(expected).unwrap().permissions().mode() & 0o777,
+                    0o700
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_or_unavailable_runtime_cache_prevents_launch_configuration() {
+        let cache = tempfile::tempdir().unwrap();
+        let mut command = Command::new("/not-executed");
+        assert!(configure_runtime_cache(&mut command, cache.path(), "../escape").is_err());
+        std::fs::write(cache.path().join("lsp"), "occupied").unwrap();
+        assert!(
+            configure_runtime_cache(&mut command, cache.path(), "lua-language-server").is_err()
+        );
+        assert!(command.as_std().get_envs().next().is_none());
+    }
 
     #[test]
     fn node_requirements_compare_the_complete_version_on_both_platforms() {

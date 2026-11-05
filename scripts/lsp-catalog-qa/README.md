@@ -54,13 +54,20 @@ Updating or promoting that pin remains a separate reviewed release operation.
 - Linux creates mount and network namespaces, mounts checkout, handoff, prerequisites
   and Node read-only, then uses `setpriv` to drop all capabilities and set
   `no_new_privs` before an `env -i` Python process starts. The runner verifies those
-  conditions and loopback-only interfaces before starting a payload.
+  conditions and loopback-only interfaces before starting a payload. Interface
+  enumeration uses the current network namespace, not an inherited sysfs mount.
+  Docker kernels that automatically create fallback tunnel interfaces still fail
+  this strict guard, even when routing and connection probes show no external
+  access. Such a local refusal does not replace qualification on the hosted Linux runners.
 - macOS first tests a Seatbelt profile that denies IP networking and protected file
   writes while permitting local Unix-domain IPC. Both semantic runners use that
   same policy for payloads, descendants and cleanup. Unix IPC is needed by Biome.
 - Source locks are checked before extraction, and extracted files retain reviewed
   hashes/modes. The exact archive and extracted inventory are checked again after
   the semantic feature. A successful initialize handshake alone cannot pass.
+- Native probes provide the same `CADENCR_LSP_CACHE_ROOT` contract as the host,
+  pointing to a private temporary cache. LuaLS expands that variable in its reviewed
+  log and generated-metadata arguments; writes inside the bundle remain failures.
 
 `node_smoke.py` exercises real diagnostics, hover, completion or document symbols
 with no implicit host settings. `native_semantic.py` exercises corresponding native

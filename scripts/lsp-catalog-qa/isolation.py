@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import socket
 import subprocess
 import sys
 
@@ -31,7 +32,7 @@ def mac_profile(read_only):
 def verify(read_only, work):
     if sys.platform == "linux":
         require(os.geteuid() != 0, "candidate runtime must not run as root")
-        require({path.name for path in Path("/sys/class/net").iterdir()} == {"lo"}, "network namespace must contain only loopback")
+        require({name for _, name in socket.if_nameindex()} == {"lo"}, "network namespace must contain only loopback")
         status = dict(line.split(":", 1) for line in Path("/proc/self/status").read_text().splitlines() if ":" in line)
         require(int(status["CapEff"].strip(), 16) == 0 and int(status["CapBnd"].strip(), 16) == 0
                 and status["NoNewPrivs"].strip() == "1", "all Linux privileges must be dropped before runtime")

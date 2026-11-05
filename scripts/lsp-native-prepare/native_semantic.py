@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
@@ -106,6 +107,7 @@ def run(args):
                 "deps": [], "display_name": "smoke", "cfg": [], "env": {}, "is_workspace_member": True}]}]
         env = {"PATH": ":".join([*args.toolchain_path, "/usr/bin", "/bin"]), "HOME": temporary,
                "TMPDIR": temporary, "XDG_CACHE_HOME": str(root / "cache"), "XDG_CONFIG_HOME": str(root / "config"),
+               "CADENCR_LSP_CACHE_ROOT": str(root / "cache" / recipe["id"]),
                "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "GOTOOLCHAIN": "local", "GOPROXY": "off",
                "GOTELEMETRY": "off", "GOCACHE": str(root / "go-cache")}
         command = [str(entry), *recipe["args"]]
@@ -114,7 +116,7 @@ def run(args):
             profile += "(deny file-write* (subpath " + json.dumps(str(Path(protected).resolve())) + "))"
         if sys.platform == "darwin":
             command = ["/usr/bin/sandbox-exec", "-p", profile, *command]
-        elif {p.name for p in Path("/sys/class/net").iterdir()} - {"lo"}:
+        elif {name for _, name in socket.if_nameindex()} != {"lo"}:
             raise ValueError("Linux semantic qualification requires denied-network container/namespace")
         evidence = {"id": recipe["id"], "target": args.target, "credentials": "none", "network": "denied", "status": "failed"}
         with (root / "stderr.log").open("wb") as stderr:

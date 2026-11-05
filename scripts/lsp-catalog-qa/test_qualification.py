@@ -244,15 +244,23 @@ class IsolationTests(unittest.TestCase):
                 runtime.isolation.verify([], Path("/unused"))
         with patch.object(runtime.isolation.sys, "platform", "linux"), \
              patch.object(runtime.isolation.os, "geteuid", return_value=1000), \
-             patch.object(runtime.isolation.Path, "iterdir", return_value=[Path("lo"), Path("eth0")]):
+             patch.object(runtime.isolation.socket, "if_nameindex", return_value=[(1, "lo"), (2, "eth0")]):
             with self.assertRaisesRegex(ValueError, "only loopback"):
                 runtime.isolation.verify([], Path("/unused"))
         with patch.object(runtime.isolation.sys, "platform", "linux"), \
              patch.object(runtime.isolation.os, "geteuid", return_value=1000), \
-             patch.object(runtime.isolation.Path, "iterdir", return_value=[Path("lo")]), \
+             patch.object(runtime.isolation.socket, "if_nameindex", return_value=[(1, "lo")]), \
              patch.object(runtime.isolation.Path, "read_text", return_value="CapEff: 0\nCapBnd: ffff\nNoNewPrivs: 1\n"):
             with self.assertRaisesRegex(ValueError, "privileges must be dropped"):
                 runtime.isolation.verify([], Path("/unused"))
+
+    def test_linux_checks_current_namespace_without_reading_inherited_sysfs(self):
+        with patch.object(runtime.isolation.sys, "platform", "linux"), \
+             patch.object(runtime.isolation.os, "geteuid", return_value=1000), \
+             patch.object(runtime.isolation.socket, "if_nameindex", return_value=[(1, "lo")]), \
+             patch.object(runtime.isolation.Path, "iterdir", side_effect=AssertionError("sysfs may belong to the old namespace")), \
+             patch.object(runtime.isolation.Path, "read_text", return_value="CapEff: 0\nCapBnd: 0\nNoNewPrivs: 1\n"):
+            self.assertEqual(runtime.isolation.verify([], Path("/unused"))["network"], "unshare-net")
 
     def test_mac_profile_preserves_unix_ipc_and_quotes_protected_paths(self):
         profile = runtime.isolation.mac_profile([Path('/tmp/a"quoted')])

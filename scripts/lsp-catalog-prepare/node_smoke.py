@@ -4,12 +4,14 @@ The protocol reader/sender is shared with the native LSP harness. A passing
 probe reports only its exact language feature and current OS/architecture.
 """
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import queue
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -67,7 +69,7 @@ def launch_command(node, entry, args, read_only_roots):
             profile += "(deny file-write* (subpath " + json.dumps(str(root.resolve())) + "))"
         return [str(sandbox), "-p", profile, *command]
     if sys.platform == "linux":
-        if {path.name for path in Path("/sys/class/net").iterdir()} - {"lo"}:
+        if {name for _, name in socket.if_nameindex()} - {"lo"}:
             raise ValueError("run within an unprivileged deny-network namespace")
         return command
     raise ValueError("supported macOS or Linux runtime required")
@@ -78,6 +80,21 @@ def initialization_options(recipe, bundle, empty_host_settings):
         "typescript": {"tsdk": str(bundle / "node_modules/typescript/lib")},
         "disableAutomaticTypingAcquisition": True}
     return {**options, **recipe.get("initialization_options", {})}
+
+
+
+def evidence_value(value):
+    """Keep assertions on full replies while bounding their retained evidence."""
+    raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    if len(raw) <= 16384:
+        return value
+    summary = {"truncated": True, "json_bytes": len(raw),
+               "sha256": hashlib.sha256(raw).hexdigest(),
+               "preview": raw[:4096].decode("utf-8", errors="replace")}
+    items = value.get("items") if isinstance(value, dict) else value
+    if isinstance(items, list):
+        summary["item_count"] = len(items)
+    return summary
 
 
 def exercise(connection, workspace, file, fixture, options, empty_host_settings):
@@ -144,8 +161,8 @@ def exercise(connection, workspace, file, fixture, options, empty_host_settings)
     connection.wait(lambda message: message.get("id") == 3 and "method" not in message)
     connection.send({"method": "exit"})
     connection.process.stdin.close()
-    return {"initialize": initialize["result"].get("serverInfo"), "feature": fixture["feature"],
-            "result": result, "secondary": secondary}
+    return {"initialize": evidence_value(initialize["result"].get("serverInfo")), "feature": fixture["feature"],
+            "result": evidence_value(result), "secondary": evidence_value(secondary)}
 
 
 def run(args):
@@ -179,8 +196,8 @@ def run(args):
                 raise ValueError("server did not exit successfully")
             evidence["status"] = "passed"
         except Exception as error:
-            evidence["error"] = type(error).__name__ + ": " + str(error)
-            evidence["failure_messages"] = connection.received[-30:]
+            evidence["error"] = type(error).__name__ + ": " + str(error)[:4096]
+            evidence["failure_messages"] = [evidence_value(message) for message in connection.received[-30:]]
         finally:
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGKILL)
