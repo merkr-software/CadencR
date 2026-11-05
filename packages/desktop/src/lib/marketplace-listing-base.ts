@@ -38,7 +38,9 @@ export interface ListingVersion {
    * Why it can't be installed on this computer — a provider or tab backend with
    * no binary for this platform, or a newer backend protocol. Absent: it can.
    */
-  unavailable?: TabVersionUnavailable | "node" | "policy" | "compatibility";
+  unavailable?: TabVersionUnavailable | "node" | "policy" | "compatibility" | "operating_system";
+  /** Signed macOS minimum of the target selected by the host. */
+  macosMinVersion?: string;
   /** Custom tab: the native backend this exact version ships (`null`: none). */
   nativeCode?: TabNativeCode | null;
   /** Custom tab: why Cadencr's revocation policy blocks this exact version here. */
@@ -63,7 +65,8 @@ export type VersionProblem =
   | "incomplete"
   | "runtime"
   | "policy"
-  | "compatibility";
+  | "compatibility"
+  | "operating_system";
 
 /** What keeps this exact version from installing here, if anything. */
 export function versionProblem(entry: ListingVersion): VersionProblem | null {
@@ -71,6 +74,7 @@ export function versionProblem(entry: ListingVersion): VersionProblem | null {
   if (entry.unavailable === "node") return "runtime";
   if (entry.unavailable === "policy") return "policy";
   if (entry.unavailable === "compatibility") return "compatibility";
+  if (entry.unavailable === "operating_system") return "operating_system";
   if (entry.unavailable) return "unavailable";
   // On Cadencr's revocation list: the service refuses it, so it is not offered.
   if (entry.blocked) return "blocked";

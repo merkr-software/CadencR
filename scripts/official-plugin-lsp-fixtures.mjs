@@ -33,8 +33,11 @@ assert 'SECRET_TEST' not in os.environ
 args=sys.argv[1:]
 with open('${base.root}/calls','a') as log: log.write(json.dumps(args)+'\\n')
 if args[:2]==['plugin','validate']:
- assert args[-2:]==['--kind','lsp']
- assert (pathlib.Path(args[2])/'lsp.json').is_file()
+ # Model the pinned 0.15.5 CLI exactly: newer target/archive flags are unavailable.
+ assert args==['plugin','validate',args[2],'--kind','lsp']
+ metadata=json.loads((pathlib.Path(args[2])/'lsp.json').read_bytes())
+ assert set(metadata['package']['lsp']['distribution']['binary'])=={'linux-x86_64','darwin-aarch64','darwin-x86_64'}
+ assert all('node_min_version' not in target for target in metadata['package']['lsp']['distribution']['binary'].values())
  sys.exit(0)
 if args[:2]==['registry','plan-publication']:
  pathlib.Path(args[args.index('--output')+1]).write_text('{}');sys.exit(0)

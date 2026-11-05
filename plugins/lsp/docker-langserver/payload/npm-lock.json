@@ -1,0 +1,133 @@
+{
+  "name": "cadencr-offline-lsp-candidate",
+  "version": "0.1.0",
+  "lockfileVersion": 3,
+  "requires": true,
+  "packages": {
+    "": {
+      "name": "cadencr-offline-lsp-candidate",
+      "version": "0.1.0",
+      "dependencies": {
+        "dockerfile-language-server-nodejs": "0.15.0"
+      }
+    },
+    "node_modules/dockerfile-ast": {
+      "version": "0.7.1",
+      "resolved": "https://registry.npmjs.org/dockerfile-ast/-/dockerfile-ast-0.7.1.tgz",
+      "integrity": "sha512-oX/A4I0EhSkGqrFv0YuvPkBUSYp1XiY8O8zAKc8Djglx8ocz+JfOr8gP0ryRMC2myqvDLagmnZaU9ot1vG2ijw==",
+      "license": "MIT",
+      "dependencies": {
+        "vscode-languageserver-textdocument": "^1.0.8",
+        "vscode-languageserver-types": "^3.17.3"
+      },
+      "engines": {
+        "node": "*"
+      }
+    },
+    "node_modules/dockerfile-language-server-nodejs": {
+      "version": "0.15.0",
+      "resolved": "https://registry.npmjs.org/dockerfile-language-server-nodejs/-/dockerfile-language-server-nodejs-0.15.0.tgz",
+      "integrity": "sha512-iS3GUUAn1bC3sDdLyg6CUnIaVQfViJBh+FhWBPftK6kJkhUMxFG2sr25OqMVaZgRsVuJEoNpflgJN3FCbkA01A==",
+      "license": "MIT",
+      "dependencies": {
+        "dockerfile-language-service": "0.16.1",
+        "dockerfile-utils": "0.16.3",
+        "vscode-languageserver": "~8.0.0",
+        "vscode-languageserver-textdocument": "~1.0.8"
+      },
+      "bin": {
+        "docker-langserver": "bin/docker-langserver"
+      },
+      "engines": {
+        "node": "*"
+      }
+    },
+    "node_modules/dockerfile-language-service": {
+      "version": "0.16.1",
+      "resolved": "https://registry.npmjs.org/dockerfile-language-service/-/dockerfile-language-service-0.16.1.tgz",
+      "integrity": "sha512-4tKDJHXl7BQMSi807TlyJ+4ApH5WkDai2PSFju/pjy7atRchJgn4UrmPlq8E0dVqyZwyTiNfapHxqsUQyQSMOg==",
+      "license": "MIT",
+      "dependencies": {
+        "dockerfile-ast": "0.7.1",
+        "dockerfile-utils": "0.16.3",
+        "vscode-languageserver-textdocument": "1.0.8",
+        "vscode-languageserver-types": "3.17.3"
+      },
+      "engines": {
+        "node": "*"
+      }
+    },
+    "node_modules/dockerfile-language-service/node_modules/vscode-languageserver-textdocument": {
+      "version": "1.0.8",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.8.tgz",
+      "integrity": "sha512-1bonkGqQs5/fxGT5UchTgjGVnfysL0O8v1AYMBjqTbWQTFn721zaPGDYFkOKtfDgFiSgXM3KwaG3FMGfW4Ed9Q==",
+      "license": "MIT"
+    },
+    "node_modules/dockerfile-utils": {
+      "version": "0.16.3",
+      "resolved": "https://registry.npmjs.org/dockerfile-utils/-/dockerfile-utils-0.16.3.tgz",
+      "integrity": "sha512-BslaqRR6PzCnhu+toDbkVAjq0B0CEgrCltk+enJ/xwCmvAHB1QqpO9QhXVIzMg/iSuD4tzS0Ex9n4Ik5ffI7pA==",
+      "license": "MIT",
+      "dependencies": {
+        "dockerfile-ast": "0.7.1",
+        "vscode-languageserver-textdocument": "^1.0.8",
+        "vscode-languageserver-types": "^3.17.3"
+      },
+      "bin": {
+        "dockerfile-utils": "bin/dockerfile-utils"
+      },
+      "engines": {
+        "node": "*"
+      }
+    },
+    "node_modules/vscode-jsonrpc": {
+      "version": "8.0.2",
+      "resolved": "https://registry.npmjs.org/vscode-jsonrpc/-/vscode-jsonrpc-8.0.2.tgz",
+      "integrity": "sha512-RY7HwI/ydoC1Wwg4gJ3y6LpU9FJRZAUnTYMXthqhFXXu77ErDd/xkREpGuk4MyYkk4a+XDWAMqe0S3KkelYQEQ==",
+      "license": "MIT",
+      "engines": {
+        "node": ">=14.0.0"
+      }
+    },
+    "node_modules/vscode-languageserver": {
+      "version": "8.0.2",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver/-/vscode-languageserver-8.0.2.tgz",
+      "integrity": "sha512-bpEt2ggPxKzsAOZlXmCJ50bV7VrxwCS5BI4+egUmure/oI/t4OlFzi/YNtVvY24A2UDOZAgwFGgnZPwqSJubkA==",
+      "license": "MIT",
+      "dependencies": {
+        "vscode-languageserver-protocol": "3.17.2"
+      },
+      "bin": {
+        "installServerIntoExtension": "bin/installServerIntoExtension"
+      }
+    },
+    "node_modules/vscode-languageserver-protocol": {
+      "version": "3.17.2",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver-protocol/-/vscode-languageserver-protocol-3.17.2.tgz",
+      "integrity": "sha512-8kYisQ3z/SQ2kyjlNeQxbkkTNmVFoQCqkmGrzLH6A9ecPlgTbp3wDTnUNqaUxYr4vlAcloxx8zwy7G5WdguYNg==",
+      "license": "MIT",
+      "dependencies": {
+        "vscode-jsonrpc": "8.0.2",
+        "vscode-languageserver-types": "3.17.2"
+      }
+    },
+    "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types": {
+      "version": "3.17.2",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.2.tgz",
+      "integrity": "sha512-zHhCWatviizPIq9B7Vh9uvrH6x3sK8itC84HkamnBWoDFJtzBf7SWlpLCZUit72b3os45h6RWQNC9xHRDF8dRA==",
+      "license": "MIT"
+    },
+    "node_modules/vscode-languageserver-textdocument": {
+      "version": "1.0.16",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver-textdocument/-/vscode-languageserver-textdocument-1.0.16.tgz",
+      "integrity": "sha512-qeNEuOi9a3qkqRf7Gfez2WL2VwlBTLCNekHBGO9kxPVUp9XuY15yfTJ9jwvOwKI0I2MhUUfZq95NSp+LK1CLQg==",
+      "license": "MIT"
+    },
+    "node_modules/vscode-languageserver-types": {
+      "version": "3.17.3",
+      "resolved": "https://registry.npmjs.org/vscode-languageserver-types/-/vscode-languageserver-types-3.17.3.tgz",
+      "integrity": "sha512-SYU4z1dL0PyIMd4Vj8YOqFvHu7Hz/enbWtpfnVbJHU4Nd1YNYx8u0ennumc6h48GQNeOLxmwySmnADouT/AuZA==",
+      "license": "MIT"
+    }
+  }
+}

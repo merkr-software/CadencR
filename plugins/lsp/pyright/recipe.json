@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "pyright",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "Pyright",
+  "description": "Pyright using pinned complete upstream npm distributions.",
+  "license": "MIT",
+  "upstream": {
+    "name": "pyright",
+    "version": "1.1.414",
+    "url": "https://registry.npmjs.org/pyright/-/pyright-1.1.414.tgz"
+  },
+  "runtime": "node",
+  "entry": "node_modules/pyright/langserver.index.js",
+  "args": [
+    "--stdio"
+  ],
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "python",
+      "extensions": [
+        "py",
+        "pyi"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "pyproject.toml",
+    "pyrightconfig.json",
+    "setup.py",
+    "setup.cfg",
+    "requirements.txt",
+    ".git"
+  ],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "20.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0"
+  },
+  "setup_requirements": [
+    "Bundled fallback typeshed is retained in full. Python interpreter discovery can improve environment-specific imports."
+  ],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 5423,
+  "source_expanded_bytes": 19457120,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "local_overlay": {
+    "path": "plugins/lsp/pyright/notices",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "kind": "third-party-notices",
+    "files": [
+      "THIRD_PARTY_NOTICES.txt",
+      "license-audit.json"
+    ]
+  },
+  "license_audit": {
+    "path": "plugins/lsp/pyright/notices/license-audit.json",
+    "metadata_only_packages": []
+  }
+}

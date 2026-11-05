@@ -28,14 +28,14 @@ interface UseLspArgs {
   /** Explicit Plain Text disables LSP; automatic Plain Text uses registry associations. */
   explicitPlainText?: boolean;
   /**
-   * When false, acquire no client and return an empty extension array + an
-   * idle status. Used by large-file read-only mode. Defaults to true.
+   * When false, acquire no client and clear diagnostics. Used by large-file
+   * read-only mode. Defaults to true.
    */
   enabled?: boolean;
 }
 
 export interface UseLspResult {
-  /** CodeMirror extension to mount inside a Compartment. `[]` until ready. */
+  /** CodeMirror extension; diagnostic cleanup remains mounted without ready clients. */
   extension: Extension;
   resolution?: LspResolution;
   /** Coarse state for status-bar / popover display. */
@@ -111,11 +111,13 @@ export function useLsp({
   // (used by go-to-definition / hover / completion) resolves to it; linter
   // plugins follow (they only contribute diagnostics via their own bucket).
   const extension = useMemo<Extension>(() => {
-    if (clients.length === 0 || !languageId || !absPath) return [];
+    // CodeMirror's appended lint state survives removing the LSP compartment.
+    // Keep its owner mounted with no active servers so existing underlines clear.
+    if (clients.length === 0 || !languageId || !absPath) return mergedDiagnostics([]);
     const uri = pathToFileUri(absPath);
-    const plugins = clients.map((c) => c.client.plugin(uri, languageId));
+    const plugins = clients.map((c) => c.workspace.editorPlugin(uri, languageId));
     return [
-      mergedDiagnostics(),
+      mergedDiagnostics(clients.map((client) => client.lspId)),
       ...plugins,
       serverCompletion(),
       lspLanguageFeatures,

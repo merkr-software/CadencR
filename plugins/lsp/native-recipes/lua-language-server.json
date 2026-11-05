@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "id": "lua-language-server",
+  "version": "3.19.2",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/LuaLS/lua-language-server/releases/tag/3.19.2",
+  "license": "MIT",
+  "license_source": "https://github.com/LuaLS/lua-language-server/tree/3.19.2",
+  "args": [
+    "--logpath=$CADENCR_LSP_CACHE_ROOT/log",
+    "--metapath=$CADENCR_LSP_CACHE_ROOT/meta"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-linux-x64.tar.gz",
+      "sha256": "93ad326b10f6c00911dd8c450fa098332dbd8f9f45d1052f5636a2d54479b947",
+      "size": 3696210,
+      "format": "tar.gz",
+      "member": "bin/lua-language-server",
+      "entry": "bin/lua-language-server",
+      "entry_sha256": "1ea9f1063daa2d136af6fcb95f4354e227fc1a55482a101a84fd02907ff1c96d",
+      "entry_size": 2022808,
+      "retain_tree": true,
+      "strip_prefix": "",
+      "omit_files": [
+        "meta/3rd/love2d/.git",
+        "meta/3rd/lovr/.git",
+        "meta/3rd/busted/.git",
+        "meta/3rd/lfs/.git",
+        "meta/3rd/bee/.git",
+        "meta/3rd/luv/.git",
+        "meta/3rd/OpenResty/.git",
+        "meta/3rd/Cocos4.0/.git",
+        "meta/3rd/luaecs/.git",
+        "meta/3rd/ffi-reflect/.git",
+        "meta/3rd/Jass/.git",
+        "meta/3rd/luassert/.git",
+        "meta/3rd/skynet/.git",
+        "meta/3rd/Defold/.git"
+      ]
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-darwin-arm64.tar.gz",
+      "sha256": "79149584320a23bd5fcd5bc31f47a1975acd8a4560a0e89036bb1016fa61687f",
+      "size": 3286148,
+      "format": "tar.gz",
+      "member": "bin/lua-language-server",
+      "entry": "bin/lua-language-server",
+      "entry_sha256": "b3e587b384de7fb79a3a5bafc9b00fe2433d7f8011b9f80a1be98b08d5a40cc1",
+      "entry_size": 1070560,
+      "retain_tree": true,
+      "strip_prefix": "",
+      "omit_files": [
+        "meta/3rd/luv/.git",
+        "meta/3rd/busted/.git",
+        "meta/3rd/Jass/.git",
+        "meta/3rd/skynet/.git",
+        "meta/3rd/lfs/.git",
+        "meta/3rd/lovr/.git",
+        "meta/3rd/Cocos4.0/.git",
+        "meta/3rd/ffi-reflect/.git",
+        "meta/3rd/Defold/.git",
+        "meta/3rd/bee/.git",
+        "meta/3rd/OpenResty/.git",
+        "meta/3rd/love2d/.git",
+        "meta/3rd/luassert/.git",
+        "meta/3rd/luaecs/.git"
+      ],
+      "macos_min_version": "11.0.0"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/LuaLS/lua-language-server/releases/download/3.19.2/lua-language-server-3.19.2-darwin-x64.tar.gz",
+      "sha256": "6f2174ece5ec63bcd9d5b22b2c902445c1cd9045fafe48c62602448ebf4c09cc",
+      "size": 2337043,
+      "format": "tar.gz",
+      "member": "bin/lua-language-server",
+      "entry": "bin/lua-language-server",
+      "entry_sha256": "2c7b9a8fe2fe8555af5640bb45a2479f4f28573a27a4a86483e5bcfab7ab768a",
+      "entry_size": 1138088,
+      "retain_tree": true,
+      "strip_prefix": "",
+      "omit_files": [
+        "meta/3rd/luv/.git",
+        "meta/3rd/busted/.git",
+        "meta/3rd/Jass/.git",
+        "meta/3rd/skynet/.git",
+        "meta/3rd/lfs/.git",
+        "meta/3rd/lovr/.git",
+        "meta/3rd/Cocos4.0/.git",
+        "meta/3rd/ffi-reflect/.git",
+        "meta/3rd/Defold/.git",
+        "meta/3rd/bee/.git",
+        "meta/3rd/OpenResty/.git",
+        "meta/3rd/love2d/.git",
+        "meta/3rd/luassert/.git",
+        "meta/3rd/luaecs/.git"
+      ],
+      "macos_min_version": "10.12.0"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Lua language server",
+  "description": "Lua code intelligence using LuaLS 3.19.2 with its bundled runtime scripts and metadata.",
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "lua",
+      "extensions": [
+        "lua"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    ".luarc.json",
+    ".luarc.jsonc",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": [],
+  "source_omissions": "Upstream meta/3rd Git pointer metadata files are excluded; all runtime Lua stubs and library metadata are retained."
+}

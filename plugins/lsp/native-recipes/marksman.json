@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "id": "marksman",
+  "version": "2026-02-08",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/artempyanykh/marksman/releases/tag/2026-02-08",
+  "license": "MIT",
+  "license_source": "https://github.com/artempyanykh/marksman/tree/2026-02-08",
+  "args": [
+    "server"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-linux-x64",
+      "sha256": "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087",
+      "size": 22500875,
+      "format": "raw",
+      "member": null,
+      "entry": "marksman",
+      "entry_sha256": "be5098e8213219269c47fc0d916a66fa31ce0602ec967475c722260aabf26087",
+      "entry_size": 22500875
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos",
+      "sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+      "size": 43856208,
+      "format": "raw",
+      "member": null,
+      "entry": "marksman",
+      "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+      "entry_size": 43856208,
+      "macos_min_version": "12.0.0"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos",
+      "sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+      "size": 43856208,
+      "format": "raw",
+      "member": null,
+      "entry": "marksman",
+      "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
+      "entry_size": 43856208,
+      "macos_min_version": "12.0.0"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Marksman",
+  "description": "Markdown code intelligence using Marksman 2026-02-08.",
+  "role": "general",
+  "languages": [
+    {
+      "id": "markdown",
+      "extensions": [
+        "md",
+        "markdown"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    ".marksman.toml",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": [],
+  "extra_sources": [
+    {
+      "name": "artempyanykh/marksman-LICENSE",
+      "version": "2026-02-08",
+      "url": "https://raw.githubusercontent.com/artempyanykh/marksman/2026-02-08/LICENSE",
+      "sha256": "f48413df41ebe5a5f77f997f1f8a0cf5236f24c6878a16e0073da81642aabf04",
+      "size": 1057,
+      "path": "licenses/LICENSE"
+    }
+  ]
+}

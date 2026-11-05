@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "id": "ruff",
+  "version": "0.17.3",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/astral-sh/ruff/releases/tag/0.17.3",
+  "license": "MIT",
+  "license_source": "https://github.com/astral-sh/ruff/tree/0.17.3",
+  "args": [
+    "server"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "2b0890f5a55900af741f133918c2656919bbf18c2ab7741b4ca8403a90e647a9",
+      "size": 10186321,
+      "format": "tar.gz",
+      "member": "ruff-x86_64-unknown-linux-gnu/ruff",
+      "entry": "ruff",
+      "entry_sha256": "6761c67c2b307be3905473b165eb5af0fb2f083836b04f9e4a8cdd0caee37833",
+      "entry_size": 24615456,
+      "retain_tree": true,
+      "strip_prefix": "ruff-x86_64-unknown-linux-gnu/"
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-aarch64-apple-darwin.tar.gz",
+      "sha256": "118f7121aa838785672bf612487f755a89108bb5f44e0f3df96c5967a72614f9",
+      "size": 9356803,
+      "format": "tar.gz",
+      "member": "ruff-aarch64-apple-darwin/ruff",
+      "entry": "ruff",
+      "entry_sha256": "b768f3410db7e66d84b634d329b5f54599a7c39012a1eb3aaaa16e73a90587e2",
+      "entry_size": 22262976,
+      "retain_tree": true,
+      "strip_prefix": "ruff-aarch64-apple-darwin/",
+      "macos_min_version": "11.0.0"
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/astral-sh/ruff/releases/download/0.17.3/ruff-x86_64-apple-darwin.tar.gz",
+      "sha256": "17f95b1bee24d70de62ffe5beec7f71bb541c7e3d147a1c3d84f7cd6525f6fdf",
+      "size": 10117731,
+      "format": "tar.gz",
+      "member": "ruff-x86_64-apple-darwin/ruff",
+      "entry": "ruff",
+      "entry_sha256": "d7347873e4fdb385ea0a730c0227497e7cc313d94942e143c99f49e8c36ef8ea",
+      "entry_size": 23518800,
+      "retain_tree": true,
+      "strip_prefix": "ruff-x86_64-apple-darwin/",
+      "macos_min_version": "10.12.0"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Ruff",
+  "description": "Python linting and formatting using Ruff 0.17.3.",
+  "role": "linter",
+  "languages": [
+    {
+      "id": "python",
+      "extensions": [
+        "py",
+        "pyi"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "pyproject.toml",
+    "ruff.toml",
+    ".ruff.toml",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": []
+}

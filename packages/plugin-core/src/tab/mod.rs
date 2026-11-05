@@ -37,6 +37,7 @@ pub use folder::{
     inspect_signed_tab_folder, inspect_tab_folder, read_tab_manifest, TabFolderReport,
 };
 pub use issues::{describe_all, TabFindings, TabIssue, TabIssueCode};
+pub use macho::macos_minimum_version;
 pub use manifest::{
     TabAccessLevel, TabBackend, TabCommand, TabConfigField, TabConfigFieldType, TabConfigScope,
     TabManifest, TabNetwork, TabSection, TabShortcut,

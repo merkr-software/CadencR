@@ -1,0 +1,254 @@
+name: Qualify held LSP catalog candidates
+
+# Candidate evidence only. This workflow never publishes, signs or activates a feed.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/lsp-catalog-qualification.yml"
+      - "plugins/lsp/**"
+      - "scripts/lsp-catalog-*/**"
+      - "scripts/lsp-native-prepare/**"
+      - "scripts/official_plugin_lsp*.py"
+      - "packages/cli/**"
+      - "packages/registry-core/**"
+      - "packages/plugin-core/**"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".nvmrc"
+  workflow_dispatch:
+    inputs:
+      cli_mode:
+        description: CLI provenance (released requires the checked-in 0.15.6 qualification pin)
+        type: choice
+        options: [source, released]
+        default: source
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lsp-catalog-candidates-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  pnpm_config_verify_deps_before_run: "false"
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  package:
+    name: Canonical Linux packaging (held data)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    outputs:
+      artifact_id: ${{ steps.handoff.outputs.artifact-id }}
+      manifest_sha256: ${{ steps.prepare.outputs.manifest_sha256 }}
+    steps:
+      # actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # actions/setup-node@v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: ".nvmrc"
+          package-manager-cache: false
+      - name: Enable pnpm and install the pinned Rust toolchain
+        run: |
+          corepack enable
+          rustup show
+      # Dedicated CLI cache avoids restoring the much larger application target cache.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          prefix-key: lsp-catalog-cli-v1
+          shared-key: linux-canonical-cli-0156
+          save-if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+      - name: Test candidate boundaries
+        run: |
+          python3 -B -m unittest discover -s scripts/lsp-catalog-qa -p 'test_*.py'
+          python3 -B -m unittest discover -s scripts/lsp-catalog-prepare -p 'test_*.py'
+          python3 -B -m unittest discover -s scripts/lsp-native-prepare -p 'test_*.py'
+          node --test scripts/lsp-catalog-prepare/*.test.mjs
+      - name: Build the source CLI (not a released-binary qualification)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
+        run: pnpm rust -- build --locked --release -p cadencr-cli
+      - name: Capture the exact source CLI for separate qualification
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_CLI_DIR: ${{ runner.temp }}/lsp-source-cli
+        run: |
+          python3 -B - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          sys.path.insert(0, "scripts/lsp-catalog-qa")
+          from handoff import CLI_VERSION, commit, digest, provenance, regular
+          source = pathlib.Path("target/release/cadencr").resolve()
+          data = regular(source, 128 * 1024 * 1024)
+          version = subprocess.check_output([str(source), "--version"], env={"PATH": "/usr/bin:/bin"}).strip()
+          assert version == ("cadencr " + CLI_VERSION).encode(), "source CLI version mismatch"
+          output = pathlib.Path(os.environ["SOURCE_CLI_DIR"])
+          output.mkdir()
+          (output / "cadencr").write_bytes(data)
+          (output / "cadencr").chmod(0o755)
+          metadata = {"schema_version": 1, "authority": "candidate", "publication_authority": False,
+                      "runtime_qualification": "PENDING", "binary": "cadencr", "size": len(data),
+                      "cli": provenance("source-build", digest(data), commit(os.environ["SOURCE_COMMIT"]))}
+          (output / "source-cli.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Retain the source CLI separately from the held data handoff
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-source-cli-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lsp-source-cli/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Fetch the checked-in released CLI pin
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.cli_mode == 'released' }}
+        run: |
+          sh tooling/marketplace-registry/scripts/ci/fetch-released-cli.sh \
+            scripts/cli-qualification.env "$RUNNER_TEMP/lsp-released-cli"
+      - name: Acquire data and pack each exact target twice
+        id: prepare
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          CLI_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.cli_mode || 'source' }}
+        run: |
+          set -eu
+          mkdir "$RUNNER_TEMP/lsp-package-logs"
+          if [ "$CLI_MODE" = released ]; then
+            cli="$RUNNER_TEMP/lsp-released-cli/cadencr"
+            set -- --cli-origin released-pin --released-pin "$GITHUB_WORKSPACE/scripts/cli-qualification.env"
+          else
+            cli="$GITHUB_WORKSPACE/target/release/cadencr"
+            set -- --cli-origin source-build
+          fi
+          cli_sha256=$(sha256sum "$cli" | cut -d ' ' -f 1)
+          python3 -B scripts/lsp-catalog-qa/prepare.py --cli "$cli" --cli-sha256 "$cli_sha256" \
+            --source-commit "$SOURCE_COMMIT" --work "$RUNNER_TEMP/lsp-package-work" \
+            --output "$RUNNER_TEMP/lsp-handoff" "$@" \
+            > "$RUNNER_TEMP/lsp-package-logs/prepare.log" 2>&1
+          manifest_sha256=$(sha256sum "$RUNNER_TEMP/lsp-handoff/handoff.json" | cut -d ' ' -f 1)
+          echo "manifest_sha256=$manifest_sha256" >> "$GITHUB_OUTPUT"
+          echo 'Canonical packaging passed; runtime qualification remains PENDING.' >> "$GITHUB_STEP_SUMMARY"
+      # actions/upload-artifact@v7.0.2. Only archive/lock/recipe/metadata data enters this handoff.
+      - id: handoff
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-held-candidates-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lsp-handoff/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+      - name: Retain preparation diagnostics separately
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-preparation-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lsp-package-logs/
+            ${{ runner.temp }}/lsp-package-work/diagnostics/
+          if-no-files-found: warn
+          retention-days: 7
+
+  runtime:
+    name: Exact candidate features on ${{ matrix.label }}
+    needs: package
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            label: linux-x86_64-ubuntu24.04
+            runner: ubuntu-24.04
+          - target: linux-x86_64
+            label: linux-x86_64-ubuntu22.04
+            runner: ubuntu-22.04
+          - target: darwin-aarch64
+            label: darwin-aarch64-macos15
+            runner: macos-15
+          - target: darwin-x86_64
+            label: darwin-x86_64-macos15
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version-file: ".nvmrc"
+          package-manager-cache: false
+      # actions/download-artifact@v8.0.2. Never select another run or a mutable artifact name.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
+        with:
+          artifact-ids: ${{ needs.package.outputs.artifact_id }}
+          path: ${{ runner.temp }}/lsp-handoff
+          merge-multiple: true
+      - name: Preacquire frozen test projects and the pinned Go toolchain
+        id: prerequisites
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -eu
+          mkdir "$RUNNER_TEMP/lsp-runtime-run"
+          python3 -B scripts/lsp-catalog-qa/prerequisites.py --node "$(command -v node)" \
+            --source-commit "$SOURCE_COMMIT" --output "$RUNNER_TEMP/lsp-prerequisites" \
+            --cache "$RUNNER_TEMP/lsp-prerequisite-cache" \
+            > "$RUNNER_TEMP/lsp-runtime-run/prerequisites.log" 2>&1
+          prerequisite_sha256=$(shasum -a 256 "$RUNNER_TEMP/lsp-prerequisites/prerequisites.json" | cut -d ' ' -f 1)
+          echo "sha256=$prerequisite_sha256" >> "$GITHUB_OUTPUT"
+      - name: Run Linux features with denied network and read-only inputs
+        if: ${{ runner.os == 'Linux' }}
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          MANIFEST_SHA256: ${{ needs.package.outputs.manifest_sha256 }}
+          PREREQUISITES_SHA256: ${{ steps.prerequisites.outputs.sha256 }}
+        run: |
+          set -eu
+          node_root=$(node -p 'require("path").dirname(require("path").dirname(require("fs").realpathSync(process.execPath)))')
+          sudo unshare --mount --net --pid --fork --mount-proc --kill-child -- sh scripts/lsp-catalog-qa/linux-sandbox.sh \
+            "$(id -u)" "$(id -g)" "$GITHUB_WORKSPACE" "$RUNNER_TEMP/lsp-handoff" \
+            "$RUNNER_TEMP/lsp-prerequisites" "$RUNNER_TEMP/lsp-runtime-run" \
+            "$MANIFEST_SHA256" "$SOURCE_COMMIT" "$PREREQUISITES_SHA256" "$node_root" \
+            > "$RUNNER_TEMP/lsp-runtime-run/launcher.log" 2>&1
+      - name: Run macOS features inside tested deny-IP, allow-Unix sandboxes
+        if: ${{ runner.os == 'macOS' }}
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          TARGET: ${{ matrix.target }}
+          MANIFEST_SHA256: ${{ needs.package.outputs.manifest_sha256 }}
+          PREREQUISITES_SHA256: ${{ steps.prerequisites.outputs.sha256 }}
+        run: |
+          set -eu
+          env -i PATH=/usr/bin:/bin HOME="$RUNNER_TEMP/lsp-runtime-run" TMPDIR="$RUNNER_TEMP/lsp-runtime-run" \
+            /usr/bin/python3 -B scripts/lsp-catalog-qa/runtime.py \
+            --handoff "$RUNNER_TEMP/lsp-handoff" --manifest-sha256 "$MANIFEST_SHA256" \
+            --source-commit "$SOURCE_COMMIT" --target "$TARGET" \
+            --prerequisites "$RUNNER_TEMP/lsp-prerequisites" --prerequisites-sha256 "$PREREQUISITES_SHA256" \
+            --work "$RUNNER_TEMP/lsp-runtime-run/runtime" --evidence "$RUNNER_TEMP/lsp-runtime-run/evidence" \
+            --diagnostics "$RUNNER_TEMP/lsp-runtime-run/diagnostics" \
+            > "$RUNNER_TEMP/lsp-runtime-run/launcher.log" 2>&1
+      - name: Retain candidate runtime evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-runtime-evidence-${{ matrix.label }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lsp-runtime-run/evidence/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Retain runtime failures and logs separately
+        if: ${{ always() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-runtime-diagnostics-${{ matrix.label }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/lsp-runtime-run/diagnostics/
+            ${{ runner.temp }}/lsp-runtime-run/sandbox.json
+            ${{ runner.temp }}/lsp-runtime-run/launcher.log
+            ${{ runner.temp }}/lsp-runtime-run/prerequisites.log
+          if-no-files-found: warn
+          retention-days: 7

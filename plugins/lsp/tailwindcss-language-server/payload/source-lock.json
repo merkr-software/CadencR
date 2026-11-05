@@ -1,0 +1,111 @@
+{
+  "schema_version": 2,
+  "id": "tailwindcss-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "node",
+  "entry": "node_modules/@tailwindcss/language-server/bin/tailwindcss-language-server",
+  "target": "all",
+  "sources": [
+    {
+      "name": "@tailwindcss/language-server",
+      "version": "0.16.0",
+      "url": "https://registry.npmjs.org/@tailwindcss/language-server/-/language-server-0.16.0.tgz",
+      "sha256": "89de5ef780d14e54a11cdb0832682cf937d37a1a1c35e17eb2a552272d7aa1ad",
+      "destination": "node_modules/@tailwindcss/language-server",
+      "expanded_size": 10297557,
+      "files": [
+        {
+          "path": "LICENSE",
+          "sha256": "94915f77fd3d2f65b640107e05b6123a4c02191d2cbd7fcb967861542acfe752",
+          "size": 1071,
+          "mode": "100644"
+        },
+        {
+          "path": "README.md",
+          "sha256": "fd8f877d96ed4bd412ee15961d087386ab6164f8b7975ebb945f66ec5129733f",
+          "size": 584,
+          "mode": "100644"
+        },
+        {
+          "path": "ThirdPartyNotices.txt",
+          "sha256": "e1b36915d679d1185a1ec6ade2ad8d0ebf9e28fd87debb4b75693a6ad33d1fb8",
+          "size": 66559,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/css-language-server",
+          "sha256": "b708dcfc3892bc53af333957afb19dd9b35fdc6f3d24783a9ae86e314d0752b3",
+          "size": 1072978,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/oxide-helper.js",
+          "sha256": "03983d4dcc63db8d809c0701fc9dc5e69de83604a576b933aedb616947415836",
+          "size": 65644,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/tailwindcss-language-server",
+          "sha256": "6129c789a4d28fe33456e78226fc8ce2944152ca2a9fad885c30bae8666270b1",
+          "size": 5377503,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-677EY2XE.node",
+          "sha256": "a0bc8fc5f3e68e95218c2541b812dc07ba5fb8afd765b6252ab9e68ba5edb2aa",
+          "size": 457680,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-6AZGU4RY.node",
+          "sha256": "21ffdef959a00016dca15757b31a2416db3bfcad21cd2ec93286b82c72b15c1e",
+          "size": 469800,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-A5ZN26DK.node",
+          "sha256": "e58979069d4f71d2e36f7dc130d6dbc671e63666fe3943fd2ed481519cbf374c",
+          "size": 514960,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-HOV5D23Y.node",
+          "sha256": "5fc72d98675a3b98dd795ce8e533c8ee2ae73b850c541469dc5c0ba2ea42a2a1",
+          "size": 346272,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-KA56QUOV.node",
+          "sha256": "a8199cf7b6c5102267a5889f80321a4cc92e631d7504c474d32a35b4d440f315",
+          "size": 518144,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-LKVNIXRY.node",
+          "sha256": "ea31618e251be57fdf7a8160bc2cb57d3131a430287681de2d321bbc3679e777",
+          "size": 342608,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-WWZD4ELE.node",
+          "sha256": "805e3bdafc8b6f02b02955db024292652b0c92773a0918d1f78fdf2c8ff68769",
+          "size": 548864,
+          "mode": "100644"
+        },
+        {
+          "path": "bin/watcher-YZ5DWAAG.node",
+          "sha256": "689df89fa2412de37604b44fe0223af61fa322f5cb12c3528a29cb2051b7fa1e",
+          "size": 511160,
+          "mode": "100644"
+        },
+        {
+          "path": "package.json",
+          "sha256": "4e410f2f5a44b4f8ed4cab41435fe54e500c1050b3e0c9f6271b7287a2da3491",
+          "size": 3730,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

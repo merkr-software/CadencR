@@ -141,6 +141,7 @@ fn inspect_revision(
         return Err(invalid("LSP archive pointer mismatch"));
     }
     super::policy::require(id, &active.version, &target)?;
+    super::super::os_requirements::require_target(&target)?;
     let mut probe = probe(&package, ServerProbeStatus::Managed)?;
     probe.path = Some(
         dir.join("payload")

@@ -1384,12 +1384,40 @@ describe("language server marketplace", () => {
     role: "general",
     status: "legacy",
   };
-  function stubLsp(reason?: string) {
+  function stubLsp(reason?: string, minimum?: string) {
     let managed = false;
     vi.mocked(customInstance).mockImplementation(async (request) => {
       if (request.url === "/api/lsp/catalog")
         return {
-          index: signedCatalog([lspPackage]),
+          index: signedCatalog([
+            minimum
+              ? {
+                  ...lspPackage,
+                  package: {
+                    ...lspPackage.package,
+                    lsp: {
+                      ...lspPackage.package.lsp,
+                      distribution: {
+                        binary: {
+                          "darwin-aarch64": {
+                            archive:
+                              "https://github.com/acme/custom/releases/download/v1/server.tgz",
+                            sha256: "a".repeat(64),
+                            size: 200,
+                            entry: "server",
+                            entry_sha256: "b".repeat(64),
+                            entry_size: 100,
+                            runtime: "native",
+                            macos_min_version: minimum,
+                          },
+                        },
+                      },
+                    },
+                  },
+                }
+              : lspPackage,
+          ]),
+          host_platform: "darwin-aarch64",
           verified: true,
           recommended_versions: reason ? {} : { "custom-server": "1.0.0" },
           unavailable_versions: reason ? { "custom-server": { "1.0.0": reason } } : {},
@@ -1451,8 +1479,9 @@ describe("language server marketplace", () => {
     ["node", "Needs Node.js on this machine"],
     ["protocol", "Needs a newer Cadencr"],
     ["policy", "Installation policy unavailable"],
+    ["operating_system", "Requires macOS 15.0.0 or newer"],
   ])("explains %s availability without offering install", async (reason, label) => {
-    stubLsp(reason);
+    stubLsp(reason, reason === "operating_system" ? "15.0.0" : undefined);
     inMarketplace(<PluginDetail kind="lsp" id="custom-server" />);
     expect(await screen.findByRole("button", { name: label })).toBeDisabled();
     expect(screen.queryByRole("button", { name: /Install managed/ })).not.toBeInTheDocument();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lspListings } from "./marketplace-lsp-listings";
+import { lspPackageSchema } from "./marketplace-lsp-package";
 import { lspCatalogSchema, type LspInventory } from "./lsp/marketplace";
 import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
 import { auroraPlugin, auroraTheme, signedCatalog } from "./marketplace-plugin-fixtures";
@@ -69,6 +70,99 @@ const inventory: LspInventory = {
 };
 
 describe("marketplace LSP listings", () => {
+  it("retains signed Node requirements and rejects malformed or native requirements", () => {
+    const value = entry().package;
+    const target = value.lsp.distribution.binary["linux-x86_64"];
+    const withTarget = (replacement: unknown) => ({
+      ...value,
+      lsp: { ...value.lsp, distribution: { binary: { "linux-x86_64": replacement } } },
+    });
+    expect(
+      lspPackageSchema.parse(withTarget({ ...target, node_min_version: "22.18.0" })).lsp
+        .distribution.binary["linux-x86_64"].node_min_version,
+    ).toBe("22.18.0");
+    for (const minimum of [
+      null,
+      true,
+      22,
+      "22",
+      ">=22.18.0",
+      "22.18.0-rc.1",
+      "22.18.0+build",
+      "022.18.0",
+      "22.18.0\n",
+    ]) {
+      expect(
+        lspPackageSchema.safeParse(withTarget({ ...target, node_min_version: minimum })).success,
+      ).toBe(false);
+    }
+    expect(
+      lspPackageSchema.safeParse(
+        withTarget({ ...target, runtime: "native", node_min_version: "22.18.0" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      lspPackageSchema.parse(value).lsp.distribution.binary["linux-x86_64"].node_min_version,
+    ).toBeUndefined();
+  });
+
+  it("binds signed macOS requirements to native Darwin targets and host-selected listings", () => {
+    const value = entry().package;
+    const target = value.lsp.distribution.binary["linux-x86_64"];
+    const withTarget = (platform: string, minimum: unknown, runtime = "native") => ({
+      ...value,
+      lsp: {
+        ...value.lsp,
+        distribution: {
+          binary: {
+            [platform]: { ...target, runtime, macos_min_version: minimum },
+          },
+        },
+      },
+    });
+    for (const platform of ["darwin-aarch64", "darwin-x86_64"]) {
+      expect(lspPackageSchema.safeParse(withTarget(platform, "15.0.0")).success).toBe(true);
+      for (const minimum of [
+        null,
+        true,
+        15,
+        "15",
+        "v15.0.0",
+        "15.0.0-rc.1",
+        "15.0.0+build",
+        "015.0.0",
+        "15.0.0\n",
+        "1".repeat(65),
+      ]) {
+        expect(lspPackageSchema.safeParse(withTarget(platform, minimum)).success).toBe(false);
+      }
+      expect(lspPackageSchema.safeParse(withTarget(platform, "15.0.0", "node")).success).toBe(
+        false,
+      );
+    }
+    expect(lspPackageSchema.safeParse(withTarget("linux-x86_64", "15.0.0")).success).toBe(false);
+    const plugin = auroraPlugin("1.0.0", [
+      { kind: "lsp", package: withTarget("darwin-aarch64", "15.0.0") },
+    ]);
+    const source = catalog(
+      {
+        host_platform: "darwin-aarch64",
+        unavailable_versions: { "custom-server": { "1.0.0": "operating_system" } },
+        recommended_versions: {},
+      },
+      [plugin],
+    );
+    const members = lspListings(source);
+    expect(members[0].versions[0].macosMinVersion).toBe("15.0.0");
+    const bundle = pluginListings([source.index?.signed.packages], members)[0];
+    expect(bundle.versions[0]).toMatchObject({
+      macosMinVersion: "15.0.0",
+      unavailable: "operating_system",
+    });
+    const otherHost = lspListings({ ...source, host_platform: "linux-x86_64" });
+    expect(otherHost[0].versions[0].macosMinVersion).toBeUndefined();
+  });
+
   it.each(["darwin-aarch64", "linux-x86_64"])(
     "uses host verdicts on %s without guessing from the browser OS",
     (host) => {
@@ -89,6 +183,7 @@ describe("marketplace LSP listings", () => {
     ["node", "runtime"],
     ["policy", "policy"],
     ["compatibility", "compatibility"],
+    ["operating_system", "operating_system"],
   ])("preserves the %s install restriction", (reason, problem) => {
     const [listing] = lspListings(
       catalog({

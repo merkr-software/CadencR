@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "cadencr-cli"
-version = "0.15.5"
+version = "0.15.6"
 dependencies = [
  "bon",
  "cadencr-plugin-core",
@@ -951,6 +951,7 @@ dependencies = [
  "ed25519-dalek",
  "flate2",
  "futures 0.3.34",
+ "globset",
  "if-addrs",
  "ignore",
  "ironcalc",

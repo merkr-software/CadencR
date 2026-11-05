@@ -42,9 +42,17 @@ pub(crate) struct Snapshot {
     pub root: PathBuf,
     pub root_identity: Identity,
     pub entries: Vec<Entry>,
+    pub entry_limit: usize,
 }
 
 pub(crate) fn collect(staging: &Path) -> Result<Snapshot, RegistryError> {
+    collect_bounded(staging, MAX_ARCHIVE_ENTRIES)
+}
+
+pub(crate) fn collect_bounded(
+    staging: &Path,
+    entry_limit: usize,
+) -> Result<Snapshot, RegistryError> {
     let input = std::fs::symlink_metadata(staging)
         .map_err(|error| bad(format!("cannot inspect staging directory: {error}")))?;
     if !input.is_dir() || input.file_type().is_symlink() {
@@ -57,11 +65,19 @@ pub(crate) fn collect(staging: &Path) -> Result<Snapshot, RegistryError> {
     let root_identity = identity(&std::fs::symlink_metadata(&root).map_err(io_error)?);
     let mut entries = Vec::new();
     let mut bytes = 0;
-    visit(&root, Path::new(""), 0, &mut entries, &mut bytes)?;
+    visit(
+        &root,
+        Path::new(""),
+        0,
+        &mut entries,
+        &mut bytes,
+        entry_limit,
+    )?;
     Ok(Snapshot {
         root,
         root_identity,
         entries,
+        entry_limit,
     })
 }
 
@@ -71,14 +87,15 @@ fn visit(
     depth: usize,
     entries: &mut Vec<Entry>,
     bytes: &mut u64,
+    entry_limit: usize,
 ) -> Result<(), RegistryError> {
     if depth > MAX_DIRECTORY_DEPTH {
         return Err(bad(format!(
             "package exceeds {MAX_DIRECTORY_DEPTH} directory levels"
         )));
     }
-    let remaining = MAX_ARCHIVE_ENTRIES.saturating_sub(entries.len());
-    let mut children = bounded_children(&root.join(relative), remaining)?;
+    let remaining = entry_limit.saturating_sub(entries.len());
+    let mut children = bounded_children(&root.join(relative), remaining, entry_limit)?;
     children.sort_by(|left, right| {
         left.file_name()
             .as_encoded_bytes()
@@ -101,8 +118,8 @@ fn visit(
                 child_relative.display()
             )));
         }
-        if entries.len() >= MAX_ARCHIVE_ENTRIES {
-            return Err(limit_error());
+        if entries.len() >= entry_limit {
+            return Err(limit_error(entry_limit));
         }
         entries.push(Entry {
             relative: child_relative.clone(),
@@ -112,7 +129,14 @@ fn visit(
             identity: identity(&metadata),
         });
         if metadata.is_dir() {
-            visit(root, &child_relative, depth + 1, entries, bytes)?;
+            visit(
+                root,
+                &child_relative,
+                depth + 1,
+                entries,
+                bytes,
+                entry_limit,
+            )?;
         }
     }
     Ok(())
@@ -158,6 +182,7 @@ fn account_file(metadata: &Metadata, path: &Path, total: &mut u64) -> Result<(),
 fn bounded_children(
     directory: &Path,
     remaining: usize,
+    entry_limit: usize,
 ) -> Result<Vec<std::fs::DirEntry>, RegistryError> {
     let children = std::fs::read_dir(directory)
         .map_err(io_error)?
@@ -165,7 +190,7 @@ fn bounded_children(
         .collect::<Result<Vec<_>, _>>()
         .map_err(io_error)?;
     if children.len() > remaining {
-        return Err(limit_error());
+        return Err(limit_error(entry_limit));
     }
     Ok(children)
 }
@@ -305,8 +330,8 @@ fn executable(_metadata: &Metadata) -> bool {
     true
 }
 
-fn limit_error() -> RegistryError {
-    bad(format!("package exceeds {MAX_ARCHIVE_ENTRIES} entries"))
+fn limit_error(entry_limit: usize) -> RegistryError {
+    bad(format!("package exceeds {entry_limit} entries"))
 }
 fn bad(message: impl Into<String>) -> RegistryError {
     RegistryError::single(message)

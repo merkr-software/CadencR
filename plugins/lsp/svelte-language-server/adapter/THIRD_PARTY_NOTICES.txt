@@ -1,0 +1,158 @@
+Third-party license and attribution inventory
+
+Complete official npm distributions are retained unmodified, including package.json license/author declarations and every original license/notice. This file supplements notices omitted from tarballs using exact upstream commits or a locked README. Metadata-only cases are explicitly labeled and retain standard SPDX template text without fictional copyright assertions. Consult license-audit.json for every exact package and original notice path.
+
+@ampproject/remapping@2.3.0 | Apache-2.0 | node_modules/@ampproject/remapping | original-notices-preserved
+@emmetio/abbreviation@2.3.3 | MIT | node_modules/@emmetio/abbreviation | original-notices-preserved
+@emmetio/css-abbreviation@2.1.8 | MIT | node_modules/@emmetio/css-abbreviation | original-notices-preserved
+@emmetio/scanner@1.0.4 | MIT | node_modules/@emmetio/scanner | original-notices-preserved
+@jridgewell/gen-mapping@0.3.13 | MIT | node_modules/@jridgewell/gen-mapping | original-notices-preserved
+@jridgewell/remapping@2.3.5 | MIT | node_modules/@jridgewell/remapping | original-notices-preserved
+@jridgewell/resolve-uri@3.1.2 | MIT | node_modules/@jridgewell/resolve-uri | original-notices-preserved
+@jridgewell/sourcemap-codec@1.6.0 | MIT | node_modules/@jridgewell/sourcemap-codec | original-notices-preserved
+@jridgewell/trace-mapping@0.3.31 | MIT | node_modules/@jridgewell/trace-mapping | original-notices-preserved
+@sveltejs/acorn-typescript@1.0.13 | MIT | node_modules/@sveltejs/acorn-typescript | original-notices-preserved
+@sveltejs/load-config@0.2.3 | MIT | node_modules/@sveltejs/load-config | original-notices-preserved
+@types/estree@1.0.10 | MIT | node_modules/@types/estree | original-notices-preserved
+@vscode/emmet-helper@2.8.4 | MIT | node_modules/@vscode/emmet-helper | original-notices-preserved
+vscode-uri@2.1.2 | MIT | node_modules/@vscode/emmet-helper/node_modules/vscode-uri | original-notices-preserved
+@vscode/l10n@0.0.18 | MIT | node_modules/@vscode/l10n | verbatim-supplement
+acorn@8.19.0 | MIT | node_modules/acorn | original-notices-preserved
+aria-query@5.3.1 | Apache-2.0 | node_modules/aria-query | original-notices-preserved
+axobject-query@4.1.0 | Apache-2.0 | node_modules/axobject-query | original-notices-preserved
+chokidar@4.0.3 | MIT | node_modules/chokidar | original-notices-preserved
+clsx@2.1.1 | MIT | node_modules/clsx | original-notices-preserved
+code-red@1.0.4 | MIT | node_modules/code-red | original-notices-preserved
+estree-walker@3.0.3 | MIT | node_modules/code-red/node_modules/estree-walker | original-notices-preserved
+css-tree@2.3.1 | MIT | node_modules/css-tree | original-notices-preserved
+dedent-js@1.0.1 | MIT | node_modules/dedent-js | original-notices-preserved
+defu@6.1.7 | MIT | node_modules/defu | original-notices-preserved
+devalue@5.9.4 | MIT | node_modules/devalue | original-notices-preserved
+emmet@2.4.11 | MIT | node_modules/emmet | original-notices-preserved
+esm-env@1.2.2 | MIT | node_modules/esm-env | original-notices-preserved
+esrap@2.4.0 | MIT | node_modules/esrap | original-notices-preserved
+estree-walker@2.0.2 | MIT | node_modules/estree-walker | original-notices-preserved
+fdir@6.5.0 | MIT | node_modules/fdir | original-notices-preserved
+globrex@0.1.2 | MIT | node_modules/globrex | original-notices-preserved
+is-reference@3.0.3 | MIT | node_modules/is-reference | metadata-only-original-no-copyright-notice
+jsonc-parser@2.3.1 | MIT | node_modules/jsonc-parser | original-notices-preserved
+locate-character@3.0.0 | MIT | node_modules/locate-character | metadata-only-original-no-copyright-notice
+magic-string@0.30.21 | MIT | node_modules/magic-string | original-notices-preserved
+mdn-data@2.0.30 | CC0-1.0 | node_modules/mdn-data | original-notices-preserved
+periscopic@3.1.0 | MIT | node_modules/periscopic | original-notices-preserved
+estree-walker@3.0.3 | MIT | node_modules/periscopic/node_modules/estree-walker | original-notices-preserved
+prettier@3.3.3 | MIT | node_modules/prettier | original-notices-preserved
+prettier-plugin-svelte@3.5.2 | MIT | node_modules/prettier-plugin-svelte | original-notices-preserved
+prettier-plugin-svelte@4.1.1 | MIT | node_modules/prettier-plugin-svelte4 | original-notices-preserved
+readdirp@4.1.2 | MIT | node_modules/readdirp | original-notices-preserved
+scule@1.3.0 | MIT | node_modules/scule | original-notices-preserved
+semver@7.8.6 | ISC | node_modules/semver | original-notices-preserved
+source-map-js@1.2.2 | BSD-3-Clause | node_modules/source-map-js | original-notices-preserved
+svelte@5.57.3 | MIT | node_modules/svelte | original-notices-preserved
+svelte-language-server@0.18.6 | MIT | node_modules/svelte-language-server | original-notices-preserved
+svelte@4.2.20 | MIT | node_modules/svelte-language-server/node_modules/svelte | original-notices-preserved
+estree-walker@3.0.3 | MIT | node_modules/svelte-language-server/node_modules/svelte/node_modules/estree-walker | original-notices-preserved
+svelte2tsx@0.7.63 | MIT | node_modules/svelte2tsx | original-notices-preserved
+typescript@6.0.3 | Apache-2.0 | node_modules/typescript | original-notices-preserved
+typescript-auto-import-cache@0.3.6 | MIT | node_modules/typescript-auto-import-cache | original-notices-preserved
+vscode-css-languageservice@6.3.10 | MIT | node_modules/vscode-css-languageservice | original-notices-preserved
+vscode-html-languageservice@5.4.0 | MIT | node_modules/vscode-html-languageservice | original-notices-preserved
+vscode-jsonrpc@8.2.0 | MIT | node_modules/vscode-jsonrpc | original-notices-preserved
+vscode-languageserver@9.0.1 | MIT | node_modules/vscode-languageserver | original-notices-preserved
+vscode-languageserver-protocol@3.17.5 | MIT | node_modules/vscode-languageserver-protocol | original-notices-preserved
+vscode-languageserver-textdocument@1.0.16 | MIT | node_modules/vscode-languageserver-textdocument | original-notices-preserved
+vscode-languageserver-types@3.17.5 | MIT | node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-nls@5.2.0 | MIT | node_modules/vscode-nls | original-notices-preserved
+vscode-uri@3.1.0 | MIT | node_modules/vscode-uri | original-notices-preserved
+zimmerframe@1.1.5 | MIT | node_modules/zimmerframe | original-notices-preserved
+
+
+
+Package: @vscode/l10n@0.0.18
+License declaration: MIT
+Supplement source: https://raw.githubusercontent.com/microsoft/vscode-l10n/fc7e3d79ddb91a2cc24a9730aad912026a43dbf2/LICENSE
+Source commit: fc7e3d79ddb91a2cc24a9730aad912026a43dbf2
+SHA256: c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+
+
+Package: is-reference@3.0.3
+License declaration copied from the locked package metadata: MIT
+Published author metadata (not an assertion of copyright ownership): {"name": "Rich Harris"}
+Tarball source: https://registry.npmjs.org/is-reference/-/is-reference-3.0.3.tgz
+Tarball SHA256: ca4b7634e99eb3e05df043785e554fd6c0bd28197dd9722445c4193a660f33f0
+Historical source commit when published: 8bb053129bfabe2f6a7d7ed050159d67ebe82829
+
+The locked upstream distribution and identified historical source provide the above SPDX license declaration without a separate copyright notice. No copyright owner or year has been invented. The following are explicitly labeled SPDX STANDARD TERMS; template placeholders are retained verbatim and are not asserted as an upstream notice.
+Standard terms source: https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/json/details/MIT.json
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Package: locate-character@3.0.0
+License declaration copied from the locked package metadata: MIT
+Published author metadata (not an assertion of copyright ownership): {"name": "Rich Harris"}
+Tarball source: https://registry.npmjs.org/locate-character/-/locate-character-3.0.0.tgz
+Tarball SHA256: a7925696d7983216a5d4f0383fbcf87b63a9bb36bca205d40fc4ccba1db12585
+Historical source commit when published: 4f08a59ec248121f7002abd02ee7b94e8eda06bc
+
+The locked upstream distribution and identified historical source provide the above SPDX license declaration without a separate copyright notice. No copyright owner or year has been invented. The following are explicitly labeled SPDX STANDARD TERMS; template placeholders are retained verbatim and are not asserted as an upstream notice.
+Standard terms source: https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/json/details/MIT.json
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+

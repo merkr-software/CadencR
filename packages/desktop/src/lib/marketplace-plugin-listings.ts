@@ -84,6 +84,11 @@ function releaseVersion(item: PluginPackage, lookup: Lookup): ListingVersion {
     maxApp: item.host.compatibility.max_app_version,
     platforms: [...new Set(entries.flatMap((entry) => entry?.platforms ?? []))],
     ...(unavailable ? { unavailable } : {}),
+    macosMinVersion: sortVersions(
+      entries.flatMap((entry) =>
+        entry?.macosMinVersion ? [{ version: entry.macosMinVersion }] : [],
+      ),
+    )[0]?.version,
     ...(blockedAt >= 0
       ? {
           blocked: `${listings[blockedAt]?.name ?? members[blockedAt].id}: ${entries[blockedAt]?.blocked}`,

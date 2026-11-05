@@ -17,14 +17,15 @@ use std::time::Instant;
 
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
-use tokio::io::{AsyncWriteExt, BufReader};
+use tokio::io::BufReader;
 use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout};
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
-use super::framing::{encode_frame, read_frame};
+use super::framing::read_frame;
 use super::lifecycle::{CrashKey, CrashTracker, CRASH_WINDOW, IDLE_TIMEOUT};
+use super::watchers::{bridge::StdinBridge, SessionWatchers};
 
 /// Drives the proxy until either side disconnects. Consumes both the
 /// WebSocket and the [`Child`].
@@ -34,51 +35,75 @@ use super::lifecycle::{CrashKey, CrashTracker, CRASH_WINDOW, IDLE_TIMEOUT};
 /// [`CRASH_WINDOW`](super::lifecycle::CRASH_WINDOW) of spawn is recorded
 /// as a crash, ratcheting the cooldown. A session that lives longer
 /// clears the failure history.
+#[bon::builder]
 pub async fn run_proxy(
     ws: WebSocket,
     mut child: Child,
     display_name: &str,
     crash_tracker: Arc<CrashTracker>,
     crash_key: CrashKey,
+    runtime_root: Option<std::path::PathBuf>,
 ) {
     let spawn_instant = Instant::now();
-    let Some(stdin) = child.stdin.take() else {
-        warn!("lsp child {display_name} has no stdin");
-        let _ = child.kill().await;
-        crash_tracker.record_crash(crash_key).await;
-        return;
+    let (stdin, stdout) = match take_pipes(&mut child, display_name) {
+        Ok(pipes) => pipes,
+        Err(error) => {
+            warn!("lsp child {display_name}: {error}");
+            let _ = child.kill().await;
+            crash_tracker.record_crash(crash_key).await;
+            return;
+        }
     };
-    let Some(stdout) = child.stdout.take() else {
-        warn!("lsp child {display_name} has no stdout");
-        let _ = child.kill().await;
-        crash_tracker.record_crash(crash_key).await;
-        return;
-    };
-    if let Some(stderr) = child.stderr.take() {
-        tokio::spawn(drain_stderr(stderr, display_name.to_string()));
-    }
 
     let (out_tx, out_rx) = mpsc::unbounded_channel::<Message>();
-    let (sink, stream) = ws.split();
+    let (mut sink, stream) = ws.split();
 
     // `activity_tx` is bumped every time either direction processes a
     // message; the idle-timeout task reads it to decide when to give up.
     let (activity_tx, activity_rx) = watch::channel(Instant::now());
     let activity_tx = Arc::new(activity_tx);
 
+    let mut roots = vec![crash_key.workspace_root.clone()];
+    roots.extend(runtime_root);
+    let (watchers, events) = match SessionWatchers::new(roots) {
+        Ok(watchers) => watchers,
+        Err(error) => {
+            warn!("{error}");
+            let message = serde_json::json!({"jsonrpc":"2.0","method":"window/showMessage",
+                "params":{"type":1,"message":error}});
+            let _ = sink.send(Message::Text(message.to_string().into())).await;
+            let _ = child.kill().await;
+            return;
+        }
+    };
+    let (reply_tx, reply_rx) = mpsc::channel(32);
     let send_task = tokio::spawn(ws_sender(sink, out_rx));
-    let stdout_task = tokio::spawn(stdout_to_ws(stdout, out_tx.clone(), activity_tx.clone()));
-    let stdin_task = tokio::spawn(ws_to_stdin(stream, stdin, activity_tx.clone()));
+    let stdout_task = tokio::spawn(stdout_to_ws(
+        stdout,
+        out_tx.clone(),
+        activity_tx.clone(),
+        watchers.clone(),
+        reply_tx,
+    ));
+    let bridge = StdinBridge::builder()
+        .stdin(stdin)
+        .activity(activity_tx.clone())
+        .watchers(watchers)
+        .events(events)
+        .replies(reply_rx)
+        .out(out_tx.clone())
+        .build();
+    let stdin_task = tokio::spawn(bridge.run(stream));
     let idle_task = tokio::spawn(idle_watchdog(activity_rx, display_name.to_string()));
+    let _tasks = ProxyTasks(vec![
+        send_task.abort_handle(),
+        stdout_task.abort_handle(),
+        stdin_task.abort_handle(),
+        idle_task.abort_handle(),
+    ]);
 
-    // Exit as soon as any branch fires: a transport task ends, or the idle
-    // timer trips. Whichever wins first, we tear down everyone else so the
-    // child can't hang half-connected.
-    //
-    // `clean_close` distinguishes a client-initiated WS close (the renderer
-    // tearing down its own transport — including the new auto-reconnect
-    // cycle) from a server crash. A clean close must NOT trip the crash
-    // backoff, or reconnecting would ratchet the cooldown against us.
+    // A clean renderer disconnect or our idle timeout must not arm crash backoff.
+    // The task guard tears down the remaining directions when any one finishes.
     let clean_close = tokio::select! {
         _ = stdout_task => {
             debug!("lsp stdout closed; ending proxy for {display_name}");
@@ -102,9 +127,7 @@ pub async fn run_proxy(
     let _ = child.kill().await;
     let _ = child.wait().await;
 
-    // Backoff bookkeeping: only a child that *died on its own* within the
-    // crash window counts as a crash. A clean client close (code 1000) or an
-    // idle teardown clears the failure history instead.
+    // Only an unexpected early exit counts as a crash.
     if !clean_close && spawn_instant.elapsed() < CRASH_WINDOW {
         crash_tracker.record_crash(crash_key).await;
     } else {
@@ -112,8 +135,21 @@ pub async fn run_proxy(
     }
 }
 
+fn take_pipes(
+    child: &mut Child,
+    display_name: &str,
+) -> Result<(ChildStdin, ChildStdout), &'static str> {
+    let stdin = child.stdin.take().ok_or("missing stdin")?;
+    let stdout = child.stdout.take().ok_or("missing stdout")?;
+    if let Some(stderr) = child.stderr.take() {
+        tokio::spawn(drain_stderr(stderr, display_name.to_string()));
+    }
+    Ok((stdin, stdout))
+}
+
 /// WebSocket "Normal Closure" status code (RFC 6455 §7.4.1). The renderer's
 /// transport sends this on an intentional `close()`.
+#[cfg(test)]
 const WS_CLOSE_NORMAL: u16 = 1000;
 
 /// Waits until [`IDLE_TIMEOUT`] has elapsed since the last observed activity
@@ -152,6 +188,8 @@ async fn stdout_to_ws(
     stdout: ChildStdout,
     out_tx: mpsc::UnboundedSender<Message>,
     activity_tx: Arc<watch::Sender<Instant>>,
+    watchers: SessionWatchers,
+    replies: mpsc::Sender<serde_json::Value>,
 ) {
     let mut reader = BufReader::new(stdout);
     loop {
@@ -159,6 +197,25 @@ async fn stdout_to_ws(
             Ok(Some(bytes)) => match String::from_utf8(bytes) {
                 Ok(text) => {
                     let _ = activity_tx.send(Instant::now());
+                    let handled = watchers.server_frame(&text);
+                    if let Some(error) = handled.error {
+                        warn!("LSP file watcher registration failed: {error}");
+                        // Unsupported optional globs are truthfully rejected over JSON-RPC.
+                        // Actual OS watcher setup failures additionally need a user-visible error.
+                        if error.starts_with("Could not ") {
+                            let message = serde_json::json!({"jsonrpc":"2.0","method":"window/showMessage",
+                                "params":{"type":1,"message":error}});
+                            let _ = out_tx.send(Message::Text(message.to_string().into()));
+                        }
+                    }
+                    if let Some(response) = handled.response {
+                        if replies.send(response).await.is_err() {
+                            return;
+                        }
+                    }
+                    let Some(text) = handled.forward else {
+                        continue;
+                    };
                     if out_tx.send(Message::Text(text.into())).is_err() {
                         return; // WS sink gone
                     }
@@ -177,54 +234,10 @@ async fn stdout_to_ws(
     }
 }
 
-/// WS → stdin. Stops when the WebSocket closes or stdin write fails. Bumps
-/// the activity watch on every text message so the idle watchdog only
-/// trips during a genuine quiet period (no requests, no notifications).
-///
-/// Returns `true` iff the stream ended via a client-initiated *normal* close
-/// (WS code 1000) — i.e. the renderer tearing down its transport on purpose
-/// (tab close, language switch, or the auto-reconnect cycle). The caller uses
-/// that to avoid mis-attributing a clean close to the crash backoff. A write
-/// failure, transport error, or any non-1000 close returns `false`.
-async fn ws_to_stdin<S>(
-    mut stream: S,
-    mut stdin: ChildStdin,
-    activity_tx: Arc<watch::Sender<Instant>>,
-) -> bool
-where
-    S: StreamExt<Item = Result<Message, axum::Error>> + Unpin,
-{
-    while let Some(msg) = stream.next().await {
-        let Ok(msg) = msg else {
-            return false;
-        };
-        match msg {
-            Message::Text(text) => {
-                let _ = activity_tx.send(Instant::now());
-                let frame = encode_frame(text.as_bytes());
-                if stdin.write_all(&frame).await.is_err() {
-                    return false;
-                }
-                if stdin.flush().await.is_err() {
-                    return false;
-                }
-            }
-            Message::Binary(_) => {
-                // LSP is JSON text only. Ignore binary; matches existing /ws
-                // handler's stance on unexpected frame types.
-            }
-            Message::Close(frame) => return is_normal_close(&frame),
-            // Pings/pongs are handled by axum's built-in keepalive.
-            _ => {}
-        }
-    }
-    // Stream ended without an explicit Close frame (peer dropped) — not clean.
-    false
-}
-
 /// Whether a WS close frame represents a normal (intentional) closure. A
 /// missing frame means the peer closed without a status code, which we treat
 /// as non-clean (could be a dropped connection).
+#[cfg(test)]
 fn is_normal_close(frame: &Option<axum::extract::ws::CloseFrame>) -> bool {
     frame.as_ref().is_some_and(|f| f.code == WS_CLOSE_NORMAL)
 }
@@ -324,3 +337,15 @@ mod tests {
         assert!(!looks_like_error(""));
     }
 }
+
+struct ProxyTasks(Vec<tokio::task::AbortHandle>);
+impl Drop for ProxyTasks {
+    fn drop(&mut self) {
+        for task in &self.0 {
+            task.abort();
+        }
+    }
+}
+
+#[cfg(test)]
+mod qualification;

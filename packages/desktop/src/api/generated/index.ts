@@ -3248,6 +3248,7 @@ export const LspVersionUnavailable = {
   node: "node",
   policy: "policy",
   compatibility: "compatibility",
+  operating_system: "operating_system",
 } as const;
 
 export type LspCatalogResponseUnavailableVersions = {

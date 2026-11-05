@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "graphql-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "GraphQL language server",
+  "description": "GraphQL language server using pinned complete upstream npm distributions.",
+  "license": "Apache-2.0 AND MIT",
+  "upstream": {
+    "name": "graphql-language-service-cli",
+    "version": "4.0.1",
+    "url": "https://registry.npmjs.org/graphql-language-service-cli/-/graphql-language-service-cli-4.0.1.tgz"
+  },
+  "runtime": "node",
+  "entry": "adapter/adapter.mjs",
+  "args": [],
+  "role": "general",
+  "languages": [
+    {
+      "id": "graphql",
+      "extensions": [
+        "graphql",
+        "gql"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "graphql.config.yml",
+    ".graphqlrc.yml",
+    ".graphqlrc",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "22.19.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0",
+    "declared_dependency_engine_ranges": [
+      "18 || 20 || >=22",
+      "20 || >=22",
+      "6.* || 8.* || >= 10.*",
+      ">= 0.4",
+      ">= 12",
+      ">= 16.0.0",
+      ">= 4",
+      ">= 6",
+      ">= 8",
+      ">=0.10.0",
+      ">=0.12",
+      ">=0.12.0",
+      ">=0.4.0",
+      ">=10",
+      ">=10.0.0",
+      ">=10.5.0",
+      ">=12.20.0",
+      ">=13",
+      ">=14",
+      ">=14.0.0",
+      ">=14.17",
+      ">=16",
+      ">=16 || 14 >=14.17",
+      ">=16.0.0",
+      ">=18",
+      ">=18.0.0",
+      ">=20",
+      ">=20.0.0",
+      ">=22.12.0",
+      ">=22.15.0",
+      ">=4",
+      ">=6",
+      ">=6.0",
+      ">=6.0.0",
+      ">=6.9.0",
+      ">=7.0.0",
+      ">=8",
+      ">=8.0",
+      ">=8.6",
+      ">=8.6.0",
+      "^10 || ^12 || >=14",
+      "^10 || ^12 || ^13.7 || ^14 || >=15.0.1",
+      "^12.20 || >= 14.13",
+      "^12.20.0 || ^14.13.1 || >=16.0.0",
+      "^22.0.0 || ^24.0.0 || >=26.0.0",
+      "^22.18.0 || >=24.11.0",
+      "^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7"
+    ]
+  },
+  "setup_requirements": [
+    "Includes GraphQL 17.1.0 peer runtime. Requires project schema/configuration; remote schema fetching is excluded from offline qualification.",
+    "The adapter checks every declared dependency Node engine range before starting the server and reports unsupported runtimes. Only Node22.19.0 is qualified."
+  ],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 10099,
+  "source_expanded_bytes": 134315905,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "upstream_entry": "node_modules/graphql-language-service-cli/bin/graphql.js",
+  "upstream_args": [
+    "server",
+    "-m",
+    "stream"
+  ],
+  "local_overlay": {
+    "path": "plugins/lsp/graphql-language-server/adapter",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "files": [
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.txt",
+      "adapter.mjs",
+      "config.json",
+      "framing.mjs",
+      "license-audit.json"
+    ],
+    "kind": "adapter-and-third-party-notices"
+  },
+  "license_audit": {
+    "path": "plugins/lsp/graphql-language-server/adapter/license-audit.json",
+    "metadata_only_packages": [
+      "is-reference@3.0.3",
+      "locate-character@3.0.0",
+      "string-env-interpolation@1.0.1"
+    ]
+  }
+}

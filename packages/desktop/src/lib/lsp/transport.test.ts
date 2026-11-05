@@ -27,6 +27,24 @@ function parseSent(ws: MockWebSocket): unknown {
 }
 
 describe("WebSocketLspTransport", () => {
+  it("acknowledges diagnostic refresh and schedules the owning client's pulls", () => {
+    const ws = new MockWebSocket();
+    const transport = new WebSocketLspTransport(ws as unknown as WebSocket);
+    const refresh = vi.fn();
+    transport.setOnDiagnosticRefresh(refresh);
+    ws.dispatchEvent(
+      new MessageEvent("message", {
+        data: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 6,
+          method: "workspace/diagnostic/refresh",
+        }),
+      }),
+    );
+    expect(parseSent(ws)).toEqual({ jsonrpc: "2.0", id: 6, result: null });
+    expect(refresh).toHaveBeenCalledOnce();
+    transport.close();
+  });
   it("answers workspace/configuration requests without forwarding them to CodeMirror", () => {
     const ws = new MockWebSocket();
     const transport = new WebSocketLspTransport(ws as unknown as WebSocket);

@@ -24,6 +24,26 @@ The executable format and architecture are checked for each supported target
 (`darwin-aarch64`, `darwin-x86_64`, `linux-x86_64`). macOS arm64 binaries must be
 signed. Do not declare targets you have not built and tested.
 
+### Signed prerequisites
+
+Targets may add optional, full stable version strings:
+
+| Field               | Allowed target                                           | Omitted behavior          |
+| ------------------- | -------------------------------------------------------- | ------------------------- |
+| `node_min_version`  | `runtime: "node"`                                        | Node.js `20.0.0` minimum  |
+| `macos_min_version` | `runtime: "native"`, `darwin-aarch64` or `darwin-x86_64` | Existing package behavior |
+
+For example, declare `"macos_min_version": "15.0.0"` when that target requires
+macOS 15. Explicit `null`, ranges, prereleases and build suffixes are invalid.
+The field belongs to the signed target, and does not change the archive digest.
+Archive verification rejects a Mach-O deployment target above the declared
+minimum. The host checks its actual OS version before installation and launch;
+unavailable versions explain the signed requirement in the marketplace.
+
+Publishing descriptors with either optional field requires a qualified CLI
+that understands it. Omitting the fields keeps existing descriptor bytes and
+their compatibility with older qualified CLIs.
+
 ## Package a native server
 
 Prepare a dedicated tree containing the built upstream executable:

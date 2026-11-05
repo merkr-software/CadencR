@@ -13,6 +13,9 @@
 //! image is checked (a universal file may carry several, e.g. arm64 and
 //! arm64e): the loader may pick any of them.
 
+mod minimum;
+pub use minimum::macos_minimum_version;
+
 use std::io::{Read, Seek, SeekFrom};
 
 pub(crate) const CPU_TYPE_X86_64: u32 = 0x0100_0007;

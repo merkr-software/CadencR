@@ -1,0 +1,104 @@
+{
+  "schema_version": 1,
+  "id": "tsgo",
+  "version": "7.0.0-dev.20260707.2",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/microsoft/typescript-go",
+  "license": "Apache-2.0",
+  "license_source": "https://github.com/microsoft/typescript-go",
+  "args": [
+    "--lsp",
+    "--stdio"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://registry.npmjs.org/@typescript/native-preview-linux-x64/-/native-preview-linux-x64-7.0.0-dev.20260707.2.tgz",
+      "sha256": "5e6ee1052190526ae0ac277b2fb52ba0c7e880619201493bd5342976a0b33eb6",
+      "size": 9669830,
+      "format": "tar.gz",
+      "entry": "lib/tsgo",
+      "member": "package/lib/tsgo",
+      "retain_tree": true,
+      "strip_prefix": "package/",
+      "entry_sha256": "138b9ab195ae0ad372dae2f952090e07d4c504bbccf63240172ae843116009ce",
+      "entry_size": 24101026
+    },
+    "darwin-aarch64": {
+      "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-arm64/-/native-preview-darwin-arm64-7.0.0-dev.20260707.2.tgz",
+      "sha256": "a6d0b46d71358db2d602324c553366a58fa1d031f5dfa12c09a35b6be17fe503",
+      "size": 9270694,
+      "format": "tar.gz",
+      "entry": "lib/tsgo",
+      "member": "package/lib/tsgo",
+      "retain_tree": true,
+      "strip_prefix": "package/",
+      "entry_sha256": "63d89ecb27497f264b4c3ecb0e4f6d2cf09896803a81fff027ecfb336f8974e2",
+      "entry_size": 23653616,
+      "macos_min_version": "12.0.0"
+    },
+    "darwin-x86_64": {
+      "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-x64/-/native-preview-darwin-x64-7.0.0-dev.20260707.2.tgz",
+      "sha256": "caa4135832fa9d6b321d7c6d48b8726054af3e3cdda5de461c43f33d49f1dfd4",
+      "size": 10057799,
+      "format": "tar.gz",
+      "entry": "lib/tsgo",
+      "member": "package/lib/tsgo",
+      "retain_tree": true,
+      "strip_prefix": "package/",
+      "entry_sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
+      "entry_size": 24971184,
+      "macos_min_version": "12.0.0"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "TypeScript native preview",
+  "description": "TypeScript and JavaScript code intelligence using the native TypeScript Go preview and bundled standard libraries.",
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "javascript",
+      "extensions": [
+        "js",
+        "mjs",
+        "cjs"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "javascriptreact",
+      "extensions": [
+        "jsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescript",
+      "extensions": [
+        "ts",
+        "mts",
+        "cts"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescriptreact",
+      "extensions": [
+        "tsx"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "tsconfig.json",
+    "jsconfig.json",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": []
+}

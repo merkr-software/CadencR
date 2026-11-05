@@ -1,11 +1,15 @@
 // @vitest-environment happy-dom
 import { renderHook, waitFor } from "@testing-library/react";
 import { LSPClient } from "@codemirror/lsp-client";
+import { Compartment } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
+import { diagnosticCount } from "@codemirror/lint";
 import { expect, it, vi } from "vitest";
 import { useLsp } from "./useLsp";
 import { useLspResolution, type LspResolution } from "./useLspResolution";
 import { CadencrWorkspace } from "./cadencr-workspace";
 import { acquireLspClient, releaseLspClient } from "./client-manager";
+import { setServerDiagnostics } from "./merged-diagnostics";
 
 vi.mock("./useLspResolution", () => ({ useLspResolution: vi.fn() }));
 vi.mock("./client-manager", () => ({
@@ -91,3 +95,76 @@ it("keeps clients and extensions mounted when only resolution metadata changes",
   expect(releaseLspClient).toHaveBeenCalledTimes(4);
   unmount();
 });
+
+it.each(["server removal", "explicit Plain Text", "disabled"] as const)(
+  "clears rendered diagnostics when %s reconfigures the editor to zero clients",
+  async (reason) => {
+    const client = new LSPClient({ workspace: (owner) => new CadencrWorkspace(owner) });
+    const workspace = client.workspace;
+    if (!(workspace instanceof CadencrWorkspace)) throw new Error("Expected app workspace");
+    vi.mocked(acquireLspClient).mockResolvedValue({ client, workspace });
+    mockResolution(resolution(["primary"]));
+    const { result, rerender, unmount } = renderHook(
+      ({ enabled, explicitPlainText }) =>
+        useLsp({
+          workspaceRoot: "/workspace",
+          filePath: "file.custom",
+          projectId: 3,
+          featureId: 1,
+          paneId: "root",
+          enabled,
+          explicitPlainText,
+        }),
+      { initialProps: { enabled: true, explicitPlainText: false } },
+    );
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    const compartment = new Compartment();
+    const parent = document.createElement("div");
+    document.body.append(parent);
+    const view = new EditorView({
+      parent,
+      doc: "invalidCount",
+      extensions: [compartment.of(result.current.extension)],
+    });
+    const diagnostic = { from: 0, to: 12, severity: "error" as const, message: "invalidCount" };
+    try {
+      view.dispatch({
+        effects: setServerDiagnostics.of({ lspId: "primary", diagnostics: [diagnostic] }),
+      });
+      expect(diagnosticCount(view.state)).toBe(1);
+      expect(parent.querySelectorAll(".cm-lintRange-error")).toHaveLength(1);
+
+      if (reason === "server removal") mockResolution(resolution([]));
+      rerender({
+        enabled: reason !== "disabled",
+        explicitPlainText: reason === "explicit Plain Text",
+      });
+      await waitFor(() => expect(result.current.status).toBe("unsupported"));
+      view.dispatch({ effects: compartment.reconfigure(result.current.extension) });
+
+      expect(diagnosticCount(view.state)).toBe(0);
+      expect(parent.querySelectorAll(".cm-lintRange-error")).toHaveLength(0);
+      // A response already queued by the removed client must not restore its underline.
+      view.dispatch({
+        effects: setServerDiagnostics.of({ lspId: "primary", diagnostics: [diagnostic] }),
+      });
+      expect(diagnosticCount(view.state)).toBe(0);
+      expect(parent.querySelectorAll(".cm-lintRange-error")).toHaveLength(0);
+
+      mockResolution(resolution(["primary"]));
+      rerender({ enabled: true, explicitPlainText: false });
+      await waitFor(() => expect(result.current.status).toBe("ready"));
+      view.dispatch({ effects: compartment.reconfigure(result.current.extension) });
+      view.dispatch({
+        effects: setServerDiagnostics.of({ lspId: "primary", diagnostics: [diagnostic] }),
+      });
+      expect(diagnosticCount(view.state)).toBe(1);
+      expect(parent.querySelectorAll(".cm-lintRange-error")).toHaveLength(1);
+    } finally {
+      view.destroy();
+      parent.remove();
+      unmount();
+      client.disconnect();
+    }
+  },
+);

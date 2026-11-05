@@ -1,0 +1,1582 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "54c0900d2831cd18096a1754430fe0d4cf5a4f90b76aa60b53e0689b9f334d21",
+  "source_lock_sha256": "0c371d8756cae28977e1b67a81f71114854d0ec5721ce6afae0a6c9028b85b61",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "@ampproject/remapping",
+      "version": "2.3.0",
+      "destination": "node_modules/@ampproject/remapping",
+      "integrity": "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw==",
+      "compressed_size": 15562,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/ampproject/remapping.git"
+      },
+      "engines": {
+        "node": ">=6.0.0"
+      },
+      "scripts": {
+        "build": "run-s -n build:*",
+        "build:rollup": "rollup -c rollup.config.js",
+        "build:ts": "tsc --project tsconfig.build.json",
+        "lint": "run-s -n lint:*",
+        "lint:prettier": "npm run test:lint:prettier -- --write",
+        "lint:ts": "npm run test:lint:ts -- --fix",
+        "prebuild": "rm -rf dist",
+        "prepublishOnly": "npm run preversion",
+        "preversion": "run-s test build",
+        "test": "run-s -n test:lint test:only",
+        "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
+        "test:lint": "run-s -n test:lint:*",
+        "test:lint:prettier": "prettier --check '{src,test}/**/*.ts'",
+        "test:lint:ts": "eslint '{src,test}/**/*.ts'",
+        "test:only": "jest --coverage",
+        "test:watch": "jest --coverage --watch"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/abbreviation",
+      "version": "2.3.3",
+      "destination": "node_modules/@emmetio/abbreviation",
+      "integrity": "sha512-mgv58UrU3rh4YgbE/TzgLQwJ3pFsHHhCLqY20aJq+9comytTXUDNGG/SMtSeMJdkpxgXSXunBGLD8Boka3JyVA==",
+      "compressed_size": 34643,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "clean": "rimraf ./dist",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/css-abbreviation",
+      "version": "2.1.8",
+      "destination": "node_modules/@emmetio/css-abbreviation",
+      "integrity": "sha512-s9yjhJ6saOO/uk1V74eifykk2CBYi01STTK3WlXWGOepyKa23ymJ053+DNQjpFcy1ingpaO7AxCcwLvHFY9tuw==",
+      "compressed_size": 13545,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "watch": "rollup -wc",
+        "clean": "rimraf ./dist",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@emmetio/scanner",
+      "version": "1.0.4",
+      "destination": "node_modules/@emmetio/scanner",
+      "integrity": "sha512-IqRuJtQff7YHHBk4G8YZ45uB9BaAGcwQeVzgj/zj8/UdOhtQpEIupUhSk8dys6spFIWVZVeK20CzGEnqR5SbqA==",
+      "compressed_size": 5702,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/stream-reader.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "mocha",
+        "build": "rollup -c",
+        "clean": "rimraf ./scanner.* ./*.d.ts",
+        "prepublishOnly": "npm run clean && npm run build && npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@jridgewell/gen-mapping",
+      "version": "0.3.13",
+      "destination": "node_modules/@jridgewell/gen-mapping",
+      "integrity": "sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==",
+      "compressed_size": 17972,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jridgewell/sourcemaps.git",
+        "directory": "packages/gen-mapping"
+      },
+      "engines": {},
+      "scripts": {
+        "benchmark": "run-s build:code benchmark:*",
+        "benchmark:install": "cd benchmark && npm install",
+        "benchmark:only": "node --expose-gc benchmark/index.js",
+        "build": "run-s -n build:code build:types",
+        "build:code": "node ../../esbuild.mjs gen-mapping.ts",
+        "build:types": "run-s build:types:force build:types:emit build:types:mts",
+        "build:types:force": "rimraf tsconfig.build.tsbuildinfo",
+        "build:types:emit": "tsc --project tsconfig.build.json",
+        "build:types:mts": "node ../../mts-types.mjs",
+        "clean": "run-s -n clean:code clean:types",
+        "clean:code": "tsc --build --clean tsconfig.build.json",
+        "clean:types": "rimraf dist types",
+        "test": "run-s -n test:types test:only test:format",
+        "test:format": "prettier --check '{src,test}/**/*.ts'",
+        "test:only": "mocha",
+        "test:types": "eslint '{src,test}/**/*.ts'",
+        "lint": "run-s -n lint:types lint:format",
+        "lint:format": "npm run test:format -- --write",
+        "lint:types": "npm run test:types -- --fix",
+        "prepublishOnly": "npm run-s -n build test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@jridgewell/remapping",
+      "version": "2.3.5",
+      "destination": "node_modules/@jridgewell/remapping",
+      "integrity": "sha512-LI9u/+laYG4Ds1TDKSJW2YPrIlcVYOwi2fUC6xB43lueCjgxV4lffOCZCtYFiH6TNOX+tQKXx97T4IKHbhyHEQ==",
+      "compressed_size": 14624,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jridgewell/sourcemaps.git",
+        "directory": "packages/remapping"
+      },
+      "engines": {},
+      "scripts": {
+        "benchmark": "run-s build:code benchmark:*",
+        "benchmark:install": "cd benchmark && npm install",
+        "benchmark:only": "node --expose-gc benchmark/index.js",
+        "build": "run-s -n build:code build:types",
+        "build:code": "node ../../esbuild.mjs remapping.ts",
+        "build:types": "run-s build:types:force build:types:emit build:types:mts",
+        "build:types:force": "rimraf tsconfig.build.tsbuildinfo",
+        "build:types:emit": "tsc --project tsconfig.build.json",
+        "build:types:mts": "node ../../mts-types.mjs",
+        "clean": "run-s -n clean:code clean:types",
+        "clean:code": "tsc --build --clean tsconfig.build.json",
+        "clean:types": "rimraf dist types",
+        "test": "run-s -n test:types test:only test:format",
+        "test:format": "prettier --check '{src,test}/**/*.ts'",
+        "test:only": "mocha",
+        "test:types": "eslint '{src,test}/**/*.ts'",
+        "lint": "run-s -n lint:types lint:format",
+        "lint:format": "npm run test:format -- --write",
+        "lint:types": "npm run test:types -- --fix",
+        "prepublishOnly": "npm run-s -n build test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@jridgewell/resolve-uri",
+      "version": "3.1.2",
+      "destination": "node_modules/@jridgewell/resolve-uri",
+      "integrity": "sha512-bRISgCIjP20/tbWSPWMEi54QVPRZExkuD9lJL+UIxUKtwVJA8wW1Trb1jMs1RFXo1CBTNZ/5hpC9QvmKWdopKw==",
+      "compressed_size": 9622,
+      "license": "MIT",
+      "repository": "https://github.com/jridgewell/resolve-uri",
+      "engines": {
+        "node": ">=6.0.0"
+      },
+      "scripts": {
+        "prebuild": "rm -rf dist",
+        "build": "run-s -n build:*",
+        "build:rollup": "rollup -c rollup.config.js",
+        "build:ts": "tsc --project tsconfig.build.json",
+        "lint": "run-s -n lint:*",
+        "lint:prettier": "npm run test:lint:prettier -- --write",
+        "lint:ts": "npm run test:lint:ts -- --fix",
+        "pretest": "run-s build:rollup",
+        "test": "run-s -n test:lint test:only",
+        "test:debug": "mocha --inspect-brk",
+        "test:lint": "run-s -n test:lint:*",
+        "test:lint:prettier": "prettier --check '{src,test}/**/*.ts'",
+        "test:lint:ts": "eslint '{src,test}/**/*.ts'",
+        "test:only": "mocha",
+        "test:coverage": "c8 mocha",
+        "test:watch": "mocha --watch",
+        "prepublishOnly": "npm run preversion",
+        "preversion": "run-s test build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@jridgewell/sourcemap-codec",
+      "version": "1.6.0",
+      "destination": "node_modules/@jridgewell/sourcemap-codec",
+      "integrity": "sha512-T7jf+5zgsZHwNJ4lvQ7/aezbyk0nNX+zJVWpmHA7VYsEx7a7qr5Rg5IbtJFqkgze5Y2sruq1RUY8Q837Od7iFw==",
+      "compressed_size": 18401,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jridgewell/sourcemaps.git",
+        "directory": "packages/sourcemap-codec"
+      },
+      "engines": {},
+      "scripts": {
+        "benchmark": "run-s build:code benchmark:*",
+        "benchmark:install": "cd benchmark && npm install",
+        "benchmark:only": "node --expose-gc benchmark/index.js",
+        "build": "run-s -n build:code build:types",
+        "build:code": "node ../../esbuild.mjs sourcemap-codec.ts",
+        "build:types": "run-s build:types:force build:types:emit build:types:mts",
+        "build:types:force": "rimraf tsconfig.build.tsbuildinfo",
+        "build:types:emit": "tsc --project tsconfig.build.json",
+        "build:types:mts": "node ../../mts-types.mjs",
+        "clean": "run-s -n clean:code clean:types",
+        "clean:code": "tsc --build --clean tsconfig.build.json",
+        "clean:types": "rimraf dist types",
+        "test": "run-s -n test:types test:only test:format",
+        "test:format": "prettier --check '{src,test}/**/*.ts'",
+        "test:only": "mocha",
+        "test:types": "eslint '{src,test}/**/*.ts'",
+        "test:watch": "mocha --watch",
+        "lint": "run-s -n lint:types lint:format",
+        "lint:format": "npm run test:format -- --write",
+        "lint:types": "npm run test:types -- --fix",
+        "prepublishOnly": "npm run-s -n build test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@jridgewell/trace-mapping",
+      "version": "0.3.31",
+      "destination": "node_modules/@jridgewell/trace-mapping",
+      "integrity": "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==",
+      "compressed_size": 30747,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/jridgewell/sourcemaps.git",
+        "directory": "packages/trace-mapping"
+      },
+      "engines": {},
+      "scripts": {
+        "benchmark": "run-s build:code benchmark:*",
+        "benchmark:install": "cd benchmark && npm install",
+        "benchmark:only": "node --expose-gc benchmark/index.mjs",
+        "build": "run-s -n build:code build:types",
+        "build:code": "node ../../esbuild.mjs trace-mapping.ts",
+        "build:types": "run-s build:types:force build:types:emit build:types:mts",
+        "build:types:force": "rimraf tsconfig.build.tsbuildinfo",
+        "build:types:emit": "tsc --project tsconfig.build.json",
+        "build:types:mts": "node ../../mts-types.mjs",
+        "clean": "run-s -n clean:code clean:types",
+        "clean:code": "tsc --build --clean tsconfig.build.json",
+        "clean:types": "rimraf dist types",
+        "test": "run-s -n test:types test:only test:format",
+        "test:format": "prettier --check '{src,test}/**/*.ts'",
+        "test:only": "mocha",
+        "test:types": "eslint '{src,test}/**/*.ts'",
+        "lint": "run-s -n lint:types lint:format",
+        "lint:format": "npm run test:format -- --write",
+        "lint:types": "npm run test:types -- --fix",
+        "prepublishOnly": "npm run-s -n build test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@sveltejs/acorn-typescript",
+      "version": "1.0.13",
+      "destination": "node_modules/@sveltejs/acorn-typescript",
+      "integrity": "sha512-wgKggnhZVL9Bfx1OaKKTrYY9BFRk6C8UAkQNUcIv1+llzYrIqy+RZm5HPKzn0NpEBvTVhTqB4kQyllZywsRBRQ==",
+      "compressed_size": 45155,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/acorn-typescript.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "esbuild src/index.ts --bundle --format=esm --outfile=index.js --platform=node --external:acorn",
+        "format": "prettier --write .",
+        "check": "tsc --noEmit",
+        "lint": "prettier --check .",
+        "test": "vitest run",
+        "test:update": "cross-env UPDATE_SNAPSHOT=true vitest run && pnpm run format",
+        "test:test262": "pnpm run build && node ./test/run_test262.js",
+        "changeset:version": "changeset version && git add --all",
+        "changeset:release": "changeset publish",
+        "playground": "pnpm build && node ./playground/index.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@sveltejs/load-config",
+      "version": "0.2.3",
+      "destination": "node_modules/@sveltejs/load-config",
+      "integrity": "sha512-VT3qmUb8pRV2QrZjd8iAmtg8lf4W0TIjZbvXtz5MKei/q96teWZgGJyyidJzOjzZzvdq616eSRVeMYIQChUTAQ==",
+      "compressed_size": 5921,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/language-tools.git"
+      },
+      "engines": {
+        "node": ">= 18.0.0"
+      },
+      "scripts": {
+        "build": "tsc"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@types/estree",
+      "version": "1.0.10",
+      "destination": "node_modules/@types/estree",
+      "integrity": "sha512-lTyOMnOcmRBzdCv6/4zUZCrEhV0xrqQiUZBZtVcbmLHBXKLnN8q89v/wKRF/Q0HbwVsqbIG3o5HDoFl9sduM+g==",
+      "compressed_size": 5956,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/DefinitelyTyped/DefinitelyTyped.git",
+        "directory": "types/estree"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vscode/emmet-helper",
+      "version": "2.8.4",
+      "destination": "node_modules/@vscode/emmet-helper",
+      "integrity": "sha512-lUki5QLS47bz/U8IlG9VQ+1lfxMtxMZENmU5nu4Z71eOD5j9FK0SmYGL5NiVJg9WBWeAU0VxRADMY2Qpq7BfVg==",
+      "compressed_size": 47738,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-emmet-helper"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && yarn && npm run compile && npm run compile-esm && npm run test",
+        "watch": "tsc -watch -p ./",
+        "compile": "tsc -p ./",
+        "clean": "rimraf lib",
+        "compile-esm": "tsc -p ./tsconfig.esm.json",
+        "test": "mocha lib/cjs/test",
+        "preversion": "npm test",
+        "postversion": "git push && git push --tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-uri",
+      "version": "2.1.2",
+      "destination": "node_modules/@vscode/emmet-helper/node_modules/vscode-uri",
+      "integrity": "sha512-8TEXQxlldWAuIODdukIb+TR5s+9Ds40eSJrw+1iDDA9IFORPjMELarNQE3myz5XIkWWpdprmJjm1/SxMlWOC8A==",
+      "compressed_size": 11678,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Microsoft/vscode-uri.git"
+      },
+      "engines": {},
+      "scripts": {
+        "compile": "tsc -p ./src && tsc -p ./src/tsconfig.esm.json",
+        "prepublish": "npm run compile"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "@vscode/l10n",
+      "version": "0.0.18",
+      "destination": "node_modules/@vscode/l10n",
+      "integrity": "sha512-KYSIHVmslkaCDyw013pphY+d7x1qV8IZupYfeIfzNA+nsaWHbn5uPuQRvdRFsa9zFzGeudPuoGoZ1Op4jrJXIQ==",
+      "compressed_size": 4548,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-l10n.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf dist && rimraf lib",
+        "compile": "npm run clean && tsc --emitDeclarationOnly --outDir lib && node .esbuild.config.js",
+        "lint": "eslint src --ext ts",
+        "watch": "node .esbuild.config.js --watch",
+        "test": "jest --preset ts-jest",
+        "prepublishOnly": "npm run lint && npm run compile && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "acorn",
+      "version": "8.19.0",
+      "destination": "node_modules/acorn",
+      "integrity": "sha512-oJlA3XiRm7Cyk6qFD2Jn8ak9B7jSy0qy00ADO3+8dpT0LSjFihQYv4C02LFCSYJV3Q37xYwwRy5m+IpIiUzqWw==",
+      "compressed_size": 134282,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/acornjs/acorn.git"
+      },
+      "engines": {
+        "node": ">=0.4.0"
+      },
+      "scripts": {
+        "prepare": "cd ..; npm run build:main"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "aria-query",
+      "version": "5.3.1",
+      "destination": "node_modules/aria-query",
+      "integrity": "sha512-Z/ZeOgVl7bcSYZ/u/rh0fOpvEpq//LZmdbkXyc7syVzjPAhfOa9ebsdTSjEBDU4vs5nC98Kfduj1uFo0qyET3g==",
+      "compressed_size": 25971,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/A11yance/aria-query.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "prepack": "npm run build",
+        "prebuild": "rimraf lib",
+        "build": "babel src --out-dir lib",
+        "lint": "eslint --ext=js,mjs .",
+        "prepublishOnly": "npm run build",
+        "pretest": "npm run lint && flow",
+        "build:tests": "npm run build && rimraf __tests-built__ && BABEL_ENV=test babel __tests__ --out-dir __tests-built__",
+        "tests-built": "nyc tape '__tests-built__/**/*.js'",
+        "tests-only": "nyc tape -r @babel/register '__tests__/**/*.js'",
+        "test": "npm run tests-only",
+        "posttest": "npm audit --production",
+        "output_as_hack": "babel-node ./scripts/output_as_hack.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "axobject-query",
+      "version": "4.1.0",
+      "destination": "node_modules/axobject-query",
+      "integrity": "sha512-qIj0G9wZbMGNLjLmg1PT6v2mE9AH2zlnADJD/2tC6E00hgmhUOfEB6greHPAfLRSufHqROIUTkw6E+M3lH0PTQ==",
+      "compressed_size": 19716,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/A11yance/axobject-query.git"
+      },
+      "engines": {
+        "node": ">= 0.4"
+      },
+      "scripts": {
+        "build": "rimraf lib && babel src --out-dir lib",
+        "flow": "flow",
+        "lint": "eslint --ext=js,mjs .",
+        "lint:fix": "npm run lint -- --fix",
+        "prepublishOnly": "npm run build",
+        "pretest": "npm run lint:fix && npm run flow",
+        "test": "npm run tests-only",
+        "build:tests": "npm run build && rimraf __tests-built__ && BABEL_ENV=test babel __tests__ --out-dir __tests-built__",
+        "tests-built": "nyc tape '__tests-built__/**/*.js'",
+        "tests-only": "nyc tape -r @babel/register '__tests__/**/*.js'",
+        "prepack": "npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "chokidar",
+      "version": "4.0.3",
+      "destination": "node_modules/chokidar",
+      "integrity": "sha512-Qgzu8kfBvo+cA4962jnP1KkS6Dop5NS6g7R5LFYJr4b8Ub94PPQXUksCw9PvXoeXPRRddRNC5C1JQUR2SMGtnA==",
+      "compressed_size": 25133,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/paulmillr/chokidar.git"
+      },
+      "engines": {
+        "node": ">= 14.16.0"
+      },
+      "scripts": {
+        "build": "tsc && tsc -p tsconfig.esm.json",
+        "lint": "prettier --check src",
+        "format": "prettier --write src",
+        "test": "node --test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "clsx",
+      "version": "2.1.1",
+      "destination": "node_modules/clsx",
+      "integrity": "sha512-eYm0QWBtUrBWZWG0d386OGAw16Z995PiOVo2B7bjWSbHedGl5e0ZWaq65kOGgUSNesEIDkB9ISbTg/JK9dhCZA==",
+      "compressed_size": 3936,
+      "license": "MIT",
+      "repository": "lukeed/clsx",
+      "engines": {
+        "node": ">=6"
+      },
+      "scripts": {
+        "build": "node bin",
+        "test": "uvu -r esm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "code-red",
+      "version": "1.0.4",
+      "destination": "node_modules/code-red",
+      "integrity": "sha512-7qJWqItLA8/VPVlKJlFXU+NBlo/qyfs39aJcuMT/2ere32ZqvF5OSxgdM5xOfJJ7O429gg2HM47y8v9P+9wrNw==",
+      "compressed_size": 14148,
+      "license": "MIT",
+      "repository": "Rich-Harris/code-red",
+      "engines": {},
+      "scripts": {
+        "build": "dts-buddy",
+        "test": "uvu test test.js",
+        "prepublishOnly": "npm test && npm run build",
+        "repl": "node -e \"import('./src/index.js').then(mod => { x = mod.x; b = mod.b; print = mod.print });\" -i"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estree-walker",
+      "version": "3.0.3",
+      "destination": "node_modules/code-red/node_modules/estree-walker",
+      "integrity": "sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==",
+      "compressed_size": 3965,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Rich-Harris/estree-walker"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "tsc && npm test",
+        "test": "uvu test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "css-tree",
+      "version": "2.3.1",
+      "destination": "node_modules/css-tree",
+      "integrity": "sha512-6Fv1DV/TYw//QF5IzQdqsNDjx/wc8TrMBZsqjL9eW01tWb7R7k/mq+/VXfJCl7SoD5emsJop9cOByJZfs8hYIw==",
+      "compressed_size": 278774,
+      "license": "MIT",
+      "repository": "csstree/csstree",
+      "engines": {
+        "node": "^10 || ^12.20.0 || ^14.13.0 || >=15.0.0"
+      },
+      "scripts": {
+        "watch": "npm run build -- --watch",
+        "build": "npm run bundle && npm run esm-to-cjs --",
+        "build-and-test": "npm run build && npm run test:dist && npm run test:cjs",
+        "bundle": "node scripts/bundle",
+        "bundle-and-test": "npm run bundle && npm run test:dist",
+        "esm-to-cjs": "node scripts/esm-to-cjs.cjs",
+        "esm-to-cjs-and-test": "npm run esm-to-cjs && npm run test:cjs",
+        "lint": "eslint lib scripts && node scripts/review-syntax-patch --lint && node scripts/update-docs --lint",
+        "lint-and-test": "npm run lint && npm test",
+        "update:docs": "node scripts/update-docs",
+        "review:syntax-patch": "node scripts/review-syntax-patch",
+        "test": "mocha lib/__tests --reporter ${REPORTER:-progress}",
+        "test:cjs": "mocha cjs/__tests --reporter ${REPORTER:-progress}",
+        "test:dist": "mocha dist/__tests --reporter ${REPORTER:-progress}",
+        "coverage": "c8 --exclude lib/__tests --reporter=lcovonly npm test",
+        "prepublishOnly": "npm run lint-and-test && npm run build-and-test",
+        "hydrogen": "node --trace-hydrogen --trace-phase=Z --trace-deopt --code-comments --hydrogen-track-positions --redirect-code-traces --redirect-code-traces-to=code.asm --trace_hydrogen_file=code.cfg --print-opt-code bin/parse --stat -o /dev/null"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dedent-js",
+      "version": "1.0.1",
+      "destination": "node_modules/dedent-js",
+      "integrity": "sha512-OUepMozQULMLUmhxS95Vudo0jb0UchLimi3+pQ2plj61Fcy8axbP9hbiD4Sz6DPqn6XG3kfmziVfQ1rSys5AJQ==",
+      "compressed_size": 2908,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/MartinKolarik/dedent-js.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "tsc",
+        "test": "babel test/tests.es6 --out-file test/tests.js && mocha test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "defu",
+      "version": "6.1.7",
+      "destination": "node_modules/defu",
+      "integrity": "sha512-7z22QmUWiQ/2d0KkdYmANbRUVABpZ9SNYyH5vx6PZ+nE5bcC0l7uFvEfHlyld/HcGBFTL536ClDt3DEcSlEJAQ==",
+      "compressed_size": 4897,
+      "license": "MIT",
+      "repository": "unjs/defu",
+      "engines": {},
+      "scripts": {
+        "build": "unbuild",
+        "dev": "vitest",
+        "lint": "oxlint src && oxfmt --check src test",
+        "lint:fix": "oxlint src --fix && oxfmt src test",
+        "release": "pnpm test && pnpm build && changelogen --release && git push --follow-tags && pnpm publish",
+        "test": "pnpm lint && pnpm test:types && pnpm vitest run",
+        "test:types": "tsgo --noEmit"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "devalue",
+      "version": "5.9.4",
+      "destination": "node_modules/devalue",
+      "integrity": "sha512-sPAT4pztbu6586/hrhOnMKS17IJrvg12mXiSPSS3W5qDeN2RGgvZ0diZCm31dBbnevfVmujNO3IM2wrS4Y2Rhg==",
+      "compressed_size": 28490,
+      "license": "MIT",
+      "repository": "sveltejs/devalue",
+      "engines": {},
+      "scripts": {
+        "changeset:version": "changeset version",
+        "changeset:publish": "changeset publish",
+        "build": "dts-buddy",
+        "test": "uvu",
+        "bench": "node --allow-natives-syntax ./benchmarking/run.js",
+        "bench:compare": "node --allow-natives-syntax ./benchmarking/compare/index.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "emmet",
+      "version": "2.4.11",
+      "destination": "node_modules/emmet",
+      "integrity": "sha512-23QPJB3moh/U9sT4rQzGgeyyGIrcM+GH5uVYg2C6wZIxAIJq7Ng3QLT79tl8FUwDXhyq9SusfknOrofAKqvgyQ==",
+      "compressed_size": 200556,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/emmetio/emmet.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "rollup -c",
+        "watch": "rollup -wc",
+        "test": "tsx --test ./test/*.ts",
+        "clean": "rimraf ./dist",
+        "prepare": "npm run clean && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "esm-env",
+      "version": "1.2.2",
+      "destination": "node_modules/esm-env",
+      "integrity": "sha512-Epxrv+Nr/CaL4ZcFGPJIYLWFom+YeV1DqMLHJoEd9SYRxNbaFruBwfEX/kkHUJf55j2+TUbmDcmuilbP1TmXHA==",
+      "compressed_size": 2183,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/benmccann/esm-env.git"
+      },
+      "engines": {},
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "esrap",
+      "version": "2.4.0",
+      "destination": "node_modules/esrap",
+      "integrity": "sha512-CQPcneEHw/czj32uwQC52nYnax8H4SXt25FCM+LIwGZ49cMIxpOj3bP8wmzcI+Z0HIy5KkClaPhRLfCySzwHPA==",
+      "compressed_size": 29394,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/esrap.git"
+      },
+      "engines": {},
+      "scripts": {
+        "changeset:version": "changeset version",
+        "changeset:publish": "changeset publish",
+        "build": "tsc -p tsconfig.build.json",
+        "check": "pnpm build && tsc",
+        "sandbox": "node test/sandbox/index.js",
+        "test": "vitest --run",
+        "test:ui": "vitest --ui",
+        "format": "pnpm lint --write",
+        "lint": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estree-walker",
+      "version": "2.0.2",
+      "destination": "node_modules/estree-walker",
+      "integrity": "sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==",
+      "compressed_size": 8353,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Rich-Harris/estree-walker"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run build && npm test",
+        "build": "tsc && rollup -c",
+        "test": "uvu test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "fdir",
+      "version": "6.5.0",
+      "destination": "node_modules/fdir",
+      "integrity": "sha512-tIbYtZbucOs0BRGqPJkshJUYdL+SDH7dVM8gjy+ERp3WAUjLEFJE+02kanyHtwjWOnwrKYBiwAmM0p4kLJAnXg==",
+      "compressed_size": 9742,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/thecodrr/fdir.git"
+      },
+      "engines": {
+        "node": ">=12.0.0"
+      },
+      "scripts": {
+        "prepublishOnly": "npm run test && npm run build",
+        "build": "tsdown",
+        "format": "prettier --write src __tests__ benchmarks",
+        "test": "vitest run __tests__/",
+        "test:coverage": "vitest run --coverage __tests__/",
+        "test:watch": "vitest __tests__/",
+        "bench": "ts-node benchmarks/benchmark.js",
+        "bench:glob": "ts-node benchmarks/glob-benchmark.ts",
+        "bench:fdir": "ts-node benchmarks/fdir-benchmark.ts",
+        "release": "./scripts/release.sh"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "globrex",
+      "version": "0.1.2",
+      "destination": "node_modules/globrex",
+      "integrity": "sha512-uHJgbwAMwNFf5mLst7IWLNg14x1CkeqglJb/K3doi4dw6q2IvAAmM/Y81kevy83wP+Sst+nutFTYOGg3d1lsxg==",
+      "compressed_size": 4872,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/terkelg/globrex"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "tape test/*.js | tap-spec"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "is-reference",
+      "version": "3.0.3",
+      "destination": "node_modules/is-reference",
+      "integrity": "sha512-ixkJoqQvAP88E6wLydLGGqCJsrFUnqoH6HnaczB8XmDH1oaWU+xxdptvikTgaEhtZ53Ky6YXiBuUI2WXLMCwjw==",
+      "compressed_size": 1724,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Rich-Harris/is-reference.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "uvu",
+        "prepublishOnly": "npm test && dts-buddy"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "jsonc-parser",
+      "version": "2.3.1",
+      "destination": "node_modules/jsonc-parser",
+      "integrity": "sha512-H8jvkz1O50L3dMZCsLqiuB2tA7muqbSg1AtGEkN0leAqGjsUzDJir3Zwr02BhqdcITPg3ei3mZ+HjMocAknhhg==",
+      "compressed_size": 30794,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/node-jsonc-parser"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "postpublish": "node ./build/post-publish.js",
+        "compile": "tsc -p ./src && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "clean": "rimraf lib",
+        "watch": "tsc -w -p ./src",
+        "test": "npm run compile && mocha ./lib/umd/test",
+        "lint": "eslint src/**/*.ts",
+        "preversion": "npm test",
+        "postversion": "git push && git push --tags"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "locate-character",
+      "version": "3.0.0",
+      "destination": "node_modules/locate-character",
+      "integrity": "sha512-SW13ws7BjaeJ6p7Q6CO2nchbYEc3X3J6WrmTTDto7yMPqVSZTUyY5Tjbid+Ab8gLnATtygYtiDIJGQRRn2ZOiA==",
+      "compressed_size": 2113,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://gitlab.com/Rich-Harris/locate-character.git"
+      },
+      "engines": {},
+      "scripts": {
+        "test": "node test/test.js",
+        "build": "dts-buddy",
+        "prepublishOnly": "npm test && npm run build"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "magic-string",
+      "version": "0.30.21",
+      "destination": "node_modules/magic-string",
+      "integrity": "sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==",
+      "compressed_size": 89981,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/Rich-Harris/magic-string.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "rollup -c",
+        "changelog": "conventional-changelog -p angular -i CHANGELOG.md -s",
+        "format": "prettier --single-quote --print-width 100 --use-tabs --write .",
+        "lint": "eslint src test && publint",
+        "lint:fix": "eslint src test --fix",
+        "release": "bumpp -x \"pnpm run changelog\" --all",
+        "pretest": "pnpm run build",
+        "test": "vitest run",
+        "test:dev": "vitest",
+        "bench": "pnpm run build && node benchmark/index.mjs",
+        "watch": "rollup -cw"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "mdn-data",
+      "version": "2.0.30",
+      "destination": "node_modules/mdn-data",
+      "integrity": "sha512-GaqWWShW4kv/G9IEucWScBx9G1/vsFZZJUO+tD26M8J8z3Kw5RDQjaoZe03YAClgeS/SWPOcb4nkFBTEi5DUEA==",
+      "compressed_size": 87524,
+      "license": "CC0-1.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/mdn/data.git"
+      },
+      "engines": {},
+      "scripts": {
+        "lint": "node test/lint",
+        "test": "npm run lint"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "periscopic",
+      "version": "3.1.0",
+      "destination": "node_modules/periscopic",
+      "integrity": "sha512-vKiQ8RRtkl9P+r/+oefh25C3fhybptkHKCZSPlcXiJux2tJF55GnEj3BVn4A5gKfq9NWWXXrxkHBwVPUfH0opw==",
+      "compressed_size": 3595,
+      "license": "MIT",
+      "repository": "Rich-Harris/periscopic",
+      "engines": {},
+      "scripts": {
+        "test": "uvu test",
+        "prepublishOnly": "npm test && tsc"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estree-walker",
+      "version": "3.0.3",
+      "destination": "node_modules/periscopic/node_modules/estree-walker",
+      "integrity": "sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==",
+      "compressed_size": 3965,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Rich-Harris/estree-walker"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "tsc && npm test",
+        "test": "uvu test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "prettier",
+      "version": "3.3.3",
+      "destination": "node_modules/prettier",
+      "integrity": "sha512-i2tDNA0O5IrMO757lfrdQZCc2jPNDVntV0m/+4whiDfWaTKfMNgR7Qz0NAeGz/nRqF4m5/6CLzbP4/liHt12Ew==",
+      "compressed_size": 1985011,
+      "license": "MIT",
+      "repository": "prettier/prettier",
+      "engines": {
+        "node": ">=14"
+      },
+      "scripts": {},
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "prettier-plugin-svelte",
+      "version": "3.5.2",
+      "destination": "node_modules/prettier-plugin-svelte",
+      "integrity": "sha512-ItFouLvzSFE3ulNl4DKoWM3BGcbDCNVpIyy/Y3F2gC3aNiGLxtFUdffVqO5Z5hhYG+DFT5KULWaxmeFFpdbvaQ==",
+      "compressed_size": 95754,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/prettier-plugin-svelte.git"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "rollup -c",
+        "check": "tsc --noEmit",
+        "check:watch": "tsc --noEmit --watch",
+        "lint": "prettier --check .",
+        "format": "prettier --write .",
+        "test": "ava",
+        "prepare": "npm run build",
+        "prepublishOnly": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "prettier-plugin-svelte",
+      "version": "4.1.1",
+      "destination": "node_modules/prettier-plugin-svelte4",
+      "integrity": "sha512-wXvbXMjSvb4C9ENWTHXyd+ihakKCsJ6rJhLP6/8HFNj4GkZr48jqL9PoKsl2sk7SyCZRTnJ7O2TTowUpOxP/KA==",
+      "compressed_size": 98484,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/prettier-plugin-svelte.git"
+      },
+      "engines": {
+        "node": ">=20"
+      },
+      "scripts": {
+        "build": "rollup -c",
+        "check": "tsc --noEmit",
+        "check:watch": "tsc --noEmit --watch",
+        "lint": "prettier --check .",
+        "format": "prettier --write .",
+        "test": "ava",
+        "changeset:version": "changeset version && git add --all",
+        "changeset:publish": "changeset publish"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "readdirp",
+      "version": "4.1.2",
+      "destination": "node_modules/readdirp",
+      "integrity": "sha512-GDhwkLfywWL2s6vEjyhri+eXmfH6j1L7JE27WhqLeYzoh/A3DBaYGEj2H/HFZCn/kMfim73FXxEJTw06WtxQwg==",
+      "compressed_size": 8047,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git://github.com/paulmillr/readdirp.git"
+      },
+      "engines": {
+        "node": ">= 14.18.0"
+      },
+      "scripts": {
+        "build": "tsc && tsc -p tsconfig.cjs.json",
+        "lint": "prettier --check index.ts test/index.test.js",
+        "format": "prettier --write index.ts test/index.test.js",
+        "test": "node test/index.test.js",
+        "test:coverage": "c8 node test/index.test.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "scule",
+      "version": "1.3.0",
+      "destination": "node_modules/scule",
+      "integrity": "sha512-6FtHJEvt+pVMIB9IBY+IcCJ6Z5f1iQnytgyfKMhDKgmzYG+TeH/wx1y3l27rshSbLiSanrR9ffZDrEsmjlQF2g==",
+      "compressed_size": 4793,
+      "license": "MIT",
+      "repository": "unjs/scule",
+      "engines": {},
+      "scripts": {
+        "build": "unbuild",
+        "dev": "vitest dev --typecheck",
+        "lint": "eslint --cache --ext .ts,.js,.mjs,.cjs . && prettier -c src test",
+        "lint:fix": "eslint --cache --ext .ts,.js,.mjs,.cjs . --fix && prettier -c src test -w",
+        "prepack": "pnpm run build",
+        "release": "pnpm test && changelogen --release --push && npm publish",
+        "test": "pnpm lint && vitest run --typecheck --coverage"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "semver",
+      "version": "7.8.6",
+      "destination": "node_modules/semver",
+      "integrity": "sha512-9lpSSU4Mly3mrtruwLs1eLK6+gzbzqeBFwRNjIjE+9LuDpWdYctrQlQ3ej1Ilgi7gknpsTRnPoLP8DpCHqHIJw==",
+      "compressed_size": 33566,
+      "license": "ISC",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/npm/node-semver.git"
+      },
+      "engines": {
+        "node": ">=10"
+      },
+      "scripts": {
+        "test": "tap",
+        "snap": "tap",
+        "lint": "npm run eslint",
+        "postlint": "template-oss-check",
+        "lintfix": "npm run eslint -- --fix",
+        "posttest": "npm run lint",
+        "template-oss-apply": "template-oss-apply --force",
+        "eslint": "eslint \"**/*.{js,cjs,ts,mjs,jsx,tsx}\""
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "source-map-js",
+      "version": "1.2.2",
+      "destination": "node_modules/source-map-js",
+      "integrity": "sha512-KGj/8Y43x35aZVDtt+J4mK1hoLGHULMYfSkODJNQjNDC3oW1PqPoxMwo0pLUsWM/UEGzON/NxeHywEfNXNP3Vw==",
+      "compressed_size": 36349,
+      "license": "BSD-3-Clause",
+      "repository": "7rulnik/source-map-js",
+      "engines": {
+        "node": ">=0.10.0"
+      },
+      "scripts": {
+        "test": "npm run build && node test/run-tests.js",
+        "build": "webpack --color",
+        "toc": "doctoc --title '## Table of Contents' README.md && doctoc --title '## Table of Contents' CONTRIBUTING.md"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "svelte",
+      "version": "5.57.3",
+      "destination": "node_modules/svelte",
+      "integrity": "sha512-5mAftM3SoDV9X0zdF386F9p2pv8iKOwi/KfBS1XnBAkVCKFzVOLHUoa8iGWAt4buoicLmyWVRpuuD5wplXOQsg==",
+      "compressed_size": 744204,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/svelte.git",
+        "directory": "packages/svelte"
+      },
+      "engines": {
+        "node": ">=18"
+      },
+      "scripts": {
+        "build": "rollup -c && pnpm generate && node scripts/check-treeshakeability.js",
+        "dev": "node scripts/process-messages -w & rollup -cw",
+        "check": "tsc --project tsconfig.runtime.json && tsc && cd ./tests/types && tsc",
+        "check:tsgo": "tsgo --project tsconfig.runtime.json --skipLibCheck && tsgo --skipLibCheck",
+        "check:watch": "tsc --watch",
+        "generate": "node scripts/process-messages && node ./scripts/generate-types.js && pnpm generate:browser-support",
+        "generate:version": "node ./scripts/generate-version.js",
+        "generate:types": "node ./scripts/generate-types.js && tsc -p tsconfig.generated.json",
+        "generate:browser-support": "node ./scripts/generate-browser-support.ts",
+        "knip": "pnpm dlx knip"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "svelte-language-server",
+      "version": "0.18.6",
+      "destination": "node_modules/svelte-language-server",
+      "integrity": "sha512-HlztxHLCn55YWejoNjJ7rnNNptXkDI/w6v4gUkJSjTNEg+oYXvm94/JhSBNCgcjieuAHRKyzULfbLRx22ZHWCA==",
+      "compressed_size": 369564,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/sveltejs/language-tools.git"
+      },
+      "engines": {
+        "node": ">= 18.0.0"
+      },
+      "scripts": {
+        "test": "cross-env TS_NODE_TRANSPILE_ONLY=true mocha --require ts-node/register \"test/**/*.test.ts\" --no-experimental-strip-types",
+        "build": "pnpm --filter @sveltejs/load-config build && tsc",
+        "watch": "tsc -w"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "svelte",
+      "version": "4.2.20",
+      "destination": "node_modules/svelte-language-server/node_modules/svelte",
+      "integrity": "sha512-eeEgGc2DtiUil5ANdtd8vPwt9AgaMdnuUFnPft9F5oMvU/FHu5IHFic+p1dR/UOB7XU2mX2yHW+NcTch4DCh5Q==",
+      "compressed_size": 604104,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/sveltejs/svelte.git",
+        "directory": "packages/svelte"
+      },
+      "engines": {
+        "node": ">=16"
+      },
+      "scripts": {
+        "format": "prettier . --cache --plugin-search-dir=. --write",
+        "check": "tsc --noEmit",
+        "test": "vitest run && echo \"manually check that there are no type errors in test/types by opening the files in there\"",
+        "build": "rollup -c && pnpm types",
+        "generate:version": "node ./scripts/generate-version.js",
+        "dev": "rollup -cw",
+        "posttest": "agadoo src/internal/index.js",
+        "types": "node ./scripts/generate-dts.js",
+        "lint": "prettier . --cache --plugin-search-dir=. --check && eslint \"{scripts,src,test}/**/*.js\" --cache"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "estree-walker",
+      "version": "3.0.3",
+      "destination": "node_modules/svelte-language-server/node_modules/svelte/node_modules/estree-walker",
+      "integrity": "sha512-7RUKfXgSMMkzt6ZuXmqapOurLGPPfgj6l9uRZ7lRGolvk0y2yocc35LdcxKC5PQZdn2DMqioAQ2NoWcrTKmm6g==",
+      "compressed_size": 3965,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Rich-Harris/estree-walker"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "tsc && npm test",
+        "test": "uvu test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "svelte2tsx",
+      "version": "0.7.63",
+      "destination": "node_modules/svelte2tsx",
+      "integrity": "sha512-gRgz/V6wOx0NDZhm6OMD2VIh+/HrgZc3k6ibX93rkNPEkWNn/P3Uhb1fYCqOrimEUpQd8r65dhiHZIJXSQBeow==",
+      "compressed_size": 179458,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/sveltejs/language-tools/tree/master/packages/svelte2tsx"
+      },
+      "engines": {},
+      "scripts": {
+        "build": "rollup -c",
+        "dev": "rollup -c -w",
+        "test": "mocha test/test.ts --no-experimental-strip-types"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "typescript",
+      "version": "6.0.3",
+      "destination": "node_modules/typescript",
+      "integrity": "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==",
+      "compressed_size": 4515854,
+      "license": "Apache-2.0",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/microsoft/TypeScript.git"
+      },
+      "engines": {
+        "node": ">=14.17"
+      },
+      "scripts": {
+        "test": "hereby runtests-parallel --light=false",
+        "test:eslint-rules": "hereby run-eslint-rules-tests",
+        "build": "npm run build:compiler && npm run build:tests",
+        "build:compiler": "hereby local",
+        "build:tests": "hereby tests",
+        "build:tests:notypecheck": "hereby tests --no-typecheck",
+        "clean": "hereby clean",
+        "gulp": "hereby",
+        "lint": "hereby lint",
+        "knip": "hereby knip",
+        "format": "dprint fmt",
+        "setup-hooks": "node scripts/link-hooks.mjs"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "typescript-auto-import-cache",
+      "version": "0.3.6",
+      "destination": "node_modules/typescript-auto-import-cache",
+      "integrity": "sha512-RpuHXrknHdVdK7wv/8ug3Fr0WNsNi5l5aB8MYYuXhq2UH5lnEB1htJ1smhtD5VeCsGr2p8mUDtd83LCQDFVgjQ==",
+      "compressed_size": 15672,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/volarjs/typescript-auto-import-cache.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "tsc"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-css-languageservice",
+      "version": "6.3.10",
+      "destination": "node_modules/vscode-css-languageservice",
+      "integrity": "sha512-eq5N9Er3fC4vA9zd9EFhyBG90wtCCuXgRSpAndaOgXMh1Wgep5lBgRIeDgjZBW9pa+332yC9+49cZMW8jcL3MA==",
+      "compressed_size": 451792,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-css-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify && npm run lint",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "watch": "npm run copy-jsbeautify && tsc -w -p ./src",
+        "test": "npm run compile && npm run mocha",
+        "mocha": "mocha --require source-map-support/register",
+        "coverage": "npm run compile && npx nyc --reporter=html --reporter=text  mocha",
+        "lint": "eslint src/**/*.ts",
+        "update-data": "npm install @vscode/web-custom-data -D && node ./build/generateData.js",
+        "install-types-next": "npm install vscode-languageserver-types@next -f -S && npm install vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm install js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm install js-beautify@next && node ./build/update-jsbeautify.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-html-languageservice",
+      "version": "5.4.0",
+      "destination": "node_modules/vscode-html-languageservice",
+      "integrity": "sha512-9/cbc90BSYCghmHI7/VbWettHZdC7WYpz2g5gBK6UDUI1MkZbM773Q12uAYJx9jzAiNHPpyo6KzcwmcnugncAQ==",
+      "compressed_size": 277787,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-html-languageservice"
+      },
+      "engines": {},
+      "scripts": {
+        "prepack": "npm run clean && npm run compile-esm && npm run test && npm run remove-sourcemap-refs",
+        "compile": "tsc -p ./src && npm run copy-jsbeautify",
+        "compile-esm": "tsc -p ./src/tsconfig.esm.json",
+        "watch": "tsc -w -p ./src && npm run copy-jsbeautify",
+        "clean": "rimraf lib",
+        "remove-sourcemap-refs": "node ./build/remove-sourcemap-refs.js",
+        "test": "npm run compile && mocha --timeout 5000 ./lib/umd/test/*.js && npm run lint",
+        "lint": "eslint src/**/*.ts",
+        "install-types-next": "npm i vscode-languageserver-types@next -f -S && npm i vscode-languageserver-textdocument@next -f -S",
+        "copy-jsbeautify": "node ./build/copy-jsbeautify.js",
+        "update-jsbeautify": "npm i js-beautify && node ./build/update-jsbeautify.js",
+        "update-jsbeautify-next": "npm i js-beautify@next && node ./build/update-jsbeautify.js",
+        "update-data": "npm i @vscode/web-custom-data -D && node ./build/generateData.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "8.2.0",
+      "destination": "node_modules/vscode-jsonrpc",
+      "integrity": "sha512-C+r0eKJUIfiDIfwJhria30+TYWPtuHJXHtI7J0YlOmKAo7ogxP20T0zxB7HZQIFhIyvoBPwWskjxrvAtfjyZfA==",
+      "compressed_size": 35427,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "jsonrpc"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib && node ../node_modules/.bin/rimraf dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/jsonrpc/src/browser/test/",
+        "webpack": "node ../build/bin/webpack  --mode none --config ./webpack.config.js",
+        "webpack:test": "node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "9.0.1",
+      "destination": "node_modules/vscode-languageserver",
+      "integrity": "sha512-woByF3PDpkHFUreUa7Hos7+pUWdeWMXRd26+ZX2A8cFx6v/JPTtd4/uN0/jB6XQHYaOlHbio03NTHCqrgG5n7g==",
+      "compressed_size": 32720,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "server"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm test",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "integrity": "sha512-mb1bvRJN8SVznADSGWM9u/b07H7Ecg0I3OgXDuLdn307rl/J3A9YD6/eYOssqhecL27hK1IPZAsaqh00i/Jljg==",
+      "compressed_size": 59008,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "protocol"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "clean": "node ../node_modules/.bin/rimraf lib && node ../node_modules/.bin/rimraf dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/protocol/src/browser/test/",
+        "webpack:test": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js",
+        "compile:metaModelTool": "cd ../tools && npm run compile && cd ../protocol",
+        "generate:metaModel": "node ../tools/lib/generator-main.js -p ./src/common/tsconfig.json > ./metaModel.json",
+        "generate:metaModelSchema": "ts-json-schema-generator --tsconfig ../tools/tsconfig.json --path ../tools/src/metaModel.ts > ./metaModel.schema.json",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema",
+        "compile:publish": "node ../build/bin/tsc -b ./tsconfig.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:publish && npm run lint && npm run test && npm run compile:metaModelTool && npm run generate:metaModel && npm run generate:metaModelSchema"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "integrity": "sha512-qeNEuOi9a3qkqRf7Gfez2WL2VwlBTLCNekHBGO9kxPVUp9XuY15yfTJ9jwvOwKI0I2MhUUfZq95NSp+LK1CLQg==",
+      "compressed_size": 8576,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "textDocument"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.5",
+      "destination": "node_modules/vscode-languageserver-types",
+      "integrity": "sha512-Ld1VelNuX9pdF39h2Hgaeb5hEZM2Z3jUrrMgWQAu82jMtZp7p3vJT3BzToKtZI7NgQssZje5o0zryOrhQvzQAg==",
+      "compressed_size": 71382,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/.bin/rimraf lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-nls",
+      "version": "5.2.0",
+      "destination": "node_modules/vscode-nls",
+      "integrity": "sha512-RAaHx7B14ZU04EU31pT+rKz2/zSl7xMsfIZuo8pd+KZO6PXtQmpevpq3vxvWNcrGbdmhM/rr5Uw5Mz+NBfhVng==",
+      "compressed_size": 20283,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-nls.git"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile": "tsc -b ./tsconfig.json",
+        "watch": "tsc -b ./tsconfig.json -w",
+        "clean": "rimraf lib",
+        "test": "mocha",
+        "lint": "eslint --config .eslintrc.json ./**/*.ts"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-uri",
+      "version": "3.1.0",
+      "destination": "node_modules/vscode-uri",
+      "integrity": "sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ==",
+      "compressed_size": 59768,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/microsoft/vscode-uri.git"
+      },
+      "engines": {},
+      "scripts": {
+        "clean": "rimraf lib",
+        "pack-production": "webpack --mode=production",
+        "pack-dev": "webpack",
+        "compile": "tsc -p ./src",
+        "prepublish": "npm run pack-production",
+        "test": "tsc -p ./src && npm run pack-dev && mocha"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "zimmerframe",
+      "version": "1.1.5",
+      "destination": "node_modules/zimmerframe",
+      "integrity": "sha512-msJxIvYDYcoNL+PJsu+7qmpDWsYmAxTY+2TNYXXF0hzBzBk0BMecOqDOG/EckUoKCuKwObfbugIl8QpqHDXeFA==",
+      "compressed_size": 5223,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/sveltejs/zimmerframe"
+      },
+      "engines": {},
+      "scripts": {
+        "bench": "node benchmark/index.js",
+        "changeset:version": "changeset version",
+        "changeset:publish": "changeset publish",
+        "check": "tsc",
+        "test": "vitest --run",
+        "test:watch": "vitest"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

@@ -19,6 +19,7 @@ mod legacy;
 pub mod lifecycle;
 pub mod managed;
 pub mod marketplace_routes;
+mod os_requirements;
 pub mod probe;
 pub mod proxy;
 pub mod registry;
@@ -26,6 +27,7 @@ pub mod root;
 pub mod routes;
 pub mod selection;
 pub mod spawn;
+mod watchers;
 
 pub use registry::LspRegistry;
 pub use routes::lsp_router;

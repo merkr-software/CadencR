@@ -12,7 +12,13 @@
  * `lspId`, so adding/removing a server only touches that server's bucket.
  */
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
-import { StateEffect, StateField, type EditorState } from "@codemirror/state";
+import {
+  Facet,
+  StateEffect,
+  StateField,
+  type EditorState,
+  type Extension,
+} from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 
 /** Replace one server's diagnostic bucket. `diagnostics: []` clears it. */
@@ -22,6 +28,9 @@ export const setServerDiagnostics = StateEffect.define<{
 }>();
 
 type DiagnosticBuckets = ReadonlyMap<string, Diagnostic[]>;
+const activeServers = Facet.define<readonly string[], readonly string[] | null>({
+  combine: (values) => values[0] ?? null,
+});
 
 /**
  * Per-server diagnostic buckets. The field value is only the source-of-truth
@@ -33,8 +42,13 @@ export const mergedDiagnosticsField = StateField.define<DiagnosticBuckets>({
   create: () => new Map(),
   update(buckets, tr) {
     let next: Map<string, Diagnostic[]> | null = null;
+    const active = tr.state.facet(activeServers);
+    if (active && [...buckets.keys()].some((id) => !active.includes(id))) {
+      next = new Map([...buckets].filter(([id]) => active.includes(id)));
+    }
     for (const effect of tr.effects) {
       if (effect.is(setServerDiagnostics)) {
+        if (active && !active.includes(effect.value.lspId)) continue;
         if (!next) next = new Map(buckets);
         if (effect.value.diagnostics.length === 0) {
           next.delete(effect.value.lspId);
@@ -72,10 +86,8 @@ export function mergedLintTransaction(state: EditorState): ReturnType<typeof set
  * dispatch-during-update path.
  */
 const mergedDiagnosticsSync = EditorView.updateListener.of((update) => {
-  const changed = update.transactions.some((tr) =>
-    tr.effects.some((e) => e.is(setServerDiagnostics)),
-  );
-  if (!changed) return;
+  const buckets = update.state.field(mergedDiagnosticsField, false);
+  if (!buckets || buckets === update.startState.field(mergedDiagnosticsField, false)) return;
   update.view.dispatch(mergedLintTransaction(update.view.state));
 });
 
@@ -85,6 +97,6 @@ const mergedDiagnosticsSync = EditorView.updateListener.of((update) => {
  *
  * @public
  */
-export function mergedDiagnostics(): [typeof mergedDiagnosticsField, typeof mergedDiagnosticsSync] {
-  return [mergedDiagnosticsField, mergedDiagnosticsSync];
+export function mergedDiagnostics(lspIds?: readonly string[]): Extension {
+  return [mergedDiagnosticsField, mergedDiagnosticsSync, lspIds ? activeServers.of(lspIds) : []];
 }
