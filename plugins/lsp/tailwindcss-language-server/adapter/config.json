@@ -1,0 +1,6 @@
+{
+  "entry": "node_modules/@tailwindcss/language-server/bin/tailwindcss-language-server",
+  "args": [
+    "--stdio"
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "entry": "node_modules/yaml-language-server/bin/yaml-language-server",
+  "args": [
+    "--stdio"
+  ]
+}

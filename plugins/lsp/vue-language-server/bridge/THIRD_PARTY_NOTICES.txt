@@ -1,0 +1,152 @@
+Third-party license and attribution inventory
+
+Complete official npm distributions are retained unmodified, including package.json license/author declarations and every original license/notice. This file supplements notices omitted from tarballs using exact upstream commits or a locked README. Metadata-only cases are explicitly labeled and retain standard SPDX template text without fictional copyright assertions. Consult license-audit.json for every exact package and original notice path.
+
+@babel/helper-string-parser@7.29.13 | MIT | node_modules/@babel/helper-string-parser | original-notices-preserved
+@babel/helper-validator-identifier@7.29.7 | MIT | node_modules/@babel/helper-validator-identifier | original-notices-preserved
+@babel/parser@7.29.13 | MIT | node_modules/@babel/parser | original-notices-preserved
+@babel/types@7.29.11 | MIT | node_modules/@babel/types | original-notices-preserved
+@emmetio/abbreviation@2.3.3 | MIT | node_modules/@emmetio/abbreviation | original-notices-preserved
+@emmetio/css-abbreviation@2.1.8 | MIT | node_modules/@emmetio/css-abbreviation | original-notices-preserved
+@emmetio/css-parser@0.4.1 | MIT | node_modules/@emmetio/css-parser | original-notices-preserved
+@emmetio/html-matcher@1.3.0 | ISC | node_modules/@emmetio/html-matcher | original-notices-preserved
+@emmetio/scanner@1.0.4 | MIT | node_modules/@emmetio/scanner | original-notices-preserved
+@emmetio/stream-reader@2.2.0 | MIT | node_modules/@emmetio/stream-reader | original-notices-preserved
+@emmetio/stream-reader-utils@0.1.0 | MIT | node_modules/@emmetio/stream-reader-utils | original-notices-preserved
+@johnsoncodehk/pug-beautify@0.2.2 | MIT | node_modules/@johnsoncodehk/pug-beautify | metadata-only-original-no-copyright-notice
+@volar/language-core@2.4.30 | MIT | node_modules/@volar/language-core | original-notices-preserved
+@volar/language-server@2.4.30 | MIT | node_modules/@volar/language-server | original-notices-preserved
+@volar/language-service@2.4.30 | MIT | node_modules/@volar/language-service | original-notices-preserved
+@volar/source-map@2.4.30 | MIT | node_modules/@volar/source-map | original-notices-preserved
+@volar/typescript@2.4.30 | MIT | node_modules/@volar/typescript | original-notices-preserved
+@vscode/emmet-helper@2.11.0 | MIT | node_modules/@vscode/emmet-helper | original-notices-preserved
+@vscode/l10n@0.0.18 | MIT | node_modules/@vscode/l10n | verbatim-supplement
+@vue/compiler-core@3.5.44 | MIT | node_modules/@vue/compiler-core | original-notices-preserved
+@vue/compiler-dom@3.5.44 | MIT | node_modules/@vue/compiler-dom | original-notices-preserved
+@vue/language-core@3.3.14 | MIT | node_modules/@vue/language-core | original-notices-preserved
+@vue/language-plugin-pug@3.2.9 | MIT | node_modules/@vue/language-plugin-pug | original-notices-preserved
+@volar/source-map@2.4.28 | MIT | node_modules/@vue/language-plugin-pug/node_modules/@volar/source-map | original-notices-preserved
+@vue/language-server@3.3.14 | MIT | node_modules/@vue/language-server | original-notices-preserved
+@vue/language-service@3.3.14 | MIT | node_modules/@vue/language-service | original-notices-preserved
+@vue/shared@3.5.44 | MIT | node_modules/@vue/shared | original-notices-preserved
+@vue/typescript-plugin@3.3.14 | MIT | node_modules/@vue/typescript-plugin | original-notices-preserved
+acorn@7.4.1 | MIT | node_modules/acorn | original-notices-preserved
+alien-signals@3.2.1 | MIT | node_modules/alien-signals | original-notices-preserved
+call-bind-apply-helpers@1.0.2 | MIT | node_modules/call-bind-apply-helpers | original-notices-preserved
+call-bound@1.0.4 | MIT | node_modules/call-bound | original-notices-preserved
+character-parser@2.2.0 | MIT | node_modules/character-parser | original-notices-preserved
+dunder-proto@1.0.1 | MIT | node_modules/dunder-proto | original-notices-preserved
+emmet@2.4.11 | MIT | node_modules/emmet | original-notices-preserved
+entities@7.0.1 | BSD-2-Clause | node_modules/entities | original-notices-preserved
+es-define-property@1.0.1 | MIT | node_modules/es-define-property | original-notices-preserved
+es-errors@1.3.0 | MIT | node_modules/es-errors | original-notices-preserved
+es-object-atoms@1.1.2 | MIT | node_modules/es-object-atoms | original-notices-preserved
+estree-walker@2.0.2 | MIT | node_modules/estree-walker | original-notices-preserved
+function-bind@1.1.2 | MIT | node_modules/function-bind | original-notices-preserved
+get-intrinsic@1.3.0 | MIT | node_modules/get-intrinsic | original-notices-preserved
+get-proto@1.0.1 | MIT | node_modules/get-proto | original-notices-preserved
+gopd@1.2.0 | MIT | node_modules/gopd | original-notices-preserved
+has-symbols@1.1.0 | MIT | node_modules/has-symbols | original-notices-preserved
+has-tostringtag@1.0.2 | MIT | node_modules/has-tostringtag | original-notices-preserved
+hasown@2.0.4 | MIT | node_modules/hasown | original-notices-preserved
+is-expression@4.0.0 | MIT | node_modules/is-expression | original-notices-preserved
+is-regex@1.2.1 | MIT | node_modules/is-regex | original-notices-preserved
+jsonc-parser@2.3.1 | MIT | node_modules/jsonc-parser | original-notices-preserved
+math-intrinsics@1.1.0 | MIT | node_modules/math-intrinsics | original-notices-preserved
+muggle-string@0.4.1 | MIT | node_modules/muggle-string | original-notices-preserved
+object-assign@4.1.1 | MIT | node_modules/object-assign | original-notices-preserved
+path-browserify@1.0.1 | MIT | node_modules/path-browserify | original-notices-preserved
+picomatch@4.0.7 | MIT | node_modules/picomatch | original-notices-preserved
+pug-error@2.1.0 | MIT | node_modules/pug-error | original-notices-preserved
+pug-lexer@5.0.1 | MIT | node_modules/pug-lexer | original-notices-preserved
+pug-parser@6.0.0 | MIT | node_modules/pug-parser | original-notices-preserved
+request-light@0.7.0 | MIT | node_modules/request-light | original-notices-preserved
+semver@7.8.6 | ISC | node_modules/semver | original-notices-preserved
+source-map-js@1.2.2 | BSD-3-Clause | node_modules/source-map-js | original-notices-preserved
+token-stream@1.0.0 | MIT | node_modules/token-stream | original-notices-preserved
+typescript@6.0.3 | Apache-2.0 | node_modules/typescript | original-notices-preserved
+typescript-auto-import-cache@0.3.6 | MIT | node_modules/typescript-auto-import-cache | original-notices-preserved
+volar-service-css@0.0.71 | MIT | node_modules/volar-service-css | original-notices-preserved
+volar-service-emmet@0.0.71 | MIT | node_modules/volar-service-emmet | original-notices-preserved
+volar-service-html@0.0.71 | MIT | node_modules/volar-service-html | original-notices-preserved
+volar-service-json@0.0.71 | MIT | node_modules/volar-service-json | original-notices-preserved
+volar-service-pug@0.0.71 | MIT | node_modules/volar-service-pug | original-notices-preserved
+volar-service-pug-beautify@0.0.71 | MIT | node_modules/volar-service-pug-beautify | original-notices-preserved
+volar-service-typescript@0.0.71 | MIT | node_modules/volar-service-typescript | original-notices-preserved
+vscode-css-languageservice@6.3.10 | MIT | node_modules/vscode-css-languageservice | original-notices-preserved
+vscode-languageserver-types@3.17.5 | MIT | node_modules/vscode-css-languageservice/node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-html-languageservice@5.6.2 | MIT | node_modules/vscode-html-languageservice | original-notices-preserved
+vscode-json-languageservice@5.7.2 | MIT | node_modules/vscode-json-languageservice | original-notices-preserved
+jsonc-parser@3.3.1 | MIT | node_modules/vscode-json-languageservice/node_modules/jsonc-parser | original-notices-preserved
+vscode-jsonrpc@10.0.0 | MIT | node_modules/vscode-jsonrpc | original-notices-preserved
+vscode-languageserver@9.0.1 | MIT | node_modules/vscode-languageserver | original-notices-preserved
+vscode-languageserver-protocol@3.18.5 | MIT | node_modules/vscode-languageserver-protocol | original-notices-preserved
+vscode-languageserver-textdocument@1.0.16 | MIT | node_modules/vscode-languageserver-textdocument | original-notices-preserved
+vscode-languageserver-types@3.18.5 | MIT | node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-jsonrpc@8.2.0 | MIT | node_modules/vscode-languageserver/node_modules/vscode-jsonrpc | original-notices-preserved
+vscode-languageserver-protocol@3.17.5 | MIT | node_modules/vscode-languageserver/node_modules/vscode-languageserver-protocol | original-notices-preserved
+vscode-languageserver-types@3.17.5 | MIT | node_modules/vscode-languageserver/node_modules/vscode-languageserver-types | original-notices-preserved
+vscode-nls@5.2.0 | MIT | node_modules/vscode-nls | original-notices-preserved
+vscode-uri@3.2.0 | MIT | node_modules/vscode-uri | original-notices-preserved
+vue-component-meta@3.3.14 | MIT | node_modules/vue-component-meta | original-notices-preserved
+
+
+
+Package: @johnsoncodehk/pug-beautify@0.2.2
+License declaration copied from the locked package metadata: MIT
+Published author metadata (not an assertion of copyright ownership): {"name": "Marani Matias Ezequiel", "email": "maranimatias@gmail.com"}
+Tarball source: https://registry.npmjs.org/@johnsoncodehk/pug-beautify/-/pug-beautify-0.2.2.tgz
+Tarball SHA256: 60635aa22b9c1f879f4b1ca02698136a1dcc5111b5f7d500981716657d1748c5
+Historical source commit when published: b229fbee1009fbf78a43b89defa45144aad33898
+
+The locked upstream distribution and identified historical source provide the above SPDX license declaration without a separate copyright notice. No copyright owner or year has been invented. The following are explicitly labeled SPDX STANDARD TERMS; template placeholders are retained verbatim and are not asserted as an upstream notice.
+Standard terms source: https://raw.githubusercontent.com/spdx/license-list-data/31846481de7ea17d92f2f46fad76abe58b2e9bb0/json/details/MIT.json
+
+MIT License
+
+Copyright (c) <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the
+following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial
+portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
+USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Package: @vscode/l10n@0.0.18
+License declaration: MIT
+Supplement source: https://raw.githubusercontent.com/microsoft/vscode-l10n/fc7e3d79ddb91a2cc24a9730aad912026a43dbf2/LICENSE
+Source commit: fc7e3d79ddb91a2cc24a9730aad912026a43dbf2
+SHA256: c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383
+
+    MIT License
+
+    Copyright (c) Microsoft Corporation.
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+    SOFTWARE
+

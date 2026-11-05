@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "docker-langserver",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "Dockerfile language server",
+  "description": "Dockerfile language server using pinned complete upstream npm distributions.",
+  "license": "MIT",
+  "upstream": {
+    "name": "dockerfile-language-server-nodejs",
+    "version": "0.15.0",
+    "url": "https://registry.npmjs.org/dockerfile-language-server-nodejs/-/dockerfile-language-server-nodejs-0.15.0.tgz"
+  },
+  "runtime": "node",
+  "entry": "node_modules/dockerfile-language-server-nodejs/lib/server.js",
+  "args": [
+    "--stdio"
+  ],
+  "role": "general",
+  "languages": [
+    {
+      "id": "dockerfile",
+      "extensions": [
+        "dockerfile"
+      ],
+      "filenames": [
+        "Dockerfile",
+        "Containerfile"
+      ]
+    }
+  ],
+  "root_markers": [],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "20.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0"
+  },
+  "setup_requirements": [],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 341,
+  "source_expanded_bytes": 2452199,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "local_overlay": {
+    "path": "plugins/lsp/docker-langserver/notices",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "kind": "third-party-notices",
+    "files": [
+      "THIRD_PARTY_NOTICES.txt",
+      "license-audit.json"
+    ]
+  },
+  "license_audit": {
+    "path": "plugins/lsp/docker-langserver/notices/license-audit.json",
+    "metadata_only_packages": []
+  }
+}

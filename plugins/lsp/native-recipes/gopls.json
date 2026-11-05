@@ -1,0 +1,145 @@
+{
+  "schema_version": 1,
+  "id": "gopls",
+  "version": "0.24.0",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://go.dev/gopls",
+  "license": "BSD-3-Clause",
+  "license_source": "https://github.com/golang/tools/blob/gopls/v0.24.0/gopls/LICENSE",
+  "args": [],
+  "runtime_dependencies": [
+    "Go toolchain on PATH for workspace analysis"
+  ],
+  "build": {
+    "go_version": "go1.27.3",
+    "go_checksum_source": "https://go.dev/dl/?mode=json",
+    "flags": [
+      "-trimpath",
+      "-ldflags=-s -w"
+    ],
+    "CGO_ENABLED": "0",
+    "module_sum": "h1:nPO/LffYa4sP62Ueuema5PPnZPGaZjGl+vZGvbTek4g=",
+    "source_commit": "1f9922d1dcc5836d5c5bcb552c8fed230f885372",
+    "toolchains": {
+      "linux-x86_64": {
+        "url": "https://go.dev/dl/go1.27.3.linux-amd64.tar.gz",
+        "sha256": "65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40",
+        "size": 70588678
+      },
+      "darwin-aarch64": {
+        "url": "https://go.dev/dl/go1.27.3.darwin-arm64.tar.gz",
+        "sha256": "dd3908cf20959d798c1e06ebe5b72213f0505ce01373b40ce3110975a6cd99c2",
+        "size": 68196737
+      },
+      "darwin-x86_64": {
+        "url": "https://go.dev/dl/go1.27.3.darwin-amd64.tar.gz",
+        "sha256": "b6f8e931e4ab497fcde6da8ae4499a58f9d258e55c8a80824a516eae5950a750",
+        "size": 71697771
+      }
+    },
+    "module_sums": {
+      "golang.org/x/tools/gopls@v0.24.0": "h1:nPO/LffYa4sP62Ueuema5PPnZPGaZjGl+vZGvbTek4g=",
+      "github.com/BurntSushi/toml@v1.6.0": "h1:dRaEfpa2VI55EwlIW72hMRHdWouJeRF7TPYhI+AUQjk=",
+      "github.com/fatih/camelcase@v1.0.0": "h1:hxNvNX/xYBp0ovncs8WyWZrOrpBNub/JfaMvbURyft8=",
+      "github.com/fatih/gomodifytags@v1.17.1-0.20250423142747-f3939df9aa3c": "h1:dDSgAjoOMp8da3egfz0t2S+t8RGOpEmEXZubcGuc0Bg=",
+      "github.com/fatih/structtag@v1.2.0": "h1:/OdNE99OxoI/PqaW/SuSK9uxxT3f/tcSZgon/ssNSx4=",
+      "github.com/fsnotify/fsnotify@v1.9.0": "h1:2Ml+OJNzbYCTzsxtv8vKSFD9PbJjmhYF14k/jKC7S9k=",
+      "github.com/google/jsonschema-go@v0.4.3": "h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+DQPd0=",
+      "github.com/modelcontextprotocol/go-sdk@v1.8.0": "h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=",
+      "github.com/segmentio/asm@v1.2.1": "h1:DTNbBqs57ioxAD4PrArqftgypG4/qNpXoJx8TVXxPR0=",
+      "github.com/segmentio/encoding@v0.5.4": "h1:OW1VRern8Nw6ITAtwSZ7Idrl3MXCFwXHPgqESYfvNt0=",
+      "github.com/yosida95/uritemplate/v3@v3.0.2": "h1:Ed3Oyj9yrmi9087+NczuL5BwkIc4wvTb5zIM+UJPGz4=",
+      "golang.org/x/exp/typeparams@v0.0.0-20260908205506-85c1c2202aba": "h1:ZoZmFkcuQ289xJilBm9Ck3W+/okrhXc4LUpbtKFQE4k=",
+      "golang.org/x/mod@v0.41.0": "h1:qJmnOUb4YB+FsEuM3HcWucdZASCPGhsX6uljO6pog0c=",
+      "golang.org/x/oauth2@v0.37.0": "h1:JUlcxA8oAtauLfiH8FX2/FkAWHAdi0QtGCGc+hofE98=",
+      "golang.org/x/sync@v0.23.0": "h1:KameEIfc1IkluZyXWLn39Wd4tURc6GbCiISGiZm2bQk=",
+      "golang.org/x/sys@v0.48.0": "h1:bbX/i/6MgT9BVLM9RT1thmxL04yeTAhbEz4SyadbXoo=",
+      "golang.org/x/telemetry@v0.0.0-20260924152758-ed294f943157": "h1:DftxASHKl6JolFPqoN+2WrFO53JvkHwRXvFqf8gsivA=",
+      "golang.org/x/text@v0.42.0": "h1:JbOZXgfeCPU9gacVtYliJqOhD+zhrEqK4LfdpmlUZqI=",
+      "golang.org/x/time@v0.16.0": "h1:vMb6ptszcQMkcwiRTAuNNU50gom6++Q/6gY2hDM6VDE=",
+      "golang.org/x/tools@v0.51.1-0.20261014163302-24a65270771e": "h1:OKD783ebWgqIZn7EAQNP944SpADpjJ8k4XI3nJAeB4o=",
+      "golang.org/x/vuln@v1.8.0": "h1:clG4qBU6zH5VKjti8n5j8BBuYzoSha392xXMkXS351U=",
+      "honnef.co/go/tools@v0.8.1": "h1:+JKf3xJ1ni4CwrhVg4/pqsfPGP6vNAXcKbMXJodYx3w=",
+      "mvdan.cc/gofumpt@v0.12.0": "h1:1Lbudkz2kpM9Cjz2pL4M19u7q+GaEhCTNf7N9mfpcho=",
+      "mvdan.cc/xurls/v2@v2.6.0": "h1:3NTZpeTxYVWNSokW3MKeyVkz/j7uYXYiMtXRUfmjbgI="
+    }
+  },
+  "targets": {
+    "darwin-aarch64": {
+      "url": "https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.24.0.zip",
+      "sha256": "a6e8f2c45e4c561d2322ef15088b20afd9ba08cf8b0b51077ad510591528fed2",
+      "size": 2532462,
+      "format": "go-source",
+      "member": null,
+      "entry": "gopls",
+      "entry_size": 29749666,
+      "entry_sha256": "e4a710f35c02b5a80af11d0eed08bd8d01204d776b1e5a354768eb37abd3a072"
+    },
+    "darwin-x86_64": {
+      "url": "https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.24.0.zip",
+      "sha256": "a6e8f2c45e4c561d2322ef15088b20afd9ba08cf8b0b51077ad510591528fed2",
+      "size": 2532462,
+      "format": "go-source",
+      "member": null,
+      "entry": "gopls",
+      "entry_size": 32013760,
+      "entry_sha256": "10ff0c973f54dd71cf053aa7ff0c868c36d13cbef4e92ecc39347f8547c4fd15"
+    },
+    "linux-x86_64": {
+      "url": "https://proxy.golang.org/golang.org/x/tools/gopls/@v/v0.24.0.zip",
+      "sha256": "a6e8f2c45e4c561d2322ef15088b20afd9ba08cf8b0b51077ad510591528fed2",
+      "size": 2532462,
+      "format": "go-source",
+      "member": null,
+      "entry": "gopls",
+      "entry_size": 31043744,
+      "entry_sha256": "f746444243ecd65ebf34b37cfe81ac08633a8dfa3d44fd1dadf50f8ceaedccbf"
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Gopls",
+  "description": "Go code intelligence using source-built gopls 0.24.0; requires Go on PATH.",
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "go",
+      "extensions": [
+        "go"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "gomod",
+      "extensions": [
+        "mod"
+      ],
+      "filenames": [
+        "go.mod"
+      ]
+    },
+    {
+      "id": "gowork",
+      "extensions": [
+        "work"
+      ],
+      "filenames": [
+        "go.work"
+      ]
+    }
+  ],
+  "root_markers": [
+    "go.work",
+    "go.mod",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [
+    "Go toolchain"
+  ],
+  "setup_requirements": [
+    "Go toolchain"
+  ]
+}

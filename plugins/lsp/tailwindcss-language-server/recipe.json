@@ -1,0 +1,112 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "id": "tailwindcss-language-server",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "name": "Tailwind CSS language server",
+  "description": "Tailwind CSS language server using pinned complete upstream npm distributions.",
+  "license": "MIT",
+  "upstream": {
+    "name": "@tailwindcss/language-server",
+    "version": "0.16.0",
+    "url": "https://registry.npmjs.org/@tailwindcss/language-server/-/language-server-0.16.0.tgz"
+  },
+  "runtime": "node",
+  "entry": "adapter/adapter.mjs",
+  "args": [
+    "--stdio"
+  ],
+  "role": "general",
+  "languages": [
+    {
+      "id": "html",
+      "extensions": [
+        "html",
+        "htm"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "css",
+      "extensions": [
+        "css"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "javascriptreact",
+      "extensions": [
+        "jsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescriptreact",
+      "extensions": [
+        "tsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "vue",
+      "extensions": [
+        "vue"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "svelte",
+      "extensions": [
+        "svelte"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "astro",
+      "extensions": [
+        "astro"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "tailwind.config.js",
+    "tailwind.config.ts",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "runtime_requirements": {
+    "minimum_version": "20.0.0",
+    "node_bundled": false,
+    "dependency_resolution_at_install_or_launch": false,
+    "validation_version": "22.19.0"
+  },
+  "setup_requirements": [
+    "Requires a project Tailwind installation and configuration/stylesheets. Qualify completions against a real supported project."
+  ],
+  "optional_dependency_policy": "All nonoptional packages plus the three supported Astro native compiler bindings; optional fsevents omitted in Pyright (portable polling remains).",
+  "source_files": 15,
+  "source_expanded_bytes": 10297557,
+  "canonical_packing": "Requires released Linux x86_64 CLI 0.15.6 with LSP entry limit 16384; never pack with a macOS source build for byte reproduction.",
+  "local_overlay": {
+    "path": "plugins/lsp/tailwindcss-language-server/adapter",
+    "publication_source_binding": "PENDING exact reviewed source commit",
+    "kind": "stdio-adapter-and-third-party-notices",
+    "files": [
+      "LICENSE",
+      "adapter.mjs",
+      "config.json",
+      "framing.mjs",
+      "THIRD_PARTY_NOTICES.txt",
+      "license-audit.json"
+    ]
+  },
+  "license_audit": {
+    "path": "plugins/lsp/tailwindcss-language-server/notices/license-audit.json",
+    "metadata_only_packages": []
+  },
+  "upstream_entry": "node_modules/@tailwindcss/language-server/bin/tailwindcss-language-server"
+}

@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "1ae4899b7e6123aa2077dff7c309bb58019d1699ca4041f2f285bd4eec46eb8a",
+  "source_lock_sha256": "7f931fea2bf1a99e51ec1a01e6203226915678a0ad0a9136ba8bdeb6849a51d9",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "tailwindcss",
+      "version": "4.3.4",
+      "destination": "node_modules/tailwindcss",
+      "integrity": "sha512-PCJZTFFdG+sL3gvnP1Do9o6GbkvH2q0p04xSs3f7cSvmAeK+sttG+/7ncK1fdRwKFfC7n+wDDJaOMBSefkI9ow==",
+      "compressed_size": 189675,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/tailwindlabs/tailwindcss.git",
+        "directory": "packages/tailwindcss"
+      },
+      "engines": {},
+      "scripts": {
+        "lint": "tsc --noEmit",
+        "build": "tsup-node --env.NODE_ENV production",
+        "dev": "tsup-node --env.NODE_ENV development --watch",
+        "test:ui": "playwright test"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

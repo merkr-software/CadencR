@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "019464859b8fce3ba9d7c37f61ca763469ded5af2c33dee329ead222c312e641",
+  "source_lock_sha256": "e8ad5b0b87a974d1585f28f12e9c9dbcbd748aa9fb279a676a88292a7eed004f",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "@tailwindcss/language-server",
+      "version": "0.16.0",
+      "destination": "node_modules/@tailwindcss/language-server",
+      "integrity": "sha512-ko2xr4nlFIkqwJFnnw7hfdpjbsnK0DOk+QEEI51tvKOCF97OG0RU59iGfadoaOoY6I9xkSMbTW+AAwgnGnLH3w==",
+      "compressed_size": 3158058,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "git+https://github.com/tailwindlabs/tailwindcss-intellisense.git",
+        "directory": "packages/tailwindcss-language-server"
+      },
+      "engines": {
+        "node": ">=18.0.0"
+      },
+      "scripts": {
+        "build": "pnpm run clean && pnpm run _esbuild && pnpm run _esbuild:oxide && pnpm run _esbuild:css",
+        "_esbuild": "node ../../esbuild.mjs src/server.ts --outfile=bin/tailwindcss-language-server --minify",
+        "_esbuild:oxide": "node ../../esbuild.mjs src/oxide-helper.ts --outfile=bin/oxide-helper.js --minify",
+        "_esbuild:css": "node ../../esbuild.mjs src/language/css.ts --outfile=bin/css-language-server --minify",
+        "clean": "rimraf bin",
+        "test": "vitest",
+        "pretest": "node tests/prepare.mjs"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}

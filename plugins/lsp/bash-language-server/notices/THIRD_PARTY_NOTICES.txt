@@ -1,0 +1,71 @@
+Third-party license and attribution inventory
+
+Complete official npm distributions are retained unmodified, including package.json license/author declarations and every original license/notice. This file supplements notices omitted from tarballs using exact upstream commits or a locked README. Metadata-only cases are explicitly labeled and retain standard SPDX template text without fictional copyright assertions. Consult license-audit.json for every exact package and original notice path.
+
+@mixmark-io/domino@2.2.0 | BSD-2-Clause | node_modules/@mixmark-io/domino | original-notices-preserved
+@nodelib/fs.scandir@2.1.5 | MIT | node_modules/@nodelib/fs.scandir | original-notices-preserved
+@nodelib/fs.stat@2.0.5 | MIT | node_modules/@nodelib/fs.stat | original-notices-preserved
+@nodelib/fs.walk@1.2.8 | MIT | node_modules/@nodelib/fs.walk | original-notices-preserved
+@one-ini/wasm@0.2.1 | MIT | node_modules/@one-ini/wasm | original-notices-preserved
+balanced-match@4.0.4 | MIT | node_modules/balanced-match | original-notices-preserved
+bash-language-server@5.8.1 | MIT | node_modules/bash-language-server | verbatim-supplement
+brace-expansion@5.0.12 | MIT | node_modules/brace-expansion | original-notices-preserved
+braces@3.0.3 | MIT | node_modules/braces | original-notices-preserved
+commander@14.0.3 | MIT | node_modules/commander | original-notices-preserved
+editorconfig@3.0.2 | MIT | node_modules/editorconfig | original-notices-preserved
+fast-glob@3.3.3 | MIT | node_modules/fast-glob | original-notices-preserved
+fastq@1.20.3 | ISC | node_modules/fastq | original-notices-preserved
+fill-range@7.1.1 | MIT | node_modules/fill-range | original-notices-preserved
+fuzzy-search@3.2.1 | ISC | node_modules/fuzzy-search | original-notices-preserved
+glob-parent@5.1.2 | ISC | node_modules/glob-parent | original-notices-preserved
+is-extglob@2.1.1 | MIT | node_modules/is-extglob | original-notices-preserved
+is-glob@4.0.3 | MIT | node_modules/is-glob | original-notices-preserved
+is-number@7.0.0 | MIT | node_modules/is-number | original-notices-preserved
+merge2@1.4.1 | MIT | node_modules/merge2 | original-notices-preserved
+micromatch@4.0.8 | MIT | node_modules/micromatch | original-notices-preserved
+minimatch@10.2.6 | BlueOak-1.0.0 | node_modules/minimatch | original-notices-preserved
+picomatch@2.3.2 | MIT | node_modules/picomatch | original-notices-preserved
+queue-microtask@1.2.3 | MIT | node_modules/queue-microtask | original-notices-preserved
+reusify@1.1.0 | MIT | node_modules/reusify | original-notices-preserved
+run-parallel@1.2.0 | MIT | node_modules/run-parallel | original-notices-preserved
+semver@7.8.6 | ISC | node_modules/semver | original-notices-preserved
+to-regex-range@5.0.1 | MIT | node_modules/to-regex-range | original-notices-preserved
+turndown@7.2.4 | MIT | node_modules/turndown | original-notices-preserved
+vscode-jsonrpc@9.0.2 | MIT | node_modules/vscode-jsonrpc | original-notices-preserved
+vscode-languageserver@10.1.1 | MIT | node_modules/vscode-languageserver | original-notices-preserved
+vscode-languageserver-protocol@3.18.3 | MIT | node_modules/vscode-languageserver-protocol | original-notices-preserved
+vscode-languageserver-textdocument@1.0.14 | MIT | node_modules/vscode-languageserver-textdocument | original-notices-preserved
+vscode-languageserver-types@3.18.3 | MIT | node_modules/vscode-languageserver-types | original-notices-preserved
+web-tree-sitter@0.27.0 | MIT | node_modules/web-tree-sitter | original-notices-preserved
+zod@3.25.76 | MIT | node_modules/zod | original-notices-preserved
+
+
+
+Package: bash-language-server@5.8.1
+License declaration: MIT
+Supplement source: https://raw.githubusercontent.com/bash-lsp/bash-language-server/dd90f3d2c10ddce889b456a9ac4a1d0f079a9558/LICENSE
+Source commit: dd90f3d2c10ddce889b456a9ac4a1d0f079a9558
+SHA256: 291d324119550df1624f0af60388393fe36b02bc5e61d9a236afab1801b33042
+
+MIT License
+
+Copyright (c) 2018 Mads Hartmann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+

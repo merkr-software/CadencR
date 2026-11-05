@@ -1,0 +1,8 @@
+Third-party license and attribution inventory
+
+Complete official npm distributions are retained unmodified, including package.json license/author declarations and every original license/notice. This file supplements notices omitted from tarballs using exact upstream commits or a locked README. Metadata-only cases are explicitly labeled and retain standard SPDX template text without fictional copyright assertions. Consult license-audit.json for every exact package and original notice path.
+
+pyright@1.1.414 | MIT | node_modules/pyright | original-notices-preserved
+
+
+

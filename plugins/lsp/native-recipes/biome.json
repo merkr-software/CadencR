@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "id": "biome",
+  "version": "2.6.5",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/biomejs/biome/releases/tag/%40biomejs/biome%402.6.5",
+  "license": "MIT OR Apache-2.0",
+  "license_source": "https://github.com/biomejs/biome/tree/@biomejs/biome@2.6.5",
+  "args": [
+    "lsp-proxy"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.5/biome-linux-x64",
+      "sha256": "0653fd798e50565efac8b1958c9a2786fada55cc6c362b7da4f16efff8dd30d8",
+      "size": 96252088,
+      "format": "raw",
+      "member": null,
+      "entry": "biome",
+      "entry_sha256": "0653fd798e50565efac8b1958c9a2786fada55cc6c362b7da4f16efff8dd30d8",
+      "entry_size": 96252088
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.5/biome-darwin-arm64",
+      "sha256": "fd40c9c679c7a75a8fcef8a4883ab50ef1b8663995c5b3069e26922473671899",
+      "size": 84469728,
+      "format": "raw",
+      "member": null,
+      "entry": "biome",
+      "entry_sha256": "fd40c9c679c7a75a8fcef8a4883ab50ef1b8663995c5b3069e26922473671899",
+      "entry_size": 84469728
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.5/biome-darwin-x64",
+      "sha256": "29ecb9534d3c31a13a1fbd7ae391b00f215aa27a7289d610d7f1fde6465b09a6",
+      "size": 88028248,
+      "format": "raw",
+      "member": null,
+      "entry": "biome",
+      "entry_sha256": "29ecb9534d3c31a13a1fbd7ae391b00f215aa27a7289d610d7f1fde6465b09a6",
+      "entry_size": 88028248
+    }
+  },
+  "cleanup_args": [
+    "stop"
+  ],
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Biome",
+  "description": "JavaScript, TypeScript, JSON and CSS linting and formatting using Biome 2.6.5.",
+  "role": "linter",
+  "languages": [
+    {
+      "id": "javascript",
+      "extensions": [
+        "js",
+        "mjs",
+        "cjs"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "javascriptreact",
+      "extensions": [
+        "jsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescript",
+      "extensions": [
+        "ts",
+        "mts",
+        "cts"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescriptreact",
+      "extensions": [
+        "tsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "json",
+      "extensions": [
+        "json",
+        "jsonc"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "css",
+      "extensions": [
+        "css"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "biome.json",
+    "biome.jsonc",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": [],
+  "extra_sources": [
+    {
+      "name": "biomejs/biome-LICENSE-MIT",
+      "version": "2.6.5",
+      "url": "https://raw.githubusercontent.com/biomejs/biome/@biomejs/biome@2.6.5/LICENSE-MIT",
+      "sha256": "35365b6285e1f8cac61549f321befdbbe6139bf1e3d7ef6ccf1f1294ab015202",
+      "size": 1174,
+      "path": "licenses/LICENSE-MIT"
+    },
+    {
+      "name": "biomejs/biome-LICENSE-APACHE",
+      "version": "2.6.5",
+      "url": "https://raw.githubusercontent.com/biomejs/biome/@biomejs/biome@2.6.5/LICENSE-APACHE",
+      "sha256": "e2746aba8799f7a3378259f36a83a079e811ca7926cbdd248a2eb7ca9cbbac5d",
+      "size": 10858,
+      "path": "licenses/LICENSE-APACHE"
+    }
+  ]
+}

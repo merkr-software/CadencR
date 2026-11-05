@@ -1,0 +1,91 @@
+{
+  "schema_version": 1,
+  "id": "rust-analyzer",
+  "version": "2026-11-02",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/rust-lang/rust-analyzer/releases/tag/2026-11-02",
+  "license": "MIT OR Apache-2.0",
+  "license_source": "https://github.com/rust-lang/rust-analyzer/tree/2026-11-02",
+  "args": [],
+  "runtime_dependencies": [
+    "Rust toolchain including rust-src; cargo for project analysis"
+  ],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-unknown-linux-gnu.gz",
+      "sha256": "5249da68c3f36bb77ea7d401824f5e8bd8d0a47a162daf5f72208eb7c1bf1500",
+      "size": 15296882,
+      "format": "gz",
+      "member": null,
+      "entry": "rust-analyzer",
+      "entry_sha256": "23ac93011a30b2d1689e2bde2fa1034c996dc7de8bdc887930747eee01c8f66f",
+      "entry_size": 43116568
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-apple-darwin.gz",
+      "sha256": "d10ca0a10e386f74ca36847b3df2ad5ab6f1328feeb1591467b3724f3fd8e8cf",
+      "size": 14307639,
+      "format": "gz",
+      "member": null,
+      "entry": "rust-analyzer",
+      "entry_sha256": "4bf4ee6e3d21c6e99efe0c811cc05878094d7a304381bc29972d878812c4c6f3",
+      "entry_size": 38883744
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-apple-darwin.gz",
+      "sha256": "2c3d6c564f9b2734085cf6439c78896545e86b54ebb63870ba701e12ca582b22",
+      "size": 15052626,
+      "format": "gz",
+      "member": null,
+      "entry": "rust-analyzer",
+      "entry_sha256": "2ba2a508a7c6d57c33bd8967dc6241bf626400002f2104ecd8c3acde9afd4ba6",
+      "entry_size": 40322712
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "rust-analyzer",
+  "description": "Rust code intelligence using rust-analyzer 2026-11-02; requires a Rust toolchain.",
+  "role": "type_checker",
+  "languages": [
+    {
+      "id": "rust",
+      "extensions": [
+        "rs"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    "Cargo.toml",
+    "rust-project.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [
+    "Rust toolchain with cargo and rust-src"
+  ],
+  "setup_requirements": [
+    "Rust toolchain with cargo and rust-src"
+  ],
+  "extra_sources": [
+    {
+      "name": "rust-lang/rust-analyzer-LICENSE-MIT",
+      "version": "2026-11-02",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "size": 1023,
+      "path": "licenses/LICENSE-MIT"
+    },
+    {
+      "name": "rust-lang/rust-analyzer-LICENSE-APACHE",
+      "version": "2026-11-02",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-APACHE",
+      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+      "size": 9723,
+      "path": "licenses/LICENSE-APACHE"
+    }
+  ]
+}

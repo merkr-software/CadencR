@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "id": "oxlint",
+  "version": "1.91.0",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "upstream": "https://github.com/oxc-project/oxc/releases/tag/oxlint_v1.91.0",
+  "license": "MIT",
+  "license_source": "https://github.com/oxc-project/oxc/tree/oxlint_v1.91.0",
+  "args": [
+    "--lsp"
+  ],
+  "runtime_dependencies": [],
+  "targets": {
+    "linux-x86_64": {
+      "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.91.0/oxlint-x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "de059941526abeaab3c5aafa78caef80e5b4e7197274391d80cde38a1960a916",
+      "size": 6607516,
+      "format": "tar.gz",
+      "member": "oxlint-x86_64-unknown-linux-gnu",
+      "entry": "oxlint",
+      "entry_sha256": "24eed518bb1f5aaa1d0df3d4dcd837c87ebb86a8f01cd98d3ec7d544819d810c",
+      "entry_size": 15637752
+    },
+    "darwin-aarch64": {
+      "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.91.0/oxlint-aarch64-apple-darwin.tar.gz",
+      "sha256": "d1f6037780a4d5e14a32d810083859ae691a5032f789381a5ff9b75f901f90e9",
+      "size": 5677063,
+      "format": "tar.gz",
+      "member": "oxlint-aarch64-apple-darwin",
+      "entry": "oxlint",
+      "entry_sha256": "9b03cce4aea014c8d145ee2196edf661ec7b6580f09b8952ef699bc3b0497332",
+      "entry_size": 12459088
+    },
+    "darwin-x86_64": {
+      "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.91.0/oxlint-x86_64-apple-darwin.tar.gz",
+      "sha256": "b422a6a5ffe753b117d7348a80e722ca35183ceb1b6c98766f0de14747727a26",
+      "size": 6326546,
+      "format": "tar.gz",
+      "member": "oxlint-x86_64-apple-darwin",
+      "entry": "oxlint",
+      "entry_sha256": "ea9e46115953ebbf088b8d71f000c0f6de7ec430fb0aa734ed68b841a444ec49",
+      "entry_size": 14047288
+    }
+  },
+  "authority": "candidate",
+  "qualification": "PENDING",
+  "runtime": "native",
+  "name": "Oxlint",
+  "description": "JavaScript and TypeScript linting using the native Oxlint 1.91.0 language server.",
+  "role": "linter",
+  "languages": [
+    {
+      "id": "javascript",
+      "extensions": [
+        "js",
+        "mjs",
+        "cjs"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "javascriptreact",
+      "extensions": [
+        "jsx"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescript",
+      "extensions": [
+        "ts",
+        "mts",
+        "cts"
+      ],
+      "filenames": []
+    },
+    {
+      "id": "typescriptreact",
+      "extensions": [
+        "tsx"
+      ],
+      "filenames": []
+    }
+  ],
+  "root_markers": [
+    ".oxlintrc.json",
+    "oxlint.config.ts",
+    "package.json",
+    ".git"
+  ],
+  "initialization_options": {},
+  "required_toolchains": [],
+  "setup_requirements": [],
+  "extra_sources": [
+    {
+      "name": "oxc-project/oxc-LICENSE",
+      "version": "1.91.0",
+      "url": "https://raw.githubusercontent.com/oxc-project/oxc/oxlint_v1.91.0/LICENSE",
+      "sha256": "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3",
+      "size": 1119,
+      "path": "licenses/LICENSE"
+    }
+  ]
+}

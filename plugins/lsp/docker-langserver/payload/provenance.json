@@ -1,0 +1,319 @@
+{
+  "schema_version": 1,
+  "authority": "candidate",
+  "npm_lock_sha256": "090d3a31b4d6bc19e862944a564946ac282dad393866c071ab038c9fd5de1392",
+  "source_lock_sha256": "bd28eceee67512ea50af1e494e95aba7c3d1ef93a21738baf6f1519cb63c4836",
+  "node_validation_version": "22.19.0",
+  "acquisition": "official npm tarballs; lock SHA512 and full per-file SHA256 inventory",
+  "installers_or_lifecycle_scripts_executed": false,
+  "sources": [
+    {
+      "name": "dockerfile-ast",
+      "version": "0.7.1",
+      "destination": "node_modules/dockerfile-ast",
+      "integrity": "sha512-oX/A4I0EhSkGqrFv0YuvPkBUSYp1XiY8O8zAKc8Djglx8ocz+JfOr8gP0ryRMC2myqvDLagmnZaU9ot1vG2ijw==",
+      "compressed_size": 39054,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/rcjsuen/dockerfile-ast.git"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "build": "tsc -p .",
+        "prepublish": "tsc -p ./src",
+        "watch": "tsc --watch -p .",
+        "test": "mocha out/test out/test/instructions",
+        "nyc": "nyc mocha out/test out/test/instructions",
+        "nyc-ci": "nyc --reporter=lcov mocha out/test out/test/instructions"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dockerfile-language-server-nodejs",
+      "version": "0.15.0",
+      "destination": "node_modules/dockerfile-language-server-nodejs",
+      "integrity": "sha512-iS3GUUAn1bC3sDdLyg6CUnIaVQfViJBh+FhWBPftK6kJkhUMxFG2sr25OqMVaZgRsVuJEoNpflgJN3FCbkA01A==",
+      "compressed_size": 20964,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/rcjsuen/dockerfile-language-server-nodejs.git"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "build": "tsc -p .",
+        "prepublishOnly": "tsc -p ./src",
+        "watch": "tsc --watch -p .",
+        "test": "mocha out/test",
+        "nyc": "nyc mocha out/test",
+        "nyc-ci": "nyc --reporter=lcov mocha out/test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dockerfile-language-service",
+      "version": "0.16.1",
+      "destination": "node_modules/dockerfile-language-service",
+      "integrity": "sha512-4tKDJHXl7BQMSi807TlyJ+4ApH5WkDai2PSFju/pjy7atRchJgn4UrmPlq8E0dVqyZwyTiNfapHxqsUQyQSMOg==",
+      "compressed_size": 51137,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/rcjsuen/dockerfile-language-service.git"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "build": "tsc -p .",
+        "prepublishOnly": "tsc -p ./src",
+        "watch": "tsc --watch -p .",
+        "test": "mocha out/test",
+        "nyc": "nyc mocha out/test",
+        "nyc-ci": "nyc --reporter=lcov mocha out/test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.8",
+      "destination": "node_modules/dockerfile-language-service/node_modules/vscode-languageserver-textdocument",
+      "integrity": "sha512-1bonkGqQs5/fxGT5UchTgjGVnfysL0O8v1AYMBjqTbWQTFn721zaPGDYFkOKtfDgFiSgXM3KwaG3FMGfW4Ed9Q==",
+      "compressed_size": 7429,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "textDocument"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/rimraf/bin.js lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "dockerfile-utils",
+      "version": "0.16.3",
+      "destination": "node_modules/dockerfile-utils",
+      "integrity": "sha512-BslaqRR6PzCnhu+toDbkVAjq0B0CEgrCltk+enJ/xwCmvAHB1QqpO9QhXVIzMg/iSuD4tzS0Ex9n4Ik5ffI7pA==",
+      "compressed_size": 31226,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/rcjsuen/dockerfile-utils.git"
+      },
+      "engines": {
+        "node": "*"
+      },
+      "scripts": {
+        "build": "tsc -p .",
+        "prepublish": "tsc -p ./src",
+        "watch": "tsc --watch -p .",
+        "test": "mocha out/test",
+        "nyc": "nyc mocha out/test",
+        "nyc-ci": "nyc --reporter=lcov mocha out/test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-jsonrpc",
+      "version": "8.0.2",
+      "destination": "node_modules/vscode-jsonrpc",
+      "integrity": "sha512-RY7HwI/ydoC1Wwg4gJ3y6LpU9FJRZAUnTYMXthqhFXXu77ErDd/xkREpGuk4MyYkk4a+XDWAMqe0S3KkelYQEQ==",
+      "compressed_size": 33983,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "jsonrpc"
+      },
+      "engines": {
+        "node": ">=14.0.0"
+      },
+      "scripts": {
+        "prepublishOnly": "git clean -xfd . && npm install && npm run clean && npm run compile && npm test",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig-watch.json -w",
+        "clean": "node ../node_modules/rimraf/bin.js lib && node ../node_modules/rimraf/bin.js dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/jsonrpc/src/browser/test/",
+        "webpack": "node ../build/bin/webpack  --mode none --config ./webpack.config.js",
+        "webpack:test": "node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver",
+      "version": "8.0.2",
+      "destination": "node_modules/vscode-languageserver",
+      "integrity": "sha512-bpEt2ggPxKzsAOZlXmCJ50bV7VrxwCS5BI4+egUmure/oI/t4OlFzi/YNtVvY24A2UDOZAgwFGgnZPwqSJubkA==",
+      "compressed_size": 32091,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "server"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "git clean -xfd . && npm install && npm run clean && npm run compile && npm test",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig-watch.json -w",
+        "clean": "node ../node_modules/rimraf/bin.js lib",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-protocol",
+      "version": "3.17.2",
+      "destination": "node_modules/vscode-languageserver-protocol",
+      "integrity": "sha512-8kYisQ3z/SQ2kyjlNeQxbkkTNmVFoQCqkmGrzLH6A9ecPlgTbp3wDTnUNqaUxYr4vlAcloxx8zwy7G5WdguYNg==",
+      "compressed_size": 58756,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "protocol"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "git clean -xfd . && npm install && npm run clean && npm run compile && npm test && cd .. && npm run generate:metaModel && npm run generate:metaModelSchema && cd ./protocol",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "preversion": "npm test",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "watch": "node ../build/bin/tsc -b ./tsconfig-watch.json -w",
+        "clean": "node ../node_modules/rimraf/bin.js lib && node ../node_modules/rimraf/bin.js dist",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "npm run test:node && npm run test:browser",
+        "test:node": "node ../node_modules/mocha/bin/_mocha",
+        "test:browser": "npm run webpack:test:silent && node ../build/bin/runBrowserTests.js  http://127.0.0.1:8080/protocol/src/browser/test/",
+        "webpack:test": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --mode none --config ./src/browser/test/webpack.config.js",
+        "webpack:test:silent": "cd ../types && npm run compile:esm && cd ../protocol && node ../build/bin/webpack --no-stats --mode none --config ./src/browser/test/webpack.config.js"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.2",
+      "destination": "node_modules/vscode-languageserver-protocol/node_modules/vscode-languageserver-types",
+      "integrity": "sha512-zHhCWatviizPIq9B7Vh9uvrH6x3sK8itC84HkamnBWoDFJtzBf7SWlpLCZUit72b3os45h6RWQNC9xHRDF8dRA==",
+      "compressed_size": 70704,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "git clean -xfd . && npm install && npm run clean && npm run compile:esm && npm run compile && npm run test",
+        "postpublish": "node ../build/npm/post-publish.js",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.json",
+        "clean": "node ../node_modules/rimraf/bin.js lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig-watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-textdocument",
+      "version": "1.0.16",
+      "destination": "node_modules/vscode-languageserver-textdocument",
+      "integrity": "sha512-qeNEuOi9a3qkqRf7Gfez2WL2VwlBTLCNekHBGO9kxPVUp9XuY15yfTJ9jwvOwKI0I2MhUUfZq95NSp+LK1CLQg==",
+      "compressed_size": 8576,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "textDocument"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "npm run all:publish",
+        "prepack": "npm run all:publish",
+        "compile": "tsc -b ./tsconfig.json",
+        "clean": "rimraf lib",
+        "watch": "tsc -b ./tsconfig.watch.json -w",
+        "lint": "eslint src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "tsc -b ./tsconfig.esm.publish.json && node ../build/bin/fix-esm",
+        "compile:umd": "tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    },
+    {
+      "name": "vscode-languageserver-types",
+      "version": "3.17.3",
+      "destination": "node_modules/vscode-languageserver-types",
+      "integrity": "sha512-SYU4z1dL0PyIMd4Vj8YOqFvHu7Hz/enbWtpfnVbJHU4Nd1YNYx8u0ennumc6h48GQNeOLxmwySmnADouT/AuZA==",
+      "compressed_size": 69557,
+      "license": "MIT",
+      "repository": {
+        "type": "git",
+        "url": "https://github.com/Microsoft/vscode-languageserver-node.git",
+        "directory": "types"
+      },
+      "engines": {},
+      "scripts": {
+        "prepublishOnly": "echo \"⛔ Can only publish from a secure pipeline ⛔\" && node ../build/npm/fail",
+        "prepack": "npm run all:publish",
+        "compile": "node ../build/bin/tsc -b ./tsconfig.json",
+        "clean": "node ../node_modules/rimraf/bin.js lib",
+        "watch": "node ../build/bin/tsc -b ./tsconfig.watch.json -w",
+        "lint": "node ../node_modules/eslint/bin/eslint.js --ext ts src",
+        "test": "node ../node_modules/mocha/bin/_mocha",
+        "all": "npm run clean && npm run compile && npm run lint && npm run test",
+        "compile:esm": "node ../build/bin/tsc -b ./tsconfig.esm.publish.json",
+        "compile:umd": "node ../build/bin/tsc -b ./tsconfig.umd.publish.json",
+        "all:publish": "git clean -xfd . && npm install && npm run compile:esm && npm run compile:umd && npm run lint && npm run test",
+        "preversion": "npm test"
+      },
+      "has_install_script": false,
+      "optional": false
+    }
+  ],
+  "omitted_optional_packages": [],
+  "qualification": "PENDING; acquisition does not prove language intelligence or platform support"
+}
