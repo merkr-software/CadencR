@@ -14,6 +14,7 @@ pub(super) fn commit(
     let package = shared_catalog::resolve_kind(&index, &body.lsp_id, &body.version, "lsp")?;
     let target = cadencr_registry_core::signed_lsp_target(&package, platform()).map_err(invalid)?;
     crate::domain::lsp::managed::policy::require_install(&body.lsp_id, &body.version, &target)?;
+    crate::domain::lsp::os_requirements::require_target(&target)?;
     let files =
         cadencr_registry_core::read_lsp_archive(&bytes, platform(), &target).map_err(invalid)?;
     let pointer = storage::Pointer {
@@ -195,6 +196,76 @@ mod tests {
             storage::read_revision_trusted(&self.root, "fixture", &pointer, &self.trust).unwrap()
         }
     }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_signed_future_macos_requirement_blocks_install_inventory_and_reserved_launch() {
+        let mut harness = Harness::new();
+        let _policy = crate::domain::lsp::managed::policy::tests::configure(
+            &harness.root.join("policy"),
+            json!([]),
+        );
+        harness.install(0, false).unwrap();
+        let pointer = storage::pointer(&harness.root, "fixture").unwrap();
+        for entry in &mut harness.index.signed.packages {
+            let target = &mut entry["package"]["lsp"]["distribution"]["binary"][platform()];
+            target["runtime"] = "native".into();
+            target["macos_min_version"] = "999.0.0".into();
+        }
+        harness.index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            ed25519_dalek::SigningKey::from_bytes(&[19; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(
+                    &serde_json::to_value(&harness.index.signed).unwrap(),
+                ))
+                .to_bytes(),
+        );
+        let error = harness.install(1, true).unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                code: "LSP_MACOS_REQUIRED",
+                ..
+            }
+        ));
+        assert_eq!(
+            storage::pointer(&harness.root, "fixture").unwrap().version,
+            "1.0.0"
+        );
+        let directory = storage::revision(&harness.root, "fixture", &pointer).unwrap();
+        std::fs::write(
+            directory.join("receipt.json"),
+            serde_json::to_vec(&storage::Receipt {
+                index: harness.index.clone(),
+                id: "fixture".into(),
+                version: "1.0.0".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let inventory = storage::inventory_trusted(&harness.root, &harness.trust).unwrap();
+        assert_eq!(
+            inventory[0].status,
+            crate::domain::lsp::probe::ServerProbeStatus::Invalid
+        );
+        assert!(inventory[0]
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("macOS 999.0.0"));
+        let proof = crate::domain::lsp::spawn::ManagedRevision {
+            root: harness.root.clone(),
+            id: "fixture".into(),
+            pointer: pointer.clone(),
+            receipt_sha256: storage::receipt_digest(&harness.root, "fixture", &pointer).unwrap(),
+        };
+        assert!(matches!(
+            crate::domain::lsp::spawn::verify_reserved(&proof, &harness.trust).unwrap_err(),
+            AppError::Coded {
+                code: "LSP_MACOS_REQUIRED",
+                ..
+            }
+        ));
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn signed_install_update_remove_retains_lazy_dependencies_and_initialization_metadata() {
         use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};

@@ -94,6 +94,7 @@ pub fn pack_lsp(request: PackLspRequest<'_>) -> Result<PackedLsp, RegistryError>
         entry_size: entry.len() as u64,
         runtime: request.runtime,
         node_min_version: None,
+        macos_min_version: None,
     };
     super::read_lsp_archive(&bytes, request.target, &signed)?;
     Ok(PackedLsp {
@@ -164,6 +165,7 @@ mod tests {
             entry_size: packed.entry_size,
             runtime: packed.runtime,
             node_min_version: None,
+            macos_min_version: None,
         };
         let files = super::super::read_lsp_archive(
             &std::fs::read(packed.archive).unwrap(),
@@ -216,6 +218,7 @@ mod tests {
                 entry_size: first.entry_size,
                 runtime: first.runtime,
                 node_min_version: None,
+                macos_min_version: None,
             };
             let files = super::super::read_lsp_archive(
                 &std::fs::read(first.archive).unwrap(),

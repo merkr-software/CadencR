@@ -97,7 +97,7 @@ def run(args):
         file.write_text(fixture["text"])
         (workspace / ".marksman.toml").write_text("")
         (workspace / "other.md").write_text("# Target\n\nTarget documentation.\n")
-        (workspace / "go.mod").write_text("module example.com/smoke\n\ngo 1.27\n")
+        (workspace / "go.mod").write_text("module example.com/smoke\n\ngo 1.26\n")
         (workspace / "tsconfig.json").write_text('{"compilerOptions":{"strict":true},"include":["main.ts"]}')
         (workspace / ".oxlintrc.json").write_text('{"rules":{"no-debugger":"error"}}')
         (workspace / "biome.json").write_text('{"linter":{"enabled":true,"rules":{"recommended":true}}}')

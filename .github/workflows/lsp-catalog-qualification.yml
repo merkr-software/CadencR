@@ -73,6 +73,37 @@ jobs:
       - name: Build the source CLI (not a released-binary qualification)
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
         run: pnpm rust -- build --locked --release -p cadencr-cli
+      - name: Capture the exact source CLI for separate qualification
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
+        env:
+          SOURCE_COMMIT: ${{ github.sha }}
+          SOURCE_CLI_DIR: ${{ runner.temp }}/lsp-source-cli
+        run: |
+          python3 -B - <<'PY'
+          import json, os, pathlib, subprocess, sys
+          sys.path.insert(0, "scripts/lsp-catalog-qa")
+          from handoff import CLI_VERSION, commit, digest, provenance, regular
+          source = pathlib.Path("target/release/cadencr").resolve()
+          data = regular(source, 128 * 1024 * 1024)
+          version = subprocess.check_output([str(source), "--version"], env={"PATH": "/usr/bin:/bin"}).strip()
+          assert version == ("cadencr " + CLI_VERSION).encode(), "source CLI version mismatch"
+          output = pathlib.Path(os.environ["SOURCE_CLI_DIR"])
+          output.mkdir()
+          (output / "cadencr").write_bytes(data)
+          (output / "cadencr").chmod(0o755)
+          metadata = {"schema_version": 1, "authority": "candidate", "publication_authority": False,
+                      "runtime_qualification": "PENDING", "binary": "cadencr", "size": len(data),
+                      "cli": provenance("source-build", digest(data), commit(os.environ["SOURCE_COMMIT"]))}
+          (output / "source-cli.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
+          PY
+      - name: Retain the source CLI separately from the held data handoff
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.cli_mode == 'source' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: lsp-source-cli-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/lsp-source-cli/
+          if-no-files-found: error
+          retention-days: 7
       - name: Fetch the checked-in released CLI pin
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.cli_mode == 'released' }}
         run: |

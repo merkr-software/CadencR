@@ -8,7 +8,7 @@ pub fn read_lsp_archive(
     platform: &str,
     target: &LspTarget,
 ) -> Result<BTreeMap<String, Vec<u8>>, RegistryError> {
-    super::validate_target(target, None)?;
+    super::validate_target(target, platform, None)?;
     if cadencr_plugin_core::tab::TabPlatform::parse(platform).is_none() {
         return Err(invalid("unsupported platform"));
     }
@@ -44,11 +44,13 @@ pub fn validate_lsp_entry(
     platform: &str,
     target: &LspTarget,
 ) -> Result<(), RegistryError> {
+    super::runtime::validate_macos_minimum(target, platform)?;
     if bytes.len() as u64 != target.entry_size || sha256_hex(bytes) != target.entry_sha256 {
         return Err(invalid("entry size or SHA-256 differs from signed target"));
     }
     if target.runtime == LspRuntime::Native {
         native(bytes, platform)?;
+        super::runtime::validate_macos_entry(bytes, platform, target)?;
     }
     Ok(())
 }
@@ -89,6 +91,7 @@ mod tests {
             entry_size: entry.len() as u64,
             runtime: LspRuntime::Node,
             node_min_version: None,
+            macos_min_version: None,
         }
     }
     #[test]
@@ -165,6 +168,37 @@ mod tests {
             signed.entry_sha256 = sha256_hex(script);
             signed.entry_size = script.len() as u64;
             assert!(read_lsp_archive(&bytes, platform.as_str(), &signed).is_err());
+        }
+    }
+
+    #[test]
+    fn native_macos_archives_bind_the_signed_floor_to_the_executable() {
+        use cadencr_plugin_core::tab::{test_support::native_executable, TabPlatform};
+        for platform in [TabPlatform::DarwinAarch64, TabPlatform::DarwinX86_64] {
+            let mut executable = native_executable(platform);
+            let count = u32::from_le_bytes(executable[16..20].try_into().unwrap());
+            let size = u32::from_le_bytes(executable[20..24].try_into().unwrap());
+            executable[16..20].copy_from_slice(&(count + 1).to_le_bytes());
+            executable[20..24].copy_from_slice(&(size + 24).to_le_bytes());
+            for word in [0x32u32, 24, 1, 15 << 16, 0, 0] {
+                executable.extend(word.to_le_bytes());
+            }
+            let bytes = archive(&[("bin/server", 0o755, b'0', &executable)]);
+            let mut signed = target(&bytes, &executable);
+            signed.entry = "bin/server".into();
+            signed.runtime = LspRuntime::Native;
+            // Legacy descriptors remain valid even for binaries requiring newer macOS.
+            read_lsp_archive(&bytes, platform.as_str(), &signed).unwrap();
+            for floor in ["15.0.0", "16.0.0"] {
+                signed.macos_min_version = Some(floor.into());
+                read_lsp_archive(&bytes, platform.as_str(), &signed).unwrap();
+            }
+            signed.macos_min_version = Some("12.0.0".into());
+            assert!(read_lsp_archive(&bytes, platform.as_str(), &signed)
+                .unwrap_err()
+                .to_string()
+                .contains("above signed macos_min_version"));
+            assert!(validate_lsp_entry(&executable, platform.as_str(), &signed).is_err());
         }
     }
 

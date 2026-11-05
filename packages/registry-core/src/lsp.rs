@@ -116,16 +116,22 @@ fn validate_descriptor(descriptor: &LspDescriptor, rules: Rules) -> Result<(), R
         if !token(platform) || rules == Rules::Publish && TabPlatform::parse(platform).is_none() {
             return Err(invalid(format!("unsupported platform {platform}")));
         }
-        validate_target(target, descriptor.distribution.repository.as_ref())?;
+        validate_target(
+            target,
+            platform,
+            descriptor.distribution.repository.as_ref(),
+        )?;
     }
     Ok(())
 }
 
 pub(crate) fn validate_target(
     target: &LspTarget,
+    platform: &str,
     repository: Option<&String>,
 ) -> Result<(), RegistryError> {
     runtime::validate_node_minimum(target)?;
+    runtime::validate_macos_minimum(target, platform)?;
     let explicit = repository.map(|s| Value::from(s.clone()));
     crate::theme_distribution_repository(&target.archive, explicit.as_ref())?;
     if !crate::digest::is_lower_sha256(&target.sha256)

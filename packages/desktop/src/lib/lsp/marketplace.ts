@@ -24,7 +24,10 @@ export const lspCatalogSchema = z.object({
   unavailable_versions: z
     .record(
       z.string(),
-      z.record(z.string(), z.enum(["platform", "protocol", "node", "policy", "compatibility"])),
+      z.record(
+        z.string(),
+        z.enum(["platform", "protocol", "node", "policy", "compatibility", "operating_system"]),
+      ),
     )
     .optional(),
   recommended_versions: z.record(z.string(), z.string()),

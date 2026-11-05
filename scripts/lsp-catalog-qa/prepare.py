@@ -99,6 +99,8 @@ def pack_target(cli, recipe, target, source, work):
     signed["archive"] = f"{REPOSITORY}/releases/download/{tag}/{name}"
     if runtime == "node" and lock["schema_version"] == 2:
         signed["node_min_version"] = recipe["runtime_requirements"]["minimum_version"]
+    if runtime == "native" and "macos_min_version" in recipe["targets"][target]:
+        signed["macos_min_version"] = recipe["targets"][target]["macos_min_version"]
     return signed, data, lock_path.read_bytes()
 
 

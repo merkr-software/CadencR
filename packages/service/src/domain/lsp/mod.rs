@@ -19,6 +19,7 @@ mod legacy;
 pub mod lifecycle;
 pub mod managed;
 pub mod marketplace_routes;
+mod os_requirements;
 pub mod probe;
 pub mod proxy;
 pub mod registry;

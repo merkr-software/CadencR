@@ -30,7 +30,8 @@
       "member": null,
       "entry": "biome",
       "entry_sha256": "fd40c9c679c7a75a8fcef8a4883ab50ef1b8663995c5b3069e26922473671899",
-      "entry_size": 84469728
+      "entry_size": 84469728,
+      "macos_min_version": "11.0.0"
     },
     "darwin-x86_64": {
       "url": "https://github.com/biomejs/biome/releases/download/%40biomejs/biome%402.6.5/biome-darwin-x64",
@@ -40,7 +41,8 @@
       "member": null,
       "entry": "biome",
       "entry_sha256": "29ecb9534d3c31a13a1fbd7ae391b00f215aa27a7289d610d7f1fde6465b09a6",
-      "entry_size": 88028248
+      "entry_size": 88028248,
+      "macos_min_version": "10.12.0"
     }
   },
   "cleanup_args": [

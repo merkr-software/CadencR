@@ -35,6 +35,7 @@ pub async fn install(body: InstallLspRequest, update: bool) -> Result<(), AppErr
     let package = shared_catalog::resolve_kind(&index, &body.lsp_id, &body.version, "lsp")?;
     let target = cadencr_registry_core::signed_lsp_target(&package, platform()).map_err(invalid)?;
     super::policy::require_install(&body.lsp_id, &body.version, &target)?;
+    super::super::os_requirements::require_target(&target)?;
     if target.runtime == cadencr_registry_core::LspRuntime::Node {
         super::super::spawn::node(target.node_minimum()).await?;
     }

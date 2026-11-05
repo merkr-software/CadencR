@@ -58,6 +58,12 @@ def pack_lsp(run, work, entry, package, stages, tag, version):
             if runtime_kind != "node" or not isinstance(minimum, str) or len(minimum) > 64 or not re.fullmatch(SEMVER, minimum):
                 fail("invalid reviewed LSP Node minimum version")
             reviewed["node_min_version"] = minimum
+        if "macos_min_version" in selected:
+            minimum = selected["macos_min_version"]
+            if (runtime_kind != "native" or not target.startswith("darwin-")
+                    or not isinstance(minimum, str) or len(minimum) > 64 or not re.fullmatch(SEMVER, minimum)):
+                fail("invalid reviewed LSP macOS minimum version")
+            reviewed["macos_min_version"] = minimum
         if selected != reviewed:
             fail("reviewed LSP package differs from qualified archive and entry bindings")
         for index in range(2):

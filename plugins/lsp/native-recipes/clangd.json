@@ -48,7 +48,8 @@
       ],
       "transform": "macho-thin",
       "entry_sha256": "a6875700504d0abf156172877ed4eb3c528d50df525f07654c62ac48b3cbb65d",
-      "entry_size": 88376448
+      "entry_size": 88376448,
+      "macos_min_version": "11.0.0"
     },
     "darwin-x86_64": {
       "sha256": "1082e6638223b785ca2daf0939f13afcd0bb95c84ee9a4bbaff4745365159253",
@@ -66,7 +67,8 @@
       ],
       "transform": "macho-thin",
       "entry_sha256": "2d959a8b208ce3444ee60d9ac9294333c78b5492fd83ac97c1a58efce6ef7db3",
-      "entry_size": 88732752
+      "entry_size": 88732752,
+      "macos_min_version": "10.13.0"
     }
   },
   "authority": "candidate",

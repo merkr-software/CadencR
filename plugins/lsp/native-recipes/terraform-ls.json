@@ -36,7 +36,8 @@
       "retain_tree": true,
       "strip_prefix": "",
       "entry_sha256": "3122949dbc179be87b10721d0aade806b2b23870ceeae3b6ef4510b0efc1cc31",
-      "entry_size": 46356736
+      "entry_size": 46356736,
+      "macos_min_version": "12.0.0"
     },
     "darwin-x86_64": {
       "url": "https://releases.hashicorp.com/terraform-ls/0.39.1/terraform-ls_0.39.1_darwin_amd64.zip",
@@ -48,7 +49,8 @@
       "retain_tree": true,
       "strip_prefix": "",
       "entry_sha256": "fbe8593aca2390b0e593c1e6d1e8f5a68ef06ed78ea0102110bac748b6443312",
-      "entry_size": 48012016
+      "entry_size": 48012016,
+      "macos_min_version": "12.0.0"
     }
   },
   "authority": "candidate",

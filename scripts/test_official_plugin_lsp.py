@@ -92,7 +92,64 @@ def declarative_fixture(root, runtime="node", target="all"):
     return contents, lock, canonical, stage
 
 
+def native_package_fixture(root):
+    stages, archives, targets = {}, {}, {}
+    tag = "lsp-example-v0.2.0"
+    for target in TARGETS:
+        contents, lock, canonical, stage = declarative_fixture(root, "native", target)
+        stages[target], archives[target] = stage, canonical
+        entry = lock["entry"]
+        targets[target] = dict(archive="https://github.com/merkr-software/CadencR/releases/download/" + tag
+            + "/lsp-example-0.2.0-" + target + ".tar.gz", sha256=digest(canonical), size=len(canonical),
+            entry=entry, entry_sha256=digest(contents[entry]), entry_size=len(contents[entry]), runtime="native")
+        if target.startswith("darwin-"):
+            targets[target]["macos_min_version"] = "12.0.0"
+    package = dict(kind="lsp", package=dict(lsp=dict(id="example", version="0.2.0",
+        distribution=dict(binary=targets)), host=dict(compatibility=dict(min_app_version="0.16.1"))))
+
+    def run(*args):
+        target = args[args.index("--target") + 1]
+        if args[:2] == ("plugin", "validate"):
+            if json.loads((Path(args[2]) / "lsp.json").read_bytes()) != package:
+                raise AssertionError("signed native runtime requirements were lost")
+            return b""
+        output = Path(args[args.index("--output") + 1])
+        output.write_bytes(archives[target])
+        receipt = {key: value for key, value in targets[target].items() if key != "macos_min_version"}
+        return json_bytes({**receipt, "kind": "lsp", "target": target, "archive": str(output)})
+    return stages, package, run, tag
+
+
 class DeclarativeTests(unittest.TestCase):
+    def test_native_macos_requirements_survive_reconstruction_without_changing_pack_receipts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stages, package, run, tag = native_package_fixture(root)
+            before = copy.deepcopy(package)
+            archives = pack(run, root, dict(kind="lsp", id="example"), package, stages, tag, "0.2.0")
+            self.assertEqual(len(archives), 3)
+            self.assertEqual(package, before)
+            self.assertEqual(package["package"]["lsp"]["distribution"]["binary"]["darwin-aarch64"]["macos_min_version"], "12.0.0")
+
+    def test_native_macos_requirements_refuse_linux_and_nonstable_versions(self):
+        for target, minimum in [("linux-x86_64", "12.0.0"), *(('darwin-aarch64', value) for value in
+                                [None, True, "12", "12.0", "012.0.0", "12.0.0-rc.1", "12.0.0+build", "12.0.0\n"])]:
+            with self.subTest(target=target, minimum=minimum), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                stages, package, run, tag = native_package_fixture(root)
+                package["package"]["lsp"]["distribution"]["binary"][target]["macos_min_version"] = minimum
+                with self.assertRaisesRegex(SystemExit, "macOS minimum version"):
+                    pack(run, root, dict(kind="lsp", id="example"), package, stages, tag, "0.2.0")
+
+    def test_node_bundles_cannot_declare_a_native_macos_requirement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _, _, stage, entry, package = stage_fixture(root)
+            package["package"]["lsp"]["distribution"]["binary"]["darwin-aarch64"]["macos_min_version"] = "12.0.0"
+            with self.assertRaisesRegex(SystemExit, "macOS minimum version"):
+                pack(lambda *args: self.fail("invalid runtime requirements must fail before packing"),
+                     root, entry, package, {target: stage for target in TARGETS}, TAG, "0.1.0")
+
     def test_node_and_each_native_target_unpack_with_reviewed_modes(self):
         for runtime, target in (("node", "all"), *(("native", target) for target in TARGETS)):
             with tempfile.TemporaryDirectory() as scratch:

@@ -66,12 +66,19 @@ pub struct LspTarget {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "node_min_version"
+        deserialize_with = "optional_version"
     )]
     pub node_min_version: Option<String>,
+    /// Optional signed minimum macOS version, only for native Darwin targets.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_version"
+    )]
+    pub macos_min_version: Option<String>,
 }
 
-fn node_min_version<'de, D: serde::Deserializer<'de>>(
+fn optional_version<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Option<String>, D::Error> {
     String::deserialize(deserializer).map(Some)

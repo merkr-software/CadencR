@@ -47,6 +47,31 @@ def fixture(root):
 
 
 class HandoffTests(unittest.TestCase):
+    def test_macos_requirement_is_signed_without_changing_the_archive_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            lock = root / "source-lock.json"
+            lock.write_text('{"schema_version":2,"runtime":"native","entry":"gopls"}')
+            archive = b"inert canonical archive"
+            entry = {"sha256": "a" * 64, "size": 4}
+            recipe = {"id": "gopls", "package_version": "0.1.0",
+                      "targets": {"darwin-aarch64": {"macos_min_version": "12.0.0"}}}
+
+            def invoke(arguments, work):
+                output = Path(arguments[-1])
+                output.write_bytes(archive)
+                return {"kind": "lsp", "target": "darwin-aarch64", "archive": str(output),
+                        "sha256": handoff.digest(archive), "size": len(archive), "entry": "gopls",
+                        "entry_sha256": entry["sha256"], "entry_size": entry["size"], "runtime": "native"}
+
+            with patch.object(prepare, "inventory", return_value={"gopls": entry}), \
+                 patch.object(prepare, "inspect_bundle"), patch.object(prepare, "invoke", side_effect=invoke):
+                signed, data, _ = prepare.pack_target(root / "inert-cli", recipe, "darwin-aarch64",
+                                                      (root, lock), root)
+            self.assertEqual(signed["macos_min_version"], "12.0.0")
+            self.assertEqual(signed["sha256"], handoff.digest(archive))
+            self.assertEqual(data, archive)
+
     def test_native_preparation_validates_every_target_archive_with_the_full_manifest(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -280,6 +305,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("environment:", text)
         self.assertEqual(text.count("persist-credentials: false"), 2)
         self.assertIn("artifact-ids: ${{ needs.package.outputs.artifact_id }}", text)
+        self.assertIn("name: lsp-source-cli-linux-x86_64-${{ github.run_id }}-${{ github.run_attempt }}", text)
+        self.assertIn("path: ${{ runner.temp }}/lsp-source-cli/", text)
         self.assertIn("--manifest-sha256", text)
         self.assertIn("sudo unshare --mount --net --fork", text)
         self.assertIn("env -i PATH=/usr/bin:/bin", text)

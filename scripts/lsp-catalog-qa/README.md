@@ -30,6 +30,11 @@ source with `pnpm rust -- build --locked --release -p cadencr-cli`. Evidence lab
 this `source-build` and records its source commit and SHA-256. It is **not**
 qualification of a publicly distributed CLI binary.
 
+Source mode uploads the exact Linux CLI and a `source-cli.json` checksum/source/
+version receipt as a separate `lsp-source-cli-linux-x86_64-*` artifact. It stays
+outside the closed data handoff and grants no publication authority. Downstream
+CLI QA must verify its hash against this receipt and the handoff's CLI provenance.
+
 Manual `cli_mode: released` fetches only `scripts/cli-qualification.env`, and fails
 unless that checked-in pin names `cli/v0.15.6`, the exact binary checksum and the
 expected version. Its evidence says `released-pin` and records the pin-file digest.

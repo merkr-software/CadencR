@@ -137,6 +137,13 @@
                   "propertyNames": {
                     "enum": ["darwin-aarch64", "darwin-x86_64", "linux-x86_64"]
                   },
+                  "allOf": [
+                    {
+                      "properties": {
+                        "linux-x86_64": { "not": { "required": ["macos_min_version"] } }
+                      }
+                    }
+                  ],
                   "additionalProperties": {
                     "type": "object",
                     "additionalProperties": false,
@@ -185,9 +192,18 @@
                         "maxLength": 64,
                         "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?![\\s\\S])",
                         "description": "Optional minimum stable Node.js version; omitted Node bundles require 20.0.0."
+                      },
+                      "macos_min_version": {
+                        "type": "string",
+                        "maxLength": 64,
+                        "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)(?![\\s\\S])",
+                        "description": "Optional minimum stable macOS version; only valid for native Darwin targets."
                       }
                     },
                     "dependentSchemas": {
+                      "macos_min_version": {
+                        "properties": { "runtime": { "const": "native" } }
+                      },
                       "node_min_version": {
                         "properties": {
                           "runtime": {

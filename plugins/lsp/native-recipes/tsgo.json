@@ -35,7 +35,8 @@
       "retain_tree": true,
       "strip_prefix": "package/",
       "entry_sha256": "63d89ecb27497f264b4c3ecb0e4f6d2cf09896803a81fff027ecfb336f8974e2",
-      "entry_size": 23653616
+      "entry_size": 23653616,
+      "macos_min_version": "12.0.0"
     },
     "darwin-x86_64": {
       "url": "https://registry.npmjs.org/@typescript/native-preview-darwin-x64/-/native-preview-darwin-x64-7.0.0-dev.20260707.2.tgz",
@@ -47,7 +48,8 @@
       "retain_tree": true,
       "strip_prefix": "package/",
       "entry_sha256": "64a1845f2bf8e2338e440a2b59ef4dbdfad2cccb2cad6e3e9eec5cda7b5e7712",
-      "entry_size": 24971184
+      "entry_size": 24971184,
+      "macos_min_version": "12.0.0"
     }
   },
   "authority": "candidate",

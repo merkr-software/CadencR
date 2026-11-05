@@ -30,7 +30,8 @@
       "member": "oxlint-aarch64-apple-darwin",
       "entry": "oxlint",
       "entry_sha256": "9b03cce4aea014c8d145ee2196edf661ec7b6580f09b8952ef699bc3b0497332",
-      "entry_size": 12459088
+      "entry_size": 12459088,
+      "macos_min_version": "11.0.0"
     },
     "darwin-x86_64": {
       "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.91.0/oxlint-x86_64-apple-darwin.tar.gz",
@@ -40,7 +41,8 @@
       "member": "oxlint-x86_64-apple-darwin",
       "entry": "oxlint",
       "entry_sha256": "ea9e46115953ebbf088b8d71f000c0f6de7ec430fb0aa734ed68b841a444ec49",
-      "entry_size": 14047288
+      "entry_size": 14047288,
+      "macos_min_version": "10.12.0"
     }
   },
   "authority": "candidate",

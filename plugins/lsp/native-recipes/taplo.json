@@ -31,7 +31,8 @@
       "member": null,
       "entry": "taplo",
       "entry_sha256": "13cd257c1cadb003b40daf82b3fb1451e012e2463b760bdd33df07a07970c604",
-      "entry_size": 10522288
+      "entry_size": 10522288,
+      "macos_min_version": "11.0.0"
     },
     "darwin-x86_64": {
       "url": "https://github.com/tamasfe/taplo/releases/download/0.10.0/taplo-darwin-x86_64.gz",
@@ -41,7 +42,8 @@
       "member": null,
       "entry": "taplo",
       "entry_sha256": "9fd7a2872ea154df61a2c7e9ca69fc19ac08e29f2e2dc2f866e299bdc789c1a1",
-      "entry_size": 11367780
+      "entry_size": 11367780,
+      "macos_min_version": "10.12.0"
     }
   },
   "authority": "candidate",

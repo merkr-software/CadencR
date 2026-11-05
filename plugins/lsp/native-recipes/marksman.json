@@ -30,7 +30,8 @@
       "member": null,
       "entry": "marksman",
       "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
-      "entry_size": 43856208
+      "entry_size": 43856208,
+      "macos_min_version": "12.0.0"
     },
     "darwin-x86_64": {
       "url": "https://github.com/artempyanykh/marksman/releases/download/2026-02-08/marksman-macos",
@@ -40,7 +41,8 @@
       "member": null,
       "entry": "marksman",
       "entry_sha256": "6a801c17b5ac0dba69787c5282b3b3bd416e66c96253fae098d311c6bbd1833b",
-      "entry_size": 43856208
+      "entry_size": 43856208,
+      "macos_min_version": "12.0.0"
     }
   },
   "authority": "candidate",

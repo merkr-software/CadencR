@@ -30,7 +30,8 @@
       "member": null,
       "entry": "rust-analyzer",
       "entry_sha256": "4bf4ee6e3d21c6e99efe0c811cc05878094d7a304381bc29972d878812c4c6f3",
-      "entry_size": 38883744
+      "entry_size": 38883744,
+      "macos_min_version": "15.0.0"
     },
     "darwin-x86_64": {
       "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-x86_64-apple-darwin.gz",
@@ -40,7 +41,8 @@
       "member": null,
       "entry": "rust-analyzer",
       "entry_sha256": "2ba2a508a7c6d57c33bd8967dc6241bf626400002f2104ecd8c3acde9afd4ba6",
-      "entry_size": 40322712
+      "entry_size": 40322712,
+      "macos_min_version": "15.0.0"
     }
   },
   "authority": "candidate",

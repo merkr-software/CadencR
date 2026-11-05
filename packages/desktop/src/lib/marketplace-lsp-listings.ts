@@ -27,6 +27,9 @@ export function lspListings(catalog?: LspCatalog, inventory?: LspInventory): Mar
           minApp: item.host.compatibility.min_app_version,
           maxApp: item.host.compatibility.max_app_version,
           platforms: Object.keys(item.lsp.distribution.binary),
+          macosMinVersion: catalog?.host_platform
+            ? item.lsp.distribution.binary[catalog.host_platform]?.macos_min_version
+            : undefined,
           unavailable: catalog?.unavailable_versions?.[id]?.[item.lsp.version],
           blocked: catalog?.blocked_versions?.[id]?.[item.lsp.version],
         })),

@@ -8,7 +8,7 @@ or production catalog activation. Every member requires app `0.16.1` or later.
 | Member | Upstream version | Runtime data / external toolchain |
 | --- | --- | --- |
 | rust-analyzer | 2026-11-02 | Rust toolchain, cargo and rust-src for project analysis |
-| Gopls | 0.24.0 | Source-built with Go 1.27.3; Go required for project analysis |
+| Gopls | 0.23.0 | Source-built with Go 1.26.10; Go required for project analysis |
 | TypeScript native preview | 7.0.0-dev.20260707.2 | Bundled TypeScript standard declaration libraries |
 | Biome | 2.6.5 | Local Unix socket daemon; isolated smoke stops its own daemon |
 | Oxlint | 1.91.0 | Native language server |
@@ -49,6 +49,19 @@ pinned full SHA-256 values. Go's dependency graph is frozen by module version an
 `h1` content checksum; the final executable must also reproduce its target hash.
 No environment credentials enter the source build.
 
+Gopls 0.23.0 requires Go 1.26, the last Go release line supporting macOS 12
+([Go release notes](https://go.dev/doc/go1.26#darwin)). The reviewed build uses the
+official Go 1.26.10 toolchain and checksum-verified module graph. Both Darwin
+executables declare Mach-O minimum macOS 12.0.0; all three target binaries and
+their retained license inventories reproduce independently.
+
+Every native Darwin target signs `macos_min_version` from its executable's Mach-O
+deployment requirement. Rust-analyzer's current weekly release requires macOS
+15.0.0 on both architectures. Linux and Node targets do not declare this field.
+The host checks signed requirements before recommending, installing or starting
+a server. Static deployment requirements do not replace runtime qualification on
+the corresponding operating system.
+
 Clangd Linux additionally requires `--strip-program /usr/bin/strip` using GNU
 binutils 2.42. The reviewed `--strip-debug` transform reduces its executable from
 148,913,784 to 75,660,208 bytes, retaining functionality. macOS uses the exact CPU
@@ -73,7 +86,7 @@ python3 scripts/lsp-native-prepare/native_semantic.py \
 python3 -m unittest discover -s scripts/lsp-native-prepare -p 'test_*.py'
 ```
 
-For Gopls semantic checks, provide `--toolchain-path /verified/go/bin` with Go 1.27.3.
+For Gopls semantic checks, provide `--toolchain-path /verified/go/bin` with Go 1.26.10.
 Use the target matching the actual machine architecture. Run Linux qualification
 in a container with `--network none`; macOS uses `sandbox-exec` to deny remote
 networking while permitting local Unix-domain IPC. All candidate processes receive
