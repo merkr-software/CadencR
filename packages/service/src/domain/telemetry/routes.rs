@@ -193,6 +193,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn renderer_transport_fixture_passes_authenticated_ingestion() {
+        let body = include_str!("../../../../desktop/src/shared/fixtures/renderer-diagnostic.json");
+        let response = app()
+            .await
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/telemetry/diagnostics")
+                    .header(AUTH_HEADER, "test-token")
+                    .header("origin", "null")
+                    .header("content-type", "application/json")
+                    .body(Body::from(body))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
     async fn request_shapes_reject_arbitrary_content_and_unknown_consent_fields() {
         for (path, body) in [
             (

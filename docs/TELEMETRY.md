@@ -120,6 +120,28 @@ Host consent still governs service-side usage events from operations initiated
 remotely. Electron main capture is best effort through its uncaught
 exception monitor; startup and service-down recovery remain local.
 
+### Which diagnostics can include frames?
+
+| Capture source | Available location data |
+| --- | --- |
+| Renderer `Error` (including another JavaScript realm) | Bounded V8 stack frames whose local `assets/<bundle>.js` name matches the installed build allowlist; oldest frame first for Sentry. |
+| Renderer `ErrorEvent` without usable stack frames | Its filename, line and column, only when they identify an allowlisted local bundle with valid positive positions. This also covers thrown primitives. |
+| Browser notifications without a location (for example some ResizeObserver errors), string promise rejections, process exits | Category only. No synthetic capture-site stack is added. |
+| `service_internal`, `service_database`, `service_git` | Category only. `AppError` stores text, not the originating backtrace; capturing a stack in `into_response` would describe response handling instead of the failing operation. |
+| `service_panic` | A curated CadencR source location when available, not a native backtrace. |
+
+The renderer fallback never uses the page URL of a rejection or React report as
+an error location. Remote URLs, query strings, fragments, eval frames, unlisted
+files and invalid positions are excluded. Function names, error messages and
+source snippets are not sent. A missing or unreadable bundle allowlist still
+fails closed. Browser-only development still sends no frames.
+
+The generic exception value `Cadencr diagnostic` is intentional privacy filtering.
+A missing Sentry stack does not by itself imply a source-map upload failure:
+source maps can only resolve frames already present in the event. Events with no
+usable location omit `stacktrace` entirely. Previously ingested category-only
+events cannot recover their original stack from uploaded maps.
+
 ## Delivery and limits
 
 - For diagnostics and detailed usage, a bounded memory queue holds at most 32 events; there is no disk backlog or

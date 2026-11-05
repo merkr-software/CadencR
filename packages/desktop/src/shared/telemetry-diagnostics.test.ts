@@ -72,3 +72,114 @@ it("retains only the safe build identifier needed for source maps", () => {
     ),
   ).not.toHaveProperty("build_id");
 });
+
+it.each([
+  "file:///Applications/Cadencr.app/Contents/Resources/renderer/assets/index-AbCd1234.js",
+  "file:///tmp/.mount_Cadencr/resources/renderer/assets/index-AbCd1234.js",
+])("recovers a stackless ErrorEvent location from %s", (url) => {
+  const report = rendererRemoteDiagnostic(
+    {
+      source: "error",
+      message: "private prompt",
+      stack: null,
+      url,
+      line: 12,
+      column: 34,
+    },
+    assets,
+  );
+  expect(report).toEqual({
+    category: "renderer_unhandled_error",
+    frames: [{ filename: "assets/index-AbCd1234.js", lineno: 12, colno: 34 }],
+  });
+  expect(JSON.stringify(report)).not.toMatch(/private|Applications|mount|file:/);
+});
+
+it("keeps the original stack rather than appending the event fallback", () => {
+  expect(
+    rendererRemoteDiagnostic(
+      {
+        source: "error",
+        message: "secret",
+        stack: "    at file:///app/assets/ui-XyZ12345.js:3:4",
+        url: "file:///app/assets/index-AbCd1234.js",
+        line: 5,
+        column: 6,
+      },
+      assets,
+    ).frames,
+  ).toEqual([{ filename: "assets/ui-XyZ12345.js", lineno: 3, colno: 4 }]);
+});
+
+it.each([
+  "https://private.example/assets/index-AbCd1234.js",
+  "file:///app/assets/index-AbCd1234.js?token=secret",
+  "file:///app/assets/index-AbCd1234.js#secret",
+  "file:///home/user/project/private.js",
+  "file:///app/index.html",
+])("rejects unsafe or non-bundle fallback locations: %s", (url) => {
+  expect(
+    rendererRemoteDiagnostic(
+      { source: "error", message: "secret", url, line: 1, column: 2 },
+      assets,
+    ).frames,
+  ).toEqual([]);
+});
+
+it("never fabricates frames for locationless errors, rejections or untrusted builds", () => {
+  const event = {
+    source: "error" as const,
+    message: "ResizeObserver loop limit exceeded",
+    url: "file:///app/assets/index-AbCd1234.js",
+    line: 1,
+    column: 2,
+  };
+  expect(rendererRemoteDiagnostic(event, new Set()).frames).toEqual([]);
+  expect(rendererRemoteDiagnostic({ ...event, line: null, column: null }, assets).frames).toEqual(
+    [],
+  );
+  expect(
+    rendererRemoteDiagnostic({ ...event, source: "unhandledrejection" }, assets).frames,
+  ).toEqual([]);
+});
+
+it("bounds positions and frames before transport without discarding valid neighbors", () => {
+  const invalid = [0, -1, 1.5, NaN, Infinity, 10_000_001];
+  for (const position of invalid) {
+    for (const [line, column] of [
+      [position, 1],
+      [1, position],
+    ]) {
+      expect(
+        rendererRemoteDiagnostic(
+          {
+            source: "error",
+            message: "secret",
+            url: "file:///app/assets/index-AbCd1234.js",
+            line,
+            column,
+          },
+          assets,
+        ).frames,
+      ).toEqual([]);
+    }
+  }
+  expect(
+    remoteDiagnosticFrames(
+      "Error\n at /app/assets/index-AbCd1234.js:10000001:2\n at /app/assets/ui-XyZ12345.js:3:4",
+      assets,
+    ),
+  ).toEqual([{ filename: "assets/ui-XyZ12345.js", lineno: 3, colno: 4 }]);
+  expect(
+    remoteDiagnosticFrames(
+      "Error\n" + " at /app/assets/index-AbCd1234.js:1:2\n".repeat(100),
+      assets,
+    ),
+  ).toHaveLength(30);
+  expect(
+    remoteDiagnosticFrames(
+      "Error\n at secret (https://example.org/assets/index-AbCd1234.js:1:2)\n at eval (eval at secret (/app/assets/index-AbCd1234.js:1:2))",
+      assets,
+    ),
+  ).toEqual([]);
+});

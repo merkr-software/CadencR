@@ -166,6 +166,43 @@ mod tests {
         assert_private_context_absent(&event);
     }
 
+    #[test]
+    fn service_internal_is_category_only_while_panic_has_a_curated_source_location() {
+        for category in [
+            DiagnosticCategory::ServiceInternal,
+            DiagnosticCategory::ServicePanic,
+        ] {
+            let panic = matches!(category, DiagnosticCategory::ServicePanic);
+            let report = DiagnosticReport {
+                category,
+                build_id: None,
+                frames: if panic {
+                    vec![DiagnosticFrame {
+                        filename: "src/main.rs".into(),
+                        lineno: 12,
+                        colno: 4,
+                    }]
+                } else {
+                    vec![]
+                },
+            };
+            let envelope = diagnostic(&report, "id", "cadencr@1");
+            let event: Value = serde_json::from_str(envelope.lines().nth(2).unwrap()).unwrap();
+            assert_eq!(event["platform"], "native");
+            assert!(event["dist"].is_null());
+            let exception = &event["exception"]["values"][0];
+            assert_eq!(exception["value"], "Cadencr diagnostic");
+            assert_eq!(exception.get("stacktrace").is_some(), panic);
+            if panic {
+                assert_eq!(
+                    exception["stacktrace"]["frames"][0]["filename"],
+                    "src/main.rs"
+                );
+            }
+            assert_private_context_absent(&event);
+        }
+    }
+
     fn assert_private_context_absent(event: &Value) {
         for key in [
             "request",

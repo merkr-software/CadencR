@@ -66,6 +66,43 @@ mod tests {
     use crate::domain::settings_store::file::write_atomic;
 
     #[tokio::test]
+    async fn renderer_wire_fixture_reaches_sentry_with_source_map_coordinates() {
+        use crate::domain::telemetry::models::{valid_report, DiagnosticReport};
+        // The Electron transport test produces this exact wire payload.
+        let report: DiagnosticReport = serde_json::from_str(include_str!(
+            "../../../../../desktop/src/shared/fixtures/renderer-diagnostic.json"
+        ))
+        .unwrap();
+        assert!(valid_report(&report));
+        let (mut runtime, requests, _dir) = fixture(true).await;
+        Arc::get_mut(&mut runtime).unwrap().config.release = "cadencr@0.16.0".into();
+        runtime.capture(Event::Diagnostic(report.clone()));
+        let pending = runtime.state.lock().unwrap().pending.pop_front().unwrap();
+        runtime.deliver(pending).await;
+        let bodies = requests.lock().unwrap();
+        assert_eq!(bodies.len(), 1);
+        let lines: Vec<_> = bodies[0].lines().collect();
+        let item: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        let event: serde_json::Value = serde_json::from_str(lines[2]).unwrap();
+        assert_eq!(item["length"], lines[2].len());
+        assert_eq!(event["release"], "cadencr@0.16.0");
+        assert_eq!(event["dist"], report.build_id.unwrap());
+        assert_eq!(event["platform"], "javascript");
+        assert_eq!(
+            event["exception"]["values"][0]["stacktrace"]["frames"],
+            serde_json::json!([
+                {"filename":"app:///assets/index-BtoNKF7I.js", "abs_path":"app:///assets/index-BtoNKF7I.js",
+                 "lineno":12,"colno":34,"in_app":true}
+            ])
+        );
+        // ~/assets/index-BtoNKF7I.js is the uploader's release-file name.
+        assert!(!bodies[0].contains("private"));
+        for field in ["request", "breadcrumbs", "contexts", "extra"] {
+            assert!(event.get(field).is_none());
+        }
+    }
+
+    #[tokio::test]
     async fn capture_bounds_each_channel_per_minute_and_per_run() {
         for (diagnostics, per_minute, per_run) in [(true, 5, 20), (false, 30, 200)] {
             let (runtime, requests, _dir) = fixture(true).await;

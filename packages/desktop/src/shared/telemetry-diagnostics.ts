@@ -15,20 +15,42 @@ const categories = {
   "react-recoverable": "renderer_recoverable",
 } as const;
 
+function rendererFrame(
+  location: string,
+  lineno: number,
+  colno: number,
+  assets: ReadonlySet<string>,
+): RemoteDiagnosticFrame | null {
+  // Only local packaged assets. Never turn a remote URL, eval source or query into a frame.
+  if (!location.startsWith("file:///") && !location.startsWith("/")) return null;
+  if (/[?#\r\n]/.test(location)) return null;
+  const match = /\/assets\/([A-Za-z0-9_-]+\.js)$/.exec(location);
+  if (!match || !assets.has(match[1])) return null;
+  // Match the Rust ingestion bounds so one bad position cannot reject the entire report.
+  if (
+    !Number.isInteger(lineno) ||
+    lineno < 1 ||
+    lineno > 10_000_000 ||
+    !Number.isInteger(colno) ||
+    colno < 1 ||
+    colno > 10_000_000
+  )
+    return null;
+  return { filename: `assets/${match[1]}`, lineno, colno };
+}
+
 /** Only exact filenames present in this build survive; no messages, paths or function names. */
 export function remoteDiagnosticFrames(
   stack: string | null | undefined,
   assets: ReadonlySet<string>,
 ): RemoteDiagnosticFrame[] {
   const frames: RemoteDiagnosticFrame[] = [];
-  for (const line of (stack ?? "").slice(0, 12_000).split("\n").slice(1, 31)) {
-    const match = /(?:[/\\])([A-Za-z0-9_-]+\.js):(\d+):(\d+)\)?$/.exec(line.trim());
-    if (!match || !assets.has(match[1])) continue;
-    const lineno = Number(match[2]);
-    const colno = Number(match[3]);
-    if (!Number.isSafeInteger(lineno) || !Number.isSafeInteger(colno) || lineno < 1 || colno < 1)
-      continue;
-    frames.push({ filename: `assets/${match[1]}`, lineno, colno });
+  for (const line of (stack ?? "").slice(0, 12_000).split("\n").slice(0, 31)) {
+    // V8 frames may arrive without an Error header. Require frame syntax, not arbitrary text.
+    const match = /^\s*at (?:[^()]* \()?((?:file:\/\/\/|\/)[^()]+):(\d+):(\d+)\)?$/.exec(line);
+    if (!match) continue;
+    const frame = rendererFrame(match[1], Number(match[2]), Number(match[3]), assets);
+    if (frame) frames.push(frame);
   }
   return frames.reverse();
 }
@@ -38,10 +60,17 @@ export function rendererRemoteDiagnostic(
   assets: ReadonlySet<string>,
 ): RemoteDiagnostic {
   const buildId = error.diagnostics?.buildId;
+  const frames = remoteDiagnosticFrames(error.stack, assets);
+  // A thrown primitive or browser ErrorEvent may have a location but no Error.stack.
+  // Other sources use the page URL, which must never become a fabricated crash location.
+  if (frames.length === 0 && error.source === "error" && error.url) {
+    const frame = rendererFrame(error.url, error.line ?? 0, error.column ?? 0, assets);
+    if (frame) frames.push(frame);
+  }
   return {
     ...(buildId && /^[A-Za-z0-9._-]{1,128}$/.test(buildId) ? { build_id: buildId } : {}),
     category: categories[error.source],
-    frames: remoteDiagnosticFrames(error.stack, assets),
+    frames,
   };
 }
 
