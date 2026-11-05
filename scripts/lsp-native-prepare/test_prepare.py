@@ -4,15 +4,18 @@ import json
 from pathlib import Path
 import struct
 import subprocess
+import signal
+import sys
 import tarfile
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import zipfile
 
 from archive import bounded, executable, retained, safe_name, selected
 from prepare import acquire
 from transform import macho_slice, transform
+from native_semantic import finish_process
 
 
 def tar(entries):
@@ -30,6 +33,52 @@ def macho(cpu):
 
 
 class NativePreparationTests(unittest.TestCase):
+    def test_native_stdout_eof_can_precede_a_natural_nonzero_exit(self):
+        process = subprocess.Popen([sys.executable, "-c",
+            "import os, time; os.close(1); time.sleep(0.05); raise SystemExit(17)"],
+            start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        evidence = {}
+        try:
+            self.assertEqual(process.stdout.read(), b"")
+            with patch("native_semantic.os.killpg") as kill:
+                finish_process(process, evidence)
+            kill.assert_not_called()
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            process.stdout.close()
+        self.assertEqual(evidence, {"returncode": 17, "signal": None})
+
+    def test_native_exit_racing_cleanup_is_reaped_without_a_cleanup_signal(self):
+        process = Mock(pid=12345)
+        process.poll.return_value = None
+        process.wait.side_effect = [subprocess.TimeoutExpired("fixture", 0.25), 23]
+        evidence = {}
+        with patch("native_semantic.os.killpg", side_effect=ProcessLookupError):
+            finish_process(process, evidence)
+        self.assertEqual(evidence, {"returncode": 23, "signal": None})
+
+    def test_native_process_signal_is_preserved_without_attributing_cleanup(self):
+        process = subprocess.Popen([sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"],
+                                   start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process.wait(timeout=10)
+        evidence = {}
+        finish_process(process, evidence)
+        self.assertEqual(evidence, {"returncode": -signal.SIGTERM, "signal": "SIGTERM"})
+
+    def test_native_cleanup_kill_does_not_replace_an_unobserved_exit_cause(self):
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"],
+                                   start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        evidence = {}
+        try:
+            finish_process(process, evidence)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+        self.assertEqual(evidence, {"returncode": None, "signal": None, "cleanup_returncode": -signal.SIGKILL})
+
     def test_paths_reject_traversal_absolute_empty_and_backslash(self):
         for name in ("/absolute", "../escape", "a/../b", "a//b", "a/./b", "a\\b", ""):
             self.assertFalse(safe_name(name), name)

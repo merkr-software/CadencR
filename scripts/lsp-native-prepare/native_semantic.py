@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import resource
 import signal
 import socket
 import subprocess
@@ -85,6 +86,30 @@ def exercise(connection, workspace, file, fixture, initialization):
     return {"initialize": initialized["result"].get("serverInfo"), "feature": fixture["feature"], "result": result}
 
 
+def finish_process(process, evidence):
+    observed = process.poll()
+    cleanup_returncode = None
+    if observed is None:
+        try:
+            observed = process.wait(timeout=0.25)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                observed = process.wait(timeout=10)
+            else:
+                cleanup_returncode = process.wait(timeout=10)
+    evidence["returncode"] = observed
+    evidence["signal"] = None
+    if observed is not None and observed < 0:
+        try:
+            evidence["signal"] = signal.Signals(-observed).name
+        except ValueError:
+            evidence["signal"] = f"signal {-observed}"
+    if cleanup_returncode is not None:
+        evidence["cleanup_returncode"] = cleanup_returncode
+
+
 def run(args):
     recipe = json.loads(args.recipe.read_text())
     fixture = FIXTURES[recipe["id"]]
@@ -119,6 +144,9 @@ def run(args):
         elif {name for _, name in socket.if_nameindex()} != {"lo"}:
             raise ValueError("Linux semantic qualification requires denied-network container/namespace")
         evidence = {"id": recipe["id"], "target": args.target, "credentials": "none", "network": "denied", "status": "failed"}
+        evidence["process_limits"] = {name: resource.getrlimit(getattr(resource, name)) for name in (
+            "RLIMIT_AS", "RLIMIT_FSIZE", "RLIMIT_NPROC", "RLIMIT_NOFILE", "RLIMIT_STACK", "RLIMIT_CORE")}
+        evidence["cpu_count"] = os.cpu_count()
         with (root / "stderr.log").open("wb") as stderr:
             process = subprocess.Popen(command, cwd=workspace, env=env, stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE, stderr=stderr, start_new_session=True, bufsize=0)
@@ -135,9 +163,7 @@ def run(args):
             except Exception as error:
                 evidence["error"] = type(error).__name__ + ": " + str(error)
             finally:
-                if process.poll() is None:
-                    os.killpg(process.pid, signal.SIGKILL)
-                    process.wait(timeout=10)
+                finish_process(process, evidence)
                 process.stdin.close()
                 process.stdout.close()
                 if recipe.get("cleanup_args"):
@@ -147,7 +173,9 @@ def run(args):
                     subprocess.run(cleanup, cwd=workspace, env=env,
                         stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=True)
         evidence["messages"] = connection.received[-12:]
-        evidence["stderr"] = (root / "stderr.log").read_text(errors="replace")[-5000:]
+        with (root / "stderr.log").open("rb") as stderr:
+            stderr.seek(max(0, stderr.seek(0, os.SEEK_END) - 5000))
+            evidence["stderr"] = stderr.read(5000).decode(errors="replace")
         args.output.write_text(json.dumps(evidence, indent=2) + "\n")
         print(json.dumps({key: evidence[key] for key in ("id", "target", "status")}), flush=True)
         return evidence["status"] == "passed"
