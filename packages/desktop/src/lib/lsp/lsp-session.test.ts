@@ -8,6 +8,7 @@ const { transport, handlers } = vi.hoisted(() => {
     transport: {
       send: vi.fn(),
       close: vi.fn(),
+      setOnDiagnosticRefresh: vi.fn(),
       subscribe: (handler: (message: string) => void) => handlers.add(handler),
       unsubscribe: (handler: (message: string) => void) => handlers.delete(handler),
     },

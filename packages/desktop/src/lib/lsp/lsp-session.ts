@@ -14,6 +14,7 @@ import { CadencrWorkspace } from "./cadencr-workspace";
 import { pathToFileUri } from "./file-uri";
 import { buildLspNotificationHandlers } from "./notifications";
 import { cadencrServerDiagnostics, type ClientRef } from "./diagnostics";
+import { refreshPullDiagnostics } from "./pull-diagnostics";
 
 interface SessionParts {
   client: LSPClient;
@@ -62,6 +63,7 @@ export async function buildSession(
     extensions: [cadencrServerDiagnostics(bucketKey, clientRef)],
   });
   clientRef.current = client;
+  transport.setOnDiagnosticRefresh(() => refreshPullDiagnostics(client));
   try {
     client.connect(transport);
     // A connected WebSocket is not a ready language server. Await the LSP

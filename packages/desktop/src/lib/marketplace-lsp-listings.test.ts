@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { lspListings } from "./marketplace-lsp-listings";
+import { lspPackageSchema } from "./marketplace-lsp-package";
 import { lspCatalogSchema, type LspInventory } from "./lsp/marketplace";
 import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
 import { auroraPlugin, auroraTheme, signedCatalog } from "./marketplace-plugin-fixtures";
@@ -69,6 +70,42 @@ const inventory: LspInventory = {
 };
 
 describe("marketplace LSP listings", () => {
+  it("retains signed Node requirements and rejects malformed or native requirements", () => {
+    const value = entry().package;
+    const target = value.lsp.distribution.binary["linux-x86_64"];
+    const withTarget = (replacement: unknown) => ({
+      ...value,
+      lsp: { ...value.lsp, distribution: { binary: { "linux-x86_64": replacement } } },
+    });
+    expect(
+      lspPackageSchema.parse(withTarget({ ...target, node_min_version: "22.18.0" })).lsp
+        .distribution.binary["linux-x86_64"].node_min_version,
+    ).toBe("22.18.0");
+    for (const minimum of [
+      null,
+      true,
+      22,
+      "22",
+      ">=22.18.0",
+      "22.18.0-rc.1",
+      "22.18.0+build",
+      "022.18.0",
+      "22.18.0\n",
+    ]) {
+      expect(
+        lspPackageSchema.safeParse(withTarget({ ...target, node_min_version: minimum })).success,
+      ).toBe(false);
+    }
+    expect(
+      lspPackageSchema.safeParse(
+        withTarget({ ...target, runtime: "native", node_min_version: "22.18.0" }),
+      ).success,
+    ).toBe(false);
+    expect(
+      lspPackageSchema.parse(value).lsp.distribution.binary["linux-x86_64"].node_min_version,
+    ).toBeUndefined();
+  });
+
   it.each(["darwin-aarch64", "linux-x86_64"])(
     "uses host verdicts on %s without guessing from the browser OS",
     (host) => {

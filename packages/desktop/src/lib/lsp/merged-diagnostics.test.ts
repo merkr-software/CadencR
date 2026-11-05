@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import type { Diagnostic } from "@codemirror/lint";
-import { mergedDiagnosticsField, setServerDiagnostics, flattenBuckets } from "./merged-diagnostics";
+import {
+  mergedDiagnostics,
+  mergedDiagnosticsField,
+  setServerDiagnostics,
+  flattenBuckets,
+} from "./merged-diagnostics";
 
 function diag(from: number, to: number, message: string): Diagnostic {
   return { from, to, severity: "error", message };
@@ -52,5 +57,20 @@ describe("merged-diagnostics reducer", () => {
     state = apply(state, "b", [diag(1, 2, "earlier")]);
     const merged = flattenBuckets(state.field(mergedDiagnosticsField));
     expect(merged.map((d) => d.message)).toEqual(["earlier", "later"]);
+  });
+
+  it("removes disabled servers and refuses their late diagnostics", () => {
+    const servers = new Compartment();
+    let state = EditorState.create({
+      doc: "abcdefghij",
+      extensions: [servers.of(mergedDiagnostics(["typescript", "eslint"]))],
+    });
+    state = apply(state, "typescript", [diag(0, 1, "type error")]);
+    state = apply(state, "eslint", [diag(2, 3, "lint warning")]);
+    state = state.update({ effects: servers.reconfigure(mergedDiagnostics(["typescript"])) }).state;
+    state = apply(state, "eslint", [diag(4, 5, "late warning")]);
+    expect(
+      flattenBuckets(state.field(mergedDiagnosticsField)).map((entry) => entry.message),
+    ).toEqual(["type error"]);
   });
 });

@@ -18,8 +18,22 @@ const targetSchema = z
     entry_sha256: z.string(),
     entry_size: z.number(),
     runtime: z.string().min(1),
+    node_min_version: z
+      .string()
+      .max(64)
+      .regex(/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)(?![\s\S])/)
+      .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((target, context) => {
+    if (target.node_min_version !== undefined && target.runtime !== "node") {
+      context.addIssue({
+        code: "custom",
+        path: ["node_min_version"],
+        message: "A minimum Node.js version requires the Node runtime",
+      });
+    }
+  });
 
 export const lspPackageSchema = z
   .object({

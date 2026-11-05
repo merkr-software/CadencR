@@ -36,6 +36,7 @@ export class WebSocketLspTransport implements Transport {
    * `close()`. The client-manager uses this to drive auto-reconnect. */
   private onCloseCb: ((unexpected: boolean) => void) | null = null;
   private closeFired = false;
+  private onDiagnosticRefresh: (() => void) | null = null;
 
   /** Use `connectLspWs(sessionId)` instead — that handles the open-promise. */
   constructor(ws: WebSocket) {
@@ -52,6 +53,10 @@ export class WebSocketLspTransport implements Transport {
    */
   setOnClose(cb: (unexpected: boolean) => void): void {
     this.onCloseCb = cb;
+  }
+
+  setOnDiagnosticRefresh(callback: () => void): void {
+    this.onDiagnosticRefresh = callback;
   }
 
   send(message: string): void {
@@ -98,6 +103,7 @@ export class WebSocketLspTransport implements Transport {
     const response = buildClientRequestResponse(event.data);
     if (response) {
       this.send(response);
+      if (request?.method === "workspace/diagnostic/refresh") this.onDiagnosticRefresh?.();
       return;
     }
     for (const handler of this.handlers) {

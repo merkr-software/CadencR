@@ -113,9 +113,9 @@ export function useLsp({
   const extension = useMemo<Extension>(() => {
     if (clients.length === 0 || !languageId || !absPath) return [];
     const uri = pathToFileUri(absPath);
-    const plugins = clients.map((c) => c.client.plugin(uri, languageId));
+    const plugins = clients.map((c) => c.workspace.editorPlugin(uri, languageId));
     return [
-      mergedDiagnostics(),
+      mergedDiagnostics(clients.map((client) => client.lspId)),
       ...plugins,
       serverCompletion(),
       lspLanguageFeatures,
