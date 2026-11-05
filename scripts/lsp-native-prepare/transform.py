@@ -40,6 +40,12 @@ def transform(data, spec, target, strip_program=None):
     with tempfile.TemporaryDirectory(prefix="cadencr-strip-") as directory:
         source, output = Path(directory) / "source", Path(directory) / "output"
         source.write_bytes(data)
-        subprocess.run([program, "--strip-debug", "--output", str(output), str(source)],
-                       check=True, capture_output=True, env=env)
+        try:
+            subprocess.run([program, "--strip-debug", "--output-file", str(output), str(source)],
+                           check=True, capture_output=True, env=env)
+        except subprocess.CalledProcessError as error:
+            detail = (error.stderr or b"")[-4096:].decode(errors="replace")
+            for path, label in [(str(source), "<input>"), (str(output), "<output>"), (program, "<strip>")]:
+                detail = detail.replace(path, label)
+            raise ValueError(f"GNU strip failed with exit {error.returncode}: {detail.strip()}") from None
         return output.read_bytes()

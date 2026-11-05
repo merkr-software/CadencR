@@ -3,6 +3,7 @@ import io
 import json
 from pathlib import Path
 import struct
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ import zipfile
 
 from archive import bounded, executable, retained, safe_name, selected
 from prepare import acquire
-from transform import macho_slice
+from transform import macho_slice, transform
 
 
 def tar(entries):
@@ -94,6 +95,23 @@ class NativePreparationTests(unittest.TestCase):
                 acquire({"url": "https://github.com/example/release", "sha256": "", "size": 1}, Path(directory), True)
             with self.assertRaisesRegex(ValueError, "HTTPS"):
                 acquire({"url": "http://github.com/example/release", "sha256": "a" * 64, "size": 1}, Path(directory), True)
+
+    def test_strip_failure_preserves_bounded_diagnostics_without_private_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            program = Path(directory) / "strip"
+            program.touch()
+
+            def run(command, **_options):
+                if command[-1] == "--version":
+                    return subprocess.CompletedProcess(command, 0, stdout=b"GNU strip 2.42\n")
+                stderr = b"x" * 5000 + f"\n{command[0]}: {command[-1]}: format not recognized".encode()
+                raise subprocess.CalledProcessError(1, command, stderr=stderr)
+
+            with patch("transform.subprocess.run", side_effect=run), self.assertRaises(ValueError) as error:
+                transform(b"upstream", {"transform": "gnu-strip-debug-2.42"}, "linux-x86_64", program)
+            self.assertIn("<strip>: <input>: format not recognized", str(error.exception))
+            self.assertNotIn(directory, str(error.exception))
+            self.assertLessEqual(len(str(error.exception)), 4140)
 
 
 if __name__ == "__main__":
