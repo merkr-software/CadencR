@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -16,9 +15,9 @@ const providers = readdirSync(join(root, "plugins/providers"), { withFileTypes: 
   .filter((entry) => entry.isDirectory())
   .map((entry) => json(`plugins/providers/${entry.name}/package.json`));
 const pluginNames = new Set(providers.map((manifest) => manifest.name));
-const piManifest = providers.find((manifest) => manifest.name === "@cadencr/pi-provider");
 // `@cadencr/<id>-provider` → the `plugins/provider-<id>/v<version>` tag namespace.
-const providerTagId = (manifest) => manifest.name.replace(/^@cadencr\//, "").replace(/-provider$/, "");
+const providerTagId = (manifest) =>
+  manifest.name.replace(/^@cadencr\//, "").replace(/-provider$/, "");
 
 test("official providers expose only dedicated tasks and share the root lockfile", () => {
   const generic = [
@@ -46,11 +45,13 @@ test("official providers expose only dedicated tasks and share the root lockfile
       assert.equal(manifest.scripts[task], undefined, `${manifest.name}#${task}`);
     for (const task of dedicated) assert.ok(manifest.scripts[task], `${manifest.name}#${task}`);
   }
-  assert.equal(existsSync(join(root, "plugins/providers/pi/pnpm-lock.yaml")), false);
   assert.ok(yaml("pnpm-workspace.yaml").packages.includes("plugins/providers/*"));
-  const importer = yaml("pnpm-lock.yaml").importers["plugins/providers/pi"];
-  assert.ok(importer.devDependencies.oxlint);
-  assert.equal(importer.dependencies, undefined, "Pi bundles no npm runtime dependencies");
+  const importers = yaml("pnpm-lock.yaml").importers;
+  for (const manifest of providers) {
+    const path = `plugins/providers/${providerTagId(manifest)}`;
+    assert.equal(existsSync(join(root, path, "pnpm-lock.yaml")), false);
+    assert.ok(importers[path], `${path} shares the root lockfile`);
+  }
 });
 
 test("application workspace dependency edges never reach official provider sources", () => {
@@ -155,7 +156,7 @@ test("app-only resource guard rejects plugins, extra resources and changed bundl
     const invalid = [
       { ...resourceFixture(source), files: ["**/*"] },
       { ...resourceFixture(source), files: [...resourceFixture(source).files, "plugins/**"] },
-      resourceFixture("plugins/providers/pi/bin/provider"),
+      resourceFixture("plugins/providers/inert/bin/provider"),
       resourceFixture("resources/bin/${arch}/plugins/provider"),
       resourceFixture("resources/bin/arbitrary/cadencr-service"),
       {
@@ -164,7 +165,7 @@ test("app-only resource guard rejects plugins, extra resources and changed bundl
       },
     ];
     for (const resource of [
-      { from: "plugins/providers/pi", to: "plugins/pi" },
+      { from: "plugins/providers/inert", to: "plugins/inert" },
       { from: "resources/extra", to: "extra" },
     ]) {
       const fixture = resourceFixture(source);
@@ -177,8 +178,8 @@ test("app-only resource guard rejects plugins, extra resources and changed bundl
       [1, "to", "plugins/themes"],
       [0, "filter", ["**/*"]],
       [2, "filter", ["**/*"]],
-      [2, "from", "plugins/providers/pi"],
-      [3, "from", "plugins/providers/pi"],
+      [2, "from", "plugins/providers/inert"],
+      [3, "from", "plugins/providers/inert"],
       [3, "to", "plugins/icon"],
     ]) {
       const fixture = resourceFixture(source);
@@ -199,41 +200,13 @@ test("production and local Electron bundles retain explicit app-only resources",
   }
 });
 
-test("the root packaging command forwards options and emits only a separate Pi payload", (t) => {
-  const work = mkdtempSync(join(tmpdir(), "cadencr-official-pi-command-"));
-  t.after(() => {
-    // Retain unexpected databases rather than deleting any persistent state.
-    for (const entry of readdirSync(work, { recursive: true, withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      assert.doesNotMatch(entry.name, /\.(?:db|sqlite)(?:-(?:wal|shm))?$/i);
-      const header = readFileSync(join(entry.parentPath, entry.name)).subarray(0, 16);
-      assert.notEqual(header.toString(), "SQLite format 3\0", "unexpected database retained");
-    }
-    rmSync(work, { recursive: true, force: true });
-  });
-  const payload = join(work, "payload");
-  const result = spawnSync("pnpm", ["run", "package:plugin:pi", "--directory", payload], {
-    cwd: root,
-    encoding: "utf8",
-    timeout: 30_000,
-  });
-  assert.equal(result.error, undefined);
-  assert.equal(result.status, 0, result.stderr);
-  assert.deepEqual(readdirSync(payload).sort(), ["LICENSE", "README.md", "bin", "icon.svg"]);
-  const version = spawnSync(join(payload, "bin/provider"), ["version"], {
-    encoding: "utf8",
-    timeout: 10_000,
-  });
-  assert.equal(version.status, 0, version.stderr);
-  assert.equal(version.stdout.trim(), piManifest.version);
-  assert.ok(readFileSync(`${payload}.SHA256SUMS`, "utf8").includes("bin/provider"));
-});
-
 test("independent official plugin tag namespaces do not trigger desktop releases", () => {
   const desktopTags = yaml(".github/workflows/desktop-release.yml").on.push.tags;
   assert.deepEqual(desktopTags, ["v*"]);
   const tags = [
-    ...providers.map((manifest) => `plugins/provider-${providerTagId(manifest)}/v${manifest.version}`),
+    ...providers.map(
+      (manifest) => `plugins/provider-${providerTagId(manifest)}/v${manifest.version}`,
+    ),
     ...["graphite", "ember", "fjord"].map((name) => `plugins/theme-${name}/v0.1.0`),
   ];
   for (const tag of tags) {
@@ -243,7 +216,7 @@ test("independent official plugin tag namespaces do not trigger desktop releases
   assert.equal(`v${json("packages/desktop/package.json").version}`.startsWith("v"), true);
 });
 
-test("isolated plugin CI requires real Pi candidate tests with the already pinned CLI", () => {
+test("isolated plugin CI validates themes with the pinned CLI", () => {
   const workflow = yaml(".github/workflows/ci.yml");
   const job = workflow.jobs.plugins;
   assert.equal(job.if, undefined);
@@ -251,14 +224,10 @@ test("isolated plugin CI requires real Pi candidate tests with the already pinne
   assert.equal(job.environment, undefined, "candidate checks have no production authority");
   const steps = job.steps;
   const fetch = steps.findIndex((step) => step.run?.includes("fetch-released-cli.sh"));
-  const candidate = steps.findIndex((step) => step.name === "Canonical Pi candidate preparation");
-  assert.ok(fetch >= 0 && candidate > fetch, "candidate tests require the verified download");
+  const pack = steps.findIndex(
+    (step) => step.name === "Canonical theme validation and deterministic packaging",
+  );
+  assert.ok(fetch >= 0 && pack > fetch, "theme packaging requires the verified download");
   assert.match(steps[fetch].run, /scripts\/cli-qualification\.env/);
-  assert.deepEqual(steps[candidate], {
-    name: "Canonical Pi candidate preparation",
-    run:
-      'CADENCR_PI_CANDIDATE_TEST_CLI="$RUNNER_TEMP/official-plugin-cli/cadencr" \\\n' +
-      "  node --test plugins/providers/pi/test/candidate-package.test.mjs\n",
-  });
   assert.ok(workflow.jobs["precommit-checks"].needs.includes("plugins"));
 });

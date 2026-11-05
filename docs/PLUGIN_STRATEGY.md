@@ -1,5 +1,10 @@
 # Cadencr Plugin Strategy
 
+> Pi implementation status (2026-11-04): the first-party connector has been
+> retired in favor of [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi).
+> Pi details below retain historical contract/QA evidence. See the
+> [handoff record](./PI_PROVIDER_HANDOFF.md) for registry transfer status.
+
 Status: v0.12.0 targets local theme/provider plugins (decision 2026-09-12).
 GitHub-only public distribution remains accepted for later, not the current
 release objective.
@@ -163,13 +168,13 @@ Precedent that the team already accepts DB-backed, user-contributed UI: **Custom
 
 1. Every plugin-reachable HTTP path stays behind `auth_middleware` + the Host/DNS-rebinding check; no router bypasses `build_router`'s stack.
 2. Renderer CSP never widens (`script-src 'self'` packaged is absolute). No plugin JS in the renderer. Custom-tab guests get their own, stricter CSP (`connect-src 'none'`) and partition.
-9. A plugin credential is a grant: short-lived, in memory, bound to one plugin, project and feature, checked against the policy table on every request. It never reaches plugin code, and the plugin socket accepts no session-control action.
-3. Third-party installs never touch the signed bundle or the sqlx migration chain.
-4. Third-party artifacts get their own supply-chain gates (the workspace's `minimumReleaseAge`/`blockExoticSubdeps`/`allowBuilds:false` don't cover them): pinned versions, distribution-specific integrity verification, and no lifecycle scripts. Binary ACP distributions require SHA-256 under Cadencr policy even though the ACP field is optional; package distributions require exact versions and captured package-manager integrity.
-5. **Hash host authority and re-prompt on change.** For plugins, this means declared host capabilities. For agents, this means the signed distribution and launch policy (command, arguments, non-secret environment, sandbox/filesystem scope). Runtime ACP capabilities from `initialize` are compatibility metadata, not a security permission manifest. Provider credentials stay in the provider's already-configured native CLI and never enter the marketplace package.
-6. **Credential-path protection needs two layers.** Mediated Rust filesystem operations deny access to credential files (`~/.claude/.credentials.json`, `~/.codex/auth.json`, SSH keys, `gh` tokens, `.env`). That denylist cannot constrain an executable with ambient OS access, so marketplace-downloaded agent and plugin processes require a workspace-scoped OS sandbox or an explicit unresolved security gate before release. This protects existing native credentials; it does not make Cadencr their owner or authentication broker.
-7. Scan submitted executable fields, identifiers, keys, and code-bearing content as **bytes**; reject invisible Unicode used for concealment. Do not blanket-reject legitimate variation selectors in human-facing prose or icons.
-8. The Electron fuses + ASAR integrity hardening (§5, 4a) is plugin-independent — do it early. _(Verify exact fuse names against current Electron docs before implementing.)_
+3. A plugin credential is a grant: short-lived, in memory, bound to one plugin, project and feature, checked against the policy table on every request. It never reaches plugin code, and the plugin socket accepts no session-control action.
+4. Third-party installs never touch the signed bundle or the sqlx migration chain.
+5. Third-party artifacts get their own supply-chain gates (the workspace's `minimumReleaseAge`/`blockExoticSubdeps`/`allowBuilds:false` don't cover them): pinned versions, distribution-specific integrity verification, and no lifecycle scripts. Binary ACP distributions require SHA-256 under Cadencr policy even though the ACP field is optional; package distributions require exact versions and captured package-manager integrity.
+6. **Hash host authority and re-prompt on change.** For plugins, this means declared host capabilities. For agents, this means the signed distribution and launch policy (command, arguments, non-secret environment, sandbox/filesystem scope). Runtime ACP capabilities from `initialize` are compatibility metadata, not a security permission manifest. Provider credentials stay in the provider's already-configured native CLI and never enter the marketplace package.
+7. **Credential-path protection needs two layers.** Mediated Rust filesystem operations deny access to credential files (`~/.claude/.credentials.json`, `~/.codex/auth.json`, SSH keys, `gh` tokens, `.env`). That denylist cannot constrain an executable with ambient OS access, so marketplace-downloaded agent and plugin processes require a workspace-scoped OS sandbox or an explicit unresolved security gate before release. This protects existing native credentials; it does not make Cadencr their owner or authentication broker.
+8. Scan submitted executable fields, identifiers, keys, and code-bearing content as **bytes**; reject invisible Unicode used for concealment. Do not blanket-reject legitimate variation selectors in human-facing prose or icons.
+9. The Electron fuses + ASAR integrity hardening (§5, 4a) is plugin-independent — do it early. _(Verify exact fuse names against current Electron docs before implementing.)_
 
 ## 7. Marketplace
 
@@ -208,7 +213,7 @@ Skills and MCP servers are **not plugins and not registry content**: they are pr
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
 | **1 — Custom themes**        | 1a themes-as-data → 1b user theme import + validation → 1c theme sharing through the registry after provider marketplace V1                                                                                                                                                                                                      | S–M  |
 | **2 — Bring your own agent** | 2a registry dynamism + de-staticization → 2b generic ACP adapter + local agent entries → 2b.1 code-backed executable contract, pre-session models, native Pi validation, developer workspace, and stable v1 resume/close → 2c existing signed package backend → GitHub publication + M1/M2 release gates → in-app marketplace V1 | L    |
-| **3 — Custom tabs**          | 3a `parseTabKindArray` fix + open `TabKind` → 3c isolated web-UI plugin tabs (manifest, authoring, enablement, SDK + kit; amended 2026-10-16) → npm publication of the SDK/kit → mobile host                                                                                                                                 | M–L  |
+| **3 — Custom tabs**          | 3a `parseTabKindArray` fix + open `TabKind` → 3c isolated web-UI plugin tabs (manifest, authoring, enablement, SDK + kit; amended 2026-10-16) → npm publication of the SDK/kit → mobile host                                                                                                                                     | M–L  |
 | **4 — Deeper behavior**      | 4a foundations (fuses/ASAR, tables, installer, `plugin` WS domain, M2 kill-switch) → 4b contribution surfaces (§5.1) → 4c behavior + events + scoped tokens → 4d escape hatches only on proven demand; broader publishing UX when warranted                                                                                      | XL   |
 
 Each phase merges on its own; gate releases on their actual runtime and security dependencies, not on completion of an unrelated content track. The skills/MCP helper (§8) is scheduled independently, later.

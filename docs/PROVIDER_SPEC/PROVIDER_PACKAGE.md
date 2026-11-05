@@ -1,5 +1,10 @@
 # Cadencr code-backed provider package contract
 
+> Pi implementation status (2026-11-04): the first-party connector has been
+> retired in favor of [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi).
+> Pi details below retain historical contract/QA evidence. See the
+> [handoff record](../PI_PROVIDER_HANDOFF.md) for registry transfer status.
+
 > - **Status:** Local v1 code-and-icon plus managed package/install/conformance backend implemented; release trust pins and marketplace UI deferred
 > - **Plan reviewed:** 2026-09-05; see [remaining work and release gates](./BOUNDARIES.md#implementation-audit--2026-09-05)
 > - **Contract version:** `acp-config-options-v1` + `acp-v1`

@@ -616,15 +616,6 @@ importers:
 
   plugins/providers/cursor: {}
 
-  plugins/providers/pi:
-    devDependencies:
-      oxfmt:
-        specifier: ^0.72.0
-        version: 0.72.0
-      oxlint:
-        specifier: ^1.87.0
-        version: 1.87.0
-
 packages:
 
   '@adobe/css-tools@4.4.4':

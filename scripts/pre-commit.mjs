@@ -64,8 +64,8 @@ const STEP = {
   agentsMd: ["AGENTS.md matches .claude/rules", ["node", "scripts/build-agents-md.mjs", "--check"]],
   providerBoundaries: ["provider boundaries", ["pnpm", "run", "check:provider-boundaries"]],
   rootTests: ["root script tests", ["pnpm", "run", "test:scripts"]],
-  providerPluginChecks: ["provider plugin static checks", ["pnpm", "run", "check:plugin:pi"]],
-  providerPluginTests: ["provider plugin tests", ["pnpm", "run", "test:plugin:pi"]],
+  providerPluginChecks: ["provider plugin static checks", ["pnpm", "run", "check:plugin:cursor"]],
+  providerPluginTests: ["provider plugin tests", ["pnpm", "run", "test:plugin:cursor"]],
   themePluginTests: ["theme plugin checks", ["pnpm", "run", "test:plugin:themes"]],
   releaseTests: ["release script tests", ["pnpm", "run", "test:release-scripts"]],
   rustFormat: ["Rust format", ["pnpm", "--filter", "@cadencr/service", "run", "format:check"]],
@@ -163,8 +163,6 @@ function fullPlan(reason) {
       step(STEP.providerBoundaries),
       step(STEP.rootTests),
       step(STEP.releaseTests),
-      step(STEP.providerPluginChecks),
-      step(STEP.providerPluginTests),
       step(STEP.themePluginTests),
       {
         label: "workspace checks",
@@ -204,7 +202,8 @@ export function buildPrecommitPlan(entries, { full = false } = {}) {
 
   if (byArea.has("boundaries")) steps.push(step(STEP.providerBoundaries));
   steps.push(step(STEP.rootTests));
-  if (byArea.has("providerPlugins")) {
+  // Workspace Rust checks already cover the remaining Cursor connector.
+  if (byArea.has("providerPlugins") && !byArea.has("rust")) {
     steps.push(step(STEP.providerPluginChecks), step(STEP.providerPluginTests));
   }
   if (byArea.has("themePlugins")) steps.push(step(STEP.themePluginTests));

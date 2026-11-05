@@ -117,9 +117,7 @@ test("official plugins have a separate read-only job included in the required ga
   const runs = job.steps.map((step) => step.run ?? "").join("\n");
   for (const command of [
     "pnpm install --frozen-lockfile",
-    "pnpm run check:plugin:pi",
     "pnpm run test:plugins",
-    "pnpm run build:plugin:pi",
     "fetch-released-cli.sh",
     "scripts/cli-qualification.env",
     "plugin validate",
