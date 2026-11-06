@@ -1,21 +1,55 @@
 //! The sink stays owned by the proxy so its close reply survives worker teardown.
-use std::time::Duration;
+use std::{future::Future, time::Duration};
 
 use axum::extract::ws::Message;
 use futures::{Sink, SinkExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
-/// Outbound channel → WS sink, borrowed until another proxy direction finishes.
-pub(super) async fn ws_sender<S>(mut sink: S, mut rx: mpsc::UnboundedReceiver<Message>)
+use super::outbound::ws_sender;
+
+pub(super) enum Exit {
+    Peer(bool),
+    Stdout,
+    Sender,
+    Idle,
+}
+
+/// Flush final stdout, send Close and await the peer within one shared deadline.
+#[bon::builder]
+pub(super) async fn finish<S, F>(
+    sink: &mut S,
+    outgoing: &mut mpsc::UnboundedReceiver<Message>,
+    pending: &mut Option<Message>,
+    received_close: F,
+    exit: Exit,
+    display_name: &str,
+) -> bool
 where
-    S: SinkExt<Message> + Unpin,
+    S: Sink<Message> + Unpin,
+    S::Error: std::fmt::Display,
+    F: Future<Output = bool>,
 {
-    while let Some(msg) = rx.recv().await {
-        if sink.send(msg).await.is_err() {
-            return;
+    let mut clean = matches!(exit, Exit::Peer(true) | Exit::Idle);
+    let shutdown = async {
+        if matches!(exit, Exit::Stdout) {
+            outgoing.close();
+            ws_sender(sink, outgoing, pending).await;
         }
+        close(sink, display_name).await;
+        if !matches!(exit, Exit::Peer(_)) {
+            let peer_clean = received_close.await;
+            // A normal acknowledgement cannot turn an early child exit into success.
+            clean |= matches!(exit, Exit::Sender) && peer_clean;
+        }
+    };
+    if tokio::time::timeout(Duration::from_secs(1), shutdown)
+        .await
+        .is_err()
+    {
+        warn!("lsp {display_name} WebSocket shutdown timed out");
     }
+    clean
 }
 
 pub(super) async fn close<S>(sink: &mut S, display_name: &str)
@@ -65,6 +99,7 @@ mod tests {
         };
         let tracker = CrashTracker::new();
         tracker.record_crash(key.clone()).await;
+        assert!(tracker.check(&key).await.is_err());
         let child = Command::new("/bin/cat")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -143,6 +178,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(tracker.check(&key).await.is_ok(), code == Some(1000));
+        if code == Some(1000) {
+            // A fresh crash must start at two seconds, proving history was removed
+            // rather than merely waiting long enough for the seeded cooldown.
+            tracker.record_crash(key.clone()).await;
+            assert!(tracker.check(&key).await.unwrap_err() <= Duration::from_secs(2));
+        }
         // SAFETY: signal 0 only checks this test's child PID; no signal is delivered.
         assert_eq!(
             unsafe { libc::kill(pid, 0) },
@@ -229,5 +270,98 @@ mod tests {
     #[tokio::test]
     async fn abrupt_disconnect_reaps_child_and_preserves_backoff() {
         exercise_close(None).await;
+    }
+
+    async fn exercise_stdout_shutdown(acknowledge: bool) {
+        let (finished, mut completion) = mpsc::unbounded_channel();
+        let app = Router::new().route(
+            "/",
+            get(move |upgrade: WebSocketUpgrade| {
+                let finished = finished.clone();
+                async move {
+                    upgrade.on_upgrade(move |socket| async move {
+                        let (mut sink, mut stream) = socket.split();
+                        let (sender, mut outgoing) = mpsc::unbounded_channel();
+                        sender
+                            .send(axum::extract::ws::Message::Text("second".into()))
+                            .unwrap();
+                        sender
+                            .send(axum::extract::ws::Message::Text("last".into()))
+                            .unwrap();
+                        let mut pending = Some(axum::extract::ws::Message::Text("first".into()));
+                        let received = async move {
+                            matches!(
+                                stream.next().await,
+                                Some(Ok(axum::extract::ws::Message::Close(_)))
+                            )
+                        };
+                        let clean = super::finish()
+                            .sink(&mut sink)
+                            .outgoing(&mut outgoing)
+                            .pending(&mut pending)
+                            .received_close(received)
+                            .exit(super::Exit::Stdout)
+                            .display_name("stdout-regression")
+                            .call()
+                            .await;
+                        finished.send(clean).unwrap();
+                    })
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let (mut client, _) = tokio_tungstenite::connect_async(format!("ws://{address}/"))
+            .await
+            .unwrap();
+        for expected in ["first", "second", "last"] {
+            assert_eq!(
+                timeout(Duration::from_secs(2), client.next())
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .unwrap()
+                    .into_text()
+                    .unwrap(),
+                expected
+            );
+        }
+        assert!(matches!(
+            timeout(Duration::from_secs(2), client.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            Message::Close(_)
+        ));
+        // Reading Close queues its reply; flushing it is a separate client action.
+        assert!(timeout(Duration::from_millis(50), completion.recv())
+            .await
+            .is_err());
+        if acknowledge {
+            client.flush().await.unwrap();
+            assert!(!timeout(Duration::from_millis(500), completion.recv())
+                .await
+                .unwrap()
+                .unwrap());
+        } else {
+            assert!(!timeout(Duration::from_millis(1500), completion.recv())
+                .await
+                .unwrap()
+                .unwrap());
+        }
+        server.abort();
+        assert!(server.await.unwrap_err().is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_drains_final_frames_and_waits_for_close_acknowledgement() {
+        exercise_stdout_shutdown(true).await;
+    }
+
+    #[tokio::test]
+    async fn stdout_eof_shutdown_is_bounded_when_peer_never_acknowledges() {
+        exercise_stdout_shutdown(false).await;
     }
 }
