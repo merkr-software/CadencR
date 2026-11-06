@@ -557,16 +557,9 @@ a future desktop release. Publication is not public UI or desktop trust activati
       plugin or production publication authority.
 - [ ] Review/promote the separate production author pin and provision the protected
       author environment/account before enabling the official author job.
-- [ ] Harden and package the Pi draft from `plugins/providers/pi`, retaining
-      its existing `0.4.0` candidate version unless a different initial release is
-      explicitly selected. Establish source provenance, runtime prerequisites and
-      supported targets; validate the extracted payload and generic ACP host path.
-      Native arm64 packaging/extraction and prompt-free ACP lifecycle now pass
-      with real Pi and synthetic model configuration; generic service admission
-      and catalog discovery pass. Authenticated turns, managed installation and
-      x86_64 remain unqualified; the bounded generic-host runtime follow-up is
-      recorded below. See the
-      [initial native evidence](./qa/MARKETPLACE_PI_NATIVE_2026_10_17.md).
+- [x] Retire the first-party Pi implementation in favor of edjubert's independent
+      connector. The administrative registry transfer and signed-catalog changes
+      remain separate; see [the handoff record](./PI_PROVIDER_HANDOFF.md).
 - [x] Exercise the extracted Pi connector and real Pi against a credential-free
       loopback model: direct ACP streaming/usage, durable connector restart/resume
       context and cancellation pass. The actual service's generic adapter also

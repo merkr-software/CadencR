@@ -15,8 +15,8 @@ setting. The workspace access default uses the provider-neutral
 `provider_access_mode.cursor` key; at startup the host copies a former
 `cursor_access_mode` value there once, unless the new key is already set.
 
-The plugin installs through the same generic installed-provider path as the Pi
-connector (`plugins/providers/pi/`): a signed package with a descriptor, the
+The plugin installs through the generic installed-provider path: a signed
+package with a descriptor, the
 connector executable, and a connector-owned `icon.svg` that the runtime catalog
 serves to the desktop. The provider id stays `cursor`, so existing Cursor
 conversations keep their provider identity once the plugin is installed.

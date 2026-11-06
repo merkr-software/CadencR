@@ -32,9 +32,17 @@ and the minimum macOS version remain separate qualification work.
 The earlier preparation notes below retain historical `PENDING` states. Current
 machine policies and the package-specific source record govern this publication.
 
+## Pi retirement — 2026-11-04
+
+The first-party Pi source, qualification workflow and `provider-pi` release-policy
+entry have been removed in favor of edjubert's independent connector. Historical
+Pi evidence below describes the retired implementation. New official Pi releases
+are no longer allowlisted. See [the handoff record](../docs/PI_PROVIDER_HANDOFF.md)
+for the separate registry ownership and catalog publication requirements.
+
 ## Scope
 
-- Tags: `plugins/provider-pi/v0.4.1`, `plugins/theme-graphite/v0.1.0`,
+- Tags: `plugins/theme-graphite/v0.1.0`,
   `plugins/theme-ember/v0.1.0`, `plugins/theme-fjord/v0.1.0`.
 - Never use desktop `v*` tags. Plugin versions do not change app versions.
 - `release-policy.json` records the explicit source identities, independent versions
@@ -62,7 +70,7 @@ delivered or promoted. The separate author pin and publication policies remain
 | `closed_directories`          | Exact runtime subtrees: extra/missing files fail rather than disappear   |
 | `publication`                 | Still `PENDING`; only a separate reviewed change may approve publication |
 
-Themes have exact closed `theme.json` trees. Pi's interpreted modules are copied
+Themes have exact closed `theme.json` trees. Historically, Pi's interpreted modules were copied
 from `src/*.mjs` into `bin/`, with `provider.mjs` renamed `provider` and marked
 executable; the copied launcher is **never run**. Explicit readme/license/icon
 blobs are included. Author scripts, tests and dependencies are not payload.
@@ -114,8 +122,8 @@ by this implementation. See the activation gates below.
 
 Before enabling official publication, review:
 
-- [ ] Source licenses and Pi artwork provenance.
-- [ ] Pi supported native targets and canonical registry package metadata.
+- [ ] Source licenses for each active candidate.
+- [ ] Supported native targets and canonical registry package metadata for each active candidate.
 - [ ] Generic-host conformance and real supported-platform behavior.
 - [x] Registry CLI publication/resume/recovery/renewal qualification with the distributed
       `0.13.1-dev.38974097824.1` binary in the isolated public QA registry.

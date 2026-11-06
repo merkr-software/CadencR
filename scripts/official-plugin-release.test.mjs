@@ -198,7 +198,6 @@ test("checked-in official policy hashes match actual sources and approve no tab"
     "lsp-typescript-language-server",
     "lsp-vue-language-server",
     "lsp-yaml-language-server",
-    "provider-pi",
     "theme-ember",
     "theme-fjord",
     "theme-graphite",
@@ -214,8 +213,14 @@ test("checked-in official policy hashes match actual sources and approve no tab"
     const identity = metadata.package[entry.kind === "provider" ? "agent" : entry.kind];
     assert.equal(identity.id, entry.id);
     assert.equal(identity.version, entry.version);
-    assert.equal(metadata.package.host.publisher, entry.kind === "lsp" ? "merkr-software" : "cadencr");
-    assert.equal(metadata.package.host.compatibility.min_app_version, entry.kind === "lsp" ? "0.16.1" : "0.15.0");
+    assert.equal(
+      metadata.package.host.publisher,
+      entry.kind === "lsp" ? "merkr-software" : "cadencr",
+    );
+    assert.equal(
+      metadata.package.host.compatibility.min_app_version,
+      entry.kind === "lsp" ? "0.16.1" : "0.15.0",
+    );
     for (const payload of Object.values(entry.payloads))
       for (const [name, declaration] of Object.entries(payload.files))
         assert.equal(

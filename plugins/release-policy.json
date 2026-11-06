@@ -11,9 +11,7 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/graphite",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "theme.json": {
               "sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5",
@@ -33,9 +31,7 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/ember",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "theme.json": {
               "sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079",
@@ -55,9 +51,7 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/fjord",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "theme.json": {
               "sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e",
@@ -66,385 +60,6 @@
           }
         }
       }
-    },
-    "provider-pi": {
-      "kind": "provider",
-      "id": "pi",
-      "version": "0.4.1",
-      "source_path": "plugins/providers/pi",
-      "package": "plugins/providers/pi/package-template.json",
-      "preparation": "READY",
-      "payloads": {
-        "darwin-aarch64": {
-          "directory": "plugins/providers/pi",
-          "closed_directories": [
-            "src"
-          ],
-          "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
-          }
-        },
-        "darwin-x86_64": {
-          "directory": "plugins/providers/pi",
-          "closed_directories": [
-            "src"
-          ],
-          "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
-          }
-        },
-        "linux-aarch64": {
-          "directory": "plugins/providers/pi",
-          "closed_directories": [
-            "src"
-          ],
-          "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
-          }
-        },
-        "linux-x86_64": {
-          "directory": "plugins/providers/pi",
-          "closed_directories": [
-            "src"
-          ],
-          "files": {
-            "bin/acp-events.mjs": {
-              "source": "src/acp-events.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
-            },
-            "bin/acp-server.mjs": {
-              "source": "src/acp-server.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
-            },
-            "bin/acp-session.mjs": {
-              "source": "src/acp-session.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
-            },
-            "bin/cadencr-permissions.mjs": {
-              "source": "src/cadencr-permissions.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
-            },
-            "bin/jsonl.mjs": {
-              "source": "src/jsonl.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
-            },
-            "bin/models-command.mjs": {
-              "source": "src/models-command.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
-            },
-            "bin/pi-args.mjs": {
-              "source": "src/pi-args.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
-            },
-            "bin/pi-models.mjs": {
-              "source": "src/pi-models.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
-            },
-            "bin/pi-rpc-client.mjs": {
-              "source": "src/pi-rpc-client.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
-            },
-            "bin/provider": {
-              "source": "src/provider.mjs",
-              "source_mode": "100644",
-              "mode": "100755",
-              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
-            },
-            "bin/session-identity.mjs": {
-              "source": "src/session-identity.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
-            },
-            "bin/version.mjs": {
-              "source": "src/version.mjs",
-              "source_mode": "100644",
-              "mode": "100644",
-              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
-            },
-            "README.md": {
-              "mode": "100644",
-              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
-            },
-            "LICENSE": {
-              "mode": "100644",
-              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
-            },
-            "icon.svg": {
-              "mode": "100644",
-              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
-            }
-          }
-        }
-      },
-      "version_file": "plugins/providers/pi/package.json"
     },
     "lsp-typescript-language-server": {
       "kind": "lsp",
@@ -456,9 +71,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
@@ -472,9 +85,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
@@ -488,9 +99,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
@@ -515,9 +124,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/astro-ls/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
@@ -531,9 +138,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/astro-ls/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
@@ -547,9 +152,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/astro-ls/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
@@ -574,9 +177,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/bash-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
@@ -590,9 +191,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/bash-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
@@ -606,9 +205,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/bash-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
@@ -633,9 +230,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/biome/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "53a7be45e9945e9442cdffc05e0ac4b7e30a2202e926846889ceba96a3bb2723",
@@ -649,9 +244,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/biome/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "346482d79df142b87c2248145e111d1860ca0a5ea2d6c3f3677bc405b073130a",
@@ -665,9 +258,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/biome/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d323cd9d5955c383b62c821146fbe71919d8f7196c4f5f5e1e52d41ed8fbfc21",
@@ -692,9 +283,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/clangd/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d2844e861f483909c881509041b8e0662f56c5b8edaf05c952a157e5140600f5",
@@ -708,9 +297,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/clangd/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "1a2303a058273e4ff085adfcc74f031744cb1387f7137fd344213514b5c2c655",
@@ -724,9 +311,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/clangd/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "84db32e591ecb4015ac7cb0f7018067acfbaa72ffe64613334e4e308d9f2be1d",
@@ -751,9 +336,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/css-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
@@ -767,9 +350,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/css-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
@@ -783,9 +364,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/css-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
@@ -810,9 +389,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/docker-langserver/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
@@ -826,9 +403,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/docker-langserver/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
@@ -842,9 +417,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/docker-langserver/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
@@ -869,9 +442,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/eslint/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
@@ -885,9 +456,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/eslint/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
@@ -901,9 +470,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/eslint/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
@@ -928,9 +495,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/gopls/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "45f9d9ee4973c0e91a9b837a66ec93d9f6e8206f1e8830ca9ea5417b204d31d8",
@@ -944,9 +509,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/gopls/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "4e561528942986f91835915fa386e3fe79c3a079a8adb13aef460700db5150d3",
@@ -960,9 +523,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/gopls/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "fa091aa611c97b4bdd1e940a94bada9be5c02c5a40a419465a1dd6c366e7a746",
@@ -987,9 +548,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/graphql-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
@@ -1003,9 +562,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/graphql-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
@@ -1019,9 +576,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/graphql-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
@@ -1046,9 +601,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/html-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
@@ -1062,9 +615,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/html-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
@@ -1078,9 +629,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/html-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
@@ -1105,9 +654,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/json-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
@@ -1121,9 +668,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/json-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
@@ -1137,9 +682,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/json-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
@@ -1164,9 +707,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/lua-language-server/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "570a204b5e8cda39649da5d3da3304f81bb2f85725c977f9c1523b9af9794b13",
@@ -1180,9 +721,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/lua-language-server/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "20f68798d1160f2a581387b17b6c0dbc43ae8d88db5b92f17225edc7a0df2980",
@@ -1196,9 +735,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/lua-language-server/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "50cc58e359b6b52aa92b2763ca0ce7a9b5a967f189a494f1f319fdea573d879f",
@@ -1223,9 +760,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/marksman/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
@@ -1239,9 +774,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/marksman/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
@@ -1255,9 +788,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/marksman/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "f2889938a954b416919280c070cd6db3bcab389c50a29b6047d9c216eb003574",
@@ -1282,9 +813,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/oxlint/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "75c7abeea4f5c1216328468fbe6ccc1d88e337f7b4524e2e6a89d52fc71fe3b8",
@@ -1298,9 +827,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/oxlint/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "29acad80888b437895ec3391f7be15bf52cd3bbd0f8830b6851beb1ce9efcaaa",
@@ -1314,9 +841,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/oxlint/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "5b96395d24d03f3b0cc4ede8536d3d012a3d6c684a671ae98064894543d063b6",
@@ -1341,9 +866,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/pyright/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
@@ -1357,9 +880,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/pyright/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
@@ -1373,9 +894,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/pyright/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
@@ -1400,9 +919,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/ruff/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "388278dd7cd6aff9e8e5d8743f22a498d179815bb5f3e1cd2013fd7a6a1d742c",
@@ -1416,9 +933,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/ruff/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "c162c379cd0638c05e82fd62a50512ba217feb538936302f4656308aad81a3b8",
@@ -1432,9 +947,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/ruff/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "5832a46183d03b85f12692fa682c309293b34a4f7d719fc51c132ed1798c73a2",
@@ -1459,9 +972,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/rust-analyzer/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "48487c2db008d02bcf4ceb11c178057581e749ab7a1d5a8a84e0cf674616c95c",
@@ -1475,9 +986,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/rust-analyzer/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "b256926251c177c1f83aecccdfa947a73f30c99988f707db0dcda6983ef8fc8c",
@@ -1491,9 +1000,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/rust-analyzer/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "373e17665b3e673d1ff27c3751f7acc91924858afb3f35d3c4126a67cefc5c36",
@@ -1518,9 +1025,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/svelte-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
@@ -1534,9 +1039,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/svelte-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
@@ -1550,9 +1053,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/svelte-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
@@ -1577,9 +1078,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
@@ -1593,9 +1092,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
@@ -1609,9 +1106,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
@@ -1636,9 +1131,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/taplo/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d2b28a9944f9fa4f6d27527c9f8b531f0297eadd2c3020e68546cc345f03204f",
@@ -1652,9 +1145,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/taplo/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "2b0e579cd22f7a1120fa46e66d54bc2418a68ad70125db3b68ef480b7cb7c4f7",
@@ -1668,9 +1159,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/taplo/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "df5797ee10fe3c3ea13274c906a0418314e04bf06d1c4f167f9265283e251362",
@@ -1695,9 +1184,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/terraform-ls/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "8b54ee0156cbade49ef067966fe296afa04ace2552836091c2242e71daf49f60",
@@ -1711,9 +1198,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/terraform-ls/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "9f515220a182311bc3a8ae2f64e818acd66c356acc60a348d1cb72859ce2bc32",
@@ -1727,9 +1212,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/terraform-ls/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "c2b6369a2767774122d767ef146ce57028c44a5672b2b407fb88387b8ba2faab",
@@ -1754,9 +1237,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/tsgo/payload/darwin-aarch64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d3e2e12da3b074952d41a03e2a2eb00227c1a3c4f0bce932a4977adc760d72cb",
@@ -1770,9 +1251,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/tsgo/payload/darwin-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "d8b40d0d13b01b74cd6d05bd1afeca5276e2f0acab44747c3420eb41674cc57b",
@@ -1786,9 +1265,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/tsgo/payload/linux-x86_64",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "960a087a08547cfe62364a6f384f676d4933cfaf8f7d2fb5f7af1c1638a3be68",
@@ -1813,9 +1290,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/vue-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
@@ -1829,9 +1304,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/vue-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
@@ -1845,9 +1318,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/vue-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
@@ -1872,9 +1343,7 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/yaml-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
@@ -1888,9 +1357,7 @@
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/yaml-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
@@ -1904,9 +1371,7 @@
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/yaml-language-server/payload/all",
-          "closed_directories": [
-            "."
-          ],
+          "closed_directories": ["."],
           "files": {
             "bundle.tar.gz": {
               "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
