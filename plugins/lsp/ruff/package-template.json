@@ -1,0 +1,74 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "server"
+      ],
+      "description": "Python linting and formatting using Ruff 0.17.3.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-ruff-v0.1.0/lsp-ruff-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "ruff",
+            "entry_sha256": "b768f3410db7e66d84b634d329b5f54599a7c39012a1eb3aaaa16e73a90587e2",
+            "entry_size": 22262976,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "388278dd7cd6aff9e8e5d8743f22a498d179815bb5f3e1cd2013fd7a6a1d742c",
+            "size": 9362251
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-ruff-v0.1.0/lsp-ruff-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "ruff",
+            "entry_sha256": "d7347873e4fdb385ea0a730c0227497e7cc313d94942e143c99f49e8c36ef8ea",
+            "entry_size": 23518800,
+            "macos_min_version": "10.12.0",
+            "runtime": "native",
+            "sha256": "c162c379cd0638c05e82fd62a50512ba217feb538936302f4656308aad81a3b8",
+            "size": 10125904
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-ruff-v0.1.0/lsp-ruff-0.1.0-linux-x86_64.tar.gz",
+            "entry": "ruff",
+            "entry_sha256": "6761c67c2b307be3905473b165eb5af0fb2f083836b04f9e4a8cdd0caee37833",
+            "entry_size": 24615456,
+            "runtime": "native",
+            "sha256": "5832a46183d03b85f12692fa682c309293b34a4f7d719fc51c132ed1798c73a2",
+            "size": 10137166
+          }
+        }
+      },
+      "id": "ruff",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "py",
+            "pyi"
+          ],
+          "filenames": [],
+          "id": "python"
+        }
+      ],
+      "license": "MIT",
+      "name": "Ruff",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "linter",
+      "root_markers": [
+        "pyproject.toml",
+        "ruff.toml",
+        ".ruff.toml",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

@@ -102,13 +102,22 @@ registration and client diagnostic refresh requests.
 
 ## Validation recorded during preparation
 
-All eleven macOS ARM candidates passed real semantic probes with remote networking
-denied. All three platform executables were acquired and architecture-checked;
-Gopls was source-built and its macOS ARM build reproduced via the uniform preparer.
-Linux and macOS Intel runtime results require their own matrix evidence; an ARM
-result does not establish behavior on either other target. Nine acquisition tests
-cover unsafe paths, links, duplicates, native companions, size budgets, architecture
-mismatches, universal slice bounds and source pin requirements.
+The initial preparation verified all eleven macOS ARM candidates and acquired
+all three platform executables. Gopls was source-built and its macOS ARM build
+reproduced via the uniform preparer. Those earlier ARM results remain distinct
+from the final released-CLI matrix.
+
+[Run 42215738947](https://github.com/merkr-software/CadencR/actions/runs/42215738947)
+subsequently packs all 25 catalog packages with the exact public Linux CLI
+0.15.6 and passes real semantic probes on Ubuntu 22.04/24.04 x86_64, macOS
+15.8.2 ARM64 and macOS 15.7.9 Intel. Each native host consumes the exact bound
+canonical archives with denied IP networking and protected input trees. See the
+[qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md) for
+source, pin, archive and runtime report hashes. These runtime results do not
+certify the older signed macOS deployment floors.
+
+Nine acquisition tests cover unsafe paths, links, duplicates, native companions,
+size budgets, architecture mismatches, universal slice bounds and source pins.
 
 ## Backend watcher qualification
 

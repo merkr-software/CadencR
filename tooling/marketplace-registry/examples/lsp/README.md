@@ -85,8 +85,9 @@ Packaging is deterministic and executes nothing. Copy `sha256`, `size`, `entry`,
 `entry_sha256`, `entry_size` and `runtime` from its JSON receipt into the target in
 `package.native.json` or `package.node.json`; replace the URL with the exact
 planned GitHub release asset. Hashes cover the compressed archive and launch
-entry separately. Limits: 64 MiB compressed, 256 MiB expanded and 16,384 total
-archive entries, including directories.
+entry separately. Limits: 64 MiB compressed, 256 MiB expanded and 16,384 staging
+entries: files and subdirectories, excluding the staging root. Canonical LSP
+archives contain only regular-file members; directories are not archived.
 
 ## Metadata and plugin members
 

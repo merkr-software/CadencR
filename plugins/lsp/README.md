@@ -60,6 +60,31 @@ and required project configuration live in each recipe. Native recipes are in
   arguments so generated metadata, logs and caches stay outside its installed
   runtime. Installed payloads must retain their reviewed inventory after use.
 
+### Native macOS deployment floors
+
+These are the signed floors declared by the retained Mach-O executables, not
+certification that Cadencr runs on each listed OS. Application requirements and
+actual runtime qualification are separate. The released-catalog matrix tested
+macOS **15.8.2 ARM64** and **15.7.9 Intel**; older OS runtime certification remains
+outside that evidence.
+
+| Package | macOS ARM64 binary floor | macOS Intel binary floor |
+| --- | --- | --- |
+| `biome` | `11.0.0` | `10.12.0` |
+| `clangd` | `11.0.0` | `10.13.0` |
+| `gopls` | `12.0.0` | `12.0.0` |
+| `lua-language-server` | `11.0.0` | `10.12.0` |
+| `marksman` | `12.0.0` | `12.0.0` |
+| `oxlint` | `11.0.0` | `10.12.0` |
+| `ruff` | `11.0.0` | `10.12.0` |
+| `rust-analyzer` | `15.0.0` | `15.0.0` |
+| `taplo` | `11.0.0` | `10.12.0` |
+| `terraform-ls` | `12.0.0` | `12.0.0` |
+| `tsgo` | `12.0.0` | `12.0.0` |
+
+Linux and Node targets do not declare a macOS deployment floor. Every promoted
+target retains its exact signed runtime requirements in `package-template.json`.
+
 ## Qualification and promotion
 
 1. Acquire upstream distributions from locked URLs and verify their hashes and
@@ -80,7 +105,14 @@ and required project configuration live in each recipe. Native recipes are in
 
 The existing TypeScript package remains unchanged. Its immutable publication and
 runtime evidence are recorded in its [README](typescript-language-server/README.md).
-New candidate recipes remain `PENDING` until the required evidence is collected.
+
+The [released CLI qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md)
+binds canonical packaging and all **25 packages on four real hosts** to
+[run 42215738947](https://github.com/merkr-software/CadencR/actions/runs/42215738947).
+Ubuntu 22.04 and 24.04 x86_64, macOS ARM64 and macOS Intel each pass 25 real
+semantic probes using the same canonical archives. The 24 new source entries
+are `READY` for protected author inspection; that source preparation status does
+not publish assets or establish managed application lifecycle conformance.
 
 ## Production boundary
 

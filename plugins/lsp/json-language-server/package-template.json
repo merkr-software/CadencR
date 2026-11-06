@@ -1,0 +1,78 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "JSON language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-json-language-server-v0.1.0/lsp-json-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/json-language-server/node/jsonServerMain.js",
+            "entry_sha256": "f7deaa6365ecd3eec2d90ca128ef086b308ec7a0e5c3058df772f6674b72314a",
+            "entry_size": 3685,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+            "size": 13913074
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-json-language-server-v0.1.0/lsp-json-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/json-language-server/node/jsonServerMain.js",
+            "entry_sha256": "f7deaa6365ecd3eec2d90ca128ef086b308ec7a0e5c3058df772f6674b72314a",
+            "entry_size": 3685,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+            "size": 13913074
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-json-language-server-v0.1.0/lsp-json-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/json-language-server/node/jsonServerMain.js",
+            "entry_sha256": "f7deaa6365ecd3eec2d90ca128ef086b308ec7a0e5c3058df772f6674b72314a",
+            "entry_size": 3685,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+            "size": 13913074
+          }
+        }
+      },
+      "id": "json-language-server",
+      "initialization_options": {
+        "provideFormatter": true
+      },
+      "languages": [
+        {
+          "extensions": [
+            "json"
+          ],
+          "filenames": [],
+          "id": "json"
+        },
+        {
+          "extensions": [
+            "jsonc"
+          ],
+          "filenames": [],
+          "id": "jsonc"
+        }
+      ],
+      "license": "MIT",
+      "name": "JSON language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [],
+      "version": "0.1.0"
+    }
+  }
+}
