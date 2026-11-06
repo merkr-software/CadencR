@@ -560,9 +560,9 @@ Client behavior:
 
 ## Deployment cutover still pending
 
-The candidate template selects released `0.15.5` in
+The candidate template selects released `0.15.6` in
 [`ci/released-cli.env`](../tooling/marketplace-registry/ci/released-cli.env); see its
-[qualification evidence](qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md), including the
+[qualification evidence](qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md), including the
 LSP package and policy commands. This is a template selection, not a deployment
 of the production registry or its author pins.
 

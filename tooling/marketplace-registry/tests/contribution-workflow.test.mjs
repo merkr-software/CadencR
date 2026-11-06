@@ -60,9 +60,9 @@ test("released CLI pin is the qualified atomic three-field pin", async () => {
   const config = await readFile(new URL("../ci/released-cli.env", import.meta.url), "utf8");
   const version = config.match(/^CADENCR_RELEASE_VERSION=(\S+)$/m)?.[1];
   const digest = config.match(/^CADENCR_RELEASE_SHA256=(\S+)$/m)?.[1];
-  assert.equal(version, "0.15.5");
-  assert.equal(digest, "b74ff1a682866902422cedfe5be0ae754a12402c4aee85fa3539ef0d30348441");
-  assert.match(config, /^CADENCR_RELEASE_TAG=cli\/v0\.15\.5$/m);
+  assert.equal(version, "0.15.6");
+  assert.equal(digest, "0d95aec0e56f1957d7e928226208fb2d987666b0713678e66ef5798a5ec16623");
+  assert.match(config, /^CADENCR_RELEASE_TAG=cli\/v0\.15\.6$/m);
   assert.doesNotMatch(config, /URL|latest/);
 });
 
@@ -348,11 +348,11 @@ test("all trusted workflow business operations use released Rust commands withou
   assert.deepEqual(
     pin.split("\n").filter((line) => line && !line.startsWith("#")),
     [
-      "CADENCR_RELEASE_VERSION=0.15.5",
-      "CADENCR_RELEASE_SHA256=b74ff1a682866902422cedfe5be0ae754a12402c4aee85fa3539ef0d30348441",
-      "CADENCR_RELEASE_TAG=cli/v0.15.5",
+      "CADENCR_RELEASE_VERSION=0.15.6",
+      "CADENCR_RELEASE_SHA256=0d95aec0e56f1957d7e928226208fb2d987666b0713678e66ef5798a5ec16623",
+      "CADENCR_RELEASE_TAG=cli/v0.15.6",
     ],
   );
-  assert.match(pin, /^# Qualified source cfbb3b0d7c94a5d0fe91a3a642c5c1debf917239\.$/m);
+  assert.match(pin, /^# Qualified source 33abe673179a889c7ec362da2e9845166de1ac34\.$/m);
   assert.match(pin, /no deployment or publication authorization/);
 });

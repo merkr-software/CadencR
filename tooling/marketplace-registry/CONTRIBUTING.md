@@ -7,7 +7,7 @@ LSP entries are held outside the shared production catalog until application
 Local validation is not publication authority. All business validation,
 packaging and publication uses the Rust CLI, not registry JavaScript.
 Standalone preflight and expiry commands are included in the locally selected,
-qualified `0.15.5`. Selection does not deploy the production
+qualified `0.15.6`. Selection does not deploy the production
 workflow or grant publication authority.
 See [runtime and deployment gates](README.md#status-and-runtime).
 

@@ -18,11 +18,11 @@ and production trust/feed configuration are unchanged by this migration.
 
 | Runtime contract                                                                             | Local selection / delivery status                                                                                                                 |
 | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Contribution validation, schema-2 index building and protected publication                   | `ci/released-cli.env` locally selects qualified `0.15.5`                                                                                          |
-| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified release; see [offline and LSP author qualification](../../docs/qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md) |
+| Contribution validation, schema-2 index building and protected publication                   | `ci/released-cli.env` locally selects qualified `0.15.6`                                                                                          |
+| `validate-metadata`, `validate-submission`, `check-metadata-expiry` and full template checks | Included in the exact qualified release; see [offline and LSP author qualification](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md) |
 | Bootstrap, CI cutover and production adoption                                                | Review preparation only; fresh payload approvals, bootstrap merge and hosted checks remain pending                                                |
 
-The [qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md)
+The [qualification record](../../docs/qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md)
 binds this selection to released artifacts and qualification. It does not adopt a
 production pin or grant author/catalog publication authority.
 
@@ -50,7 +50,7 @@ entries. Use the [Rust CLI contract](../../packages/cli/README.md) for all kinds
 The source CLI supports standalone `lsp` entries and LSP members of a plugin.
 See [prepared native and Node authoring examples](examples/lsp/README.md) and
 the reference [package schema](schemas/marketplace-lsp-package-v1.schema.json).
-The selected CLI `0.15.5` includes these commands; the qualification record above
+The selected CLI `0.15.6` includes these commands; the qualification record above
 separates offline, publication and runtime evidence. LSP rollout is held for
 application `v0.16.1`: do not add LSP entries to the shared production catalog or
 activate its production feed before that cutover. Real package assets and the
@@ -68,7 +68,7 @@ independent signed LSP policy still need reviewed production publication.
 ```sh
 cadencr registry validate --base /reviewed/base --candidate /reviewed/candidate
 
-# Use the locally selected qualified CLI 0.15.5.
+# Use the locally selected qualified CLI 0.15.6.
 cadencr registry validate-metadata /reviewed/package.json
 cadencr registry validate-submission /reviewed/submission.json
 ```
