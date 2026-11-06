@@ -27,6 +27,9 @@ use super::framing::read_frame;
 use super::lifecycle::{CrashKey, CrashTracker, CRASH_WINDOW, IDLE_TIMEOUT};
 use super::watchers::{bridge::StdinBridge, SessionWatchers};
 
+mod websocket;
+use websocket::ws_sender;
+
 /// Drives the proxy until either side disconnects. Consumes both the
 /// WebSocket and the [`Child`].
 ///
@@ -58,8 +61,7 @@ pub async fn run_proxy(
     let (out_tx, out_rx) = mpsc::unbounded_channel::<Message>();
     let (mut sink, stream) = ws.split();
 
-    // `activity_tx` is bumped every time either direction processes a
-    // message; the idle-timeout task reads it to decide when to give up.
+    // Either direction refreshes the idle deadline.
     let (activity_tx, activity_rx) = watch::channel(Instant::now());
     let activity_tx = Arc::new(activity_tx);
 
@@ -77,7 +79,7 @@ pub async fn run_proxy(
         }
     };
     let (reply_tx, reply_rx) = mpsc::channel(32);
-    let send_task = tokio::spawn(ws_sender(sink, out_rx));
+    let mut send_task = Box::pin(ws_sender(&mut sink, out_rx));
     let stdout_task = tokio::spawn(stdout_to_ws(
         stdout,
         out_tx.clone(),
@@ -96,39 +98,39 @@ pub async fn run_proxy(
     let stdin_task = tokio::spawn(bridge.run(stream));
     let idle_task = tokio::spawn(idle_watchdog(activity_rx, display_name.to_string()));
     let _tasks = ProxyTasks(vec![
-        send_task.abort_handle(),
         stdout_task.abort_handle(),
         stdin_task.abort_handle(),
         idle_task.abort_handle(),
     ]);
 
-    // A clean renderer disconnect or our idle timeout must not arm crash backoff.
-    // The task guard tears down the remaining directions when any one finishes.
+    // Prefer a received close over simultaneous outbound failure or child EOF.
     let clean_close = tokio::select! {
+        biased;
+        clean = stdin_task => {
+            debug!("lsp ws-stream closed; ending proxy for {display_name}");
+            clean.unwrap_or(false)
+        }
         _ = stdout_task => {
             debug!("lsp stdout closed; ending proxy for {display_name}");
             false
         }
-        clean = stdin_task => {
-            debug!("lsp ws-stream closed; ending proxy for {display_name}");
-            // Task panics are rare; treat a join error as a non-clean exit.
-            clean.unwrap_or(false)
-        }
-        _ = send_task => {
+        _ = &mut send_task => {
             debug!("lsp ws-sink closed; ending proxy for {display_name}");
             false
         }
         _ = idle_task => {
             info!("lsp {display_name} idle for {:?}; shutting down child", IDLE_TIMEOUT);
-            // An idle teardown is our decision, not a crash.
             true
         }
     };
+    let early_exit = spawn_instant.elapsed() < CRASH_WINDOW;
+    drop(send_task);
+    websocket::close(&mut sink, display_name).await;
     let _ = child.kill().await;
     let _ = child.wait().await;
 
     // Only an unexpected early exit counts as a crash.
-    if !clean_close && spawn_instant.elapsed() < CRASH_WINDOW {
+    if !clean_close && early_exit {
         crash_tracker.record_crash(crash_key).await;
     } else {
         crash_tracker.record_success(&crash_key).await;
@@ -240,19 +242,6 @@ async fn stdout_to_ws(
 #[cfg(test)]
 fn is_normal_close(frame: &Option<axum::extract::ws::CloseFrame>) -> bool {
     frame.as_ref().is_some_and(|f| f.code == WS_CLOSE_NORMAL)
-}
-
-/// Outbound channel → WS sink. Splitting this out lets stdout_to_ws use a
-/// cheap mpsc send instead of taking the WS sink lock.
-async fn ws_sender<S>(mut sink: S, mut rx: mpsc::UnboundedReceiver<Message>)
-where
-    S: SinkExt<Message> + Unpin,
-{
-    while let Some(msg) = rx.recv().await {
-        if sink.send(msg).await.is_err() {
-            return;
-        }
-    }
 }
 
 /// Pipes stderr lines into the tracing subscriber. LSP servers (rust-analyzer
