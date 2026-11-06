@@ -52,7 +52,7 @@ jobs:
           const bytes = readFileSync(file);
           const actual = createHash("sha256").update(bytes).digest("hex");
           if (actual !== expected) throw new Error("reviewed publication request digest mismatch");
-          JSON.parse(bytes.toString("utf8"));
+          require("./scripts/ci/confirm-provider-handoffs.cjs").confirmHandoffs(JSON.parse(bytes.toString("utf8")));
           NODE
 
       - name: Select verified publisher runtime
@@ -97,6 +97,7 @@ jobs:
           }
           const actual = createHash("sha256").update(readFileSync(file)).digest("hex");
           if (actual !== expected) throw new Error("reviewed publication request digest mismatch");
+          require("./scripts/ci/confirm-provider-handoffs.cjs").confirmHandoffs(JSON.parse(readFileSync(file, "utf8")));
           NODE
       - name: Select verified publisher runtime
         id: publisher_runtime

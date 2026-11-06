@@ -11,13 +11,14 @@ function files(directory) {
   });
 }
 
-test("registry template contains only thin CI shell entrypoints, not a second business runtime", () => {
+test("registry template contains only thin CI adapters, not a second business runtime", () => {
   const scripts = new URL("scripts/", template);
   assert.deepEqual(
     files(scripts)
       .map((file) => file.href.slice(scripts.href.length))
       .sort(),
     [
+      "ci/confirm-provider-handoffs.cjs",
       "ci/fetch-released-cli.sh",
       "ci/registry-feeds.sh",
       "ci/select-publisher-runtime.sh",

@@ -33,6 +33,7 @@ pub(super) fn assemble_snapshot(
     let expected_url =
         format!("https://github.com/{repository}/releases/download/{tag}/managed-index.json");
     Ok(CatalogSnapshot {
+        administrative: signed.get("provider_handoffs").is_some(),
         schema_version: signed["schema_version"].as_u64().expect("verified schema"),
         canonical_payload,
         canonical_envelope,
@@ -50,6 +51,9 @@ pub(super) fn assemble_snapshot(
 }
 
 impl CatalogSnapshot {
+    pub fn administrative(&self) -> bool {
+        self.administrative
+    }
     /// A new isolated schema-2 namespace may bootstrap after authenticated schema-1 continuity.
     pub fn discovery_bootstrap(&self) -> bool {
         self.discovery_bootstrap
@@ -110,6 +114,7 @@ mod tests {
 
     fn snapshot() -> CatalogSnapshot {
         CatalogSnapshot {
+            administrative: false,
             schema_version: 1,
             discovery_bootstrap: true,
             canonical_payload: vec![],

@@ -27,6 +27,7 @@ pub enum PreviousCatalog<'a> {
 /// A verified, continuity-checked catalog snapshot ready for publication.
 pub struct CatalogSnapshot {
     schema_version: u64,
+    administrative: bool,
     discovery_bootstrap: bool,
     canonical_payload: Vec<u8>,
     canonical_envelope: Vec<u8>,
@@ -96,7 +97,10 @@ pub fn prepare_catalog_snapshot(
             Some(digest(&bytes))
         }
     };
-    validate_catalog_identities_with_label(packages(candidate_signed), "source")?;
+    validate_catalog_identities_with_label(
+        crate::provider_handoff::active_packages(candidate_signed)?,
+        "source",
+    )?;
     let mut snapshot = assemble_snapshot(
         candidate,
         canonical_payload,
@@ -110,9 +114,6 @@ pub fn prepare_catalog_snapshot(
 
 fn signed(envelope: &Value) -> &Value {
     &envelope["signed"]
-}
-fn packages(value: &Value) -> &[Value] {
-    value["packages"].as_array().expect("verified packages")
 }
 fn required_timestamp<'a>(value: &'a Value, field: &str) -> Result<&'a str, RegistryError> {
     value

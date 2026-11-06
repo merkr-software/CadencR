@@ -49,6 +49,13 @@ pub(super) async fn ingest(
     validate_request_identity(provider_id, version)?;
     let (expected_active, enabled) = lifecycle_precondition(service, provider_id, kind)?;
     let resolved = resolve_admission(service, provider_id, version, &index)?;
+    super::super::installer::verify_admission_owner(
+        &service.storage,
+        provider_id,
+        expected_active.as_ref(),
+        &resolved.package.publisher,
+        resolved.agent.repository.as_deref(),
+    )?;
     check_blocklist(service, &resolved.package)?;
     let receipt = admission::admit(
         service,

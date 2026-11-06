@@ -43,10 +43,14 @@ jobs:
       - name: Build unsigned schema-2 input
         env:
           VERIFIED_CLI: ${{ steps.publisher_runtime.outputs.cli_file }}
-        run: >-
-          "$VERIFIED_CLI" registry build-index --schema-version 2 --packages packages
-          --generated-at "$GENERATED_AT" --expires-at "$EXPIRES_AT"
-          --output "$RUNNER_TEMP/managed-index.json"
+        run: |
+          set --
+          if [ -e provider-handoffs.json ]; then
+            set -- --provider-handoffs provider-handoffs.json
+          fi
+          "$VERIFIED_CLI" registry build-index "$@" --schema-version 2 --packages packages \
+            --generated-at "$GENERATED_AT" --expires-at "$EXPIRES_AT" \
+            --output "$RUNNER_TEMP/managed-index.json"
       - uses: actions/upload-artifact@v4
         with:
           name: canonical-unsigned-managed-index

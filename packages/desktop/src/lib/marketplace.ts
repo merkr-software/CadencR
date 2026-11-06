@@ -6,6 +6,7 @@ import type {
 } from "@/api/generated";
 import { providerPackageSchema } from "./marketplace-provider-package";
 import { catalogMembers, signedMixedCatalogSchema } from "./marketplace-catalog";
+import { providerHandoffsSchema } from "./marketplace-provider-handoff";
 
 const nullableText = z.string().nullable().optional();
 const signedProviderCatalogSchema = z.union([
@@ -168,7 +169,16 @@ export function providerCatalogPackages(
   }
   // Schema 2, standalone providers and plugin members alike: each installs by
   // its own id. Entries are parsed (once per catalog) by `catalogMembers`.
-  return catalogMembers(index.signed.packages).flatMap((entry) =>
-    entry.kind === "provider" ? [entry.package] : [],
+  const handoffs = providerHandoffsSchema.parse(
+    "provider_handoffs" in index.signed ? index.signed.provider_handoffs : [],
   );
+  return catalogMembers(index.signed.packages).flatMap((entry) => {
+    if (entry.kind !== "provider") return [];
+    const { id, version } = entry.package.agent;
+    return handoffs.some(
+      (record) => record.provider_id === id && Object.hasOwn(record.retired_versions, version),
+    )
+      ? []
+      : [entry.package];
+  });
 }

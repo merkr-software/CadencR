@@ -52,6 +52,13 @@ impl SignedProviderCatalog {
                 // Plugin members are providers like standalone entries.
                 let packages = cadencr_registry_core::catalog_members(&index.signed.packages)
                     .filter(|entry| entry["kind"] == "provider")
+                    .filter(|entry| {
+                        !index
+                            .signed
+                            .provider_handoffs
+                            .iter()
+                            .any(|record| record.retires(entry))
+                    })
                     .map(|entry| {
                         serde_json::from_value::<ManagedProviderPackage>(entry["package"].clone())
                             .map_err(|e| e.to_string())

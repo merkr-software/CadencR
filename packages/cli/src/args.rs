@@ -109,6 +109,9 @@ pub(crate) enum RegistryCommand {
         base: PathBuf,
         #[arg(long)]
         candidate: PathBuf,
+        /// Review append-only provider handoffs; never used for ordinary PR validation.
+        #[arg(long)]
+        administrative: bool,
     },
     /// Build a deterministic, unsigned index from local packages.
     BuildIndex {
@@ -117,6 +120,9 @@ pub(crate) enum RegistryCommand {
         schema_version: u64,
         #[arg(long)]
         packages: PathBuf,
+        /// Trusted, reviewed administrative records; unsigned assembly only.
+        #[arg(long)]
+        provider_handoffs: Option<PathBuf>,
         #[arg(long)]
         generated_at: String,
         #[arg(long)]

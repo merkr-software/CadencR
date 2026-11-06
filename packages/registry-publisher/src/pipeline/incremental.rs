@@ -3,6 +3,78 @@ use super::fixture::*;
 use super::*;
 
 #[test]
+fn administrative_retirement_uses_the_protected_pipeline_and_never_rewrites_mirrors() {
+    let mut fixture = Fixture::new();
+    let base = fixture.request.parent().unwrap().to_path_buf();
+    let mut submission: Value =
+        serde_json::from_slice(&std::fs::read(base.join("submission.json")).unwrap()).unwrap();
+    submission["schema_version"] = serde_json::json!(2);
+    submission["package"] = serde_json::json!({"kind":"provider","package":submission["package"]});
+    std::fs::write(
+        base.join("submission.json"),
+        serde_json::to_vec(&submission).unwrap(),
+    )
+    .unwrap();
+    let mut request = fixture.request_value();
+    request["schema_version"] = serde_json::json!(2);
+    request["discovery_branch"] = serde_json::json!("marketplace-v2-admin");
+    fixture.client.branch.replace("marketplace-v2-admin".into());
+    fixture.write_request(request);
+    fixture.run().unwrap();
+    let original = std::fs::read(fixture.state.join("managed-index.json")).unwrap();
+    let envelope: Value = serde_json::from_slice(&original).unwrap();
+    let old = &envelope["signed"]["packages"][0];
+    use sha2::{Digest as _, Sha256};
+    let digest = crate::hex(&Sha256::digest(
+        cadencr_registry_core::canonical_json_bytes(old),
+    ));
+    let records = serde_json::json!([{"provider_id":"acme",
+        "from":{"publisher":"acme","repository":"https://github.com/acme/provider"},
+        "to":{"publisher":"independent","repository":"https://github.com/independent/provider"},
+        "retired_versions":{"1.0.0":digest},
+        "authorization":"https://github.com/cadencr/registry/pull/22#issuecomment-1","reason":"Explicit retirement and ownership transfer"}]);
+    for (step, delta) in [(1, records.clone()), (2, serde_json::json!([]))] {
+        std::fs::write(
+            base.join("previous.json"),
+            std::fs::read(fixture.state.join("managed-index.json")).unwrap(),
+        )
+        .unwrap();
+        let mut request = fixture.request_value();
+        request["previous_index"] = serde_json::json!("previous.json");
+        request["publications"] = serde_json::json!([]);
+        request["provider_handoffs"] = delta;
+        let time = chrono::DateTime::parse_from_rfc3339(request["generated_at"].as_str().unwrap())
+            .unwrap()
+            + chrono::Duration::seconds(1);
+        request["generated_at"] =
+            serde_json::json!(time.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
+        fixture.write_request(request);
+        fixture.state = base.join(format!("administrative-{step}"));
+        fixture.client.dead_sources.set(true);
+        fixture.client.requests.borrow_mut().clear();
+        fixture.run().unwrap();
+        let writes = fixture.client.writes.get();
+        fixture.run().unwrap();
+        assert_eq!(fixture.client.writes.get(), writes);
+        let current: Value = serde_json::from_slice(
+            &std::fs::read(fixture.state.join("managed-index.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            current["signed"]["packages"],
+            envelope["signed"]["packages"]
+        );
+        assert_eq!(current["signed"]["provider_handoffs"], records);
+        assert!(fixture
+            .client
+            .requests
+            .borrow()
+            .iter()
+            .all(|url| !url.contains("/provider-")));
+    }
+}
+
+#[test]
 fn signed_catalog_renewal_never_restores_provider_archives() {
     let mut fixture = Fixture::new();
     fixture.run().unwrap();

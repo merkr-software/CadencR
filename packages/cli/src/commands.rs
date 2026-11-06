@@ -93,15 +93,21 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
         RegistryCommand::Lsp(command) => crate::lsp::run(command),
         RegistryCommand::TabBackend(command) => crate::tab_backend::run(command),
         RegistryCommand::Policy(command) => crate::policy::run(command),
-        RegistryCommand::Validate { base, candidate } => validate_registry(base, candidate),
+        RegistryCommand::Validate {
+            base,
+            candidate,
+            administrative,
+        } => validate_registry(base, candidate, *administrative),
         RegistryCommand::BuildIndex {
             schema_version,
             packages,
+            provider_handoffs,
             generated_at,
             expires_at,
             output: destination,
         } => build_index(
             packages,
+            provider_handoffs.as_deref(),
             *schema_version,
             generated_at,
             expires_at,
@@ -175,8 +181,17 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
     }
 }
 
-fn validate_registry(base: &Path, candidate: &Path) -> Result<Option<String>, Diagnostic> {
-    cadencr_registry_core::validate_contribution(base, candidate)
+fn validate_registry(
+    base: &Path,
+    candidate: &Path,
+    administrative: bool,
+) -> Result<Option<String>, Diagnostic> {
+    let result = if administrative {
+        cadencr_registry_core::validate_administrative_contribution(base, candidate)
+    } else {
+        cadencr_registry_core::validate_contribution(base, candidate)
+    };
+    result
         .map(|()| {
             Some(format!(
                 "valid registry contribution: {}",
@@ -188,12 +203,21 @@ fn validate_registry(base: &Path, candidate: &Path) -> Result<Option<String>, Di
 
 fn build_index(
     packages: &Path,
+    provider_handoffs: Option<&Path>,
     schema_version: u64,
     generated_at: &str,
     expires_at: &str,
     destination: Option<&Path>,
 ) -> Result<Option<String>, Diagnostic> {
+    let handoffs = provider_handoffs
+        .map(|path| {
+            cadencr_registry_core::read_provider_handoffs(path)
+                .map_err(|e| operation_error("REGISTRY_VALIDATION_FAILED", e))
+        })
+        .transpose()?
+        .unwrap_or_default();
     let bytes = cadencr_registry_core::build_index()
+        .provider_handoffs(handoffs)
         .packages_dir(packages)
         .schema_version(schema_version)
         .generated_at(generated_at)

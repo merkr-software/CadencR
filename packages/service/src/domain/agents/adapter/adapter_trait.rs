@@ -98,6 +98,11 @@ pub trait AgentRuntimeAdapter: Send + Sync {
         false
     }
 
+    /// A saved conversation cannot be handed silently to another provider owner.
+    fn resume_session_rejection(&self, _session_id: &str) -> Option<String> {
+        None
+    }
+
     /// Resolve a resume session ID from the DB-stored runtime_session_id.
     /// The default accepts any string. Override to apply validation (e.g. UUID-only).
     fn resolve_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {

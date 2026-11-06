@@ -47,23 +47,23 @@ impl PreparedSigningPayload {
 #[bon::builder]
 pub fn prepare_publication_index(
     mut packages: Vec<Value>,
+    #[builder(default)] provider_handoffs: Vec<crate::ProviderHandoff>,
     #[builder(default = 1)] schema_version: u64,
     generated_at: &str,
     expires_at: &str,
 ) -> Result<PreparedSigningPayload, RegistryError> {
     packages.sort_by(compare_packages);
-    let payload = json!({
+    let mut payload = json!({
         "schema_version": schema_version,
         "generated_at": generated_at,
         "expires_at": expires_at,
         "packages": packages,
     });
+    if !provider_handoffs.is_empty() {
+        payload["provider_handoffs"] = json!(provider_handoffs);
+    }
     let canonical = validate_signing_payload(&payload, false)?;
-    validate_catalog_identities(
-        payload["packages"]
-            .as_array()
-            .expect("constructed packages array"),
-    )?;
+    validate_catalog_identities(crate::provider_handoff::active_packages(&payload)?)?;
     Ok(PreparedSigningPayload {
         canonical,
         generated_at: generated_at.into(),
@@ -71,30 +71,22 @@ pub fn prepare_publication_index(
     })
 }
 
-fn validate_catalog_identities(packages: &[Value]) -> Result<(), RegistryError> {
+fn validate_catalog_identities<'a>(
+    packages: impl IntoIterator<Item = &'a Value> + Clone,
+) -> Result<(), RegistryError> {
     validate_catalog_identities_with_label(packages, "repository")
 }
 
-pub(crate) fn validate_catalog_identities_with_label(
-    packages: &[Value],
+pub(crate) fn validate_catalog_identities_with_label<'a>(
+    packages: impl IntoIterator<Item = &'a Value> + Clone,
     ownership_label: &str,
 ) -> Result<(), RegistryError> {
-    let mut normalized = HashMap::<String, String>::new();
+    validate_catalog_collisions(packages.clone())?;
     let mut owners = HashMap::<String, String>::new();
-    for package in crate::plugin_package::identity_units(packages) {
+    for package in crate::plugin_package::identity_units_of(packages.clone()) {
         let Some((id, _)) = identity(package) else {
             continue;
         };
-        let normalized_id = normalized_provider_id(id);
-        if let Some(prior) = normalized.get(&normalized_id) {
-            if prior != id {
-                return Err(RegistryError::single(format!(
-                    "provider id {id} collides with {prior} after runtime normalization"
-                )));
-            }
-        } else {
-            normalized.insert(normalized_id, id.to_owned());
-        }
         let content = crate::marketplace::body(package);
         let publisher = content
             .pointer("/host/publisher")
@@ -119,6 +111,28 @@ pub(crate) fn validate_catalog_identities_with_label(
         }
     }
     crate::plugin_package::validate_member_ownership(packages)
+}
+
+pub(crate) fn validate_catalog_collisions<'a>(
+    packages: impl IntoIterator<Item = &'a Value> + Clone,
+) -> Result<(), RegistryError> {
+    let mut normalized = HashMap::<String, String>::new();
+    for package in crate::plugin_package::identity_units_of(packages) {
+        let Some((id, _)) = identity(package) else {
+            continue;
+        };
+        let normalized_id = normalized_provider_id(id);
+        if let Some(prior) = normalized.get(&normalized_id) {
+            if prior != id {
+                return Err(RegistryError::single(format!(
+                    "provider id {id} collides with {prior} after runtime normalization"
+                )));
+            }
+        } else {
+            normalized.insert(normalized_id, id.to_owned());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

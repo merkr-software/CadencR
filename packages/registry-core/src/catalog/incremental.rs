@@ -31,6 +31,7 @@ pub fn prepare_incremental_publication_index(
     key_id: &str,
     trust: Option<&crate::VerifiedRegistryTrust>,
     packages: Vec<Value>,
+    #[builder(default)] provider_handoffs: Vec<crate::ProviderHandoff>,
     #[builder(default = 1)] schema_version: u64,
     #[builder(default)] allow_schema_upgrade: bool,
     generated_at: &str,
@@ -45,6 +46,11 @@ pub fn prepare_incremental_publication_index(
         }
     }
     let Some(bytes) = previous_bytes else {
+        if !provider_handoffs.is_empty() {
+            return Err(RegistryError::single(
+                "provider handoff requires an authenticated baseline",
+            ));
+        }
         crate::validate_signing_key_id(key_id)?;
         return super::prepare_publication_index()
             .packages(packages)
@@ -106,7 +112,10 @@ pub fn prepare_incremental_publication_index(
             merged.push(package);
         }
     }
+    let mut handoffs = crate::provider_handoff::records(&baseline["signed"])?;
+    handoffs.extend(provider_handoffs);
     let prepared = super::prepare_publication_index()
+        .provider_handoffs(handoffs)
         .packages(merged)
         .schema_version(schema_version)
         .generated_at(generated_at)
@@ -156,11 +165,9 @@ fn verified_baseline(
             )?;
         }
     }
-    super::validate_catalog_identities(
-        baseline["signed"]["packages"]
-            .as_array()
-            .expect("verified packages"),
-    )?;
+    super::validate_catalog_identities(crate::provider_handoff::active_packages(
+        &baseline["signed"],
+    )?)?;
     Ok(baseline)
 }
 

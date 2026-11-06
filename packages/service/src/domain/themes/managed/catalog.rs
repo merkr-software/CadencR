@@ -83,7 +83,7 @@ fn source() -> Option<&'static str> {
     option_env!("CADENCR_MANAGED_THEME_INDEX_URL").filter(|url| !url.is_empty())
 }
 fn cache() -> std::path::PathBuf {
-    storage::root().join("catalog.json")
+    crate::shared::registry_catalog_cache::path(&storage::root(), source())
 }
 pub fn ingest(index: &SignedMixedCatalog) -> Result<(), AppError> {
     ingest_trusted(index, &pinned_index_trust_store())

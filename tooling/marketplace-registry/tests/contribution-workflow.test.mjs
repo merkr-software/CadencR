@@ -319,7 +319,7 @@ test("bootstrap bounds the fixed official download and never runs candidate code
   assert.match(helper, /"\$tag" != "cli\/v\$version"/);
   assert.match(helper, /--max-filesize 134217728/);
   assert.doesNotMatch(script, /npm|validate-contribution\.mjs|cd "\$candidate"/);
-  assert.match(script, /registry build-index --schema-version 2 --packages/);
+  assert.match(script, /registry build-index "\$@" --schema-version 2 --packages/);
 });
 
 test("all trusted workflow business operations use released Rust commands without legacy fallback", async () => {

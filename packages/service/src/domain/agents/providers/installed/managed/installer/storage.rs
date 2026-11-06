@@ -74,7 +74,10 @@ impl ManagedStorage {
     }
 
     pub fn catalog_cache_path(&self) -> PathBuf {
-        self.root.join("catalog.json")
+        crate::shared::registry_catalog_cache::path(
+            &self.root,
+            super::super::catalog::pinned_catalog_url(),
+        )
     }
 
     pub(crate) fn provider_ids(&self) -> Vec<String> {

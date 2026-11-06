@@ -219,7 +219,7 @@ async fn reresolve_worktree_and_resume(context: &mut PendingPromptContext) -> Re
         context.db_session_id,
         &context.provider_id,
     )
-    .await
+    .await?
     {
         info!(context.db_session_id, runtime_session_id = %sid, "re-resolved resume id from DB before spawn");
     }

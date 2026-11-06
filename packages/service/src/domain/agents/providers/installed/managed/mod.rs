@@ -278,3 +278,6 @@ mod tests {
         assert_eq!(error.code, ManagedContractErrorCode::PackageNotFound);
     }
 }
+
+mod session_scope;
+pub(crate) use session_scope::ManagedSessionScope;

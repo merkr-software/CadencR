@@ -140,6 +140,9 @@ pub(super) fn manifest(prepared: &PreparedPipeline) -> Value {
             let directory = format!("publications/{:03}",index+1);
             json!({"submission":format!("{directory}/submission.json"),"directory":directory,"registry_commit":entry.registry_commit})
         }).collect::<Vec<_>>()});
+    if !prepared.request.provider_handoffs.is_empty() {
+        manifest["provider_handoffs"] = json!(prepared.request.provider_handoffs);
+    }
     if prepared.request.allow_schema_upgrade {
         manifest["allow_schema_upgrade"] = json!(true);
     }

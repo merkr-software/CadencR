@@ -34,3 +34,5 @@ pub mod trash;
 pub mod user_shell;
 pub mod watch_limits;
 pub mod worktree_paths;
+
+pub mod registry_catalog_cache;

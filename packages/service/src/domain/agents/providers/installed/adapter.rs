@@ -40,6 +40,7 @@ const CATALOG_TTL: Duration = Duration::from_secs(30);
 
 pub struct GenericAcpAdapter {
     installation: Arc<HostInstallation>,
+    session_scope: Result<Option<super::managed::ManagedSessionScope>, String>,
     catalog_cache: WorkspaceCache<PathBuf, DiscoveredModels>,
     /// Modes from the most recent `models` run. Mode and access checks are
     /// synchronous trait calls, so they read this snapshot.
@@ -52,7 +53,10 @@ pub struct GenericAcpAdapter {
 impl GenericAcpAdapter {
     pub fn new(installation: Arc<HostInstallation>) -> Self {
         let host_integration = Arc::new(HostIntegrationCache::new(installation.provider_id()));
+        let session_scope =
+            super::managed::ManagedSessionScope::load(&installation.executable().command);
         Self {
+            session_scope,
             installation,
             catalog_cache: WorkspaceCache::default(),
             last_modes: std::sync::RwLock::new(Arc::default()),
@@ -197,7 +201,14 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
     }
 
     fn resume_command(&self) -> Option<ProviderResumeCommand> {
-        self.host_integration.current().resume_command.clone()
+        let mut command = self.host_integration.current().resume_command.clone()?;
+        command.session_owner = self
+            .session_scope
+            .as_ref()
+            .ok()?
+            .as_ref()
+            .and_then(|scope| scope.owner().map(ToOwned::to_owned));
+        Some(command)
     }
 
     /// The package's `slash-commands` listing for `cwd` plus what the last
@@ -249,10 +260,27 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
         !session_id.is_empty()
     }
 
+    fn resume_session_rejection(&self, session_id: &str) -> Option<String> {
+        match &self.session_scope {
+            Err(error) => Some(error.clone()),
+            Ok(Some(scope)) => scope.native(session_id).err(),
+            Ok(None) => None,
+        }
+    }
+
     fn resolve_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
         runtime_session_id
-            .filter(|session_id| self.is_valid_resume_session_id(session_id))
+            .filter(|id| !id.is_empty() && self.resume_session_rejection(id).is_none())
             .map(ToOwned::to_owned)
+    }
+
+    fn persistable_resume_session_id(&self, runtime_session_id: Option<&str>) -> Option<String> {
+        let native = runtime_session_id.filter(|id| !id.is_empty())?;
+        match &self.session_scope {
+            Ok(Some(scope)) => Some(scope.bind(native)),
+            Ok(None) => Some(native.into()),
+            Err(_) => None,
+        }
     }
 
     /// Read back the runtime's own provider-neutral permission envelope so
@@ -274,8 +302,12 @@ impl AgentRuntimeAdapter for GenericAcpAdapter {
     async fn spawn(
         &self,
         content: Value,
-        config: RuntimeSpawnConfig,
+        mut config: RuntimeSpawnConfig,
     ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
+        let scope = self.session_scope.as_ref().map_err(RuntimeError::new)?;
+        if let (Some(scope), Some(persisted)) = (scope, config.resume_session_id.as_deref()) {
+            config.resume_session_id = Some(scope.native(persisted).map_err(RuntimeError::new)?);
+        }
         let executable = self.installation.launchable().map_err(RuntimeError::new)?;
         if config.cwd.as_os_str().is_empty() {
             return Err(RuntimeError::new(

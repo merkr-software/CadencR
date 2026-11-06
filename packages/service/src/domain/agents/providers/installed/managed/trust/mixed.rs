@@ -76,6 +76,43 @@ mod tests {
         (trust, index)
     }
     #[test]
+    fn signed_handoff_filters_only_discovery_and_keeps_original_receipt_authority() {
+        let (trust, mut index) = fixture(true);
+        index.signed.packages[0]["package"]["agent"]["repository"] =
+            json!("https://github.com/acme/agent");
+        sign(&mut index);
+        let previous = index.clone();
+        let old = index.signed.packages[0].clone();
+        let id = old["package"]["agent"]["id"].as_str().unwrap();
+        let version = old["package"]["agent"]["version"].as_str().unwrap();
+        use sha2::{Digest as _, Sha256};
+        let digest = Sha256::digest(cadencr_registry_core::canonical_json_bytes(&old))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        index.signed.provider_handoffs = vec![serde_json::from_value(json!({"provider_id":id,
+            "from":{"publisher":old["package"]["host"]["publisher"],"repository":old["package"]["agent"]["repository"]},
+            "to":{"publisher":"edjubert","repository":"https://github.com/edjubert/pi"},
+            "retired_versions":{version:digest},
+            "authorization":"https://github.com/owner/registry/pull/22#issuecomment-1",
+            "reason":"Retire the previous connector; saved session compatibility is unverified."})).unwrap()];
+        assert!(trust.verify_index(index.clone()).is_err());
+        sign(&mut index);
+        let wire = serde_json::to_value(&index).unwrap();
+        let verified = trust.verify_index(index).unwrap();
+        assert!(verified.index().packages.is_empty());
+        assert_eq!(serde_json::to_value(verified.envelope()).unwrap(), wire);
+        assert!(verified
+            .resolve_current_platform(id, version, "0.16.0")
+            .is_err());
+        // Historical installation receipts authenticate against their original catalog.
+        assert_eq!(
+            trust.verify_index(previous).unwrap().index().packages.len(),
+            1
+        );
+    }
+
+    #[test]
     fn verifies_entire_mixed_payload_then_resolves_provider_without_rewriting_proof() {
         let (trust, index) = fixture(true);
         let original = cadencr_registry_core::canonical_json_bytes(

@@ -40,13 +40,10 @@ impl Client {
         }
     }
     fn raw_url(&self) -> String {
+        let branch = self.branch.borrow();
         cadencr_registry_core::discovery_url(
             REPOSITORY,
-            if self.branch.borrow().is_empty() {
-                "main"
-            } else {
-                "marketplace-v2"
-            },
+            if branch.is_empty() { "main" } else { &branch },
         )
         .unwrap()
     }
@@ -145,12 +142,13 @@ impl ReleaseClient for Client {
 }
 impl DiscoveryClient for Client {
     fn get_discovery(&self, branch: &str) -> Result<Option<DiscoveryHead>, PublisherError> {
+        let expected = self.branch.borrow();
         assert_eq!(
             branch,
-            if self.branch.borrow().is_empty() {
+            if expected.is_empty() {
                 "main"
             } else {
-                "marketplace-v2"
+                expected.as_str()
             }
         );
         Ok(self.head.borrow().clone())

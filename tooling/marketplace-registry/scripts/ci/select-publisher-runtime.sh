@@ -12,7 +12,7 @@ sh scripts/ci/fetch-released-cli.sh ci/released-cli.env "$CLI_ROOT" > "$FETCH_OU
 export FETCH_STATUS
 node <<'NODE'
 const { spawnSync } = require("node:child_process");
-const { appendFileSync, lstatSync, realpathSync } = require("node:fs");
+const { appendFileSync, existsSync, lstatSync, realpathSync } = require("node:fs");
 const { resolve, join } = require("node:path");
 const root = resolve(process.env.CLI_ROOT);
 const result = { status: Number(process.env.FETCH_STATUS), stdout: require("node:fs").readFileSync(process.env.FETCH_OUTPUT, "utf8") };
@@ -30,6 +30,15 @@ if (result.status === 0) {
     stdio: "ignore", timeout: 30 * 1000,
   });
   if (help.error || help.status !== 0) throw new Error("released CLI lacks registry publisher command");
+  if (existsSync("provider-handoffs.json")) {
+    const capability = spawnSync(file, ["registry", "validate", "--help"], {
+      encoding: "utf8", timeout: 30 * 1000,
+    });
+    if (capability.error || capability.status !== 0 || !capability.stdout.includes("--administrative")) {
+      throw new Error("released CLI lacks qualified provider handoff support; update ci/released-cli.env before signing");
+    }
+
+  }
   appendFileSync(process.env.GITHUB_OUTPUT, `cli_file=${file}\n`);
 } else {
   throw new Error("released CLI verification failed; refusing legacy fallback");

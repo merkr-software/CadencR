@@ -54,6 +54,22 @@ export function buildResumeCommand({
       command: "",
       supported: false,
     };
+  if (resumeCommand.session_owner) {
+    const prefix = `cadencr-managed-v1.${resumeCommand.session_owner}.`;
+    if (!sessionId.startsWith(prefix)) return { command: "", supported: false };
+    try {
+      const encoded = sessionId.slice(prefix.length);
+      if (!/^[A-Za-z0-9_-]+$/.test(encoded)) return { command: "", supported: false };
+      const bytes = Uint8Array.from(
+        atob(encoded.replaceAll("-", "+").replaceAll("_", "/")),
+        (char) => char.charCodeAt(0),
+      );
+      sessionId = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    } catch {
+      return { command: "", supported: false };
+    }
+    if (!sessionId) return { command: "", supported: false };
+  }
   const tokens = [
     literalToken(resumeCommand.program),
     ...resumeCommand.args.map((arg) => argToken(arg, sessionId)),
