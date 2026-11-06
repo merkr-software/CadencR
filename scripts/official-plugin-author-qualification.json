@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
   "author_release_contract": "QUALIFIED",
-  "cli_version": "0.15.5",
-  "cli_sha256": "b74ff1a682866902422cedfe5be0ae754a12402c4aee85fa3539ef0d30348441"
+  "cli_version": "0.15.6",
+  "cli_sha256": "0d95aec0e56f1957d7e928226208fb2d987666b0713678e66ef5798a5ec16623"
 }

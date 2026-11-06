@@ -54,8 +54,8 @@ The remaining work follows the waves below.
 - Explicit current governance: only `rle-mino` may push `main`; no teams/apps,
   `enforce_admins: true`, no mandatory reviews or CI checks. CI remains advisory.
   This supersedes earlier policy requirements, not package-integrity gates.
-- Monorepo registry, author and qualification pins select stable `0.15.5`;
-  see the [offline and LSP author qualification](qa/MARKETPLACE_LSP_CLI_0155_2026_11_03.md). The
+- Monorepo registry, author and qualification pins select stable `0.15.6`;
+  see the [offline and LSP author qualification](qa/MARKETPLACE_LSP_CLI_0156_2026_11_06.md). The
   deployed registry pin follows separately (wave 4). LSP production catalog
   admission and feed activation remain held until app `v0.16.1`.
   No official Graphite, Ember, Fjord or Pi release, production signing/feed
