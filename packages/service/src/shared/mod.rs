@@ -28,6 +28,7 @@ pub mod slug;
 pub mod ssh_env;
 pub mod startup_progress;
 pub mod terminal_shell;
+pub mod test_db;
 #[cfg(test)]
 pub mod test_env;
 pub mod trash;

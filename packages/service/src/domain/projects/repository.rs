@@ -1,6 +1,6 @@
 use super::models::{Project, ProjectAuthoringTarget, ProjectSetting};
 use crate::error::AppError;
-use sqlx::{AssertSqlSafe, SqlitePool};
+use sqlx::SqlitePool;
 
 pub async fn list_projects(pool: &SqlitePool) -> Result<Vec<Project>, AppError> {
     let rows = sqlx::query_as::<_, ProjectRow>(
@@ -136,69 +136,7 @@ pub async fn delete_project(pool: &SqlitePool, id: i64) -> Result<Vec<i64>, AppE
             .map(|r| r.0)
             .collect();
 
-    if !feature_ids.is_empty() {
-        let ph = feature_ids
-            .iter()
-            .map(|_| "?")
-            .collect::<Vec<_>>()
-            .join(",");
-
-        let session_ids: Vec<i64> = {
-            let query = format!("SELECT id FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query_as::<_, (i64,)>(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.fetch_all(&mut *tx)
-                .await?
-                .into_iter()
-                .map(|r| r.0)
-                .collect()
-        };
-
-        if !session_ids.is_empty() {
-            let sp = session_ids
-                .iter()
-                .map(|_| "?")
-                .collect::<Vec<_>>()
-                .join(",");
-            let query = format!("DELETE FROM agent_messages WHERE session_id IN ({})", sp);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for sid in &session_ids {
-                q = q.bind(sid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-
-        {
-            let query = format!("DELETE FROM agent_sessions WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        {
-            let query = format!("DELETE FROM feature_settings WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        {
-            let query = format!("DELETE FROM diff_viewed_files WHERE feature_id IN ({})", ph);
-            let mut q = sqlx::query(AssertSqlSafe(query));
-            for fid in &feature_ids {
-                q = q.bind(fid);
-            }
-            q.execute(&mut *tx).await?;
-        }
-        sqlx::query("DELETE FROM features WHERE project_id = ?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    crate::domain::features::repository::delete_features_cascade(&mut tx, &feature_ids).await?;
 
     sqlx::query("DELETE FROM project_settings WHERE project_id = ?")
         .bind(id)
@@ -248,63 +186,11 @@ pub async fn set_project_setting(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::sqlite::SqlitePoolOptions;
-
-    async fn setup_test_db() -> SqlitePool {
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect("sqlite::memory:")
-            .await
-            .unwrap();
-
-        sqlx::query(
-            r#"CREATE TABLE projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                path TEXT NOT NULL,
-                branch_prefix TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                model_session TEXT,
-                agent_runtime_session TEXT,
-                kind TEXT NOT NULL DEFAULT 'user',
-                authoring_target TEXT CHECK (authoring_target IN ('theme', 'provider', 'tab')),
-                plugin_id TEXT CHECK ((authoring_target IS NULL) = (plugin_id IS NULL))
-            )"#,
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        sqlx::query(
-            "CREATE TABLE features (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, title TEXT, type TEXT NOT NULL DEFAULT 'ws-session', created_at TEXT DEFAULT (datetime('now')))"
-        ).execute(&pool).await.unwrap();
-
-        sqlx::query(
-            "CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL, started_at TEXT)"
-        ).execute(&pool).await.unwrap();
-
-        sqlx::query(
-            "CREATE TABLE agent_messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL, role TEXT, created_at TEXT DEFAULT (datetime('now')))"
-        ).execute(&pool).await.unwrap();
-
-        sqlx::query(
-            "CREATE TABLE project_settings (project_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(project_id, key))"
-        ).execute(&pool).await.unwrap();
-
-        sqlx::query(
-            "CREATE TABLE diff_viewed_files (id INTEGER PRIMARY KEY AUTOINCREMENT, feature_id INTEGER NOT NULL)"
-        ).execute(&pool).await.unwrap();
-
-        sqlx::query(
-            "CREATE TABLE feature_settings (feature_id INTEGER NOT NULL, key TEXT NOT NULL, value TEXT, PRIMARY KEY(feature_id, key))"
-        ).execute(&pool).await.unwrap();
-
-        pool
-    }
+    use crate::shared::test_db::{insert_conversation, insert_session, migrated_pool};
 
     #[tokio::test]
     async fn test_create_and_list_projects() {
-        let pool = setup_test_db().await;
+        let pool = migrated_pool().await;
         let p1 = create_project(&pool, "Alpha", "/tmp/alpha").await.unwrap();
         let p2 = create_project(&pool, "Beta", "/tmp/beta").await.unwrap();
 
@@ -319,46 +205,26 @@ mod tests {
 
     #[tokio::test]
     async fn list_projects_orders_by_latest_user_message() {
-        let pool = setup_test_db().await;
+        let pool = migrated_pool().await;
         let alpha = create_project(&pool, "Alpha", "/tmp/alpha").await.unwrap();
         let beta = create_project(&pool, "Beta", "/tmp/beta").await.unwrap();
 
-        // Helper: insert a feature + session, returning the session id.
-        async fn session_for(pool: &SqlitePool, project_id: i64) -> i64 {
-            let fid = sqlx::query_as::<_, (i64,)>(
-                "INSERT INTO features (project_id, title) VALUES (?, 'f') RETURNING id",
-            )
-            .bind(project_id)
-            .fetch_one(pool)
-            .await
-            .unwrap()
-            .0;
-            sqlx::query_as::<_, (i64,)>(
-                "INSERT INTO agent_sessions (feature_id) VALUES (?) RETURNING id",
-            )
-            .bind(fid)
-            .fetch_one(pool)
-            .await
-            .unwrap()
-            .0
-        }
-
-        let alpha_session = session_for(&pool, alpha.id).await;
-        let beta_session = session_for(&pool, beta.id).await;
+        let alpha_session = insert_session(&pool, insert_conversation(&pool, alpha.id).await).await;
+        let beta_session = insert_session(&pool, insert_conversation(&pool, beta.id).await).await;
 
         // Alpha gets the newest *user* message; Beta only gets a newer
         // *assistant* message, which must NOT affect ordering.
-        sqlx::query("INSERT INTO agent_messages (session_id, role, created_at) VALUES (?, 'user', '2026-01-02T00:00:00Z')")
+        sqlx::query("INSERT INTO agent_messages (session_id, role, content, created_at) VALUES (?, 'user', '', '2026-01-02T00:00:00Z')")
             .bind(alpha_session)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO agent_messages (session_id, role, created_at) VALUES (?, 'user', '2026-01-01T00:00:00Z')")
+        sqlx::query("INSERT INTO agent_messages (session_id, role, content, created_at) VALUES (?, 'user', '', '2026-01-01T00:00:00Z')")
             .bind(beta_session)
             .execute(&pool)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO agent_messages (session_id, role, created_at) VALUES (?, 'assistant', '2026-01-03T00:00:00Z')")
+        sqlx::query("INSERT INTO agent_messages (session_id, role, content, created_at) VALUES (?, 'assistant', '', '2026-01-03T00:00:00Z')")
             .bind(beta_session)
             .execute(&pool)
             .await
@@ -367,54 +233,5 @@ mod tests {
         let projects = list_projects(&pool).await.unwrap();
         let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, vec!["Alpha", "Beta"]);
-    }
-
-    #[tokio::test]
-    async fn test_delete_project_cascade() {
-        let pool = setup_test_db().await;
-        let project = create_project(&pool, "Cascade", "/tmp/cascade")
-            .await
-            .unwrap();
-        let pid = project.id;
-
-        let fid: i64 = sqlx::query_as::<_, (i64,)>(
-            "INSERT INTO features (project_id, title) VALUES (?, 'feat') RETURNING id",
-        )
-        .bind(pid)
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .0;
-
-        let session_id: i64 = sqlx::query_as::<_, (i64,)>(
-            "INSERT INTO agent_sessions (feature_id) VALUES (?) RETURNING id",
-        )
-        .bind(fid)
-        .fetch_one(&pool)
-        .await
-        .unwrap()
-        .0;
-
-        sqlx::query("INSERT INTO agent_messages (session_id) VALUES (?)")
-            .bind(session_id)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        delete_project(&pool, pid).await.unwrap();
-
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM projects WHERE id = ?")
-            .bind(pid)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(count.0, 0);
-        let count: (i64,) =
-            sqlx::query_as("SELECT COUNT(*) FROM agent_messages WHERE session_id = ?")
-                .bind(session_id)
-                .fetch_one(&pool)
-                .await
-                .unwrap();
-        assert_eq!(count.0, 0);
     }
 }

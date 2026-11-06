@@ -3,6 +3,7 @@ import { ShortcutHintsProvider } from "@/hooks/useNavShortcutHints";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render as renderWithProviders, screen } from "@/test-utils";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { ProjectTree } from "./ProjectTree";
 import { resetMockIds } from "@/test-fixtures";
 import { clearProjectAutoExpandSkip, skipProjectAutoExpand } from "@/lib/project-auto-expand";
@@ -79,12 +80,15 @@ vi.mock("../api/generated", async (importOriginal) => ({
     },
     isLoading: false,
   })),
-  useDeleteProject: vi.fn((opts?: { onSuccess?: () => void }) => ({
-    mutate: (data: unknown) => {
-      mockDeleteProject(data);
-      opts?.onSuccess?.();
-    },
-  })),
+  useDeleteProject: vi.fn(
+    (opts?: { mutation?: { onSuccess?: () => void; onError?: (error: unknown) => void } }) => ({
+      mutate: (data: unknown) => {
+        const error: unknown = mockDeleteProject(data);
+        if (error) opts?.mutation?.onError?.(error);
+        else opts?.mutation?.onSuccess?.();
+      },
+    }),
+  ),
   getListProjectsQueryKey: vi.fn(() => ["projects"]),
   useListFeatures: vi.fn(() => ({
     data: [
@@ -473,5 +477,22 @@ describe("ProjectTree", () => {
     cancelButton.focus();
     await user.keyboard("{Enter}");
     expect(mockArchiveProjectSessions).not.toHaveBeenCalled();
+  });
+
+  it("explains why when deleting a project fails", async () => {
+    const toastError = vi.spyOn(toast, "error");
+    mockDeleteProject.mockReturnValueOnce(new Error("FOREIGN KEY constraint failed"));
+    const user = userEvent.setup();
+    render(<ProjectTree activeProjectId={null} activeFeatureId={null} onSelectFeature={vi.fn()} />);
+
+    await user.click(screen.getAllByLabelText("Project actions")[0]);
+    await user.click(await screen.findByText("Delete Project"));
+    await user.click(await screen.findByRole("button", { name: "Delete" }));
+
+    expect(mockDeleteProject).toHaveBeenCalledWith({ id: 1 });
+    expect(toastError).toHaveBeenCalledWith(
+      "Could not delete project: FOREIGN KEY constraint failed",
+    );
+    toastError.mockRestore();
   });
 });

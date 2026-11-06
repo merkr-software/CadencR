@@ -31,7 +31,7 @@ Use pnpm and the Node version pinned by `.nvmrc` (`>=22.19.0 <23.0.0`).
 | `pnpm dev` | Desktop, service watcher, and landing site; requires `watchexec` or `cargo-watch` |
 | `pnpm build` | Build the desktop app |
 | `pnpm test` | Workspace tests plus root script tests |
-| `pnpm lint` | Provider boundaries, oxlint, and workspace clippy |
+| `pnpm lint` | Provider boundaries, test-schema ratchet, oxlint, and workspace clippy |
 | `pnpm format` / `pnpm format:check` | Format / verify formatting |
 | `pnpm doctor` | Diagnose toolchain, environment, ports, watcher, and Electron |
 | `pnpm rust -- <args>` | All Cargo commands; never run bare `cargo` |

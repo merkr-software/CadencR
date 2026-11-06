@@ -89,6 +89,9 @@ function useProjectTreeMutations(
       onSuccess: () => {
         void queryClient.invalidateQueries({ queryKey: getListProjectsQueryKey() });
       },
+      onError: (error) => {
+        toast.error(`Could not delete project: ${apiErrorMessage(error, "Unknown error")}`);
+      },
     },
   });
   const archiveProjectSessions = useArchiveProjectSessionsAction({
