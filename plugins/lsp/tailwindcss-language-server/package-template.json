@@ -1,0 +1,117 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "Tailwind CSS language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tailwindcss-language-server-v0.1.0/lsp-tailwindcss-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+            "size": 3117953
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tailwindcss-language-server-v0.1.0/lsp-tailwindcss-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+            "size": 3117953
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-tailwindcss-language-server-v0.1.0/lsp-tailwindcss-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "adapter/adapter.mjs",
+            "entry_sha256": "0172d93445006df53251e5f15fd07b8b81ce8690c6f00d315fc963afb0c5a705",
+            "entry_size": 5001,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+            "size": 3117953
+          }
+        }
+      },
+      "id": "tailwindcss-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "html",
+            "htm"
+          ],
+          "filenames": [],
+          "id": "html"
+        },
+        {
+          "extensions": [
+            "css"
+          ],
+          "filenames": [],
+          "id": "css"
+        },
+        {
+          "extensions": [
+            "jsx"
+          ],
+          "filenames": [],
+          "id": "javascriptreact"
+        },
+        {
+          "extensions": [
+            "tsx"
+          ],
+          "filenames": [],
+          "id": "typescriptreact"
+        },
+        {
+          "extensions": [
+            "vue"
+          ],
+          "filenames": [],
+          "id": "vue"
+        },
+        {
+          "extensions": [
+            "svelte"
+          ],
+          "filenames": [],
+          "id": "svelte"
+        },
+        {
+          "extensions": [
+            "astro"
+          ],
+          "filenames": [],
+          "id": "astro"
+        }
+      ],
+      "license": "MIT",
+      "name": "Tailwind CSS language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [
+        "tailwind.config.js",
+        "tailwind.config.ts",
+        "package.json",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

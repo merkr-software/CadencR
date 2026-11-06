@@ -1,0 +1,77 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "Pyright using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-pyright-v0.1.0/lsp-pyright-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/pyright/langserver.index.js",
+            "entry_sha256": "f200762078eb9880faf421a5b30f9ef3055b1d85c6f10780d75db4da8d8499f1",
+            "entry_size": 229,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+            "size": 3936551
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-pyright-v0.1.0/lsp-pyright-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/pyright/langserver.index.js",
+            "entry_sha256": "f200762078eb9880faf421a5b30f9ef3055b1d85c6f10780d75db4da8d8499f1",
+            "entry_size": 229,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+            "size": 3936551
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-pyright-v0.1.0/lsp-pyright-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/pyright/langserver.index.js",
+            "entry_sha256": "f200762078eb9880faf421a5b30f9ef3055b1d85c6f10780d75db4da8d8499f1",
+            "entry_size": 229,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+            "size": 3936551
+          }
+        }
+      },
+      "id": "pyright",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "py",
+            "pyi"
+          ],
+          "filenames": [],
+          "id": "python"
+        }
+      ],
+      "license": "MIT",
+      "name": "Pyright",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "pyproject.toml",
+        "pyrightconfig.json",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

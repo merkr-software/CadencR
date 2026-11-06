@@ -1,0 +1,100 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--background-index"
+      ],
+      "description": "C and C++ code intelligence using clangd 23.1.0 and bundled Clang resource headers.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-clangd-v0.1.0/lsp-clangd-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "bin/clangd",
+            "entry_sha256": "a6875700504d0abf156172877ed4eb3c528d50df525f07654c62ac48b3cbb65d",
+            "entry_size": 88376448,
+            "macos_min_version": "11.0.0",
+            "runtime": "native",
+            "sha256": "d2844e861f483909c881509041b8e0662f56c5b8edaf05c952a157e5140600f5",
+            "size": 26860343
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-clangd-v0.1.0/lsp-clangd-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "bin/clangd",
+            "entry_sha256": "2d959a8b208ce3444ee60d9ac9294333c78b5492fd83ac97c1a58efce6ef7db3",
+            "entry_size": 88732752,
+            "macos_min_version": "10.13.0",
+            "runtime": "native",
+            "sha256": "1a2303a058273e4ff085adfcc74f031744cb1387f7137fd344213514b5c2c655",
+            "size": 27254477
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-clangd-v0.1.0/lsp-clangd-0.1.0-linux-x86_64.tar.gz",
+            "entry": "bin/clangd",
+            "entry_sha256": "a6379939f49ce845eda7bc44d2fe499f931758ddf4a53ab63ff431b8f8207a12",
+            "entry_size": 75660208,
+            "runtime": "native",
+            "sha256": "84db32e591ecb4015ac7cb0f7018067acfbaa72ffe64613334e4e308d9f2be1d",
+            "size": 26893319
+          }
+        }
+      },
+      "id": "clangd",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "c",
+            "h"
+          ],
+          "filenames": [],
+          "id": "c"
+        },
+        {
+          "extensions": [
+            "cc",
+            "cpp",
+            "cxx",
+            "hh",
+            "hpp",
+            "hxx"
+          ],
+          "filenames": [],
+          "id": "cpp"
+        },
+        {
+          "extensions": [
+            "m"
+          ],
+          "filenames": [],
+          "id": "objective-c"
+        },
+        {
+          "extensions": [
+            "mm"
+          ],
+          "filenames": [],
+          "id": "objective-cpp"
+        }
+      ],
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "name": "Clangd",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "type_checker",
+      "root_markers": [
+        "compile_commands.json",
+        "compile_flags.txt",
+        ".clangd",
+        ".git"
+      ],
+      "version": "0.1.0"
+    }
+  }
+}

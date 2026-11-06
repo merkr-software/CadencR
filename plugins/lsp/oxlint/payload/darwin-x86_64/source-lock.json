@@ -1,0 +1,43 @@
+{
+  "schema_version": 2,
+  "id": "oxlint",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "oxlint",
+  "target": "darwin-x86_64",
+  "sources": [
+    {
+      "name": "oxlint",
+      "version": "1.91.0",
+      "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.91.0/oxlint-x86_64-apple-darwin.tar.gz",
+      "sha256": "b422a6a5ffe753b117d7348a80e722ca35183ceb1b6c98766f0de14747727a26",
+      "destination": ".",
+      "expanded_size": 14047288,
+      "files": [
+        {
+          "path": "oxlint",
+          "sha256": "ea9e46115953ebbf088b8d71f000c0f6de7ec430fb0aa734ed68b841a444ec49",
+          "size": 14047288,
+          "mode": "100755"
+        }
+      ]
+    },
+    {
+      "name": "oxc-project/oxc-LICENSE",
+      "version": "1.91.0",
+      "url": "https://raw.githubusercontent.com/oxc-project/oxc/oxlint_v1.91.0/LICENSE",
+      "sha256": "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3",
+      "destination": ".",
+      "expanded_size": 1119,
+      "files": [
+        {
+          "path": "licenses/LICENSE",
+          "sha256": "95ced5ecf1133fbf41d409b5555c86c344f83f3b019926057ddbc07cfdcc27b3",
+          "size": 1119,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

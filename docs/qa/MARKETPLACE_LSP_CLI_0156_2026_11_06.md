@@ -4,8 +4,9 @@
 
 The exact public ELF passed distributed offline checks, author publication and
 independent recovery, additive registry publication, unchanged-set renewal and
-the LSP policy lifecycle. The 25-package released-CLI catalog matrix remains
-pending. These CLI checks do not grant production publication authority.
+the LSP policy lifecycle. The same distributed ELF also passes canonical
+packaging of all 25 catalog packages and their four-host semantic matrix.
+These checks do not grant production publication authority.
 
 The CLI is published independently of Cadencr Desktop. Production LSP catalog
 admission and feed activation remain held for application `v0.16.1`.
@@ -153,13 +154,68 @@ The author qualification JSON has SHA-256
 The author policy binds both exact file digests and retains its reviewed
 repository, account, environment and reviewer requirements.
 
-## Released catalog matrix pending
+## Released catalog matrix
 
-Canonical packaging of all 25 packages and their four-host semantic matrix must
-run from reviewed `main` with `cli_mode=released` after this pin selection lands.
-The earlier [source-built candidate run 42037164906](https://github.com/merkr-software/CadencR/actions/runs/42037164906)
-passed all 25 packages on Ubuntu 22.04, Ubuntu 24.04, macOS ARM and macOS Intel.
-Its provenance is `source-build`; it does not qualify this public ELF.
+[Run 42215738947](https://github.com/merkr-software/CadencR/actions/runs/42215738947),
+attempt `1`, passes with `cli_mode=released` at reviewed main commit
+`d2b4023a02e4238214ad6563d8fc02ac0bed3330`. Its canonical Linux packaging uses
+the public ELF and exact checked pin above, with `origin: released-pin` and no
+source-build fallback. It prepares all 25 packages, packs every target twice,
+compares compressed bytes and validates each target against its actual archive.
+
+| Canonical handoff binding | Value |
+| --- | --- |
+| Held-data artifact ID | `13502216825` |
+| Artifact ZIP size | `687997688` bytes |
+| Artifact ZIP SHA-256 | `11629e2ec031d014c46d8ed027865a1d07328873a610bcfd23a67aa2722b881e` |
+| Handoff manifest SHA-256 | `437fb20ea17a883b126142726ff8ff5174150f74783f8d3c5281006d06f8e786` |
+| Closed data inventory | `146` files including the manifest, `687972564` bytes |
+
+The same-run handoff is verified against its closed inventory, exact source,
+24 reviewed candidate recipes and unchanged TypeScript baseline. Each host
+consumes those same bound archives and verifies the payload inventory again
+after use. Initialization alone is insufficient: all 25 packages must produce
+the expected diagnostic, hover, completion or document-symbol behavior.
+
+| Actual native host | Passed | `runtime.json` SHA-256 |
+| --- | --- | --- |
+| Ubuntu `22.04.5 LTS`, `x86_64` | `25/25` | `2d407cc17effe870b4bee5cd3f652d937b14f0883846986ef2a13cfcbbc50177` |
+| Ubuntu `24.04.5 LTS`, `x86_64` | `25/25` | `95bafc965d4486341e05de614396276c7871b5f12dd351f11e4029d8e80b5e63` |
+| macOS `15.8.2`, `arm64` | `25/25` | `008f7b4bda754e03eef3e714968f4ba8119870a9f6b56af7fc389d9ac5efcbfc` |
+| macOS `15.7.9`, `x86_64` | `25/25` | `7eee7406f29bd928fee181914f9489d469cd0e6d9679fccb50ce0d6c6e8a98d8` |
+
+| Runtime evidence ZIP | Artifact ID | ZIP SHA-256 |
+| --- | --- | --- |
+| Ubuntu 22.04 | `13501503874` | `95f69a28968c01796883269dacfa76adfc244c7c214468006afd7a4f06273701` |
+| Ubuntu 24.04 | `13501099242` | `a7d20d3f4298f4f90ae9192698867e7a8ce7394e349963a450b5f730d6ba9735` |
+| macOS ARM | `13502122599` | `dd639d3db51be2b683eee3cf83a58ca747565aa02314f2e8bcf3d5ee80c141ec` |
+| macOS Intel | `13502072508` | `37e82ad24bf573c40951c8d83d1ad746fbfc2fcb97e1941b537a47ff10b0e63b` |
+
+All ten same-run artifact ZIPs have verified GitHub-declared sizes and hashes.
+The four reports bind the same handoff digest, source, public ELF and pin. Their
+per-package report hashes match the separate semantic diagnostic records.
+Node probes use `22.19.0`; ESLint and Tailwind receive frozen project fixtures,
+and Gopls receives the pinned Go `1.26.10` toolchain. All native probes exit
+cleanly. Linux uses a read-only root/input/helper filesystem, bounded writable
+tmpfs, denied networking and dropped capabilities. macOS verifies deny-IP,
+allow-Unix and protected-input sandbox behavior before executing the probes.
+
+All 75 target descriptors and archive bindings are identical to the earlier
+[source-built run 42037164906](https://github.com/merkr-software/CadencR/actions/runs/42037164906).
+The released run independently reproduces and tests them. Its first-party
+overlay URLs bind qualification source `d2b4023a02e4238214ad6563d8fc02ac0bed3330`;
+all 54 immutable public file URLs match their lock hashes, sizes and Git blobs.
+The earlier source-built CLI remains preparation evidence, never a substitute
+for this public ELF's provenance.
+
+Canonical main [CI 42215655380](https://github.com/merkr-software/CadencR/actions/runs/42215655380)
+and [CodeQL 42215655440](https://github.com/merkr-software/CadencR/actions/runs/42215655440)
+also pass at this exact source. Promotion copies only the 116 reviewed package
+files for 24 new entries and adds their `READY` source-policy bindings; it
+preserves the published TypeScript package and all existing policy entries.
+Protected author inspection/publication and application lifecycle qualification
+remain separate. These direct-server probes do not prove 25-package UI/editor
+integration, managed install/update/remove/revocation, or older macOS floors.
 
 ## Production boundary
 

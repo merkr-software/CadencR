@@ -1,0 +1,78 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "start"
+      ],
+      "description": "Bash language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-bash-language-server-v0.1.0/lsp-bash-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/bash-language-server/out/cli.js",
+            "entry_sha256": "9b40161b305793636fa6c3649c292b28a077a5200483b51ea57cc7e8f25211ad",
+            "entry_size": 2825,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+            "size": 3761014
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-bash-language-server-v0.1.0/lsp-bash-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/bash-language-server/out/cli.js",
+            "entry_sha256": "9b40161b305793636fa6c3649c292b28a077a5200483b51ea57cc7e8f25211ad",
+            "entry_size": 2825,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+            "size": 3761014
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-bash-language-server-v0.1.0/lsp-bash-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/bash-language-server/out/cli.js",
+            "entry_sha256": "9b40161b305793636fa6c3649c292b28a077a5200483b51ea57cc7e8f25211ad",
+            "entry_size": 2825,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+            "size": 3761014
+          }
+        }
+      },
+      "id": "bash-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "sh",
+            "bash",
+            "zsh"
+          ],
+          "filenames": [
+            ".bashrc",
+            ".bash_profile",
+            ".bash_login",
+            ".bash_logout",
+            ".profile",
+            ".zshrc"
+          ],
+          "id": "shellscript"
+        }
+      ],
+      "license": "MIT",
+      "name": "Bash language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [],
+      "version": "0.1.0"
+    }
+  }
+}

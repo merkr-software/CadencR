@@ -11,9 +11,14 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/graphite",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "theme.json": {"sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5", "mode": "100644"}
+            "theme.json": {
+              "sha256": "ec1af0e82fdaacbda8fd7648eafa638fa2e515fb0ca10c449d27c0eb9b2347c5",
+              "mode": "100644"
+            }
           }
         }
       }
@@ -28,9 +33,14 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/ember",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "theme.json": {"sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079", "mode": "100644"}
+            "theme.json": {
+              "sha256": "a021721902aba17a5fa8b9156941482cd98b40a3b5c33763f2f3ec9c07aa4079",
+              "mode": "100644"
+            }
           }
         }
       }
@@ -45,9 +55,14 @@
       "payloads": {
         "theme": {
           "directory": "plugins/themes/fjord",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "theme.json": {"sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e", "mode": "100644"}
+            "theme.json": {
+              "sha256": "05cd4fb4b1819bdae1a3316c5cb0d398fcefd9813dd30c220468828e7eebe14e",
+              "mode": "100644"
+            }
           }
         }
       }
@@ -62,86 +77,370 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/providers/pi",
-          "closed_directories": ["src"],
+          "closed_directories": [
+            "src"
+          ],
           "files": {
-            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
-            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
-            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
-            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
-            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
-            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
-            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
-            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
-            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
-            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
-            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
-            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
-            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
-            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
-            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
+            "bin/acp-events.mjs": {
+              "source": "src/acp-events.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
+            },
+            "bin/acp-server.mjs": {
+              "source": "src/acp-server.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
+            },
+            "bin/acp-session.mjs": {
+              "source": "src/acp-session.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
+            },
+            "bin/cadencr-permissions.mjs": {
+              "source": "src/cadencr-permissions.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
+            },
+            "bin/jsonl.mjs": {
+              "source": "src/jsonl.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
+            },
+            "bin/models-command.mjs": {
+              "source": "src/models-command.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
+            },
+            "bin/pi-args.mjs": {
+              "source": "src/pi-args.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
+            },
+            "bin/pi-models.mjs": {
+              "source": "src/pi-models.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
+            },
+            "bin/pi-rpc-client.mjs": {
+              "source": "src/pi-rpc-client.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
+            },
+            "bin/provider": {
+              "source": "src/provider.mjs",
+              "source_mode": "100644",
+              "mode": "100755",
+              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
+            },
+            "bin/session-identity.mjs": {
+              "source": "src/session-identity.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
+            },
+            "bin/version.mjs": {
+              "source": "src/version.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
+            },
+            "README.md": {
+              "mode": "100644",
+              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
+            },
+            "LICENSE": {
+              "mode": "100644",
+              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
+            },
+            "icon.svg": {
+              "mode": "100644",
+              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
+            }
           }
         },
         "darwin-x86_64": {
           "directory": "plugins/providers/pi",
-          "closed_directories": ["src"],
+          "closed_directories": [
+            "src"
+          ],
           "files": {
-            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
-            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
-            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
-            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
-            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
-            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
-            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
-            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
-            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
-            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
-            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
-            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
-            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
-            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
-            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
+            "bin/acp-events.mjs": {
+              "source": "src/acp-events.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
+            },
+            "bin/acp-server.mjs": {
+              "source": "src/acp-server.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
+            },
+            "bin/acp-session.mjs": {
+              "source": "src/acp-session.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
+            },
+            "bin/cadencr-permissions.mjs": {
+              "source": "src/cadencr-permissions.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
+            },
+            "bin/jsonl.mjs": {
+              "source": "src/jsonl.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
+            },
+            "bin/models-command.mjs": {
+              "source": "src/models-command.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
+            },
+            "bin/pi-args.mjs": {
+              "source": "src/pi-args.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
+            },
+            "bin/pi-models.mjs": {
+              "source": "src/pi-models.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
+            },
+            "bin/pi-rpc-client.mjs": {
+              "source": "src/pi-rpc-client.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
+            },
+            "bin/provider": {
+              "source": "src/provider.mjs",
+              "source_mode": "100644",
+              "mode": "100755",
+              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
+            },
+            "bin/session-identity.mjs": {
+              "source": "src/session-identity.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
+            },
+            "bin/version.mjs": {
+              "source": "src/version.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
+            },
+            "README.md": {
+              "mode": "100644",
+              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
+            },
+            "LICENSE": {
+              "mode": "100644",
+              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
+            },
+            "icon.svg": {
+              "mode": "100644",
+              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
+            }
           }
         },
         "linux-aarch64": {
           "directory": "plugins/providers/pi",
-          "closed_directories": ["src"],
+          "closed_directories": [
+            "src"
+          ],
           "files": {
-            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
-            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
-            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
-            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
-            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
-            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
-            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
-            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
-            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
-            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
-            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
-            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
-            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
-            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
-            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
+            "bin/acp-events.mjs": {
+              "source": "src/acp-events.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
+            },
+            "bin/acp-server.mjs": {
+              "source": "src/acp-server.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
+            },
+            "bin/acp-session.mjs": {
+              "source": "src/acp-session.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
+            },
+            "bin/cadencr-permissions.mjs": {
+              "source": "src/cadencr-permissions.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
+            },
+            "bin/jsonl.mjs": {
+              "source": "src/jsonl.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
+            },
+            "bin/models-command.mjs": {
+              "source": "src/models-command.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
+            },
+            "bin/pi-args.mjs": {
+              "source": "src/pi-args.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
+            },
+            "bin/pi-models.mjs": {
+              "source": "src/pi-models.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
+            },
+            "bin/pi-rpc-client.mjs": {
+              "source": "src/pi-rpc-client.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
+            },
+            "bin/provider": {
+              "source": "src/provider.mjs",
+              "source_mode": "100644",
+              "mode": "100755",
+              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
+            },
+            "bin/session-identity.mjs": {
+              "source": "src/session-identity.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
+            },
+            "bin/version.mjs": {
+              "source": "src/version.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
+            },
+            "README.md": {
+              "mode": "100644",
+              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
+            },
+            "LICENSE": {
+              "mode": "100644",
+              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
+            },
+            "icon.svg": {
+              "mode": "100644",
+              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
+            }
           }
         },
         "linux-x86_64": {
           "directory": "plugins/providers/pi",
-          "closed_directories": ["src"],
+          "closed_directories": [
+            "src"
+          ],
           "files": {
-            "bin/acp-events.mjs": {"source": "src/acp-events.mjs", "source_mode": "100644", "mode": "100644", "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"},
-            "bin/acp-server.mjs": {"source": "src/acp-server.mjs", "source_mode": "100644", "mode": "100644", "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"},
-            "bin/acp-session.mjs": {"source": "src/acp-session.mjs", "source_mode": "100644", "mode": "100644", "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"},
-            "bin/cadencr-permissions.mjs": {"source": "src/cadencr-permissions.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"},
-            "bin/jsonl.mjs": {"source": "src/jsonl.mjs", "source_mode": "100644", "mode": "100644", "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"},
-            "bin/models-command.mjs": {"source": "src/models-command.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"},
-            "bin/pi-args.mjs": {"source": "src/pi-args.mjs", "source_mode": "100644", "mode": "100644", "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"},
-            "bin/pi-models.mjs": {"source": "src/pi-models.mjs", "source_mode": "100644", "mode": "100644", "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"},
-            "bin/pi-rpc-client.mjs": {"source": "src/pi-rpc-client.mjs", "source_mode": "100644", "mode": "100644", "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"},
-            "bin/provider": {"source": "src/provider.mjs", "source_mode": "100644", "mode": "100755", "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"},
-            "bin/session-identity.mjs": {"source": "src/session-identity.mjs", "source_mode": "100644", "mode": "100644", "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"},
-            "bin/version.mjs": {"source": "src/version.mjs", "source_mode": "100644", "mode": "100644", "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"},
-            "README.md": {"mode": "100644", "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"},
-            "LICENSE": {"mode": "100644", "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"},
-            "icon.svg": {"mode": "100644", "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"}
+            "bin/acp-events.mjs": {
+              "source": "src/acp-events.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "9a21ab8fc1e53662ff53710d44d2c0b9757ddb9ec207b427118262e4d5d2b2bc"
+            },
+            "bin/acp-server.mjs": {
+              "source": "src/acp-server.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "7c9ec22d123ae147f6b9998fbf70072714b1e6d56055f4df2c224b8e7a5a1008"
+            },
+            "bin/acp-session.mjs": {
+              "source": "src/acp-session.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "be3033ed4e8fb381ea511d54b5e50c5fd61761cc84aea3fc0e717893814d69d0"
+            },
+            "bin/cadencr-permissions.mjs": {
+              "source": "src/cadencr-permissions.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f00a1108b244222eb0eeaf4d6358e8f3fc02a070fb99a16dec1b1072a7de7c50"
+            },
+            "bin/jsonl.mjs": {
+              "source": "src/jsonl.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "f9f19eb360fdf6945ea5d2a2e2848416b129b6d155f8a7fca35026622beb976f"
+            },
+            "bin/models-command.mjs": {
+              "source": "src/models-command.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c51ca30363e1f26f7d8a06c3a300c0c834c8536afc2cdcb9078c7833fdbe2a16"
+            },
+            "bin/pi-args.mjs": {
+              "source": "src/pi-args.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "ec532b34c8c3057cc0e029301b5deec379e0794eafbe6775d8becabae3c3d1f0"
+            },
+            "bin/pi-models.mjs": {
+              "source": "src/pi-models.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "c53e25c4d4c0175d88cdf4d87c165750775d86bc12ce435e7d9f775489943cfc"
+            },
+            "bin/pi-rpc-client.mjs": {
+              "source": "src/pi-rpc-client.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "701d960eb30fc8df4b7ae4274cfa8f8a522271de6a2ba1869f4acbc7d516f2f4"
+            },
+            "bin/provider": {
+              "source": "src/provider.mjs",
+              "source_mode": "100644",
+              "mode": "100755",
+              "sha256": "2a834eda10b20357b90f3d5a0c1ae3938a2afd8f68e0876ce226c6fd84e6c39a"
+            },
+            "bin/session-identity.mjs": {
+              "source": "src/session-identity.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "6fe9be1772e1c058495c429e75755701c1e5a98492fe5780cebbd7a6c121471b"
+            },
+            "bin/version.mjs": {
+              "source": "src/version.mjs",
+              "source_mode": "100644",
+              "mode": "100644",
+              "sha256": "cf49f30d3e551b5c4a18f01cf2286117d905f79086b650f74dcfae1bd2b0f440"
+            },
+            "README.md": {
+              "mode": "100644",
+              "sha256": "942c7cb958e19af49ad96c3f023533832f067c4955aaf2a3c067ec6581c3f485"
+            },
+            "LICENSE": {
+              "mode": "100644",
+              "sha256": "969e96a549b0526e1a7739d596210857bc3c67fc6337c7e032d75a6daddf4ad5"
+            },
+            "icon.svg": {
+              "mode": "100644",
+              "sha256": "d63a4105ad46a62af1ed10a649d431dfe58ffcd529bc1e9a151b9f99cf3a265c"
+            }
           }
         }
       },
@@ -157,30 +456,1470 @@
       "payloads": {
         "darwin-aarch64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
-            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+            "bundle.tar.gz": {
+              "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387",
+              "mode": "100644"
+            }
           }
         },
         "darwin-x86_64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
-            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+            "bundle.tar.gz": {
+              "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387",
+              "mode": "100644"
+            }
           }
         },
         "linux-x86_64": {
           "directory": "plugins/lsp/typescript-language-server/payload",
-          "closed_directories": ["."],
+          "closed_directories": [
+            "."
+          ],
           "files": {
-            "bundle.tar.gz": {"sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286", "mode": "100644"},
-            "source-lock.json": {"sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387", "mode": "100644"}
+            "bundle.tar.gz": {
+              "sha256": "295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "dfd04ebc92a461bf968e65bdc78d421a956dec7dfce655d17531c5518769f387",
+              "mode": "100644"
+            }
           }
         }
       },
       "release_notes": "TypeScript / JavaScript language server package 0.1.0\n\nIncludes typescript-language-server 5.3.0 and TypeScript 6.0.3, prepared together with their license notices. Requires an existing Node.js >=20; runtime qualification used Node.js 22.19.0 on Linux x86_64, macOS ARM64 and macOS Intel. No npm install or lifecycle scripts run in Cadencr.\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission and the LSP revocation feed remain held for the application 0.16.1 rollout. Managed client install/update/remove/revocation and minimum macOS 12 certification remain separate rollout checks.\n\nQualified archives: SHA-256 295472a5ede14af100e3a0fb0eb121d71d2818ee05399ffb3dac3290b0ec7286 (5,014,231 bytes each). Runtime qualification: https://github.com/merkr-software/cadencr-registry-qa/actions/runs/41727012894"
+    },
+    "lsp-astro-ls": {
+      "kind": "lsp",
+      "id": "astro-ls",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/astro-ls",
+      "package": "plugins/lsp/astro-ls/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/astro-ls/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c6b833939eae0a78d0c98286ae2ba9e72dbfdaf0aa17f08b833ea140bec9dd3",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/astro-ls/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c6b833939eae0a78d0c98286ae2ba9e72dbfdaf0aa17f08b833ea140bec9dd3",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/astro-ls/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "acbfd39ebe34c92a345ac06deca71f4fec5cb69bffe7cafb94f8e0fe289f9b07",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c6b833939eae0a78d0c98286ae2ba9e72dbfdaf0aa17f08b833ea140bec9dd3",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Astro language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.19.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-bash-language-server": {
+      "kind": "lsp",
+      "id": "bash-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/bash-language-server",
+      "package": "plugins/lsp/bash-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/bash-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f66a4375fb8dcb55b84a133a075a353dc32763b58c6f84a23a56b59ed97976e4",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/bash-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f66a4375fb8dcb55b84a133a075a353dc32763b58c6f84a23a56b59ed97976e4",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/bash-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "5f65af865bd1809665fdcf9ca1eff104bebd1f9430fdb92a5dea604681612bef",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f66a4375fb8dcb55b84a133a075a353dc32763b58c6f84a23a56b59ed97976e4",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Bash language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-biome": {
+      "kind": "lsp",
+      "id": "biome",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/biome",
+      "package": "plugins/lsp/biome/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/biome/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "53a7be45e9945e9442cdffc05e0ac4b7e30a2202e926846889ceba96a3bb2723",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "b4c1574f2f850a25822dd00646bf30420d15ec703f01de9679515f2111a5d9a0",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/biome/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "346482d79df142b87c2248145e111d1860ca0a5ea2d6c3f3677bc405b073130a",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e60a2b5381f40d60fe2f40497834343bf0236069ab27e651cc40a173efbd4d3d",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/biome/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d323cd9d5955c383b62c821146fbe71919d8f7196c4f5f5e1e52d41ed8fbfc21",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "dfeb5ebd71359422248e3a92a87414b8a4af6f09425fe8cac43ad2d7a1075762",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Biome package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.12.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-clangd": {
+      "kind": "lsp",
+      "id": "clangd",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/clangd",
+      "package": "plugins/lsp/clangd/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/clangd/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d2844e861f483909c881509041b8e0662f56c5b8edaf05c952a157e5140600f5",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "cde0a3f042940bba8f63c77650e84a2be392129bdd789588cd79eb4200cf2a15",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/clangd/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "1a2303a058273e4ff085adfcc74f031744cb1387f7137fd344213514b5c2c655",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "c5c03fe4f07d3a52c3d7a7db3d304ae6679abcd23632b9a6fd852b23f7f36241",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/clangd/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "84db32e591ecb4015ac7cb0f7018067acfbaa72ffe64613334e4e308d9f2be1d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "63c816c3cbe214140e23a90a72c90f3ee26e6ed0586739a5c0fae2c3de641487",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Clangd package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.13.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate. Project intelligence may require compile commands, project compiler headers and the project SDK."
+    },
+    "lsp-css-language-server": {
+      "kind": "lsp",
+      "id": "css-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/css-language-server",
+      "package": "plugins/lsp/css-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/css-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "ddcd8bc8d581de1296dc13a0254bc9db1a388f47a67c6d48792c99454cf7ef9e",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/css-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "ddcd8bc8d581de1296dc13a0254bc9db1a388f47a67c6d48792c99454cf7ef9e",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/css-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "ddcd8bc8d581de1296dc13a0254bc9db1a388f47a67c6d48792c99454cf7ef9e",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "CSS language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-docker-langserver": {
+      "kind": "lsp",
+      "id": "docker-langserver",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/docker-langserver",
+      "package": "plugins/lsp/docker-langserver/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/docker-langserver/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3f52e489596f8e55ca19222d5400e101ef0dc18f3381a7832831806d96cb88c3",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/docker-langserver/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3f52e489596f8e55ca19222d5400e101ef0dc18f3381a7832831806d96cb88c3",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/docker-langserver/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3f52e489596f8e55ca19222d5400e101ef0dc18f3381a7832831806d96cb88c3",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Dockerfile language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-eslint": {
+      "kind": "lsp",
+      "id": "eslint",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/eslint",
+      "package": "plugins/lsp/eslint/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/eslint/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c2f21cd8a7af312c657a65ed269815139c93956e3a725495771047c7bee315c",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/eslint/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c2f21cd8a7af312c657a65ed269815139c93956e3a725495771047c7bee315c",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/eslint/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "66dc0a73a2e84a9aa046ebfca3865c494e32208143ff3d3fe8094a6e7e8929c7",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8c2f21cd8a7af312c657a65ed269815139c93956e3a725495771047c7bee315c",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "ESLint package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies. The project must supply compatible ESLint dependencies and configuration; they are not installed by this language-server package."
+    },
+    "lsp-gopls": {
+      "kind": "lsp",
+      "id": "gopls",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/gopls",
+      "package": "plugins/lsp/gopls/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/gopls/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "45f9d9ee4973c0e91a9b837a66ec93d9f6e8206f1e8830ca9ea5417b204d31d8",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "8b057f7252bba7c6b85d2bdfad302acbb6fd246aaa98cc07c51fa8b86fc4bf95",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/gopls/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "4e561528942986f91835915fa386e3fe79c3a079a8adb13aef460700db5150d3",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1162ebf4366946dc93d3a60f76ee34e08151a233ce6fffea0fc52cd878e4cfab",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/gopls/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "fa091aa611c97b4bdd1e940a94bada9be5c02c5a40a419465a1dd6c366e7a746",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e83c6d1dd714a33c191724398f5accf99b4a1038862361022a025057109082fd",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Gopls package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate. Project intelligence requires a compatible Go project toolchain. Qualification used the pinned Go 1.26.10 toolchain."
+    },
+    "lsp-graphql-language-server": {
+      "kind": "lsp",
+      "id": "graphql-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/graphql-language-server",
+      "package": "plugins/lsp/graphql-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/graphql-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1270cc41e6a10643ea2c187ec7d02fbd4708a8df6f4add0580f1fe7a1d8d68b3",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/graphql-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1270cc41e6a10643ea2c187ec7d02fbd4708a8df6f4add0580f1fe7a1d8d68b3",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/graphql-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "ff78d516fa6cc2ef024105ade6c514abeabb4940a7916fb6a92155950ae89d58",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1270cc41e6a10643ea2c187ec7d02fbd4708a8df6f4add0580f1fe7a1d8d68b3",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "GraphQL language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.19.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies. Requires a project schema and GraphQL configuration; remote schema fetching is outside offline qualification."
+    },
+    "lsp-html-language-server": {
+      "kind": "lsp",
+      "id": "html-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/html-language-server",
+      "package": "plugins/lsp/html-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/html-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1eca76d505e76fefcbfb75b6bae614f1978b895368c208991d5ae85e4fd1b1e0",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/html-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1eca76d505e76fefcbfb75b6bae614f1978b895368c208991d5ae85e4fd1b1e0",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/html-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1eca76d505e76fefcbfb75b6bae614f1978b895368c208991d5ae85e4fd1b1e0",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "HTML language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-json-language-server": {
+      "kind": "lsp",
+      "id": "json-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/json-language-server",
+      "package": "plugins/lsp/json-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/json-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f5e860e2e767f2711cb24968a50c2070fa4d25ecc5cbb80e02e06215efebc90e",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/json-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f5e860e2e767f2711cb24968a50c2070fa4d25ecc5cbb80e02e06215efebc90e",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/json-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d9d8fe954bdf0b3af5988b772be0d6f912955bc2ed7ebacfea4dceef58d126b9",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "f5e860e2e767f2711cb24968a50c2070fa4d25ecc5cbb80e02e06215efebc90e",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "JSON language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 22.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-lua-language-server": {
+      "kind": "lsp",
+      "id": "lua-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/lua-language-server",
+      "package": "plugins/lsp/lua-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/lua-language-server/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "570a204b5e8cda39649da5d3da3304f81bb2f85725c977f9c1523b9af9794b13",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "b554e6ebb46987ca1877e5852083d87f28a96c639cde0b2135240ca1d9555a11",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/lua-language-server/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "20f68798d1160f2a581387b17b6c0dbc43ae8d88db5b92f17225edc7a0df2980",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "a8ec49d37a06f7ec9b40e7cb8f414186ad87db7d3d2ac185de3a1c0c8750e6e9",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/lua-language-server/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "50cc58e359b6b52aa92b2763ca0ce7a9b5a967f189a494f1f319fdea573d879f",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "5aa0d36f7ee660b26548ba75d89a09e6d85e09cf8257c4ee9d5e4ed121707f1d",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Lua language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.12.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate. Cadencr supplies the writable per-server cache used for generated LuaLS logs and metadata; the installed bundle remains unchanged."
+    },
+    "lsp-marksman": {
+      "kind": "lsp",
+      "id": "marksman",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/marksman",
+      "package": "plugins/lsp/marksman/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/marksman/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "07886859680f296627e4c5130ff5fcb0af872852548eadd0287434219777af8d",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/marksman/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "52c794ff3cc77f29205d4a1527f37106769e7e5e8da0ea12411e1d597fe6d790",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "d105e278c3d48ddc1ac82543264be616cb9308f2be85c3e5e5f951cc54e623fa",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/marksman/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "f2889938a954b416919280c070cd6db3bcab389c50a29b6047d9c216eb003574",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "25c92d2230e9fba3d6c227d747923c484b50b642ab319b2b07463a0b2710f2da",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Marksman package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-oxlint": {
+      "kind": "lsp",
+      "id": "oxlint",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/oxlint",
+      "package": "plugins/lsp/oxlint/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/oxlint/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "75c7abeea4f5c1216328468fbe6ccc1d88e337f7b4524e2e6a89d52fc71fe3b8",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "03bf894ba004a150d92ce7d9d780223bbc4bcc207a8c862f82dcb031cb4fabdc",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/oxlint/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "29acad80888b437895ec3391f7be15bf52cd3bbd0f8830b6851beb1ce9efcaaa",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "4afb1c1bb7d59c27f245bc41a60734b61090862625953b12c4fcb8c51c0747fc",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/oxlint/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "5b96395d24d03f3b0cc4ede8536d3d012a3d6c684a671ae98064894543d063b6",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "925380e8f3abaa739e3ef153a2d2284561df1d2da7f8da6d7060a9543017c4a6",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Oxlint package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.12.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-pyright": {
+      "kind": "lsp",
+      "id": "pyright",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/pyright",
+      "package": "plugins/lsp/pyright/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/pyright/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aacce434a4f8f39b5d833af310225aa752722a5b5e79007fd003dd6991dffafb",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/pyright/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aacce434a4f8f39b5d833af310225aa752722a5b5e79007fd003dd6991dffafb",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/pyright/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "764e4969792b5ddc0bb3fbdb552e6b05b5d10fea0083677404a027b570cf8b65",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aacce434a4f8f39b5d833af310225aa752722a5b5e79007fd003dd6991dffafb",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Pyright package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-ruff": {
+      "kind": "lsp",
+      "id": "ruff",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/ruff",
+      "package": "plugins/lsp/ruff/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/ruff/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "388278dd7cd6aff9e8e5d8743f22a498d179815bb5f3e1cd2013fd7a6a1d742c",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "b60cd6a68ca896bbd14ec07d1d71eb27a0b9f8f192cc851e3bdc883b0b4d7b51",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/ruff/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "c162c379cd0638c05e82fd62a50512ba217feb538936302f4656308aad81a3b8",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "b2df61c8f4e75b402e890dc79016e57aa40f36f788ccb724a1eadbf325563e88",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/ruff/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "5832a46183d03b85f12692fa682c309293b34a4f7d719fc51c132ed1798c73a2",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "a9fa03f4890a3e072b7bdd6f5c41bf2c5f4340783f32751a39ec559e32b21add",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Ruff package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.12.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-rust-analyzer": {
+      "kind": "lsp",
+      "id": "rust-analyzer",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/rust-analyzer",
+      "package": "plugins/lsp/rust-analyzer/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/rust-analyzer/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "48487c2db008d02bcf4ceb11c178057581e749ab7a1d5a8a84e0cf674616c95c",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "674d8df978527fb09e46cf37b3523fc28f60f56d33ee66b25c6df340552d21cc",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/rust-analyzer/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "b256926251c177c1f83aecccdfa947a73f30c99988f707db0dcda6983ef8fc8c",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "ab58150a591db2b2f5c1e9cb1e9e91f30ec9d116ecca7c46352184864e9d8c5c",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/rust-analyzer/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "373e17665b3e673d1ff27c3751f7acc91924858afb3f35d3c4126a67cefc5c36",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "2ac096ba8e7b2a59159641ccc4049b6d72aad6c82166e3998ec01ac34a85df57",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "rust-analyzer package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 15.0.0, macOS Intel 15.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate. Project intelligence requires a Rust toolchain with cargo and rust-src, plus project dependencies."
+    },
+    "lsp-svelte-language-server": {
+      "kind": "lsp",
+      "id": "svelte-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/svelte-language-server",
+      "package": "plugins/lsp/svelte-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/svelte-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aa351fba60b86ec3dd875bed0d3f31dc8308d3bbaf63a39ef117a02cfa8f43b0",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/svelte-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aa351fba60b86ec3dd875bed0d3f31dc8308d3bbaf63a39ef117a02cfa8f43b0",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/svelte-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a2acb825494faeb7a3972a8ea83fa4c8e603dac00e11d6d42969158a797b3b61",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "aa351fba60b86ec3dd875bed0d3f31dc8308d3bbaf63a39ef117a02cfa8f43b0",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Svelte language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-tailwindcss-language-server": {
+      "kind": "lsp",
+      "id": "tailwindcss-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/tailwindcss-language-server",
+      "package": "plugins/lsp/tailwindcss-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3a19a42d88fea2b443b9a792732d434a4e3da8d2b58a45a24c6d792e80a228b6",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3a19a42d88fea2b443b9a792732d434a4e3da8d2b58a45a24c6d792e80a228b6",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/tailwindcss-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "266c5757803eff13c73a1cd0a4179a510b1830d9a61da64a8ef06dd7d9ac228d",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3a19a42d88fea2b443b9a792732d434a4e3da8d2b58a45a24c6d792e80a228b6",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Tailwind CSS language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies. The project must supply Tailwind CSS dependencies and configuration; they are not installed by this language-server package."
+    },
+    "lsp-taplo": {
+      "kind": "lsp",
+      "id": "taplo",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/taplo",
+      "package": "plugins/lsp/taplo/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/taplo/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d2b28a9944f9fa4f6d27527c9f8b531f0297eadd2c3020e68546cc345f03204f",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "b7cc576916d99529a45f2d98da335efc093063f7b278876c060de0989003ae06",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/taplo/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "2b0e579cd22f7a1120fa46e66d54bc2418a68ad70125db3b68ef480b7cb7c4f7",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "44b103fca41728dc7b26f1dc0f919d134196812406798fdd4e78ddd03cfd1dec",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/taplo/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "df5797ee10fe3c3ea13274c906a0418314e04bf06d1c4f167f9265283e251362",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "730759aaa4922a033d28e26a4ff03157e882b2e326d97f4932641dc53e7f6d3a",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Taplo package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 11.0.0, macOS Intel 10.12.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-terraform-ls": {
+      "kind": "lsp",
+      "id": "terraform-ls",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/terraform-ls",
+      "package": "plugins/lsp/terraform-ls/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/terraform-ls/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "8b54ee0156cbade49ef067966fe296afa04ace2552836091c2242e71daf49f60",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "24e3f18f4ebf6a48f4fea72f0a50df789fc6ea8244ed61dcae09ea2371c450ee",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/terraform-ls/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "9f515220a182311bc3a8ae2f64e818acd66c356acc60a348d1cb72859ce2bc32",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "3d624b0131eecdb6d008d69f817cdb0fe49bc604c652c174f1a01e513d674e70",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/terraform-ls/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "c2b6369a2767774122d767ef146ce57028c44a5672b2b407fb88387b8ba2faab",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "0d17d8d116c54bd9fe39fc541ee8573fce88caabd55ef481bc70d47463fc61b3",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Terraform language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate. Project intelligence may require the project Terraform CLI and initialized configuration."
+    },
+    "lsp-tsgo": {
+      "kind": "lsp",
+      "id": "tsgo",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/tsgo",
+      "package": "plugins/lsp/tsgo/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/tsgo/payload/darwin-aarch64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d3e2e12da3b074952d41a03e2a2eb00227c1a3c4f0bce932a4977adc760d72cb",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "271cd82eeb1d693d7ae6fcacf7903d53e7bfa294927d487b17afbfe6eedfc421",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/tsgo/payload/darwin-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "d8b40d0d13b01b74cd6d05bd1afeca5276e2f0acab44747c3420eb41674cc57b",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "d369608cc667ee70c84d5b3650595177e535fec464776322e784c5fe1d0d88a0",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/tsgo/payload/linux-x86_64",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "960a087a08547cfe62364a6f384f676d4933cfaf8f7d2fb5f7af1c1638a3be68",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "1a89bf7a160b39ef8fa4591f6966c097c35eae32b3ea41e6df73f85b105319dc",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "TypeScript native preview package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nPackaged binary deployment floors: macOS ARM 12.0.0, macOS Intel 12.0.0. Runtime qualification used macOS 15 on both architectures and Ubuntu 22.04/24.04 x86_64; older OS runtime certification and application OS support are separate."
+    },
+    "lsp-vue-language-server": {
+      "kind": "lsp",
+      "id": "vue-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/vue-language-server",
+      "package": "plugins/lsp/vue-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/vue-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e8776461eec169b730a6b685bc74f5c7cd8a303a74cfe8373f073125717c045e",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/vue-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e8776461eec169b730a6b685bc74f5c7cd8a303a74cfe8373f073125717c045e",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/vue-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "68b5de84c747d8ee00424d9d16e9cc1889e2dc9c1d0780ae0749352f7322ccae",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e8776461eec169b730a6b685bc74f5c7cd8a303a74cfe8373f073125717c045e",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "Vue language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
+    },
+    "lsp-yaml-language-server": {
+      "kind": "lsp",
+      "id": "yaml-language-server",
+      "version": "0.1.0",
+      "source_path": "plugins/lsp/yaml-language-server",
+      "package": "plugins/lsp/yaml-language-server/package-template.json",
+      "preparation": "READY",
+      "payloads": {
+        "darwin-aarch64": {
+          "directory": "plugins/lsp/yaml-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e6742c53a5aa264d13441528bd1af07adb1b174ae64b80f803e16584dabd8cb4",
+              "mode": "100644"
+            }
+          }
+        },
+        "darwin-x86_64": {
+          "directory": "plugins/lsp/yaml-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e6742c53a5aa264d13441528bd1af07adb1b174ae64b80f803e16584dabd8cb4",
+              "mode": "100644"
+            }
+          }
+        },
+        "linux-x86_64": {
+          "directory": "plugins/lsp/yaml-language-server/payload/all",
+          "closed_directories": [
+            "."
+          ],
+          "files": {
+            "bundle.tar.gz": {
+              "sha256": "a9fab99f367aea4a6a6b8849446170ed659e38da7270e9c9f88bf3fd62f50053",
+              "mode": "100644"
+            },
+            "source-lock.json": {
+              "sha256": "e6742c53a5aa264d13441528bd1af07adb1b174ae64b80f803e16584dabd8cb4",
+              "mode": "100644"
+            }
+          }
+        }
+      },
+      "release_notes": "YAML language server package 0.1.0\n\nMinimum Cadencr application version: 0.16.1. This release publishes package assets only. Production marketplace catalog admission, the LSP revocation feed and the desktop release remain separate rollout steps.\n\nCanonical archive and runtime qualification: https://github.com/merkr-software/CadencR/actions/runs/42215738947\n\nRequires an existing Node.js >= 20.0.0. Qualification used Node.js 22.19.0; upstream supported-major restrictions still apply. Cadencr does not install Node.js or resolve project dependencies."
     }
   },
   "publication": "APPROVED"

@@ -1,0 +1,70 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "HTML language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-html-language-server-v0.1.0/lsp-html-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/html-language-server/node/htmlServerMain.js",
+            "entry_sha256": "f4160df84224c94e1ebdd79ae4f1e39af77917655fa45121bd74e457c13b451b",
+            "entry_size": 2549,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+            "size": 13913075
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-html-language-server-v0.1.0/lsp-html-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/html-language-server/node/htmlServerMain.js",
+            "entry_sha256": "f4160df84224c94e1ebdd79ae4f1e39af77917655fa45121bd74e457c13b451b",
+            "entry_size": 2549,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+            "size": 13913075
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-html-language-server-v0.1.0/lsp-html-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/html-language-server/node/htmlServerMain.js",
+            "entry_sha256": "f4160df84224c94e1ebdd79ae4f1e39af77917655fa45121bd74e457c13b451b",
+            "entry_size": 2549,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "af5f99a92d740da950971dcd9580242aba68b588d5afb1ae1aed121c9d11391d",
+            "size": 13913075
+          }
+        }
+      },
+      "id": "html-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "html",
+            "htm"
+          ],
+          "filenames": [],
+          "id": "html"
+        }
+      ],
+      "license": "MIT",
+      "name": "HTML language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [],
+      "version": "0.1.0"
+    }
+  }
+}

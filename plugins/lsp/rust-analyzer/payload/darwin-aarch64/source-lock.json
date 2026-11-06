@@ -1,0 +1,59 @@
+{
+  "schema_version": 2,
+  "id": "rust-analyzer",
+  "package_version": "0.1.0",
+  "min_app_version": "0.16.1",
+  "runtime": "native",
+  "entry": "rust-analyzer",
+  "target": "darwin-aarch64",
+  "sources": [
+    {
+      "name": "rust-analyzer",
+      "version": "2026-11-02",
+      "url": "https://github.com/rust-lang/rust-analyzer/releases/download/2026-11-02/rust-analyzer-aarch64-apple-darwin.gz",
+      "sha256": "d10ca0a10e386f74ca36847b3df2ad5ab6f1328feeb1591467b3724f3fd8e8cf",
+      "destination": ".",
+      "expanded_size": 38883744,
+      "files": [
+        {
+          "path": "rust-analyzer",
+          "sha256": "4bf4ee6e3d21c6e99efe0c811cc05878094d7a304381bc29972d878812c4c6f3",
+          "size": 38883744,
+          "mode": "100755"
+        }
+      ]
+    },
+    {
+      "name": "rust-lang/rust-analyzer-LICENSE-MIT",
+      "version": "2026-11-02",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-MIT",
+      "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+      "destination": ".",
+      "expanded_size": 1023,
+      "files": [
+        {
+          "path": "licenses/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "size": 1023,
+          "mode": "100644"
+        }
+      ]
+    },
+    {
+      "name": "rust-lang/rust-analyzer-LICENSE-APACHE",
+      "version": "2026-11-02",
+      "url": "https://raw.githubusercontent.com/rust-lang/rust-analyzer/2026-11-02/LICENSE-APACHE",
+      "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+      "destination": ".",
+      "expanded_size": 9723,
+      "files": [
+        {
+          "path": "licenses/LICENSE-APACHE",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "size": 9723,
+          "mode": "100644"
+        }
+      ]
+    }
+  ]
+}

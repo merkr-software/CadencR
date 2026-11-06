@@ -1,0 +1,72 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "Dockerfile language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-docker-langserver-v0.1.0/lsp-docker-langserver-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/dockerfile-language-server-nodejs/lib/server.js",
+            "entry_sha256": "b0878f3b9fe88ae0e2b09c9b4e155e5c82b15f466df448fa694d769bc01d6c0a",
+            "entry_size": 28890,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+            "size": 416149
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-docker-langserver-v0.1.0/lsp-docker-langserver-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/dockerfile-language-server-nodejs/lib/server.js",
+            "entry_sha256": "b0878f3b9fe88ae0e2b09c9b4e155e5c82b15f466df448fa694d769bc01d6c0a",
+            "entry_size": 28890,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+            "size": 416149
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-docker-langserver-v0.1.0/lsp-docker-langserver-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/dockerfile-language-server-nodejs/lib/server.js",
+            "entry_sha256": "b0878f3b9fe88ae0e2b09c9b4e155e5c82b15f466df448fa694d769bc01d6c0a",
+            "entry_size": 28890,
+            "node_min_version": "20.0.0",
+            "runtime": "node",
+            "sha256": "4230264e2d669af1bc852774927288f3fb9e06ae0fbc60daeb579e29cdc7f1a6",
+            "size": 416149
+          }
+        }
+      },
+      "id": "docker-langserver",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "dockerfile"
+          ],
+          "filenames": [
+            "Dockerfile",
+            "Containerfile"
+          ],
+          "id": "dockerfile"
+        }
+      ],
+      "license": "MIT",
+      "name": "Dockerfile language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [],
+      "version": "0.1.0"
+    }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "kind": "lsp",
+  "package": {
+    "host": {
+      "compatibility": {
+        "min_app_version": "0.16.1"
+      },
+      "publisher": "merkr-software"
+    },
+    "lsp": {
+      "args": [
+        "--stdio"
+      ],
+      "description": "CSS language server using pinned complete upstream npm distributions.",
+      "distribution": {
+        "binary": {
+          "darwin-aarch64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-css-language-server-v0.1.0/lsp-css-language-server-0.1.0-darwin-aarch64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/css-language-server/node/cssServerMain.js",
+            "entry_sha256": "8cc5fb9dfbd95989fbfc1ee02cce9c0581b697e4abffcb910fcd1e0dce7bb5e8",
+            "entry_size": 2554,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+            "size": 13913074
+          },
+          "darwin-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-css-language-server-v0.1.0/lsp-css-language-server-0.1.0-darwin-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/css-language-server/node/cssServerMain.js",
+            "entry_sha256": "8cc5fb9dfbd95989fbfc1ee02cce9c0581b697e4abffcb910fcd1e0dce7bb5e8",
+            "entry_size": 2554,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+            "size": 13913074
+          },
+          "linux-x86_64": {
+            "archive": "https://github.com/merkr-software/CadencR/releases/download/lsp-css-language-server-v0.1.0/lsp-css-language-server-0.1.0-linux-x86_64.tar.gz",
+            "entry": "node_modules/vscode-langservers-extracted/lib/css-language-server/node/cssServerMain.js",
+            "entry_sha256": "8cc5fb9dfbd95989fbfc1ee02cce9c0581b697e4abffcb910fcd1e0dce7bb5e8",
+            "entry_size": 2554,
+            "node_min_version": "22.0.0",
+            "runtime": "node",
+            "sha256": "77207590e924c12351601041aa14d0191c4b7a15159662a77712fa7cad38ecde",
+            "size": 13913074
+          }
+        }
+      },
+      "id": "css-language-server",
+      "initialization_options": {},
+      "languages": [
+        {
+          "extensions": [
+            "css"
+          ],
+          "filenames": [],
+          "id": "css"
+        },
+        {
+          "extensions": [
+            "scss"
+          ],
+          "filenames": [],
+          "id": "scss"
+        },
+        {
+          "extensions": [
+            "less"
+          ],
+          "filenames": [],
+          "id": "less"
+        }
+      ],
+      "license": "MIT",
+      "name": "CSS language server",
+      "protocol_version": 1,
+      "repository": "https://github.com/merkr-software/CadencR",
+      "role": "general",
+      "root_markers": [],
+      "version": "0.1.0"
+    }
+  }
+}
