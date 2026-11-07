@@ -12,6 +12,11 @@ pub(super) fn prepare(
     expires_at: &str,
 ) -> Result<cadencr_registry_core::PreparedSigningPayload, PublisherError> {
     let Some(baseline) = &manifest.baseline else {
+        if !manifest.provider_handoffs.is_empty() {
+            return Err(PublisherError::new(
+                "provider handoff requires an authenticated baseline",
+            ));
+        }
         return cadencr_registry_core::prepare_publication_index()
             .packages(packages)
             .schema_version(manifest.schema_version)
@@ -43,6 +48,7 @@ pub(super) fn prepare(
         .schema_version(manifest.schema_version)
         .allow_schema_upgrade(manifest.allow_schema_upgrade)
         .packages(packages)
+        .provider_handoffs(manifest.provider_handoffs.clone())
         .generated_at(generated_at)
         .expires_at(expires_at)
         .call()

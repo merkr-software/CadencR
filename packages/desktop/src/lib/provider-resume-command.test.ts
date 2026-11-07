@@ -98,3 +98,30 @@ describe("buildResumeCommand", () => {
     }
   });
 });
+
+it("unwraps owner-bound sessions for terminal resume and refuses old-owner IDs", () => {
+  const owner = "a".repeat(64);
+  const resumeCommand = { program: "pi", args: ["--resume", "{session_id}"], session_owner: owner };
+  const native = "pidancr-v1.session-π";
+  const encoded = btoa(String.fromCharCode(...new TextEncoder().encode(native)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/, "");
+  const result = buildResumeCommand({
+    resumeCommand,
+    sessionId: `cadencr-managed-v1.${owner}.${encoded}`,
+    cwd: undefined,
+  });
+  expect(result.supported).toBe(true);
+  expect(result.command).toContain(native);
+  for (const sessionId of [
+    "old-native-id",
+    `cadencr-managed-v1.${"b".repeat(64)}.${encoded}`,
+    `cadencr-managed-v1.${owner}.invalid!`,
+  ]) {
+    expect(buildResumeCommand({ resumeCommand, sessionId, cwd: undefined })).toEqual({
+      command: "",
+      supported: false,
+    });
+  }
+});

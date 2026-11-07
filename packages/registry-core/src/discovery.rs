@@ -5,6 +5,25 @@ use crate::{valid_publication_repository, CatalogSnapshot, PolicyKind, RegistryE
 pub const DISCOVERY_FILENAME: &str = "managed-index.json";
 pub const MAX_DISCOVERY_BYTES: usize = crate::MAX_CATALOG_BYTES;
 
+pub const ADMINISTRATIVE_DISCOVERY_BRANCH: &str = "marketplace-v2-admin";
+
+/// Fixed, separately maintained client channels. Administrative metadata must
+/// never reach the legacy schema-2 feed consumed by released 0.16 clients.
+pub fn validate_catalog_discovery_channel(
+    schema: u64,
+    administrative: bool,
+    branch: &str,
+) -> Result<(), RegistryError> {
+    validate_discovery_branch(branch)?;
+    let mixed = matches!(branch, "marketplace-v2" | ADMINISTRATIVE_DISCOVERY_BRANCH);
+    if (schema == 2) != mixed || administrative && branch != ADMINISTRATIVE_DISCOVERY_BRANCH {
+        return Err(RegistryError::single(
+            "schema2 requires an isolated marketplace-v2 channel; provider handoffs require marketplace-v2-admin",
+        ));
+    }
+    Ok(())
+}
+
 pub fn validate_discovery_branch(branch: &str) -> Result<(), RegistryError> {
     let mut bytes = branch.bytes();
     let valid = (1..=64).contains(&branch.len())
@@ -95,6 +114,22 @@ mod tests {
     use serde_json::{json, Value};
 
     use super::*;
+
+    #[test]
+    fn administrative_metadata_cannot_advance_the_legacy_client_channel() {
+        assert!(validate_catalog_discovery_channel(2, false, "marketplace-v2").is_ok());
+        assert!(validate_catalog_discovery_channel(2, true, "marketplace-v2").is_err());
+        assert!(
+            validate_catalog_discovery_channel(2, true, ADMINISTRATIVE_DISCOVERY_BRANCH).is_ok()
+        );
+        assert!(
+            validate_catalog_discovery_channel(2, false, ADMINISTRATIVE_DISCOVERY_BRANCH).is_ok()
+        );
+        assert!(
+            validate_catalog_discovery_channel(1, false, ADMINISTRATIVE_DISCOVERY_BRANCH).is_err()
+        );
+        assert!(validate_catalog_discovery_channel(2, true, "arbitrary").is_err());
+    }
 
     // Deterministic synthetic 0x07 fixture key; never a production credential.
     const PRIVATE_KEY: &str = "-----BEGIN PRIVATE KEY-----\n\

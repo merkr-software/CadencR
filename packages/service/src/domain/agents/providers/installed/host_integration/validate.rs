@@ -124,6 +124,7 @@ fn validate_resume(raw: RawResumeCommand) -> Result<ProviderResumeCommand, Strin
         }
     }
     Ok(ProviderResumeCommand {
+        session_owner: None,
         program: raw.program,
         args: raw.args,
     })

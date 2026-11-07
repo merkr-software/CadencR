@@ -149,6 +149,9 @@ pub struct ProviderCatalogResponseEntry {
 /// Never a shell string: the desktop quotes every element itself.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub struct ProviderResumeCommand {
+    /// Host-managed owner binding; never supplied by a contributor command template.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_owner: Option<String>,
     pub program: String,
     pub args: Vec<String>,
 }
@@ -156,6 +159,7 @@ pub struct ProviderResumeCommand {
 impl ProviderResumeCommand {
     pub fn new(program: &str, args: &[&str]) -> Self {
         Self {
+            session_owner: None,
             program: program.to_string(),
             args: args.iter().map(|arg| (*arg).to_string()).collect(),
         }

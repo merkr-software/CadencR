@@ -82,7 +82,7 @@ test("unsigned preparation has read-only permissions and no privileged inputs or
   assert.equal(commands.length, 3);
   assert.equal(commands[0], "sh scripts/ci/select-publisher-runtime.sh");
   assert.match(commands[1], /^echo "GENERATED_AT=.*\necho "EXPIRES_AT=.*\n$/);
-  assert.match(commands[2], /registry build-index --schema-version 2 --packages packages/);
+  assert.match(commands[2], /registry build-index "\$@" --schema-version 2 --packages packages/);
   assert.doesNotMatch(commands.join("\n"), /npm|node .*scripts\//);
 });
 

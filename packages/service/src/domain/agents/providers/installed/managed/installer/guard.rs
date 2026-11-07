@@ -212,7 +212,7 @@ fn check_cached_blocklist(
     Ok(())
 }
 
-fn parse_managed_executable(
+pub(super) fn parse_managed_executable(
     storage: &ManagedStorage,
     executable: &Path,
 ) -> Result<Option<(String, ManagedRevision, PathBuf)>, ManagedLaunchGuardError> {

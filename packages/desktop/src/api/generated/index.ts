@@ -282,6 +282,11 @@ export interface ProviderPromptCapabilities {
 export interface ProviderResumeCommand {
   args: string[];
   program: string;
+  /**
+   * Host-managed owner binding; never supplied by a contributor command template.
+   * @nullable
+   */
+  session_owner?: string | null;
 }
 
 export type ProviderCatalogResponseEntryAllOfProfileCapability = null | ProviderProfileCapability;
@@ -3013,6 +3018,7 @@ export interface MixedCatalogPayload {
   expires_at: string;
   generated_at: string;
   packages: unknown[];
+  provider_handoffs?: unknown[];
   /** @minimum 0 */
   schema_version: number;
 }

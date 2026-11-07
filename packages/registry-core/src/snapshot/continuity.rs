@@ -59,15 +59,21 @@ pub(crate) fn validate_continuity(
             )));
         }
     }
+    crate::provider_handoff::continuity(previous, candidate)?;
+    let prior_active = crate::provider_handoff::active_packages(previous)?;
+    let next_active = crate::provider_handoff::active_packages(candidate)?;
+    let handoffs = crate::provider_handoff::records(candidate)?;
     // Plugin members own their ids like standalone packages.
-    let owners = crate::plugin_package::identity_units(packages(previous))
+    let owners = crate::plugin_package::identity_units_of(prior_active)
         .filter_map(|value| identity(value).map(|(id, _)| (id, owner(value))))
         .collect::<HashMap<_, _>>();
-    for entry in crate::plugin_package::identity_units(packages(candidate)) {
+    for entry in crate::plugin_package::identity_units_of(next_active) {
         let Some((id, _)) = identity(entry) else {
             continue;
         };
-        if owners.get(id).is_some_and(|prior| prior != &owner(entry)) {
+        if owners.get(id).is_some_and(|prior| prior != &owner(entry))
+            && !handoffs.iter().any(|record| record.provider_id == id)
+        {
             return Err(RegistryError::single(format!(
                 "provider {id} changes publisher or source ownership"
             )));

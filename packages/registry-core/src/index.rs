@@ -1,60 +1,15 @@
 use std::cmp::Ordering;
-use std::path::Path;
 
 use chrono::{DateTime, Duration, Utc};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::diagnostics::Diagnostics;
 use crate::error::RegistryError;
-use crate::json::canonical_json;
 use crate::marketplace::Rules;
 use crate::package::{compare_versions, identity, validate_package};
-use crate::tree::load_packages;
 
-#[bon::builder]
-pub fn build_index(
-    packages_dir: &Path,
-    #[builder(default = 1)] schema_version: u64,
-    generated_at: &str,
-    expires_at: &str,
-) -> Result<Vec<u8>, RegistryError> {
-    let metadata = json!({"generated_at": generated_at, "expires_at": expires_at});
-    let mut errors = Diagnostics::default();
-    validate_window(
-        metadata.as_object().expect("JSON object"),
-        Utc::now(),
-        false,
-        &mut errors,
-    );
-    if !errors.is_empty() {
-        return Err(RegistryError::from_messages(errors.into_messages()));
-    }
-    let mut errors = Diagnostics::default();
-    let mut packages = load_packages(packages_dir, &mut errors)
-        .into_iter()
-        .flat_map(|values| values.into_values())
-        .collect::<Vec<_>>();
-    if !errors.is_empty() {
-        return Err(RegistryError::from_messages(errors.into_messages()));
-    }
-    // Only unsigned directory assembly adapts immutable legacy documents in memory.
-    // Signed payload validation and authenticated upgrade policy never call this path.
-    if schema_version == 2 {
-        for package in &mut packages {
-            if package.get("kind").is_none() {
-                validate_package(package, "legacy provider package", &mut errors);
-                if !errors.is_empty() {
-                    return Err(RegistryError::from_messages(errors.into_messages()));
-                }
-                *package = json!({"kind": "provider", "package": package});
-            }
-        }
-    }
-    packages.sort_by(compare_packages);
-    let index = json!({"schema_version": schema_version, "generated_at": generated_at, "expires_at": expires_at, "packages": packages});
-    validate_index(&index, Utc::now(), false)?;
-    Ok(canonical_json(&index).into_bytes())
-}
+mod build;
+pub use build::build_index;
 
 pub(crate) fn validate_index(
     index: &Value,
@@ -78,7 +33,13 @@ pub(crate) fn validate_index_with(
     let mut errors = Diagnostics::default();
     crate::package::reject_unknown(
         object,
-        &["schema_version", "generated_at", "expires_at", "packages"],
+        &[
+            "schema_version",
+            "generated_at",
+            "expires_at",
+            "packages",
+            "provider_handoffs",
+        ],
         "index",
         &mut errors,
     );
@@ -125,8 +86,10 @@ pub(crate) fn validate_index_with(
     if !errors.is_empty() {
         return Err(RegistryError::from_messages(errors.into_messages()));
     }
+    crate::provider_handoff::catalog::validate_payload(index)?;
+    let active = crate::provider_handoff::active_packages(index)?;
     if schema == Some(2) {
-        crate::catalog::validate_catalog_identities_with_label(packages, "repository")?;
+        crate::catalog::validate_catalog_identities_with_label(active, "repository")?;
     }
     let identities = crate::plugin_package::identity_units(packages)
         .filter_map(identity)
@@ -247,6 +210,7 @@ fn parse_timestamp(value: &str) -> Option<DateTime<Utc>> {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::path::Path;
 
     fn package(id: &str, version: &str) -> Value {
         json!({

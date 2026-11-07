@@ -26,6 +26,59 @@ mod admission;
 mod blocking;
 mod errors;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::providers::installed::managed::{history, installer, receipt};
+
+    #[tokio::test]
+    async fn rollback_rejects_foreign_owner_before_executing_conformance() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = installer::ManagedStorage::new(root.path().join("managed"));
+        let (_staging, previous) = installer::tests::staged_receipt(&storage);
+        let mut current = previous.clone();
+        current.publisher = "successor".into();
+        current.agent.repository = Some("https://github.com/successor/agent".into());
+        current.agent.version = "99.0.0".into();
+        current.archive_sha256 = "c".repeat(64);
+        let revision = storage
+            .revision_dir(&current.agent.id, &current.revision())
+            .unwrap();
+        std::fs::create_dir_all(&revision).unwrap();
+        receipt::write_receipt(&revision.join("receipt.json"), &current).unwrap();
+        let state_path = storage.state_path(&current.agent.id).unwrap();
+        let mut state = history::ManagedProviderState::empty(&current.agent.id);
+        state.transition(
+            ManagedHistoryAction::Installed,
+            Some(ManagedActiveRevision {
+                revision: current.revision(),
+                enabled: true,
+            }),
+        );
+        history::write_state(&state_path, &state).unwrap();
+        let before = std::fs::read(&state_path).unwrap();
+        let descriptors = root.path().join("descriptors");
+        let service = ManagedProviderService::builder()
+            .client(reqwest::Client::new())
+            .storage(storage)
+            .descriptors(descriptors.clone())
+            .trust_store(installer::tests::test_trust_store())
+            .build();
+        let error = rollback(&service, &previous.agent.id, &previous.revision())
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            AppError::Coded {
+                code: "MANAGED_PROVIDER_HANDOFF_REQUIRES_REMOVAL",
+                ..
+            }
+        ));
+        assert_eq!(std::fs::read(state_path).unwrap(), before);
+        assert!(!descriptors.exists());
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum IngestKind {
     Install,
@@ -49,6 +102,13 @@ pub(super) async fn ingest(
     validate_request_identity(provider_id, version)?;
     let (expected_active, enabled) = lifecycle_precondition(service, provider_id, kind)?;
     let resolved = resolve_admission(service, provider_id, version, &index)?;
+    super::super::installer::verify_admission_owner(
+        &service.storage,
+        provider_id,
+        expected_active.as_ref(),
+        &resolved.package.publisher,
+        resolved.agent.repository.as_deref(),
+    )?;
     check_blocklist(service, &resolved.package)?;
     let receipt = admission::admit(
         service,
@@ -177,6 +237,13 @@ pub(super) async fn rollback(
     )
     .await?;
     check_blocklist_receipt(service, &receipt)?;
+    super::super::installer::verify_admission_owner(
+        &service.storage,
+        provider_id,
+        Some(&expected_active),
+        &receipt.publisher,
+        receipt.agent.repository.as_deref(),
+    )?;
     verify_rollback_conformance(service, provider_id, revision, &payload, &receipt).await?;
     let (state, receipt) =
         crate::domain::agents::providers::installed::managed::installer::rollback(

@@ -1,0 +1,102 @@
+name: Renew and watch administrative marketplace catalog
+
+on:
+  schedule:
+    - cron: "27 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-publication
+  cancel-in-progress: false
+
+env:
+  # Independent of CADENCR_REGISTRY_CATALOG_URL: old clients keep their feed.
+  CADENCR_REGISTRY_CATALOG_URL: ${{ vars.CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL }}
+  CADENCR_REGISTRY_KEY_ID: ${{ vars.CADENCR_REGISTRY_KEY_ID }}
+  CADENCR_REGISTRY_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_PUBLIC_KEY_PEM }}
+  CADENCR_REGISTRY_TRUST_MANIFEST_JSON: ${{ vars.CADENCR_REGISTRY_TRUST_MANIFEST_JSON }}
+  CADENCR_REGISTRY_ROOT_KEY_ID: ${{ vars.CADENCR_REGISTRY_ROOT_KEY_ID }}
+  CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM: ${{ vars.CADENCR_REGISTRY_ROOT_PUBLIC_KEY_PEM }}
+  CADENCR_REGISTRY_TRUST_MIN_GENERATION: ${{ vars.CADENCR_REGISTRY_TRUST_MIN_GENERATION }}
+
+jobs:
+  gate:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.gate.outputs.configured }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.19.0
+      - id: gate
+        run: sh scripts/ci/registry-feeds.sh gate renewal catalog
+
+  renew:
+    needs: gate
+    if: needs.gate.outputs.configured == 'true'
+    environment: protected-marketplace-renewal
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.19.0
+      - id: runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/administrative-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      - run: sh scripts/ci/registry-feeds.sh fetch "$RUNNER_TEMP/admin-snapshot" catalog
+      - id: request
+        run: sh scripts/ci/registry-feeds.sh prepare "$RUNNER_TEMP/admin-snapshot" "$RUNNER_TEMP/admin-request"
+      - id: key
+        if: steps.request.outputs.needed == 'true'
+        env:
+          CADENCR_REGISTRY_PRIVATE_KEY_PEM: ${{ secrets.CADENCR_REGISTRY_PRIVATE_KEY_PEM }}
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+        run: sh scripts/ci/registry-feeds.sh materialize-key marketplace-administrative-secret-
+      - if: steps.request.outputs.needed == 'true'
+        env:
+          VERIFIED_CLI: ${{ steps.runtime.outputs.cli_file }}
+          PRIVATE_KEY_FILE: ${{ steps.key.outputs.private_key_file }}
+          CADENCR_REGISTRY_GITHUB_TOKEN: ${{ secrets.CADENCR_REGISTRY_GITHUB_TOKEN }}
+        run: sh scripts/ci/registry-feeds.sh publish "$RUNNER_TEMP/admin-request" "$RUNNER_TEMP/admin-state"
+      - if: always() && steps.key.outputs.private_key_file != ''
+        env:
+          PRIVATE_KEY_ROOT: ${{ runner.temp }}
+          PRIVATE_KEY_FILE: ${{ steps.key.outputs.private_key_file }}
+        run: sh scripts/ci/registry-feeds.sh remove-key marketplace-administrative-secret-
+
+  watch:
+    needs: [gate, renew]
+    if: ${{ !cancelled() && needs.gate.outputs.configured == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.19.0
+      - id: runtime
+        env:
+          CLI_ROOT: ${{ runner.temp }}/administrative-watch-cli
+        run: sh scripts/ci/select-publisher-runtime.sh
+      - run: sh scripts/ci/registry-feeds.sh fetch "$RUNNER_TEMP/admin-watch" catalog
+      - env:
+          VERIFIED_CLI: ${{ steps.runtime.outputs.cli_file }}
+          KEY_DIR: ${{ runner.temp }}/admin-watch-key
+        run: sh scripts/ci/registry-feeds.sh check-expiry "$RUNNER_TEMP/admin-watch" catalog

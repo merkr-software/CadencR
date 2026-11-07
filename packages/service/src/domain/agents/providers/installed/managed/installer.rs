@@ -20,6 +20,8 @@ use crate::shared::{atomic_file, fs_durability};
 use axum::http::StatusCode;
 
 mod guard;
+mod handoff;
+pub(crate) use handoff::{session_receipt, verify_admission_owner};
 mod storage;
 mod verification;
 pub use guard::is_managed_executable;
@@ -98,6 +100,7 @@ fn activate_revision_locked(
 ) -> Result<ManagedProviderState, AppError> {
     let state_path = storage.state_path(&receipt.agent.id)?;
     let mut state = read_state(&state_path, &receipt.agent.id)?;
+    handoff::require_separate_installation(storage, &state, receipt)?;
     if action == ManagedHistoryAction::Installed {
         ensure_descriptor_id_available(
             descriptors,
@@ -396,7 +399,7 @@ fn not_installed(provider_id: &str) -> AppError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};
 
@@ -410,7 +413,7 @@ mod tests {
     use crate::domain::agents::providers::installed::managed::trust::TrustedIndexKey;
     use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
 
-    fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
         let directory = tempfile::tempdir().unwrap();
         let staging = directory.path().join("revision");
         let payload = staging.join("payload");
@@ -485,19 +488,156 @@ mod tests {
         (directory, receipt)
     }
 
-    fn staged_receipt(storage: &ManagedStorage) -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn staged_receipt(
+        storage: &ManagedStorage,
+    ) -> (tempfile::TempDir, ManagedPackageReceipt) {
         let (directory, receipt) = uncommitted_receipt();
         commit_staged_revision(storage, &directory.path().join("revision"), &receipt).unwrap();
         (directory, receipt)
     }
 
-    fn test_trust_store() -> ManagedTrustStore {
+    pub(crate) fn test_trust_store() -> ManagedTrustStore {
         let signing_key = SigningKey::from_bytes(&[23; 32]);
         ManagedTrustStore::new([TrustedIndexKey::new(
             "managed-installer-test",
             signing_key.verifying_key().to_bytes(),
         )
         .unwrap()])
+    }
+
+    #[tokio::test]
+    async fn owner_change_is_refused_before_download_probe_or_revision_placement() {
+        use chrono::{Duration, SecondsFormat, Utc};
+        use serde_json::json;
+        use sha2::{Digest as _, Sha256};
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let descriptors = root.path().join("descriptors");
+        let (staging, mut receipt) = uncommitted_receipt();
+        let index = receipt.signed_index.legacy_mut();
+        index.signed.packages[0].agent.repository =
+            Some("https://github.com/original/provider".into());
+        receipt.agent = index.signed.packages[0].agent.clone();
+        let bytes = index.signed.signing_bytes().unwrap();
+        index.signature.value = base64::engine::general_purpose::STANDARD
+            .encode(SigningKey::from_bytes(&[23; 32]).sign(&bytes).to_bytes());
+        receipt.trust.signed_payload_sha256 = signed_payload_sha256(&bytes);
+        commit_staged_revision(&storage, &staging.path().join("revision"), &receipt).unwrap();
+        activate_revision_locked(
+            &storage,
+            &descriptors,
+            &receipt,
+            ManagedHistoryAction::Installed,
+            true,
+        )
+        .unwrap();
+        let before = std::fs::read(storage.state_path(&receipt.agent.id).unwrap()).unwrap();
+        let old = json!({"kind":"provider","package":serde_json::to_value(&receipt.signed_index).unwrap()["signed"]["packages"][0]});
+        let digest = Sha256::digest(cadencr_registry_core::canonical_json_bytes(&old))
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let mut next = old.clone();
+        next["package"]["agent"]["version"] = json!("2.0.0");
+        next["package"]["agent"]["repository"] = json!("https://github.com/independent/provider");
+        next["package"]["host"]["publisher"] = json!("independent");
+        for binary in next["package"]["agent"]["distribution"]["binary"]
+            .as_object_mut()
+            .unwrap()
+            .values_mut()
+        {
+            binary["archive"] = json!(format!(
+                "https://{}/must-not-download",
+                listener.local_addr().unwrap()
+            ));
+        }
+        let now = Utc::now() - Duration::minutes(1);
+        let mut index: crate::domain::themes::managed::models::SignedMixedCatalog = serde_json::from_value(json!({
+            "signed":{"schema_version":2,"generated_at":now.to_rfc3339_opts(SecondsFormat::Secs,true),
+                "expires_at":(now+Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs,true),"packages":[old,next],
+                "provider_handoffs":[{"provider_id":receipt.agent.id,
+                    "from":{"publisher":receipt.publisher,"repository":"https://github.com/original/provider"},
+                    "to":{"publisher":"independent","repository":"https://github.com/independent/provider"},
+                    "retired_versions":{receipt.agent.version.clone():digest},
+                    "authorization":"https://github.com/owner/registry/pull/22#issuecomment-123","reason":"Retire old provider"}]},
+            "signature":{"algorithm":"ed25519","key_id":"managed-installer-test","value":""}})).unwrap();
+        index.signature.value = base64::engine::general_purpose::STANDARD.encode(
+            SigningKey::from_bytes(&[23; 32])
+                .sign(&cadencr_registry_core::canonical_json_bytes(
+                    &serde_json::to_value(&index.signed).unwrap(),
+                ))
+                .to_bytes(),
+        );
+        let service = super::super::service::ManagedProviderService::builder()
+            .client(reqwest::Client::new())
+            .storage(storage.clone())
+            .descriptors(descriptors)
+            .trust_store(test_trust_store())
+            .build();
+        let error = service
+            .update(&receipt.agent.id, "2.0.0", index)
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("changed publisher or source"),
+            "{error}"
+        );
+        assert_eq!(
+            std::fs::read(storage.state_path(&receipt.agent.id).unwrap()).unwrap(),
+            before
+        );
+        assert!(!storage
+            .provider_dir(&receipt.agent.id)
+            .unwrap()
+            .join("2.0.0")
+            .exists());
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+
+    #[test]
+    fn namespace_handoff_does_not_switch_an_existing_installation_or_saved_state() {
+        let root = tempfile::tempdir().unwrap();
+        let storage = ManagedStorage::new(root.path().join("managed"));
+        let descriptors = root.path().join("descriptors");
+        let (_staging, receipt) = staged_receipt(&storage);
+        activate_revision_locked(
+            &storage,
+            &descriptors,
+            &receipt,
+            ManagedHistoryAction::Installed,
+            true,
+        )
+        .unwrap();
+        let state_path = storage.state_path(&receipt.agent.id).unwrap();
+        let before = std::fs::read(&state_path).unwrap();
+        let mut successor = receipt.clone();
+        successor.publisher = "edjubert".into();
+        let error = activate_revision_locked(
+            &storage,
+            &descriptors,
+            &successor,
+            ManagedHistoryAction::Updated,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("changed publisher or source"));
+        assert_eq!(std::fs::read(&state_path).unwrap(), before);
+        successor.publisher = receipt.publisher.clone();
+        successor.agent.repository = Some("https://github.com/edjubert/pi".into());
+        assert!(activate_revision_locked(
+            &storage,
+            &descriptors,
+            &successor,
+            ManagedHistoryAction::Updated,
+            true
+        )
+        .is_err());
+        assert_eq!(std::fs::read(&state_path).unwrap(), before);
     }
 
     #[test]

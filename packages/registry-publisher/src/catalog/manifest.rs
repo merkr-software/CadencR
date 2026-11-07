@@ -12,6 +12,8 @@ const MAX_PUBLICATIONS: usize = 100;
 #[serde(deny_unknown_fields)]
 pub(super) struct Manifest {
     pub(super) schema_version: u64,
+    #[serde(default)]
+    pub(super) provider_handoffs: Vec<cadencr_registry_core::ProviderHandoff>,
     pub(super) repository: String,
     pub(super) publications: Vec<Publication>,
     #[serde(default)]
@@ -183,6 +185,7 @@ mod tests {
         };
         for value in [
             Manifest {
+                provider_handoffs: Vec::new(),
                 allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
@@ -190,6 +193,7 @@ mod tests {
                 publications: vec![entry("x", "y", &"b".repeat(40))],
             },
             Manifest {
+                provider_handoffs: Vec::new(),
                 allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
@@ -197,6 +201,7 @@ mod tests {
                 publications: vec![],
             },
             Manifest {
+                provider_handoffs: Vec::new(),
                 allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
@@ -204,6 +209,7 @@ mod tests {
                 publications: (0..101).map(|_| entry("x", "y", &"b".repeat(40))).collect(),
             },
             Manifest {
+                provider_handoffs: Vec::new(),
                 allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,
@@ -211,6 +217,7 @@ mod tests {
                 publications: vec![entry("x\0bad", "y", &"b".repeat(40))],
             },
             Manifest {
+                provider_handoffs: Vec::new(),
                 allow_schema_upgrade: false,
                 baseline: None,
                 schema_version: 1,

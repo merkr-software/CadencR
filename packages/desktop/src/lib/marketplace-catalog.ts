@@ -5,6 +5,7 @@ import { providerPackageSchema } from "./marketplace-provider-package";
 import { tabPackageSchema, type TabMarketplacePackage } from "./marketplace-tab-package";
 import { isListingKind, isPluginKind } from "./marketplace-listing-base";
 import { themeHostSchema, themePackageSchema } from "./marketplace-theme-package";
+import { providerHandoffsSchema } from "./marketplace-provider-handoff";
 
 /**
  * The signed schema-2 catalog: `{kind, package}` entries. `theme`, `provider`
@@ -64,6 +65,7 @@ export const signedMixedCatalogSchema = z
         generated_at: z.string(),
         expires_at: z.string(),
         packages: z.array(catalogEntrySchema),
+        provider_handoffs: providerHandoffsSchema.optional(),
       })
       .strict(),
   })

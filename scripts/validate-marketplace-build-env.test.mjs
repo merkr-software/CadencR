@@ -295,3 +295,14 @@ test("LSP policy is optional for existing feeds and requires the same reviewed m
       ),
     );
 });
+
+test("administrative discovery is isolated while legacy policies stay independently renewed", () => {
+  const env = {
+    ...configured(),
+    [THEME_ENV]: mixed.replace("marketplace-v2", "marketplace-v2-admin"),
+    [TRUST_ENV[2]]: mixed.replace("marketplace-v2", "marketplace-v2-admin"),
+    [THEME_POLICY_ENV]: policy,
+    [TAB_POLICY_ENV]: tabPolicy,
+  };
+  assert.deepEqual(validatedBuildEnv(env), env);
+});

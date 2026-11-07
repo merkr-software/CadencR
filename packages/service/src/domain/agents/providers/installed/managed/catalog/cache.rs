@@ -392,6 +392,41 @@ mod tests {
     }
 
     #[test]
+    fn signed_channels_keep_independent_high_water_and_preserve_legacy_cache() {
+        let directory = tempfile::tempdir().unwrap();
+        let legacy = crate::shared::registry_catalog_cache::path(directory.path(), Some("https://raw.githubusercontent.com/o/r/refs/heads/marketplace-v2/managed-index.json"));
+        let administrative = crate::shared::registry_catalog_cache::path(directory.path(), None);
+        assert_eq!(administrative, crate::shared::registry_catalog_cache::path(directory.path(), Some("https://raw.githubusercontent.com/o/r/refs/heads/marketplace-v2-admin/managed-index.json")));
+        let now = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
+        persist(&legacy, &trust(), signed(now), now).unwrap();
+        let legacy_bytes = std::fs::read(&legacy).unwrap();
+        assert!(load(&administrative, &trust(), now).unwrap().is_none());
+        persist(
+            &administrative,
+            &trust(),
+            signed(now - Duration::minutes(1)),
+            now,
+        )
+        .unwrap();
+        let administrative_bytes = std::fs::read(&administrative).unwrap();
+        // Both signatures authenticate; chronology is enforced within each channel.
+        assert!(load(&administrative, &trust(), now).unwrap().is_some());
+        assert!(persist(
+            &administrative,
+            &trust(),
+            signed(now - Duration::minutes(2)),
+            now
+        )
+        .is_err());
+        assert!(persist(&legacy, &trust(), signed(now - Duration::minutes(1)), now).is_err());
+        assert_eq!(std::fs::read(&legacy).unwrap(), legacy_bytes);
+        assert_eq!(
+            std::fs::read(&administrative).unwrap(),
+            administrative_bytes
+        );
+    }
+
+    #[test]
     fn corrupt_cache_can_be_repaired_by_a_verified_publication() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("catalog.json");

@@ -70,7 +70,7 @@ async fn turn_needs_runtime(task: &StreamReaderTask) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
     use crate::domain::agents::adapter::{
         AgentRuntimeSession, RuntimeError, RuntimeMessageRx, RuntimePermissionMode,
@@ -117,7 +117,8 @@ mod tests {
         }
     }
 
-    async fn idle_task() -> (StreamReaderTask, RuntimeSessionHandle, Arc<AtomicBool>) {
+    pub(in crate::domain::ws_session::runtime::prompt) async fn idle_task(
+    ) -> (StreamReaderTask, RuntimeSessionHandle, Arc<AtomicBool>) {
         let state = make_test_app_state().await;
         let id = 17;
         insert_running_session(&state, id, 1).await;

@@ -79,7 +79,8 @@ impl StreamReaderTask {
             return;
         }
 
-        self.capture_runtime_session_id(state, &runtime_event).await;
+        self.capture_runtime_session_id(state, runtime_adapter, &runtime_event)
+            .await;
         // MCP-server snapshots only go to the owner socket; if it is gone, skip
         // and keep streaming the rest of the turn.
         let _ = self.send_mcp_servers_if_init(&runtime_event).await;
@@ -176,6 +177,7 @@ impl StreamReaderTask {
     async fn capture_runtime_session_id(
         &self,
         state: &mut StreamReaderState,
+        adapter: Option<&dyn AgentRuntimeAdapter>,
         runtime_event: &RuntimeEvent,
     ) {
         let Some(runtime_sid) =
@@ -183,28 +185,28 @@ impl StreamReaderTask {
         else {
             return;
         };
-        let durable =
-            super::super::session_init_resume::persistable_resume_session_id_for_provider(
-                &self.runtime_provider,
-                Some(&runtime_sid),
-                runtime_allows_resume_persistence(self.runtime_session_handle.as_ref()).await,
-            )
-            .is_some();
+        let durable = if runtime_allows_resume_persistence(self.runtime_session_handle.as_ref())
+            .await
+        {
+            adapter.and_then(|adapter| adapter.persistable_resume_session_id(Some(&runtime_sid)))
+        } else {
+            None
+        };
         state.runtime_session_id = Some(runtime_sid.clone());
         state.usage_state.set_root_session_id(runtime_sid.as_str());
-        if !durable {
+        let Some(persisted_sid) = durable else {
             send_runtime_session_id(&self.sender, runtime_sid.as_str());
             return;
-        }
-        info!(self.db_session_id, runtime_session_id = %runtime_sid, "stream_reader: persisting runtime session_id to DB");
+        };
+        info!(self.db_session_id, runtime_session_id = %persisted_sid, "stream_reader: persisting runtime session_id to DB");
         WsSessionPersistence::persist_runtime_session_id_static(
             &self.write_pool,
             self.db_session_id,
             &self.runtime_provider,
-            runtime_sid.as_str(),
+            persisted_sid.as_str(),
         )
         .await;
-        send_runtime_session_id(&self.sender, runtime_sid.as_str());
+        send_runtime_session_id(&self.sender, persisted_sid.as_str());
     }
 
     async fn send_mcp_servers_if_init(&self, runtime_event: &RuntimeEvent) -> Result<(), ()> {
@@ -341,5 +343,84 @@ impl StreamReaderTask {
             }
             self.after_turn_result().await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::agents::adapter::{
+        AgentRuntimeSession, RuntimeError, RuntimeEventKind, RuntimeEventMetadata,
+        RuntimeSpawnConfig,
+    };
+    use serde_json::json;
+
+    struct BoundOwnerAdapter;
+    #[async_trait::async_trait]
+    impl AgentRuntimeAdapter for BoundOwnerAdapter {
+        fn catalog_entry(&self) -> crate::domain::agents::runtime::ProviderCatalogEntry {
+            unreachable!("not a discovery test")
+        }
+        fn persistable_resume_session_id(&self, native: Option<&str>) -> Option<String> {
+            native.map(|id| format!("owner-bound:{id}"))
+        }
+        fn resolve_resume_session_id(&self, stored: Option<&str>) -> Option<String> {
+            stored?.strip_prefix("owner-bound:").map(ToOwned::to_owned)
+        }
+        async fn spawn(
+            &self,
+            _: serde_json::Value,
+            _: RuntimeSpawnConfig,
+        ) -> Result<Box<dyn AgentRuntimeSession>, RuntimeError> {
+            Err(RuntimeError::new(
+                "the event test must never spawn a contributor",
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn first_runtime_event_persists_and_emits_the_bound_id_before_any_close() {
+        let (mut task, runtime, _) = super::super::stream_reader_idle::tests::idle_task().await;
+        task.runtime_provider = "pi".into();
+        let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+        task.sender = sender.into();
+        let mut state =
+            StreamReaderState::new(crate::domain::runtime_stream::RuntimeUsageSnapshot {
+                input_tokens: 0,
+                output_tokens: 0,
+                context_window: None,
+            });
+        let event = RuntimeEvent::new(
+            RuntimeEventMetadata {
+                session_id: Some("native-session".into()),
+                usage: None,
+                context_window: None,
+                raw: json!({"type":"system","subtype":"init"}),
+            },
+            RuntimeEventKind::Other,
+        );
+        task.capture_runtime_session_id(&mut state, Some(&BoundOwnerAdapter), &event)
+            .await;
+        // A crash can happen here: no shutdown/close persistence has run.
+        drop(runtime);
+        let row = WsSessionPersistence::get_session_row(&task.write_pool, task.db_session_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            row.runtime_session_id.as_deref(),
+            Some("owner-bound:native-session")
+        );
+        assert_eq!(
+            BoundOwnerAdapter
+                .resolve_resume_session_id(row.runtime_session_id.as_deref())
+                .as_deref(),
+            Some("native-session")
+        );
+        let message = receiver.try_recv().unwrap();
+        assert!(message
+            .to_text()
+            .unwrap()
+            .contains("owner-bound:native-session"));
+        assert_eq!(state.runtime_session_id.as_deref(), Some("native-session"));
     }
 }

@@ -82,11 +82,11 @@ jobs:
           python3 -B - <<'PY'
           import json, os, pathlib, subprocess, sys
           sys.path.insert(0, "scripts/lsp-catalog-qa")
-          from handoff import CLI_VERSION, commit, digest, provenance, regular
+          from handoff import cli_version, commit, digest, provenance, regular
           source = pathlib.Path("target/release/cadencr").resolve()
           data = regular(source, 128 * 1024 * 1024)
           version = subprocess.check_output([str(source), "--version"], env={"PATH": "/usr/bin:/bin"}).strip()
-          assert version == ("cadencr " + CLI_VERSION).encode(), "source CLI version mismatch"
+          assert version == ("cadencr " + cli_version("source-build")).encode(), "source CLI version mismatch"
           output = pathlib.Path(os.environ["SOURCE_CLI_DIR"])
           output.mkdir()
           (output / "cadencr").write_bytes(data)

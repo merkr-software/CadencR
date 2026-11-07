@@ -1,76 +1,120 @@
-# Pi provider retirement and namespace handoff
+# Pi retirement and namespace handoff
 
-Decision recorded on 2026-11-04: retire the first-party Pi implementation in favor
-of [edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi),
-with provider ID `pi`, display name **Pi**, publisher `edjubert`, and the author's
-own source repository. The
-[maintainer comment on registry PR #22](https://github.com/merkr-software/cadencr-registry/pull/22#issuecomment-6630319571)
-records the namespace authorization and requests a new immutable renamed release.
+## Authority and source retirement
 
-## Source retirement
+The decision recorded on 2026-11-04 retires first-party Pi in favor of
+[edjubert's connector](https://github.com/edjubert/cadencr-plugin-provider-pi):
+provider ID `pi`, display name **Pi**, publisher `edjubert`, and its own repository.
+The [maintainer authorization](https://github.com/merkr-software/cadencr-registry/pull/22#issuecomment-6630319571)
+assigns the namespace; replacement artifact admission remains separate.
 
-The CadencR change removes `plugins/providers/pi`, its package scripts and
-lockfile importer, its native qualification workflow, and its official release
-policy entry. Remaining plugin checks cover Cursor and themes. Historical QA
-reports, tags and published release assets retain their original meaning.
+Source retirement is already integrated on main in
+`48ff864876015bff24be1d991bd96b5b39ccbd20`, through merge `73c4a553d`.
+It removes `plugins/providers/pi`, package scripts and lockfile importer,
+the native qualification workflow and official release allowlist entry.
+Remaining checks cover Cursor and themes. Historical QA, tags and assets remain.
+The parallel signed retirement `acf5edbf8167824b44e1bfef5a675731911397be`
+remains in the Pi history; forward reconciliation does not repeat the removal.
+The original checkout at `229d9c59f` and its unrelated database are preserved.
+Existing installations, receipts, conversations and session IDs are not rewritten.
 
-This source change does not uninstall existing managed providers or rewrite
-conversation identities, session IDs, receipts, or user databases.
+## Forward reconciliation boundary
 
-## Candidate verification
+The local Pi chain ends at `53aa303cc77246c25aa595ad567e1d7e07b54aac`.
+The current main input is `da81a83a594554d89e00565fb93ce079f5a7c552`, including
+final PR #385 WebSocket corrections, telemetry fixes and compact-flow spacing.
+The common ancestor is `ebd19991470b15aff76ea61bfed0f39e8318bb60`.
 
-| Item                      | Observed on 2026-11-04                                                                                                              |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Open registry PR          | [#22](https://github.com/merkr-software/cadencr-registry/pull/22), head `a1f2aa6684ba4be0ccb7bdb962b2a385b2ee84d7`                  |
-| Actual PR files           | `packages/pidancr-0.2.0.json`, `submissions/pidancr-0.2.0.json`                                                                     |
-| Registry checks           | `inert-metadata` and `contributor-tooling` passed for that head                                                                     |
-| Latest release checked    | [`v0.2.1`](https://github.com/edjubert/cadencr-plugin-provider-pi/releases/tag/v0.2.1), GitHub `immutable: true`                    |
-| Source/tag binding        | `v0.2.1` resolves to `5a28d3feda63ac8ed327d3696a7f48e21f5639d3`, matching the released submission                                   |
-| Author CI                 | [Run 41814529310](https://github.com/edjubert/cadencr-plugin-provider-pi/actions/runs/41814529310) succeeded for that source commit |
-| Public assets             | All eight downloaded; SHA-256 values match GitHub asset digests                                                                     |
-| Package consistency       | Released package equals the submission's package; four archive hashes match its distribution metadata                               |
-| Static archive inspection | Four targets: no absolute/traversal paths, duplicate entries, links, special files or setuid/setgid permissions                     |
+Both histories are preserved. The only automatic merge conflict is this document,
+combining historical retirement evidence and the newer shared contract. Current
+main's release-policy bytes and all 25 LSP records are retained. All three final
+proxy files, including `proxy/outbound.rs`, retain current-main bytes. The initial
+WS fix is not substituted for the final reviewed corrections.
 
-The PR title/body describe `0.2.1`, but its current files still submit `0.2.0`.
-The renamed candidate must update both files and rerun its own checks. Published
-`pidancr` assets must remain immutable. A renamed version greater than the retired
-`pi 0.4.1`, such as `0.5.0`, avoids ordering the replacement below installed
-first-party versions.
+This preparation creates no commit or future main SHA. A two-parent merge needs
+explicit local commit approval, normal hooks and signing. Source integration and
+release retain their separate developer gates.
 
-No contributor executable was run during this verification. The author reports
-native macOS arm64/Intel and Linux arm64/x86-64 qualification with Pi `1.5.0`;
-those runtime tests were not independently repeated. Signed installation,
-packaged desktop lifecycle, and compatibility with the old connector's saved
-sessions remain unverified.
+## Signed contract and session safety
 
-## Production registry work still required
+The Pi branch implements administrative transfer in registry-core, publisher and
+CLI, verified service projection, desktop filtering and publisher/source session
+binding. Accepted packages, signed envelopes, receipts, assets, installations and
+conversations are retained. No database migration or blanket `pi` revocation occurs.
 
-Tracked in [registry issue #23](https://github.com/merkr-software/cadencr-registry/issues/23).
+- Handoffs are append-only and bind every retired version to its original owner
+  and canonical mirrored-entry digest. Ordinary immutability, signatures, trust,
+  baseline continuity and protected publication remain mandatory.
+- Old clients use `marketplace-v2`; compatible clients use `marketplace-v2-admin`
+  with a separate monotonic cache. Existing policy URLs/domains stay on legacy.
+  A newer legacy renewal cannot restore retired listings in the compatible channel.
+- Seed the new branch from the exact authenticated legacy head before delivering
+  clients using it. The copied baseline is compatible while retirement awaits
+  protected signing. Empty bootstrap and continuity bypasses are forbidden.
+- Cross-owner installed updates fail before downloads/probes and again at
+  activation. Existing installations retain their original immutable receipts.
+- Successor session IDs are bound to publisher/source from their first runtime
+  event, including terminal resume. Raw or foreign-owner IDs fail visibly while
+  their messages/native files remain. First-party session compatibility is not
+  assumed; switching implementations requires a separately admitted installation.
 
-The accepted registry contains `pi 0.4.0` and `pi 0.4.1`, owned by `cadencr` and
-sourced from `merkr-software/CadencR`. Ordinary contribution and publication paths
-enforce immutable history and stable ownership:
+Deleting accepted JSON files cannot delist a signed catalog. An isolated deletion
+attempt failed with `deletion is not allowed` for all four Pi files. Contribution,
+catalog and signed-snapshot checks remain active; explicit retirement changes the
+active projection while retaining authenticated historical entries.
 
-- `packages/registry-core/src/lib.rs` checks accepted contribution history.
-- `packages/registry-core/src/snapshot/continuity.rs` rejects removal or mutation
-  of previously signed packages and publisher/source ownership changes.
-- `packages/registry-core/src/catalog.rs` rejects conflicting owners in a catalog.
+## Historical candidate evidence: 2026-11-04
 
-Deleting the four package/submission JSON files alone cannot delist the signed
-catalog or transfer the namespace. Administrative tooling must represent the
-explicit retirement/transfer, preserve verifiable history, and publish a verified
-successor through the protected registry workflow. The normal checks remain in
-force. Revoking an entire `pi` identity would also affect the replacement and is
-not an appropriate substitute.
+These earlier observations remain historical evidence, not current admission.
+Published `pidancr` assets remain immutable.
 
-The existing CLI was run against an isolated candidate with those four files
-removed. It rejected all four with `deletion is not allowed`. The released
-`0.2.1` package and submission separately passed inert CLI metadata validation.
+| Item | Historical observation |
+| --- | --- |
+| Registry PR #22 | Head `a1f2aa6684ba4be0ccb7bdb962b2a385b2ee84d7`, `pidancr 0.2.0` files despite `0.2.1` title/body |
+| Existing checks | `inert-metadata` and `contributor-tooling` passed for that old head |
+| Release examined | Immutable `v0.2.1`, source `5a28d3feda63ac8ed327d3696a7f48e21f5639d3` |
+| Author CI | Run `41814529310` succeeded for that source |
+| Public assets | Eight downloaded; SHA-256 values matched GitHub asset digests |
+| Metadata | Package matched submission; all four archive hashes matched |
+| Static inspection | Four targets; no absolute/traversal paths, duplicates, links, special files or setuid/setgid bits |
+| Inert validation | Released package/submission passed CLI metadata validation |
+| Native evidence | Author reported macOS arm64/Intel and Linux arm64/x86-64, Pi `1.5.0`; not independently repeated |
 
-- [x] Remove the first-party implementation and its publication allowlist.
-- [x] Record maintainer authorization and ask the author to rename to `pi` / Pi.
-- [x] Verify the public `0.2.1` release and identify the PR/version mismatch.
-- [ ] Receive a new immutable renamed candidate and review its source/artifacts.
-- [ ] Implement and qualify explicit administrative delisting/ownership transfer.
-- [ ] Withdraw the old listing and publish the replacement signed catalog.
-- [ ] Verify marketplace installation on supported macOS and Linux clients.
+No contributor executable ran. The rename request asked for `pi` / Pi and a new
+immutable version above retired `0.4.1`, updating descriptor, metadata, archive
+names, documentation and native evidence together.
+
+The later Pi `0.5.0` candidate at source
+`f10dd1298eb081e50505d33bc6674e21bd4f0dd2` has separate inert provenance/audit
+evidence. Admission and native execution remain held; detailed security review
+stays private. Author execution needs exact authorization. Replacement admission
+is not a prerequisite for retiring our first-party versions.
+
+## Delivery and evidence boundaries
+
+[Registry issue #23](https://github.com/merkr-software/cadencr-registry/issues/23)
+tracks effective retirement. Its exact request/order are prepared in local
+registry review commit `96bc3706c82a9199bfc2afe2082f9002c8e626ba`, file
+`administration/PI_PROVIDER_HANDOFF.md`; that preparation is not deployed.
+
+CLI `0.15.6` was released/qualified for LSP. Approved local Pi preparation sets
+`0.15.7`; this is not a qualified distributed release. Only the actual published
+binary and its qualification supply the atomic version/tag/digest pin. No future
+digest or integrated SHA is inferred. Application version/release and production
+activation remain separate decisions.
+
+Retained Pi tests and five-case development UI QA cover Pi code before this
+combination. Final WS corrections have macOS/Ubuntu automated network evidence;
+live gen4 QA covered the earlier fix. Neither set alone qualifies the combined
+service or a packaged app. Byte comparisons and focused checks identify reusable
+evidence. Normal merge hooks, required combined-service/Linux checks and packaged
+macOS/Linux installed-session behavior remain explicit gates.
+
+- [x] Retire first-party source and publication allowlist on main.
+- [x] Record namespace authority and retain historical candidate evidence.
+- [x] Prepare local signed-retirement tooling and compatible client behavior.
+- [ ] Integrate and validate the exact forward combination under its own gate.
+- [ ] Release/qualify the distributed CLI and promote its real atomic pin.
+- [ ] Seed the authenticated channel and deliver qualified compatible clients.
+- [ ] Publish retirement-only signed catalog and verify public/client behavior.
+- [ ] Separately review exact successor admission.

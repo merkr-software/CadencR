@@ -110,6 +110,36 @@ const mixedCatalog: ManagedCatalogResponse = {
   },
 };
 describe("mixed catalog provider presentation", () => {
+  it("hides retired versions while retaining the exact signed payload and independent successor", () => {
+    const index = {
+      ...mixedCatalog.index!,
+      signed: {
+        ...mixedCatalog.index!.signed,
+        schema_version: 2,
+        packages: [
+          ...mixedCatalog.index!.signed.packages,
+          {
+            kind: "provider",
+            package: { ...provider, agent: { ...provider.agent, version: "2.0.0" } },
+          },
+        ],
+        provider_handoffs: [
+          {
+            provider_id: provider.agent.id,
+            from: { publisher: "original", repository: "https://github.com/original/pi" },
+            to: { publisher: "edjubert", repository: "https://github.com/edjubert/pi" },
+            retired_versions: { "1.0.0": "a".repeat(64) },
+            authorization: "https://github.com/owner/registry/pull/22#issuecomment-1",
+            reason: "Retire first-party provider",
+          },
+        ],
+      },
+    };
+    const original = JSON.stringify(index);
+    expect(catalogSchema.safeParse({ ...mixedCatalog, index }).success).toBe(true);
+    expect(providerCatalogPackages(index).map((p) => p.agent.version)).toEqual(["2.0.0"]);
+    expect(JSON.stringify(index)).toBe(original);
+  });
   it("validates both kinds but groups only provider bodies without changing the signed envelope", () => {
     const serialized = JSON.stringify(mixedCatalog);
     expect(catalogSchema.safeParse(mixedCatalog).success).toBe(true);

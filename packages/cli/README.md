@@ -606,3 +606,52 @@ archives before publication.
 
 These commands describe the source CLI in this checkout. The registry template's
 qualified released CLI pin remains a separate release and adoption decision.
+
+## Administrative provider retirement and handoff
+
+Ordinary contributions cannot remove or mutate accepted package/submission files,
+change ownership, or modify `provider-handoffs.json`. A registry operator reviews
+an append-only handoff explicitly:
+
+```sh
+cadencr registry validate --base accepted-registry --candidate reviewed-registry --administrative
+cadencr registry build-index --schema-version 2 --packages reviewed-registry/packages \
+  --provider-handoffs reviewed-registry/provider-handoffs.json \
+  --generated-at <UTC-whole-second> --expires-at <UTC-whole-second> --output preview.json
+```
+
+`--administrative` grants no publication authority. The protected schema-2
+publication request separately carries a `provider_handoffs` delta, with the
+provider ID, original and successor publisher/repository, every retired version's
+canonical **mirrored catalog entry** SHA-256, review authorization permalink and
+reason. It requires an authenticated baseline and retains all signed historical
+entries and previously accepted handoff records. A successor must use the exact
+authorized owner and a version above every retired version. Renewals carry the
+records unchanged; no historical archives are downloaded or rewritten.
+
+Unsigned previews bind their own author-URL entries; they are not signed mirror
+catalogs. Only the normal protected pipeline verifies mirrors/receipts, signs the
+reviewed payload and advances discovery. Compatible clients must be delivered
+before publishing this extension: older clients reject the unknown signed field.
+The client keeps installed receipts/state, hides retired versions from new
+discovery/installation, and requires separate explicit installation across owners.
+Namespace authorization never establishes saved-session compatibility.
+
+The handoff-bearing catalog must use the fixed `marketplace-v2-admin` discovery
+branch. Keep older clients on `marketplace-v2`: they reject unknown signed fields.
+Seed the new branch from the **exact authenticated legacy head and baseline bytes**
+before delivering clients pointed at it; then use ordinary existing-baseline CAS.
+An absent schema-2 fork is not an empty bootstrap. Compatible clients maintain an
+independent administrative cache/high-water while keeping legacy files and installed
+receipts. Both channels retain signature, immutable-history and rollback checks.
+
+The registry template includes opt-in `renew-administrative-catalog.yml`, configured
+with `CADENCR_REGISTRY_ADMINISTRATIVE_CATALOG_URL`. It renews/watches only the
+administrative catalog; policy feeds remain on their existing signed legacy URLs.
+A handoff-capable CLI must first be actually released and qualified, then pinned by
+its real atomic version/tag/SHA-256 triplet. Local development builds are not pins.
+
+The host persists new successor session IDs with a publisher/source binding from
+the first runtime event. Native IDs are unwrapped only for the matching installed
+owner, including terminal resume. Existing raw or foreign-owner sessions are refused
+visibly without rewriting conversations or native session files.

@@ -12,6 +12,8 @@ pub(super) const INPUT_LIMIT: u64 = 1024 * 1024;
 #[serde(deny_unknown_fields)]
 pub(super) struct Request {
     pub(super) schema_version: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(super) provider_handoffs: Vec<cadencr_registry_core::ProviderHandoff>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(super) allow_schema_upgrade: bool,
     pub(super) repository: String,
@@ -157,6 +159,13 @@ pub(super) fn revalidate(prepared: &PreparedPipeline) -> Result<(), PublisherErr
 
 pub(super) fn validate_catalog(prepared: &PreparedPipeline) -> Result<Vec<String>, PublisherError> {
     let payload = candidate_payload(prepared)?;
+    let value = cadencr_registry_core::parse_json_bytes(payload.canonical_payload())
+        .map_err(|e| PublisherError::new(format!("prepared catalog is invalid: {e}")))?;
+    cadencr_registry_core::validate_catalog_discovery_channel(
+        prepared.request.schema_version,
+        value.get("provider_handoffs").is_some(),
+        &prepared.request.discovery_branch,
+    )?;
     cadencr_registry_core::preflight_publication_pipeline()
         .payload(&payload)
         .maybe_previous_bytes(prepared.previous.as_deref())
@@ -176,6 +185,7 @@ pub(super) fn candidate_payload(
         .maybe_trust(prepared.trust.as_ref().map(|inputs| &inputs.verified))
         .public_key_bytes(&prepared.public_key)
         .key_id(&prepared.request.key_id)
+        .provider_handoffs(prepared.request.provider_handoffs.clone())
         .schema_version(prepared.request.schema_version)
         .allow_schema_upgrade(prepared.request.allow_schema_upgrade)
         .packages(
@@ -199,11 +209,11 @@ fn validate_request(request: &Request, repository: &str) -> Result<(), Publisher
     }
     cadencr_registry_core::validate_signing_key_id(&request.key_id)?;
     cadencr_registry_core::validate_discovery_branch(&request.discovery_branch)?;
-    if (request.schema_version == 2) != (request.discovery_branch == "marketplace-v2") {
-        return Err(PublisherError::new(
-            "schema2 requires isolated marketplace-v2 discovery branch",
-        ));
-    }
+    cadencr_registry_core::validate_catalog_discovery_channel(
+        request.schema_version,
+        !request.provider_handoffs.is_empty(),
+        &request.discovery_branch,
+    )?;
     if request.publications.len() > 100
         || (request.publications.is_empty() && request.previous_index == "bootstrap")
     {

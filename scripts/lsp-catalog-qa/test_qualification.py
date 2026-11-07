@@ -13,11 +13,18 @@ import handoff
 import prepare
 import runtime
 
-SOURCE = "b" * 40
+SOURCE = subprocess.check_output(["git", "-C", str(handoff.ROOT), "rev-parse", "HEAD"]).decode().strip()
 
 
 def write_json(path, value):
     path.write_text(json.dumps(value, sort_keys=True, indent=2) + "\n")
+
+
+def source_manifests(root, version):
+    folder = root / "packages/cli"
+    folder.mkdir(parents=True)
+    (folder / "Cargo.toml").write_text(f'[package]\nversion = "{version}"\n')
+    write_json(folder / "package.json", {"version": version})
 
 
 def fixture(root):
@@ -47,6 +54,28 @@ def fixture(root):
 
 
 class HandoffTests(unittest.TestCase):
+    def test_historical_handoff_uses_its_committed_cli_version_not_the_verifier_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output, checksum, _, _ = fixture(Path(temporary))
+            version = handoff.cli_version("source-build")
+            parts = version.split(".")
+            future = ".".join([*parts[:-1], str(int(parts[-1]) + 1)])
+            original = handoff.regular
+
+            def newer_manifest(path, maximum=handoff.MAX_FILE):
+                data = original(path, maximum)
+                if path == handoff.ROOT / "packages/cli/Cargo.toml":
+                    return data.replace(f'version = "{version}"'.encode(), f'version = "{future}"'.encode())
+                if path == handoff.ROOT / "packages/cli/package.json":
+                    value = json.loads(data)
+                    value["version"] = future
+                    return json.dumps(value).encode()
+                return data
+
+            with patch.object(handoff, "regular", side_effect=newer_manifest):
+                manifest, _ = handoff.verify(output, checksum, SOURCE)
+            self.assertEqual(manifest["cli"]["version"], version)
+
     def test_macos_requirement_is_signed_without_changing_the_archive_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -192,6 +221,47 @@ class HandoffTests(unittest.TestCase):
         for path in ("../escape", "/absolute", "a//b", "a/./b", "a\\b", "secret\nfile"):
             with self.assertRaises(ValueError):
                 handoff.relative(path)
+
+    def test_source_cli_version_follows_matching_manifests_without_promoting_released_pin(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_manifests(root, "0.15.7")
+            manifests = root / "packages/cli"
+            with patch.object(handoff, "ROOT", root):
+                source = handoff.provenance("source-build", "a" * 64, SOURCE)
+                released = handoff.provenance("released-pin", "a" * 64, SOURCE, "c" * 64)
+                self.assertEqual(source["version"], "0.15.7")
+                self.assertEqual(released["version"], "0.15.6")
+                write_json(manifests / "package.json", {"version": "0.15.8"})
+                with self.assertRaisesRegex(ValueError, "source CLI manifest versions"):
+                    handoff.provenance("source-build", "a" * 64, SOURCE)
+
+    def test_preparation_checks_the_binary_version_for_its_specific_origin(self):
+        cli = Path("/inert-cli")
+        executable = b"\x7fELF\x02\x01" + bytes(12) + b">\0"
+        checksum = handoff.digest(executable)
+        args = argparse.Namespace(cli=cli, cli_sha256=checksum, source_commit=SOURCE,
+                                  cli_origin="source-build", released_pin=None)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source_manifests(root, "0.15.7")
+            with patch.object(handoff, "ROOT", root):
+                for origin, actual, succeeds in (("source-build", "0.15.7", True),
+                                                 ("source-build", "0.15.6", False),
+                                                 ("released-pin", "0.15.6", True),
+                                                 ("released-pin", "0.15.7", False)):
+                    args.cli_origin = origin
+                    args.released_pin = prepare.ROOT / "scripts/cli-qualification.env" if origin == "released-pin" else None
+                    pin = (f"CADENCR_RELEASE_VERSION=0.15.6\nCADENCR_RELEASE_SHA256={checksum}\n"
+                           "CADENCR_RELEASE_TAG=cli/v0.15.6\n").encode()
+                    result = subprocess.CompletedProcess([], 0, stdout=f"cadencr {actual}\n".encode())
+                    with patch.object(prepare, "regular", side_effect=lambda path, maximum: executable if path == cli else pin), \
+                         patch.object(prepare.subprocess, "run", return_value=result):
+                        if succeeds:
+                            self.assertEqual(prepare.cli_provenance(args)["version"], actual)
+                        else:
+                            with self.assertRaisesRegex(ValueError, "CLI .*version"):
+                                prepare.cli_provenance(args)
 
     def test_canonical_pack_receipt_drift_fails_before_handoff(self):
         with tempfile.TemporaryDirectory() as temporary:

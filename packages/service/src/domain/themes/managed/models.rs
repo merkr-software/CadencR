@@ -17,6 +17,9 @@ pub struct MixedCatalogPayload {
     pub generated_at: String,
     pub expires_at: String,
     pub packages: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(value_type = Vec<Value>)]
+    pub provider_handoffs: Vec<cadencr_registry_core::ProviderHandoff>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

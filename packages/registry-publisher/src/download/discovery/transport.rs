@@ -287,6 +287,7 @@ mod tests {
                     Err(error) => panic!("fixture accept failed: {error}"),
                 }
             };
+            stream.set_nonblocking(false).unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
@@ -312,9 +313,12 @@ mod tests {
             .call()
             .unwrap_err();
         assert!(started.elapsed() < Duration::from_millis(600));
-        assert!(error
-            .to_string()
-            .contains("public discovery: archive download: response stream failed"));
+        assert!(
+            error
+                .to_string()
+                .contains("public discovery: archive download: response stream failed"),
+            "unexpected discovery error: {error}"
+        );
         assert!(!output.exists());
         server.join().unwrap();
     }

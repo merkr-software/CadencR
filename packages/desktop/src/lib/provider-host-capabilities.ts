@@ -16,6 +16,10 @@ export interface ProviderHostCapabilityFields {
 }
 
 const resumeCommandSchema = z.object({
+  session_owner: z
+    .string()
+    .regex(/^[a-f0-9]{64}$/)
+    .optional(),
   program: z.string().min(1),
   args: z.array(z.string()),
 }) satisfies z.ZodType<ProviderResumeCommand>;

@@ -204,7 +204,7 @@ export function validatedBuildEnv(env, { requireCatalog = false } = {}) {
 function marketplaceFeed(value, name, file, message) {
   const url = httpsUrl(value, name);
   const path = new RegExp(
-    `^/[^/]+/[^/]+/refs/heads/marketplace-v2/${file.replaceAll(".", "\\.")}$`,
+    `^/[^/]+/[^/]+/refs/heads/(?:marketplace-v2|marketplace-v2-admin)/${file.replaceAll(".", "\\.")}$`,
   );
   if (url.hostname !== "raw.githubusercontent.com" || !path.test(url.pathname))
     throw new Error(message);

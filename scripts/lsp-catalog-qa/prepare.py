@@ -13,7 +13,7 @@ TARGETS = ("darwin-aarch64", "darwin-x86_64", "linux-x86_64")
 REPOSITORY = "https://github.com/merkr-software/CadencR"
 sys.path.insert(0, str(ROOT / "scripts"))
 from official_plugin_lsp_archive import inventory, inspect_bundle, unpack, MAX_ARCHIVE, MAX_EXPANDED
-from handoff import create, provenance, regular, require, commit, PUBLISHED_TYPESCRIPT_SHA256
+from handoff import cli_version, create, provenance, regular, require, commit, PUBLISHED_TYPESCRIPT_SHA256
 from official_plugin_pack import parse_json
 
 
@@ -180,6 +180,7 @@ def published_baseline(cli, work, output):
 
 
 def cli_provenance(args):
+    """Check supplied bytes/version; this does not attest a caller's build inputs."""
     commit(args.source_commit)
     require(re.fullmatch(r"[a-f0-9]{64}", args.cli_sha256), "exact CLI checksum required")
     cli = regular(args.cli, 128 * 1024 * 1024)
@@ -187,7 +188,8 @@ def cli_provenance(args):
     require(cli[:6] == b"\x7fELF\x02\x01" and cli[18:20] == b">\0", "canonical packing requires the Linux x86_64 CLI")
     result = subprocess.run([str(args.cli), "--version"], env={"PATH": "/usr/bin:/bin"},
                             capture_output=True, timeout=30, check=True)
-    require(result.stdout.strip() == b"cadencr 0.15.6", "CLI 0.15.6 is required")
+    expected_version = cli_version(args.cli_origin)
+    require(result.stdout.strip() == ("cadencr " + expected_version).encode(), "CLI origin/version mismatch")
     pin_sha256 = None
     if args.cli_origin == "released-pin":
         require(args.released_pin is not None and args.released_pin.resolve() == ROOT / "scripts/cli-qualification.env",
@@ -205,7 +207,8 @@ def cli_provenance(args):
 def source_snapshot(source_commit):
     actual = subprocess.check_output(["git", "-C", str(ROOT), "rev-parse", "HEAD"]).decode().strip()
     require(actual == source_commit, "source commit must equal checked-out HEAD")
-    paths = ["plugins/lsp", "scripts/lsp-catalog-qa", "scripts/lsp-catalog-prepare", "scripts/lsp-native-prepare"]
+    paths = ["plugins/lsp", "scripts/lsp-catalog-qa", "scripts/lsp-catalog-prepare", "scripts/lsp-native-prepare",
+             "packages/cli/Cargo.toml", "packages/cli/package.json"]
     subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet", source_commit, "--", *paths], check=True)
     untracked = subprocess.check_output(["git", "-C", str(ROOT), "ls-files", "--others", "--exclude-standard", "--", *paths])
     require(not untracked, "all candidate sources and qualification helpers must be committed")

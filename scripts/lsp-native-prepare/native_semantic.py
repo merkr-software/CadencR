@@ -83,8 +83,17 @@ def exercise(connection, workspace, file, fixture, initialization):
     connection.send({"id": 3, "method": "shutdown"})
     connection.wait(lambda message: message.get("id") == 3 and "method" not in message)
     connection.send({"method": "exit"})
-    connection.process.stdin.close()
+    # The caller gives protocol exit a bounded grace before supplying EOF if needed.
     return {"initialize": initialized["result"].get("serverInfo"), "feature": fixture["feature"], "result": result}
+
+
+def wait_for_exit(process, timeout=10):
+    deadline = time.monotonic() + timeout
+    try:
+        return process.wait(timeout=min(0.25, timeout))
+    except subprocess.TimeoutExpired:
+        process.stdin.close()
+        return process.wait(timeout=max(0, deadline - time.monotonic()))
 
 
 def finish_process(process, evidence):
@@ -171,7 +180,7 @@ def run(args):
             connection = Connection(process, configuration)
             try:
                 evidence.update(exercise(connection, workspace, file, fixture, initialization))
-                if process.wait(timeout=10):
+                if wait_for_exit(process):
                     raise ValueError("nonzero server exit")
                 evidence["status"] = "passed"
             except Exception as error:
