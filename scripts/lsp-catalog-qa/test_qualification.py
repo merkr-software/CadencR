@@ -13,7 +13,7 @@ import handoff
 import prepare
 import runtime
 
-SOURCE = "b" * 40
+SOURCE = subprocess.check_output(["git", "-C", str(handoff.ROOT), "rev-parse", "HEAD"]).decode().strip()
 
 
 def write_json(path, value):
@@ -54,6 +54,28 @@ def fixture(root):
 
 
 class HandoffTests(unittest.TestCase):
+    def test_historical_handoff_uses_its_committed_cli_version_not_the_verifier_checkout(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output, checksum, _, _ = fixture(Path(temporary))
+            version = handoff.cli_version("source-build")
+            parts = version.split(".")
+            future = ".".join([*parts[:-1], str(int(parts[-1]) + 1)])
+            original = handoff.regular
+
+            def newer_manifest(path, maximum=handoff.MAX_FILE):
+                data = original(path, maximum)
+                if path == handoff.ROOT / "packages/cli/Cargo.toml":
+                    return data.replace(f'version = "{version}"'.encode(), f'version = "{future}"'.encode())
+                if path == handoff.ROOT / "packages/cli/package.json":
+                    value = json.loads(data)
+                    value["version"] = future
+                    return json.dumps(value).encode()
+                return data
+
+            with patch.object(handoff, "regular", side_effect=newer_manifest):
+                manifest, _ = handoff.verify(output, checksum, SOURCE)
+            self.assertEqual(manifest["cli"]["version"], version)
+
     def test_macos_requirement_is_signed_without_changing_the_archive_receipt(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

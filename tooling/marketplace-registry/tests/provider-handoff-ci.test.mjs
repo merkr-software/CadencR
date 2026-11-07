@@ -7,6 +7,7 @@ import {
   writeFileSync,
   copyFileSync,
   realpathSync,
+  symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -58,6 +59,7 @@ if (process.argv.includes("--help")) console.log(process.env.HANDOFF_SUPPORT ===
 test("normal CI never selects administrative mode or candidate-owned handoffs", () => {
   for (const mode of ["validate", "tooling", "administrative"]) {
     const f = fixture();
+    f.env.HANDOFF_SUPPORT = "yes";
     const base = join(f.root, "base");
     const candidate = join(f.root, "candidate");
     for (const root of [base, candidate]) {
@@ -72,12 +74,60 @@ test("normal CI never selects administrative mode or candidate-owned handoffs", 
     );
     assert.equal(result.status, 0, result.stderr);
     const calls = f.trace();
-    assert.equal(calls[0].includes("--administrative"), mode === "administrative");
+    const validation = calls.find((call) => call.includes("validate") && !call.includes("--help"));
+    assert.equal(validation.includes("--administrative"), mode === "administrative");
     if (mode === "tooling")
       assert.equal(
-        calls[1][calls[1].indexOf("--provider-handoffs") + 1],
+        calls.at(-1)[calls.at(-1).indexOf("--provider-handoffs") + 1],
         join(base, "provider-handoffs.json"),
       );
+  }
+});
+
+test("contribution checks reject incapable pins for base or candidate handoffs", () => {
+  for (const location of ["none", "base", "candidate", "broken-candidate"]) {
+    for (const capable of [false, true]) {
+      const f = fixture();
+      const base = join(f.root, "base");
+      const candidate = join(f.root, "candidate");
+      mkdirSync(base);
+      mkdirSync(candidate);
+      if (location === "broken-candidate")
+        symlinkSync("missing.json", join(candidate, "provider-handoffs.json"));
+      else if (location !== "none")
+        writeFileSync(join(location === "base" ? base : candidate, "provider-handoffs.json"), "[]");
+      f.env.HANDOFF_SUPPORT = capable ? "yes" : "no";
+      const result = spawnSync(
+        "sh",
+        ["scripts/ci/validate-provider-contribution.sh", "pin.env", base, candidate, "validate"],
+        { cwd: f.root, env: f.env, encoding: "utf8" },
+      );
+      assert.equal(result.status === 0, location === "none" || capable, result.stderr);
+      if (location !== "none" && !capable)
+        assert.match(result.stderr, /lacks qualified provider handoff support/);
+    }
+  }
+});
+
+test("protected preflight diagnoses malformed baseline payloads without inventing history", () => {
+  const f = fixture();
+  copyFileSync(
+    new URL("../scripts/ci/confirm-provider-handoffs.cjs", import.meta.url),
+    join(f.root, "scripts/ci/confirm-provider-handoffs.cjs"),
+  );
+  for (const baseline of [{}, { signed: null }, { signed: [] }, { signed: "invalid" }]) {
+    writeFileSync(join(f.root, "baseline.json"), JSON.stringify(baseline));
+    const result = spawnSync(
+      process.execPath,
+      [
+        "-e",
+        'require("./scripts/ci/confirm-provider-handoffs.cjs").confirmHandoffs({previous_index:"baseline.json",discovery_branch:"marketplace-v2-admin"})',
+      ],
+      { cwd: f.root, env: f.env, encoding: "utf8" },
+    );
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /previous index must contain a signed payload object/);
+    assert.doesNotMatch(result.stderr, /TypeError/);
   }
 });
 

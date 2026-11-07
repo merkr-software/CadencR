@@ -31,6 +31,17 @@ The binary's reported version must match those committed manifests exactly.
 Evidence labels this `source-build` and records its version, source commit and SHA-256. It is **not**
 qualification of a publicly distributed CLI binary.
 
+For a caller-supplied local binary, `source-build` records a caller-claimed source
+commit plus checked bytes/version, not an attestation of its compilation inputs.
+The CI source artifact is built and captured in the same exact-checkout job;
+that operational evidence is separate from the caller's metadata. Neither grants
+publication authority or released-binary qualification. Historical data handoffs
+are checked against the two CLI manifest blobs at their recorded source commit,
+not the verifier checkout's later version; that commit must be available locally.
+The manifest reader intentionally follows the stable exact-version grammar also
+enforced by CLI release tooling; this does not add prerelease or alternative TOML
+format support to the qualification contract.
+
 Source mode uploads the exact Linux CLI and a `source-cli.json` checksum/source/
 version receipt as a separate `lsp-source-cli-linux-x86_64-*` artifact. It stays
 outside the closed data handoff and grants no publication authority. Downstream

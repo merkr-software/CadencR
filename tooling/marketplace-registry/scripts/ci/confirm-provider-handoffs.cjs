@@ -29,10 +29,13 @@ function readJson(file, limit) {
 
 function confirmHandoffs(request) {
   const delta = request.provider_handoffs ?? [];
-  const previous =
-    request.previous_index === "bootstrap"
-      ? []
-      : (readJson(request.previous_index, 32 * 1024 * 1024).signed.provider_handoffs ?? []);
+  let previous = [];
+  if (request.previous_index !== "bootstrap") {
+    const baseline = readJson(request.previous_index, 32 * 1024 * 1024);
+    if (!baseline?.signed || typeof baseline.signed !== "object" || Array.isArray(baseline.signed))
+      throw new Error("previous index must contain a signed payload object");
+    previous = baseline.signed.provider_handoffs ?? [];
+  }
   if (!Array.isArray(delta) || !Array.isArray(previous))
     throw new Error("handoff history and delta must be arrays");
   if (request.discovery_branch !== "marketplace-v2-admin") {

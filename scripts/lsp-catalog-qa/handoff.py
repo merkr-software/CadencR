@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import stat
 import sys
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -66,23 +67,38 @@ def files(root):
     return captured
 
 
-def cli_version(origin):
+def source_manifest(name, source_commit):
+    reference = commit(source_commit) + ":packages/cli/" + name
+    args = ["git", "--no-optional-locks", "-C", str(ROOT), "cat-file"]
+    try:
+        size = int(subprocess.check_output([*args, "-s", reference], stderr=subprocess.PIPE, timeout=10))
+        require(0 <= size <= 64 * 1024, "source CLI manifest exceeds size limit")
+        data = subprocess.check_output([*args, "blob", reference], stderr=subprocess.PIPE, timeout=10)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ValueError("source CLI manifest unavailable at the handoff commit") from error
+    require(len(data) == size, "source CLI manifest size changed")
+    return data
+
+
+def cli_version(origin, source_commit=None):
     require(origin in ("source-build", "released-pin"), "explicit CLI origin required")
     if origin == "released-pin":
         return CLI_VERSION
     manifest = ROOT / "packages/cli"
-    cargo = regular(manifest / "Cargo.toml", 64 * 1024).decode()
+    def read(name):
+        return regular(manifest / name, 64 * 1024) if source_commit is None else source_manifest(name, source_commit)
+    cargo = read("Cargo.toml").decode()
     package = re.search(r"(?ms)^\[package\][ \t]*\n(.*?)(?=^\[|\Z)", cargo)
     versions = re.findall(r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"[ \t]*$',
                           package[1], re.MULTILINE) if package else []
-    version = parse_json(regular(manifest / "package.json", 64 * 1024))["version"]
+    version = parse_json(read("package.json"))["version"]
     require(len(versions) == 1 and versions[0] == version, "source CLI manifest versions must match exactly")
     return version
 
 
-def provenance(origin, cli_sha256, source_commit, pin_sha256=None):
+def provenance(origin, cli_sha256, source_commit, pin_sha256=None, *, version_source=None):
     require(origin in ("source-build", "released-pin") and hex_digest(cli_sha256), "explicit CLI provenance required")
-    value = {"origin": origin, "version": cli_version(origin), "sha256": cli_sha256}
+    value = {"origin": origin, "version": cli_version(origin, version_source), "sha256": cli_sha256}
     if origin == "source-build":
         require(pin_sha256 is None, "a source-built CLI cannot claim a released pin")
         value["source_commit"] = commit(source_commit)
@@ -139,7 +155,8 @@ def verify(root, expected_sha256, source_commit):
             and manifest["source_commit"] == commit(source_commit), "invalid candidate handoff context")
     cli = manifest["cli"]
     require(isinstance(cli, dict), "candidate CLI provenance must be an object")
-    require(cli == provenance(cli.get("origin"), cli.get("sha256"), source_commit, cli.get("pin_sha256")),
+    require(cli == provenance(cli.get("origin"), cli.get("sha256"), source_commit, cli.get("pin_sha256"),
+                              version_source=source_commit),
             "invalid candidate CLI provenance")
     require(isinstance(manifest["files"], dict) and all(
         isinstance(item, dict) and set(item) == {"sha256", "size"} and hex_digest(item["sha256"])

@@ -180,6 +180,7 @@ def published_baseline(cli, work, output):
 
 
 def cli_provenance(args):
+    """Check supplied bytes/version; this does not attest a caller's build inputs."""
     commit(args.source_commit)
     require(re.fullmatch(r"[a-f0-9]{64}", args.cli_sha256), "exact CLI checksum required")
     cli = regular(args.cli, 128 * 1024 * 1024)

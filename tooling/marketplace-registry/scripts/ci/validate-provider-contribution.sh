@@ -21,6 +21,15 @@ bootstrap_status=0
 binary=$(sh "$script_dir/fetch-released-cli.sh" "$pin_file" "$work/released") || bootstrap_status=$?
 [ "$bootstrap_status" -eq 0 ] || exit "$bootstrap_status"
 
+if [ -e "$base/provider-handoffs.json" ] || [ -L "$base/provider-handoffs.json" ] ||
+   [ -e "$candidate/provider-handoffs.json" ] || [ -L "$candidate/provider-handoffs.json" ]; then
+  capability=$("$binary" registry validate --help) || exit 1
+  case "$capability" in
+    *--administrative*) ;;
+    *) echo "released CLI lacks qualified provider handoff support; refusing contribution validation" >&2; exit 1 ;;
+  esac
+fi
+
 if [ "$mode" = administrative ]; then
   # Explicit operator review only. Ordinary pull-request workflows never select
   # this mode, and candidate-controlled files cannot activate it.
