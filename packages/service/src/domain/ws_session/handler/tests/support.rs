@@ -458,7 +458,7 @@ pub(crate) async fn assert_next_persistence_status(
 /// Helper: insert an SdkHandle with QueryState::Active using a test stub Query.
 pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) -> SdkHandle {
     let query = Query::new_test_stub(session_id);
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
@@ -502,7 +502,7 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
 }
 
 pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {

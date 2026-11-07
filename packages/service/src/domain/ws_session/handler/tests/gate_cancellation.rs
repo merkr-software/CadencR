@@ -97,7 +97,7 @@ async fn cancel_with_waiting_reply(automatic: bool) {
     handle.config.canonical_cwd = dir.path().to_path_buf();
     handle.state = QueryState::Active {
         query,
-        permission_tx: mpsc::channel(1).0,
+        permission_tx: crate::domain::ws_session::runtime::prompt::permission_response_channel().0,
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     app_state.active_turns.begin_turn(1, &sessions).await;
@@ -282,7 +282,7 @@ async fn full_turn_prompt_remains_cancellable(close_gate: bool) {
     let mut handle = make_in_place_effort_handle(1);
     handle.state = QueryState::Active {
         query: query.clone(),
-        permission_tx: mpsc::channel(1).0,
+        permission_tx: crate::domain::ws_session::runtime::prompt::permission_response_channel().0,
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;
@@ -400,7 +400,7 @@ async fn followup_stop_and_queued_runtime_writer_do_not_deadlock() {
     let mut handle = make_active_handle(1, None);
     handle.state = QueryState::Active {
         query: query.clone(),
-        permission_tx: mpsc::channel(1).0,
+        permission_tx: crate::domain::ws_session::runtime::prompt::permission_response_channel().0,
     };
     let sessions = Arc::new(Mutex::new(HashMap::from([(1, handle)])));
     state.active_turns.begin_turn(1, &sessions).await;

@@ -99,6 +99,16 @@ pub(crate) fn provider_supports_mode(provider: &str, mode: &RuntimePermissionMod
         .unwrap_or(true)
 }
 
+/// How a permission answer reaches this provider's runtime. Unknown providers
+/// use the session's `respond_permission`, the trait default.
+pub(crate) fn provider_permission_response_route(
+    provider: &str,
+) -> crate::domain::agents::adapter::RuntimePermissionResponseRoute {
+    runtime_adapter(provider)
+        .map(|adapter| adapter.permission_response_route())
+        .unwrap_or(crate::domain::agents::adapter::RuntimePermissionResponseRoute::Session)
+}
+
 /// Wire string the chip should land on after a session switches to this
 /// provider. Mirrors `defaultEditModeFor` in `lib/provider-modes.ts`.
 pub(crate) fn default_permission_mode_wire(provider: &str) -> Cow<'static, str> {

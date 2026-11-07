@@ -4,6 +4,7 @@ pub(in crate::domain::ws_session) mod content;
 mod conversation_references;
 mod errors;
 pub(in crate::domain::ws_session) mod mcp_servers;
+mod permission_responses;
 mod prompt_checkpoint;
 pub(in crate::domain::ws_session) mod prompt_followup;
 pub(in crate::domain::ws_session) mod prompt_pending;
@@ -44,6 +45,12 @@ pub(in crate::domain::ws_session) mod user_shell_recovery;
 
 pub(crate) use bridge::PermissionResponse;
 pub(crate) use bridge::WsBridgeCanUseTool;
+#[cfg(test)]
+pub(crate) use permission_responses::PermissionResponseWaiters;
+pub(crate) use permission_responses::{
+    permission_response_channel, PermissionDeliveryError, PermissionResponseSender,
+    PermissionWaiter,
+};
 pub(in crate::domain::ws_session) use prompt_status::mark_agent_running;
 pub(crate) use prompt_status::{
     persist_and_publish_user_message, publish_user_message, CanonicalUserMessageMode,

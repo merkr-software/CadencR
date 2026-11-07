@@ -5,9 +5,10 @@ mod mode_fallback;
 mod runtime_registration;
 mod spawn;
 use super::super::{SdkSessions, SessionConfig};
-use super::bridge::{PermissionResponse, WsBridgeCanUseTool};
+use super::bridge::WsBridgeCanUseTool;
 use super::content::{build_persist_content, payload_attachments};
 use super::errors::persist_pause_and_send_session_error;
+use super::permission_responses::{permission_response_channel, PermissionResponseSender};
 use super::prompt_resume_resolution::refresh_resume_session_id_from_db;
 use super::prompt_status::{
     mark_agent_running, persist_and_publish_prompt, PromptPersistenceOutcome,
@@ -24,7 +25,6 @@ use crate::domain::ws_session::permissions;
 use crate::domain::ws_session::protocol::PromptSendPayload;
 use spawn::spawn_runtime;
 use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info, warn};
 pub(in crate::domain::ws_session) struct PendingPromptContext {
     pub envelope_id: String,
@@ -39,7 +39,7 @@ pub(in crate::domain::ws_session) struct PendingPromptContext {
     pub config: SessionConfig,
     pub options: RuntimeSpawnConfig,
     pub payload: PromptSendPayload,
-    pub(in crate::domain::ws_session) permission_tx: Option<mpsc::Sender<PermissionResponse>>,
+    pub(in crate::domain::ws_session) permission_tx: Option<PermissionResponseSender>,
     pub internal_replay: bool,
     pub wait_for_delivery: bool,
     pub spawn_claim: Option<tokio::sync::OwnedMutexGuard<()>>,
@@ -328,12 +328,12 @@ async fn report_mcp_attach_error(context: PendingPromptContext, message: String)
 }
 
 fn attach_permission_bridge(context: &mut PendingPromptContext) {
-    let (permission_tx, permission_rx) = mpsc::channel::<PermissionResponse>(16);
+    let (permission_tx, permission_waiters) = permission_response_channel();
     let bridge = WsBridgeCanUseTool {
         app_state: context.app_state.clone(),
         sender: context.sender.clone(),
         feature_senders: context.app_state.ws_feature_senders.clone(),
-        response_rx: Arc::new(Mutex::new(permission_rx)),
+        permission_waiters,
         feature_id: context.feature_id,
         db_session_id: context.db_session_id,
         write_pool: context.app_state.write_pool.clone(),

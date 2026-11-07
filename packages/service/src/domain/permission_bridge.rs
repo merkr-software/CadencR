@@ -4,18 +4,15 @@
 //! Used by both the workflow engine (`WorkflowPermissionBridge`) and
 //! the session handler (`WsBridgeCanUseTool`).
 
-use std::sync::Arc;
-
 use crate::domain::agents::adapter::{
     RuntimePermissionResponseKind, RuntimePermissionUpdate, RuntimeToolPermissionRequest,
     RuntimeToolPermissionResult,
 };
 use crate::domain::session_status::AgentStatus;
-use crate::domain::ws_session::handler::session_prompt::PermissionResponse;
 use crate::domain::ws_session::protocol::{PermissionDecision, PermissionOptionPayload};
 use crate::domain::ws_session::runtime::application::mark_agent_resumed;
+use crate::domain::ws_session::runtime::prompt::PermissionWaiter;
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex};
 
 pub fn build_provider_permission_options(
     permission_updates: &[RuntimePermissionUpdate],
@@ -149,10 +146,12 @@ fn preview_value(value: Option<&Value>) -> Option<String> {
     }
 }
 
-/// Wait for a user response on the permission channel, clear the DB gate +
+/// Wait for the user's response to this request, clear the DB gate +
 /// broadcast the next turn, and apply the decision.
 ///
 /// Preconditions: the caller has already
+/// - registered `waiter` under the request id it shows the user, so only the
+///   response naming that id can resolve this request, and
 /// - persisted the pending-input row via
 ///   [`crate::domain::ws_session::runtime::application::mark_awaiting_user`] (which both wrote the
 ///   `pending_*` column and broadcast `"askUser"`), and
@@ -165,7 +164,7 @@ fn preview_value(value: Option<&Value>) -> Option<String> {
 /// `"askUser"` from a row that had already been answered.
 #[allow(clippy::too_many_arguments)]
 pub async fn wait_and_apply_decision(
-    response_rx: &Arc<Mutex<mpsc::Receiver<PermissionResponse>>>,
+    waiter: PermissionWaiter,
     tool_use_id: &str,
     original_input: serde_json::Value,
     permission_updates: &[RuntimePermissionUpdate],
@@ -175,8 +174,7 @@ pub async fn wait_and_apply_decision(
     db_session_id: i64,
     clear_kind: crate::domain::ws_session::persistence::PendingUserInputKind,
 ) -> RuntimeToolPermissionResult {
-    let mut rx = response_rx.lock().await;
-    match rx.recv().await {
+    match waiter.recv().await {
         Some(response) => {
             // Claude Code keeps streaming after `can_use_tool` returns Deny
             // with `interrupt: false`, so the turn stays on the agent until a
@@ -430,44 +428,5 @@ fn apply_decision(
                 tool_use_id: Some(tool_use_id.to_string()),
             }
         }
-    }
-}
-
-/// Wait for a user response on the permission channel and convert an
-/// allow/deny into a `PermissionResult`. Used for approval gates such as
-/// `ExitPlanMode` that bypass normal resolution.
-#[allow(dead_code)]
-pub async fn wait_for_approval(
-    response_rx: &Arc<Mutex<mpsc::Receiver<PermissionResponse>>>,
-    tool_use_id: &str,
-    input: serde_json::Value,
-    deny_message: &str,
-) -> RuntimeToolPermissionResult {
-    let mut rx = response_rx.lock().await;
-    match rx.recv().await {
-        Some(response) => match response.decision {
-            PermissionDecision::AllowOnce | PermissionDecision::AllowFuture => {
-                RuntimeToolPermissionResult::Allow {
-                    updated_input: input,
-                    updated_permissions: None,
-                    tool_use_id: Some(tool_use_id.to_string()),
-                }
-            }
-            PermissionDecision::Deny => {
-                let feedback = response
-                    .feedback
-                    .unwrap_or_else(|| deny_message.to_string());
-                RuntimeToolPermissionResult::Deny {
-                    message: feedback,
-                    interrupt: Some(false),
-                    tool_use_id: Some(tool_use_id.to_string()),
-                }
-            }
-        },
-        None => RuntimeToolPermissionResult::Deny {
-            message: "Approval channel closed".to_string(),
-            interrupt: Some(false),
-            tool_use_id: Some(tool_use_id.to_string()),
-        },
     }
 }

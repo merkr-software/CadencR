@@ -2,10 +2,11 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex};
 
 use super::session_prompt::spawn_stream_reader;
-use super::session_prompt::{PermissionResponse, WsBridgeCanUseTool};
+use super::session_prompt::{
+    permission_response_channel, PermissionResponseSender, WsBridgeCanUseTool,
+};
 use super::{seed_known_subagents, send_error, QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
@@ -160,7 +161,7 @@ struct PendingCompactSpawn {
     feature_id: i64,
     handle_identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity,
     provider_id: String,
-    permission_tx: mpsc::Sender<PermissionResponse>,
+    permission_tx: PermissionResponseSender,
     spawned_model: Option<String>,
     spawned_permission_mode: Option<RuntimePermissionMode>,
     spawned_access_mode: Option<crate::domain::agents::adapter::RuntimeAccessMode>,
@@ -187,7 +188,7 @@ async fn pending_spawn_config(
     let QueryState::Pending(pending) = &handle.state else {
         return PendingCompactSpawnResult::NotPending;
     };
-    let (permission_tx, permission_rx) = mpsc::channel::<PermissionResponse>(16);
+    let (permission_tx, permission_waiters) = permission_response_channel();
     let resume_session_id = pending
         .resume_session_id
         .clone()
@@ -200,7 +201,7 @@ async fn pending_spawn_config(
         app_state: app_state.clone(),
         sender: sender.clone().into(),
         feature_senders: app_state.ws_feature_senders.clone(),
-        response_rx: Arc::new(Mutex::new(permission_rx)),
+        permission_waiters,
         feature_id: handle.feature_id,
         db_session_id,
         write_pool: app_state.write_pool.clone(),

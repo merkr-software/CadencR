@@ -19,8 +19,7 @@ async fn owner_with_live_turn(
     {
         let mut sessions = owner_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(InPlaceEffortSession::new()))),
             permission_tx,

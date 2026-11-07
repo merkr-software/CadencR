@@ -33,9 +33,9 @@ pub use event_types::{
 pub use permission::{
     RuntimeCompactionStrategy, RuntimePermissionDecision, RuntimePermissionOption,
     RuntimePermissionRequest, RuntimePermissionResponse, RuntimePermissionResponseKind,
-    RuntimePermissionUpdate, RuntimePromptCommandPlacement, RuntimePromptCommandPolicy,
-    RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSlashCommandKind,
-    RuntimeToolPermissionRequest, RuntimeToolPermissionResult,
+    RuntimePermissionResponseRoute, RuntimePermissionUpdate, RuntimePromptCommandPlacement,
+    RuntimePromptCommandPolicy, RuntimeSkillReferenceTrigger, RuntimeSlashCommand,
+    RuntimeSlashCommandKind, RuntimeToolPermissionRequest, RuntimeToolPermissionResult,
 };
 #[cfg(test)]
 pub(crate) use session::test_support::DummySession;

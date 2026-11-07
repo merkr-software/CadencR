@@ -81,7 +81,9 @@ async fn queued_prompt_after_first_launch(headless: bool) {
         let handle = guard.get_mut(&1).unwrap();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(RecordingRuntime { delivered }))),
-            permission_tx: mpsc::channel(1).0,
+            permission_tx: crate::domain::ws_session::runtime::prompt::permission_response_channel(
+            )
+            .0,
         };
         handle.spawned_model = handle.desired_model.clone();
     }

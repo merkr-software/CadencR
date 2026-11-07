@@ -266,7 +266,8 @@ mod tests {
         let app_state = make_test_app_state().await;
         let sessions = new_sdk_sessions();
         let mut handle = make_active_handle(1, Some("runtime-1".to_string()));
-        let (permission_tx, _permission_rx) = mpsc::channel(1);
+        let (permission_tx, _permission_rx) =
+            crate::domain::ws_session::runtime::prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(ConfigSession::new()))),
             permission_tx,

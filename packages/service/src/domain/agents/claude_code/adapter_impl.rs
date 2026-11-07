@@ -15,9 +15,9 @@ use super::worktree_config;
 use super::{ClaudeCodeAdapter, CLAUDE_CODE_ADAPTER};
 use crate::domain::agents::adapter::{
     static_config_paths, AgentRuntimeAdapter, AgentRuntimeSession, RuntimeError, RuntimeEvent,
-    RuntimePermissionMode, RuntimePromptCommandPlacement, RuntimePromptCommandPolicy,
-    RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSpawnConfig,
-    RuntimeUserShellStrategy,
+    RuntimePermissionMode, RuntimePermissionResponseRoute, RuntimePromptCommandPlacement,
+    RuntimePromptCommandPolicy, RuntimeSkillReferenceTrigger, RuntimeSlashCommand,
+    RuntimeSpawnConfig, RuntimeUserShellStrategy,
 };
 use crate::domain::agents::runtime::{ModelCatalogEntry, ProviderCatalogEntry, ProviderStatus};
 
@@ -124,8 +124,10 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
         true
     }
 
-    fn uses_legacy_permission_channel_on_response_error(&self) -> bool {
-        true
+    /// Claude Code blocks inside the `can_use_tool` callback until the
+    /// user's answer for that control request id is routed to it.
+    fn permission_response_route(&self) -> RuntimePermissionResponseRoute {
+        RuntimePermissionResponseRoute::PermissionCallback
     }
 
     async fn runtime_slash_commands(
@@ -401,8 +403,9 @@ mod tests {
     use super::super::events::normalize_event;
     use super::super::test_support::new_test_adapter;
     use crate::domain::agents::adapter::{
-        AgentRuntimeAdapter, RuntimePromptCommandPlacement, RuntimeSkillReferenceTrigger,
-        RuntimeSlashCommand, RuntimeSlashCommandKind, RuntimeUserShellStrategy,
+        AgentRuntimeAdapter, RuntimePermissionResponseRoute, RuntimePromptCommandPlacement,
+        RuntimeSkillReferenceTrigger, RuntimeSlashCommand, RuntimeSlashCommandKind,
+        RuntimeUserShellStrategy,
     };
 
     #[test]
@@ -551,8 +554,11 @@ mod tests {
     }
 
     #[test]
-    fn adapter_owns_the_legacy_permission_channel_fallback() {
-        assert!(new_test_adapter().uses_legacy_permission_channel_on_response_error());
+    fn adapter_routes_permission_answers_to_the_callback() {
+        assert_eq!(
+            new_test_adapter().permission_response_route(),
+            RuntimePermissionResponseRoute::PermissionCallback
+        );
     }
 
     #[test]

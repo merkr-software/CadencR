@@ -5,7 +5,7 @@ use super::super::output::{CommandError, CommandOutput, OutputTarget};
 use super::super::post_plan_mode::{
     should_transition_after_plan_approval, transition_session_to_post_plan_mode,
 };
-use super::super::prompt::PermissionResponse;
+use super::super::prompt::{PermissionDeliveryError, PermissionResponse, PermissionResponseSender};
 use super::super::state::{QueryState, SdkSessions};
 use crate::domain::ws_session::protocol::*;
 
@@ -13,15 +13,15 @@ use super::permission_context::PermissionContext;
 use super::permission_pending::clear_answered_gate_preserving_replacement;
 use super::permission_user_message::persist_question_answer;
 use crate::domain::agents::adapter::{
-    RuntimePermissionResponse, RuntimePermissionResponseKind, RuntimeSessionHandle,
+    RuntimePermissionResponse, RuntimePermissionResponseKind, RuntimePermissionResponseRoute,
+    RuntimeSessionHandle,
 };
-use crate::domain::agents::runtime_adapter;
 
 struct ActivePermissionHandle {
     feature_id: i64,
     runtime_provider: String,
     query: RuntimeSessionHandle,
-    permission_tx: tokio::sync::mpsc::Sender<PermissionResponse>,
+    permission_tx: PermissionResponseSender,
 }
 
 struct ResolvedPermissionRuntime {
@@ -33,11 +33,6 @@ enum ActivePermissionLookup {
     Found(ActivePermissionHandle),
     NotFound,
     NotActive,
-}
-
-enum RuntimePermissionOutcome {
-    Accepted(RuntimePermissionResponseKind),
-    UsePermissionChannel,
 }
 
 async fn lookup_active_permission_handle(
@@ -158,7 +153,7 @@ fn accepted_persistence_warning(error: sqlx::Error) -> CommandError {
 }
 
 async fn send_permission_channel_response(
-    permission_tx: tokio::sync::mpsc::Sender<PermissionResponse>,
+    permission_tx: PermissionResponseSender,
     payload: PermissionRespondPayload,
     output: &CommandOutput,
     context: &PermissionContext<'_>,
@@ -178,9 +173,15 @@ async fn send_permission_channel_response(
     };
 
     permission_tx
-        .send(response)
-        .await
-        .map_err(|_| CommandError::new("CHANNEL_ERROR", "Permission channel closed"))?;
+        .deliver(response)
+        .map_err(|error| match error {
+            PermissionDeliveryError::Closed => {
+                CommandError::new("CHANNEL_ERROR", error.to_string())
+            }
+            PermissionDeliveryError::UnknownRequest(_) => {
+                CommandError::new("STALE_GATE", error.to_string())
+            }
+        })?;
     output.permission_accepted();
     let warnings = persist_question_answer(
         &context.answer_messages(),
@@ -226,7 +227,7 @@ async fn respond_runtime_permission(
     db_session_id: i64,
     context: &PermissionContext<'_>,
     output: &CommandOutput,
-) -> Result<RuntimePermissionOutcome, CommandError> {
+) -> Result<RuntimePermissionResponseKind, CommandError> {
     let runtime_response = RuntimePermissionResponse {
         request_id: payload.request_id.clone(),
         decision: payload
@@ -255,17 +256,11 @@ async fn respond_runtime_permission(
             ));
         }
     }
-    let respond_result = {
-        let q = runtime.active.query.read().await;
-        q.respond_permission(runtime_response).await
-    };
-    let uses_legacy_channel = runtime_adapter(&runtime.active.runtime_provider)
-        .is_some_and(|adapter| adapter.uses_legacy_permission_channel_on_response_error());
-    match respond_result {
-        Ok(()) => Ok(RuntimePermissionOutcome::Accepted(permission_kind)),
-        Err(_) if uses_legacy_channel => Ok(RuntimePermissionOutcome::UsePermissionChannel),
-        Err(error) => Err(CommandError::new("RUNTIME_PERMISSION_ERROR", error)),
-    }
+    let q = runtime.active.query.read().await;
+    q.respond_permission(runtime_response)
+        .await
+        .map_err(|error| CommandError::new("RUNTIME_PERMISSION_ERROR", error))?;
+    Ok(permission_kind)
 }
 
 #[derive(Debug)]
@@ -331,20 +326,10 @@ async fn respond_claimed(
 ) -> Result<PermissionResponseOutcome, CommandError> {
     let runtime = resolve_permission_runtime(sdk_sessions, context, db_session_id).await?;
     let answer = payload.updated_input.clone();
-    match respond_runtime_permission(&runtime, &payload, db_session_id, context, output).await? {
-        RuntimePermissionOutcome::Accepted(kind) => {
-            finish_accepted_runtime_permission(
-                output,
-                context,
-                db_session_id,
-                runtime.active.feature_id,
-                kind,
-                &payload,
-                answer.as_ref(),
-            )
-            .await
-        }
-        RuntimePermissionOutcome::UsePermissionChannel => {
+    match crate::domain::agents::permission_modes::provider_permission_response_route(
+        &runtime.active.runtime_provider,
+    ) {
+        RuntimePermissionResponseRoute::PermissionCallback => {
             send_permission_channel_response(
                 runtime.active.permission_tx,
                 payload,
@@ -353,6 +338,21 @@ async fn respond_claimed(
                 runtime.active.feature_id,
                 db_session_id,
                 answer,
+            )
+            .await
+        }
+        RuntimePermissionResponseRoute::Session => {
+            let kind =
+                respond_runtime_permission(&runtime, &payload, db_session_id, context, output)
+                    .await?;
+            finish_accepted_runtime_permission(
+                output,
+                context,
+                db_session_id,
+                runtime.active.feature_id,
+                kind,
+                &payload,
+                answer.as_ref(),
             )
             .await
         }
@@ -370,6 +370,7 @@ mod tests {
         make_in_place_effort_handle, make_test_app_state,
     };
     use crate::domain::ws_session::runtime::output::SessionOutput;
+    use crate::domain::ws_session::runtime::prompt::permission_response_channel;
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -442,7 +443,7 @@ mod tests {
         let sessions = super::super::super::state::new_sdk_sessions();
         let calls = Arc::new(AtomicUsize::new(0));
         let mut handle = make_in_place_effort_handle(1);
-        let (permission_tx, _) = mpsc::channel(1);
+        let (permission_tx, _) = permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(PermissionRuntime {
                 calls: calls.clone(),
@@ -507,7 +508,7 @@ mod tests {
             query: Arc::new(RwLock::new(Box::new(PermissionRuntime {
                 calls: calls.clone(),
             }))),
-            permission_tx: mpsc::channel(1).0,
+            permission_tx: permission_response_channel().0,
         };
         owner.lock().await.insert(7, handle);
         turns.begin_turn(7, &owner).await;
@@ -536,6 +537,65 @@ mod tests {
                 .unwrap();
         assert_eq!(pending, None);
         assert!(Arc::ptr_eq(&turns.owner_sessions(7).await.unwrap(), &owner));
+    }
+
+    /// Switch the fixture session to a runtime whose adapter routes answers to
+    /// its permission callback, returning that callback's waiter registry.
+    async fn use_callback_route(
+        sessions: &SdkSessions,
+        payload: &PermissionRespondPayload,
+    ) -> crate::domain::ws_session::runtime::prompt::PermissionResponseWaiters {
+        let id = payload.session_id.parse::<i64>().unwrap();
+        let (sender, waiters) = permission_response_channel();
+        let mut guard = sessions.lock().await;
+        let handle = guard.get_mut(&id).unwrap();
+        handle.runtime_provider = crate::domain::agents::claude_code::PROVIDER_ID.to_string();
+        let QueryState::Active { permission_tx, .. } = &mut handle.state else {
+            panic!("fixture session is active");
+        };
+        *permission_tx = sender;
+        waiters
+    }
+
+    #[tokio::test]
+    async fn callback_route_delivers_only_to_the_matching_request() {
+        let (state, sessions, payload, calls) = fixture(false).await;
+        let waiters = use_callback_route(&sessions, &payload).await;
+        let other = waiters.register("q-other");
+        let target = waiters.register("q-1");
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+        respond_permission(&context(&state), &sessions, payload, &output)
+            .await
+            .unwrap();
+        assert_eq!(target.recv().await.unwrap().request_id, "q-1");
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "no error-driven fallback");
+        let other = tokio::spawn(other.recv());
+        tokio::task::yield_now().await;
+        assert!(!other.is_finished(), "an unrelated request stays open");
+    }
+
+    #[tokio::test]
+    async fn callback_route_rejects_an_answer_with_no_open_request() {
+        let (state, sessions, payload, _calls) = fixture(false).await;
+        let waiters = use_callback_route(&sessions, &payload).await;
+        let other = waiters.register("q-other");
+        let output = CommandOutput {
+            recipient: SessionOutput::headless(),
+            correlation_id: String::new(),
+        };
+        let error = respond_permission(&context(&state), &sessions, payload.clone(), &output)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "STALE_GATE");
+        let other = tokio::spawn(other.recv());
+        tokio::task::yield_now().await;
+        assert!(!other.is_finished(), "the answer must not resolve q-other");
+        // The failed delivery released the gate claim so a retry can land.
+        let id = payload.session_id.parse::<i64>().unwrap();
+        assert!(state.pending_gates.claim(id, "q-1").await.is_ok());
     }
 
     #[tokio::test]
