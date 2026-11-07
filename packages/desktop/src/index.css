@@ -439,18 +439,20 @@ body > :not(#root) > *,
  * line used to sit under every reply and every prompt, so the gap after each
  * read far wider than the gap before it. Where the rule above forces them
  * visible they stay in flow: they are real content there, and so do rows
- * nested in a clipping card (`data-stream-nested`). The row must be
- * `position: relative`; its gap below must fit the 20px line. Above the next
- * stream row, under the stream's own overlays (loading spinner: z-20). */
+ * nested in a clipping card (`data-stream-nested`) and every row of Compact
+ * flow (`data-stream-actions-in-flow`), whose one-line steps sit too close
+ * under a message for the line to float. The row must be `position: relative`;
+ * its gap below must fit the 20px line. Above the next stream row, under the
+ * stream's own overlays (loading spinner: z-20). */
 @media (hover: hover) and (min-width: 768px) {
-  .stream-hover-actions:not([data-stream-nested] *) {
+  .stream-hover-actions:not([data-stream-nested] *):not([data-stream-actions-in-flow] *) {
     position: absolute;
     top: 100%;
     z-index: 10;
     margin: 0;
     pointer-events: none;
   }
-  :hover > .stream-hover-actions:not([data-stream-nested] *) {
+  :hover > .stream-hover-actions:not([data-stream-nested] *):not([data-stream-actions-in-flow] *) {
     pointer-events: auto;
   }
 }

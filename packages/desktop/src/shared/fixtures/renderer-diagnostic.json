@@ -1,0 +1,5 @@
+{
+  "category": "renderer_unhandled_error",
+  "build_id": "7affa5ec1508-darwin-ca26a943-04dd-46e0-b838-15bc69113867",
+  "frames": [{ "filename": "assets/index-BtoNKF7I.js", "lineno": 12, "colno": 34 }]
+}
