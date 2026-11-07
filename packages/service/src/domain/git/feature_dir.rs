@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use sqlx::SqlitePool;
 
 use crate::domain::git::service::SETTING_WORKTREE_PATH;
-use crate::domain::git::worktree_context::resolve_source_git_root;
 use crate::domain::git::{commands, repository};
 use crate::error::AppError;
+use crate::shared::git_cli::run_git_background;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FeatureDir {
@@ -72,9 +72,10 @@ impl FeatureDir {
                 if cwd.join(".git").symlink_metadata().is_ok() {
                     return Ok(Some(cwd.to_path_buf()));
                 }
-                resolve_source_git_root(cwd)
-                    .await
-                    .map_err(AppError::GitCommandError)?
+                // Git's own error, so a refusal (an unsafe or broken
+                // repository) keeps its user-facing `GIT_*` classification.
+                let top = run_git_background(&["rev-parse", "--show-toplevel"], cwd).await?;
+                PathBuf::from(top.trim())
             }
         };
         let at_root = cwd == root || commands::canonical_dir(cwd) == commands::canonical_dir(&root);
@@ -253,6 +254,24 @@ mod tests {
             Some(project_dir(ProjectFallback::WorktreeNotLive))
         );
         assert_eq!(resolve_feature_dir(&pool, 2).await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn a_git_refusal_resolving_the_checkout_root_keeps_its_classification() {
+        // Metadata that Git itself refuses (here a `.git` file pointing
+        // nowhere) is Git's user-facing error, not a masked internal one.
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join(".git"), "gitdir: missing").unwrap();
+        let project = root.path().join("packages/app");
+        std::fs::create_dir_all(&project).unwrap();
+        let dir = FeatureDir {
+            cwd: project.to_str().unwrap().to_string(),
+            source: FeatureDirSource::Project(ProjectFallback::NoWorktreeRecorded),
+        };
+
+        let error = dir.git_root().await.unwrap_err();
+
+        assert!(matches!(error, AppError::GitRejected(_)), "{error:?}");
     }
 
     #[tokio::test]
