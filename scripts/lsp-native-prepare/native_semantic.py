@@ -83,7 +83,7 @@ def exercise(connection, workspace, file, fixture, initialization):
     connection.send({"id": 3, "method": "shutdown"})
     connection.wait(lambda message: message.get("id") == 3 and "method" not in message)
     connection.send({"method": "exit"})
-    connection.process.stdin.close()
+    # The caller waits for protocol exit before closing stdin; EOF can race shutdown.
     return {"initialize": initialized["result"].get("serverInfo"), "feature": fixture["feature"], "result": result}
 
 

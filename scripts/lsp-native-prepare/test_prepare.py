@@ -15,7 +15,8 @@ import zipfile
 from archive import bounded, executable, retained, safe_name, selected
 from prepare import acquire
 from transform import macho_slice, transform
-from native_semantic import finish_process
+from native_semantic import FIXTURES, exercise, finish_process
+from node_smoke import Connection
 
 
 def tar(entries):
@@ -33,6 +34,44 @@ def macho(cpu):
 
 
 class NativePreparationTests(unittest.TestCase):
+    def test_native_shutdown_waits_for_protocol_exit_without_concurrent_stdin_eof(self):
+        server = r'''
+import json, os, select, sys
+stream = sys.stdin.buffer
+while True:
+    headers = {}
+    while (line := stream.readline()) not in (b"\r\n", b"\n", b""):
+        key, value = line.decode().split(":", 1)
+        headers[key.lower()] = value.strip()
+    if not line:
+        raise SystemExit(19)
+    message = json.loads(stream.read(int(headers["content-length"])))
+    if message["method"] == "exit":
+        ready, _, _ = select.select([stream], [], [], 0.2)
+        raise SystemExit(17 if ready and os.read(0, 1) == b"" else 0)
+    if "id" not in message:
+        continue
+    result = {"capabilities": {}} if message["method"] == "initialize" else None
+    if message["method"] == "textDocument/diagnostic":
+        result = {"kind": "full", "items": [{"code": 2322}]}
+    raw = json.dumps({"jsonrpc": "2.0", "id": message["id"], "result": result}).encode()
+    sys.stdout.buffer.write(b"Content-Length: " + str(len(raw)).encode() + b"\r\n\r\n" + raw)
+    sys.stdout.buffer.flush()
+'''
+        process = subprocess.Popen([sys.executable, "-u", "-c", server], stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, bufsize=0)
+        try:
+            connection = Connection(process, lambda section: {})
+            report = exercise(connection, Path("/workspace"), Path("/workspace/main.ts"), FIXTURES["tsgo"], {})
+            self.assertEqual(report["result"]["items"], [{"code": 2322}])
+            self.assertEqual(process.wait(timeout=5), 0, "stdin EOF raced the protocol exit")
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=5)
+            process.stdin.close()
+            process.stdout.close()
+
     def test_native_stdout_eof_can_precede_a_natural_nonzero_exit(self):
         process = subprocess.Popen([sys.executable, "-c",
             "import os, time; os.close(1); time.sleep(0.05); raise SystemExit(17)"],
