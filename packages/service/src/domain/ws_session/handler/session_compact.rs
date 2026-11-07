@@ -352,7 +352,8 @@ mod tests {
     }
 
     fn active_sessions(fail: bool) -> SdkSessions {
-        let (permission_tx, _permission_rx) = mpsc::channel(1);
+        let (permission_tx, _permission_rx) =
+            crate::domain::ws_session::runtime::prompt::permission_response_channel();
         let runtime = Box::new(CompactRuntime { fail }) as Box<dyn AgentRuntimeSession>;
         Arc::new(Mutex::new(HashMap::from([(
             1,

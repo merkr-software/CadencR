@@ -21,7 +21,7 @@ pub(in crate::domain::ws_session) enum QueryState {
     /// Query is active (CLI subprocess running).
     Active {
         query: RuntimeSessionHandle,
-        permission_tx: mpsc::Sender<session_prompt::PermissionResponse>,
+        permission_tx: session_prompt::PermissionResponseSender,
     },
 }
 

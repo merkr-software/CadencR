@@ -274,80 +274,35 @@ pub async fn is_empty(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
     Ok(message_exists.is_none())
 }
 
-pub async fn resolve_working_dir(
-    pool: &SqlitePool,
-    feature_id: i64,
-    project_id: i64,
-) -> Result<Option<String>, AppError> {
-    let feature_row: Option<(String,)> =
-        sqlx::query_as("SELECT COALESCE(type, 'ws-session') FROM features WHERE id = ?")
-            .bind(feature_id)
-            .fetch_optional(pool)
-            .await?;
-
-    if feature_row.is_some() {
-        let setting: Option<(String,)> = sqlx::query_as(
-            "SELECT value FROM feature_settings WHERE feature_id = ? AND key = 'worktree_path'",
-        )
-        .bind(feature_id)
-        .fetch_optional(pool)
-        .await?;
-        if let Some((path,)) = setting {
-            return Ok(Some(path));
-        }
-    }
-
-    let project_path: Option<(String,)> = sqlx::query_as("SELECT path FROM projects WHERE id = ?")
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-    Ok(project_path.map(|r| r.0))
-}
-
 pub async fn delete_feature(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
-
-    // Delete session children, then sessions.
-    sqlx::query(
-        "DELETE FROM session_runtime_ids WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query(
-        "DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
-    )
-    .bind(id)
-    .execute(&mut *tx)
-    .await?;
-
-    sqlx::query("DELETE FROM agent_sessions WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM feature_settings WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM diff_comments WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM diff_viewed_files WHERE feature_id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
-    sqlx::query("DELETE FROM features WHERE id = ?")
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-
+    delete_feature_rows(&mut tx, id).await?;
     tx.commit().await?;
+    Ok(())
+}
+
+/// Delete one feature and every row that references it without
+/// `ON DELETE CASCADE`, children first, inside the caller's transaction.
+/// [`delete_feature`] and project deletion share it, so a new non-cascading
+/// child table only needs adding here.
+pub(crate) async fn delete_feature_rows(
+    conn: &mut sqlx::SqliteConnection,
+    id: i64,
+) -> Result<(), sqlx::Error> {
+    // Session children, then sessions; tables declared with
+    // `ON DELETE CASCADE` follow on their own.
+    const STATEMENTS: [&str; 7] = [
+        "DELETE FROM session_runtime_ids WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
+        "DELETE FROM agent_messages WHERE session_id IN (SELECT id FROM agent_sessions WHERE feature_id = ?)",
+        "DELETE FROM agent_sessions WHERE feature_id = ?",
+        "DELETE FROM feature_settings WHERE feature_id = ?",
+        "DELETE FROM diff_comments WHERE feature_id = ?",
+        "DELETE FROM diff_viewed_files WHERE feature_id = ?",
+        "DELETE FROM features WHERE id = ?",
+    ];
+    for statement in STATEMENTS {
+        sqlx::query(statement).bind(id).execute(&mut *conn).await?;
+    }
     Ok(())
 }
 

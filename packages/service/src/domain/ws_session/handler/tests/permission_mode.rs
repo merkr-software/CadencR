@@ -205,7 +205,8 @@ async fn mode_set_rejection_keeps_accepted_mode_as_desired_mode() {
     .await
     .unwrap();
 
-    let (permission_tx, _permission_rx) = mpsc::channel(1);
+    let (permission_tx, _permission_rx) =
+        crate::domain::ws_session::runtime::prompt::permission_response_channel();
     let query: RuntimeSessionHandle = Arc::new(RwLock::new(Box::new(RejectingModeSession::new())));
     sdk_sessions.lock().await.insert(
         77,
@@ -312,7 +313,8 @@ async fn claude_bypass_mode_set_rearms_existing_session_before_next_prompt() {
     .await
     .unwrap();
 
-    let (permission_tx, _permission_rx) = mpsc::channel(1);
+    let (permission_tx, _permission_rx) =
+        crate::domain::ws_session::runtime::prompt::permission_response_channel();
     let query: RuntimeSessionHandle = Arc::new(RwLock::new(Box::new(RejectingModeSession::new())));
     sdk_sessions.lock().await.insert(
         78,

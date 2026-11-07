@@ -357,6 +357,16 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
+    // Feature directory resolution reads `worktree_path` here and surfaces a
+    // missing table as an error instead of silently using the project root.
+    sqlx::query(
+        "CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, \
+         PRIMARY KEY (feature_id, key))",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'Test Project', '/tmp/test')")
         .execute(&pool)
         .await
@@ -458,7 +468,7 @@ pub(crate) async fn assert_next_persistence_status(
 /// Helper: insert an SdkHandle with QueryState::Active using a test stub Query.
 pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) -> SdkHandle {
     let query = Query::new_test_stub(session_id);
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {
@@ -502,7 +512,7 @@ pub(crate) fn make_active_handle(feature_id: i64, session_id: Option<String>) ->
 }
 
 pub(crate) fn make_in_place_effort_handle(feature_id: i64) -> SdkHandle {
-    let (permission_tx, _permission_rx) = mpsc::channel::<session_prompt::PermissionResponse>(1);
+    let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
     SdkHandle {
         identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
         state: QueryState::Active {

@@ -310,25 +310,64 @@ pub async fn get_commit_log(
     })
 }
 
+/// The diff viewer deletes pending review comments whose file is missing from
+/// this map, so it must only describe the directory those comments were made
+/// in: a feature whose recorded worktree is gone gets an error, never the main
+/// checkout's SHAs.
 pub async fn get_file_blob_shas(
     state: &AppState,
     params: GetFileBlobShasParams,
 ) -> Result<Vec<FileBlobSha>, AppError> {
-    let wt_path = repository::get_feature_setting(
-        &state.read_pool,
-        params.feature_id,
-        super::SETTING_WORKTREE_PATH,
-    )
-    .await?;
-    let wt_path = match wt_path {
-        Some(p) => p,
-        None => return Ok(vec![]),
-    };
+    use crate::domain::git::feature_dir::{FeatureDirSource, ProjectFallback};
 
-    if !crate::shared::git_context::has_git_metadata(Path::new(&wt_path)).await? {
+    let Some(dir) =
+        crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, params.feature_id)
+            .await?
+    else {
+        return Ok(vec![]);
+    };
+    // A recorded worktree that is gone must not be answered with the main
+    // checkout's SHAs.
+    if dir.source == FeatureDirSource::Project(ProjectFallback::WorktreeNotLive) {
+        return Err(AppError::Conflict(
+            "The feature's worktree is no longer available".into(),
+        ));
+    }
+    let git_path = Path::new(&dir.cwd);
+    match tokio::fs::metadata(git_path).await {
+        Ok(metadata) if metadata.is_dir() => {}
+        Ok(_) => {
+            return Err(AppError::Conflict(format!(
+                "The feature's directory {} is not a directory",
+                dir.cwd
+            )))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(AppError::Conflict(format!(
+                "The feature's directory {} is not available",
+                dir.cwd
+            )))
+        }
+        Err(error) => {
+            return Err(AppError::Internal(format!(
+                "Failed to inspect the feature's directory {}: {error}",
+                dir.cwd
+            )))
+        }
+    }
+    // A missing directory (renamed project, unmounted volume) is refused above;
+    // an existing one without Git has no blob SHAs, and comments made there
+    // carry no SHA either, so nothing is retired.
+    if !crate::shared::git_context::has_git_metadata(git_path).await? {
         return Ok(vec![]);
     }
-    let map = commands::get_file_blob_shas(Path::new(&wt_path)).await?;
+    let base_branch = crate::domain::git::workflow_service::resolve_target_branch(
+        state,
+        params.feature_id,
+        git_path,
+    )
+    .await?;
+    let map = commands::get_file_blob_shas(git_path, &base_branch).await?;
     Ok(map
         .into_iter()
         .map(|(file_path, sha)| FileBlobSha { file_path, sha })
@@ -430,6 +469,46 @@ mod tests {
             assert!(
                 new_ref.is_none(),
                 "mode={mode} must compare against working tree (None)"
+            );
+        }
+    }
+
+    /// The viewer deletes comments whose file is missing from the map, so an
+    /// unavailable directory must be an error, never an empty success.
+    #[tokio::test]
+    async fn blob_shas_refuse_unavailable_feature_directories() {
+        let pool = setup_diff_refs_schema().await;
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        crate::shared::git_cli::run_git(&["init", "-q"], &repo)
+            .await
+            .unwrap();
+        let residual = root.path().join("gone-worktree");
+        std::fs::create_dir_all(&residual).unwrap();
+        sqlx::query(
+            "INSERT INTO projects (id, name, path) VALUES (1, 'repo', ?), (2, 'gone', '/nonexistent/cadencr-project')",
+        )
+        .bind(repo.to_string_lossy().as_ref())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO features (id, project_id, title) VALUES (1, 1, 'dead worktree'), (2, 2, 'missing project')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        repository::set_feature_setting(&pool, 1, "worktree_path", &residual.to_string_lossy())
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+
+        for feature_id in [1, 2] {
+            let result = get_file_blob_shas(&state, GetFileBlobShasParams { feature_id }).await;
+            assert!(
+                matches!(result, Err(AppError::Conflict(_))),
+                "feature {feature_id}: {result:?}"
             );
         }
     }

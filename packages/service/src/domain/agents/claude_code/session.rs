@@ -160,11 +160,13 @@ impl AgentRuntimeSession for ClaudeCodeSession {
             'messages: while let Some(msg) = source_rx.recv().await {
                 match msg {
                     Ok(sdk_msg) => {
-                        if let Some(event) =
-                            acknowledge_user_prompt_receipt(&sdk_msg, &prompt_receipts)
-                        {
-                            if tx.send(Ok(event)).await.is_err() {
-                                break;
+                        let receipts = acknowledge_user_prompt_receipt(&sdk_msg, &prompt_receipts);
+                        if !receipts.is_empty() {
+                            // The message is only our own prompt echoed back.
+                            for event in receipts {
+                                if tx.send(Ok(event)).await.is_err() {
+                                    break 'messages;
+                                }
                             }
                             continue;
                         }
@@ -292,14 +294,24 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     }
 }
 
+/// Receipts for the pending prompts `msg` echoes. Only a root, non-synthetic
+/// user message without tool output can be an echo of a prompt Cadencr sent;
+/// sub-agent traffic and tool results always flow through untouched.
 pub(super) fn acknowledge_user_prompt_receipt(
     msg: &claude_agent_sdk_rs::SdkMessage,
     prompt_receipts: &ClaudePromptReceipts,
-) -> Option<RuntimeEvent> {
-    let claude_agent_sdk_rs::SdkMessage::User { message, .. } = msg else {
-        return None;
+) -> Vec<RuntimeEvent> {
+    let claude_agent_sdk_rs::SdkMessage::User {
+        message,
+        parent_tool_use_id: None,
+        is_synthetic: None | Some(false),
+        tool_use_result: None,
+        ..
+    } = msg
+    else {
+        return Vec::new();
     };
-    prompt_receipts.acknowledge_replay(message)
+    prompt_receipts.acknowledge_echo(message)
 }
 
 /// Drain outstanding prompt receipts when Claude starts its next response.
@@ -359,10 +371,60 @@ mod tests {
             is_replay: None,
         };
 
-        let event = acknowledge_user_prompt_receipt(&msg, &receipts).expect("receipt");
+        let events = acknowledge_user_prompt_receipt(&msg, &receipts);
 
-        assert_eq!(event.prompt_received_client_message_id(), Some("client-1"));
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].prompt_received_client_message_id(),
+            Some("client-1")
+        );
         assert!(!is_unmatched_replay_user_message(&msg));
+    }
+
+    fn user_message(
+        content: serde_json::Value,
+        parent_tool_use_id: Option<&str>,
+        is_synthetic: Option<bool>,
+    ) -> claude_agent_sdk_rs::SdkMessage {
+        claude_agent_sdk_rs::SdkMessage::User {
+            uuid: None,
+            session_id: "session-1".to_string(),
+            message: json!({ "role": "user", "content": content }),
+            parent_tool_use_id: parent_tool_use_id.map(ToOwned::to_owned),
+            is_synthetic,
+            tool_use_result: None,
+            is_replay: None,
+        }
+    }
+
+    #[test]
+    fn steer_never_swallows_tool_results_or_sub_agent_messages() {
+        let receipts = ClaudePromptReceipts::default();
+        receipts.enqueue("steer".to_string(), &json!("go"));
+
+        let tool_result = user_message(
+            json!([{ "type": "tool_result", "tool_use_id": "toolu_1", "content": "good" }]),
+            None,
+            None,
+        );
+        assert!(acknowledge_user_prompt_receipt(&tool_result, &receipts).is_empty());
+        assert!(!is_unmatched_replay_user_message(&tool_result));
+
+        let sub_agent = user_message(json!("go"), Some("toolu_task"), None);
+        assert!(acknowledge_user_prompt_receipt(&sub_agent, &receipts).is_empty());
+        let synthetic = user_message(json!("go"), None, Some(true));
+        assert!(acknowledge_user_prompt_receipt(&synthetic, &receipts).is_empty());
+        let mut with_result = user_message(json!("go"), None, None);
+        if let claude_agent_sdk_rs::SdkMessage::User {
+            tool_use_result, ..
+        } = &mut with_result
+        {
+            *tool_use_result = Some(json!({ "stdout": "go" }));
+        }
+        assert!(acknowledge_user_prompt_receipt(&with_result, &receipts).is_empty());
+
+        let echo = user_message(json!("go"), None, None);
+        assert_eq!(acknowledge_user_prompt_receipt(&echo, &receipts).len(), 1);
     }
 
     #[test]

@@ -23,10 +23,14 @@ const repoRoot = dirname(dirname(scriptPath));
 // The service runs from its package dir, so a relative CADENCR_DB_PATH resolves there.
 const SERVICE_DIR = join("packages", "service");
 const DEV_DATABASE = join(SERVICE_DIR, "cadencr.local.db");
-// Written next to a database this script has just cloned. Debug builds of the
-// service skip the pre-migration backup while it exists and remove it on their
-// first successful start, once the clone may hold data of its own. Mirrors
-// FRESH_CLONE_MARKER_SUFFIX in packages/service/src/dev_env.rs.
+// Written next to a database this script has just cloned. While it exists,
+// debug builds of the service skip the pre-migration backup and start as a
+// clone: they drop the runtime state the copy inherited from the main
+// checkout's still-running service (agent pids, turns to resume, schedules,
+// queued messages) so they never stop or duplicate its agents. They remove it
+// on their first successful start, once the clone may hold data of its own.
+// Mirrors FRESH_CLONE_MARKER_SUFFIX in packages/service/src/dev_env.rs and
+// packages/service/src/dev_clone.rs.
 export const FRESH_CLONE_MARKER = `${DEV_DATABASE}.fresh-clone`;
 
 interface PortAssignment {
@@ -261,7 +265,8 @@ export async function configureWorktreeDev({
       writeFileSync(
         join(currentRoot, FRESH_CLONE_MARKER),
         "Untouched clone of the main checkout's dev database: the first service start skips\n" +
-          "its pre-migration backup, then deletes this file.\n",
+          "its pre-migration backup, drops the main checkout's live agents, resumable turns,\n" +
+          "schedules and queued messages from this copy, then deletes this file.\n",
       );
     }
     return { ...assignment, freshClone };
@@ -289,7 +294,8 @@ async function main(): Promise<void> {
   console.log(`  profile:  ${basename(repoRoot)}`);
   console.log(
     result.freshClone
-      ? "  database: fresh clone of the main checkout's; its first start skips the pre-migration backup"
+      ? "  database: fresh clone of the main checkout's; its first start skips the pre-migration\n" +
+          "            backup and drops the main checkout's live agents, schedules and queues from it"
       : "  database: pre-migration backups kept",
   );
 }

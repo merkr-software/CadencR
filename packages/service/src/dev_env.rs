@@ -79,7 +79,7 @@ pub fn validate_required_env_keys(
 /// scripts/configure-worktree-dev.mts.
 pub const FRESH_CLONE_MARKER_SUFFIX: &str = ".fresh-clone";
 
-fn fresh_clone_marker(db_path: &Path) -> PathBuf {
+pub(crate) fn fresh_clone_marker(db_path: &Path) -> PathBuf {
     let mut marker = db_path.as_os_str().to_owned();
     marker.push(FRESH_CLONE_MARKER_SUFFIX);
     PathBuf::from(marker)

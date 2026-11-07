@@ -83,8 +83,7 @@ async fn public_replay_flag_is_ignored_and_legacy_prompt_gets_canonical_identity
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         let (_message_tx, message_rx) = mpsc::channel(1);
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(RecordingPromptSession {
@@ -208,8 +207,7 @@ async fn test_follow_up_prompt_does_not_block_ws_dispatch() {
     {
         let mut sessions = sdk_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(BlockingFollowUpSession::new(
                 release.clone(),
@@ -265,8 +263,7 @@ async fn test_prompt_send_steers_turn_owned_by_another_connection_without_spawni
     {
         let mut sessions = owner_sessions.lock().await;
         let handle = sessions.get_mut(&db_id).unwrap();
-        let (permission_tx, _permission_rx) =
-            mpsc::channel::<session_prompt::PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = session_prompt::permission_response_channel();
         let (_message_tx, message_rx) = mpsc::channel(1);
         handle.state = QueryState::Active {
             query: Arc::new(RwLock::new(Box::new(RecordingPromptSession {

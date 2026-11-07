@@ -1,7 +1,5 @@
 use std::path::Path;
 
-use tokio::process::Command;
-
 use crate::error::AppError;
 
 use super::{run_raw, safe_path_args, safe_ref_args, sanitize_git_stderr, validate_positionals};
@@ -26,7 +24,7 @@ pub async fn run_git_background(args: &[&str], cwd: &Path) -> Result<String, App
 pub async fn git_ref_resolves_background(reference: &str, cwd: &Path) -> Result<bool, AppError> {
     validate_positionals(&[reference])?;
     let args = prepend_no_optional_locks(&["rev-parse", "--verify", "--quiet", reference]);
-    let output = Command::new("git")
+    let output = super::git_command()
         .args(&args)
         .current_dir(cwd)
         .output()

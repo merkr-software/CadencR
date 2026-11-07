@@ -1,15 +1,14 @@
 use super::super::super::QueryState;
-use super::super::bridge::PermissionResponse;
+use super::super::permission_responses::PermissionResponseSender;
 use super::PendingPromptContext;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
-use tokio::sync::mpsc;
 
 /// Install only the process that owns this Pending launch. Concurrent controls
 /// update desired state in place; registration records spawned state separately.
 pub(super) async fn insert_active_session(
     context: &PendingPromptContext,
     query: RuntimeSessionHandle,
-    permission_tx: mpsc::Sender<PermissionResponse>,
+    permission_tx: PermissionResponseSender,
     runtime_control_endpoint: Option<String>,
 ) -> bool {
     let mut sessions = context.sdk_sessions.lock().await;
@@ -59,6 +58,7 @@ mod tests {
         make_in_place_effort_handle, make_test_app_state,
     };
     use crate::domain::ws_session::runtime::output::SessionOutput;
+    use crate::domain::ws_session::runtime::prompt::permission_response_channel;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -68,7 +68,7 @@ mod tests {
     #[async_trait::async_trait]
     impl AgentRuntimeSession for ClosingRuntime {
         fn take_message_rx(&mut self) -> RuntimeMessageRx {
-            mpsc::channel(1).1
+            tokio::sync::mpsc::channel(1).1
         }
         async fn session_id(&self) -> Option<String> {
             None
@@ -124,7 +124,7 @@ mod tests {
                 serde_json::json!({"session_id": "7", "text": "first"}),
             )
             .unwrap(),
-            permission_tx: Some(mpsc::channel(1).0),
+            permission_tx: Some(permission_response_channel().0),
             internal_replay: true,
             wait_for_delivery: true,
             spawn_claim: None,
@@ -148,7 +148,9 @@ mod tests {
         let query: RuntimeSessionHandle = Arc::new(tokio::sync::RwLock::new(Box::new(
             ClosingRuntime(Default::default()),
         )));
-        assert!(insert_active_session(&context, query, mpsc::channel(1).0, None).await);
+        assert!(
+            insert_active_session(&context, query, permission_response_channel().0, None).await
+        );
         let sessions = context.sdk_sessions.lock().await;
         let handle = sessions.get(&7).unwrap();
         assert_eq!(handle.desired_model.as_deref(), Some("next-model"));

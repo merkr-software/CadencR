@@ -1,10 +1,7 @@
 use crate::domain::ws_session::protocol::WsSessionEvent;
 use crate::domain::ws_session::runtime::output::{OutputTarget, SessionOutput};
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use axum::extract::ws::Message;
-use tokio::sync::{mpsc, Mutex};
 use tracing::{debug, error, info};
 
 use crate::domain::agents::adapter::{
@@ -20,6 +17,7 @@ use crate::domain::ws_session::runtime::application::{mark_agent_resumed, mark_a
 
 use super::super::post_plan_mode::transition_session_to_post_plan_mode;
 use super::super::state::SdkSessions;
+use super::permission_responses::PermissionResponseWaiters;
 
 use crate::domain::ws_session::sender_registry::WsFeatureSenderRegistry;
 
@@ -43,7 +41,9 @@ pub(crate) struct WsBridgeCanUseTool {
     /// it appears on all connected clients, not just whichever one owns the
     /// live turn.
     pub(crate) feature_senders: WsFeatureSenderRegistry,
-    pub(crate) response_rx: Arc<Mutex<mpsc::Receiver<PermissionResponse>>>,
+    /// Responses are routed to each open request by its id, so concurrent
+    /// requests can never consume one another's answers.
+    pub(crate) permission_waiters: PermissionResponseWaiters,
     pub(crate) feature_id: i64,
     pub(crate) db_session_id: i64,
     pub(crate) write_pool: sqlx::SqlitePool,
@@ -92,6 +92,7 @@ impl WsBridgeCanUseTool {
 
         let enriched_input = self.attach_plan_to_exit_block(request).await;
         let payload = self.plan_permission_payload(request, enriched_input);
+        let waiter = self.permission_waiters.register(&payload.request_id);
         mark_awaiting_user(
             &self.app_state,
             self.db_session_id,
@@ -101,17 +102,9 @@ impl WsBridgeCanUseTool {
         .await;
         self.send_permission_payload(payload).await;
 
-        let mut rx = self.response_rx.lock().await;
-        match rx.recv().await {
+        match waiter.recv().await {
             Some(response) => {
                 let decision = response.decision.clone();
-                if response.request_id != request.tool_use_id {
-                    debug!(
-                        expected_request_id = %request.tool_use_id,
-                        received_request_id = %response.request_id,
-                        "permission response request_id mismatch, applying latest response",
-                    );
-                }
                 mark_agent_resumed(
                     &self.write_pool,
                     &self.session_status_tx,
@@ -335,6 +328,7 @@ impl WsBridgeCanUseTool {
             .as_ref()
             .map(PendingUserInput::Question)
             .unwrap_or(PendingUserInput::Permission(&payload));
+        let waiter = self.permission_waiters.register(&payload.request_id);
         mark_awaiting_user(
             &self.app_state,
             self.db_session_id,
@@ -346,7 +340,7 @@ impl WsBridgeCanUseTool {
 
         // `wait_and_apply_decision` owns the clear + terminal-turn broadcast.
         permission_bridge::wait_and_apply_decision(
-            &self.response_rx,
+            waiter,
             &request.tool_use_id,
             request.input.clone(),
             &permission_updates,
@@ -357,5 +351,112 @@ impl WsBridgeCanUseTool {
             pending_kind,
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use super::super::permission_responses::{
+        permission_response_channel, PermissionDeliveryError, PermissionResponseSender,
+    };
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::make_test_app_state;
+    use crate::domain::ws_session::runtime::state::new_sdk_sessions;
+
+    fn tool_request(request_id: &str) -> RuntimeToolPermissionRequest {
+        RuntimeToolPermissionRequest {
+            tool_name: "Bash".into(),
+            tool_use_id: request_id.into(),
+            input: serde_json::json!({ "command": format!("echo {request_id}") }),
+            permission_updates: Vec::new(),
+            blocked_path: None,
+            decision_reason: None,
+        }
+    }
+
+    fn answer(request_id: &str, decision: PermissionDecision) -> PermissionResponse {
+        PermissionResponse {
+            request_id: request_id.into(),
+            message_uuid: None,
+            decision,
+            option_id: None,
+            feedback: None,
+            updated_input: None,
+            is_approval_gate: false,
+        }
+    }
+
+    /// Retry until the bridge has registered `request_id` (it registers before
+    /// the request reaches any client), then deliver exactly once.
+    async fn deliver_when_open(sender: &PermissionResponseSender, response: PermissionResponse) {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                match sender.deliver(response.clone()) {
+                    Ok(()) => return,
+                    Err(PermissionDeliveryError::UnknownRequest(_)) => {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    Err(error) => panic!("delivery failed: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("request was never registered");
+    }
+
+    fn result_id(result: &RuntimeToolPermissionResult) -> Option<&str> {
+        match result {
+            RuntimeToolPermissionResult::Allow { tool_use_id, .. }
+            | RuntimeToolPermissionResult::Deny { tool_use_id, .. } => tool_use_id.as_deref(),
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_requests_each_receive_only_their_own_answer() {
+        let app_state = make_test_app_state().await;
+        let db_session_id: i64 = sqlx::query_scalar(
+            "INSERT INTO agent_sessions (feature_id, agent_type, status) VALUES (1, 'session', 'running') RETURNING id",
+        )
+        .fetch_one(&app_state.write_pool)
+        .await
+        .unwrap();
+        let (sender, waiters) = permission_response_channel();
+        let bridge = Arc::new(WsBridgeCanUseTool {
+            app_state: app_state.clone(),
+            sender: SessionOutput::headless(),
+            feature_senders: app_state.ws_feature_senders.clone(),
+            permission_waiters: waiters,
+            feature_id: 1,
+            db_session_id,
+            write_pool: app_state.write_pool.clone(),
+            session_status_tx: app_state.session_status_tx.clone(),
+            sdk_sessions: new_sdk_sessions(),
+        });
+        let first = tokio::spawn({
+            let bridge = Arc::clone(&bridge);
+            async move { bridge.can_use_tool(tool_request("req-a")).await }
+        });
+        let second = tokio::spawn({
+            let bridge = Arc::clone(&bridge);
+            async move { bridge.can_use_tool(tool_request("req-b")).await }
+        });
+
+        deliver_when_open(&sender, answer("req-b", PermissionDecision::Deny)).await;
+        let second = second.await.unwrap();
+        assert_eq!(result_id(&second), Some("req-b"));
+        assert!(matches!(second, RuntimeToolPermissionResult::Deny { .. }));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(
+            !first.is_finished(),
+            "req-a must not consume req-b's answer"
+        );
+
+        deliver_when_open(&sender, answer("req-a", PermissionDecision::AllowOnce)).await;
+        let first = first.await.unwrap();
+        assert_eq!(result_id(&first), Some("req-a"));
+        assert!(matches!(first, RuntimeToolPermissionResult::Allow { .. }));
     }
 }

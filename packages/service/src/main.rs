@@ -2,7 +2,9 @@
 //! the crate compiles (and its unit tests run) once; declaring them again here
 //! with `mod` would build a second full copy of the service.
 
-use cadencr_service::{api, app_state, config, dev_env, domain, remote, shared, shutdown};
+use cadencr_service::{
+    api, app_state, config, dev_clone, dev_env, domain, remote, shared, shutdown,
+};
 
 use anyhow::Context;
 use axum::serve::ListenerExt;
@@ -100,7 +102,9 @@ async fn main() -> anyhow::Result<()> {
                 app_version: config.app_version.as_deref(),
             })
             .await?;
-            dev_env::consume_fresh_clone_marker(std::path::Path::new(&db_path))?;
+            // A fresh worktree clone first forgets the main checkout's live
+            // agents, turns, schedules and queues, before recovery reads them.
+            dev_clone::adopt_database(&write_pool, std::path::Path::new(&db_path)).await?;
             // The one-time image backfill needs its destination before it can
             // run. Production uses `~/.cadencr/blobs`; an ad-hoc/dev database
             // gets an isolated directory named after that exact database.

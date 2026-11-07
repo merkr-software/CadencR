@@ -101,6 +101,10 @@ async fn validate_checkout(
 async fn checkout(state: &AppState, body: CheckoutBody) -> Result<SuccessResponse, AppError> {
     let (project_path, resolved) = prepare(state, body.project_id, &body.branch).await?;
     let repo = Path::new(&project_path);
+    let _permit = state
+        .git_mutations
+        .try_acquire(repo)
+        .map_err(super::mutation_guard_error)?;
     run_git_capture(&["checkout"], &[], &[&resolved], repo).await?;
     Ok(SuccessResponse::ok())
 }
@@ -211,6 +215,65 @@ mod tests {
         assert!(
             msg.ends_with("Please commit your changes or stash them before you switch branches."),
             "{msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn checkout_is_refused_while_the_project_worktree_is_busy() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ][..],
+            &["branch", "other"][..],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::shared::migrate::run_migrations(
+            &crate::shared::migrate::MigrationContext::pool_only(&pool),
+        )
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'repo', ?)")
+            .bind(repo.to_string_lossy().as_ref())
+            .execute(&pool)
+            .await
+            .unwrap();
+        let state = AppState::with_pool(pool);
+        let _busy = state.git_mutations.try_acquire(repo).unwrap();
+
+        let error = checkout(
+            &state,
+            CheckoutBody {
+                project_id: 1,
+                branch: "other".into(),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(matches!(error, AppError::Conflict(_)), "{error:?}");
+        assert_eq!(
+            run_git(&["symbolic-ref", "--short", "HEAD"], repo)
+                .await
+                .unwrap()
+                .trim(),
+            "main"
         );
     }
 

@@ -207,7 +207,7 @@ mod tests {
         AgentRuntimeSession, RuntimeError, RuntimeMessageRx, RuntimePermissionMode,
     };
     use crate::domain::ws_session::protocol::WsEnvelope;
-    use crate::domain::ws_session::runtime::prompt::PermissionResponse;
+    use crate::domain::ws_session::runtime::prompt::permission_response_channel;
     use crate::domain::ws_session::runtime::state::{
         QueryState, SdkHandle, SdkSessions, SessionConfig,
     };
@@ -285,7 +285,7 @@ mod tests {
     }
 
     fn codex_plan_handle(modes: Arc<Mutex<Vec<RuntimePermissionMode>>>) -> SdkHandle {
-        let (permission_tx, _permission_rx) = mpsc::channel::<PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = permission_response_channel();
         SdkHandle {
             identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state: QueryState::Active {
@@ -409,7 +409,7 @@ mod tests {
             supports_auto_mode: Some(true),
         }]);
 
-        let (permission_tx, _permission_rx) = mpsc::channel::<PermissionResponse>(1);
+        let (permission_tx, _permission_rx) = permission_response_channel();
         SdkHandle {
             identity: crate::domain::ws_session::runtime::state::RuntimeHandleIdentity::default(),
             state: QueryState::Active {

@@ -211,7 +211,7 @@ mod tests {
             super::super::active_session::insert_active_session(
                 &context,
                 query,
-                mpsc::channel(1).0,
+                crate::domain::ws_session::runtime::prompt::permission_response_channel().0,
                 None
             )
             .await

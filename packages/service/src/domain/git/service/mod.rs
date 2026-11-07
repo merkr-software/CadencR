@@ -2,8 +2,8 @@ use std::path::Path;
 
 use crate::app_state::AppState;
 use crate::domain::features::service::ensure_belongs_to_project as ensure_feature_belongs_to_project;
+use crate::domain::git::repository;
 use crate::domain::git::worktree_context::WorktreeContext;
-use crate::domain::git::{commands, repository};
 use crate::error::AppError;
 
 mod blame;
@@ -30,7 +30,7 @@ pub use worktree_list::*;
 // Feature-setting key constants
 // ---------------------------------------------------------------------------
 
-pub(super) const SETTING_WORKTREE_PATH: &str = "worktree_path";
+pub(crate) const SETTING_WORKTREE_PATH: &str = "worktree_path";
 pub(super) const SETTING_WORKTREE_BRANCH: &str = "worktree_branch";
 /// Branch created by the worktree-free "From branch" flow. Separate from
 /// `worktree_branch` because the UI reads that key as "this feature has a
@@ -109,33 +109,17 @@ pub async fn resolve_feature_git_path(
     )
 }
 
-/// Resolve the working directory, including for projects without Git. A stale worktree setting can
-/// point at a deleted directory or at residual files left after Git detached
-/// the worktree; both cases fall back to the project path.
+/// Resolve the working directory, including for projects without Git. See
+/// [`crate::domain::git::feature_dir`] for the liveness and fallback rules.
 pub async fn resolve_feature_working_path(
     state: &AppState,
     feature_id: i64,
 ) -> Result<Option<String>, AppError> {
-    let Some((project_id, _)) =
-        repository::get_feature_type_and_project(&state.read_pool, feature_id).await?
-    else {
-        return Ok(None);
-    };
-    let project_path = match repository::get_project_path(&state.read_pool, project_id).await {
-        Ok(path) => path,
-        Err(_) => return Ok(None),
-    };
-    let wt = repository::get_feature_setting(&state.read_pool, feature_id, SETTING_WORKTREE_PATH)
-        .await?;
-    if let Some(path) = wt {
-        if !crate::shared::git_context::has_git_metadata(Path::new(&project_path)).await? {
-            return Ok(Some(project_path));
-        }
-        if commands::is_live_worktree(Path::new(&project_path), Path::new(&path)).await? {
-            return Ok(Some(path));
-        }
-    }
-    Ok(Some(project_path))
+    Ok(
+        crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, feature_id)
+            .await?
+            .map(|dir| dir.cwd),
+    )
 }
 
 /// Helper to get project path + the feature's own branch for

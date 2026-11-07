@@ -13,11 +13,15 @@ use crate::domain::git::repository;
 use crate::domain::git::service::resolve_feature_git_path;
 use crate::domain::workspace;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_safe_refs};
+use crate::shared::git_cli::run_git_safe_refs;
 
-use super::merge_runner::{build_failure_result, invoke_merge, MergeOutcome};
+use super::merge_runner::{
+    attach_cleanup_problem, build_failure_result, inspect_failed_merge, invoke_merge,
+    read_original_head, restore_original_head, roll_back_failed_merge, MergeOutcome,
+};
 use super::{
-    broadcast_after_write, local_branch_exists, remote_branch_exists, resolve_target_branch,
+    broadcast_after_write, local_branch_exists, mutation_guard_error, remote_branch_exists,
+    resolve_target_branch,
 };
 
 const SETTING_GIT_MERGE_MODE: &str = "git_merge_mode";
@@ -99,6 +103,12 @@ pub async fn merge_feature_branch(
     }
 
     let merge_repo = target_worktree_or_project(project_repo, &target_branch).await?;
+    // The whole checkout → merge → rollback → checkout-back sequence mutates
+    // this worktree; no other Cadencr Git mutation may interleave with it.
+    let permit = state
+        .git_mutations
+        .try_acquire(&merge_repo)
+        .map_err(mutation_guard_error)?;
     // `git merge` exits 0 with "Already up to date" here, which would report a
     // successful merge that changed nothing.
     if commands::is_branch_merged(&merge_repo, &source_branch, &target_branch).await? {
@@ -107,6 +117,7 @@ pub async fn merge_feature_branch(
         )));
     }
     let result = run_merge(&merge_repo, &source_branch, &target_branch, mode).await?;
+    drop(permit);
     if result.success {
         if body.save_as_default {
             workspace::service::set_setting(
@@ -163,9 +174,9 @@ async fn target_worktree_or_project(
     project_repo: &Path,
     target_branch: &str,
 ) -> Result<PathBuf, AppError> {
-    let attached = commands::list_worktree_branches(project_repo)
-        .await
-        .unwrap_or_default();
+    // A failed listing must not turn into "merge in the project root": that
+    // would check out the target branch in the wrong worktree.
+    let attached = commands::list_worktree_branches(project_repo).await?;
     Ok(attached
         .get(target_branch)
         .cloned()
@@ -179,41 +190,101 @@ async fn run_merge(
     mode: MergeMode,
 ) -> Result<MergeResult, AppError> {
     ensure_clean(repo, "target branch worktree").await?;
-    let original_branch = commands::get_current_branch(repo).await.ok().flatten();
-    if original_branch.as_deref() != Some(target_branch) {
+    let original = read_original_head(repo).await?;
+    let switched = !original.is_branch(target_branch);
+    if switched {
         run_git_safe_refs(&["checkout"], &[], &[target_branch], repo).await?;
     }
 
-    let result = match invoke_merge(repo, source_branch, mode).await {
+    let mut result = match invoke_merge(repo, source_branch, mode).await {
         Ok(MergeOutcome::Succeeded) => MergeResult {
             success: true,
             error: None,
             conflict_files: None,
+            warning: None,
         },
         Ok(MergeOutcome::Failed { stdout, stderr }) => {
-            let failure = build_failure_result(&stdout, &stderr, source_branch, target_branch);
-            // Only conflicts leave a half-applied merge that needs aborting.
-            // Other failures (unknown branch, unrelated histories, ff-only
-            // refused) never started the merge, so `--abort` would just
-            // spawn a no-op git process.
-            if failure.conflict_files.is_some() {
-                let _ = run_git(&["merge", "--abort"], repo).await;
+            match settle_failed_merge(repo, &stdout, &stderr, source_branch, target_branch).await {
+                Ok(failure) => failure,
+                // Still mid-merge: switching back would carry the half-applied
+                // merge onto the original branch, so leave the worktree as is.
+                Err(stuck) => return Ok(stuck),
             }
-            failure
         }
         Err(err) => MergeResult {
             success: false,
             error: Some(err.to_string()),
             conflict_files: None,
+            warning: None,
         },
     };
 
-    if let Some(original) = original_branch {
-        if original != target_branch {
-            let _ = run_git_safe_refs(&["checkout"], &[], &[&original], repo).await;
+    if switched {
+        if let Err(error) = restore_original_head(repo, &original).await {
+            // A failing hook can run after Git already moved HEAD, so report
+            // where the worktree actually is rather than assuming.
+            let now = match read_original_head(repo).await {
+                Ok(head) => format!("It is now on {head}."),
+                Err(read_error) => format!("Its current HEAD could not be read: {read_error}."),
+            };
+            attach_cleanup_problem(
+                &mut result,
+                format!(
+                    "Could not switch '{}' back to {original}: {error}. {now}",
+                    repo.display()
+                ),
+            );
         }
     }
     Ok(result)
+}
+
+/// Turn a failed `git merge` into its user-facing result and undo whatever it
+/// half-applied. `Err` carries the result when the worktree could not be
+/// returned to a clean state.
+async fn settle_failed_merge(
+    repo: &Path,
+    stdout: &str,
+    stderr: &str,
+    source_branch: &str,
+    target_branch: &str,
+) -> Result<MergeResult, MergeResult> {
+    let stuck = |mut failure: MergeResult, problem: String| {
+        attach_cleanup_problem(
+            &mut failure,
+            format!(
+                "{problem}; '{}' may still be mid-merge — clean it up (`git merge --abort`, or `git reset --merge` after a squash) before retrying.",
+                repo.display()
+            ),
+        );
+        failure
+    };
+    let state = match inspect_failed_merge(repo).await {
+        Ok(state) => state,
+        Err(error) => {
+            let failure =
+                build_failure_result(vec![], stdout, stderr, source_branch, target_branch);
+            return Err(stuck(
+                failure,
+                format!("Inspecting the merge state also failed ({error})"),
+            ));
+        }
+    };
+    let rollback = roll_back_failed_merge(repo, &state).await;
+    let failure = build_failure_result(
+        state.conflict_files,
+        stdout,
+        stderr,
+        source_branch,
+        target_branch,
+    );
+    match rollback {
+        Ok(()) => Ok(failure),
+        Err(error) => Err(stuck(
+            failure,
+            format!("Rolling back the merge also failed ({error})"),
+        )),
+    }
 }
 
 async fn ensure_clean(repo: &Path, label: &str) -> Result<(), AppError> {
@@ -228,6 +299,7 @@ async fn ensure_clean(repo: &Path, label: &str) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::git_cli::run_git;
     use sqlx::sqlite::SqlitePoolOptions;
 
     async fn setup_merge_state(project: &Path, source: &Path) -> AppState {
@@ -446,6 +518,179 @@ mod tests {
         assert!(err
             .to_string()
             .contains("target branch worktree has uncommitted changes"));
+    }
+
+    /// `main` (checked out in the project root) and `feature/x` (in its own
+    /// worktree) diverge with a content and a modify/delete conflict.
+    async fn conflicting_feature() -> (tempfile::TempDir, tempfile::TempDir, PathBuf) {
+        let (dir, worktree_parent, source) = repo_with_feature_worktree().await;
+        let repo = dir.path();
+        commit_file(repo, "content.txt").await;
+        commit_file(repo, "gone.txt").await;
+        run_git(&["merge", "-q", "main"], &source).await.unwrap();
+        tokio::fs::write(source.join("content.txt"), "feature side\n")
+            .await
+            .unwrap();
+        run_git(&["rm", "-q", "gone.txt"], &source).await.unwrap();
+        run_git(&["commit", "-qam", "feature side"], &source)
+            .await
+            .unwrap();
+        tokio::fs::write(repo.join("content.txt"), "main side\n")
+            .await
+            .unwrap();
+        tokio::fs::write(repo.join("gone.txt"), "main edit\n")
+            .await
+            .unwrap();
+        run_git(&["commit", "-qam", "main side"], repo)
+            .await
+            .unwrap();
+        (dir, worktree_parent, source)
+    }
+
+    async fn assert_clean_and_not_merging(repo: &Path) {
+        assert!(!commands::has_uncommitted_changes(repo).await.unwrap());
+        assert!(commands::unmerged_paths(repo).await.unwrap().is_empty());
+        assert!(
+            run_git(&["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], repo)
+                .await
+                .is_err(),
+            "MERGE_HEAD must be gone after rollback"
+        );
+    }
+
+    #[tokio::test]
+    async fn conflicted_merge_reports_every_conflict_and_rolls_back() {
+        let (dir, _worktree_parent, source) = conflicting_feature().await;
+        let repo = dir.path();
+        let state = setup_merge_state(repo, &source).await;
+        let main_before = run_git(&["rev-parse", "main"], repo).await.unwrap();
+
+        let result = merge_feature_branch(&state, merge_body()).await.unwrap();
+
+        assert!(!result.success);
+        let mut files = result.conflict_files.expect("structured conflict list");
+        files.sort();
+        assert_eq!(
+            files,
+            vec!["content.txt".to_string(), "gone.txt".to_string()]
+        );
+        assert_clean_and_not_merging(repo).await;
+        assert_eq!(
+            run_git(&["rev-parse", "main"], repo).await.unwrap(),
+            main_before
+        );
+    }
+
+    #[tokio::test]
+    async fn conflicted_squash_without_merge_head_is_rolled_back() {
+        let (dir, _worktree_parent, source) = conflicting_feature().await;
+        let repo = dir.path();
+        let state = setup_merge_state(repo, &source).await;
+        let mut body = merge_body();
+        body.mode = Some(MergeMode::Squash);
+
+        let result = merge_feature_branch(&state, body).await.unwrap();
+
+        assert!(!result.success);
+        assert!(result.conflict_files.is_some_and(|files| files.len() == 2));
+        assert_clean_and_not_merging(repo).await;
+    }
+
+    #[tokio::test]
+    async fn merge_is_refused_while_the_target_worktree_is_busy() {
+        let (dir, _worktree_parent, source) = repo_with_feature_worktree().await;
+        let repo = dir.path();
+        commit_file(&source, "committed.txt").await;
+        let state = setup_merge_state(repo, &source).await;
+        let _busy = state.git_mutations.try_acquire(repo).unwrap();
+
+        let error = merge_feature_branch(&state, merge_body())
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::Conflict(_)), "{error:?}");
+        assert!(!repo.join("committed.txt").exists());
+    }
+
+    #[tokio::test]
+    async fn worktree_listing_failure_is_not_a_project_root_fallback() {
+        let not_a_repo = tempfile::tempdir().unwrap();
+
+        let error = target_worktree_or_project(not_a_repo.path(), "main")
+            .await
+            .unwrap_err();
+
+        assert!(matches!(error, AppError::GitCommandError(_)), "{error:?}");
+    }
+
+    /// The project root sits on a detached `HEAD` while `main` is merged into.
+    /// `rev-parse --abbrev-ref` named that state `HEAD`, so the old restore
+    /// ran `git checkout HEAD` and left the root on `main`.
+    #[tokio::test]
+    async fn detached_original_head_is_restored_after_the_merge() {
+        let dir = init_repo().await;
+        let repo = dir.path();
+        run_git(&["branch", "-M", "main"], repo).await.unwrap();
+        run_git(&["checkout", "-q", "-b", "feature/x"], repo)
+            .await
+            .unwrap();
+        commit_file(repo, "feature.txt").await;
+        run_git(&["checkout", "-q", "--detach", "main"], repo)
+            .await
+            .unwrap();
+        let detached = run_git(&["rev-parse", "HEAD"], repo).await.unwrap();
+
+        let result = run_merge(repo, "feature/x", "main", MergeMode::NoFf)
+            .await
+            .unwrap();
+
+        assert!(result.success, "{:?}", result.error);
+        assert!(result.warning.is_none(), "{:?}", result.warning);
+        assert!(run_git(&["symbolic-ref", "-q", "HEAD"], repo)
+            .await
+            .is_err());
+        assert_eq!(
+            run_git(&["rev-parse", "HEAD"], repo).await.unwrap(),
+            detached
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn failed_switch_back_is_reported_on_a_successful_merge() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let dir = init_repo().await;
+        let repo = dir.path();
+        run_git(&["branch", "-M", "main"], repo).await.unwrap();
+        run_git(&["checkout", "-q", "-b", "feature/x"], repo)
+            .await
+            .unwrap();
+        commit_file(repo, "feature.txt").await;
+        run_git(&["checkout", "-q", "-b", "other", "main"], repo)
+            .await
+            .unwrap();
+        // `post-checkout`'s exit status becomes `git checkout`'s: fail only
+        // when returning to `other`.
+        let hook = repo.join(".git/hooks/post-checkout");
+        std::fs::write(
+            &hook,
+            "#!/bin/sh\n[ \"$(git symbolic-ref --short HEAD)\" = other ] && exit 1\nexit 0\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = run_merge(repo, "feature/x", "main", MergeMode::NoFf)
+            .await
+            .unwrap();
+
+        assert!(result.success, "{:?}", result.error);
+        let warning = result
+            .warning
+            .expect("switch-back failure must be reported");
+        assert!(warning.contains("Could not switch"), "{warning}");
+        assert!(warning.contains("'other'"), "{warning}");
+        // `post-checkout` fails after Git already moved HEAD back.
+        assert!(warning.contains("It is now on 'other'."), "{warning}");
     }
 
     #[test]

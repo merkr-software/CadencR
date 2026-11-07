@@ -180,6 +180,9 @@ export default function MergeDialog({
         });
       }
       toast.success(`Merged with ${gitMergeModeFlag(effectiveMode)}`);
+      // The merge is committed, but its cleanup (e.g. switching the target
+      // worktree back to its original branch) did not finish.
+      if (result.warning) toast.warning(result.warning);
       onOpenChange(false);
     } catch (err) {
       setError(formatMergeError(err));

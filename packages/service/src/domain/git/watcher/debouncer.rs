@@ -159,7 +159,7 @@ fn resolve_git_roots(worktree_path: &Path) -> Vec<PathBuf> {
 /// sync (called from `spawn_handle`) and the cost is one fork per watcher
 /// startup, which is negligible.
 fn run_git_rev_parse(cwd: &Path, arg: &str) -> Option<String> {
-    let output = std::process::Command::new("git")
+    let output = crate::shared::git_cli::git_std_command()
         .args(["rev-parse", arg])
         .current_dir(cwd)
         .output()

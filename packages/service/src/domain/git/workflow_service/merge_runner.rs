@@ -1,29 +1,27 @@
-//! Low-level `git merge` invocation + failure parser used by
+//! Low-level `git merge` invocation, failure inspection, and rollback used by
 //! [`super::merge`]. Lives in its own file so the parent stays under the
 //! 400-line cap (see `.claude/rules/file-size.md`).
 //!
 //! Why this exists at all: the shared `run_git*` helpers throw away stdout
-//! on failure. That works for most commands, but `git merge` emits the
-//! actionable conflict detail on **stdout** (`CONFLICT (content): Merge
-//! conflict in <path>`) while stderr only carries a one-liner summary that
-//! is sometimes empty depending on git version / config. Dropping stdout
-//! produced the bug this module fixes: the merge dialog rendered
-//! `Merge failed: git merge … failed:` with nothing after the colon.
+//! on failure, while `git merge` often puts its only explanation there.
+//! Conflicts are *not* read from that prose: the unmerged index entries and
+//! `MERGE_HEAD` are the locale-independent truth, and they also cover
+//! modify/delete, rename, and squash conflicts.
 
+use std::fmt;
 use std::path::Path;
 
-use tokio::process::Command;
-
 use super::merge::MergeMode;
-use crate::domain::git::commands::parse_conflict_files;
+use crate::domain::git::commands::unmerged_paths;
 use crate::domain::git::models::MergeResult;
 use crate::error::AppError;
-use crate::shared::git_cli::guard_positionals;
+use crate::shared::git_cli::{
+    git_output_error, git_ref_resolves_background, guard_positionals, run_git,
+    run_git_output_with_env, run_git_safe_refs,
+};
 
 /// Outcome of a single `git merge` invocation. The `Failed` variant carries
-/// both streams because conflicts land on stdout while the
-/// "Automatic merge failed" summary lands on stderr — sometimes only one is
-/// populated.
+/// both streams because git splits its explanation between them.
 pub(super) enum MergeOutcome {
     Succeeded,
     Failed { stdout: String, stderr: String },
@@ -40,12 +38,7 @@ pub(super) async fn invoke_merge(
     args.extend_from_slice(mode.flags());
     args.push(source_branch);
 
-    let output = Command::new("git")
-        .args(&args)
-        .current_dir(repo)
-        .output()
-        .await
-        .map_err(|e| AppError::GitCommandError(format!("Failed to spawn git merge: {e}")))?;
+    let output = run_git_output_with_env(&args, repo, &[]).await?;
 
     if output.status.success() {
         return Ok(MergeOutcome::Succeeded);
@@ -56,17 +49,111 @@ pub(super) async fn invoke_merge(
     })
 }
 
+/// What a failed `git merge` left behind in the target worktree.
+pub(super) struct FailedMergeState {
+    pub(super) conflict_files: Vec<String>,
+    merge_in_progress: bool,
+}
+
+pub(super) async fn inspect_failed_merge(repo: &Path) -> Result<FailedMergeState, AppError> {
+    Ok(FailedMergeState {
+        conflict_files: unmerged_paths(repo).await?,
+        merge_in_progress: git_ref_resolves_background("MERGE_HEAD", repo).await?,
+    })
+}
+
+/// Undo a half-applied merge. `merge --abort` needs `MERGE_HEAD`; a
+/// conflicted `--squash` never writes one, so its unmerged entries are reset
+/// with `reset --merge` (what `--abort` runs under the hood). A merge that
+/// was refused before starting leaves neither and needs nothing.
+pub(super) async fn roll_back_failed_merge(
+    repo: &Path,
+    state: &FailedMergeState,
+) -> Result<(), AppError> {
+    if state.merge_in_progress {
+        run_git(&["merge", "--abort"], repo).await?;
+    } else if !state.conflict_files.is_empty() {
+        run_git(&["reset", "--merge"], repo).await?;
+    }
+    Ok(())
+}
+
+/// The target worktree's `HEAD` before the merge switched it, so it can be
+/// put back exactly — including a detached `HEAD`, which `rev-parse
+/// --abbrev-ref` would report as the useless name `HEAD`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum OriginalHead {
+    Branch(String),
+    Detached(String),
+}
+
+impl OriginalHead {
+    pub(super) fn is_branch(&self, branch: &str) -> bool {
+        matches!(self, Self::Branch(name) if name == branch)
+    }
+}
+
+impl fmt::Display for OriginalHead {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Branch(name) => write!(formatter, "'{name}'"),
+            Self::Detached(sha) => write!(formatter, "detached HEAD {sha}"),
+        }
+    }
+}
+
+pub(super) async fn read_original_head(repo: &Path) -> Result<OriginalHead, AppError> {
+    let args = ["symbolic-ref", "--quiet", "--short", "HEAD"];
+    let output = run_git_output_with_env(&args, repo, &[]).await?;
+    if output.status.success() {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        return Ok(OriginalHead::Branch(branch));
+    }
+    if output.status.code() == Some(1) {
+        let sha = run_git(&["rev-parse", "--verify", "HEAD"], repo).await?;
+        return Ok(OriginalHead::Detached(sha.trim().to_string()));
+    }
+    Err(git_output_error(&args, &output))
+}
+
+pub(super) async fn restore_original_head(
+    repo: &Path,
+    original: &OriginalHead,
+) -> Result<(), AppError> {
+    let (flags, target): (&[&str], &str) = match original {
+        OriginalHead::Branch(name) => (&[], name),
+        OriginalHead::Detached(sha) => (&["--detach"], sha),
+    };
+    run_git_safe_refs(&["checkout"], flags, &[target], repo).await?;
+    Ok(())
+}
+
+/// Attach a cleanup problem to the result without hiding the merge outcome:
+/// a committed merge keeps `success` and carries a warning, a failed one
+/// extends its error.
+pub(super) fn attach_cleanup_problem(result: &mut MergeResult, problem: String) {
+    let slot = if result.success {
+        &mut result.warning
+    } else {
+        &mut result.error
+    };
+    *slot = Some(match slot.take() {
+        Some(existing) => format!("{existing} {problem}"),
+        None => problem,
+    });
+}
+
 /// Build the user-facing `MergeResult` for a failed merge. Prefers a
-/// structured conflict message (with file list) when stdout shows
-/// `CONFLICT` lines, and falls back to whichever output stream is
-/// non-empty — never returning an empty `failed:` tail.
+/// structured conflict message (with file list) when the index shows
+/// unmerged paths, and falls back to whichever output stream is non-empty —
+/// never returning an empty `failed:` tail.
 pub(super) fn build_failure_result(
+    conflict_files: Vec<String>,
     stdout: &str,
     stderr: &str,
     source_branch: &str,
     target_branch: &str,
 ) -> MergeResult {
-    let conflict_files = parse_conflict_files(stdout);
     if !conflict_files.is_empty() {
         let joined = conflict_files.join(", ");
         let plural = if conflict_files.len() == 1 { "" } else { "s" };
@@ -78,6 +165,7 @@ pub(super) fn build_failure_result(
             success: false,
             error: Some(message),
             conflict_files: Some(conflict_files),
+            warning: None,
         };
     }
 
@@ -91,6 +179,7 @@ pub(super) fn build_failure_result(
         success: false,
         error: Some(message),
         conflict_files: None,
+        warning: None,
     }
 }
 
@@ -112,7 +201,8 @@ mod tests {
     #[test]
     fn failure_with_conflicts_lists_files_and_is_actionable() {
         let result = build_failure_result(
-            "CONFLICT (content): Merge conflict in foo.txt\n",
+            vec!["foo.txt".to_string()],
+            "CONFLIT (contenu) : Conflit de fusion dans foo.txt\n",
             "",
             "feature/x",
             "main",
@@ -132,7 +222,7 @@ mod tests {
     fn failure_without_output_still_produces_a_message() {
         // Regression: the original bug. Empty stdout + empty stderr used to
         // render `git merge … failed:` with nothing after the colon.
-        let result = build_failure_result("", "", "feature/x", "main");
+        let result = build_failure_result(vec![], "", "", "feature/x", "main");
         let err = result.error.expect("error message");
         assert!(!err.trim_end().ends_with(':'), "{err}");
         assert!(err.contains("feature/x"), "{err}");
@@ -142,6 +232,7 @@ mod tests {
     #[test]
     fn failure_falls_back_to_stderr_when_no_conflicts_present() {
         let result = build_failure_result(
+            vec![],
             "",
             "fatal: refusing to merge unrelated histories",
             "feature/x",
@@ -161,5 +252,28 @@ mod tests {
         assert_eq!(combine_outputs("out", ""), "out");
         assert_eq!(combine_outputs("", "err"), "err");
         assert_eq!(combine_outputs("out", "err"), "err (out)");
+    }
+
+    #[test]
+    fn cleanup_problems_warn_on_success_and_extend_failures() {
+        let mut merged = MergeResult {
+            success: true,
+            error: None,
+            conflict_files: None,
+            warning: None,
+        };
+        attach_cleanup_problem(&mut merged, "could not switch back".into());
+        assert!(merged.success);
+        assert!(merged.error.is_none());
+        assert_eq!(merged.warning.as_deref(), Some("could not switch back"));
+
+        let mut failed = build_failure_result(vec![], "", "boom", "feature/x", "main");
+        attach_cleanup_problem(&mut failed, "abort failed".into());
+        let error = failed.error.unwrap();
+        assert!(
+            error.contains("boom") && error.ends_with("abort failed"),
+            "{error}"
+        );
+        assert!(failed.warning.is_none());
     }
 }

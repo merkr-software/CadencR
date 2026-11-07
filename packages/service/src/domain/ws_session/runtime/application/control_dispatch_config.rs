@@ -284,6 +284,7 @@ mod tests {
         sqlx::raw_sql(
             "CREATE TABLE projects (id INTEGER PRIMARY KEY, path TEXT NOT NULL);
              CREATE TABLE features (id INTEGER PRIMARY KEY, project_id INTEGER NOT NULL);
+             CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT);
              INSERT INTO projects (id, path) VALUES (1, '/tmp/test');
              INSERT INTO features (id, project_id) VALUES (1, 1);",
         )
