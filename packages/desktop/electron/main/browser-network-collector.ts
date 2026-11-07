@@ -46,6 +46,9 @@ export class BrowserNetworkCollector {
   }
 
   private record(details: NetworkDetails): void {
+    // Taken first: every finished request releases its headers, including the
+    // ones no tab owns (service workers, the session's own requests).
+    const requestHeaders = this.headers.take(details.id);
     const webContentsId = details.webContentsId;
     if (webContentsId === undefined) return;
     const response = "statusCode" in details ? details : null;
@@ -54,7 +57,7 @@ export class BrowserNetworkCollector {
       method: details.method,
       url: details.url,
       status: response?.statusCode,
-      requestHeaders: this.headers.take(details.id),
+      requestHeaders,
       responseHeaders: redactBrowserHeaders(response?.responseHeaders ?? {}),
       resourceType: details.resourceType,
       timestamp: new Date().toISOString(),

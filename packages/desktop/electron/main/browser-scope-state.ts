@@ -1,5 +1,5 @@
 import type { ManagedTab } from "./browser-tab-events";
-import type { BrowserBounds, BrowserStateSnapshot } from "./browser-types";
+import type { BrowserAutomationState, BrowserBounds, BrowserStateSnapshot } from "./browser-types";
 
 /**
  * Per-feature-scope bookkeeping for the browser: which tab is active in each
@@ -85,7 +85,6 @@ export class BrowserScopeState {
   snapshot(
     scopeId: number | null | undefined,
     tabs: Map<string, ManagedTab>,
-    knownOrigins: string[],
     error: string | null,
     orderedMetadata?: BrowserStateSnapshot["tabs"],
   ): BrowserStateSnapshot {
@@ -93,16 +92,24 @@ export class BrowserScopeState {
     const visible = scoped
       ? [...tabs.values()].filter((tab) => tab.metadata.scopeId === scopeId)
       : [...tabs.values()];
-    const activeTabId = scoped ? (this.active.get(scopeId) ?? null) : this.globalActiveTabId;
-    const activeTab = activeTabId ? tabs.get(activeTabId) : null;
     return {
       scopeId: scoped ? scopeId : null,
       tabs: orderedMetadata ?? visible.map((tab) => tab.metadata),
-      activeTabId,
+      activeTabId: this.activeTabId(scopeId),
+      error,
+    };
+  }
+
+  /** The snapshot plus its active tab's console and network logs. */
+  withActiveTabLogs(
+    snapshot: BrowserStateSnapshot,
+    tabs: Map<string, ManagedTab>,
+  ): BrowserAutomationState {
+    const activeTab = snapshot.activeTabId ? tabs.get(snapshot.activeTabId) : null;
+    return {
+      ...snapshot,
       consoleEntries: activeTab?.consoleEntries ?? [],
       networkEntries: activeTab?.networkEntries ?? [],
-      knownOrigins,
-      error,
     };
   }
 }

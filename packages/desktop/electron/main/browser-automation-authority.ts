@@ -1,5 +1,5 @@
 import type { ManagedTab } from "./browser-tab-events";
-import type { BrowserStateSnapshot } from "./browser-types";
+import type { BrowserAutomationState } from "./browser-types";
 import { browserAutomationAccess } from "./browser-policy";
 import { externalAutomationMatches } from "./browser-manager-utils";
 import { browserDocumentRevision } from "./browser-document-security";
@@ -10,7 +10,7 @@ import { isCadencrBrowserUrl } from "./browser-self-origin-policy";
 export class BrowserAutomationAuthority {
   constructor(
     private readonly tabs: Map<string, ManagedTab>,
-    private readonly snapshot: (scopeId?: number | null) => BrowserStateSnapshot,
+    private readonly snapshot: (scopeId?: number | null) => BrowserAutomationState,
   ) {}
 
   assert(tabId: string, scopeId?: number | null): ManagedTab {
@@ -36,7 +36,7 @@ export class BrowserAutomationAuthority {
     return tab;
   }
 
-  state(scopeId?: number | null): BrowserStateSnapshot {
+  state(scopeId?: number | null): BrowserAutomationState {
     const state = this.snapshot(scopeId ?? null);
     const allowedIds = new Set(
       state.tabs
@@ -59,7 +59,6 @@ export class BrowserAutomationAuthority {
       networkEntries: state.networkEntries.filter(
         (entry) => allowedIds.has(entry.tabId) && browserAutomationAccess(entry.url) !== "denied",
       ),
-      knownOrigins: [],
       error: null,
     };
   }

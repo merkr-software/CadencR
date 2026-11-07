@@ -24,7 +24,6 @@ function target(url: string, access: BrowserAgentAccess = "shared") {
   const state = () => ({
     tabs: [tab.metadata],
     activeTabId: "tab",
-    knownOrigins: [],
     error: null,
     consoleEntries: [
       {

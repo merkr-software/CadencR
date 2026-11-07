@@ -23,7 +23,6 @@ function opener(finalUrl: string) {
     activeTabId: "tab",
     consoleEntries: [],
     networkEntries: [],
-    knownOrigins: [],
     error: null,
   }));
   const navigate = vi.fn((_id: string, url: string) => {

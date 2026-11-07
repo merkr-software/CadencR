@@ -43,9 +43,6 @@ const SNAPSHOT: BrowserStateSnapshot = {
   ],
   activeTabId: "tab-1",
   scopeId: 1,
-  consoleEntries: [],
-  networkEntries: [],
-  knownOrigins: ["https://www.google.com", "http://localhost:5173"],
   error: null,
 };
 
@@ -225,7 +222,7 @@ describe("BrowserWorkspaceTab URL suggestions", () => {
 
     await userEvent.clear(input);
     await userEvent.type(input, "loc");
-    act(() => onBrowserState?.({ ...SNAPSHOT, knownOrigins: [] }));
+    act(() => onBrowserState?.({ ...SNAPSHOT }));
 
     expect(input).toHaveValue("loc");
   });

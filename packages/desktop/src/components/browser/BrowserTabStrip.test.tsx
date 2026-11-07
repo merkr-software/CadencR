@@ -40,9 +40,6 @@ function model(activeIndex: number): BrowserWorkspaceModel {
     state: {
       tabs,
       activeTabId: `tab-${activeIndex}`,
-      consoleEntries: [],
-      networkEntries: [],
-      knownOrigins: [],
       error: null,
     },
     pendingAction: null,

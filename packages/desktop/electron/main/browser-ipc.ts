@@ -297,11 +297,11 @@ function registerInspectionIpc(
 ): void {
   ipcMain.handle("browser:get-console", (event) => {
     assertTrustedSender(event, getMainWindow);
-    return manager.state().consoleEntries;
+    return manager.automationState().consoleEntries;
   });
   ipcMain.handle("browser:get-network", (event) => {
     assertTrustedSender(event, getMainWindow);
-    return manager.state().networkEntries;
+    return manager.automationState().networkEntries;
   });
   ipcMain.handle("browser:get-snapshot", (event, tabId: unknown) => {
     assertTrustedSender(event, getMainWindow);

@@ -37,7 +37,6 @@ function target(): BrowserMcpTarget {
   const state = vi.fn(() => ({
     tabs: [],
     activeTabId: "tab-1",
-    knownOrigins: [],
     consoleEntries: [],
     networkEntries: [],
     error: null,
@@ -354,10 +353,9 @@ describe("dispatchBrowserMcpTool", () => {
 
   it("filters console entries by level and limit", async () => {
     const fake = target();
-    vi.mocked(fake.state).mockReturnValue({
+    vi.mocked(fake.automation.state).mockReturnValue({
       tabs: [],
       activeTabId: "tab-1",
-      knownOrigins: [],
       consoleEntries: [
         {
           id: "1",
@@ -391,10 +389,9 @@ describe("dispatchBrowserMcpTool", () => {
 
   it("filters network entries and omits headers by default", async () => {
     const fake = target();
-    vi.mocked(fake.state).mockReturnValue({
+    vi.mocked(fake.automation.state).mockReturnValue({
       tabs: [],
       activeTabId: "tab-1",
-      knownOrigins: [],
       consoleEntries: [],
       networkEntries: [
         {
@@ -431,10 +428,9 @@ describe("dispatchBrowserMcpTool", () => {
 
   it("includes network headers when requested", async () => {
     const fake = target();
-    vi.mocked(fake.state).mockReturnValue({
+    vi.mocked(fake.automation.state).mockReturnValue({
       tabs: [],
       activeTabId: "tab-1",
-      knownOrigins: [],
       consoleEntries: [],
       networkEntries: [
         {
@@ -459,10 +455,9 @@ describe("dispatchBrowserMcpTool", () => {
 
   it("throws when a tab-scoped tool has no active tab", async () => {
     const fake = target();
-    vi.mocked(fake.state).mockReturnValue({
+    vi.mocked(fake.automation.state).mockReturnValue({
       tabs: [],
       activeTabId: null,
-      knownOrigins: [],
       consoleEntries: [],
       networkEntries: [],
       error: null,

@@ -1,6 +1,6 @@
 import { isHttpBrowserUrl } from "../../src/shared/browser-url";
 import { BrowserLibraryStore } from "./browser-library-store";
-import { BrowserOriginStore } from "./browser-origin-store";
+import { removeLegacyOriginHistory } from "./browser-legacy-origins";
 import type { ManagedTab } from "./browser-tab-events";
 import type { BrowserBookmark, BrowserOmniboxQueryResult } from "./browser-types";
 
@@ -23,9 +23,9 @@ export class BrowserLibraryController {
 
   constructor(
     private readonly store: BrowserLibraryStore,
-    private readonly origins: BrowserOriginStore,
     private readonly requireTab: (tabId: string) => ManagedTab,
     private readonly reportError: (message: string, scopeId: number | null) => void,
+    private readonly removeLegacyOrigins: () => Promise<void> = removeLegacyOriginHistory,
   ) {}
 
   query(query: string, limit?: number): Promise<BrowserOmniboxQueryResult> {
@@ -42,7 +42,7 @@ export class BrowserLibraryController {
 
   async clearHistory(): Promise<void> {
     await this.store.clearHistory();
-    this.origins.clear();
+    await this.removeLegacyOrigins();
   }
 
   setBookmark(tabId: string, bookmarked: boolean): Promise<BrowserBookmark | null> {

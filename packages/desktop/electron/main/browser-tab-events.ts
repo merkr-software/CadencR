@@ -57,7 +57,6 @@ export interface TabEventHost {
   setLastError(message: string | null): void;
   isTabAlive(): boolean;
   tabDestroyed(): void;
-  recordOrigin(url: string): void;
   recordHistoryNavigation(url: string, title: string): void;
   updateHistoryTitle(url: string, title: string): void;
   forgetHistory(): void;
@@ -103,7 +102,7 @@ export function installTabEvents(tab: ManagedTab, host: TabEventHost): void {
       consoleEntry(tab.metadata.id, details.level, message, details.lineNumber, details.sourceId),
       MAX_CONSOLE_PER_TAB,
     );
-    host.emitState();
+    // Read on demand by automation; the renderer's snapshot never carries it.
   });
   wc.on("will-navigate", (event) => {
     try {
@@ -136,7 +135,6 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
   const wc = tab.webContents;
   wc.on("did-navigate", () => {
     host.setLastError(null);
-    host.recordOrigin(wc.getURL());
     refreshTabMetadata(tab, host);
     host.persistTab();
     host.recordHistoryNavigation(wc.getURL(), pageTitle(wc));
@@ -146,7 +144,6 @@ function installPageLifecycleEvents(tab: ManagedTab, host: TabEventHost): void {
     if (!isMainFrame) return;
     host.invalidateFind();
     host.setLastError(null);
-    host.recordOrigin(wc.getURL());
     refreshTabMetadata(tab, host);
     host.persistTab();
     host.recordHistoryNavigation(wc.getURL(), pageTitle(wc));

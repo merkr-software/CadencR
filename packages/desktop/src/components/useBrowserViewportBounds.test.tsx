@@ -90,9 +90,6 @@ function bridge(): CadencrBrowserBridge {
       Promise.resolve({
         tabs: [],
         activeTabId: null,
-        consoleEntries: [],
-        networkEntries: [],
-        knownOrigins: [],
         error: null,
       }),
     ),

@@ -112,4 +112,30 @@ describe("BrowserNetworkCollector", () => {
     collector.ensure(asSession(session));
     expect(session.webRequest.onCompleted).toHaveBeenCalledTimes(1);
   });
+
+  it("releases the headers of requests no tab owns", () => {
+    const seen: CollectedEntry[] = [];
+    const collector = new BrowserNetworkCollector((_id, entry) => seen.push(entry));
+    const session = mockSession();
+    collector.ensure(asSession(session));
+
+    const beforeSend = session.webRequest.onBeforeSendHeaders.mock.calls[0][0] as (
+      details: { id: number; requestHeaders: Record<string, string> },
+      callback: (result: unknown) => void,
+    ) => void;
+    beforeSend({ id: 42, requestHeaders: { Accept: "text/html" } }, vi.fn());
+    // A service worker or the session itself: no webContents, no entry.
+    session.handlers.completed({ id: 42, method: "GET", url: "https://a.test/", statusCode: 200 });
+    expect(seen).toEqual([]);
+
+    // Were they still cached, a later request reusing the id would get them.
+    session.handlers.completed({
+      id: 42,
+      webContentsId: 7,
+      method: "GET",
+      url: "https://a.test/",
+      statusCode: 200,
+    });
+    expect(seen[0]?.requestHeaders).toEqual({});
+  });
 });

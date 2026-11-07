@@ -58,7 +58,6 @@ describe("BrowserAutomationAuthority", () => {
       activeTabId: scopeId === null ? "scopeless-agent" : "feature-agent",
       consoleEntries: [],
       networkEntries: [],
-      knownOrigins: ["https://private.test"],
       error: "private failure",
     }));
     const authority = new BrowserAutomationAuthority(tabs, snapshot);
@@ -67,7 +66,6 @@ describe("BrowserAutomationAuthority", () => {
       expect.objectContaining({
         tabs: [scopelessAgent.metadata],
         activeTabId: "scopeless-agent",
-        knownOrigins: [],
         error: null,
       }),
     );
@@ -81,7 +79,6 @@ describe("BrowserAutomationAuthority", () => {
       activeTabId: null,
       consoleEntries: [],
       networkEntries: [],
-      knownOrigins: [],
       error: null,
     }));
     expect(() => authority.assert("shared")).toThrow("scope");

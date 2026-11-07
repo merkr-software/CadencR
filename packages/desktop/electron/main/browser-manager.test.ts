@@ -196,7 +196,6 @@ vi.mock("electron", () => {
 });
 
 const { BrowserManager } = await import("./browser-manager");
-const { BrowserOriginStore } = await import("./browser-origin-store");
 const { BrowserLibraryController } = await import("./browser-library-controller");
 const { WebContentsView } = await import("electron");
 type BrowserTabSessionStore = import("./browser-tab-session-store").BrowserTabSessionStore;
@@ -1133,21 +1132,44 @@ describe("BrowserManager", () => {
     expect(sessionsByPartition.has("persist:browser:default")).toBe(false);
   });
 
-  it("does not record private navigations in persisted origin suggestions", () => {
-    const record = vi.spyOn(BrowserOriginStore.prototype, "record").mockImplementation(() => {});
-    const manager = new BrowserManager(() => mainWindow() as unknown as Electron.BrowserWindow);
-    manager.createTab(undefined, "fresh", 1);
-    const privateContents = [...webContentsById.values()][0];
-    privateContents.getURL.mockReturnValue("https://private.example/path");
+  it("keeps console lines and requests off the renderer's state broadcast", () => {
+    const win = mainWindow();
+    const manager = new BrowserManager(() => win as unknown as Electron.BrowserWindow);
+    const tab = manager.createTab(undefined, "fresh", 1);
+    const contents = [...webContentsById.values()][0];
+    const onCompleted = contents.session.webRequest.onCompleted as ReturnType<typeof vi.fn>;
+    const completed = onCompleted.mock.calls[0][0] as (details: unknown) => void;
+    win.webContents.send.mockClear();
 
-    privateContents.emit("did-navigate");
-    expect(record).not.toHaveBeenCalled();
+    for (let line = 0; line < 50; line += 1) {
+      contents.emit("console-message", {
+        level: "info",
+        message: `line ${line}`,
+        lineNumber: line,
+        sourceId: "https://a.test/app.js",
+      });
+    }
+    completed({
+      id: 1,
+      webContentsId: contents.id,
+      method: "GET",
+      url: "https://a.test/api",
+      statusCode: 200,
+      responseHeaders: {},
+      resourceType: "xhr",
+    });
 
-    manager.createTab(undefined, "default", 1);
-    const normalContents = [...webContentsById.values()][1];
-    normalContents.getURL.mockReturnValue("https://normal.example/path");
-    normalContents.emit("did-navigate");
-    expect(record).toHaveBeenCalledWith("https://normal.example/path");
+    const stateEmits = win.webContents.send.mock.calls.filter(
+      ([channel]) => channel === "browser:state",
+    );
+    expect(stateEmits).toEqual([]);
+    expect(Object.keys(manager.state(1)).sort()).toEqual(
+      ["activeTabId", "error", "scopeId", "tabs"].sort(),
+    );
+    const automation = manager.automationState(1);
+    expect(automation.activeTabId).toBe(tab.id);
+    expect(automation.consoleEntries).toHaveLength(50);
+    expect(automation.networkEntries.map((entry) => entry.url)).toEqual(["https://a.test/api"]);
   });
 
   it("materializes favicons through the guest session instead of exposing a remote URL", async () => {

@@ -2,6 +2,7 @@ import type {
   BrowserBounds,
   BrowserElementContext,
   BrowserNetworkEntry,
+  BrowserAutomationState,
   BrowserOpenUrlOptions,
   BrowserStateSnapshot,
   BrowserTabMetadata,
@@ -20,7 +21,7 @@ import {
 export interface BrowserMcpTarget {
   state(scopeId?: number | null): BrowserStateSnapshot;
   automation: {
-    state(scopeId?: number | null): BrowserStateSnapshot;
+    state(scopeId?: number | null): BrowserAutomationState;
     assert(tabId: string, scopeId?: number | null): unknown;
     guard(tabId: string, scopeId?: number | null): () => void;
   };

@@ -5,12 +5,10 @@ import type { BrowserFocusGuard } from "./browser-focus-guard";
 import type { BrowserDownloadManager } from "./browser-download-manager";
 import type { BrowserLibraryController } from "./browser-library-controller";
 import type { BrowserNetworkCollector } from "./browser-network-collector";
-import type { BrowserOriginStore } from "./browser-origin-store";
 import type { BrowserPageController } from "./browser-page-controller";
 import type { BrowserProfile } from "./browser-profiles";
 import type { BrowserPopupController } from "./browser-popup-controller";
 import type { BrowserResponsiveController } from "./browser-responsive-controller";
-import { isPrivateProfile } from "./browser-session-lifecycle";
 import type { BrowserSiteController } from "./browser-site-controller";
 import type { BrowserTabCloseController } from "./browser-tab-close-controller";
 import { installTabEvents, type ManagedTab } from "./browser-tab-events";
@@ -42,7 +40,6 @@ interface BrowserTabCreationOptions {
   focusGuard: BrowserFocusGuard;
   downloads: BrowserDownloadManager;
   site: BrowserSiteController;
-  origins: BrowserOriginStore;
   library: BrowserLibraryController;
   page: BrowserPageController;
   popup: BrowserPopupController;
@@ -203,7 +200,7 @@ export class BrowserTabCreationController {
   }
 
   private installEvents(tab: ManagedTab, profile: BrowserProfile): void {
-    const { tabs, host, origins, library, page } = this.options;
+    const { tabs, host, library, page } = this.options;
     const id = tab.metadata.id;
     installBrowserContextMenu(tab.webContents, host.getWindow, {
       openLinkInNewTab: (url) => {
@@ -226,9 +223,6 @@ export class BrowserTabCreationController {
       setLastError: (message) => host.setLastError(message),
       isTabAlive: () => tabs.has(id),
       tabDestroyed: () => this.handleNativeDestroyed(tab),
-      recordOrigin: (url) => {
-        if (!isPrivateProfile(profile) && !tab.temporary) origins.record(url);
-      },
       recordHistoryNavigation: (url, title) => {
         if (!tab.temporary) library.recordNavigation(tab, url, title);
       },
