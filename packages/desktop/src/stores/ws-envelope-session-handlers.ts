@@ -22,7 +22,7 @@ import { parseAccessMode } from "@/types/access-mode";
 import { parsePermissionMode, type PermissionMode } from "@/types/permission-mode";
 import { providerAcceptsMode } from "@/lib/provider-modes";
 import type { SessionEntry } from "./ws-session-types";
-import { updateSession } from "./ws-session-types";
+import { createStreamHealth, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { appendErrorBlockPatch } from "./ws-session-store-helpers";
@@ -123,6 +123,9 @@ export function handleInitialized(ctx: StoreAccessors, sessionId: string, payloa
     mcpServers: null,
     supportsPromptReceipts: p.supports_prompt_receipts ?? false,
     initRequestId: null,
+    // A fresh stream: a retry reported on the previous connection (whose
+    // recovery or turn end may have been missed) no longer applies.
+    streamHealth: createStreamHealth(),
   };
   if (p.sessionDbId != null) updates.sessionDbId = p.sessionDbId;
   // Empty models are valid for providers that negotiate models at runtime.
