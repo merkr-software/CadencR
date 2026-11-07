@@ -30,7 +30,6 @@ import {
 import { turnClockFromStatus, type TurnClock } from "@/lib/turn-clock";
 import type { SessionStatusEntry } from "@/stores/session-status-store";
 import { useSessionStatus } from "@/stores/session-status-selectors";
-import { liveStatusFromLifecycle } from "@/lib/agent-status";
 import { AGENT_STATE_INITIAL_MESSAGE_LIMIT } from "@/lib/agent-state-limits";
 import type { DisplayRowMode } from "@/types/agent-stream";
 import { parseAccessMode, type AccessMode } from "@/types/access-mode";
@@ -326,13 +325,10 @@ function useSessionSnapshot(
 ): UseWebSocketSessionReturn {
   return useMemo<UseWebSocketSessionReturn>(() => {
     const lifecycle = session?.lifecycle ?? createIdleTurnLifecycle();
-    // Status is the backend-pushed value when available. Until the
-    // first `session_status.update` arrives (race during initial WS
-    // connect, or before `sessionDbId` is known), fall back to deriving
-    // from the local lifecycle so the UI doesn't blink to Idle on
-    // mount. Once the WS snapshot arrives, the live status wins forever —
-    // see `lib/agent-status.ts` for the canonical mapping.
-    const status: LiveAgentStatus = liveEntry?.status ?? liveStatusFromLifecycle(lifecycle);
+    // Status comes only from the backend status book. Snapshots omit idle
+    // sessions, so an absent entry is idle; the local lifecycle is never a
+    // fallback (a persisted `paused` resting state would read as a question).
+    const status: LiveAgentStatus = liveEntry?.status ?? "idle";
     return {
       blocks: session?.blocks ?? [],
       rootBlocks: session?.rootBlocks ?? [],
@@ -353,9 +349,10 @@ function useSessionSnapshot(
       // Scope the boolean to the currently visible request so a stale clear
       // never lights up the spinner on the next queued permission.
       isSubmittingPermission:
-        session?.submittingPermissionRequestId != null &&
-        session.submittingPermissionRequestId ===
-          (session.pendingPermission?.requestId ?? session.pendingRequestId),
+        session?.planPromptSubmission != null ||
+        (session?.submittingPermissionRequestId != null &&
+          session.submittingPermissionRequestId ===
+            (session.pendingPermission?.requestId ?? session.pendingRequestId)),
       pendingQuestions: session?.pendingQuestions ?? [],
       permissionMode: session?.permissionMode ?? "acceptEdits",
       accessMode: session?.accessMode ?? "default",

@@ -3,6 +3,7 @@ import { noteUserPrompt } from "@/lib/auto-layout/auto-layout-controller";
 import { revealAgentDocument } from "@/lib/auto-layout/agent-document-activity";
 import { acknowledgeForMe } from "@/stores/for-me-ack";
 import { handleAppSocketError } from "@/stores/app-socket-errors";
+import { resyncPushMaintainedQueries } from "@/stores/app-socket-resync";
 import { reconcileQuestionDrafts } from "@/stores/question-drafts";
 import { handleAppEnvelope, notifyTransition } from "@/stores/session-status-handlers";
 import { statusSyncPatch, type StatusSyncEntry } from "@/stores/session-status-patch";
@@ -24,9 +25,13 @@ function syncConversations(
 ): void {
   const store = useWsSessionStore.getState();
   let updated: WsSessionStore = store;
+  const stopped: string[] = [];
   for (const [sessionId, session] of Object.entries(store.sessions)) {
     const dbId = session.sessionDbId;
     if (dbId == null || (onlySessionId != null && dbId !== onlySessionId)) continue;
+    if (next[dbId]?.status !== "agent" && session.pendingCommandActions.includes("interrupt")) {
+      stopped.push(sessionId);
+    }
     // Snapshots omit idle sessions. End only a turn the status book knew was busy.
     const wasBusy = (previous[dbId]?.status ?? "idle") !== "idle";
     const entry = next[dbId] ?? (wasBusy ? IDLE_ENTRY : null);
@@ -36,6 +41,8 @@ function syncConversations(
     if (patch) updated = { ...updated, ...updateSession(updated, sessionId, patch) };
   }
   if (updated !== store) useWsSessionStore.setState(updated);
+  // A Stop gets no reply when it works; its proof is the session no longer working.
+  for (const sessionId of stopped) useWsSessionStore.getState().settleInterrupt(sessionId);
 }
 
 const statusEffects: SessionStatusEffects = {
@@ -73,9 +80,24 @@ const statusEffects: SessionStatusEffects = {
   },
 };
 
+/**
+ * Events emitted while the app socket was down are lost: each reconnect (not
+ * the first connection) refetches the caches they maintain. The epoch moves
+ * as the socket opens, before it re-subscribes; the refetch waits for that
+ * to finish so nothing emitted in between is missed.
+ */
+function resyncOnReconnect(): () => void {
+  return useSessionStatusStore.subscribe((state, previous) => {
+    if (state.connectionEpoch === previous.connectionEpoch || previous.connectionEpoch === 0)
+      return;
+    queueMicrotask(resyncPushMaintainedQueries);
+  });
+}
+
 /** Install before mounting any consumer or connecting either WebSocket. */
 export function installSessionIntegration(): () => void {
   const removeStatusEffects = installSessionStatusEffects(statusEffects);
+  const removeReconnectResync = resyncOnReconnect();
   let removePresentationEffects: () => void;
   try {
     removePresentationEffects = installSessionPresentationEffects({
@@ -85,6 +107,7 @@ export function installSessionIntegration(): () => void {
       },
     });
   } catch (error) {
+    removeReconnectResync();
     removeStatusEffects();
     throw error;
   }
@@ -92,6 +115,7 @@ export function installSessionIntegration(): () => void {
   return () => {
     if (disposed) return;
     disposed = true;
+    removeReconnectResync();
     useSessionStatusStore.getState().disconnect();
     const sessions = useWsSessionStore.getState();
     for (const sessionId of Object.keys(sessions.sessions)) sessions.release(sessionId);

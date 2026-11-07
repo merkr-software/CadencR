@@ -167,6 +167,12 @@ export interface SessionEntry extends SessionConfigState {
    * the user doesn't double-submit while waiting for the ack.
    */
   submittingPermissionRequestId: string | null;
+  /**
+   * Actions (`interrupt`, `model.set`, …) of session commands sent and not yet
+   * settled by a correlated reply, an error, or their acknowledgement window.
+   * Drives "stopping…"-style sending states; see `ws-session-commands`.
+   */
+  pendingCommandActions: readonly string[];
   /** Stable idempotency keys retained while permission responses may be retried. */
   permissionResponseMessageUuids: Map<string, string>;
   pendingQuestions: AgentQuestion[];
@@ -179,6 +185,12 @@ export interface SessionEntry extends SessionConfigState {
   fastMode: boolean;
   currentProfile?: string;
   pendingPlanApproval: PendingPlanApproval | null;
+  /**
+   * A restored plan (no runtime gate) answered by prompt: the gate closes once
+   * the status book reports that prompt's turn running. See
+   * `ws-session-plan-actions`.
+   */
+  planPromptSubmission: "approved" | "rejected" | null;
   compactRequestPending: boolean;
   pendingManualCompact: boolean;
   /**
@@ -255,6 +267,7 @@ export function createSessionEntry(): SessionEntry {
     pendingPermissionQueue: [],
     pendingRequestId: "",
     submittingPermissionRequestId: null,
+    pendingCommandActions: [],
     permissionResponseMessageUuids: new Map(),
     pendingQuestions: [],
     pendingQuestionToolInput: {},
@@ -264,6 +277,7 @@ export function createSessionEntry(): SessionEntry {
     currentThinkingEffort: undefined,
     fastMode: false,
     pendingPlanApproval: null,
+    planPromptSubmission: null,
     compactRequestPending: false,
     pendingManualCompact: false,
     currentSelection: null,

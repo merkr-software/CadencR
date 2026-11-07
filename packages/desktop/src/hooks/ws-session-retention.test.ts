@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   release: vi.fn(),
   sessions: {} as Record<string, { sessionDbId: number | null; serverSessionId: string }>,
   statuses: {} as Record<number, { status: "idle" | "agent" | "question" }>,
+  hasSnapshot: true,
+  isConnected: true,
 }));
 
 vi.mock("@/stores/ws-session-store", () => ({
@@ -19,7 +21,11 @@ vi.mock("@/stores/ws-session-store", () => ({
 
 vi.mock("@/stores/session-status-store", () => ({
   useSessionStatusStore: {
-    getState: () => ({ bySession: mocks.statuses }),
+    getState: () => ({
+      bySession: mocks.statuses,
+      hasSnapshot: mocks.hasSnapshot,
+      isConnected: mocks.isConnected,
+    }),
   },
 }));
 
@@ -29,6 +35,8 @@ describe("ws-session-retention", () => {
     mocks.release.mockClear();
     mocks.sessions = {};
     mocks.statuses = {};
+    mocks.hasSnapshot = true;
+    mocks.isConnected = true;
   });
 
   afterEach(() => {
@@ -91,5 +99,34 @@ describe("ws-session-retention", () => {
     vi.advanceTimersByTime(WS_SESSION_EVICTION_MS);
 
     expect(mocks.release).not.toHaveBeenCalled();
+  });
+
+  it("evicts an idle session the snapshot omitted from the status book", () => {
+    mocks.sessions["session-1"] = { sessionDbId: 42, serverSessionId: "runtime-1" };
+    const release = retainWsSession("session-1");
+
+    release();
+    vi.advanceTimersByTime(WS_SESSION_EVICTION_MS);
+
+    expect(mocks.release).toHaveBeenCalledWith("session-1");
+  });
+
+  it("keeps a session whose status is unknown until a connected snapshot arrives", () => {
+    mocks.sessions["session-1"] = { sessionDbId: 42, serverSessionId: "runtime-1" };
+    mocks.hasSnapshot = false;
+    const release = retainWsSession("session-1");
+
+    release();
+    vi.advanceTimersByTime(WS_SESSION_EVICTION_MS);
+    expect(mocks.release).not.toHaveBeenCalled();
+
+    mocks.hasSnapshot = true;
+    mocks.isConnected = false;
+    vi.advanceTimersByTime(WS_SESSION_EVICTION_MS);
+    expect(mocks.release).not.toHaveBeenCalled();
+
+    mocks.isConnected = true;
+    vi.advanceTimersByTime(WS_SESSION_EVICTION_MS);
+    expect(mocks.release).toHaveBeenCalledWith("session-1");
   });
 });

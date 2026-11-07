@@ -97,6 +97,23 @@ function getWs(): MockWebSocket {
   return MockWebSocket.instances[MockWebSocket.instances.length - 1];
 }
 
+/** The backend's correlated acknowledgement of the last `permission.respond`. */
+async function acknowledgeLastPermission(ws: MockWebSocket): Promise<void> {
+  const sent = ws.sent
+    .map((raw) => JSON.parse(raw) as { id: string; action: string })
+    .findLast((envelope) => envelope.action === "permission.respond");
+  if (!sent) throw new Error("missing permission.respond");
+  await act(async () => {
+    ws.simulateMessage({
+      domain: "session",
+      action: "acknowledged",
+      ref: sent.id,
+      payload: { action: "permission.respond" },
+    });
+    await Promise.resolve();
+  });
+}
+
 describe("useWebSocketSession", () => {
   it("connects to WebSocket on mount", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
@@ -319,7 +336,7 @@ describe("useWebSocketSession", () => {
     });
     expect(result.current.blocks).toHaveLength(1);
     expect(result.current.blocks[0].content).toBe("hi");
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
   });
 
   it("incoming permission.request sets pendingPermission", async () => {
@@ -349,7 +366,7 @@ describe("useWebSocketSession", () => {
       options: [],
       requestId: "r1",
     });
-    expect(result.current.status).toBe("question");
+    expect(result.current.lifecycle.phase).toBe("paused");
   });
 
   it("permission.request stores request_id in pendingRequestId", async () => {
@@ -453,7 +470,7 @@ describe("useWebSocketSession", () => {
       result.current.respondToPermission("r2", "deny");
     });
     expect(result.current.pendingPermission?.requestId).toBe("r2");
-    expect(result.current.status).toBe("question");
+    expect(result.current.lifecycle.phase).toBe("paused");
     const sent = getWs()
       .sent.map((raw) => JSON.parse(raw))
       .find((m) => m.action === "permission.respond");
@@ -597,7 +614,7 @@ describe("useWebSocketSession", () => {
         },
       });
     });
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
 
     act(() => {
       getWs().simulateMessage({
@@ -632,7 +649,7 @@ describe("useWebSocketSession", () => {
       });
     });
 
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
   });
 
   it("multi-turn conversation accumulates blocks across turns", async () => {
@@ -912,7 +929,7 @@ describe("useWebSocketSession", () => {
       });
     });
 
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
     expect(result.current.pendingPlanApproval).toBeNull();
 
     // turn_complete is terminal; plan approval only comes from permission.request
@@ -981,7 +998,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.status).toBe("idle");
   });
 
-  it("approvePlan clears approval, sends permission.respond, defers mode change to backend", async () => {
+  it("approvePlan sends permission.respond, clears approval on the ack, defers mode to backend", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
@@ -1020,15 +1037,20 @@ describe("useWebSocketSession", () => {
     act(() => {
       result.current.approvePlan();
     });
+    // In flight until the backend acknowledges it.
+    expect(result.current.pendingPlanApproval).toEqual({});
+    expect(result.current.isSubmittingPermission).toBe(true);
+    await acknowledgeLastPermission(ws);
 
     expect(result.current.pendingPlanApproval).toBeNull();
+    expect(result.current.isSubmittingPermission).toBe(false);
     // Chip stays at the pre-approval mode (the FE never observed an
     // EnterPlanMode signal in this test, so it's the post-init default
     // `auto`) — the backend bridge owns the post-approval mode
     // transition and will broadcast `mode.changed` once the live CLI has
     // accepted the new mode.
     expect(result.current.permissionMode).toBe("auto");
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
 
     // FE must NOT send `mode.set` — backend bridge does it atomically
     // with returning Allow on the can_use_tool callback.
@@ -1053,7 +1075,7 @@ describe("useWebSocketSession", () => {
     expect(result.current.permissionMode).toBe("auto");
   });
 
-  it("requestPlanChanges clears approval, echoes feedback, sends prompt", async () => {
+  it("requestPlanChanges clears approval once acknowledged and sends the feedback", async () => {
     const { result } = renderHook(() => useWebSocketSession("test-id"));
     await act(async () => {
       await Promise.resolve();
@@ -1087,9 +1109,11 @@ describe("useWebSocketSession", () => {
     act(() => {
       result.current.requestPlanChanges("Use a different approach");
     });
+    expect(result.current.pendingPlanApproval).toEqual({});
+    await acknowledgeLastPermission(ws);
 
     expect(result.current.pendingPlanApproval).toBeNull();
-    expect(result.current.status).toBe("agent");
+    expect(result.current.lifecycle.phase).toBe("active");
 
     const sentMessages = ws.sent.map((s) => JSON.parse(s));
     const permissionRespond = sentMessages.find((m) => m.action === "permission.respond");
@@ -2606,6 +2630,37 @@ describe("useWebSocketSession", () => {
     expect(result.current.blocks[0].type).toBe("user_message");
 
     // Restore default mock
+    (useGetFeatureAgentState as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+    });
+  });
+
+  it("reports a persisted paused session idle while the status book has no entry", async () => {
+    const { useGetFeatureAgentState } = await import("@/api/generated");
+    (useGetFeatureAgentState as ReturnType<typeof vi.fn>).mockReturnValue({
+      data: {
+        sessions: [
+          {
+            status: "paused",
+            runtimeSessionId: "runtime-1",
+            blocks: [{ id: "b1", type: "user_message", content: "old prompt" }],
+          },
+        ],
+      },
+      isLoading: false,
+    });
+
+    const { result } = renderHook(() => useWebSocketSession("test-id", 44));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.lifecycle).toEqual({ phase: "paused", reason: "user" });
+    // `paused` is a backend resting state, not a gate: no question badge.
+    expect(result.current.status).toBe("idle");
+
     (useGetFeatureAgentState as ReturnType<typeof vi.fn>).mockReturnValue({
       data: undefined,
       isLoading: false,

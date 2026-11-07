@@ -1,4 +1,5 @@
-import { forwardRef, useMemo } from "react";
+import { forwardRef, memo, useMemo } from "react";
+import { useSessionCommandPending } from "@/hooks/useSessionCommandPending";
 import { cn } from "@/lib/utils";
 import { useShortcutLabel } from "@/hooks/useShortcutLabel";
 import { formatKey } from "@/lib/shortcuts/format";
@@ -31,7 +32,7 @@ import {
 
 export type { AgentPromptBarHandle, SplitSendAction } from "./agent-prompt-bar-types";
 
-export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarProps>(
+const AgentPromptBarImpl = forwardRef<AgentPromptBarHandle, AgentPromptBarProps>(
   function AgentPromptBar(props, ref) {
     const controller = useAgentPromptBarController(props, ref);
     const composerContext = useComposerContextValue(props, controller);
@@ -43,6 +44,9 @@ export const AgentPromptBar = forwardRef<AgentPromptBarHandle, AgentPromptBarPro
     );
   },
 );
+
+/** Memoized: it sits beside the agent stream, whose every delta re-renders its parents. */
+export const AgentPromptBar = memo(AgentPromptBarImpl);
 
 function SpecialPrompt({
   props,
@@ -74,13 +78,17 @@ function SpecialPrompt({
         onRequestChanges={props.onPlanRequestChanges}
         onReject={props.onGateClose ?? props.onPlanReject}
         error={props.planApprovalError}
+        isSubmitting={!!props.isSubmittingPermission}
       />
     ) : special.visibleQuestions?.length && props.onQuestionResponse ? (
       <AgentQuestionDrawer
         key={`${props.sessionId}:${props.pendingQuestionRequestId}`}
         draftIdentity={
           props.sessionId != null && props.pendingQuestionRequestId
-            ? { sessionId: props.sessionId, requestId: props.pendingQuestionRequestId }
+            ? {
+                sessionId: props.sessionId,
+                requestId: props.pendingQuestionRequestId,
+              }
             : undefined
         }
         isSubmitting={props.isSubmittingPermission}
@@ -236,6 +244,7 @@ function ComposerInstruments({
   place: PlaceInstrument;
 }) {
   const { sending, state } = controller;
+  const stopping = useSessionCommandPending(props.wsSessionId, "interrupt");
   return (
     <>
       {place("autoscroll", props.instrumentStart)}
@@ -256,6 +265,7 @@ function ComposerInstruments({
           inputsDisabled={!!props.disabled || sending.sending || controller.isShellCommandMode}
           isRunning={controller.isRunning}
           onStop={props.onStop}
+          stopping={stopping}
           onSend={sending.handleSend}
           canSend={sending.canSend}
           sending={sending.sending}

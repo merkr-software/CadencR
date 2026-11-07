@@ -106,3 +106,22 @@ describe("invalidateByUrlPrefix", () => {
     expect(cache.find({ queryKey: ["/api/features"] })?.state.isInvalidated).toBe(false);
   });
 });
+
+describe("revalidateRestoredQueries", () => {
+  it("marks restored entries stale even under staleTime: Infinity", async () => {
+    const { queryClient, revalidateRestoredQueries } = await import("./queryClient");
+    queryClient.setQueryData(["/api/workspace/settings/sidebar.lens"], { value: "old" });
+    const query = queryClient.getQueryCache().find({
+      queryKey: ["/api/workspace/settings/sidebar.lens"],
+    });
+    expect(query?.isStaleByTime(Infinity)).toBe(false);
+
+    await revalidateRestoredQueries();
+
+    expect(query?.isStaleByTime(Infinity)).toBe(true);
+    expect(queryClient.getQueryData(["/api/workspace/settings/sidebar.lens"])).toEqual({
+      value: "old",
+    });
+    queryClient.clear();
+  });
+});

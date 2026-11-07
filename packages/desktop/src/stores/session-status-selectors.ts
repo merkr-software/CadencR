@@ -1,6 +1,10 @@
 import { useShallow } from "zustand/react/shallow";
 import type { LiveAgentStatus, PendingKind } from "@/types/agent";
-import { useSessionStatusStore, type SessionStatusEntry } from "@/stores/session-status-store";
+import {
+  useSessionStatusStore,
+  type SessionStatusEntry,
+  type SessionStatusState,
+} from "@/stores/session-status-store";
 
 export function aggregateFeatureStatus(entries: readonly SessionStatusEntry[]): {
   status: LiveAgentStatus;
@@ -36,6 +40,20 @@ export function aggregateFeatureStatuses(
     if (entry.status === "question" || entry.status === "agent") statuses[position] = entry.status;
   }
   return statuses;
+}
+
+/**
+ * Whether the backend reports the session idle. The status book only holds
+ * sessions that were busy or changed status during this run (snapshots omit
+ * idle sessions), so an absent entry is idle, but only once a connected
+ * socket has delivered a snapshot: before that, absence means "unknown".
+ */
+export function isSessionIdle(
+  state: Pick<SessionStatusState, "bySession" | "hasSnapshot" | "isConnected">,
+  sessionDbId: number,
+): boolean {
+  if (!state.isConnected || !state.hasSnapshot) return false;
+  return (state.bySession[sessionDbId]?.status ?? "idle") === "idle";
 }
 
 const EMPTY_FEATURE_STATUS: {

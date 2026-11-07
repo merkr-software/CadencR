@@ -54,6 +54,35 @@ describe("persistedQueries", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/git/stats"))).toBe(false);
   });
 
+  it("does NOT persist live feature state that shares the /api/features prefix", () => {
+    for (const url of [
+      "/api/features/active",
+      "/api/features/activity",
+      "/api/features/12/status",
+      "/api/features/12/pending-gate",
+      "/api/features/12/sessions",
+      "/api/features/12/diff-comments",
+      "/api/workspace/settings-file",
+      "/api/projects/42/settings-file",
+    ]) {
+      expect(shouldDehydrateQuery(makeQuery(url)), url).toBe(false);
+    }
+  });
+
+  it("persists only the allowlisted feature reads", () => {
+    for (const url of [
+      "/api/features/pinned",
+      "/api/features/recent",
+      "/api/features/12",
+      "/api/features/12/settings",
+      "/api/features/12/row-summary",
+      "/api/workspace/settings/sidebar.lens",
+      "/api/features?project_id=1",
+    ]) {
+      expect(shouldDehydrateQuery(makeQuery(url)), url).toBe(true);
+    }
+  });
+
   it("does NOT persist /api/health", () => {
     expect(shouldDehydrateQuery(makeQuery("/api/health"))).toBe(false);
   });

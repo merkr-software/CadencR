@@ -9,11 +9,13 @@ import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry } from "@/stores/ws-session-types";
 import { noteUserPrompt } from "@/lib/auto-layout/auto-layout-controller";
 import { acknowledgeForMe } from "@/stores/for-me-ack";
+import { resyncPushMaintainedQueries } from "@/stores/app-socket-resync";
 
 vi.mock("@/lib/auto-layout/auto-layout-controller", async (original) => ({
   ...(await original<typeof import("@/lib/auto-layout/auto-layout-controller")>()),
   noteUserPrompt: vi.fn(),
 }));
+vi.mock("@/stores/app-socket-resync", () => ({ resyncPushMaintainedQueries: vi.fn() }));
 vi.mock("@/stores/for-me-ack", async (original) => ({
   ...(await original<typeof import("@/stores/for-me-ack")>()),
   acknowledgeForMe: vi.fn(),
@@ -50,6 +52,26 @@ afterEach(() => {
 });
 
 describe("session application composition", () => {
+  it("refetches push-maintained caches on every reconnect, not the first connection", async () => {
+    dispose = installSessionIntegration();
+
+    useSessionStatusStore.setState({ connectionEpoch: 1, isConnected: true });
+    expect(resyncPushMaintainedQueries).not.toHaveBeenCalled();
+
+    useSessionStatusStore.setState({ isConnected: false });
+    useSessionStatusStore.setState({ connectionEpoch: 2, isConnected: true });
+    // After the socket's re-subscriptions, which run in the same task.
+    expect(resyncPushMaintainedQueries).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(resyncPushMaintainedQueries).toHaveBeenCalledTimes(1);
+
+    dispose();
+    dispose = undefined;
+    useSessionStatusStore.setState({ connectionEpoch: 3 });
+    await Promise.resolve();
+    expect(resyncPushMaintainedQueries).toHaveBeenCalledTimes(1);
+  });
+
   it("installs before the first connection/dispatch and disposes once after unmount", () => {
     vi.stubGlobal("WebSocket", MockWebSocket);
     const unmount = vi.fn(() => {

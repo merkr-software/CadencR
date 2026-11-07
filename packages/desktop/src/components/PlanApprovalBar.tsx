@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from "react";
 import { useScopedGlobalShortcutById } from "@/hooks/useShortcut";
-import { ClipboardCheck, Play, MessageSquare, Send, AlertTriangle, X } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Loader2, MessageSquare, Play, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { KbdShortcut } from "@/components/KbdShortcut";
@@ -14,6 +14,8 @@ interface PlanApprovalBarProps {
   onRequestChanges: (feedback: string) => void;
   onReject?: () => void;
   error?: string | null;
+  /** The decision was sent and the backend has not confirmed it yet. */
+  isSubmitting?: boolean;
 }
 
 interface FeedbackEditorProps {
@@ -69,6 +71,7 @@ interface PlanActionsProps {
   onApprove: () => void;
   onRequestChanges: () => void;
   onReject?: () => void;
+  isSubmitting: boolean;
 }
 
 function PlanActions({
@@ -76,14 +79,26 @@ function PlanActions({
   onApprove,
   onRequestChanges,
   onReject,
+  isSubmitting,
 }: PlanActionsProps): ReactElement {
   const approveKeys = useShortcutKeys("plan-approve");
   const feedbackKeys = useShortcutKeys("plan-feedback");
   const rejectKeys = useShortcutKeys("plan-reject");
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <Button variant="default" size="sm" onClick={onApprove} className="gap-1.5">
-        <Play className="size-3.5" />
+      <Button
+        variant="default"
+        size="sm"
+        onClick={onApprove}
+        disabled={isSubmitting}
+        aria-busy={isSubmitting}
+        className="gap-1.5"
+      >
+        {isSubmitting ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <Play className="size-3.5" />
+        )}
         {approveLabel ?? "Approve & Execute"}
         <KbdShortcut keys={approveKeys} scope="agent" />
       </Button>
@@ -91,6 +106,7 @@ function PlanActions({
         variant="ghost"
         size="sm"
         onClick={onRequestChanges}
+        disabled={isSubmitting}
         className="gap-1.5 text-muted-foreground"
       >
         <MessageSquare className="size-3.5" />
@@ -102,6 +118,7 @@ function PlanActions({
           variant="ghost"
           size="sm"
           onClick={onReject}
+          disabled={isSubmitting}
           className="gap-1.5 text-muted-foreground"
         >
           <X className="size-3.5" />
@@ -147,6 +164,7 @@ export function PlanApprovalBar({
   onRequestChanges,
   onReject,
   error,
+  isSubmitting = false,
 }: PlanApprovalBarProps) {
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState(initialFeedback ?? "");
@@ -163,7 +181,7 @@ export function PlanApprovalBar({
       onApprove();
     },
     "agent",
-    { enabled: !showFeedback },
+    { enabled: !showFeedback && !isSubmitting },
   );
 
   useScopedGlobalShortcutById(
@@ -173,7 +191,7 @@ export function PlanApprovalBar({
       openFeedback();
     },
     "agent",
-    { enabled: !showFeedback },
+    { enabled: !showFeedback && !isSubmitting },
   );
 
   useScopedGlobalShortcutById(
@@ -186,7 +204,7 @@ export function PlanApprovalBar({
     "agent",
     // While the feedback field is open, Esc only closes the field (it is a
     // capture-phase binding, so it would otherwise win over the textarea).
-    { enabled: !!onReject && !showFeedback },
+    { enabled: !!onReject && !showFeedback && !isSubmitting },
   );
 
   const handleSendFeedback = () => {
@@ -224,6 +242,7 @@ export function PlanApprovalBar({
           onApprove={onApprove}
           onRequestChanges={openFeedback}
           onReject={onReject}
+          isSubmitting={isSubmitting}
         />
       )}
     </div>

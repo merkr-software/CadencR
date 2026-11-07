@@ -40,6 +40,7 @@ import {
   handleTranscriptBlock,
 } from "./ws-envelope-session-handlers";
 import { handleError } from "./ws-envelope-error-handler";
+import { settleCommandReply } from "./ws-session-commands";
 import { handleWarning } from "./ws-envelope-warning-handler";
 import { handlePersistenceStatus } from "./ws-persistence-status";
 import {
@@ -84,6 +85,9 @@ export function handleEnvelope(
       }
     }
   }
+
+  // A tracked command's failure is presented by the command, not the stream.
+  if (!isWarning && settleCommandReply(ctx, sessionId, envelope)) return;
 
   if (envelope.domain === "commands") {
     handleCommandsDomain(ctx, sessionId, envelope);

@@ -1,28 +1,20 @@
 /**
- * Counts active turns across every WS session and forwards a debounced
+ * Counts sessions the backend reports mid-turn and forwards a debounced
  * boolean to the Electron main process. Main ref-counts
  * `powerSaveBlocker('prevent-app-suspension')` off that signal.
  *
- * Provider-neutral: only input is `isTurnActive(lifecycle)`. Never inspects
- * `currentProviderId`.
+ * Reads the status book, not conversation lifecycles: an agent started by a
+ * schedule, MCP, or another device must hold the blocker too, even when no
+ * conversation is loaded in this window. Provider-neutral.
  */
 
 import { useEffect, useRef } from "react";
 import { apiErrorMessage } from "@/lib/api-errors";
 import { desktopBridge } from "@/lib/desktop-bridge";
-import { useWsSessionStore } from "@/stores/ws-session-store";
-import { isTurnActive } from "@/stores/ws-turn-lifecycle";
-import type { SessionEntry } from "@/stores/ws-session-types";
+import { useSessionStatusStore } from "@/stores/session-status-store";
+import { countWorkingSessions } from "@/stores/session-status-selectors";
 
 const DEBOUNCE_MS = 250;
-
-function countActive(sessions: Record<string, SessionEntry>): number {
-  let count = 0;
-  for (const entry of Object.values(sessions)) {
-    if (isTurnActive(entry.lifecycle)) count += 1;
-  }
-  return count;
-}
 
 export function usePowerBusySignal(): void {
   // Start in sync with the "no agents running" default so the very first
@@ -52,15 +44,14 @@ export function usePowerBusySignal(): void {
     }
 
     // Sync at mount in case sessions are already active (e.g. after HMR).
-    const initialCount = countActive(useWsSessionStore.getState().sessions);
+    const initialCount = countWorkingSessions(useSessionStatusStore.getState().bySession);
     lastCountRef.current = initialCount;
     if (initialCount > 0) schedule(true);
 
-    const unsubscribe = useWsSessionStore.subscribe((state) => {
-      const count = countActive(state.sessions);
-      // The WS session store mutates on every streamed block (`updateSession`
-      // always returns a fresh `sessions` object). Short-circuit on the
-      // primitive count so we don't reschedule on every chunk.
+    const unsubscribe = useSessionStatusStore.subscribe((state) => {
+      const count = countWorkingSessions(state.bySession);
+      // Short-circuit on the primitive count so a gate opening or a model
+      // update on a busy session doesn't reschedule.
       if (count === lastCountRef.current) return;
       const wasBusy = lastCountRef.current > 0;
       const isBusy = count > 0;

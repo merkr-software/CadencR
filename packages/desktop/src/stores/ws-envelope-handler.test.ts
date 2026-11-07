@@ -682,6 +682,25 @@ describe("handleEnvelope error handling", () => {
     expect(updated.blocks).toHaveLength(0);
   });
 
+  it("keeps an uncorrelated AGENT_STOP_ESCALATED on the inline turn-error path", () => {
+    vi.mocked(toast.error).mockClear();
+    const session = createSessionEntry();
+    session.lifecycle = { phase: "active" } as SessionEntry["lifecycle"];
+    const ctx = createTestContext(session);
+    const message = "The agent did not stop; Cadencr ended its process.";
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "error",
+      payload: { code: "AGENT_STOP_ESCALATED", message },
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+    const updated = ctx.getSession("s1");
+    expect(updated.lifecycle).toEqual({ phase: "error", message });
+    expect(updated.blocks.at(-1)?.content).toBe(message);
+  });
+
   it("MODE_REJECTED_BY_CLI silently auto-advances past rejected auto mode", () => {
     vi.mocked(toast.error).mockClear();
     const session = createSessionEntry();
