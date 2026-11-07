@@ -1,6 +1,7 @@
-//! Per-session registry of live ACP terminals. Each entry owns the
-//! spawned `Child`, a bounded stdout/stderr ring buffer, and the joined
-//! command line we surface to the FE BashBlock.
+//! Per-session registry of live ACP terminals. Each entry owns a
+//! supervisor for the spawned `Child` (`terminal_process.rs`), a bounded
+//! stdout/stderr ring buffer, and the joined command line we surface to the
+//! FE BashBlock.
 //!
 //! `terminal/create` enforces a sandbox: the requested cwd must live under
 //! the session cwd, and the `env` field must follow ACP's array shape
@@ -15,14 +16,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use serde_json::{json, Value};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
 
 use super::terminal_io::{
-    build_output_payload, exit_signal, spawn_pumps, ExitInfo, TerminalOutput,
-    DEFAULT_TERMINAL_OUTPUT_LIMIT,
+    build_output_payload, spawn_pumps, TerminalOutput, DEFAULT_TERMINAL_OUTPUT_LIMIT,
 };
+use super::terminal_process::{TerminalExitWaiter, TerminalProcess};
 use super::terminal_sandbox::{apply_restricted_env, parse_acp_env, resolve_sandboxed_cwd};
 
 #[derive(Default)]
@@ -42,10 +42,8 @@ struct Inner {
 }
 
 struct TerminalEntry {
-    child: Option<Child>,
+    process: TerminalProcess,
     output: Arc<Mutex<TerminalOutput>>,
-    pumps: Vec<JoinHandle<()>>,
-    exit_status: Arc<Mutex<Option<ExitInfo>>>,
     /// Joined `command + args` captured at `terminal/create` time. ACP's
     /// later `tool_call` / `tool_call_update` only carries `terminalId`, so
     /// we need this stash to surface a command in the FE's BashBlock.
@@ -108,9 +106,8 @@ impl TerminalRegistry {
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let output = Arc::new(Mutex::new(TerminalOutput::new(limit)));
-        let exit_status: Arc<Mutex<Option<ExitInfo>>> = Arc::new(Mutex::new(None));
-
         let pumps = spawn_pumps(stdout, stderr, Arc::clone(&output));
+        let process = TerminalProcess::start(child, pumps);
 
         let mut inner = self.inner.lock().await;
         inner.next_id += 1;
@@ -118,10 +115,8 @@ impl TerminalRegistry {
         inner.terminals.insert(
             id.clone(),
             TerminalEntry {
-                child: Some(child),
+                process,
                 output,
-                pumps,
-                exit_status,
                 command_line,
             },
         );
@@ -149,101 +144,75 @@ impl TerminalRegistry {
         Some(text)
     }
 
-    /// Return current accumulated output without blocking.
+    /// Return current accumulated output without blocking. Includes the
+    /// exit status as soon as the command has exited, even if nobody waited.
     pub async fn output(&self, terminal_id: &str) -> Result<Value, (i64, String)> {
         let inner = self.inner.lock().await;
         let Some(entry) = inner.terminals.get(terminal_id) else {
             return Err((-32602, format!("terminal/output: unknown id {terminal_id}")));
         };
         let (text, truncated) = entry.output.lock().await.snapshot();
-        let exit = entry.exit_status.lock().await.clone();
-        Ok(build_output_payload(text, truncated, exit))
+        Ok(build_output_payload(
+            text,
+            truncated,
+            entry.process.exit_info(),
+        ))
+    }
+
+    /// Resolve the terminal now, but wait for its exit separately: the
+    /// returned waiter holds no registry lock, so the event loop can await it
+    /// off the dispatch path while `kill`/`release` keep working.
+    pub(super) async fn exit_waiter(
+        &self,
+        terminal_id: &str,
+    ) -> Result<TerminalExitWaiter, (i64, String)> {
+        let inner = self.inner.lock().await;
+        inner
+            .terminals
+            .get(terminal_id)
+            .map(|entry| entry.process.exit_waiter())
+            .ok_or_else(|| {
+                (
+                    -32602,
+                    format!("terminal/wait_for_exit: unknown id {terminal_id}"),
+                )
+            })
     }
 
     /// Block until the child exits, then return exit info.
+    #[cfg(test)]
     pub async fn wait_for_exit(&self, terminal_id: &str) -> Result<Value, (i64, String)> {
-        let child = {
-            let mut inner = self.inner.lock().await;
-            let Some(entry) = inner.terminals.get_mut(terminal_id) else {
-                return Err((
-                    -32602,
-                    format!("terminal/wait_for_exit: unknown id {terminal_id}"),
-                ));
-            };
-            entry.child.take()
-        };
-        let Some(mut child) = child else {
-            // Already exited. Return cached info if any.
-            let inner = self.inner.lock().await;
-            if let Some(entry) = inner.terminals.get(terminal_id) {
-                if let Some(exit) = entry.exit_status.lock().await.clone() {
-                    return Ok(json!({
-                        "exitCode": exit.exit_code,
-                        "signal": exit.signal,
-                    }));
-                }
-            }
-            return Ok(json!({ "exitCode": null, "signal": null }));
-        };
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| (-32000, format!("terminal/wait_for_exit: {e}")))?;
-        let pumps = {
-            let mut inner = self.inner.lock().await;
-            inner
-                .terminals
-                .get_mut(terminal_id)
-                .map(|entry| std::mem::take(&mut entry.pumps))
-                .unwrap_or_default()
-        };
-        for handle in pumps {
-            let _ = handle.await;
-        }
-        let exit = ExitInfo {
-            exit_code: status.code(),
-            signal: exit_signal(&status),
-        };
-        let exit_status = {
-            let inner = self.inner.lock().await;
-            inner
-                .terminals
-                .get(terminal_id)
-                .map(|entry| Arc::clone(&entry.exit_status))
-        };
-        if let Some(exit_status) = exit_status {
-            *exit_status.lock().await = Some(exit.clone());
-        }
-        Ok(json!({ "exitCode": exit.exit_code, "signal": exit.signal }))
+        self.exit_waiter(terminal_id).await?.wait().await
     }
 
     /// Kill the running command (if any) without releasing the registry slot.
     pub async fn kill(&self, terminal_id: &str) -> Result<Value, (i64, String)> {
-        let mut inner = self.inner.lock().await;
-        let Some(entry) = inner.terminals.get_mut(terminal_id) else {
+        let inner = self.inner.lock().await;
+        let Some(entry) = inner.terminals.get(terminal_id) else {
             return Err((-32602, format!("terminal/kill: unknown id {terminal_id}")));
         };
-        if let Some(child) = entry.child.as_mut() {
-            let _ = child.start_kill();
-        }
+        entry
+            .process
+            .kill()
+            .await
+            .map_err(|error| (-32000, format!("terminal/kill: {error}")))?;
         Ok(Value::Null)
     }
 
     /// Kill the command if still running and remove the registry entry.
     pub async fn release(&self, terminal_id: &str) -> Result<Value, (i64, String)> {
-        let mut inner = self.inner.lock().await;
-        let Some(mut entry) = inner.terminals.remove(terminal_id) else {
+        let entry = self.inner.lock().await.terminals.remove(terminal_id);
+        let Some(entry) = entry else {
             return Err((
                 -32602,
                 format!("terminal/release: unknown id {terminal_id}"),
             ));
         };
-        if let Some(mut child) = entry.child.take() {
-            let _ = child.start_kill();
-        }
-        for handle in entry.pumps.drain(..) {
-            handle.abort();
-        }
+        entry
+            .process
+            .release()
+            .await
+            .map_err(|error| (-32000, format!("terminal/release: {error}")))?;
         Ok(Value::Null)
     }
 }

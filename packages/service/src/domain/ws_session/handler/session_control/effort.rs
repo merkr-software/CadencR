@@ -2,7 +2,7 @@ use tracing::{error, info};
 
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::{parse_session_id, send_error};
+use super::super::helpers::{parse_session_id, report_if_unsaved, send_error};
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
@@ -45,6 +45,12 @@ pub(crate) async fn handle_effort_set(
             return;
         }
     };
+
+    // Serialized with model.set, which re-derives the effort.
+    let _control = app_state
+        .session_runtimes
+        .claim_control(db_session_id)
+        .await;
 
     let feature_id = match apply_effort_change(
         sdk_sessions,
@@ -184,13 +190,17 @@ async fn apply_session_effort(
 
     // Persist the conversation-level override (column on agent_sessions). A
     // None payload clears the override; the next session.init will fall back
-    // to the per-model workspace default.
-    WsSessionPersistence::update_thinking_effort_static(
+    // to the per-model workspace default. The effort already applies, so a
+    // failed write is reported without failing the change, like a mode's.
+    let written = WsSessionPersistence::update_thinking_effort_static(
         &app_state.write_pool,
         db_session_id,
         thinking_effort.as_deref(),
     )
     .await;
+    let senders = &app_state.ws_feature_senders;
+    let what = "the reasoning effort";
+    report_if_unsaved(senders, feature_id, db_session_id, what, written).await;
 
     Ok(feature_id)
 }

@@ -6,29 +6,36 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::Duration;
 
-use agent_client_protocol::{
-    ByteStreams, Client, Dispatch, HandleDispatchFrom, Handled, Responder,
-};
-use serde_json::Value;
+use agent_client_protocol::{ByteStreams, Client};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncWrite, BufReader};
 use tokio::process::Child;
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 
-use crate::domain::agents::acp::client::{server_request_key, AcpClient, AcpSpawnOptions};
+use crate::domain::agents::acp::client::{AcpClient, AcpSpawnOptions};
+use crate::domain::agents::acp::client_dispatch::{EventDispatchHandler, ServerResponders};
 use crate::domain::agents::acp::error::AcpError;
-use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
+use crate::domain::agents::acp::event_hub::AcpEventHub;
 use crate::domain::agents::acp::process_tree::ProcessTreeControl;
 use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
 
 const DEFAULT_MAX_LINE_BYTES: usize = 8 * 1024 * 1024;
-type ServerResponders = Arc<StdMutex<HashMap<String, Responder<Value>>>>;
+/// After the agent process exits, how long its stdout may stay open (e.g. an
+/// orphaned grandchild inherited the pipe) before in-flight requests are
+/// failed anyway. Long enough for the reader to drain frames the agent wrote
+/// just before exiting.
+const EXITED_PIPE_DRAIN_GRACE: Duration = Duration::from_secs(2);
 
 pub(super) struct Inner {
     pub(super) connection: agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
-    pub(super) events: broadcast::Sender<AcpEvent>,
+    pub(super) events: AcpEventHub,
     pub(super) server_responders: ServerResponders,
+    /// Flips to `true` once the transport can no longer answer requests
+    /// (shutdown, or the process exited and its pipe drain grace elapsed).
+    /// Requests without a deadline select on it so they cannot outlive the
+    /// agent process.
+    pub(super) closed: Arc<watch::Sender<bool>>,
     pub(super) client_info: AcpClientInfo,
     pub(super) pid: Option<u32>,
     shutdown_tx: StdMutex<Option<oneshot::Sender<()>>>,
@@ -40,6 +47,7 @@ pub(super) struct Inner {
 
 impl Inner {
     pub(super) async fn shutdown(&self) {
+        self.closed.send_replace(true);
         send_once(&self.shutdown_tx);
         send_once(&self.kill_tx);
         for slot in [&self.connection_task, &self.stderr_task, &self.reaper_task] {
@@ -53,6 +61,7 @@ impl Inner {
 
 impl Drop for Inner {
     fn drop(&mut self) {
+        self.closed.send_replace(true);
         send_once(&self.shutdown_tx);
         send_once(&self.kill_tx);
     }
@@ -144,7 +153,8 @@ where
     R: AsyncRead + Send + Unpin + 'static,
     E: AsyncRead + Send + Unpin + 'static,
 {
-    let (events, _) = broadcast::channel(4096);
+    let events = AcpEventHub::new();
+    let closed = Arc::new(watch::Sender::new(false));
     let server_responders = Arc::new(StdMutex::new(HashMap::new()));
     let exit_sent = Arc::new(AtomicBool::new(false));
     let max_line_bytes = options.max_line_bytes.unwrap_or(DEFAULT_MAX_LINE_BYTES);
@@ -174,6 +184,7 @@ where
             events.clone(),
             Arc::clone(&exit_sent),
             Arc::clone(&server_responders),
+            Arc::clone(&closed),
             process_tree,
         ))
     } else {
@@ -185,6 +196,7 @@ where
         connection,
         events,
         server_responders,
+        closed,
         client_info: options.client_info,
         pid,
         shutdown_tx: StdMutex::new(Some(shutdown_tx)),
@@ -199,7 +211,7 @@ where
 async fn spawn_connection<W, R>(
     stdin: W,
     stdout: R,
-    events: broadcast::Sender<AcpEvent>,
+    events: AcpEventHub,
     server_responders: ServerResponders,
     shutdown_rx: oneshot::Receiver<()>,
 ) -> Result<
@@ -219,7 +231,7 @@ where
         let result = Client
             .builder()
             .name("cadencr")
-            .with_handler(BroadcastHandler::new(events, server_responders))
+            .with_handler(EventDispatchHandler::new(events, server_responders))
             .connect_with(transport, async move |connection| {
                 let _ = connection_tx.send(connection.clone());
                 let _ = shutdown_rx.await;
@@ -234,72 +246,6 @@ where
         .await
         .map_err(|_| AcpError::Protocol("ACP connection closed during startup".to_string()))?;
     Ok((connection, task))
-}
-
-#[derive(Clone)]
-struct BroadcastHandler {
-    events: broadcast::Sender<AcpEvent>,
-    server_responders: ServerResponders,
-}
-
-impl BroadcastHandler {
-    fn new(events: broadcast::Sender<AcpEvent>, server_responders: ServerResponders) -> Self {
-        Self {
-            events,
-            server_responders,
-        }
-    }
-}
-
-impl HandleDispatchFrom<agent_client_protocol::Agent> for BroadcastHandler {
-    async fn handle_dispatch_from(
-        &mut self,
-        message: Dispatch,
-        _connection: agent_client_protocol::ConnectionTo<agent_client_protocol::Agent>,
-    ) -> Result<Handled<Dispatch>, agent_client_protocol::Error> {
-        match message {
-            Dispatch::Notification(notification) => {
-                let (method, params) = notification.into_parts();
-                let event = AcpNotification::from_parts(method, params);
-                let _ = self.events.send(AcpEvent::Notification(event));
-                Ok(Handled::Yes)
-            }
-            Dispatch::Request(request, responder) => {
-                // Runtime events retain JSON IDs, including the distinction
-                // between numeric IDs and strings containing the same digits.
-                let id = serde_json::to_value(responder.id())
-                    .map_err(|_| agent_client_protocol::Error::internal_error())?;
-                let (method, params) = request.into_parts();
-                let key = server_request_key(&id);
-                self.server_responders
-                    .lock()
-                    .map_err(|_| agent_client_protocol::Error::internal_error())?
-                    .insert(key.clone(), responder);
-                let event = AcpServerRequest::from_parts(id, method, params);
-                if self.events.send(AcpEvent::ServerRequest(event)).is_err() {
-                    let responder = self
-                        .server_responders
-                        .lock()
-                        .map_err(|_| agent_client_protocol::Error::internal_error())?
-                        .remove(&key);
-                    if let Some(responder) = responder {
-                        responder.respond_with_internal_error(
-                            "ACP server request had no active receiver",
-                        )?;
-                    }
-                }
-                Ok(Handled::Yes)
-            }
-            Dispatch::Response(result, router) => Ok(Handled::No {
-                message: Dispatch::Response(result, router),
-                retry: false,
-            }),
-        }
-    }
-
-    fn describe_chain(&self) -> impl std::fmt::Debug {
-        "CadencrAcpBroadcastHandler"
-    }
 }
 
 fn spawn_stderr_reader<R>(stderr: R, max_line_bytes: usize, log_contents: bool) -> JoinHandle<()>
@@ -328,9 +274,10 @@ where
 fn spawn_reaper(
     mut child: Child,
     mut kill_rx: oneshot::Receiver<()>,
-    events: broadcast::Sender<AcpEvent>,
+    events: AcpEventHub,
     exit_sent: Arc<AtomicBool>,
     server_responders: ServerResponders,
+    closed: Arc<watch::Sender<bool>>,
     process_tree: ProcessTreeControl,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -359,11 +306,31 @@ fn spawn_reaper(
                 send_process_exited(&events, &exit_sent, &server_responders, None, None);
             }
         }
+        close_after_pipe_drain(closed);
     })
 }
 
+/// Requests normally fail as soon as stdout reaches EOF. A descendant that
+/// inherited the pipe can keep it open after the agent died, so bound that
+/// wait instead of letting `session/prompt` hang on a dead process. Detached
+/// so `shutdown()` never waits for the grace.
+fn close_after_pipe_drain(closed: Arc<watch::Sender<bool>>) {
+    if *closed.borrow() {
+        return;
+    }
+    tokio::spawn(async move {
+        let mut observer = closed.subscribe();
+        tokio::select! {
+            _ = tokio::time::sleep(EXITED_PIPE_DRAIN_GRACE) => {
+                closed.send_replace(true);
+            }
+            _ = observer.wait_for(|closed| *closed) => {}
+        }
+    });
+}
+
 fn send_process_exited(
-    events: &broadcast::Sender<AcpEvent>,
+    events: &AcpEventHub,
     exit_sent: &AtomicBool,
     server_responders: &ServerResponders,
     status: Option<i32>,
@@ -375,7 +342,13 @@ fn send_process_exited(
     if let Ok(mut responders) = server_responders.lock() {
         responders.clear();
     }
-    let _ = events.send(AcpEvent::ProcessExited { status, signal });
+    if !events.send(AcpEvent::ProcessExited { status, signal }) {
+        tracing::debug!(
+            ?status,
+            ?signal,
+            "ACP process exited with no event subscriber"
+        );
+    }
 }
 
 async fn read_bounded_line<R>(

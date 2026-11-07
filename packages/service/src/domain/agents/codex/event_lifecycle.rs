@@ -10,6 +10,7 @@ use serde_json::{json, Value};
 use super::event_json::metadata;
 use super::event_state::IndexState;
 use super::event_turn_state::belongs_to_root_thread;
+use super::events::provider_error_event;
 use crate::domain::agents::adapter::{RuntimeEvent, RuntimeEventKind, RuntimeTurnStartedSource};
 
 #[derive(Default)]
@@ -43,7 +44,11 @@ impl SessionLifecycle {
         self.observe_activity(method, params, indexes);
         let is_root = belongs_to_root_thread(params, root);
         if is_root {
-            self.observe_root(method, params, root, events);
+            // The turn's `error` notification may already have surfaced it.
+            let error_surfaced = params["turn"]["id"]
+                .as_str()
+                .is_some_and(|turn| indexes.turn_errors.was_surfaced(turn));
+            self.observe_root(method, params, root, error_surfaced, events);
         } else {
             let thread = params.get("threadId").and_then(Value::as_str).unwrap_or("");
             // Never let a child's Result end the parent, even if its route
@@ -85,6 +90,7 @@ impl SessionLifecycle {
         method: &str,
         params: &Value,
         root: &str,
+        error_surfaced: bool,
         events: &mut Vec<RuntimeEvent>,
     ) {
         match method {
@@ -116,7 +122,7 @@ impl SessionLifecycle {
                 self.root_active = false;
                 self.explicit_root_turn = false;
                 if !self.children.is_empty() {
-                    self.defer_result(root, events);
+                    self.defer_result(root, error_surfaced, events);
                 }
             }
             // Only reconcile status-only activity. An explicit turn still owes
@@ -136,20 +142,17 @@ impl SessionLifecycle {
         }
     }
 
-    fn defer_result(&mut self, root: &str, events: &mut Vec<RuntimeEvent>) {
+    fn defer_result(&mut self, root: &str, error_surfaced: bool, events: &mut Vec<RuntimeEvent>) {
         let Some(position) = events.iter().position(RuntimeEvent::is_result) else {
             return;
         };
         let result = events.remove(position);
         // Failure must be visible immediately, not after a slow child ends.
-        if let Some(error) = result.result_error() {
-            events.push(RuntimeEvent::new(
-                metadata(root, json!({"type":"error", "message":error.message})),
-                RuntimeEventKind::ProviderError {
-                    message: error.message.clone(),
-                    code: Some(error.code.clone()),
-                    parent_tool_use_id: None,
-                },
+        if let Some(error) = result.result_error().filter(|_| !error_surfaced) {
+            events.push(provider_error_event(
+                root,
+                error.message.clone(),
+                &error.code,
             ));
         }
         self.pending_result = Some(result.with_result_error(None));
@@ -187,6 +190,55 @@ mod tests {
                 json!({"threadId":thread,"turn":{"id":format!("{thread}-turn")}}),
             )
         }
+    }
+
+    fn terminal_error(thread: &str) -> Value {
+        json!({"threadId":thread,"turnId":format!("{thread}-turn"),"willRetry":false,
+            "error":{"message":"Selected model is at capacity"}})
+    }
+
+    fn failed_turn(thread: &str) -> Value {
+        json!({"threadId":thread,"turn":{"id":format!("{thread}-turn"),"status":"failed",
+            "error":{"message":"Selected model is at capacity"}}})
+    }
+
+    fn provider_errors(events: &[RuntimeEvent]) -> usize {
+        events
+            .iter()
+            .filter(|e| e.provider_error().is_some())
+            .count()
+    }
+
+    #[test]
+    fn root_error_notification_is_not_repeated_when_its_failed_turn_is_deferred() {
+        let mut h = Harness::new();
+        h.turn("root", "turn/started");
+        h.turn("child", "turn/started");
+        assert_eq!(provider_errors(&h.send("error", terminal_error("root"))), 1);
+        assert_eq!(
+            provider_errors(&h.send("turn/completed", failed_turn("root"))),
+            0
+        );
+    }
+
+    #[test]
+    fn child_error_notification_is_not_repeated_by_its_failed_turn() {
+        let mut h = Harness::new();
+        h.turn("root", "turn/started");
+        h.turn("child", "turn/started");
+        let surfaced = h.send("error", terminal_error("child"));
+        assert_eq!(provider_errors(&surfaced), 1);
+        assert_eq!(surfaced[0].parent_tool_use_id(), Some("spawn"));
+        assert_eq!(
+            provider_errors(&h.send("turn/completed", failed_turn("child"))),
+            0
+        );
+        // Without a prior `error` notification the failed turn still surfaces.
+        h.turn("child", "turn/started");
+        assert_eq!(
+            provider_errors(&h.send("turn/completed", failed_turn("child"))),
+            1
+        );
     }
 
     #[test]

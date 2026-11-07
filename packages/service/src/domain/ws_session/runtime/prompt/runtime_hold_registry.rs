@@ -15,7 +15,6 @@ use crate::domain::agents::adapter::{
     RuntimeEvent, RuntimeSessionHandle, RuntimeSessionWeakHandle,
 };
 
-use super::super::{send_error, WsSender};
 use super::runtime_hold::RuntimeHold;
 
 /// A [`RuntimeHold`] shared between a stream reader and the prompt path.
@@ -100,20 +99,6 @@ pub(in crate::domain::ws_session) fn runtime_is_held(
         .filter(|entry| std::ptr::eq(entry.runtime.as_ptr(), Arc::as_ptr(runtime)))
         .map(|entry| entry.hold.clone());
     hold.is_some_and(|hold| hold.holds_runtime())
-}
-
-/// Tell the sender that its `changes` (user-facing labels) wait for the held
-/// runtime: applying them now would respawn it and kill that work.
-pub(in crate::domain::ws_session) fn notify_change_deferred(
-    sender: &WsSender,
-    envelope_id: &str,
-    changes: &[&str],
-) {
-    let notice = format!(
-        "The agent is waiting on background work, so your new {} will apply to your first message after it finishes.",
-        changes.join(" and ")
-    );
-    send_error(sender, envelope_id, "RUNTIME_CHANGE_DEFERRED", &notice);
 }
 
 #[cfg(test)]

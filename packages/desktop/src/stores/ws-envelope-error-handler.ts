@@ -21,7 +21,13 @@ import { notifyRateLimited, WS_RATE_LIMIT_RETRY_MS } from "@/lib/ws-reconnect";
  */
 // LAST_USED_MODEL_SAVE_FAILED: the prompt itself went through; only
 // remembering its model for the next new conversation failed.
-const TOAST_ERROR_CODES = new Set(["MODE_NOT_SUPPORTED", "LAST_USED_MODEL_SAVE_FAILED"]);
+// SESSION_STATE_NOT_SAVED: the change or turn carries on; only recording it in
+// the database failed, so the running turn must not read as failed.
+const TOAST_ERROR_CODES = new Set([
+  "MODE_NOT_SUPPORTED",
+  "LAST_USED_MODEL_SAVE_FAILED",
+  "SESSION_STATE_NOT_SAVED",
+]);
 // RUNTIME_CHANGE_DEFERRED: not a failure — the prompt went through, but a
 // setting that needs a fresh runtime waits for the agent's background work.
 const TOAST_INFO_CODES = new Set(["RUNTIME_CHANGE_DEFERRED"]);

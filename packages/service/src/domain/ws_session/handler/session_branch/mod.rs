@@ -7,7 +7,9 @@
 //! live entirely behind the `SessionBranching` capability; nothing here branches
 //! on provider identity.
 
-use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
+use crate::domain::ws_session::runtime::detached_closes::DetachedCloseLease;
+use crate::domain::ws_session::runtime::detached_runtime::DetachedRuntime;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 mod fork;
 mod fork_db;
 mod rewind;
@@ -20,7 +22,7 @@ use tracing::warn;
 
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::{BranchPayload, WsEnvelope};
-use super::helpers::{parse_session_id, persist_and_close_query, send_error};
+use super::helpers::{parse_session_id, send_error};
 use super::session_control::{reply_and_broadcast, resolve_owner_sessions};
 use super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
@@ -258,34 +260,33 @@ pub(super) async fn truncate_context(
 
 /// Interrupt and close any live turn for this session, then reset the handle to
 /// `Pending` so the next prompt respawns (resuming whatever `runtime_session_id`
-/// the DB then holds). Returns the source provider session id (persisted to the
-/// DB by the close). Holds the sessions lock only for this transition.
+/// the DB then holds). The source provider session id is persisted to the DB
+/// by the close, which runs once the sessions lock is released (see
+/// `detached_runtime`). Spawns of the session wait while the caller holds the
+/// returned lease, so it can rewrite the transcript and the resume id before
+/// any new runtime reads them.
 pub(super) async fn stop_live_turn(
     sdk_sessions: &SdkSessions,
     app_state: &AppState,
     db_session_id: i64,
-) {
+) -> DetachedCloseLease {
     let effective =
         resolve_owner_sessions(sdk_sessions, &app_state.active_turns, db_session_id).await;
     let mut sessions = effective.lock().await;
+    let branching = app_state
+        .session_runtimes
+        .begin_detached_close(db_session_id);
     let Some(handle) = sessions.get_mut(&db_session_id) else {
-        return;
+        return branching;
     };
-    if let QueryState::Active { query, .. } = &handle.state {
+    let Some(query) = handle.state.active_query() else {
+        return branching;
+    };
+    let (retired, feature_id, completed) = {
         // Flip status off `running` BEFORE closing so the per-turn reader reads
         // the close as benign (mirrors handle_clear / handle_destroy).
-        WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
-        persist_and_close_query(
-            query,
-            &RuntimeCloseContext::builder()
-                .pool(&app_state.write_pool)
-                .feature_senders(&app_state.ws_feature_senders)
-                .build(),
-            db_session_id,
-            &handle.runtime_provider,
-            handle.feature_id,
-        )
-        .await;
+        let completed =
+            WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
         let fresh = RuntimeSpawnConfig {
             cwd: handle.config.cwd.clone(),
             permission_mode: handle.desired_permission_mode.clone(),
@@ -302,7 +303,16 @@ pub(super) async fn stop_live_turn(
             ..RuntimeSpawnConfig::default()
         };
         handle.state = QueryState::Pending(fresh);
-    }
+        let retired =
+            DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);
+        (retired, handle.feature_id, completed)
+    };
+    drop(sessions);
+    let senders = &app_state.ws_feature_senders;
+    let what = "that the agent stopped";
+    report_if_unsaved(senders, feature_id, db_session_id, what, completed).await;
+    retired.close_in(app_state).await;
+    branching
 }
 
 /// The provider session id currently recorded for this session.

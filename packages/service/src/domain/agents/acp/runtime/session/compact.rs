@@ -245,7 +245,7 @@ mod tests {
         let mode = Arc::new(RwLock::new("build".to_string()));
         let indexer = Arc::new(StdMutex::new(EventIndexer::default()));
         let (tx, rx) = mpsc::channel(16);
-        let event_rx = client.subscribe();
+        let event_rx = client.subscribe_reliable();
         let hooks = Arc::new(PlainHooks);
         let cfg = EventLoopConfig {
             session_id,

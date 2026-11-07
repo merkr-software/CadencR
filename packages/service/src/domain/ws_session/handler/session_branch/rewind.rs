@@ -60,7 +60,9 @@ pub(crate) async fn handle_rewind(
     }
 
     // Stop any live turn before mutating (interrupt + close, reset to Pending).
-    stop_live_turn(sdk_sessions, app_state, db_session_id).await;
+    // Held until the rewind is written: a prompt sent meanwhile spawns only
+    // on the rewound transcript and resume id.
+    let _branching = stop_live_turn(sdk_sessions, app_state, db_session_id).await;
     let source_runtime_session_id =
         current_runtime_session_id(&app_state.read_pool, db_session_id).await;
 

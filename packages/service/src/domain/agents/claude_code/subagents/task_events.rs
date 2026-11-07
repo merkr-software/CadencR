@@ -1,8 +1,8 @@
 //! Claude Code's task lifecycle messages, read off the raw JSON.
 //!
-//! The CLI tags them `type: "system"` with subtypes the SDK does not type, so
-//! they arrive as `SdkMessage::Unknown`. Shapes (CLI 2.1.312 emitters and
-//! `@anthropic-ai/claude-agent-sdk` 0.3.156 `sdk.d.ts`):
+//! The CLI tags them `type: "system"`; the SDK recognizes them as
+//! `SdkMessage::TaskLifecycle` with the raw JSON kept. Shapes (CLI 2.1.312
+//! emitters and `@anthropic-ai/claude-agent-sdk` 0.3.156 `sdk.d.ts`):
 //!
 //! - `task_started`: `{task_id, tool_use_id?, description, subagent_type?,
 //!   task_type?, prompt?, is_backgrounded?, owned_by_subagent?, …}`
@@ -14,6 +14,7 @@
 //!   failed | killed | paused, error?, is_backgrounded?, description?, …}}` —
 //!   no `tool_use_id`, so it is resolved through the `task_id`.
 
+use claude_agent_sdk_rs::messages::{TaskLifecycleEvent, TaskLifecycleKind};
 use serde_json::Value;
 
 use crate::domain::agents::adapter::{non_empty_str, RuntimeSubagentPatch, RuntimeSubagentStatus};
@@ -81,26 +82,27 @@ pub(super) enum TaskEvent {
 }
 
 impl TaskEvent {
-    pub(super) fn parse(raw: &Value) -> Option<Self> {
-        if raw.get("type").and_then(Value::as_str) != Some("system") {
-            return None;
-        }
+    /// Read the sub-agent facts off a lifecycle frame the SDK recognized;
+    /// `None` for a `background_tasks_changed` snapshot or a frame missing
+    /// the fields its kind requires.
+    pub(super) fn parse(event: &TaskLifecycleEvent) -> Option<Self> {
+        let raw = event.raw();
         let task_id = text(raw.get("task_id"))?;
         let tool_use_id = text(raw.get("tool_use_id"));
-        let event = match raw.get("subtype").and_then(Value::as_str)? {
-            "task_started" => Self::Started {
+        let event = match event.kind() {
+            TaskLifecycleKind::Started => Self::Started {
                 task_id,
                 tool_use_id,
                 agent_type: text(raw.get("subagent_type")),
                 description: text(raw.get("description")),
                 backgrounded: raw.get("is_backgrounded").and_then(Value::as_bool),
             },
-            "task_progress" => Self::Progress {
+            TaskLifecycleKind::Progress => Self::Progress {
                 task_id,
                 tool_use_id,
                 usage: TaskUsage::parse(raw.get("usage")),
             },
-            "task_notification" => Self::Notification {
+            TaskLifecycleKind::Notification => Self::Notification {
                 task_id,
                 tool_use_id,
                 status: text(raw.get("status"))?,
@@ -108,7 +110,7 @@ impl TaskEvent {
                 summary: text(raw.get("summary")),
                 usage: TaskUsage::parse(raw.get("usage")),
             },
-            "task_updated" => {
+            TaskLifecycleKind::Updated => {
                 let patch = raw.get("patch");
                 Self::Updated {
                     task_id,
@@ -119,7 +121,7 @@ impl TaskEvent {
                         .and_then(Value::as_bool),
                 }
             }
-            _ => return None,
+            TaskLifecycleKind::BackgroundTasksChanged => return None,
         };
         Some(event)
     }
@@ -175,15 +177,24 @@ fn count(value: Option<&Value>) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
+    use claude_agent_sdk_rs::SdkMessage;
+    use serde_json::{json, Value};
 
     use super::{terminal_task_status, TaskEvent, TaskUsage};
     use crate::domain::agents::adapter::RuntimeSubagentStatus;
 
+    /// Parse a wire frame the way the adapter sees it: through the SDK.
+    fn parse(raw: Value) -> Option<TaskEvent> {
+        match SdkMessage::from_raw(raw) {
+            SdkMessage::TaskLifecycle(event) => TaskEvent::parse(&event),
+            other => panic!("expected a task lifecycle frame, got {other:?}"),
+        }
+    }
+
     #[test]
     fn parses_task_started_from_the_cli_emitter_shape() {
         // CLI 2.1.312 `task_started` emitter fields (run_id, spawn_depth… ignored).
-        let event = TaskEvent::parse(&json!({
+        let event = parse(json!({
             "type": "system", "subtype": "task_started", "uuid": "u", "session_id": "s",
             "task_id": "a8f3c2", "run_id": "r1", "owned_by_subagent": false,
             "tool_use_id": "toolu_1", "description": "Audit codex",
@@ -204,7 +215,7 @@ mod tests {
 
     #[test]
     fn parses_task_progress_usage() {
-        let event = TaskEvent::parse(&json!({
+        let event = parse(json!({
             "type": "system", "subtype": "task_progress", "uuid": "u", "session_id": "s",
             "task_id": "a8f3c2", "tool_use_id": "toolu_1", "description": "Audit codex",
             "usage": { "total_tokens": 1200, "tool_uses": 3, "duration_ms": 4500 },
@@ -222,7 +233,7 @@ mod tests {
 
     #[test]
     fn parses_task_notification_with_optional_reason() {
-        let event = TaskEvent::parse(&json!({
+        let event = parse(json!({
             "type": "system", "subtype": "task_notification", "uuid": "u", "session_id": "s",
             "task_id": "a8f3c2", "run_id": "r1", "tool_use_id": "toolu_1",
             "status": "stopped", "reason": "user_stop", "output_file": "/tmp/out",
@@ -249,7 +260,7 @@ mod tests {
 
     #[test]
     fn parses_task_updated_patch_without_tool_use_id() {
-        let event = TaskEvent::parse(&json!({
+        let event = parse(json!({
             "type": "system", "subtype": "task_updated", "uuid": "u", "session_id": "s",
             "task_id": "a8f3c2", "run_id": "r1",
             "patch": { "status": "failed", "end_time": 1761800000000u64, "error": "rate limited" }
@@ -270,20 +281,21 @@ mod tests {
     #[test]
     fn ignores_other_system_messages_and_missing_task_ids() {
         assert_eq!(
-            TaskEvent::parse(&json!({
+            parse(json!({
                 "type": "system", "subtype": "background_tasks_changed", "task_id": "x", "tasks": []
             })),
             None
         );
         assert_eq!(
-            TaskEvent::parse(&json!({"type": "system", "subtype": "task_started"})),
+            parse(json!({"type": "system", "subtype": "task_started"})),
             None
         );
         assert_eq!(
-            TaskEvent::parse(
-                &json!({"type": "assistant", "subtype": "task_started", "task_id": "x"})
-            ),
-            None
+            parse(json!({
+                "type": "system", "subtype": "task_notification", "task_id": "x"
+            })),
+            None,
+            "a notification without a status is not a sub-agent update"
         );
     }
 

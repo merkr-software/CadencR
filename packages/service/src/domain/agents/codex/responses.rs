@@ -5,21 +5,24 @@ use super::permissions::{
     available_decisions, codex_decision_from_option_id, codex_elicitation_response_from_option_id,
     supports_accept_for_session, DECISION_CANCEL, DECISION_DECLINE, STRICT_AUTO_REVIEW_OPTION_ID,
 };
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionResponse};
 
+/// Build the JSON-RPC result for an allow-listed Codex server request. The
+/// match is exhaustive on purpose: an approval-shaped `{"decision": ...}` is
+/// only ever sent to the two methods whose schema expects it.
 pub(super) fn response_value(
-    method: &str,
+    method: CodexServerRequestMethod,
     params: &Value,
     response: &RuntimePermissionResponse,
 ) -> Value {
-    if let Some(value) = legacy_response_value(method, params, response) {
-        return value;
-    }
     match method {
-        "mcpServer/elicitation/request" => elicitation_response(response),
-        "item/tool/requestUserInput" => user_input_response(params, response),
-        "item/permissions/requestApproval" => permissions_response(params, response),
-        _ => approval_response(params, response),
+        CodexServerRequestMethod::Legacy(_) => legacy_response_value(response),
+        CodexServerRequestMethod::McpElicitation => elicitation_response(response),
+        CodexServerRequestMethod::ToolUserInput => user_input_response(params, response),
+        CodexServerRequestMethod::PermissionsApproval => permissions_response(params, response),
+        CodexServerRequestMethod::CommandExecutionApproval
+        | CodexServerRequestMethod::FileChangeApproval => approval_response(params, response),
     }
 }
 
@@ -172,6 +175,7 @@ fn permissions_response(params: &Value, response: &RuntimePermissionResponse) ->
 mod tests {
     use super::response_value;
     use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionResponse};
+    use crate::domain::agents::codex::server_request_method::method;
     use serde_json::{json, Value};
 
     #[test]
@@ -183,7 +187,11 @@ mod tests {
             feedback: None,
             updated_input: None,
         };
-        let value = response_value("item/tool/requestUserInput", &Value::Null, &response);
+        let value = response_value(
+            method("item/tool/requestUserInput"),
+            &Value::Null,
+            &response,
+        );
         assert_eq!(value, json!({ "answers": {} }));
     }
 
@@ -199,7 +207,11 @@ mod tests {
             updated_input: None,
         };
 
-        let value = response_value("mcpServer/elicitation/request", &Value::Null, &response);
+        let value = response_value(
+            method("mcpServer/elicitation/request"),
+            &Value::Null,
+            &response,
+        );
         assert_eq!(
             value,
             json!({ "action": "cancel", "content": null, "_meta": null })
@@ -218,7 +230,11 @@ mod tests {
             updated_input: None,
         };
 
-        let value = response_value("mcpServer/elicitation/request", &Value::Null, &response);
+        let value = response_value(
+            method("mcpServer/elicitation/request"),
+            &Value::Null,
+            &response,
+        );
         assert_eq!(
             value,
             json!({
@@ -245,7 +261,7 @@ mod tests {
             ]
         });
 
-        let value = response_value("item/tool/requestUserInput", &params, &response);
+        let value = response_value(method("item/tool/requestUserInput"), &params, &response);
         assert_eq!(
             value,
             json!({ "answers": { "q1": { "answers": ["yes"] }, "q2": { "answers": ["no"] } } })
@@ -267,7 +283,7 @@ mod tests {
         };
         let params = json!({ "questions": [{ "id": "q1", "question": "First?" }] });
 
-        let value = response_value("item/tool/requestUserInput", &params, &response);
+        let value = response_value(method("item/tool/requestUserInput"), &params, &response);
         assert_eq!(
             value,
             json!({ "answers": { "q1": { "answers": ["already mapped"] } } })
@@ -288,7 +304,7 @@ mod tests {
         };
         let params = json!({ "questions": [{ "id": "theme_scope", "question": question }] });
 
-        let value = response_value("item/tool/requestUserInput", &params, &response);
+        let value = response_value(method("item/tool/requestUserInput"), &params, &response);
         assert_eq!(
             value,
             json!({ "answers": { "theme_scope": { "answers": ["K7Notes app only (Recommended)"] } } })
@@ -306,7 +322,11 @@ mod tests {
         };
         let params = json!({ "permissions": { "write": true } });
 
-        let value = response_value("item/permissions/requestApproval", &params, &response);
+        let value = response_value(
+            method("item/permissions/requestApproval"),
+            &params,
+            &response,
+        );
         assert_eq!(
             value,
             json!({ "permissions": { "write": true }, "scope": "session" })
@@ -324,7 +344,7 @@ mod tests {
         };
 
         let value = response_value(
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &Value::Null,
             &response,
         );
@@ -342,7 +362,7 @@ mod tests {
         };
 
         let value = response_value(
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &Value::Null,
             &response,
         );
@@ -363,7 +383,11 @@ mod tests {
         };
         let params = json!({ "permissions": { "write": true } });
 
-        let value = response_value("item/permissions/requestApproval", &params, &response);
+        let value = response_value(
+            method("item/permissions/requestApproval"),
+            &params,
+            &response,
+        );
         assert_eq!(
             value,
             json!({
@@ -385,7 +409,7 @@ mod tests {
         };
 
         let value = response_value(
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &json!({ "availableDecisions": ["accept", "cancel"] }),
             &response,
         );
@@ -403,7 +427,7 @@ mod tests {
         };
 
         let value = response_value(
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &json!({ "availableDecisions": ["accept", "decline"] }),
             &response,
         );

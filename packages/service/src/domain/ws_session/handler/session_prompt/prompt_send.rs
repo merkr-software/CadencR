@@ -89,7 +89,7 @@ pub(in crate::domain::ws_session) async fn dispatch_local_phase(
     };
     prompt_selection_sync::sync_handle(handle, stored, app_state, db_session_id);
     apply_prompt_profile_update(handle, profile_update);
-    let changes = apply_respawn_if_needed(handle, app_state, db_session_id).await;
+    let (changes, retired) = apply_respawn_if_needed(handle, app_state, db_session_id).await;
     log_dispatch_decision(handle, db_session_id, &changes);
     notify_deferred_respawn(sender, &envelope.id, &changes);
 
@@ -110,6 +110,11 @@ pub(in crate::domain::ws_session) async fn dispatch_local_phase(
         let result = handle_followup_prompt(context, payload).await;
         report_prompt_result(sender, &envelope.id, selection, result);
         return None;
+    }
+    drop(sessions);
+    // Closed before the prompt spawns its replacement.
+    if let Some(retired) = retired {
+        retired.close_in(app_state).await;
     }
     Some(payload)
 }
@@ -216,11 +221,11 @@ async fn owner_prompt_target(
         // An idle runtime still on another model respawns before taking the
         // prompt; a live turn is steered as is.
         let adopted = prompt_selection_sync::sync_handle(handle, stored, app_state, db_session_id);
-        let changes = if profile_update.is_some() || adopted {
+        let (changes, retired) = if profile_update.is_some() || adopted {
             apply_prompt_profile_update(handle, profile_update);
             apply_respawn_if_needed(handle, app_state, db_session_id).await
         } else {
-            dispatch_changes(handle)
+            (dispatch_changes(handle), None)
         };
         log_dispatch_decision(handle, db_session_id, &changes);
         notify_deferred_respawn(sender, envelope_id, &changes);
@@ -233,7 +238,13 @@ async fn owner_prompt_target(
                 handle.runtime_provider.clone(),
                 PromptedSelection::of(handle),
             ),
-            QueryState::Pending(_) => return Some(OwnerPromptTarget::Pending(owner.clone())),
+            QueryState::Pending(_) => {
+                drop(sessions);
+                if let Some(retired) = retired {
+                    retired.close_in(app_state).await;
+                }
+                return Some(OwnerPromptTarget::Pending(owner.clone()));
+            }
         }
     };
     info!(
@@ -300,7 +311,8 @@ async fn resolve_prompt_profile_update(
             db_session_id,
             &update.name,
         )
-        .await;
+        .await
+        .map_err(|error| format!("Failed to save the selected profile: {error}"))?;
     }
     Ok(Some(update))
 }

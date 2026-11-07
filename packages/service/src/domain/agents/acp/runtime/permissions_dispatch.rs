@@ -347,7 +347,7 @@ mod tests {
     #[tokio::test]
     async fn cached_session_permission_answers_agent_without_prompt_event() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
-        let mut subscriber = client.subscribe();
+        let mut subscriber = client.subscribe_reliable();
         write_frame(
             &mut agent_stdout,
             json!({

@@ -7,7 +7,11 @@ use serde_json::Value;
 /// per agent session to monitor context window consumption.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
+    // Defaulted so a usage block that drops a counter costs that counter, not
+    // the `result` / assistant message carrying it.
+    #[serde(default)]
     pub input_tokens: u64,
+    #[serde(default)]
     pub output_tokens: u64,
     #[serde(default)]
     pub cache_creation_input_tokens: Option<u64>,
@@ -134,7 +138,11 @@ pub struct McpServerStatus {
 }
 
 /// Records a tool use that was denied (e.g. via permission system).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Every field is defaulted: denials ride on the turn-ending `result`, which
+/// must decode even when a denial entry drifts.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
 pub struct PermissionDenial {
     pub tool_name: String,
     pub tool_use_id: String,

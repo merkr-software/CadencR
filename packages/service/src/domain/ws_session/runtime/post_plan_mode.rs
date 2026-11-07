@@ -5,6 +5,7 @@ use tracing::{debug, warn};
 
 use super::helpers::{
     parse_permission_mode, post_plan_approval_fallback_mode_wire, post_plan_approval_mode_wire,
+    send_session_error, state_not_saved_message, SESSION_STATE_NOT_SAVED,
 };
 use super::state::{QueryState, SdkHandle, SdkSessions};
 use crate::domain::agents::adapter::{
@@ -101,8 +102,20 @@ pub(in crate::domain::ws_session) async fn transition_session_to_post_plan_mode(
         }
     }
 
-    WsSessionPersistence::update_permission_mode_static(write_pool, db_session_id, &applied_wire)
-        .await;
+    if let Err(error) = WsSessionPersistence::update_permission_mode_static(
+        write_pool,
+        db_session_id,
+        &applied_wire,
+    )
+    .await
+    {
+        warn!(db_session_id, %error, "post-plan-approval: failed to save the permission mode");
+        send_session_error(
+            sender,
+            SESSION_STATE_NOT_SAVED,
+            state_not_saved_message("the permission mode after plan approval", &error),
+        );
+    }
     let envelope = WsEnvelope::session_event(&WsSessionEvent::ModeChanged(ModeChangedPayload {
         mode: applied_wire.clone(),
     }))

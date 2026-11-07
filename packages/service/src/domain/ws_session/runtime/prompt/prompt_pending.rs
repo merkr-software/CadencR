@@ -90,6 +90,7 @@ pub(in crate::domain::ws_session) async fn handle_pending_prompt(
     mark_agent_running(
         &context.app_state.write_pool,
         &context.app_state.session_status_tx,
+        &context.app_state.ws_feature_senders,
         &context.app_state.active_turns,
         &context.sdk_sessions,
         context.db_session_id,

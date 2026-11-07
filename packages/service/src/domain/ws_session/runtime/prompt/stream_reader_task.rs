@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use axum::extract::ws::Message;
 use tokio::time::Instant;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::{
@@ -265,10 +265,20 @@ impl StreamReaderTask {
             return false;
         }
 
-        let session_running =
-            WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id)
-                .await
-                .is_some_and(|row| row.status == "running");
+        let session_running = match WsSessionPersistence::try_get_session_row(
+            &self.write_pool,
+            self.db_session_id,
+        )
+        .await
+        {
+            Ok(row) => row.is_some_and(|row| row.status == "running"),
+            // An unknown status is no proof the close was intentional:
+            // report the stop instead of ending the turn as finished.
+            Err(error) => {
+                warn!(self.db_session_id, %error, "could not read session status at stream close");
+                true
+            }
+        };
         stream_reader_stop::stream_close_was_unexpected(
             state.turn_state.is_between_turns(),
             !state.live_background_agents.is_empty(),
@@ -287,7 +297,7 @@ impl StreamReaderTask {
             runtime_session_id = runtime_sid,
             "provider reports finished session; reconciling completion"
         );
-        WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.record_completed().await;
         self.session_status_tx.broadcast(
             self.db_session_id,
             self.feature_id,
@@ -316,7 +326,20 @@ impl StreamReaderTask {
         {
             return false;
         }
-        let row = WsSessionPersistence::get_session_row(&self.write_pool, self.db_session_id).await;
+        let row = match WsSessionPersistence::try_get_session_row(
+            &self.write_pool,
+            self.db_session_id,
+        )
+        .await
+        {
+            Ok(row) => row,
+            // Closing needs proof the turn is over; keep the runtime and retry
+            // on a later tick.
+            Err(error) => {
+                warn!(self.db_session_id, %error, "could not read session status; keeping the unobserved runtime");
+                return false;
+            }
+        };
         let has_pending_user_input = row.as_ref().is_some_and(|row| row.has_pending_user_input());
         // A `running` status means another device just dispatched a follow-up
         // into this same turn; don't close it out from under that new turn.

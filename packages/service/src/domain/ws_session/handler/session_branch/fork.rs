@@ -39,7 +39,8 @@ pub(crate) async fn handle_fork(
 
     // Stop any live turn so the on-disk transcript is consistent before surgery.
     // The source session's conversation rows are left untouched.
-    stop_live_turn(sdk_sessions, app_state, db_session_id).await;
+    // Held until the fork is written: no runtime of the source starts meanwhile.
+    let _branching = stop_live_turn(sdk_sessions, app_state, db_session_id).await;
     let source_runtime_session_id =
         current_runtime_session_id(&app_state.read_pool, db_session_id).await;
 

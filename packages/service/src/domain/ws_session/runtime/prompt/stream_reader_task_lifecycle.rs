@@ -2,6 +2,7 @@ use tracing::{error, info};
 
 use crate::domain::agents::adapter::RuntimeError;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 use super::super::QueryState;
 use super::stream_reader_task::{StreamReaderState, StreamReaderTask};
@@ -40,6 +41,12 @@ impl StreamReaderTask {
                 "runtime ended while processing an intentional interruption"
             );
             self.handle_interrupted_end(state, generation).await;
+            if error.is_stop_escalation() {
+                // The stop happened, but by killing the runtime: whatever it
+                // held (processes, MCP servers, unsaved state) is gone.
+                self.persist_and_emit_error("AGENT_STOP_ESCALATED", error.to_string(), None)
+                    .await;
+            }
         } else if self.end_turn_cut_off_by_shutdown(state).await {
             info!(self.db_session_id, error = %error, "runtime failed while the service shut down");
         } else {
@@ -86,7 +93,33 @@ impl StreamReaderTask {
         {
             error!(self.db_session_id, error = %error, context, "failed to resolve pending prompt receipts");
         }
-        WsSessionPersistence::mark_paused_static(&self.write_pool, self.db_session_id).await;
+        self.check_write(
+            WsSessionPersistence::mark_paused_static(&self.write_pool, self.db_session_id).await,
+            "that the agent paused",
+        )
+        .await;
+    }
+
+    pub(in crate::domain::ws_session) async fn record_completed(&self) {
+        let written =
+            WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.check_write(written, "that the agent finished").await;
+    }
+
+    pub(in crate::domain::ws_session) async fn record_running(&self) {
+        let written =
+            WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
+        self.check_write(written, "that the agent is working").await;
+    }
+
+    /// Surface a session-state write that failed to every viewer.
+    pub(in crate::domain::ws_session) async fn check_write(
+        &self,
+        written: Result<(), sqlx::Error>,
+        what: &str,
+    ) {
+        let senders = &self.feature_senders;
+        report_if_unsaved(senders, self.feature_id, self.db_session_id, what, written).await;
     }
 
     pub(in crate::domain::ws_session) async fn discard_superseded_event(&self) -> bool {

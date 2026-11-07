@@ -6,14 +6,15 @@ use serde_json::Value;
 #[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::process::Command;
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::{broadcast, oneshot};
 
 #[cfg(test)]
 use crate::domain::agents::acp::client_spawn::spawn_acp_with_streams;
 use crate::domain::agents::acp::client_spawn::{spawn_acp_subprocess, Inner};
 use crate::domain::agents::acp::error::AcpError;
+use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::process_tree::AcpProcessTreePolicy;
-use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent};
+use crate::domain::agents::acp::types::{AcpClientInfo, AcpEvent, AcpEventBarrier};
 
 /// Generic ACP subprocess client backed by the official ACP Rust SDK.
 #[derive(Clone)]
@@ -78,17 +79,34 @@ impl AcpClient {
         Self { inner }
     }
 
+    /// Best-effort observer: lags (and skips) under load and never sees
+    /// barriers. Only for short-lived probes; the runtime uses
+    /// [`Self::subscribe_reliable`].
     pub fn subscribe(&self) -> broadcast::Receiver<AcpEvent> {
         self.inner.events.subscribe()
     }
 
-    pub(crate) fn enqueue_event_barrier(&self) -> Result<Arc<Notify>, AcpError> {
-        let barrier = Arc::new(Notify::new());
-        self.inner
+    /// Ordered, lossless subscription; overflow ends it with a visible
+    /// `AcpEvent::TransportError` instead of skipping events.
+    pub fn subscribe_reliable(&self) -> AcpReliableEventReceiver {
+        self.inner.events.subscribe_reliable()
+    }
+
+    /// Queue a fence behind every event received so far. The receiver
+    /// resolves once the event loop reaches it, or errors if the loop's
+    /// queue is gone — it never waits on a fence that was skipped.
+    pub(crate) fn enqueue_event_barrier(&self) -> Result<oneshot::Receiver<()>, AcpError> {
+        let (barrier, released) = AcpEventBarrier::new();
+        if !self
+            .inner
             .events
-            .send(AcpEvent::EventBarrier(Arc::clone(&barrier)))
-            .map_err(|_| AcpError::Protocol("ACP runtime event loop is unavailable".to_string()))?;
-        Ok(barrier)
+            .send_reliable(AcpEvent::EventBarrier(barrier))
+        {
+            return Err(AcpError::Protocol(
+                "ACP runtime event loop is unavailable".to_string(),
+            ));
+        }
+        Ok(released)
     }
 
     pub fn client_info(&self) -> &AcpClientInfo {
@@ -119,15 +137,41 @@ impl AcpClient {
         Req::Response: Send,
     {
         let label = static_method_label(request.method());
+        tokio::time::timeout(timeout, self.send_request_until_closed(request))
+            .await
+            .map_err(|_| AcpError::Timeout(label))?
+    }
+
+    /// Request without a deadline, for long-running agent work such as
+    /// `session/prompt`. It still settles when the transport closes: on EOF,
+    /// on `shutdown()`, or once the process has exited and its pipe drain
+    /// grace elapsed — never on wall-clock time alone.
+    pub async fn request_until_closed(
+        &self,
+        method: &str,
+        params: Value,
+    ) -> Result<Value, AcpError> {
+        let request = UntypedMessage::new(method, params).map_err(AcpError::from_acp)?;
+        self.send_request_until_closed(request).await
+    }
+
+    async fn send_request_until_closed<Req>(&self, request: Req) -> Result<Req::Response, AcpError>
+    where
+        Req: JsonRpcRequest,
+        Req::Response: Send,
+    {
+        let label = static_method_label(request.method());
+        let mut closed = self.inner.closed.subscribe();
         let pending = self
             .inner
             .connection
             .send_request_to(Agent, request)
             .block_task();
-        tokio::time::timeout(timeout, pending)
-            .await
-            .map_err(|_| AcpError::Timeout(label))?
-            .map_err(AcpError::from_acp)
+        tokio::select! {
+            biased;
+            result = pending => result.map_err(AcpError::from_acp),
+            _ = closed.wait_for(|closed| *closed) => Err(AcpError::ConnectionClosed(label)),
+        }
     }
 
     pub async fn send_notification_typed<N>(&self, notification: N) -> Result<(), AcpError>
@@ -397,8 +441,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_request_is_broadcast_to_subscribers() {
-        let (client, mut agent_stdout, _agent_stdin) = build_in_memory_client().await;
+    async fn server_request_seen_only_by_an_observer_is_rejected() {
+        // Observers are best-effort and never answer: counting them as a
+        // receiver used to leave the agent waiting forever.
+        let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let mut subscriber = client.subscribe();
         write_frame(
             &mut agent_stdout,
@@ -420,11 +466,15 @@ mod tests {
         assert_eq!(request.id(), &json!("perm-7"));
         assert_eq!(request.method(), "session/request_permission");
         assert_eq!(request.params()["ok"], true);
+        let rejection = read_frame(&mut agent_stdin).await;
+        assert_eq!(rejection["id"], "perm-7");
+        assert_eq!(rejection["error"]["code"], -32603);
     }
 
     #[tokio::test]
     async fn responding_server_request_uses_crate_responder() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let mut subscriber = client.subscribe_reliable();
         write_frame(
             &mut agent_stdout,
             json!({
@@ -435,7 +485,6 @@ mod tests {
             }),
         )
         .await;
-        let mut subscriber = client.subscribe();
         let _ = tokio::time::timeout(Duration::from_secs(1), subscriber.recv())
             .await
             .unwrap()
@@ -455,7 +504,7 @@ mod tests {
     #[tokio::test]
     async fn server_request_ids_preserve_json_types_and_route_out_of_order() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
-        let mut subscriber = client.subscribe();
+        let mut subscriber = client.subscribe_reliable();
         let ids = [
             json!(17),
             json!("17"),
@@ -580,6 +629,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn untimed_request_settles_when_the_client_shuts_down() {
+        let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_until_closed("session/prompt", json!({}))
+                    .await
+            }
+        });
+        read_frame(&mut agent_stdin).await;
+        client.shutdown().await;
+        let error = tokio::time::timeout(Duration::from_secs(1), pending)
+            .await
+            .expect("shutdown must settle an untimed request")
+            .unwrap()
+            .unwrap_err();
+        assert!(!matches!(error, AcpError::Timeout(_)), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn untimed_request_settles_after_exit_even_if_a_descendant_holds_the_pipes() {
+        // Without the old one-hour cap, a descendant that inherited stdout
+        // (so EOF never arrives) must not keep `session/prompt` pending.
+        let mut command = tokio::process::Command::new("/bin/sh");
+        command.args(["-c", "exec 3<&0; sleep 6 <&3 & exit 0"]);
+        let client = AcpClient::spawn(
+            AcpSpawnOptions::builder()
+                .command(command)
+                .client_info(AcpClientInfo::default())
+                .build(),
+        )
+        .await
+        .expect("spawn ACP stand-in");
+        let mut events = client.subscribe_reliable();
+        let pending = tokio::spawn({
+            let client = client.clone();
+            async move {
+                client
+                    .request_until_closed("session/prompt", json!({}))
+                    .await
+            }
+        });
+        let error = tokio::time::timeout(Duration::from_secs(5), pending)
+            .await
+            .expect("a dead agent must not leave the prompt pending")
+            .unwrap()
+            .unwrap_err();
+        assert!(
+            matches!(error, AcpError::ConnectionClosed("session/prompt")),
+            "{error}"
+        );
+        assert!(matches!(
+            events.recv().await,
+            Some(AcpEvent::ProcessExited {
+                status: Some(0),
+                ..
+            })
+        ));
+        client.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn shutdown_flushes_queued_notification_with_agent_output_still_open() {
         let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
         let notification =
@@ -604,7 +717,7 @@ mod tests {
     #[tokio::test]
     async fn incoming_batch_preserves_notifications_and_groups_request_responses() {
         let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
-        let mut subscriber = client.subscribe();
+        let mut subscriber = client.subscribe_reliable();
         write_frame(
             &mut agent_stdout,
             json!([

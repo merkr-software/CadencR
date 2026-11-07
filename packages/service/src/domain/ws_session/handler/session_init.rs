@@ -1,5 +1,6 @@
 use super::super::persistence::WsSessionPersistence;
 use super::super::protocol::*;
+use super::helpers::saved_or_report;
 use super::{send_error, thinking_effort, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
@@ -175,7 +176,7 @@ pub(super) async fn handle_init(
         },
     };
 
-    let (mut effective_thinking_effort, cleared_unsupported_effort) = session_init_effort::resolve(
+    let resolved_effort = session_init_effort::resolve(
         app_state,
         db_session_id,
         &effective_provider,
@@ -184,6 +185,11 @@ pub(super) async fn handle_init(
         stored_thinking_effort.clone(),
     )
     .await;
+    let Some((mut effective_thinking_effort, cleared_unsupported_effort)) =
+        saved_or_report(sender, &envelope.id, "reasoning effort", resolved_effort)
+    else {
+        return Some(db_session_id);
+    };
     let init_input_tokens = row.as_ref().and_then(|r| r.input_tokens);
     let init_output_tokens = row.as_ref().and_then(|r| r.output_tokens);
     let init_context_window = row.as_ref().and_then(|r| r.context_window);
@@ -262,13 +268,18 @@ pub(super) async fn handle_init(
     runtime_config.thinking_effort = effective_thinking_effort.clone();
     // Honor the client's choice when the provider supports it; otherwise fall
     // back to the active provider's default, and report the result.
-    let (permission_mode, effective_permission_mode_wire) = session_init_mode::resolve(
+    let resolved_mode = session_init_mode::resolve(
         app_state,
         db_session_id,
         &effective_provider,
         payload.permission_mode.as_deref(),
     )
     .await;
+    let Some((permission_mode, effective_permission_mode_wire)) =
+        saved_or_report(sender, &envelope.id, "permission mode", resolved_mode)
+    else {
+        return Some(db_session_id);
+    };
     runtime_config.permission_mode = permission_mode;
     let configured_access_mode = if effective_provider == initial_provider {
         configured_initial_access_mode

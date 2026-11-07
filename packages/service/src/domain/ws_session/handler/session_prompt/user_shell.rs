@@ -8,6 +8,7 @@ use crate::domain::agents::runtime_adapter;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 use super::super::{send_error, QueryState, SdkSessions, WsSender};
 use super::prompt_send::PreparedPrompt;
@@ -179,7 +180,12 @@ async fn run_local(
     ensure_session_idle(app_state, session_id).await?;
     let cwd = PathBuf::from(worktree::resolve_feature_cwd(&app_state.read_pool, feature_id).await?);
     let cancellation = app_state.user_shell_runs.register(session_id).await?;
-    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
+    if let Err(error) =
+        WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await
+    {
+        app_state.user_shell_runs.unregister(session_id).await;
+        return Err(format!("Could not start the command: {error}"));
+    }
     app_state
         .session_status_tx
         .broadcast_shell_running(session_id, feature_id);
@@ -199,7 +205,8 @@ async fn run_local(
     tokio::spawn(async move {
         let result = run_cadencr_managed_user_shell(request).await;
         app_state.user_shell_runs.unregister(session_id).await;
-        WsSessionPersistence::mark_paused_static(&app_state.write_pool, session_id).await;
+        let paused =
+            WsSessionPersistence::mark_paused_static(&app_state.write_pool, session_id).await;
         app_state.session_status_tx.broadcast(
             session_id,
             feature_id,
@@ -209,6 +216,9 @@ async fn run_local(
         if let Err(error) = result {
             super::super::send_error(&sender, &envelope_id, "USER_SHELL_FAILED", &error);
         }
+        let senders = &app_state.ws_feature_senders;
+        let what = "that the command finished";
+        report_if_unsaved(senders, feature_id, session_id, what, paused).await;
     });
     Ok(())
 }

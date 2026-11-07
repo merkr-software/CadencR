@@ -188,7 +188,7 @@ async fn close_during_initial_prompt_closes_stream_with_runtime_retained() {
 
 #[tokio::test]
 async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
-    let (client, _agent_stdout, mut agent_stdin) = build_in_memory_client().await;
+    let (client, mut agent_stdout, mut agent_stdin) = build_in_memory_client().await;
     spawn_event_barrier_acker(&client);
     let negotiated = NegotiatedSession {
         session_id: "s-steer".to_string(),
@@ -241,6 +241,12 @@ async fn stream_input_waits_for_active_turn_and_cancel_emits_terminal_result() {
     session.interrupt().await.unwrap();
     let cancel = read_request(&mut agent_stdin).await;
     assert_eq!(cancel["method"], "session/cancel");
+    send_response(
+        &mut agent_stdout,
+        prompt["id"].clone(),
+        json!({"stopReason": "cancelled"}),
+    )
+    .await;
     tokio::time::timeout(std::time::Duration::from_millis(500), steer)
         .await
         .expect("cancel should unblock steering prompt")
@@ -279,7 +285,7 @@ async fn prompt_receipt_waits_for_user_message_echo() {
         Arc::new(SpawnHooks),
         Arc::new(StdMutex::new(EventIndexer::default())),
     );
-    let event_rx = client.subscribe();
+    let event_rx = client.subscribe_reliable();
     let _event_loop = spawn_event_loop(
         client.clone(),
         event_rx,
@@ -364,6 +370,12 @@ async fn prompt_receipt_waits_for_user_message_echo() {
     session.interrupt().await.unwrap();
     let cancel = read_request(&mut agent_stdin).await;
     assert_eq!(cancel["method"], "session/cancel");
+    send_response(
+        &mut agent_stdout,
+        prompt["id"].clone(),
+        json!({"stopReason": "cancelled"}),
+    )
+    .await;
     tokio::time::timeout(std::time::Duration::from_millis(500), steer)
         .await
         .expect("cancel should unblock steering prompt")

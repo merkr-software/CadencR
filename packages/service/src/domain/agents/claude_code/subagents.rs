@@ -150,8 +150,8 @@ impl ClaudeSubagentState {
                 updates: self.observe_tool_results(message, tool_use_result.as_ref()),
                 ..Observed::default()
             },
-            claude_agent_sdk_rs::SdkMessage::Unknown(raw) => Observed {
-                updates: TaskEvent::parse(raw)
+            claude_agent_sdk_rs::SdkMessage::TaskLifecycle(event) => Observed {
+                updates: TaskEvent::parse(event)
                     .and_then(|event| self.observe_task(event, now))
                     .into_iter()
                     .collect(),

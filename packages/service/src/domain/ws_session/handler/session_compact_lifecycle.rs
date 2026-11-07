@@ -5,6 +5,7 @@ use super::{SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::session_status::AgentStatus;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 pub(super) struct CompactReservation {
     pending: Arc<AtomicBool>,
@@ -43,6 +44,7 @@ pub(super) async fn begin_compact(
         super::session_prompt::mark_agent_running(
             &state.write_pool,
             &state.session_status_tx,
+            &state.ws_feature_senders,
             &state.active_turns,
             sdk_sessions,
             session_id,
@@ -77,7 +79,17 @@ pub(super) async fn finish_compact_start(
     };
     if let Some(state) = app_state {
         if !succeeded && !was_running {
-            WsSessionPersistence::mark_paused_static(&state.write_pool, session_id).await;
+            let paused =
+                WsSessionPersistence::mark_paused_static(&state.write_pool, session_id).await;
+            let senders = &state.ws_feature_senders;
+            report_if_unsaved(
+                senders,
+                feature_id,
+                session_id,
+                "that the agent paused",
+                paused,
+            )
+            .await;
             state
                 .session_status_tx
                 .broadcast(session_id, feature_id, AgentStatus::Idle, None);

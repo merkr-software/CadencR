@@ -64,10 +64,23 @@ impl RuntimeToolPermissionHandler for WsBridgeCanUseTool {
         );
 
         if request.tool_name == "EnterPlanMode" {
-            let _ = sqlx::query("UPDATE agent_sessions SET permission_mode = 'plan' WHERE id = ?")
-                .bind(self.db_session_id)
-                .execute(&self.write_pool)
+            if let Err(error) =
+                crate::domain::ws_session::persistence::WsSessionPersistence::update_permission_mode_static(
+                    &self.write_pool,
+                    self.db_session_id,
+                    "plan",
+                )
+                .await
+            {
+                crate::domain::ws_session::runtime::helpers::report_session_write_failure(
+                    &self.feature_senders,
+                    self.feature_id,
+                    self.db_session_id,
+                    "that the agent entered plan mode",
+                    &error,
+                )
                 .await;
+            }
             return RuntimeToolPermissionResult::Allow {
                 updated_input: request.input,
                 updated_permissions: None,

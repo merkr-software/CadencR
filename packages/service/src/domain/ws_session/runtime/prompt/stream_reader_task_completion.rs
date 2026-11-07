@@ -128,14 +128,14 @@ impl StreamReaderTask {
         // resetting elapsed time to 0s. The resume turn's final `Result` arrives
         // with the set empty and ends the turn normally below.
         if interrupted_generation.is_none() && !state.live_background_agents.is_empty() {
-            WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
+            self.record_running().await;
             return None;
         }
         if let Some(generation) = interrupted_generation {
             return self.interrupted_result_envelope(state, generation).await;
         }
 
-        WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.record_completed().await;
         self.record_turn_outcome(
             state,
             if failed {
@@ -198,7 +198,7 @@ impl StreamReaderTask {
             );
             return None;
         }
-        WsSessionPersistence::mark_completed_static(&self.write_pool, self.db_session_id).await;
+        self.record_completed().await;
         self.record_turn_outcome(state, TurnOutcome::Interrupted)
             .await;
         // Both ways a stopped turn ends (its runtime's interrupted result, or

@@ -54,6 +54,7 @@ mod responses;
 mod revision_cache;
 pub mod routes;
 mod runtime_error;
+mod server_request_method;
 mod session;
 mod session_permissions;
 mod thread_params;

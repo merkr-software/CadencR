@@ -1,10 +1,13 @@
 //! Generic Agent Client Protocol (ACP) stdio JSON-RPC transport.
 //!
-//! Provider-neutral subprocess client. Mirrors the reliability shape of the
-//! Codex app-server SDK (bounded line reads, pending-request guard, broadcast
-//! channel for events, atomic exit-once flag, separate stderr reader, per-
-//! request timeouts) but speaks plain ACP framing — no Codex-specific
-//! method names or shapes leak into this module.
+//! Provider-neutral subprocess client built on the official ACP Rust SDK
+//! (which owns stdout framing and request/response routing). Cadencr adds an
+//! ordered, lossless event queue for the runtime (`event_hub`, adapted from
+//! the Codex app-server SDK: overflow is a terminal visible error, never a
+//! silent skip) beside a best-effort broadcast for probes, an exit-once
+//! reaper, a bounded stderr reader, and per-request deadlines where the
+//! method has one (`session/prompt` has none: it settles when the transport
+//! closes). No Codex-specific method names or shapes leak into this module.
 //!
 //! Used by the OpenCode ACP adapter today and intended to be reused by
 //! future ACP-based providers (Zed-style, Gemini, Kiro, ...). Adapters
@@ -12,8 +15,10 @@
 //! into `RuntimeEvent` for the unified runtime layer.
 
 pub mod client;
+mod client_dispatch;
 mod client_spawn;
 pub mod error;
+pub mod event_hub;
 pub mod incoming;
 pub(crate) mod process_tree;
 pub mod runtime;

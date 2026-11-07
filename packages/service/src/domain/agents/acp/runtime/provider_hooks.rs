@@ -1,6 +1,7 @@
 //! Provider-specific extension points for the ACP runtime.
 
 use std::path::Path;
+use std::time::Duration;
 
 use agent_client_protocol::schema::v1::SessionConfigOption;
 use async_trait::async_trait;
@@ -154,6 +155,12 @@ pub trait AcpProviderHooks: Send + Sync {
     /// newly spawned subprocess via `session/resume` or legacy `session/load`.
     fn supports_durable_resume(&self) -> bool {
         false
+    }
+
+    /// How long Stop waits for `session/prompt` to settle after
+    /// `session/cancel` before terminating the agent process.
+    fn cancel_grace(&self) -> Duration {
+        super::turn_lifecycle::DEFAULT_CANCEL_GRACE
     }
 
     /// Observe handshake-owned ACP durable-resume support. Installed provider

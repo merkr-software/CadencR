@@ -6,6 +6,7 @@
 
 pub(in crate::domain::ws_session) mod support;
 
+pub(in crate::domain::ws_session) mod cell_lock_probe;
 mod reader_spawn;
 mod runtime_ownership;
 

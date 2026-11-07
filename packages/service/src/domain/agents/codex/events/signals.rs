@@ -49,7 +49,7 @@ pub(super) fn result_event(params: Value) -> RuntimeEvent {
             return None;
         }
         Some(RuntimeResultError {
-            code: "CODEX_TURN_FAILED".to_string(),
+            code: super::turn_errors::CODEX_TURN_FAILED.to_string(),
             message: error
                 .and_then(|error| error.get("message"))
                 .and_then(Value::as_str)

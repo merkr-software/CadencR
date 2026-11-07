@@ -13,22 +13,25 @@ const REVIEW_APPROVED_FOR_SESSION: &str = "approved_for_session";
 const REVIEW_DENIED: &str = "denied";
 const REVIEW_ABORT: &str = "abort";
 
-#[derive(Clone, Copy)]
-enum LegacyPermissionMethod {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum LegacyPermissionMethod {
     ApplyPatchApproval,
     ExecCommandApproval,
 }
 
-pub(super) fn legacy_permission_details(method: &str, params: &Value) -> Option<PermissionDetails> {
-    match LegacyPermissionMethod::parse(method)? {
-        LegacyPermissionMethod::ExecCommandApproval => Some(exec_command_details(params)),
-        LegacyPermissionMethod::ApplyPatchApproval => Some(apply_patch_details(params)),
+pub(super) fn legacy_permission_details(
+    method: LegacyPermissionMethod,
+    params: &Value,
+) -> PermissionDetails {
+    match method {
+        LegacyPermissionMethod::ExecCommandApproval => exec_command_details(params),
+        LegacyPermissionMethod::ApplyPatchApproval => apply_patch_details(params),
     }
 }
 
-pub(super) fn legacy_permission_options(method: &str) -> Option<Vec<RuntimePermissionOption>> {
-    LegacyPermissionMethod::parse(method)?;
-    Some(vec![
+/// Both legacy methods share the `ReviewDecision` vocabulary.
+pub(super) fn legacy_permission_options() -> Vec<RuntimePermissionOption> {
+    vec![
         review_option(
             RuntimePermissionDecision::AllowOnce,
             REVIEW_APPROVED,
@@ -57,22 +60,17 @@ pub(super) fn legacy_permission_options(method: &str) -> Option<Vec<RuntimePermi
             "Reject this request and stop the current turn",
             true,
         ),
-    ])
+    ]
 }
 
-pub(super) fn legacy_response_value(
-    method: &str,
-    _params: &Value,
-    response: &RuntimePermissionResponse,
-) -> Option<Value> {
-    LegacyPermissionMethod::parse(method)?;
+pub(super) fn legacy_response_value(response: &RuntimePermissionResponse) -> Value {
     let decision = legacy_review_decision_from_option_id(response.option_id.as_deref())
         .unwrap_or_else(|| fallback_review_decision(response.decision));
-    Some(json!({ "decision": decision }))
+    json!({ "decision": decision })
 }
 
 impl LegacyPermissionMethod {
-    fn parse(method: &str) -> Option<Self> {
+    pub(super) fn parse(method: &str) -> Option<Self> {
         match method {
             METHOD_APPLY_PATCH_APPROVAL => Some(Self::ApplyPatchApproval),
             METHOD_EXEC_COMMAND_APPROVAL => Some(Self::ExecCommandApproval),
@@ -169,9 +167,9 @@ fn fallback_review_decision(decision: RuntimePermissionDecision) -> &'static str
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::json;
 
-    use super::{legacy_permission_details, legacy_permission_options};
+    use super::{legacy_permission_details, legacy_permission_options, LegacyPermissionMethod};
     use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionResponse};
 
     #[test]
@@ -184,8 +182,7 @@ mod tests {
             updated_input: None,
         };
 
-        let value = super::legacy_response_value("execCommandApproval", &Value::Null, &response)
-            .expect("legacy response");
+        let value = super::legacy_response_value(&response);
 
         assert_eq!(value, json!({ "decision": "approved_for_session" }));
     }
@@ -200,8 +197,7 @@ mod tests {
             updated_input: None,
         };
 
-        let value = super::legacy_response_value("execCommandApproval", &Value::Null, &response)
-            .expect("legacy response");
+        let value = super::legacy_response_value(&response);
 
         assert_eq!(value, json!({ "decision": "approved_for_session" }));
     }
@@ -209,16 +205,15 @@ mod tests {
     #[test]
     fn legacy_apply_patch_details_are_session_approvable() {
         let details = legacy_permission_details(
-            "applyPatchApproval",
+            LegacyPermissionMethod::ApplyPatchApproval,
             &json!({
                 "conversationId": "thread",
                 "callId": "patch-1",
                 "fileChanges": { "src/main.rs": { "type": "update", "unified_diff": "@@" } },
                 "grantRoot": "/tmp/repo"
             }),
-        )
-        .expect("legacy details");
-        let options = legacy_permission_options("applyPatchApproval").expect("legacy options");
+        );
+        let options = legacy_permission_options();
 
         assert_eq!(details.tool_name, "ApplyPatch");
         assert!(details.supports_allow_future);

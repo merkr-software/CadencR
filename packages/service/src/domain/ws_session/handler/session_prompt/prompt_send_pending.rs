@@ -24,7 +24,10 @@ pub(in crate::domain::ws_session) async fn spawn_pending_prompt(
         return;
     }
 
-    let mut sessions = sdk_sessions.lock().await;
+    let mut sessions = app_state
+        .session_runtimes
+        .lock_settled(sdk_sessions, db_session_id)
+        .await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         send_error(
             sender,

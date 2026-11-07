@@ -2,6 +2,13 @@ use crate::messages::SdkMessage;
 
 use super::inner::SdkMessageInner;
 
+/// Fallback for a `result` whose `is_error` flag is unusable: the CLI tags
+/// every failed turn with an `error*` subtype (`error_during_execution`,
+/// `error_max_turns`, ...), so a failure stays a failure.
+fn subtype_reports_error(subtype: &str) -> bool {
+    subtype.starts_with("error")
+}
+
 impl From<SdkMessageInner> for SdkMessage {
     fn from(inner: SdkMessageInner) -> Self {
         match inner {
@@ -34,12 +41,12 @@ impl From<SdkMessageInner> for SdkMessage {
                 model_usage,
                 extra,
             } => SdkMessage::Result {
+                is_error: is_error.unwrap_or_else(|| subtype_reports_error(&subtype)),
                 subtype,
                 uuid,
                 session_id,
                 duration_ms,
                 duration_api_ms,
-                is_error,
                 num_turns,
                 result,
                 errors,

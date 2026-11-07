@@ -15,6 +15,7 @@ pub(in crate::domain::ws_session) mod prompt_runtime_config;
 pub(in crate::domain::ws_session) mod prompt_selection_sync;
 mod prompt_status;
 pub(in crate::domain::ws_session) mod prompt_worktree;
+pub(in crate::domain::ws_session) mod respawn_deferral;
 mod runtime_hold;
 pub(in crate::domain::ws_session) mod runtime_hold_registry;
 mod runtime_mcp;

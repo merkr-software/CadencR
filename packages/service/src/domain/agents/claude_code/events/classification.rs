@@ -17,9 +17,6 @@ use crate::domain::agents::adapter::{
 pub(super) fn classify_message(
     msg: claude_agent_sdk_rs::SdkMessage,
 ) -> (RuntimeEventKind, Option<RuntimeResultError>) {
-    // Populated by a failing (`is_error`) `Result`; see `RuntimeResultError`.
-    let mut result_error: Option<RuntimeResultError> = None;
-
     let kind = match msg {
         claude_agent_sdk_rs::SdkMessage::System(system) => classify_system_message(system),
         claude_agent_sdk_rs::SdkMessage::Assistant {
@@ -70,23 +67,29 @@ pub(super) fn classify_message(
         }
         claude_agent_sdk_rs::SdkMessage::Result {
             is_error,
-            ref subtype,
-            ref result,
-            ref errors,
-            ref stop_reason,
+            subtype,
+            result,
+            errors,
+            stop_reason,
             ..
         } => {
-            if is_error {
-                result_error = Some(build_result_error(
-                    subtype,
+            let error = is_error.then(|| {
+                build_result_error(
+                    &subtype,
                     result.as_deref(),
                     errors.as_deref(),
                     stop_reason.as_deref(),
-                ));
-            }
-            RuntimeEventKind::Result
+                )
+            });
+            return (RuntimeEventKind::Result, error);
+        }
+        claude_agent_sdk_rs::SdkMessage::Malformed(message) => {
+            return classify_malformed_message(message)
         }
         claude_agent_sdk_rs::SdkMessage::Unknown(raw) => classify_unknown_message(raw),
+        // Background-task lifecycle frames: operational, consumed by the
+        // background-agent / subagent observers off the raw payload.
+        claude_agent_sdk_rs::SdkMessage::TaskLifecycle(_) => RuntimeEventKind::Other,
         // Modeled operational messages, intentionally not part of the
         // conversation. Listed explicitly (no `_` catch-all) so a future SDK
         // variant is a compile error here instead of a silent drop.
@@ -104,8 +107,8 @@ pub(super) fn classify_message(
         | claude_agent_sdk_rs::SdkMessage::PromptSuggestion { .. }
         | claude_agent_sdk_rs::SdkMessage::CommandLifecycle { .. } => RuntimeEventKind::Other,
     };
-
-    (kind, result_error)
+    // Only a turn-ending `result` carries error detail; see `RuntimeResultError`.
+    (kind, None)
 }
 
 /// Map a `system` message to its runtime event kind. Compaction start is a
@@ -163,28 +166,69 @@ fn classify_system_message(
     }
 }
 
+/// Map a known message kind whose payload failed to decode. A `result` still
+/// ends the turn — dropping it would leave the session "working" forever — and
+/// carries a visible error unless the CLI explicitly reported success. Other
+/// kinds keep the unmodeled-message handling of [`classify_unknown_message`].
+fn classify_malformed_message(
+    message: claude_agent_sdk_rs::messages::MalformedMessage,
+) -> (RuntimeEventKind, Option<RuntimeResultError>) {
+    if message.is_result() {
+        let error = (message.reported_is_error() != Some(false))
+            .then(|| build_malformed_result_error(&message));
+        return (RuntimeEventKind::Result, error);
+    }
+    if message.message_type() == "system" {
+        warn!(
+            subtype = message.subtype().unwrap_or("<missing>"),
+            error = message.error(),
+            "claude adapter: malformed system message dropped"
+        );
+        return (RuntimeEventKind::Other, None);
+    }
+    (
+        RuntimeEventKind::Unknown {
+            raw: message.into_raw(),
+        },
+        None,
+    )
+}
+
+fn build_malformed_result_error(
+    message: &claude_agent_sdk_rs::messages::MalformedMessage,
+) -> RuntimeResultError {
+    let detail = message
+        .raw()
+        .get("result")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| format!(": {text}"))
+        .unwrap_or_default();
+    RuntimeResultError {
+        code: "MALFORMED_RESULT".to_string(),
+        message: format!(
+            "Claude Code ended the turn with a result Cadencr could not read ({}){detail}",
+            message.error()
+        ),
+    }
+}
+
 /// Map an unmodeled (`Unknown`) message to its runtime event kind. Keep the raw
 /// payload so the stream reader can surface it to the conversation instead of
 /// dropping it silently — the silent-stop class users couldn't diagnose. EXCEPT
-/// `system` messages: those are operational metadata, not conversation content,
-/// and the run-in-background agent protocol (issue #58) emits
-/// `system/task_started` / `system/task_notification` that arrive here as
-/// Unknown by design. Surfacing those as visible errors would spam the
-/// conversation on every background-agent run, so an unknown `system` subtype
-/// stays out of the conversation (`Other`) — but only the allowlisted
-/// background-task subtypes stay *quiet*; anything else logs loudly so a CLI
-/// drift is diagnosable from the service log.
+/// `system` messages: those are operational metadata, not conversation content
+/// (the CLI emits dozens of subtypes such as `api_retry` or `notification`), so
+/// an untyped `system` subtype stays out of the conversation (`Other`) and logs
+/// loudly so a CLI drift is diagnosable from the service log. Background-task
+/// frames never land here: the SDK types them as `TaskLifecycle`. Known
+/// subtypes with nothing to show stay quiet: `thinking_tokens` arrives once
+/// per streamed thinking chunk and would flood the log.
 fn classify_unknown_message(raw: Value) -> RuntimeEventKind {
     if raw_type(&raw) == "system" {
+        const QUIET_SYSTEM_SUBTYPES: [&str; 1] = ["thinking_tokens"];
         let subtype = raw.get("subtype").and_then(Value::as_str);
-        const IGNORED_SYSTEM_SUBTYPES: [&str; 5] = [
-            "task_started",
-            "task_notification",
-            "task_progress",
-            "task_updated",
-            "background_tasks_changed",
-        ];
-        if !subtype.is_some_and(|s| IGNORED_SYSTEM_SUBTYPES.contains(&s)) {
+        if !subtype.is_some_and(|s| QUIET_SYSTEM_SUBTYPES.contains(&s)) {
             warn!(
                 subtype = subtype.unwrap_or("<missing>"),
                 "claude adapter: unrecognized system message dropped"
@@ -250,6 +294,61 @@ mod tests {
         let (kind, result_error) = classify_message(msg);
         assert!(matches!(kind, RuntimeEventKind::Other));
         assert!(result_error.is_none());
+    }
+
+    /// Warnings logged while `f` runs.
+    fn warnings_while(f: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Captured(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Captured {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(bytes);
+                Ok(bytes.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        let logged = captured.0.lock().unwrap().clone();
+        String::from_utf8(logged).unwrap()
+    }
+
+    fn classify_system(subtype: &str) -> (RuntimeEventKind, String) {
+        let msg = claude_agent_sdk_rs::SdkMessage::from_raw(serde_json::json!({
+            "type": "system", "subtype": subtype, "session_id": "s", "tokens": 12
+        }));
+        let mut classified = None;
+        let warnings = warnings_while(|| classified = Some(classify_message(msg)));
+        let (kind, result_error) = classified.unwrap();
+        assert!(result_error.is_none());
+        (kind, warnings)
+    }
+
+    #[test]
+    fn thinking_tokens_frames_are_dropped_quietly() {
+        let (kind, warnings) = classify_system("thinking_tokens");
+        // Out of the conversation and not a turn boundary: the turn goes on.
+        assert!(matches!(kind, RuntimeEventKind::Other));
+        assert!(warnings.is_empty(), "unexpected warning: {warnings}");
+    }
+
+    #[test]
+    fn an_unknown_system_subtype_still_warns() {
+        let (kind, warnings) = classify_system("brand_new_subtype");
+        assert!(matches!(kind, RuntimeEventKind::Other));
+        assert!(
+            warnings.contains("unrecognized system message dropped")
+                && warnings.contains("brand_new_subtype"),
+            "{warnings}"
+        );
     }
 
     #[test]

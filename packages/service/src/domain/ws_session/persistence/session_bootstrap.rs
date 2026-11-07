@@ -327,7 +327,9 @@ pub(super) mod session_bootstrap_tests {
             .find_or_create_session(Some("sonnet"), None)
             .await
             .unwrap();
-        WsSessionPersistence::mark_completed_static(&pool, id1).await;
+        WsSessionPersistence::mark_completed_static(&pool, id1)
+            .await
+            .unwrap();
         let mut p2 = WsSessionPersistence::new(pool.clone(), 1);
         let id2 = p2
             .find_or_create_session(Some("opus"), Some("plan"))
@@ -351,7 +353,9 @@ pub(super) mod session_bootstrap_tests {
         let pool = setup_test_db().await;
         let mut first = WsSessionPersistence::new(pool.clone(), 1);
         let session_id = first.find_or_create_session(None, None).await.unwrap();
-        WsSessionPersistence::mark_running_static(&pool, session_id).await;
+        WsSessionPersistence::mark_running_static(&pool, session_id)
+            .await
+            .unwrap();
         let mut second = WsSessionPersistence::new(pool.clone(), 1);
         second
             .find_or_create_session(None, Some("plan"))

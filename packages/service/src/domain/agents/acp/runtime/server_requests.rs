@@ -1,9 +1,14 @@
 //! Event-loop and server-request dispatch for the ACP runtime.
 //!
-//! Subscribes to the `AcpClient` broadcast channel, dispatches `session/update`
-//! notifications through the events.rs mapper, routes server-initiated requests
-//! through the appropriate handler module (permissions / fs / terminal), and
-//! turns `ProcessExited` into a visible `RuntimeError` on the runtime channel.
+//! Consumes the `AcpClient` reliable (ordered, lossless) event queue,
+//! dispatches `session/update` notifications through the events.rs mapper,
+//! routes server-initiated requests through the appropriate handler module
+//! (permissions / fs / terminal), and turns `ProcessExited` or a queue
+//! overflow into a visible `RuntimeError` on the runtime channel.
+//!
+//! Requests that can block indefinitely (`terminal/wait_for_exit`) are
+//! answered from tasks owned by the loop so later notifications and requests
+//! (including `terminal/kill`) keep flowing.
 //!
 //! Notifications and server-requests arrive as typed envelopes
 //! (`AcpNotification` / `AcpServerRequest`) that retain raw JSON. Handlers
@@ -15,9 +20,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use tokio::sync::{broadcast, mpsc, RwLock};
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, RwLock};
+use tokio::task::{JoinHandle, JoinSet};
 
+use crate::domain::agents::acp::event_hub::AcpReliableEventReceiver;
 use crate::domain::agents::acp::incoming::{AcpNotification, AcpServerRequest};
 use crate::domain::agents::acp::{AcpClient, AcpEvent};
 use crate::domain::agents::adapter::{RuntimeError, RuntimeEvent, RuntimeStreamStatus};
@@ -28,16 +34,15 @@ use super::events::session_update_to_events;
 use super::events_stream_blocks::EventIndexer;
 use super::events_tool_call_metadata::is_empty_value;
 use super::fs::{handle_read_text_file, handle_write_text_file};
-use super::permission_tool_updates::emit_permission_tool_update;
 use super::permissions::{
-    derive_preview, dispatch_permission_request_with_cache, has_pending_permission_for_tool_call,
-    permission_request_from_server_request, refreshed_permission_event_for_tool_input,
+    has_pending_permission_for_tool_call, refreshed_permission_event_for_tool_input,
     PendingPermissions,
 };
 use super::prompt_receipts::PendingPromptReceipts;
 use super::provider_hooks::AcpProviderHooks;
+use super::server_request_permission::handle_permission_request;
 use super::server_request_response::{
-    describe_exit, emit_recovered, fs_outcome_from, respond_or_reject, terminal_id_param,
+    describe_exit, fs_outcome_from, respond_or_reject, terminal_id_param,
 };
 use super::session_config::AcpSessionConfigState;
 use super::session_permissions::SessionPermissions;
@@ -70,71 +75,76 @@ pub struct EventLoopConfig {
     pub browser_trust: CadencrBrowserTrust,
 }
 
-/// Spawn the loop. Returns a handle the session can `abort()` on close.
+/// Spawn the loop. Returns a handle the session can `abort()` on close;
+/// aborting it also aborts the deferred request tasks it owns.
 pub fn spawn_event_loop(
     client: AcpClient,
-    mut source_rx: broadcast::Receiver<AcpEvent>,
+    mut source_rx: AcpReliableEventReceiver,
     tx: mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     config: EventLoopConfig,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        // Tracks whether we've previously emitted a `Degraded` banner so we
-        // can pair it with a `Recovered` banner once the next regular event
-        // arrives. Without this the FE sees a stuck Degraded indicator
-        // after a transient lag spike.
-        let mut degraded = false;
+        let mut deferred = JoinSet::new();
         loop {
-            match source_rx.recv().await {
-                Ok(AcpEvent::Notification(notification)) => {
-                    if degraded {
-                        emit_recovered(&tx).await;
-                        degraded = false;
-                    }
+            let event = tokio::select! {
+                event = source_rx.recv() => event,
+                Some(joined) = deferred.join_next(), if !deferred.is_empty() => {
+                    report_deferred_request_join(joined);
+                    continue;
+                }
+            };
+            let Some(event) = event else { break };
+            match event {
+                AcpEvent::Notification(notification) => {
                     handle_notification(&notification, &tx, &config).await;
                 }
-                Ok(AcpEvent::ServerRequest(request)) => {
-                    if degraded {
-                        emit_recovered(&tx).await;
-                        degraded = false;
-                    }
-                    handle_server_request(&client, request, &tx, &config).await;
+                AcpEvent::ServerRequest(request) => {
+                    handle_server_request(&client, request, &tx, &config, &mut deferred).await;
                 }
-                Ok(AcpEvent::EventBarrier(barrier)) => {
-                    barrier.notify_one();
-                }
-                Ok(AcpEvent::ProcessExited { status, signal }) => {
+                AcpEvent::EventBarrier(barrier) => barrier.release(),
+                AcpEvent::ProcessExited { status, signal } => {
                     if !config.closing.load(Ordering::SeqCst) {
-                        let message = describe_exit(status, signal);
-                        let _ = tx
-                            .send(Ok(RuntimeEvent::stream_status_event(
-                                RuntimeStreamStatus::Degraded {
-                                    reason: format!("ACP process exited: {message}"),
-                                },
-                            )))
-                            .await;
-                        let _ = tx
-                            .send(Err(RuntimeError::new(format!(
-                                "ACP process exited: {message}"
-                            ))))
-                            .await;
+                        let message =
+                            format!("ACP process exited: {}", describe_exit(status, signal));
+                        emit_terminal_error(&tx, message).await;
                     }
                     break;
                 }
-                Err(broadcast::error::RecvError::Closed) => break,
-                Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                    tracing::warn!(skipped, "ACP event broadcast lagged");
-                    let _ = tx
-                        .send(Ok(RuntimeEvent::stream_status_event(
-                            RuntimeStreamStatus::Degraded {
-                                reason: format!("event backlog: {skipped} skipped"),
-                            },
-                        )))
-                        .await;
-                    degraded = true;
+                AcpEvent::TransportError { message } => {
+                    // Events past the limit were not delivered, possibly
+                    // including server requests the agent now waits on.
+                    // End the session visibly rather than leave it wedged.
+                    tracing::error!(%message, "ACP runtime event queue overflowed");
+                    if !config.closing.load(Ordering::SeqCst) {
+                        emit_terminal_error(&tx, message).await;
+                    }
+                    client.shutdown().await;
+                    break;
                 }
             }
         }
     })
+}
+
+async fn emit_terminal_error(
+    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
+    message: String,
+) {
+    let degraded = RuntimeEvent::stream_status_event(RuntimeStreamStatus::Degraded {
+        reason: message.clone(),
+    });
+    if tx.send(Ok(degraded)).await.is_err() {
+        return;
+    }
+    let _ = tx.send(Err(RuntimeError::new(message))).await;
+}
+
+fn report_deferred_request_join(joined: Result<(), tokio::task::JoinError>) {
+    if let Err(error) = joined {
+        if error.is_panic() {
+            tracing::error!(%error, "ACP deferred server request panicked");
+        }
+    }
 }
 
 async fn handle_notification(
@@ -256,6 +266,7 @@ async fn handle_server_request(
     request: AcpServerRequest,
     tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
     config: &EventLoopConfig,
+    deferred: &mut JoinSet<()>,
 ) {
     let id = request.id().clone();
     match request.method() {
@@ -282,11 +293,20 @@ async fn handle_server_request(
             respond_or_reject(client, id, fs_outcome_from(result)).await;
         }
         "terminal/wait_for_exit" => {
-            let result = config
+            match config
                 .terminals
-                .wait_for_exit(terminal_id_param(request.params()))
-                .await;
-            respond_or_reject(client, id, fs_outcome_from(result)).await;
+                .exit_waiter(terminal_id_param(request.params()))
+                .await
+            {
+                Ok(waiter) => {
+                    let client = client.clone();
+                    deferred.spawn(async move {
+                        let result = waiter.wait().await;
+                        respond_or_reject(&client, id, fs_outcome_from(result)).await;
+                    });
+                }
+                Err(error) => respond_or_reject(client, id, fs_outcome_from(Err(error))).await,
+            }
         }
         "terminal/kill" => {
             let result = config
@@ -314,90 +334,6 @@ async fn handle_server_request(
     }
 }
 
-async fn handle_permission_request(
-    client: &AcpClient,
-    id: Value,
-    request: &AcpServerRequest,
-    tx: &mpsc::Sender<Result<RuntimeEvent, RuntimeError>>,
-    config: &EventLoopConfig,
-) {
-    let request_id = id
-        .as_str()
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| id.to_string());
-    let parsed = permission_request_from_server_request(&request_id, request);
-    let Some(mut permission) = parsed else {
-        if let Err(error) = client
-            .reject_server_request(id, -32602, "missing toolCall")
-            .await
-        {
-            tracing::error!(%error, "failed to reject malformed ACP permission request");
-        }
-        return;
-    };
-    enrich_permission_from_recorded_tool_input(&mut permission, config);
-    let normalized_name = config.hooks.normalize_tool_name(&permission.tool_name);
-    permission.tool_name = normalized_name;
-    permission.tool_input = config.hooks.normalize_tool_input(
-        &permission.tool_name,
-        std::mem::take(&mut permission.tool_input),
-    );
-    permission.preview = derive_preview(&permission.tool_input);
-    let session_id = config.session_id.read().await.clone();
-    if permission.tool_name.starts_with("mcp__") {
-        emit_permission_tool_update(&permission, session_id.as_deref(), &config.indexer, tx).await;
-    }
-    if let Err(error) = dispatch_permission_request_with_cache(
-        client,
-        &config.pending_permissions,
-        &config.session_permissions,
-        config.browser_trust,
-        session_id,
-        &request_id,
-        id.clone(),
-        permission,
-        request.params(),
-        tx,
-    )
-    .await
-    {
-        tracing::error!(%error, "failed to surface ACP permission request");
-        if let Err(reject_error) = client
-            .reject_server_request(id, -32800, "permission request could not be surfaced")
-            .await
-        {
-            tracing::error!(%reject_error, "failed to reject unsurfaced ACP permission request");
-        }
-    }
-}
-
-fn enrich_permission_from_recorded_tool_input(
-    permission: &mut crate::domain::agents::adapter::RuntimePermissionRequest,
-    config: &EventLoopConfig,
-) {
-    if !is_empty_value(&permission.tool_input) && permission.preview.is_some() {
-        return;
-    }
-    let Some(tool_use_id) = permission.tool_use_id.as_deref() else {
-        return;
-    };
-    let Some(recorded) = config
-        .indexer
-        .lock()
-        .expect("EventIndexer poisoned")
-        .tool_input_for(tool_use_id)
-        .cloned()
-    else {
-        return;
-    };
-    if is_empty_value(&permission.tool_input) {
-        permission.tool_input = recorded;
-    }
-    if permission.preview.is_none() {
-        permission.preview = derive_preview(&permission.tool_input);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::server_request_event_loop_tests::{
@@ -415,7 +351,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let task = spawn_event_loop(
             client.clone(),
-            client.subscribe(),
+            client.subscribe_reliable(),
             tx,
             event_loop_config(directory.path().to_path_buf()),
         );
@@ -462,7 +398,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel(8);
         let task = spawn_event_loop(
             client.clone(),
-            client.subscribe(),
+            client.subscribe_reliable(),
             tx,
             event_loop_config(directory.path().to_path_buf()),
         );

@@ -199,11 +199,15 @@ impl StreamReaderTask {
             return;
         };
         info!(self.db_session_id, runtime_session_id = %persisted_sid, "stream_reader: persisting runtime session_id to DB");
-        WsSessionPersistence::persist_runtime_session_id_static(
-            &self.write_pool,
-            self.db_session_id,
-            &self.runtime_provider,
-            persisted_sid.as_str(),
+        self.check_write(
+            WsSessionPersistence::persist_runtime_session_id_static(
+                &self.write_pool,
+                self.db_session_id,
+                &self.runtime_provider,
+                persisted_sid.as_str(),
+            )
+            .await,
+            "its resume point",
         )
         .await;
         send_runtime_session_id(&self.sender, persisted_sid.as_str());
@@ -247,7 +251,7 @@ impl StreamReaderTask {
 
     async fn broadcast_runtime_signal(&self, runtime_event: &RuntimeEvent) {
         if runtime_event.is_turn_started_signal() {
-            WsSessionPersistence::mark_running_static(&self.write_pool, self.db_session_id).await;
+            self.record_running().await;
         }
         self.session_status_tx
             .stream_event(self.db_session_id, self.feature_id, runtime_event);

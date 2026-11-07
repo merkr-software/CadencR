@@ -37,7 +37,8 @@ pub(in crate::domain::ws_session) async fn apply_provider_settings(
                 db_session_id,
                 &profile.identity,
             )
-            .await;
+            .await
+            .map_err(|error| format!("failed to save the conversation's profile: {error}"))?;
         }
     }
 
