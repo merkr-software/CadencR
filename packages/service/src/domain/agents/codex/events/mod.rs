@@ -4,6 +4,7 @@ use serde_json::Value;
 
 mod signals;
 mod subagents;
+mod turn_errors;
 // Overflow tests for the `collabAgentToolCall` wire path. Split out of the
 // inline test module only to keep every file under the 400-line cap.
 #[cfg(test)]
@@ -14,6 +15,8 @@ use self::signals::{
     child_error_event, model_rerouted_event, result_event, text_delta_event, turn_started_event,
 };
 use self::subagents::apply_subagent_parent_tool_use_id;
+use self::turn_errors::error_notification_events;
+pub(super) use self::turn_errors::{provider_error_event, TurnErrorState};
 use super::event_items::{
     command_output_delta_event, file_patch_updated_event, item_events, tool_json_delta_event,
 };
@@ -71,9 +74,22 @@ fn route_notification(
         .and_then(|thread| index_state.subagent_parent_tool_use_id(thread))
         .map(ToOwned::to_owned);
 
+    if let Some(thread) = thread_id {
+        let is_root = index_state.is_root_thread(thread);
+        events.extend(
+            index_state
+                .turn_errors
+                .recovered_event(method, thread, is_root),
+        );
+    }
+
     if let ("turn/completed", Some(parent)) = (method, subagent_parent_tool_use_id.as_deref()) {
-        let mut events = flush_raw_response_usage_events(&params, index_state);
-        events.extend(child_error_event(params, parent));
+        events.extend(flush_raw_response_usage_events(&params, index_state));
+        // The child's `error` notification already surfaced this failure.
+        let turn_id = params["turn"]["id"].as_str().unwrap_or_default();
+        if !index_state.turn_errors.take_surfaced(turn_id) {
+            events.extend(child_error_event(params, parent));
+        }
         return events;
     }
 
@@ -129,8 +145,29 @@ fn dispatch_notification(
         "item/reasoning/summaryTextDelta" => {
             reasoning_delta_event(ReasoningDeltaKind::Summary, params, index_state)
         }
-        _ => Vec::new(),
+        "error" => error_notification_events(&params, &mut index_state.turn_errors),
+        other => {
+            log_unmapped_notification(other);
+            Vec::new()
+        }
     }
+}
+
+fn log_unmapped_notification(method: &str) {
+    // Consumed outside this mapper: routing, lifecycle, pending server
+    // requests and MCP startup status read these from the same stream.
+    if matches!(
+        method,
+        "thread/started"
+            | "thread/status/changed"
+            | "thread/closed"
+            | "serverRequest/resolved"
+            | "mcpServer/startupStatus/updated"
+    ) {
+        return;
+    }
+    // e.g. `account/rateLimits/updated`: no provider-neutral event exists yet.
+    tracing::debug!(method, "Codex notification has no runtime mapping; ignored");
 }
 
 pub fn turn_id_from_started(params: &Value) -> Option<String> {

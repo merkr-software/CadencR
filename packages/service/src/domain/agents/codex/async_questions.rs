@@ -4,6 +4,7 @@ use super::event_items::stream_start_event;
 use super::event_json::thread_id;
 use super::event_state::IndexState;
 use super::event_system::permission_request_event;
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{
     RuntimeContentBlock, RuntimeError, RuntimeEvent, RuntimePermissionDecision,
     RuntimePermissionResponse,
@@ -71,7 +72,7 @@ pub(super) fn question_events(
         ),
         permission_request_event(
             &json!(id),
-            "item/tool/requestUserInput",
+            CodexServerRequestMethod::ToolUserInput,
             &json!({"threadId": sid, "itemId": id, "questions": input["questions"]}),
         ),
     ]

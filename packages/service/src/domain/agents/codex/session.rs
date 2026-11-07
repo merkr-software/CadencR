@@ -373,7 +373,7 @@ impl AgentRuntimeSession for CodexSession {
             return self.respond_async_question(response).await;
         }
         let pending = take_pending(&self.pending_requests, &response.request_id).await?;
-        let result = response_value(&pending.method, &pending.params, &response);
+        let result = response_value(pending.method, &pending.params, &response);
         self.client
             .respond_server_request(pending.id.clone(), result)
             .await?;

@@ -9,6 +9,7 @@ pub(super) use super::permission_options::{
     permission_option_values, STRICT_AUTO_REVIEW_OPTION_ID,
 };
 use super::permission_options::{fallback_permission_options, permission_options};
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{
     RuntimePermissionDecision, RuntimePermissionOption, RuntimePermissionRequest,
 };
@@ -21,7 +22,8 @@ pub(super) const DECISION_DECLINE: &str = "decline";
 #[derive(Debug, Clone)]
 pub(super) struct PendingCodexRequest {
     pub id: Value,
-    pub method: String,
+    /// Only allow-listed requests are ever parked waiting for the user.
+    pub method: CodexServerRequestMethod,
     pub params: Value,
 }
 
@@ -35,7 +37,7 @@ pub(super) fn request_id_from_value(id: &Value) -> String {
 
 pub(super) fn permission_request(
     id: &Value,
-    method: &str,
+    method: CodexServerRequestMethod,
     params: &Value,
 ) -> RuntimePermissionRequest {
     let request_id = request_id_from_value(id);
@@ -158,6 +160,7 @@ pub(super) fn available_decisions(params: &Value) -> impl Iterator<Item = &str> 
 mod tests {
     use super::permission_request;
     use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionRequest};
+    use crate::domain::agents::codex::server_request_method::method;
     use serde_json::json;
 
     fn has_allow_future(request: &RuntimePermissionRequest) -> bool {
@@ -171,7 +174,7 @@ mod tests {
     fn file_change_permission_uses_canonical_apply_patch_tool_name() {
         let request = permission_request(
             &json!("approval-1"),
-            "item/fileChange/requestApproval",
+            method("item/fileChange/requestApproval"),
             &json!({
                 "threadId": "thread",
                 "itemId": "patch",
@@ -191,7 +194,7 @@ mod tests {
     fn command_permission_preserves_network_context() {
         let request = permission_request(
             &json!("approval-2"),
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &json!({
                 "threadId": "thread",
                 "turnId": "turn",
@@ -220,7 +223,7 @@ mod tests {
     fn command_permission_respects_available_decisions() {
         let request = permission_request(
             &json!("approval-3"),
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &json!({
                 "threadId": "thread",
                 "turnId": "turn",
@@ -237,7 +240,7 @@ mod tests {
     fn command_permission_without_available_decisions_keeps_allow_future_fallback() {
         let request = permission_request(
             &json!("approval-no-decisions"),
-            "item/commandExecution/requestApproval",
+            method("item/commandExecution/requestApproval"),
             &json!({
                 "threadId": "thread",
                 "turnId": "turn",
@@ -305,7 +308,7 @@ mod tests {
     fn elicitation_tool_name_is_always_mcp_prefixed() {
         let forged = permission_request(
             &json!("approval-5"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "serverName": "remote",
                 "_meta": {
@@ -318,7 +321,7 @@ mod tests {
 
         let canonical = permission_request(
             &json!("approval-6"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "serverName": "cadencr-browser",
                 "_meta": {
@@ -336,7 +339,7 @@ mod tests {
     fn elicitation_options_include_native_cancel_and_provider_persist_hints() {
         let request = permission_request(
             &json!("approval-7"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "serverName": "remote",
                 "_meta": {

@@ -71,6 +71,8 @@ pub(super) struct IndexState {
     /// What each sub-agent child last reported to the registry. Outlives
     /// `reset()` like `subagent_threads`.
     pub(super) subagent_reports: super::event_subagent_reports::SubagentReports,
+    /// Codex `error` notifications: retrying threads and surfaced turns.
+    pub(super) turn_errors: super::events::TurnErrorState,
 }
 
 impl IndexState {
@@ -95,6 +97,7 @@ impl IndexState {
         self.pending_spawn_calls.clear();
         self.pending_spawn_routes.clear();
         self.subagent_recovery_attempts.clear();
+        self.turn_errors.reset_turns();
         // `subagent_threads` is intentionally not cleared: sub-agent threads
         // may continue streaming across multiple root turns.
     }

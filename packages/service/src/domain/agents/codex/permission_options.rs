@@ -3,6 +3,7 @@ use serde_json::Value;
 use super::command_decisions::synthesized_command_decisions;
 use super::legacy_permissions::legacy_permission_options;
 use super::permissions::{DECISION_ACCEPT_FOR_SESSION, DECISION_CANCEL, DECISION_DECLINE};
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimePermissionOption};
 
 const CODEX_OPTION_PREFIX: &str = "codex:";
@@ -10,24 +11,22 @@ const CODEX_ELICITATION_OPTION_PREFIX: &str = "codex_elicitation:";
 pub(super) const STRICT_AUTO_REVIEW_OPTION_ID: &str = "codex_permissions_strict_auto_review";
 
 pub(super) fn permission_options(
-    method: &str,
+    method: CodexServerRequestMethod,
     params: &Value,
     supports_allow_future: bool,
 ) -> Vec<RuntimePermissionOption> {
-    if let Some(options) = legacy_permission_options(method) {
-        return options;
-    }
     match method {
-        "item/commandExecution/requestApproval" if params.get("availableDecisions").is_some() => {
+        CodexServerRequestMethod::Legacy(_) => legacy_permission_options(),
+        CodexServerRequestMethod::CommandExecutionApproval => {
             command_permission_options(params, supports_allow_future)
         }
-        "item/commandExecution/requestApproval" => {
-            command_permission_options(params, supports_allow_future)
+        CodexServerRequestMethod::FileChangeApproval => file_permission_options(),
+        CodexServerRequestMethod::PermissionsApproval => permissions_request_options(),
+        CodexServerRequestMethod::McpElicitation => elicitation_permission_options(params),
+        // Answered through the question UI; the options only gate submit/deny.
+        CodexServerRequestMethod::ToolUserInput => {
+            fallback_permission_options(supports_allow_future)
         }
-        "item/fileChange/requestApproval" => file_permission_options(),
-        "item/permissions/requestApproval" => permissions_request_options(),
-        "mcpServer/elicitation/request" => elicitation_permission_options(params),
-        _ => fallback_permission_options(supports_allow_future),
     }
 }
 

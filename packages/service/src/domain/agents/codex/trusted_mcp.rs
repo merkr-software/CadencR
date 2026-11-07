@@ -9,15 +9,11 @@
 use serde_json::Value;
 
 use super::permissions::permission_request;
-use super::raw_tool_names::function_tool_name;
+use super::server_request_method::CodexServerRequestMethod;
 use crate::domain::agents::adapter::{
     RuntimePermissionDecision, RuntimePermissionResponse, RuntimeSpawnConfig,
 };
 use crate::domain::mcp::trusted::CadencrBrowserTrust;
-
-/// Codex's namespace for Cadencr's browser server, without trailing `_`.
-const CODEX_BROWSER_NAMESPACE: &str = "mcp__cadencr_browser";
-const CANONICAL_BROWSER_PREFIX: &str = "mcp__cadencr-browser__";
 
 /// The browser trust of a Codex thread. `effective` is Codex's
 /// `config/read` result; its MCP servers that Cadencr's thread config does
@@ -35,18 +31,17 @@ pub(super) fn browser_trust(config: &RuntimeSpawnConfig, effective: &Value) -> C
     CadencrBrowserTrust::injected_in(injected).shadowed_by(foreign)
 }
 
+/// Only MCP elicitations can carry a Cadencr browser tool call: Codex asks for
+/// MCP tool approval through `mcpServer/elicitation/request`, and requests
+/// outside the app-server schema never reach this check (they are rejected).
 pub(super) fn trusted_cadencr_browser_permission_response(
     trust: CadencrBrowserTrust,
     id: &Value,
-    method: &str,
+    method: CodexServerRequestMethod,
     params: &Value,
 ) -> Option<RuntimePermissionResponse> {
-    let trusted = match method {
-        "mcpServer/elicitation/request" => is_trusted_elicitation(trust, params),
-        "item/tool/requestApproval" => is_trusted_item_tool_request(trust, params),
-        _ => false,
-    };
-    if !trusted {
+    if method != CodexServerRequestMethod::McpElicitation || !is_trusted_elicitation(trust, params)
+    {
         return None;
     }
     let request = permission_request(id, method, params);
@@ -93,33 +88,6 @@ fn tool_of_server<'a>(server: &str, tool: &'a str) -> Option<&'a str> {
     }
 }
 
-fn is_trusted_item_tool_request(trust: CadencrBrowserTrust, params: &Value) -> bool {
-    let item = params.get("item").unwrap_or(params);
-    if trust.allows_tool_name(&canonical_browser_name(&function_tool_name(item))) {
-        return true;
-    }
-    let namespace = item.get("namespace").and_then(Value::as_str);
-    let tool = item
-        .get("name")
-        .or_else(|| item.get("tool"))
-        .and_then(Value::as_str);
-    namespace.zip(tool).is_some_and(|(namespace, tool)| {
-        namespace.trim_end_matches('_') == CODEX_BROWSER_NAMESPACE
-            && trust.allows_tool_name(&format!(
-                "{CANONICAL_BROWSER_PREFIX}{}",
-                tool.trim_start_matches('_')
-            ))
-    })
-}
-
-/// Codex's flattened `mcp__cadencr_browser____<tool>` → the canonical name.
-fn canonical_browser_name(name: &str) -> String {
-    name.strip_prefix(CODEX_BROWSER_NAMESPACE)
-        .filter(|rest| rest.starts_with("__"))
-        .map(|rest| format!("{CANONICAL_BROWSER_PREFIX}{}", rest.trim_start_matches('_')))
-        .unwrap_or_else(|| name.to_string())
-}
-
 fn quoted_tool_from_message(message: &str) -> Option<&str> {
     let marker = " tool \"";
     let start = message.find(marker)? + marker.len();
@@ -134,6 +102,7 @@ mod tests {
 
     use super::{browser_trust, trusted_cadencr_browser_permission_response};
     use crate::domain::agents::adapter::{RuntimePermissionDecision, RuntimeSpawnConfig};
+    use crate::domain::agents::codex::server_request_method::method;
     use crate::domain::mcp::trusted::test_support::injected_browser_servers;
     use crate::domain::mcp::trusted::CadencrBrowserTrust;
 
@@ -153,7 +122,7 @@ mod tests {
         let response = trusted_cadencr_browser_permission_response(
             trusted(),
             &json!("approval-browser"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "serverName": "cadencr-browser",
                 "_meta": { "tool_name": "browser_screenshot" },
@@ -167,32 +136,11 @@ mod tests {
     }
 
     #[test]
-    fn trusted_cadencr_browser_permission_recognizes_raw_codex_namespace_item() {
-        let response = trusted_cadencr_browser_permission_response(
-            trusted(),
-            &json!("approval-raw-browser"),
-            "item/tool/requestApproval",
-            &json!({
-                "item": {
-                    "type": "function_call",
-                    "namespace": "mcp__cadencr_browser",
-                    "name": "browser_open_url",
-                    "arguments": "{\"url\":\"http://localhost:1420\"}"
-                }
-            }),
-        )
-        .expect("raw Codex Cadencr browser MCP call should be auto-allowed");
-
-        assert_eq!(response.request_id, "approval-raw-browser");
-        assert_eq!(response.decision, RuntimePermissionDecision::AllowOnce);
-    }
-
-    #[test]
     fn trusted_cadencr_browser_permission_recognizes_codex_message_only_elicitation() {
         let response = trusted_cadencr_browser_permission_response(
             trusted(),
             &json!("approval-message-browser"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "_meta": {
                     "codex_approval_kind": "mcp_tool_call",
@@ -227,7 +175,7 @@ mod tests {
         assert!(trusted_cadencr_browser_permission_response(
             trusted(),
             &json!("approval-message-workspace"),
-            "mcpServer/elicitation/request",
+            method("mcpServer/elicitation/request"),
             &json!({
                 "serverName": "cadencr-browser",
                 "message": "Allow the cadencr-browser MCP server to run tool \"read_conversation\"?"
@@ -241,7 +189,7 @@ mod tests {
         assert!(trusted_cadencr_browser_permission_response(
             trusted(),
             &json!("not-approval"),
-            "server/ping",
+            method("item/commandExecution/requestApproval"),
             &json!({
                 "serverName": "cadencr-browser",
                 "message": "Allow the cadencr-browser MCP server to run tool \"browser_open_url\"?"
@@ -258,31 +206,16 @@ mod tests {
         })
     }
 
-    fn browser_item(namespace: &str) -> serde_json::Value {
-        json!({ "item": { "type": "function_call", "namespace": namespace, "name": "browser_open_url" } })
-    }
-
     #[test]
     fn browser_tools_are_not_auto_allowed_when_cadencr_did_not_attach_its_server() {
         let untrusted = browser_trust(&RuntimeSpawnConfig::default(), &json!({ "config": {} }));
-        for (method, params) in [
-            (
-                "mcpServer/elicitation/request",
-                browser_elicitation("cadencr-browser"),
-            ),
-            (
-                "item/tool/requestApproval",
-                browser_item("mcp__cadencr_browser__"),
-            ),
-        ] {
-            assert!(trusted_cadencr_browser_permission_response(
-                untrusted,
-                &json!("a"),
-                method,
-                &params
-            )
-            .is_none());
-        }
+        assert!(trusted_cadencr_browser_permission_response(
+            untrusted,
+            &json!("a"),
+            method("mcpServer/elicitation/request"),
+            &browser_elicitation("cadencr-browser"),
+        )
+        .is_none());
     }
 
     #[test]
@@ -295,8 +228,8 @@ mod tests {
         assert!(trusted_cadencr_browser_permission_response(
             trust,
             &json!("a"),
-            "item/tool/requestApproval",
-            &browser_item("mcp__cadencr_browser__"),
+            method("mcpServer/elicitation/request"),
+            &browser_elicitation("cadencr-browser"),
         )
         .is_none());
     }
@@ -316,23 +249,10 @@ mod tests {
             assert!(trusted_cadencr_browser_permission_response(
                 trusted(),
                 &json!("a"),
-                "mcpServer/elicitation/request",
+                method("mcpServer/elicitation/request"),
                 &browser_elicitation(server),
             )
             .is_none());
         }
-    }
-
-    #[test]
-    fn codex_flattened_browser_tool_names_are_recognized() {
-        let params = json!({ "item": { "type": "function_call",
-            "name": "mcp__cadencr_browser____browser_open_url" } });
-        assert!(trusted_cadencr_browser_permission_response(
-            trusted(),
-            &json!("a"),
-            "item/tool/requestApproval",
-            &params,
-        )
-        .is_some());
     }
 }
