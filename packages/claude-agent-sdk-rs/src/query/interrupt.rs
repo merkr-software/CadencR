@@ -7,6 +7,9 @@ use crate::error::SdkError;
 use super::query_struct::Query;
 use super::turn_state::TurnState;
 
+/// Claude Code answers an interrupt as soon as it reads it, so a missing
+/// acknowledgement means its input loop is stuck, not that it is busy.
+const INTERRUPT_ACK_TIMEOUT: Duration = Duration::from_secs(15);
 const INTERRUPT_TURN_COMPLETE_TIMEOUT: Duration = Duration::from_secs(10);
 const INTERRUPT_TURN_COMPLETE_POLL_INTERVAL: Duration = Duration::from_millis(10);
 
@@ -14,12 +17,25 @@ impl Query {
     /// Interrupt the agent and wait until the CLI reports the interrupted turn
     /// as complete. This keeps a replayed steering prompt from being written
     /// while Claude Code is still winding down the old turn.
+    ///
+    /// [`SdkError::Timeout`] means the CLI ignored the stop: it did not
+    /// acknowledge it, or the turn it was running never ended. The caller
+    /// decides whether to [`kill`](Query::kill) it.
     pub async fn interrupt(&self) -> Result<(), SdkError> {
         // SIGINT terminates recent stream-json CLIs. The protocol interrupt
         // cancels only the turn and leaves stdin available for follow-ups.
-        self.send_control_request(serde_json::json!({ "subtype": "interrupt" }))
-            .await?;
+        self.send_control_request_with_timeout(
+            serde_json::json!({ "subtype": "interrupt" }),
+            INTERRUPT_ACK_TIMEOUT,
+        )
+        .await?;
         self.wait_for_interrupted_turn_complete().await
+    }
+
+    /// The longest [`interrupt`](Query::interrupt) waits before reporting
+    /// [`SdkError::Timeout`].
+    pub fn interrupt_timeout() -> Duration {
+        INTERRUPT_ACK_TIMEOUT + INTERRUPT_TURN_COMPLETE_TIMEOUT
     }
 
     async fn wait_for_interrupted_turn_complete(&self) -> Result<(), SdkError> {
@@ -136,5 +152,105 @@ else:
     #[tokio::test]
     async fn protocol_interrupt_surfaces_rejection() {
         protocol_interrupt(false, true).await;
+    }
+
+    /// A background sub-agent asks for a permission after the turn that
+    /// launched it returned its `result`. Claude Code (2.1.312, verified live)
+    /// acknowledges a later interrupt, stops the background agents, and sends
+    /// no `result`: no turn was running. Answering that permission must not
+    /// make the SDK wait for one (it used to time out after 10 s, and Stop
+    /// failed).
+    async fn interrupt_after_late_permission(result_before_answer: bool) {
+        use std::sync::Arc;
+
+        use crate::permissions::{CanUseTool, PermissionRequest, PermissionResult};
+
+        struct SlowDeny;
+
+        #[async_trait::async_trait]
+        impl CanUseTool for SlowDeny {
+            async fn can_use_tool(&self, request: PermissionRequest) -> PermissionResult {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                PermissionResult::Deny {
+                    message: "denied".into(),
+                    interrupt: None,
+                    tool_use_id: Some(request.tool_use_id),
+                }
+            }
+        }
+
+        let dir = TempDir::new().unwrap();
+        let script = format!(
+            r#"#!/usr/bin/env python3
+import json, sys
+def send(v): print(json.dumps(v), flush=True)
+def ack(v): send({{"type":"control_response","response":{{"subtype":"success","request_id":v["request_id"],"response":{{"mcpServers":[]}}}}}})
+def result():
+    send({{"type":"result","subtype":"success","uuid":"r","session_id":"s","duration_ms":1,"duration_api_ms":1,"is_error":False,"num_turns":1,"result":"launched","total_cost_usd":0,"usage":{{"input_tokens":1,"output_tokens":1}}}})
+ack(json.loads(sys.stdin.readline()))
+ack(json.loads(sys.stdin.readline()))
+sys.stdin.readline()
+send({{"type":"system","subtype":"init","uuid":"u","session_id":"s","claude_code_version":"test","cwd":"/tmp","tools":[],"mcp_servers":[],"model":"test","permission_mode":"plan","slash_commands":[]}})
+if not {before}: result()
+send({{"type":"control_request","request_id":"perm_1","request":{{"subtype":"can_use_tool","tool_name":"Bash","input":{{"command":"ls"}},"agent_id":"bg"}}}})
+if {before}: result()
+v=json.loads(sys.stdin.readline())
+assert v["type"] == "control_response" and v["response"]["request_id"] == "perm_1", v
+send({{"type":"system","subtype":"task_progress","task_id":"bg","session_id":"s","uuid":"p"}})
+v=json.loads(sys.stdin.readline())
+assert v["type"] == "control_request" and v["request"]["subtype"] == "interrupt", v
+ack(v)
+sys.stdin.readline()
+"#,
+            before = if result_before_answer {
+                "True"
+            } else {
+                "False"
+            },
+        );
+        let mut q = query(
+            json!("launch a background agent"),
+            Options {
+                path_to_cli: Some(write_mock_cli(dir.path(), &script)),
+                mcp_servers: Some(mock_mcp_servers()),
+                can_use_tool: Some(Arc::new(SlowDeny)),
+                ..Options::default()
+            },
+        )
+        .await
+        .unwrap();
+        // Read up to the marker the mock sends once it has the permission
+        // answer: by then the result is in and the permission is resolved.
+        loop {
+            let message = timeout(Duration::from_secs(3), q.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+            if serde_json::to_value(&message).unwrap()["subtype"] == "task_progress" {
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(matches!(
+            q.turn_state().await,
+            TurnState::TurnComplete { .. }
+        ));
+
+        timeout(Duration::from_secs(3), q.interrupt())
+            .await
+            .expect("an interrupt with no running turn must not wait for a result")
+            .unwrap();
+        q.close().await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_after_a_background_agent_permission_does_not_wait() {
+        interrupt_after_late_permission(false).await;
+    }
+
+    #[tokio::test]
+    async fn interrupt_after_a_permission_outlived_its_turn_does_not_wait() {
+        interrupt_after_late_permission(true).await;
     }
 }

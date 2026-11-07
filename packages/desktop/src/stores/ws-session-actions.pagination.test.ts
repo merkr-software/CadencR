@@ -219,15 +219,10 @@ describe("ws session history pagination", () => {
   it("resets historyPrependDisplayOffset when persisted state replaces a session", () => {
     const ctx = createCtx(createPaginationSession([makeBlock("current", "Current")]));
 
-    applyPersistedState(
-      ctx,
-      "s1",
-      {
-        blocks: [],
-        lifecycle: { phase: "idle" },
-      },
-      "plan-restore:",
-    );
+    applyPersistedState(ctx, "s1", {
+      blocks: [],
+      lifecycle: { phase: "idle" },
+    });
 
     expect(ctx.get().sessions.s1.historyPrependDisplayOffset).toBe(0);
   });
@@ -235,18 +230,13 @@ describe("ws session history pagination", () => {
   it("hydrates a persisted provider and model as one ready selection", () => {
     const ctx = createCtx(createSessionEntry());
 
-    applyPersistedState(
-      ctx,
-      "s1",
-      {
-        blocks: [],
-        lifecycle: { phase: "idle" },
-        currentProviderId: "opencode",
-        runtimeProvider: "opencode",
-        currentModelId: "lmstudio/qwen-3.6:35b-a3b",
-      },
-      "plan-restore:",
-    );
+    applyPersistedState(ctx, "s1", {
+      blocks: [],
+      lifecycle: { phase: "idle" },
+      currentProviderId: "opencode",
+      runtimeProvider: "opencode",
+      currentModelId: "lmstudio/qwen-3.6:35b-a3b",
+    });
 
     const session = ctx.get().sessions.s1;
     expect(session.currentSelection).toEqual({
@@ -261,18 +251,13 @@ describe("ws session history pagination", () => {
     session.currentSelection = { providerId: "claude_code", modelId: "opus" };
     const ctx = createCtx(session);
 
-    applyPersistedState(
-      ctx,
-      "s1",
-      {
-        blocks: [],
-        lifecycle: { phase: "idle" },
-        currentProviderId: "opencode",
-        runtimeProvider: "opencode",
-        currentModelId: "lmstudio/qwen-3.6:35b-a3b",
-      },
-      "plan-restore:",
-    );
+    applyPersistedState(ctx, "s1", {
+      blocks: [],
+      lifecycle: { phase: "idle" },
+      currentProviderId: "opencode",
+      runtimeProvider: "opencode",
+      currentModelId: "lmstudio/qwen-3.6:35b-a3b",
+    });
 
     const updated = ctx.get().sessions.s1;
     expect(updated.currentSelection).toEqual({ providerId: "claude_code", modelId: "opus" });

@@ -16,6 +16,7 @@ use crate::domain::agents::adapter::{
     RuntimePermissionResponse, RuntimePermissionResponseKind, RuntimePermissionResponseRoute,
     RuntimeSessionHandle,
 };
+use crate::domain::gate_registry::GateKind;
 
 struct ActivePermissionHandle {
     feature_id: i64,
@@ -294,7 +295,7 @@ pub(crate) async fn respond_permission(
         .ensure_loaded(context.read_pool, session_id)
         .await
         .map_err(|error| CommandError::new("DB_ERROR", error))?;
-    context
+    let kind = context
         .pending_gates
         .claim(session_id, &payload.request_id)
         .await
@@ -305,7 +306,18 @@ pub(crate) async fn respond_permission(
             )
         })?;
     let request_id = payload.request_id.clone();
-    let result = respond_claimed(context, sdk_sessions, payload, output, session_id).await;
+    let result = if kind == Some(GateKind::Plan) {
+        super::restored_plan::respond_claimed_plan(
+            context,
+            sdk_sessions,
+            payload,
+            output,
+            session_id,
+        )
+        .await
+    } else {
+        respond_claimed(context, sdk_sessions, payload, output, session_id).await
+    };
     if result.is_ok() {
         context
             .pending_gates
@@ -317,7 +329,7 @@ pub(crate) async fn respond_permission(
     result
 }
 
-async fn respond_claimed(
+pub(super) async fn respond_claimed(
     context: &PermissionContext<'_>,
     sdk_sessions: &SdkSessions,
     payload: PermissionRespondPayload,

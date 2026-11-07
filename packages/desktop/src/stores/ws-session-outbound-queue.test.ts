@@ -238,11 +238,34 @@ describe("ws-session outbound queue", () => {
       domain: "session",
       action: "error",
       ref: sent.id,
-      payload: { code: "INVALID_STATE", message: "Session not active" },
+      payload: { code: "NOTHING_TO_STOP", message: "Session not active" },
     });
 
     expect(toastError).not.toHaveBeenCalled();
     expect(useWsSessionStore.getState().sessions.s1.pendingCommandActions).toEqual([]);
+  });
+
+  it("reports a Stop sent while the agent is still starting: it was not stopped", async () => {
+    const store = useWsSessionStore.getState();
+    store.connect("s1");
+    await tick();
+    const ws = getWs();
+    ws.simulateMessage({ domain: "session", action: "initialized", payload: { session_id: "7" } });
+
+    store.interrupt("s1");
+    const sent = JSON.parse(ws.sent.at(-1) ?? "{}") as { id: string };
+    const message = "The agent is still starting. Stop it again once it runs.";
+    ws.simulateMessage({
+      domain: "session",
+      action: "error",
+      ref: sent.id,
+      payload: { code: "AGENT_STARTING", message },
+    });
+
+    expect(toastError).toHaveBeenCalledWith(
+      "Couldn't stop the agent",
+      expect.objectContaining({ description: message }),
+    );
   });
 
   it("reports a queued setting as unsent once its TTL passes without a reconnect", async () => {

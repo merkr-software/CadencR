@@ -37,6 +37,7 @@ import { listenForPushNavigation } from "@/lib/remote/push-register";
 import { isInCodeMirrorEditor, isInTerminalFocusZone } from "@/lib/shortcuts/dom-targets";
 import { toastError } from "@/lib/api-errors";
 import { busySessionTargets, MID_TURN } from "@/stores/busy-session-targets";
+import { stopUnloadedAgents } from "@/stores/unloaded-agent-control";
 import { isMeaningfulScreenPath, useLastScreenStore } from "@/stores/last-screen-store";
 import { useSessionStatusStore } from "@/stores/session-status-store";
 import { useShortcutsHelpStore } from "@/stores/shortcuts-help-store";
@@ -198,19 +199,11 @@ function useRootShortcuts(
   });
   useShortcut("stop-all-agents", (event) => {
     const { loaded, unreachable } = busySessionTargets(MID_TURN);
-    if (loaded.length === 0 && unreachable === 0) return;
+    if (loaded.length === 0 && unreachable.length === 0) return;
     event.preventDefault();
     const store = useWsSessionStore.getState();
     for (const sessionId of loaded) store.interrupt(sessionId);
-    if (unreachable > 0) {
-      toast.warning(
-        unreachable === 1 ? "1 agent is still running" : `${unreachable} agents are still running`,
-        {
-          id: "stop-all-agents-unreachable",
-          description: "Their conversations aren't open in this window. Open them to stop them.",
-        },
-      );
-    }
+    void stopUnloadedAgents(unreachable);
   });
   useShortcut("command-palette", (event) => {
     if (isInCodeMirrorEditor(event.target) || isInTerminalFocusZone(event.target)) return;

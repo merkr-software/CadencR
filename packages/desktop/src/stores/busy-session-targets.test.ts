@@ -14,7 +14,7 @@ describe("busySessionTargets", () => {
     useWsSessionStore.setState({ sessions: {} });
   });
 
-  it("resolves backend-busy sessions to loaded conversations and counts the rest", () => {
+  it("resolves backend-busy sessions to loaded conversations and lists the rest", () => {
     useSessionStatusStore.setState({
       bySession: {
         1: status("agent"),
@@ -36,10 +36,10 @@ describe("busySessionTargets", () => {
       },
     });
 
-    expect(busySessionTargets(new Set(["agent"]))).toEqual({ loaded: ["tab-1"], unreachable: 1 });
+    expect(busySessionTargets(new Set(["agent"]))).toEqual({ loaded: ["tab-1"], unreachable: [2] });
     expect(busySessionTargets(new Set(["agent", "question"]))).toEqual({
       loaded: ["tab-1"],
-      unreachable: 2,
+      unreachable: [2, 3],
     });
   });
 
@@ -49,6 +49,6 @@ describe("busySessionTargets", () => {
       sessions: { "tab-1": { ...createSessionEntry(), sessionDbId: 1, serverSessionId: "" } },
     });
 
-    expect(busySessionTargets(new Set(["agent"]))).toEqual({ loaded: [], unreachable: 1 });
+    expect(busySessionTargets(new Set(["agent"]))).toEqual({ loaded: [], unreachable: [1] });
   });
 });

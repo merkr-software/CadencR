@@ -13,11 +13,12 @@ use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::protocol::GateCloseReason;
 use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
+use crate::domain::ws_session::runtime::output::{CommandError, OutputTarget};
 
 /// Broadcast a `session.lifecycle` envelope so the frontend turn-lifecycle
 /// state machine flips only on backend-confirmed transitions (per
 /// `no-optimistic-updates.md`). Used by both suspend and resume paths.
-fn broadcast_lifecycle(sender: &WsSender, session_id: i64, kind: SessionLifecycleKind) {
+fn broadcast_lifecycle(sender: &impl OutputTarget, session_id: i64, kind: SessionLifecycleKind) {
     let envelope = WsEnvelope::session_event(&WsSessionEvent::Lifecycle(SessionLifecyclePayload {
         session_id: session_id.to_string(),
         kind,
@@ -57,23 +58,45 @@ pub(crate) async fn handle_suspend(
         return;
     };
 
-    if let Err(error) = clear_persisted_gate_and_notify(
-        sender,
+    if let Err(error) = suspend_session(
         app_state,
+        sdk_sessions,
         db_session_id,
-        None,
-        GateCloseReason::Sleep,
+        sender,
         Some(&envelope.id),
     )
     .await
     {
-        send_error(
-            sender,
-            &envelope.id,
+        send_error(sender, &envelope.id, error.code, &error.message);
+    }
+}
+
+/// The work behind `session.suspend`, for the socket that holds the
+/// conversation (`sdk_sessions` is its map) and for the HTTP suspend used for
+/// conversations no client has open (the service registry's cell). `output`
+/// receives the gate and lifecycle envelopes; headless, every other client
+/// still learns the outcome from the status book.
+pub(crate) async fn suspend_session(
+    app_state: &AppState,
+    sdk_sessions: &SdkSessions,
+    db_session_id: i64,
+    output: &impl OutputTarget,
+    ref_id: Option<&str>,
+) -> Result<(), CommandError> {
+    if let Err(error) = clear_persisted_gate_and_notify(
+        output,
+        app_state,
+        db_session_id,
+        None,
+        GateCloseReason::Sleep,
+        ref_id,
+    )
+    .await
+    {
+        return Err(CommandError::new(
             "DB_ERROR",
-            &format!("Failed to close pending gate before sleep: {error}"),
-        );
-        return;
+            format!("Failed to close pending gate before sleep: {error}"),
+        ));
     }
 
     // Extract the live query handle while briefly holding the lock, then
@@ -82,7 +105,7 @@ pub(crate) async fn handle_suspend(
     let active: Option<(RuntimeSessionHandle, String, i64)> = {
         let sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
-            return;
+            return Ok(());
         };
         match &handle.state {
             QueryState::Active { query, .. } => Some((
@@ -98,7 +121,7 @@ pub(crate) async fn handle_suspend(
         // Pending session: nothing to interrupt, no resume id to persist,
         // no banner to flip. The envelope reply is silent to keep DB/UI
         // state consistent.
-        return;
+        return Ok(());
     };
 
     // Capture session id BEFORE interrupt: once the subprocess starts
@@ -157,10 +180,11 @@ pub(crate) async fn handle_suspend(
     );
 
     broadcast_lifecycle(
-        sender,
+        output,
         db_session_id,
         SessionLifecycleKind::SuspendRequested,
     );
+    Ok(())
 }
 
 /// Handle `session.resume`. Counterpart to `handle_suspend`: provider-neutral

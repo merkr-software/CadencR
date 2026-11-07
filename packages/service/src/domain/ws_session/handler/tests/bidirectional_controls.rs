@@ -29,6 +29,10 @@ async fn owner_with_live_turn(
         .active_turns
         .begin_turn(db_id, &owner_sessions)
         .await;
+    // As `mark_agent_running` announces every turn it starts.
+    app_state
+        .session_status_tx
+        .broadcast_running(db_id, feature_id);
     // Drain everything `init` emitted so later assertions only see the mirror.
     while rx_a.try_recv().is_ok() {}
     (tx_a, rx_a, owner_sessions, db_id)

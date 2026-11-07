@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useWsSessionStore } from "@/stores/ws-session-store";
+import { stopUnloadedAgents } from "@/stores/unloaded-agent-control";
 import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
 import { useEditorStore } from "@/stores/editor-store";
 import { browserTabCount } from "@/stores/browser-store";
@@ -80,23 +81,16 @@ function getWorkingAgents(queryClient: QueryClient): WorkingAgent[] {
  * The dev service outlives the app, so quitting cannot leave its agents
  * stopped the way a packaged build does (`setShutdownIntent`): stop them
  * instead. Which agents are working comes from the backend's status book, so
- * one started by a schedule, MCP or another device counts too; only those
- * with a conversation open here can be interrupted from this window.
+ * one started by a schedule, MCP or another device counts too: those with a
+ * conversation open here are stopped over its socket, the others over HTTP.
  */
 export function interruptDevAgents(isDev: boolean = import.meta.env.DEV): boolean {
   if (!isDev) return false;
   const wsStore = useWsSessionStore.getState();
   const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
   for (const sessionId of loaded) wsStore.interrupt(sessionId);
-  if (unreachable > 0) {
-    toast.warning(
-      unreachable === 1
-        ? "1 agent keeps running on the dev service"
-        : `${unreachable} agents keep running on the dev service`,
-      { description: "Their conversations aren't open in this window, so they weren't stopped." },
-    );
-  }
-  return loaded.length > 0;
+  void stopUnloadedAgents(unreachable);
+  return loaded.length > 0 || unreachable.length > 0;
 }
 
 export interface AppCloseState {

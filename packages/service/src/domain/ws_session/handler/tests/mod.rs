@@ -24,6 +24,7 @@ mod profile;
 mod prompt;
 mod prompt_launch;
 mod provider;
+mod restored_plan;
 mod stale_model;
 mod stream_reader;
 mod stream_reader_background_agents;

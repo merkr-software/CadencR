@@ -7,8 +7,8 @@
  * On `suspend`: flip `powerStore.suspended = true` (OS-confirmed truth)
  * and fan out `session.suspend` to every session the backend status book
  * reports busy (mid-turn or on a gate) so the backend can capture each
- * runtime's resume id before the network stalls. Only conversations loaded
- * in this window have a socket to carry it; the rest are reported.
+ * runtime's resume id before the network stalls. Conversations loaded in
+ * this window get it over their socket; the rest over HTTP.
  *
  * On `resume`: clear the OS flag, force-reconnect every WS (the watchdog
  * already does this via its clock-jump heuristic; doing it here too is
@@ -28,10 +28,10 @@ import { useConnectionStatusStore } from "@/stores/connection-status-store";
 import { usePowerStore } from "@/stores/power-store";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { busySessionTargets, TURN_IN_PROGRESS } from "@/stores/busy-session-targets";
+import { suspendUnloadedAgents } from "@/stores/unloaded-agent-control";
 import { createSessionResume, createSessionSuspend } from "@/lib/ws-envelope";
 
 const RESUME_TOAST_ID = "power:resume";
-const SUSPEND_TOAST_ID = "power:suspend-unreachable";
 function suspendActiveSessions(): void {
   const store = useWsSessionStore.getState();
   const { loaded, unreachable } = busySessionTargets(TURN_IN_PROGRESS);
@@ -39,17 +39,7 @@ function suspendActiveSessions(): void {
     const entry = store.sessions[sessionId];
     if (entry) store.send(sessionId, createSessionSuspend(entry.serverSessionId));
   }
-  if (unreachable > 0) {
-    toast.warning(
-      unreachable === 1
-        ? "1 agent kept running into sleep"
-        : `${unreachable} agents kept running into sleep`,
-      {
-        id: SUSPEND_TOAST_ID,
-        description: "Their conversations aren't open in this window, so they weren't paused.",
-      },
-    );
-  }
+  void suspendUnloadedAgents(unreachable);
 }
 
 /** Only sessions we earlier marked suspended need an explicit resume. */

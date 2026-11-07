@@ -2,11 +2,7 @@ import { upsertPendingPermission } from "@/lib/pending-permission-queue";
 import { parseAskUserQuestions } from "@/lib/agent-question-parser";
 import type { AgentQuestion } from "@/types/agent-question";
 import type { PendingPermission } from "@/types/agent-permission";
-import {
-  blocksPatchWithDerived,
-  injectPlanIntoBlocks,
-  parseTodosFromBlocks,
-} from "./ws-message-processing";
+import { blocksPatchWithDerived, parseTodosFromBlocks } from "./ws-message-processing";
 import type { StoreAccessors } from "./ws-envelope-handler";
 import { parsePermissionPayload } from "./ws-envelope-payload";
 import { movePendingPromptBlocksToTail, trimTailPromptTurnBoundary } from "./ws-pending-prompts";
@@ -23,8 +19,9 @@ interface DecodedQuestion {
 
 // `pending_permission` and `pending_questions` are filtered by tool_name so a
 // payload mis-routed into the wrong column (or stored under a tool the other
-// gate owns) doesn't double-render. The plan-approval and question gates
-// have their own columns and code paths.
+// gate owns) doesn't double-render. A persisted plan gate is not hydrated from
+// here: `session.init` re-sends it as a live `permission.request`, and the
+// backend answers it even when its agent process is gone.
 function decodeSnapshotPermission(value: unknown): PendingPermission | null {
   const parsed = parsePermissionPayload(value);
   if (!parsed?.request_id || !parsed.tool_name) return null;
@@ -95,9 +92,6 @@ function buildSessionMetaPatch(options: SessionMetaPatchOptions): Partial<Sessio
     ...(payload.runtimeSessionId ? { runtimeSessionId: payload.runtimeSessionId } : {}),
     ...(payload.contextUsage !== undefined ? { contextUsage: payload.contextUsage } : {}),
     ...(payload.hasFileChanges !== undefined ? { hasFileChanges: payload.hasFileChanges } : {}),
-    ...(payload.pendingPlanApproval != null
-      ? { pendingPlanApproval: payload.pendingPlanApproval }
-      : {}),
     ...(permissionQueuePatch ?? {}),
     ...(decodedQuestion
       ? {
@@ -113,12 +107,10 @@ export function applyPersistedState(
   ctx: StoreAccessors,
   sessionId: string,
   payload: PersistedStatePayload,
-  planRestorePrefix: string,
 ): void {
   const {
     blocks,
     lifecycle,
-    pendingPlanApproval,
     pendingPermission: pendingPermissionSnapshot,
     pendingQuestions: pendingQuestionsSnapshot,
   } = payload;
@@ -138,9 +130,7 @@ export function applyPersistedState(
       : null;
 
   let lifecycleWithPendingGate = lifecycle;
-  if (pendingPlanApproval != null) {
-    lifecycleWithPendingGate = transitionTurn(lifecycle, { type: "plan_approval_requested" });
-  } else if (decodedPermission) {
+  if (decodedPermission) {
     lifecycleWithPendingGate = transitionTurn(lifecycle, { type: "permission_requested" });
   } else if (decodedQuestion) {
     lifecycleWithPendingGate = transitionTurn(lifecycle, { type: "question_requested" });
@@ -157,9 +147,7 @@ export function applyPersistedState(
     ? decodedPermission.requestId
     : decodedQuestion
       ? decodedQuestion.requestId
-      : pendingPlanApproval != null
-        ? existing?.pendingRequestId || `${planRestorePrefix}${Date.now()}`
-        : "";
+      : "";
 
   const tailPromptBoundary =
     existing && existing.blocks.length > 0 ? trimTailPromptTurnBoundary(existing.blocks) : null;
@@ -177,10 +165,9 @@ export function applyPersistedState(
     restoredRequestId,
   });
 
-  const enrichedBlocks = injectPlanIntoBlocks(blocks, pendingPlanApproval);
   if (existing && existing.blocks.length > 0) {
     const liveBlocks = tailPromptBoundary?.blocks ?? existing.blocks;
-    const mergedBlocks = mergeCanonicalBlocks(liveBlocks, enrichedBlocks);
+    const mergedBlocks = mergeCanonicalBlocks(liveBlocks, blocks);
     const todos = parseTodosFromBlocks(mergedBlocks);
     ctx.set(
       updateSession(ctx.get(), sessionId, {
@@ -194,7 +181,7 @@ export function applyPersistedState(
     return;
   }
 
-  const orderedBlocks = movePendingPromptBlocksToTail(enrichedBlocks);
+  const orderedBlocks = movePendingPromptBlocksToTail(blocks);
   const todos = parseTodosFromBlocks(orderedBlocks);
   const session = ctx.getSession(sessionId);
 

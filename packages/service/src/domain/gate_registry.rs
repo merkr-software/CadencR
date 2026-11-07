@@ -193,7 +193,12 @@ impl GateRegistry {
             .and_then(|entry| entry.gate.clone())
     }
 
-    pub async fn claim(&self, session_id: i64, request_id: &str) -> Result<(), GateClaimError> {
+    /// Claim an open gate for answering. Returns its kind, when known.
+    pub async fn claim(
+        &self,
+        session_id: i64,
+        request_id: &str,
+    ) -> Result<Option<GateKind>, GateClaimError> {
         let mut gates = self.gates.lock().await;
         let entries = gates.get_mut(&session_id).ok_or(GateClaimError::Missing)?;
         let entry = entries
@@ -204,7 +209,7 @@ impl GateRegistry {
             return Err(GateClaimError::AlreadyClaimed);
         }
         entry.state = GateState::Claimed;
-        Ok(())
+        Ok(entry.gate.as_ref().map(|gate| gate.kind))
     }
 
     pub async fn release(&self, session_id: i64, request_id: &str) {

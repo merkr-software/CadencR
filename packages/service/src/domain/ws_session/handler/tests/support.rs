@@ -624,3 +624,37 @@ pub(crate) async fn db_status(app_state: &AppState, db_session_id: i64) -> Strin
         .await
         .unwrap()
 }
+
+/// A live runtime that only records the prompts it is given.
+pub(crate) struct RecordingRuntime {
+    pub(crate) delivered: mpsc::UnboundedSender<Value>,
+}
+
+#[async_trait::async_trait]
+impl AgentRuntimeSession for RecordingRuntime {
+    fn take_message_rx(&mut self) -> RuntimeMessageRx {
+        mpsc::channel(1).1
+    }
+    async fn session_id(&self) -> Option<String> {
+        None
+    }
+    async fn stream_input(&self, content: Value) -> Result<(), RuntimeError> {
+        self.delivered.send(content).unwrap();
+        Ok(())
+    }
+    async fn interrupt(&self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn close(&mut self) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
+        Ok(())
+    }
+    fn pid(&self) -> Option<u32> {
+        None
+    }
+}

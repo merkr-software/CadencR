@@ -1,11 +1,11 @@
 //! Shared transcript row insertion for lifecycle markers and stream content.
 
 use super::INSERT_MESSAGE_SQL;
-use sqlx::SqlitePool;
 
+/// `pool` is any executor, so a transaction can write its marker rows too.
 #[bon::builder]
-pub(super) async fn insert_message(
-    pool: &SqlitePool,
+pub(super) async fn insert_message<'e>(
+    pool: impl sqlx::SqliteExecutor<'e>,
     session_id: i64,
     role: &str,
     content: &str,

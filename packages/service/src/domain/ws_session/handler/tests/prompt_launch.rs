@@ -5,39 +5,6 @@ use crate::domain::agents::adapter::RuntimeSpawnConfig;
 use crate::domain::ws_session::runtime::application::dispatch_control_prompt;
 use tokio::time::{timeout, Duration};
 
-struct RecordingRuntime {
-    delivered: mpsc::UnboundedSender<Value>,
-}
-
-#[async_trait::async_trait]
-impl AgentRuntimeSession for RecordingRuntime {
-    fn take_message_rx(&mut self) -> RuntimeMessageRx {
-        mpsc::channel(1).1
-    }
-    async fn session_id(&self) -> Option<String> {
-        None
-    }
-    async fn stream_input(&self, content: Value) -> Result<(), RuntimeError> {
-        self.delivered.send(content).unwrap();
-        Ok(())
-    }
-    async fn interrupt(&self) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-    async fn close(&mut self) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-    async fn set_model(&self, _: &str) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-    async fn set_permission_mode(&self, _: RuntimePermissionMode) -> Result<(), RuntimeError> {
-        Ok(())
-    }
-    fn pid(&self) -> Option<u32> {
-        None
-    }
-}
-
 async fn queued_prompt_after_first_launch(headless: bool) {
     let state = make_test_app_state().await;
     sqlx::query("INSERT INTO agent_sessions (id, feature_id, status, runtime_provider, model) VALUES (1, 1, 'running', 'opencode', 'openai/gpt-5.4')")

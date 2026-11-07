@@ -113,11 +113,6 @@ export function handleError(ctx: StoreAccessors, sessionId: string, payload: unk
     }),
     compactRequestPending: false,
     pendingManualCompact: false,
-    // A restored plan answered by prompt: the prompt failed, so the plan's
-    // gate stays open and its buttons come back.
-    ...(session.planPromptSubmission
-      ? { planPromptSubmission: null, submittingPermissionRequestId: null }
-      : {}),
   };
   // A manual compaction holds the prompt turn — a follow-up `prompt.send` while
   // compacting fails the steering RPC and the backend emits `session.error`,

@@ -80,7 +80,6 @@ export interface PersistedStatePayload {
   accessMode?: AccessMode;
   runtimeProvider?: string | null;
   runtimeSessionId?: string | null;
-  pendingPlanApproval?: PendingPlanApproval | null;
   /** Raw `agent_sessions.pending_permission` JSON, or null. */
   pendingPermission?: unknown;
   /** Raw `agent_sessions.pending_questions` JSON, or null. */
@@ -185,12 +184,6 @@ export interface SessionEntry extends SessionConfigState {
   fastMode: boolean;
   currentProfile?: string;
   pendingPlanApproval: PendingPlanApproval | null;
-  /**
-   * A restored plan (no runtime gate) answered by prompt: the gate closes once
-   * the status book reports that prompt's turn running. See
-   * `ws-session-plan-actions`.
-   */
-  planPromptSubmission: "approved" | "rejected" | null;
   compactRequestPending: boolean;
   pendingManualCompact: boolean;
   /**
@@ -277,7 +270,6 @@ export function createSessionEntry(): SessionEntry {
     currentThinkingEffort: undefined,
     fastMode: false,
     pendingPlanApproval: null,
-    planPromptSubmission: null,
     compactRequestPending: false,
     pendingManualCompact: false,
     currentSelection: null,

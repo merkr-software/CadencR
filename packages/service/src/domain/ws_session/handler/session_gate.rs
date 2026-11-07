@@ -14,6 +14,7 @@ use crate::domain::ws_session::persistence::WsSessionPersistence;
 use crate::domain::ws_session::protocol::{
     GateClosePayload, GateCloseReason, GateClosedPayload, PermissionDecision, WsEnvelope,
 };
+use crate::domain::ws_session::runtime::output::OutputTarget;
 
 struct GateRuntimeGuard {
     _barrier: Option<tokio::sync::OwnedMutexGuard<()>>,
@@ -149,7 +150,7 @@ async fn claim_gate_close(
 }
 
 pub(super) async fn clear_persisted_gate_and_notify(
-    sender: &WsSender,
+    sender: &impl OutputTarget,
     app_state: &AppState,
     db_session_id: i64,
     request_id: Option<&str>,
@@ -181,7 +182,7 @@ pub(super) async fn clear_persisted_gate_and_notify(
 }
 
 fn send_gate_closed(
-    sender: &WsSender,
+    sender: &impl OutputTarget,
     db_session_id: i64,
     request_id: Option<&str>,
     reason: GateCloseReason,

@@ -46,9 +46,6 @@ export {
   applyMutations,
 } from "./ws-message-processing";
 
-/** Prefix for synthetic request IDs created during plan-restore flows. */
-const PLAN_RESTORE_PREFIX = "plan_restore_";
-
 function shouldTrackPromptReceipt(session: SessionEntry): boolean {
   return (
     session.supportsPromptReceipts && !!session.serverSessionId && isTurnActive(session.lifecycle)
@@ -274,7 +271,6 @@ function buildWsSessionStore(
       ctx,
       sendRaw,
       sendCommand,
-      planRestorePrefix: PLAN_RESTORE_PREFIX,
     }),
   };
 }

@@ -17,6 +17,9 @@ pub(crate) struct PermissionContext<'a> {
     pub(super) session_status: &'a SessionStatusBroadcaster,
     pub(super) feature_senders: &'a WsFeatureSenderRegistry,
     pub(super) feature_events: &'a FeatureEventBroadcaster,
+    /// Lets a plan whose runtime is gone be answered with a new turn (see
+    /// `restored_plan`); without it such a plan cannot be answered.
+    pub(super) app_state: Option<&'a crate::app_state::AppState>,
 }
 
 impl PermissionContext<'_> {

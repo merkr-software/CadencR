@@ -39,29 +39,4 @@ describe("statusSyncPatch", () => {
       pendingQuestions: [],
     });
   });
-
-  it("confirms a restored plan answered by prompt once its turn runs", () => {
-    const session = {
-      ...createSessionEntry(),
-      lifecycle: { phase: "paused", reason: "planApproval" } as const,
-      pendingPlanApproval: { plan: "## Plan" },
-      pendingRequestId: "plan_restore_1",
-      submittingPermissionRequestId: "plan_restore_1",
-      planPromptSubmission: "approved" as const,
-      blocks: [{ id: "p", type: "tool_call" as const, content: "", toolName: "ExitPlanMode" }],
-    };
-
-    const waiting = statusSyncPatch(session, { status: "question", kind: "permission" }, undefined);
-    expect(waiting?.pendingPlanApproval).toBeUndefined();
-    const patch = statusSyncPatch(session, { status: "agent", kind: null }, undefined);
-
-    expect(patch).toMatchObject({
-      pendingPlanApproval: null,
-      pendingRequestId: "",
-      submittingPermissionRequestId: null,
-      planPromptSubmission: null,
-      lifecycle: { phase: "active" },
-    });
-    expect(patch?.blocks?.[0]?.planApprovalStatus).toBe("approved");
-  });
 });

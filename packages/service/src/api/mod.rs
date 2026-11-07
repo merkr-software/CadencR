@@ -49,6 +49,7 @@ use crate::domain::terminal::routes::terminal_router;
 use crate::domain::themes::themes_router;
 use crate::domain::usage_stats::routes::usage_stats_router;
 use crate::domain::workspace::routes::workspace_router;
+use crate::domain::ws_session::control_routes::session_control_router;
 use crate::domain::ws_session::handler::ws_handler;
 use crate::domain::ws_session::routes::prompt_commands_router;
 use crate::error::AppError;
@@ -270,6 +271,7 @@ pub fn build_api_routes() -> Router<AppState> {
         .merge(crate::domain::plugin_tabs::plugin_tabs_router())
         .merge(crate::domain::plugin_tabs::managed::routes::router())
         .merge(prompt_commands_router())
+        .merge(session_control_router())
         .merge(crate::domain::agents::orchestration_skills::routes::virtual_skills_router())
         .merge(neovim_routes())
         .merge(neovim_ws_routes())

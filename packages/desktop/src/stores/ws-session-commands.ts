@@ -38,19 +38,21 @@ export interface SessionCommandSpec {
 /** How long a replayable command may wait in the queue for a reconnect. */
 export const COMMAND_QUEUE_TTL_MS = 5_000;
 /**
- * A failed stop can take the backend over a minute to report (the provider's
- * control request times out at 60 s, then the turn gets 10 s to end).
+ * A stop the agent ignores is escalated by the backend (the process is ended
+ * and `AGENT_STOP_ESCALATED` shown) within about 25 s: Claude Code gets 15 s to
+ * acknowledge and 10 s to end its turn, ACP agents a 15 s grace. A failure is
+ * reported within that, plus margin.
  */
-const INTERRUPT_ACK_WINDOW_MS = 75_000;
+const INTERRUPT_ACK_WINDOW_MS = 40_000;
 
 export const SESSION_COMMANDS = {
   interrupt: {
     failure: "Couldn't stop the agent",
     replay: false,
     ackWindowMs: INTERRUPT_ACK_WINDOW_MS,
-    // Nothing was running (the turn ended first, or it was still starting):
-    // stopped is what the user asked for.
-    satisfiedBy: new Set(["INVALID_STATE"]),
+    // Nothing was running (the turn ended first): stopped is what the user
+    // asked for. A turn still starting answers `AGENT_STARTING` instead.
+    satisfiedBy: new Set(["NOTHING_TO_STOP"]),
   },
   clear: { failure: "Couldn't clear the conversation", replay: false },
   gateClose: { failure: "Couldn't dismiss the request", replay: false },

@@ -2,7 +2,6 @@ import type { LiveAgentStatus, PendingKind } from "@/types/agent";
 import type { SessionStatusEntry } from "./session-status-store";
 import type { SessionEntry } from "./ws-session-types";
 import { buildClearedGatePatch } from "./ws-gate-state";
-import { confirmedPlanPatch } from "./ws-session-plan-actions";
 import { isTurnInProgress, transitionTurn, type TurnLifecycle } from "./ws-turn-lifecycle";
 
 export type StatusSyncEntry = Pick<SessionStatusEntry, "status" | "kind">;
@@ -13,12 +12,6 @@ export function statusSyncPatch(
   entry: StatusSyncEntry,
   previous: SessionStatusEntry | undefined,
 ): Partial<SessionEntry> | null {
-  // A restored plan answered by prompt is confirmed by that prompt's turn starting.
-  if (session.planPromptSubmission && entry.status === "agent") {
-    const confirmed = confirmedPlanPatch(session, session.planPromptSubmission);
-    const base = confirmed.lifecycle ?? session.lifecycle;
-    return { ...confirmed, lifecycle: lifecycleFromStatus(base, entry.status, entry.kind) };
-  }
   const lifecycle = lifecycleFromStatus(session.lifecycle, entry.status, entry.kind);
   const gatePatch =
     previous?.status === "question" &&

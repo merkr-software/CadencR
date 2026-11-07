@@ -159,6 +159,7 @@ pub(crate) async fn dispatch_permission_response(
         .session_status(&state.session_status_tx)
         .feature_senders(&state.ws_feature_senders)
         .feature_events(&state.feature_events_tx)
+        .app_state(state)
         .build();
     let outcome = respond_permission(&context, &sessions, payload, &output)
         .await

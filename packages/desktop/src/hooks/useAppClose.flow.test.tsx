@@ -18,11 +18,14 @@ vi.mock("@/hooks/useShortcut", () => ({
   },
 }));
 
-const targets = vi.hoisted(() => ({ loaded: [] as string[], unreachable: 0 }));
+const targets = vi.hoisted(() => ({ loaded: [] as string[], unreachable: [] as number[] }));
 vi.mock("@/stores/busy-session-targets", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/stores/busy-session-targets")>()),
   busySessionTargets: () => targets,
 }));
+
+const stopUnloadedAgents = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+vi.mock("@/stores/unloaded-agent-control", () => ({ stopUnloadedAgents }));
 
 const interrupt = vi.hoisted(() => vi.fn());
 vi.mock("@/stores/ws-session-store", () => ({
@@ -60,7 +63,7 @@ function shortcut(id: string): void {
 beforeEach(() => {
   shortcuts.clear();
   targets.loaded = [];
-  targets.unreachable = 0;
+  targets.unreachable = [];
   interrupt.mockClear();
   useSessionStatusStore.setState({ bySession: {} });
 });
@@ -139,16 +142,10 @@ describe("interruptDevAgents", () => {
     expect(interrupt.mock.calls).toEqual([["ws-1"], ["ws-2"]]);
   });
 
-  it("says which agents it could not stop", () => {
-    targets.unreachable = 2;
-    const warning = vi.spyOn(toast, "warning");
+  it("stops the agents this window has no conversation for over HTTP", () => {
+    targets.unreachable = [7, 8];
 
-    expect(interruptDevAgents(true)).toBe(false);
-    expect(warning).toHaveBeenCalledWith(
-      "2 agents keep running on the dev service",
-      expect.objectContaining({
-        description: "Their conversations aren't open in this window, so they weren't stopped.",
-      }),
-    );
+    expect(interruptDevAgents(true)).toBe(true);
+    expect(stopUnloadedAgents).toHaveBeenCalledWith([7, 8]);
   });
 });
