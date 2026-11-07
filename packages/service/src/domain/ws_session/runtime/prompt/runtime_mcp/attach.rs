@@ -1,6 +1,7 @@
 use crate::app_state::BrowserBridgeConfig;
 use crate::domain::agents::adapter::{RuntimeMcpServerConfig, RuntimeSpawnConfig};
 use crate::domain::mcp::servers::{mcp_server_name, AgentType};
+use crate::domain::mcp::tools::browser_bridge_scope;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -18,7 +19,7 @@ pub(in crate::domain::ws_session::runtime::prompt) fn attach_cadencr_browser_mcp
         command,
         AgentType::Browser,
         None,
-        browser_bridge_env(browser_bridge),
+        browser_bridge_env(browser_bridge, feature_id),
     )
 }
 
@@ -146,12 +147,14 @@ fn absolute_db_path(db_path: &str) -> Result<String, String> {
     Ok(absolute.to_string_lossy().into_owned())
 }
 
-fn browser_bridge_env(config: Option<BrowserBridgeConfig>) -> Option<HashMap<String, String>> {
-    if let Some(config) = config {
-        return Some(HashMap::from(config.as_env()));
-    }
-    let env_config = BrowserBridgeConfig::from_env()?;
-    Some(HashMap::from(env_config.as_env()))
+/// The bridge credentials of a Browser MCP subprocess: scoped to its feature,
+/// never the desktop's launch token (see `browser_bridge_scope`).
+fn browser_bridge_env(
+    config: Option<BrowserBridgeConfig>,
+    feature_id: i64,
+) -> Option<HashMap<String, String>> {
+    let scoped = browser_bridge_scope::scoped_to_feature(&config?, feature_id);
+    Some(HashMap::from(scoped.as_env()))
 }
 
 fn mcp_control_env(
@@ -266,10 +269,20 @@ mod tests {
             env.get(BROWSER_BRIDGE_URL_ENV).map(String::as_str),
             Some("http://127.0.0.1:4111/browser-bridge")
         );
+        // The feature's own token, never the desktop's launch token.
         assert_eq!(
-            env.get(BROWSER_BRIDGE_TOKEN_ENV).map(String::as_str),
-            Some("secret")
+            env.get(BROWSER_BRIDGE_TOKEN_ENV),
+            Some(&crate::domain::mcp::tools::browser_bridge_scope::feature_token("secret", 42))
         );
+    }
+
+    #[test]
+    fn attach_cadencr_browser_mcp_without_a_registered_bridge_passes_no_credentials() {
+        let mut config = RuntimeSpawnConfig::default();
+        attach_cadencr_browser_mcp(&mut config, "cadencr.local.db", 42, COMMAND, None)
+            .expect("attach browser mcp");
+        let (_, _, env) = server(&config, "cadencr-browser");
+        assert!(env.is_none());
     }
 
     #[test]

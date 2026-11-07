@@ -1,14 +1,15 @@
 import crypto from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { optionalNumber, requiredRecord, requiredString } from "./browser-arg-validation";
+import { authenticateBridgeCaller } from "./browser-bridge-auth";
 import type { BrowserBridgeResult } from "./browser-mcp-dispatch";
 
 export interface BrowserBridgeRequestPayload {
   tool_name: string;
   args: Record<string, unknown>;
   // Feature the calling MCP subprocess is pinned to; used as the browser scope so
-  // agent-opened tabs show up in that feature's Browser panel. Optional so older
-  // callers (and manual tooling) still work — they fall back to scopeless.
+  // agent-opened tabs show up in that feature's Browser panel. A feature-scoped
+  // caller must name its own feature; only the service may omit it (scopeless).
   feature_id?: number;
 }
 
@@ -54,7 +55,7 @@ async function handleRequest(
     sendJson(response, 404, { error: "Not found" });
     return;
   }
-  if (request.headers.authorization !== `Bearer ${token}`) {
+  if (!authenticateBridgeCaller(request.headers.authorization ?? "", token)) {
     sendJson(response, 401, { error: "Unauthorized" });
     return;
   }
@@ -79,10 +80,16 @@ export async function dispatchBrowserBridgePayload(
   rawBody: string,
   dispatch: BrowserBridgeServerOptions["dispatch"],
 ): Promise<{ status: number; payload: unknown }> {
-  if (authorization !== `Bearer ${token}`) {
+  const caller = authenticateBridgeCaller(authorization, token);
+  if (!caller) {
     return { status: 401, payload: { error: "Unauthorized" } };
   }
   const payload = parsePayload(rawBody);
+  // A Browser MCP subprocess's token is derived for its own feature: it may
+  // not drive another conversation's browser, nor the scopeless one.
+  if (caller.kind === "feature" && payload.feature_id !== caller.featureId) {
+    return { status: 403, payload: { error: "This token is scoped to another feature." } };
+  }
   const result = await dispatch(payload.tool_name, payload.args, payload.feature_id);
   return { status: 200, payload: result };
 }

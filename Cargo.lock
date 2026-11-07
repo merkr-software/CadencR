@@ -952,6 +952,7 @@ dependencies = [
  "flate2",
  "futures 0.3.34",
  "globset",
+ "hmac 0.13.0",
  "if-addrs",
  "ignore",
  "ironcalc",
