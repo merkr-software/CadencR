@@ -262,6 +262,10 @@ mod tests {
     #[tokio::test]
     async fn resolve_merge_conflict_target_honors_stored_target_branch() {
         let pool = setup_diff_refs_schema().await;
+        sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'project', '/tmp/project')")
+            .execute(&pool)
+            .await
+            .unwrap();
         sqlx::query("INSERT INTO features (id, project_id, title) VALUES (1, 1, 'feat')")
             .execute(&pool)
             .await

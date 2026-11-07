@@ -274,36 +274,6 @@ pub async fn is_empty(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
     Ok(message_exists.is_none())
 }
 
-pub async fn resolve_working_dir(
-    pool: &SqlitePool,
-    feature_id: i64,
-    project_id: i64,
-) -> Result<Option<String>, AppError> {
-    let feature_row: Option<(String,)> =
-        sqlx::query_as("SELECT COALESCE(type, 'ws-session') FROM features WHERE id = ?")
-            .bind(feature_id)
-            .fetch_optional(pool)
-            .await?;
-
-    if feature_row.is_some() {
-        let setting: Option<(String,)> = sqlx::query_as(
-            "SELECT value FROM feature_settings WHERE feature_id = ? AND key = 'worktree_path'",
-        )
-        .bind(feature_id)
-        .fetch_optional(pool)
-        .await?;
-        if let Some((path,)) = setting {
-            return Ok(Some(path));
-        }
-    }
-
-    let project_path: Option<(String,)> = sqlx::query_as("SELECT path FROM projects WHERE id = ?")
-        .bind(project_id)
-        .fetch_optional(pool)
-        .await?;
-    Ok(project_path.map(|r| r.0))
-}
-
 pub async fn delete_feature(pool: &SqlitePool, id: i64) -> Result<(), AppError> {
     let mut tx = pool.begin().await?;
 

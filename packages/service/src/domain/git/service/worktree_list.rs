@@ -79,7 +79,9 @@ pub async fn list_feature_worktrees(
         return Ok(Vec::new());
     }
     let has_recorded_branch = rows.iter().any(|row| row.worktree_branch.is_some());
-    let registered_worktrees = commands::list_worktrees(Path::new(&project_path)).await?;
+    let registered_worktrees =
+        commands::WorktreeRoots::new(commands::list_worktrees(Path::new(&project_path)).await?);
+    let project_subpath = registered_worktrees.project_subpath(Path::new(&project_path));
     let (default_branch, local_branches) = if has_recorded_branch {
         let (default_branch, local_branches) = tokio::try_join!(
             workflow_service::resolve_default_branch(Path::new(&project_path)),
@@ -103,8 +105,8 @@ pub async fn list_feature_worktrees(
         };
         let live = directory_exists
             && registered_worktrees
-                .iter()
-                .any(|worktree| commands::worktree_path_matches(worktree, path));
+                .find_copy(path, &project_subpath)
+                .is_some();
         Ok((directory_exists, live))
     }))
     .await?;

@@ -357,6 +357,16 @@ pub(crate) async fn make_test_app_state() -> AppState {
     .await
     .unwrap();
 
+    // Feature directory resolution reads `worktree_path` here and surfaces a
+    // missing table as an error instead of silently using the project root.
+    sqlx::query(
+        "CREATE TABLE feature_settings (feature_id INTEGER, key TEXT, value TEXT, \
+         PRIMARY KEY (feature_id, key))",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
     sqlx::query("INSERT INTO projects (id, name, path) VALUES (1, 'Test Project', '/tmp/test')")
         .execute(&pool)
         .await

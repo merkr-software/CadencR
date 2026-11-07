@@ -34,7 +34,8 @@ pub async fn get_worktree_info(
     if !crate::shared::git_context::has_git_metadata(Path::new(&project_path)).await? {
         return Ok(None);
     }
-    commands::get_worktree_info(Path::new(&project_path), Path::new(&wt_path)).await
+    commands::registered_worktree_for_feature_path(Path::new(&project_path), Path::new(&wt_path))
+        .await
 }
 
 pub async fn create_worktree(

@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod feature_dir;
 pub mod file_size;
 pub mod forge;
 pub mod git_status;

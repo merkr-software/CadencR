@@ -10,7 +10,6 @@
 
 use sqlx::SqlitePool;
 
-use crate::domain::features::service::get_feature_cwd;
 use crate::error::AppError;
 
 use super::models::ImportProvider;
@@ -130,8 +129,20 @@ async fn resolve_feature_session(
         })?;
 
     // Worktree-aware (see `SessionRef.cwd`): resolving the project root would
-    // read an absent log and always report "already up to date".
-    let cwd = get_feature_cwd(pool, feature_id).await?;
+    // read an absent log and always report "already up to date". The recorded
+    // path wins even when that worktree is gone — the CLI log is keyed by it,
+    // so this is a plain read with no liveness check.
+    let cwd: Option<String> = sqlx::query_scalar(
+        "SELECT COALESCE(NULLIF(TRIM(fs.value), ''), p.path)
+         FROM features f
+         JOIN projects p ON p.id = f.project_id
+         LEFT JOIN feature_settings fs ON fs.feature_id = f.id AND fs.key = 'worktree_path'
+         WHERE f.id = ?",
+    )
+    .bind(feature_id)
+    .fetch_optional(pool)
+    .await?;
+    let cwd = cwd.ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))?;
 
     Ok(SessionRef {
         id,
@@ -147,7 +158,7 @@ mod tests {
     use sqlx::sqlite::SqlitePoolOptions;
 
     /// Real schema (migrations) so `resolve_feature_session` can resolve the
-    /// worktree-aware cwd via `get_feature_cwd`, which reads the `features` and
+    /// worktree-aware cwd, which reads the `features` and
     /// `feature_settings` tables. Feature 1779 lives in project '/repo'.
     async fn pool_with_sessions() -> SqlitePool {
         let pool = SqlitePoolOptions::new()

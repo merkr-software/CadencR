@@ -243,8 +243,22 @@ pub async fn resolve_working_dir(
     feature_id: i64,
     project_id: i64,
 ) -> Result<WorkingDirResponse, AppError> {
-    let path = repository::resolve_working_dir(pool, feature_id, project_id).await?;
-    Ok(WorkingDirResponse { path })
+    let project_path: Option<String> = sqlx::query_scalar("SELECT path FROM projects WHERE id = ?")
+        .bind(project_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(project_path) = project_path else {
+        return Ok(WorkingDirResponse { path: None });
+    };
+    let dir = crate::domain::git::feature_dir::resolve_feature_dir_in_project(
+        pool,
+        feature_id,
+        &project_path,
+    )
+    .await?;
+    Ok(WorkingDirResponse {
+        path: Some(dir.cwd),
+    })
 }
 
 /// Delete a feature.
@@ -257,17 +271,12 @@ pub async fn delete_feature(
 }
 
 /// Resolve the working directory for a feature without requiring the caller to
-/// know the `project_id`. Falls back to the project root if no worktree is set.
+/// know the `project_id`: its live worktree, else the project root.
 pub async fn get_feature_cwd(pool: &SqlitePool, feature_id: i64) -> Result<String, AppError> {
-    let row: Option<(i64,)> = sqlx::query_as("SELECT project_id FROM features WHERE id = ?")
-        .bind(feature_id)
-        .fetch_optional(pool)
-        .await?;
-    let project_id = row
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))?
-        .0;
-    let path = repository::resolve_working_dir(pool, feature_id, project_id).await?;
-    path.ok_or_else(|| AppError::NotFound(format!("no working dir for feature {feature_id}")))
+    crate::domain::git::feature_dir::resolve_feature_dir(pool, feature_id)
+        .await?
+        .map(|dir| dir.cwd)
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} not found")))
 }
 
 #[cfg(test)]
