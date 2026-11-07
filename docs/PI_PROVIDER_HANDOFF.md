@@ -41,7 +41,8 @@ source code does not update the live catalog.
 Updates reject a different owner before download/probing; rollbacks enforce
 ownership before conformance. Both are checked again at activation. Existing
 installations keep their immutable owner receipts.
-Switching connectors requires explicit removal and a separately admitted install.
+Ownership checks compare the recorded publisher/repository identity. Changing
+that identity requires explicit removal and a separately admitted install.
 
 Sessions using a matching successor receipt require publisher/source-bound IDs.
 The successor rejects raw or foreign-owner IDs during init, prompt and compact.
