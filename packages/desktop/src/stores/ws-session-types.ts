@@ -320,14 +320,29 @@ export function markLastPlanBlock(
   blocks: AgentBlockData[],
   status: "approved" | "rejected",
 ): AgentBlockData[] {
-  const lastIdx = blocks.findLastIndex(
-    (b) =>
-      b.type === "tool_call" &&
-      (b.toolName === "ExitPlanMode" || isCadencrPlanPresentationTool(b.toolName)),
+  return markPlanBlock(blocks, lastPlanBlockId(blocks), status);
+}
+
+/** Id of the most recent plan block, the one a plan gate presents. */
+export function lastPlanBlockId(blocks: AgentBlockData[]): string | null {
+  return (
+    blocks.findLast(
+      (b) =>
+        b.type === "tool_call" &&
+        (b.toolName === "ExitPlanMode" || isCadencrPlanPresentationTool(b.toolName)),
+    )?.id ?? null
   );
-  if (lastIdx === -1) return blocks;
+}
+
+export function markPlanBlock(
+  blocks: AgentBlockData[],
+  blockId: string | null,
+  status: "approved" | "rejected",
+): AgentBlockData[] {
+  const index = blockId == null ? -1 : blocks.findIndex((b) => b.id === blockId);
+  if (index === -1) return blocks;
   const updated = [...blocks];
-  updated[lastIdx] = { ...updated[lastIdx], planApprovalStatus: status };
+  updated[index] = { ...updated[index], planApprovalStatus: status };
   return updated;
 }
 

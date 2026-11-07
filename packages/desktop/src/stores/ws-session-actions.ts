@@ -8,6 +8,7 @@ import type { StoreAccessors } from "./ws-envelope-handler";
 import { markLastPlanBlock, type PersistedStatePayload, updateSession } from "./ws-session-types";
 import { transitionTurn } from "./ws-turn-lifecycle";
 import { prependHistoryBlocks } from "./ws-session-prepend";
+import { submitPlanResponse } from "./ws-session-permission-actions";
 
 export type { PersistedStatePayload };
 
@@ -18,9 +19,6 @@ export function applyApprovePlan(
   planRestorePrefix: string,
 ): void {
   const session = ctx.getSession(sessionId);
-  const markedBlocks = markLastPlanBlock(session.blocks, "approved");
-  const blocksPatch = blocksPatchWithDerived(session.streamingState, markedBlocks);
-  const messageUuid = crypto.randomUUID();
 
   // The post-plan-approval mode change is owned by the backend bridge: it
   // calls `Query::set_permission_mode` on the live CLI atomically with
@@ -28,20 +26,26 @@ export function applyApprovePlan(
   // here would race the CLI and let the chip lie about CLI state, so the
   // chip waits for that envelope instead (see no-optimistic-updates.md).
 
+  if (isLivePlanGate(session.pendingRequestId, planRestorePrefix)) {
+    submitPlanResponse(ctx.set, ctx.get, sessionId, session.pendingRequestId, "approved", "");
+    return;
+  }
+
+  const markedBlocks = markLastPlanBlock(session.blocks, "approved");
+  const blocksPatch = blocksPatchWithDerived(session.streamingState, markedBlocks);
+  const messageUuid = crypto.randomUUID();
+
   if (session.pendingRequestId) {
-    const isRestored = session.pendingRequestId.startsWith(planRestorePrefix);
     sendRaw(
       sessionId,
       createPermissionRespond(session.serverSessionId, session.pendingRequestId, "allow_once", {
         messageUuid,
       }),
     );
-    if (isRestored) {
-      sendRaw(
-        sessionId,
-        createPromptSend(session.serverSessionId, "Plan approved. Proceed with execution."),
-      );
-    }
+    sendRaw(
+      sessionId,
+      createPromptSend(session.serverSessionId, "Plan approved. Proceed with execution."),
+    );
     ctx.set(
       updateSession(ctx.get(), sessionId, {
         pendingRequestId: "",
@@ -69,6 +73,14 @@ export function applyApprovePlan(
   );
 }
 
+/**
+ * A plan gate the backend is holding. A restored gate (`planRestorePrefix`)
+ * names no backend request, so it is answered with a prompt instead.
+ */
+function isLivePlanGate(requestId: string, planRestorePrefix: string): boolean {
+  return requestId !== "" && !requestId.startsWith(planRestorePrefix);
+}
+
 export function applyPlanChangesRequest(
   ctx: StoreAccessors,
   sessionId: string,
@@ -77,12 +89,17 @@ export function applyPlanChangesRequest(
   planRestorePrefix: string,
 ): void {
   const session = ctx.getSession(sessionId);
+
+  if (isLivePlanGate(session.pendingRequestId, planRestorePrefix)) {
+    submitPlanResponse(ctx.set, ctx.get, sessionId, session.pendingRequestId, "rejected", feedback);
+    return;
+  }
+
   const blocksWithStatus = markLastPlanBlock(session.blocks, "rejected");
   const blocksPatch = blocksPatchWithDerived(session.streamingState, blocksWithStatus);
   const messageUuid = crypto.randomUUID();
 
   if (session.pendingRequestId) {
-    const isRestored = session.pendingRequestId.startsWith(planRestorePrefix);
     sendRaw(
       sessionId,
       createPermissionRespond(session.serverSessionId, session.pendingRequestId, "deny", {
@@ -90,12 +107,10 @@ export function applyPlanChangesRequest(
         messageUuid,
       }),
     );
-    if (isRestored) {
-      sendRaw(
-        sessionId,
-        createPromptSend(session.serverSessionId, feedback || "Plan rejected. Revise the plan."),
-      );
-    }
+    sendRaw(
+      sessionId,
+      createPromptSend(session.serverSessionId, feedback || "Plan rejected. Revise the plan."),
+    );
     ctx.set(
       updateSession(ctx.get(), sessionId, {
         pendingRequestId: "",
