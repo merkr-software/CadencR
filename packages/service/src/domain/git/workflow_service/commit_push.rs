@@ -3,13 +3,11 @@
 //! WS broadcast to the watcher. Push lives in its sibling [`super::push`]
 //! module — extracted to keep both files under the 400-line cap.
 
-use std::path::{Path, PathBuf};
-
 use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::models::{CommitBody, GetUncommittedFilesParams, SuccessResponse};
 use crate::domain::git::porcelain::UncommittedFile;
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 use crate::error::AppError;
 
 use super::streaming::{broadcast_complete, stream_git_operation, GitStreamOp};
@@ -39,14 +37,16 @@ pub async fn commit(state: &AppState, body: CommitBody) -> Result<SuccessRespons
         validate_file_mutation_path(p)?;
     }
 
-    let git_path = resolve_feature_git_path(state, feature_id)
+    let dir = resolve_feature_git_dir(state, feature_id)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let repo = PathBuf::from(git_path);
     let permit = state
         .git_mutations
-        .try_acquire(&repo)
+        .try_acquire(&dir.cwd)
         .map_err(mutation_guard_error)?;
+    // The paths come from the changed-files list, relative to the checkout
+    // root, so `git add` runs there.
+    let repo = dir.root;
 
     // Streaming setup is shared with `push` — see [`super::streaming`].
     // The synthetic `$ git add …` header gives the dialog a first line to
@@ -94,17 +94,17 @@ pub async fn get_uncommitted_files(
     state: &AppState,
     params: GetUncommittedFilesParams,
 ) -> Result<Vec<UncommittedFile>, AppError> {
-    let path = crate::domain::git::service::resolve_feature_working_path(state, params.feature_id)
-        .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!("feature {} has no git path", params.feature_id))
-        })?;
-    let repo = Path::new(&path);
-    if !crate::shared::git_context::has_git_metadata(repo).await? {
+    let dir =
+        crate::domain::git::feature_dir::resolve_feature_dir(&state.read_pool, params.feature_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("feature {} has no git path", params.feature_id))
+            })?;
+    let Some(root) = dir.git_root().await? else {
         return Ok(vec![]);
-    }
+    };
 
-    Ok(commands::get_uncommitted_entries(repo)
+    Ok(commands::get_uncommitted_entries(&root)
         .await?
         .into_iter()
         .map(|entry| entry.into_uncommitted())

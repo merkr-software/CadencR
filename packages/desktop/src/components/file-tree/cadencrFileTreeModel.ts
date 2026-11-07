@@ -4,6 +4,7 @@ import type {
   FileTreeOptions,
 } from "@pierre/trees";
 import type { FileTreeEntry } from "@/api/generated";
+import { gitPathToFeaturePath } from "@/lib/git-paths";
 
 /** Convert a backend entry to Pierre's trailing-slash directory identity. */
 export function toPierrePath(entry: Pick<FileTreeEntry, "path" | "is_dir">): string {
@@ -37,15 +38,23 @@ export function buildPierreInputs(
 
 type PierreGitStatus = "added" | "deleted" | "ignored" | "modified" | "renamed" | "untracked";
 
-/** Map the editor tree's friendly change kinds onto Pierre Git statuses. */
+/**
+ * Map the editor tree's friendly change kinds onto Pierre Git statuses. Git
+ * names files relative to the checkout root and the tree relative to the
+ * feature's directory, which sits at `gitPrefix` in it (see `lib/git-paths`);
+ * files outside that directory are not in the tree. No prefix yet (loading, or
+ * no Git), no decorations.
+ */
 export function gitStatusFromUncommittedFiles(
   files: readonly { path: string; change_kind: string }[] | undefined,
+  gitPrefix: string | null | undefined,
 ): FileTreeOptions["gitStatus"] {
-  if (files == null || files.length === 0) return [];
+  if (files == null || files.length === 0 || gitPrefix == null) return [];
   const entries: { path: string; status: PierreGitStatus }[] = [];
   for (const file of files) {
     const status = toPierreGitStatus(file.change_kind);
-    if (status != null) entries.push({ path: file.path, status });
+    const path = gitPathToFeaturePath(file.path, gitPrefix);
+    if (status != null && path != null) entries.push({ path, status });
   }
   return entries;
 }

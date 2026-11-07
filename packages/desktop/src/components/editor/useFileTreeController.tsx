@@ -23,6 +23,7 @@ import { useActiveFileHighlight } from "@/components/file-tree/useActiveFileHigh
 import { useDebouncedSetting } from "@/hooks/useDebouncedSetting";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useFileTreeMutations } from "@/hooks/useFileTreeMutations";
+import { useGitPathPrefix } from "@/hooks/useGitPathPrefix";
 import { openDocumentPreview } from "@/lib/open-document-preview";
 import { copyFilePath } from "./copyFilePath";
 import { FileTreeContextMenu, type FileTreeMenuAction } from "./FileTreeContextMenu";
@@ -79,9 +80,10 @@ function useFileTreeData(projectId: number, featureId: number) {
     return { paths: pierrePaths, ignoredPathPrefixes: ignoredRoots };
   }, [entries]);
   const uncommitted = useGetUncommittedFiles({ feature_id: featureId });
+  const gitPrefix = useGitPathPrefix(featureId);
   const gitStatus = useMemo(
-    () => gitStatusFromUncommittedFiles(uncommitted.data),
-    [uncommitted.data],
+    () => gitStatusFromUncommittedFiles(uncommitted.data, gitPrefix),
+    [gitPrefix, uncommitted.data],
   );
   return {
     gitStatus,

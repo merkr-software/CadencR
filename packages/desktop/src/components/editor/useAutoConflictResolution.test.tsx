@@ -5,9 +5,11 @@ const mocks = vi.hoisted(() => ({
   changedFiles: { data: undefined as unknown, isError: false, error: null as unknown },
   useGetChangedFiles: vi.fn(),
   toastError: vi.fn(),
+  gitPrefix: "" as string | null | undefined,
 }));
 
 vi.mock("sonner", () => ({ toast: { error: mocks.toastError } }));
+vi.mock("@/hooks/useGitPathPrefix", () => ({ useGitPathPrefix: () => mocks.gitPrefix }));
 vi.mock("@/api/generated", () => ({
   FileStageState: { conflicted: "conflicted" },
   useGetChangedFiles: (params: unknown, options: unknown) => {
@@ -43,6 +45,7 @@ beforeEach(() => {
   mocks.changedFiles.error = null;
   mocks.useGetChangedFiles.mockReset();
   mocks.toastError.mockReset();
+  mocks.gitPrefix = "";
 });
 
 describe("confirmed conflict paths", () => {
@@ -60,6 +63,28 @@ describe("confirmed conflict paths", () => {
       feature_id: 3,
       mode: "worktree",
     });
+  });
+
+  it("keys a monorepo subdirectory's conflicts by their editor path", () => {
+    mocks.gitPrefix = "packages/app";
+    mocks.changedFiles.data = [
+      { file: "packages/app/a.ts", status: "UU", stage_state: "conflicted", conflict_kind: "uu" },
+      { file: "other.ts", status: "UU", stage_state: "conflicted", conflict_kind: "uu" },
+    ];
+    render(<Harness filePath="a.ts" />);
+
+    expect(screen.getByTestId("a.ts")).toHaveTextContent("a.ts");
+    // `other.ts` is the repository root's, outside this editor.
+    expect(screen.getByTestId("other.ts")).toHaveTextContent("ordinary");
+  });
+
+  it("waits for the Git prefix before matching any path", () => {
+    mocks.gitPrefix = undefined;
+    mocks.changedFiles.data = [
+      { file: "a.ts", status: "UU", stage_state: "conflicted", conflict_kind: "uu" },
+    ];
+    render(<Harness filePath="a.ts" />);
+    expect(screen.getByTestId("a.ts")).toHaveTextContent("ordinary");
   });
 
   it("matches unusual literal paths exactly", () => {

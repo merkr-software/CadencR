@@ -108,6 +108,17 @@ pub struct FileBlobSha {
     pub sha: String,
 }
 
+/// Where the feature's directory sits in its checkout. Git tab paths are
+/// relative to the checkout root; editor paths are relative to the feature's
+/// directory, so the two differ by this prefix.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GitPathPrefixResponse {
+    /// The feature's directory relative to the checkout root, with `/`
+    /// separators: empty at the root, `packages/app` for a monorepo project.
+    /// `None` when the directory has no Git metadata.
+    pub prefix: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct WorktreeInfo {
     pub path: String,

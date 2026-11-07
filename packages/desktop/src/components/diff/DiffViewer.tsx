@@ -10,6 +10,7 @@ import { GitDiffToolbar } from "./GitDiffToolbar";
 import { GitDiffFileTree } from "./GitDiffFileTree";
 import { useDiffData, type DiffMode } from "./useDiffData";
 import { useOpenDiffInEditor, type OpenDiffInEditor } from "./OpenDiffInEditorContext";
+import { useGitPathEditorOpener } from "./useGitPathEditorOpener";
 import { useGitFileIndexActions } from "./useGitFileIndexActions";
 import { useGitFileListCollapse, type GitFileListCollapseState } from "./useGitFileListCollapse";
 import { useDiffViewerComments } from "./useDiffViewerComments";
@@ -311,7 +312,10 @@ function DiffViewerImpl({
   onReviewThreadSelectedChange,
 }: DiffViewerProps) {
   const contextOpenFileInEditor = useOpenDiffInEditor();
-  const openFileInEditor = onOpenFileInEditor ?? contextOpenFileInEditor;
+  const openFileInEditor = useGitPathEditorOpener(
+    featureId,
+    onOpenFileInEditor ?? contextOpenFileInEditor,
+  );
   const {
     value,
     setValue: setDiffMode,

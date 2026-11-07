@@ -11,7 +11,9 @@ use crate::domain::git::workflow_service;
 use crate::error::AppError;
 
 mod mutations;
+mod paths;
 pub use mutations::*;
+pub use paths::*;
 
 #[utoipa::path(get, path = "/api/git/branch", params(("project_id" = i64, Query,)), responses((status = 200, body = BranchResponse)))]
 pub async fn get_branch_handler(
@@ -99,14 +101,6 @@ pub async fn get_commit_url_handler(
     Query(params): Query<GetCommitUrlParams>,
 ) -> Result<Json<CommitUrlResponse>, AppError> {
     Ok(Json(service::get_commit_url(&state, params).await?))
-}
-
-#[utoipa::path(get, path = "/api/git/file-blob-shas", params(("feature_id" = i64, Query,)), responses((status = 200, body = Vec<FileBlobSha>)))]
-pub async fn get_file_blob_shas_handler(
-    State(state): State<AppState>,
-    Query(params): Query<GetFileBlobShasParams>,
-) -> Result<Json<Vec<FileBlobSha>>, AppError> {
-    Ok(Json(service::get_file_blob_shas(&state, params).await?))
 }
 
 #[utoipa::path(get, path = "/api/git/stashes", params(("feature_id" = i64, Query,)), responses((status = 200, body = Vec<StashEntry>)))]
@@ -352,6 +346,7 @@ pub fn git_router() -> Router<AppState> {
         .route("/api/git/commit-graph", get(get_commit_graph_handler))
         .route("/api/git/commit-url", get(get_commit_url_handler))
         .route("/api/git/file-blob-shas", get(get_file_blob_shas_handler))
+        .route("/api/git/path-prefix", get(get_git_path_prefix_handler))
         .route("/api/git/stashes", get(list_stashes_handler))
         .route("/api/git/stashes/push", post(push_stash_handler))
         .route("/api/git/stashes/apply", post(apply_stash_handler))

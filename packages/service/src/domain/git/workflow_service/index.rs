@@ -1,12 +1,10 @@
 //! Guarded whole-file stage and unstage orchestration. Route wiring is owned
 //! by the later single-owner API integration barrier.
 
-use std::path::PathBuf;
-
 use crate::app_state::AppState;
 use crate::domain::git::commands;
 use crate::domain::git::models::{FileMutationBody, SuccessResponse};
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 use crate::error::AppError;
 
 use super::{broadcast_after_write_at, mutation_guard_error, validate_file_mutation_path};
@@ -36,25 +34,24 @@ async fn mutate_file(
     body: FileMutationBody,
     mutation: IndexMutation,
 ) -> Result<SuccessResponse, AppError> {
-    let git_path = resolve_feature_git_path(state, body.feature_id)
+    let dir = resolve_feature_git_dir(state, body.feature_id)
         .await?
         .ok_or_else(|| {
             AppError::NotFound(format!("feature {} has no git path", body.feature_id))
         })?;
     validate_file_mutation_path(&body.file_path)?;
 
-    let repo = PathBuf::from(git_path);
     let permit = state
         .git_mutations
-        .try_acquire(&repo)
+        .try_acquire(&dir.cwd)
         .map_err(mutation_guard_error)?;
     match mutation {
-        IndexMutation::Stage => commands::stage_file(&repo, &body.file_path).await?,
-        IndexMutation::Reset => commands::reset_file(&repo, &body.file_path).await?,
+        IndexMutation::Stage => commands::stage_file(&dir.root, &body.file_path).await?,
+        IndexMutation::Reset => commands::reset_file(&dir.root, &body.file_path).await?,
     }
     drop(permit);
 
-    broadcast_after_write_at(state, &repo).await;
+    broadcast_after_write_at(state, &dir.cwd).await;
     Ok(SuccessResponse {
         success: true,
         error: None,

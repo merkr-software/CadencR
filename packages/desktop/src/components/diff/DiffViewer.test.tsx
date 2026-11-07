@@ -122,6 +122,8 @@ vi.mock("@/hooks/useShortcut", () => ({
   },
 }));
 
+// A project at its repository root: Git paths are editor paths.
+vi.mock("@/hooks/useGitPathPrefix", () => ({ useGitPathPrefix: () => "" }));
 vi.mock("@/api/generated", () => ({
   FileStageState: {
     not_applicable: "not_applicable",

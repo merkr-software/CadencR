@@ -12,8 +12,6 @@
 //! can `POST /api/git/push-input` to forward the user's typed line back
 //! into the PTY in real time.
 
-use std::path::PathBuf;
-
 use tokio::sync::mpsc;
 
 use crate::app_state::AppState;
@@ -24,14 +22,14 @@ use crate::error::AppError;
 
 use super::streaming::{broadcast_complete, stream_git_operation, GitStreamOp};
 use super::{broadcast_after_write, mutation_guard_error};
-use crate::domain::git::service::resolve_feature_git_path;
+use crate::domain::git::service::resolve_feature_git_dir;
 
 pub async fn push(state: &AppState, body: PushBody) -> Result<SuccessResponse, AppError> {
     let feature_id = body.feature_id;
-    let git_path = resolve_feature_git_path(state, feature_id)
+    let repo = resolve_feature_git_dir(state, feature_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?;
-    let repo = PathBuf::from(git_path);
+        .ok_or_else(|| AppError::NotFound(format!("feature {feature_id} has no git path")))?
+        .cwd;
     let permit = state
         .git_mutations
         .try_acquire(&repo)

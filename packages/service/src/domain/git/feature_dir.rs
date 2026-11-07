@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use sqlx::SqlitePool;
 
 use crate::domain::git::service::SETTING_WORKTREE_PATH;
+use crate::domain::git::worktree_context::resolve_source_git_root;
 use crate::domain::git::{commands, repository};
 use crate::error::AppError;
 
@@ -47,6 +48,37 @@ pub enum ProjectFallback {
 impl FeatureDir {
     pub fn live_worktree_cwd(&self) -> Option<&str> {
         matches!(self.source, FeatureDirSource::Worktree { .. }).then_some(self.cwd.as_str())
+    }
+
+    /// Root of the checkout that owns `cwd`, or `None` without Git metadata.
+    ///
+    /// Git reports changed paths relative to this root (`status --porcelain`,
+    /// `diff --name-only`, …), so every command that takes such a path back,
+    /// and every read of one from disk, must run here: from a monorepo
+    /// subdirectory `cwd`, `packages/app/x` would resolve to
+    /// `packages/app/packages/app/x`. A feature at the root keeps `cwd`'s own
+    /// spelling, so the common case sees the exact path it always did.
+    pub async fn git_root(&self) -> Result<Option<PathBuf>, AppError> {
+        let cwd = Path::new(&self.cwd);
+        let root = match &self.source {
+            FeatureDirSource::Worktree { root } => root.clone(),
+            FeatureDirSource::Project(ProjectFallback::ProjectWithoutGit) => return Ok(None),
+            FeatureDirSource::Project(_) => {
+                if !crate::shared::git_context::has_git_metadata(cwd).await? {
+                    return Ok(None);
+                }
+                // The common case, a project at its checkout root, needs no
+                // `git` process on every Git request.
+                if cwd.join(".git").symlink_metadata().is_ok() {
+                    return Ok(Some(cwd.to_path_buf()));
+                }
+                resolve_source_git_root(cwd)
+                    .await
+                    .map_err(AppError::GitCommandError)?
+            }
+        };
+        let at_root = cwd == root || commands::canonical_dir(cwd) == commands::canonical_dir(&root);
+        Ok(Some(if at_root { cwd.to_path_buf() } else { root }))
     }
 }
 
