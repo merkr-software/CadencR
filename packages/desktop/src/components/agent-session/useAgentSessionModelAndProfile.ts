@@ -42,7 +42,14 @@ export function useAgentSessionModelAndProfile(
     agentCatalogData?.providers.find((provider) => provider.id === model.activeProviderId)
       ?.profile_capability,
   );
-  const sendsProfile = supportsProfiles || isClaudeProvider;
+  // The prompt runs on the provider the session confirmed, which the composer
+  // can differ from (a fallback while that provider is unavailable). Before
+  // the session knows its provider the pick still goes out: the backend
+  // ignores a profile its provider cannot apply.
+  const sessionProviderId = selection?.providerId ?? runtimeProvider;
+  const sendsProfile =
+    (!sessionProviderId || sessionProviderId === profileProviderId) &&
+    (supportsProfiles || isClaudeProvider);
 
   const localClaudeProfileSelection = useClaudeProfileSelection({
     isClaudeProvider: isClaudeProvider && claudeProfileSelection == null,

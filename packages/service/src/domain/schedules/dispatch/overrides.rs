@@ -362,6 +362,44 @@ mod tests {
         assert_eq!(overrides.fast_mode, Some(true));
     }
 
+    /// A runtime override switch (Codex model/effort picker) mirrors the
+    /// effective effort into the column, so a schedule posting into the
+    /// conversation sees the level the user picked, not the first init's.
+    #[tokio::test]
+    async fn schedule_sees_the_effort_of_the_last_runtime_override_switch() {
+        let (state, session_id) = legacy_codex_session().await;
+        let switched = crate::domain::agents::adapter::RuntimeConfigOverrides {
+            model: Some("gpt-5.6-luna".into()),
+            thinking_effort: Some("max".into()),
+            ..Default::default()
+        };
+        WsSessionPersistence::update_runtime_config_static()
+            .pool(&state.write_pool)
+            .session_id(session_id)
+            .overrides(&switched)
+            .model("gpt-5.6-luna")
+            .thinking_effort("max")
+            .call()
+            .await
+            .unwrap();
+        let pins = SessionPins {
+            model: Some("new-model".into()),
+            ..Default::default()
+        };
+        let json = merge_runtime_overrides(&state, session_id, &pins)
+            .await
+            .unwrap()
+            .unwrap();
+        let overrides: crate::domain::agents::adapter::RuntimeConfigOverrides =
+            serde_json::from_str(&json).unwrap();
+        assert_eq!(overrides.thinking_effort.as_deref(), Some("max"));
+        let stored = WsSessionPersistence::try_get_session_row(&state.read_pool, session_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.thinking_effort.as_deref(), Some("max"));
+    }
+
     #[tokio::test]
     async fn malformed_override_provenance_rejects_schedule_pin() {
         let (state, session_id) = legacy_codex_session().await;

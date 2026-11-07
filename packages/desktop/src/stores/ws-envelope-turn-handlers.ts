@@ -21,9 +21,9 @@ import { toast } from "sonner";
 /**
  * `session.stream_status` envelope handler. The backend emits this when
  * the underlying transport for an agent stream goes degraded or recovers
- * (today only OpenCode emits transitions away from `"ok"`). The shape is
- * provider-neutral. PR-A wires the store flag; PR-C will render an
- * inline "Reconnecting…" banner under the loader.
+ * (OpenCode on reconnect, Codex while it retries a stream error). The
+ * shape is provider-neutral; `AgentSessionStreamNotice` renders it above
+ * the composer, and the turn's `session.ended` clears it.
  *
  * This is the user-visible counterpart to plan finding #1: the smoking-
  * gun fix in the SDK now drops subscriber senders on reconnect, the
@@ -134,7 +134,9 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     type: "turn_ended",
     reason: mapTerminalReason(ended.reason),
   });
-  if (blocks === session.blocks && lifecycle === session.lifecycle) {
+  // A retry the provider never reported recovering from ends with the turn.
+  const streamRecovered = session.streamHealth.state === "degraded";
+  if (blocks === session.blocks && lifecycle === session.lifecycle && !streamRecovered) {
     repairRecoveredPersistence(ctx, sessionId);
     return;
   }
@@ -142,6 +144,7 @@ export function handleTurnComplete(ctx: StoreAccessors, sessionId: string, paylo
     updateSession(ctx.get(), sessionId, {
       ...(blocks === session.blocks ? {} : blocksPatchWithDerived(state, blocks)),
       lifecycle,
+      ...(streamRecovered ? { streamHealth: { state: "ok", since: Date.now() } } : {}),
     }),
   );
   repairRecoveredPersistence(ctx, sessionId);

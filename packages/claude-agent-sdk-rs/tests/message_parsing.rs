@@ -710,7 +710,7 @@ fn assistant_with_unknown_content_block_keeps_known_text() {
 
 #[test]
 fn stream_event_with_unknown_delta_stays_stream_event() {
-    // e.g. a `signature_delta` for thinking blocks.
+    // e.g. a `citations_delta`, which the SDK does not model.
     let raw = json!({
         "type": "stream_event",
         "uuid": "u1",
@@ -718,7 +718,7 @@ fn stream_event_with_unknown_delta_stays_stream_event() {
         "event": {
             "type": "content_block_delta",
             "index": 0,
-            "delta": { "type": "signature_delta", "signature": "abc" }
+            "delta": { "type": "citations_delta", "citation": "abc" }
         }
     });
     let msg: SdkMessage = serde_json::from_value(raw).unwrap();
@@ -728,8 +728,8 @@ fn stream_event_with_unknown_delta_stays_stream_event() {
             ..
         } => match delta {
             ContentDelta::Other(raw) => {
-                assert_eq!(raw["type"], "signature_delta");
-                assert_eq!(raw["signature"], "abc");
+                assert_eq!(raw["type"], "citations_delta");
+                assert_eq!(raw["citation"], "abc");
             }
             other => panic!("expected raw-preserving Other, got {other:?}"),
         },

@@ -76,14 +76,14 @@ impl ProcessTreeControl {
         match self.policy {
             AcpProcessTreePolicy::Inherit => Ok(()),
             AcpProcessTreePolicy::Isolated(_) => {
-                #[cfg(target_os = "macos")]
+                #[cfg(unix)]
                 {
                     match pid {
-                        Some(pid) => macos_signal::cleanup_after_exit(pid).await,
+                        Some(pid) => kill_group_after_leader_exit(pid).await,
                         None => Ok(()),
                     }
                 }
-                #[cfg(not(target_os = "macos"))]
+                #[cfg(not(unix))]
                 {
                     cleanup_isolated(self, pid)
                 }
@@ -186,8 +186,7 @@ fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::R
     }
     #[cfg(unix)]
     {
-        use std::os::unix::process::CommandExt;
-        command.as_std_mut().process_group(0);
+        lead_new_process_group(command);
         return Ok(());
     }
     #[cfg(windows)]
@@ -199,14 +198,6 @@ fn prepare_command(command: &mut Command, policy: AcpProcessTreePolicy) -> io::R
         io::ErrorKind::Unsupported,
         "isolated process trees are unavailable on this platform",
     ))
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn cleanup_isolated(_control: &ProcessTreeControl, pid: Option<u32>) -> io::Result<()> {
-    let Some(pid) = pid else {
-        return Ok(());
-    };
-    signal_process_group(pid, libc::SIGKILL)
 }
 
 #[cfg(windows)]
@@ -222,8 +213,38 @@ fn cleanup_isolated(_control: &ProcessTreeControl, _pid: Option<u32>) -> io::Res
     ))
 }
 
+/// Make the command lead a new process group, so signals sent to that group
+/// reach every descendant.
 #[cfg(unix)]
-fn signal_process_group(pid: u32, signal: libc::c_int) -> io::Result<()> {
+pub(crate) fn lead_new_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    command.as_std_mut().process_group(0);
+}
+
+/// Whether a live process remains in the group `pid` leads (zombies the
+/// kernel refuses to signal do not count).
+#[cfg(unix)]
+pub(crate) fn process_group_alive(pid: u32) -> bool {
+    unsafe { libc::kill(-(pid as libc::pid_t), 0) == 0 }
+}
+
+/// SIGKILL what is left of a process group whose leader has exited (macOS
+/// excludes the zombie leader from group signals; see `macos_signal`).
+#[cfg(unix)]
+pub(crate) async fn kill_group_after_leader_exit(pid: u32) -> io::Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_signal::cleanup_after_exit(pid).await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        signal_process_group(pid, libc::SIGKILL)
+    }
+}
+
+/// Signal every process of the group `pid` leads; a vanished group is fine.
+#[cfg(unix)]
+pub(crate) fn signal_process_group(pid: u32, signal: libc::c_int) -> io::Result<()> {
     let result = unsafe { libc::kill(-(pid as libc::pid_t), signal) };
     if result == 0 {
         return Ok(());

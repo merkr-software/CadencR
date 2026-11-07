@@ -850,6 +850,34 @@ describe("handleEnvelope stream_status", () => {
     expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
   });
 
+  it("clears a retry the provider never reported recovering from when the turn ends", () => {
+    const session = createSessionEntry();
+    session.streamHealth = { state: "degraded", reason: "Codex is retrying", since: 1 };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "ended",
+      payload: { reason: "turn_complete" },
+    });
+
+    expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
+  });
+
+  it("clears a stale retry when the session is initialized again", () => {
+    const session = createSessionEntry();
+    session.streamHealth = { state: "degraded", reason: "Codex is retrying", since: 1 };
+    const ctx = createTestContext(session);
+
+    handleEnvelope(ctx, "s1", {
+      domain: "session",
+      action: "initialized",
+      payload: { session_id: "srv-1", provider: "codex_cli", model: "gpt-6-luna" },
+    });
+
+    expect(ctx.getSession("s1").streamHealth.state).toBe("ok");
+  });
+
   it("ignores envelopes with an unrecognized state without throwing", () => {
     // The handler intentionally `console.warn`s on the malformed payload —
     // silence it here so the test output stays clean.

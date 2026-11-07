@@ -186,14 +186,16 @@ async fn persist_overrides(
 ) -> Result<(), AppError> {
     // Workspace default first: if it fails, the session overrides stay untouched.
     remember_explicit_effort(app_state, provider, explicit_effort, effective).await?;
-    // Session lists, cards and schedules read the model column.
-    WsSessionPersistence::update_runtime_overrides_and_model(
-        &app_state.write_pool,
-        session_id,
-        overrides,
-        effective.model.as_deref(),
-    )
-    .await?;
+    // Forks, schedules, usage stats and session lists read the model and
+    // effort columns, so they mirror the effective config in the same write.
+    WsSessionPersistence::update_runtime_config_static()
+        .pool(&app_state.write_pool)
+        .session_id(session_id)
+        .overrides(overrides)
+        .maybe_model(effective.model.as_deref())
+        .maybe_thinking_effort(effective.thinking_effort.as_deref())
+        .call()
+        .await?;
     Ok(())
 }
 

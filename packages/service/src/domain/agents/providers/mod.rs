@@ -305,10 +305,11 @@ pub async fn notify_worktree_created_for_all_providers(
 }
 
 pub async fn shutdown_runtime_servers() {
-    // Previously shut down a long-running OpenCode HTTP server. With the
-    // ACP-only transport, OpenCode subprocesses are owned by individual
-    // sessions and torn down with their owning runtime — there's no
-    // shared server to terminate from here.
+    // Provider subprocesses are owned by their sessions and torn down with
+    // their runtime. ACP terminals are not: they lead their own process
+    // groups, so the service's own group signals never reach them, and what
+    // they left running would outlive the service.
+    crate::domain::agents::acp::runtime::stop_all_terminals().await;
 }
 
 pub async fn runtime_session_finished(provider_id: &str, runtime_session_id: &str) -> bool {

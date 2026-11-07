@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use serde::Deserialize;
 
+use crate::cli_command::run_opencode_command;
 use crate::error::SdkError;
 use crate::process::resolve_binary;
 use crate::types::{
@@ -32,27 +33,15 @@ pub async fn list_models_from_cli() -> Result<ConfigProvidersResponse, SdkError>
 }
 
 pub async fn list_models_from_binary(binary: &Path) -> Result<ConfigProvidersResponse, SdkError> {
-    let mut command = cli_discovery::login_shell_exec_command(
-        binary.as_os_str(),
-        [
-            std::ffi::OsString::from("models"),
-            std::ffi::OsString::from("--verbose"),
-        ],
-    );
-    command.kill_on_drop(true);
-    let output = tokio::time::timeout(MODELS_CLI_TIMEOUT, command.output())
-        .await
-        .map_err(|_| SdkError::Timeout("opencode models --verbose".to_string()))??;
-
-    if !output.status.success() {
-        return Err(SdkError::Protocol(format!(
-            "opencode models --verbose exited with status {}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr).trim(),
-        )));
-    }
-
-    parse_models_verbose_output(&String::from_utf8_lossy(&output.stdout))
+    let stdout = run_opencode_command(
+        binary,
+        None,
+        &["models", "--verbose"],
+        MODELS_CLI_TIMEOUT,
+        true,
+    )
+    .await?;
+    parse_models_verbose_output(&stdout)
 }
 
 pub fn parse_models_verbose_output(raw: &str) -> Result<ConfigProvidersResponse, SdkError> {
@@ -91,7 +80,8 @@ fn parse_model_entries(raw: &str) -> Result<Vec<ParsedModel>, SdkError> {
     let mut entries = Vec::new();
     let mut pending_ref: Option<String> = None;
     let mut pending_json = String::new();
-    let mut brace_depth = 0_i32;
+    let mut depth = JsonDepth::default();
+    let mut saw_verbose = false;
 
     for line in raw.lines() {
         let trimmed = line.trim();
@@ -113,41 +103,75 @@ fn parse_model_entries(raw: &str) -> Result<Vec<ParsedModel>, SdkError> {
 
         pending_json.push_str(line);
         pending_json.push('\n');
-        brace_depth += json_brace_delta(line);
-        if brace_depth < 0 {
+        depth.scan(line);
+        if depth.depth < 0 {
             return Err(SdkError::Protocol(format!(
                 "unexpected closing brace in opencode models output for {}",
                 pending_ref.as_deref().unwrap_or("unknown model"),
             )));
         }
-        if brace_depth == 0 {
+        if depth.depth == 0 {
             let model = serde_json::from_str::<VerboseModel>(&pending_json)?;
             if let Some(model_ref) = pending_ref.take() {
                 entries.push(verbose_entry(&model_ref, model)?);
             }
             pending_json.clear();
+            depth = JsonDepth::default();
+            saw_verbose = true;
         }
     }
 
-    if let Some(model_ref) = pending_ref {
-        if pending_json.trim().is_empty() {
-            entries.push(plain_entry(&model_ref)?);
-        } else {
-            return Err(SdkError::Protocol(format!(
-                "unterminated opencode models JSON block for {model_ref}",
-            )));
-        }
+    let Some(model_ref) = pending_ref else {
+        return Ok(entries);
+    };
+    // A verbose listing gives every ref a JSON block, so a trailing bare ref
+    // there is as cut as an unterminated block.
+    let truncated = !pending_json.trim().is_empty() || saw_verbose;
+    if !truncated {
+        entries.push(plain_entry(&model_ref)?);
+        return Ok(entries);
     }
-
+    if entries.is_empty() {
+        return Err(SdkError::Protocol(format!(
+            "unterminated opencode models JSON block for {model_ref}",
+        )));
+    }
+    tracing::warn!(
+        model_ref = %model_ref,
+        kept = entries.len(),
+        "opencode models output ends mid-entry; keeping the complete models",
+    );
     Ok(entries)
 }
 
-fn json_brace_delta(line: &str) -> i32 {
-    line.chars().fold(0, |depth, char| match char {
-        '{' => depth + 1,
-        '}' => depth - 1,
-        _ => depth,
-    })
+/// Brace depth of a JSON block, ignoring braces inside string literals.
+#[derive(Default)]
+struct JsonDepth {
+    depth: i32,
+    in_string: bool,
+    escaped: bool,
+}
+
+impl JsonDepth {
+    fn scan(&mut self, line: &str) {
+        for char in line.chars() {
+            if self.in_string {
+                match (self.escaped, char) {
+                    (true, _) => self.escaped = false,
+                    (false, '\\') => self.escaped = true,
+                    (false, '"') => self.in_string = false,
+                    _ => {}
+                }
+                continue;
+            }
+            match char {
+                '"' => self.in_string = true,
+                '{' => self.depth += 1,
+                '}' => self.depth -= 1,
+                _ => {}
+            }
+        }
+    }
 }
 
 fn plain_entry(model_ref: &str) -> Result<ParsedModel, SdkError> {
@@ -246,6 +270,53 @@ openai/gpt-5.4
             response.providers[1].models[0].name.as_deref(),
             Some("GPT-5.4")
         );
+    }
+
+    #[test]
+    fn braces_inside_strings_do_not_end_the_block() {
+        let raw = r#"openrouter/odd
+{
+  "id": "odd",
+  "providerID": "openrouter",
+  "name": "Odd } \" { name",
+  "limit": { "context": 1000 }
+}
+openai/gpt-5.4
+{ "id": "gpt-5.4", "providerID": "openai" }
+"#;
+        let response = parse_models_verbose_output(raw).expect("parse ok");
+        assert_eq!(response.providers.len(), 2);
+        assert_eq!(
+            response.providers[0].models[0].name.as_deref(),
+            Some("Odd } \" { name")
+        );
+        assert_eq!(response.providers[1].models[0].id, "gpt-5.4");
+    }
+
+    #[test]
+    fn truncated_output_keeps_the_complete_models() {
+        let complete = r#"opencode/big-pickle
+{ "id": "big-pickle", "providerID": "opencode" }
+"#;
+        for tail in [
+            "openrouter/meta-llama/llama-4-scout\n{\n  \"id\": \"meta-llama/lla",
+            "openrouter/meta-lla",
+        ] {
+            let response =
+                parse_models_verbose_output(&format!("{complete}{tail}")).expect("partial ok");
+            assert_eq!(response.providers.len(), 1);
+            assert_eq!(response.providers[0].models.len(), 1);
+            assert_eq!(response.providers[0].models[0].id, "big-pickle");
+        }
+    }
+
+    #[test]
+    fn truncated_output_without_a_complete_model_is_an_error() {
+        let error = parse_models_verbose_output("openrouter/x\n{\n  \"id\": \"x")
+            .expect_err("nothing usable");
+        assert!(error
+            .to_string()
+            .contains("unterminated opencode models JSON block for openrouter/x"));
     }
 
     #[test]

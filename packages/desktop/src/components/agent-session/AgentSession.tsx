@@ -35,6 +35,7 @@ import {
 } from "@/lib/agent-verbosity";
 import { AgentSessionComposer } from "./AgentSessionComposer";
 import { AgentSessionPersistenceNotice } from "./AgentSessionPersistenceNotice";
+import { AgentSessionStreamNotice } from "./AgentSessionStreamNotice";
 import { AgentSessionFrame } from "./AgentSessionFrame";
 import { AgentSessionStreamContent } from "./AgentSessionStreamContent";
 import { AgentSessionProvider } from "./agent-session-context";
@@ -315,6 +316,7 @@ export const AgentSession = memo(
     const bottomSection = (
       <>
         <AgentSessionPersistenceNotice sessionId={props.wsSessionId} />
+        <AgentSessionStreamNotice sessionId={props.wsSessionId} />
         <AgentSessionComposer
           sessionProps={props}
           promptBarRef={s.promptBarRef}

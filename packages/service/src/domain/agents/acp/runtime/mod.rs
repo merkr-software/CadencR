@@ -55,6 +55,7 @@ mod spawn_initial_mode;
 pub mod standard_hooks;
 pub mod stream_events;
 mod terminal_enrich;
+mod terminal_group;
 mod terminal_io;
 mod terminal_process;
 pub mod terminal_registry;
@@ -69,5 +70,11 @@ pub mod turn_lifecycle;
 pub mod turn_result;
 
 pub use session_spawn::{spawn_acp_runtime_session, AcpRuntimeSpawnArgs};
+
+/// Service shutdown: stop the process group of every ACP terminal still
+/// running, or left running by a command that exited.
+pub(crate) async fn stop_all_terminals() {
+    terminal_group::stop_all_live_groups(terminal_process::KILL_GRACE).await;
+}
 #[cfg(test)]
 pub use standard_hooks::StandardAcpHooks;

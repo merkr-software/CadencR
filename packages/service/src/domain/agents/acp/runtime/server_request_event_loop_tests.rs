@@ -765,5 +765,6 @@ async fn wait_for_exit_does_not_block_the_loop_and_kill_still_reaches_the_comman
     assert_eq!(responses[0]["id"], "kill");
     assert!(responses[0].get("result").is_some(), "{}", responses[0]);
     assert_eq!(responses[1]["id"], "wait");
-    assert_eq!(responses[1]["result"]["signal"], libc::SIGKILL);
+    // `terminal/kill` asks the process group to stop (SIGTERM) first.
+    assert_eq!(responses[1]["result"]["signal"], libc::SIGTERM);
 }
