@@ -2,11 +2,17 @@
 //!
 //! A command is a program Cadencr runs for the tab, without a shell, in the
 //! conversation's folder. Listing one names *which* program, not what it does
-//! with its arguments, so the general-purpose launchers (shells, interpreters,
-//! package runners, privilege tools) are refused outright: allowing `bash` or
-//! `node` would allow everything. A backend is a native executable the tab
-//! ships for each platform it supports and Cadencr starts; it runs with the
-//! user's rights and is not limited here beyond where its files are.
+//! with its arguments, and the tab chooses those: most everyday programs can
+//! run arbitrary code from them (`git -c alias.x='!sh …' x`, `find -exec`,
+//! `awk 'BEGIN{system(…)}'`, `ssh -o ProxyCommand`, `tar --to-command`,
+//! `rsync -e`, `make -f`). A tab that runs commands is therefore as trusted as
+//! native code, and consent to it requires the same explicit trust. The
+//! general-purpose launchers (shells, interpreters, package runners, privilege
+//! tools) are still refused, only so that a manifest cannot hide "runs
+//! anything" behind an honest-looking list — not as a sandbox. A backend is a
+//! native executable the tab ships for each platform it supports and Cadencr
+//! starts; it runs with the user's rights and is not limited here beyond where
+//! its files are.
 
 use std::collections::BTreeSet;
 
@@ -20,9 +26,11 @@ pub const MAX_COMMANDS: usize = 16;
 pub const MAX_REASONING_CHARS: usize = 280;
 const MAX_PROGRAM_CHARS: usize = 64;
 
-/// Programs that run whatever they are handed. Compared case-insensitively,
-/// without a Windows executable suffix, and without a version suffix too
-/// (`python3.12`, `node18`, `php-8.2` are their interpreters).
+/// Programs whose purpose is to run whatever they are handed. Compared
+/// case-insensitively, without a Windows executable suffix, and without a
+/// version suffix too (`python3.12`, `node18`, `php-8.2` are their
+/// interpreters). Refusing them keeps the listed programs honest; it does not
+/// confine the others (see the module docs).
 pub const DENIED_PROGRAMS: &[&str] = &[
     // shells
     "sh",

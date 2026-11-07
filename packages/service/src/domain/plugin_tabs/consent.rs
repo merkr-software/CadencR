@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 
 use axum::http::StatusCode;
+use cadencr_plugin_core::tab::TabAccessLevel;
 use sqlx::SqlitePool;
 
 use crate::error::AppError;
@@ -44,6 +45,28 @@ pub fn require_current(plugin_id: &str, current: &str, submitted: &str) -> Resul
         "PLUGIN_TAB_CONSENT_STALE",
         format!(
             "custom tab `{plugin_id}` changed its permissions since they were shown; review them again"
+        ),
+    ))
+}
+
+/// Refuse a consent to a tab that runs code outside its page without the
+/// user's explicit trust. A listed command is as powerful as native code: the
+/// tab picks its arguments, and most programs (`git -c alias.x=!…`, `find
+/// -exec`, `ssh -o ProxyCommand`) can run anything from them.
+pub fn require_trust(
+    plugin_id: &str,
+    level: TabAccessLevel,
+    trusts_code: bool,
+) -> Result<(), AppError> {
+    if level == TabAccessLevel::Ui || trusts_code {
+        return Ok(());
+    }
+    Err(AppError::coded(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "PLUGIN_TAB_TRUST_REQUIRED",
+        format!(
+            "custom tab `{plugin_id}` runs code on this computer with your rights; \
+             allowing it requires trusting that code (`trusts_code: true`)"
         ),
     ))
 }
@@ -134,6 +157,21 @@ mod tests {
             consented_hash(&pool, "graph").await.unwrap().as_deref(),
             Some("h2")
         );
+    }
+
+    #[test]
+    fn code_outside_the_page_needs_explicit_trust() {
+        assert!(require_trust("graph", TabAccessLevel::Ui, false).is_ok());
+        for level in [TabAccessLevel::Commands, TabAccessLevel::Backend] {
+            assert!(matches!(
+                require_trust("graph", level, false),
+                Err(AppError::Coded {
+                    code: "PLUGIN_TAB_TRUST_REQUIRED",
+                    ..
+                })
+            ));
+            assert!(require_trust("graph", level, true).is_ok());
+        }
     }
 
     #[tokio::test]

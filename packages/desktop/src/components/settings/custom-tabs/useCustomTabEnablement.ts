@@ -35,7 +35,8 @@ export interface CustomTabEnablement {
   /** Review the marketplace update staged for this tab (`tab.pending_update`). */
   reviewUpdate: (tab: PluginTabSummary) => void;
   request: ConsentRequest | null;
-  accept: () => void;
+  /** Record consent; `trustsCode` = the user ticked "I trust this code" (commands, native code). */
+  accept: (trustsCode: boolean) => void;
   cancel: () => void;
   accepting: boolean;
   /** `<tab id>:<project id | "global">` of the switch being written. */
@@ -152,34 +153,37 @@ export function useCustomTabEnablement(): CustomTabEnablement {
     [put],
   );
 
-  const accept = useCallback((): void => {
-    if (!request) return;
-    const { tab, enable, update } = request;
-    const hash = update ? update.permissions_hash : (tab.permissions_hash ?? "");
-    putConsent({ id: tab.id, data: { permissions_hash: hash } })
-      .then(async () => {
-        setRequest(null);
-        if (enable) await put(tab, enable.projectId, true);
-        else await refresh();
-      })
-      .catch(async (error: unknown) => {
-        const code = apiErrorCode(error) ?? "";
-        if (STALE_CODES.has(code)) {
-          await reopen(tab.id, { enable, stale: true, update: update !== null });
-          return;
-        }
-        if (code === PLUGIN_TAB_ERROR.blocked) {
-          // Nothing to allow any more: the version is on the revocation list.
+  const accept = useCallback(
+    (trustsCode: boolean): void => {
+      if (!request) return;
+      const { tab, enable, update } = request;
+      const hash = update ? update.permissions_hash : (tab.permissions_hash ?? "");
+      putConsent({ id: tab.id, data: { permissions_hash: hash, trusts_code: trustsCode } })
+        .then(async () => {
           setRequest(null);
-          toast.error(`“${tab.name}” is blocked by Cadencr`, {
-            description: apiErrorMessage(error, "This version is on the revocation list."),
-          });
-          await refresh();
-          return;
-        }
-        toastError(error, `Could not record your consent for “${tab.name}”`);
-      });
-  }, [put, putConsent, reopen, request]);
+          if (enable) await put(tab, enable.projectId, true);
+          else await refresh();
+        })
+        .catch(async (error: unknown) => {
+          const code = apiErrorCode(error) ?? "";
+          if (STALE_CODES.has(code)) {
+            await reopen(tab.id, { enable, stale: true, update: update !== null });
+            return;
+          }
+          if (code === PLUGIN_TAB_ERROR.blocked) {
+            // Nothing to allow any more: the version is on the revocation list.
+            setRequest(null);
+            toast.error(`“${tab.name}” is blocked by Cadencr`, {
+              description: apiErrorMessage(error, "This version is on the revocation list."),
+            });
+            await refresh();
+            return;
+          }
+          toastError(error, `Could not record your consent for “${tab.name}”`);
+        });
+    },
+    [put, putConsent, reopen, request],
+  );
 
   const review = useCallback((tab: PluginTabSummary): void => {
     setRequest({ tab, enable: null, stale: false, update: null });

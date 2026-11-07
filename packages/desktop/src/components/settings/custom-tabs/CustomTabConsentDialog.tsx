@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from "react";
 import { AlertTriangle, ArrowUpCircle, Loader2 } from "lucide-react";
 import type { PluginTabPendingUpdate, PluginTabSummary } from "@/api/generated";
 import { PluginTabAccessBadge } from "@/components/plugin-tabs/PluginTabAccess";
+import { ACCESS_LEVEL_COPY } from "@/components/plugin-tabs/plugin-tab-access";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -23,8 +24,10 @@ import type { ConsentRequest } from "./useCustomTabEnablement";
 /**
  * The one gate between a custom tab and the user's data: what it may read,
  * which sites it may reach, what it may run and where its code comes from.
- * The wording follows the tab's level, and a tab with native code also needs
- * an explicit acknowledgment. Accepting records consent at the permissions
+ * The wording follows the tab's level, and a tab that runs commands or native
+ * code also needs an explicit acknowledgment: a listed program runs with
+ * arguments the tab chooses, and most can run any code from them. Accepting
+ * passes that acknowledgment on and records consent at the permissions
  * hash shown here and then flips the switch that asked for it; cancelling
  * changes nothing. Reviewing a staged marketplace update shows what the new
  * version would run instead — what changed against the installed one first,
@@ -41,7 +44,7 @@ export function CustomTabConsentDialog({
 }: {
   request: ConsentRequest | null;
   accepting: boolean;
-  onAccept: () => void;
+  onAccept: (trustsCode: boolean) => void;
   onCancel: () => void;
 }): React.JSX.Element {
   return (
@@ -68,7 +71,7 @@ function ConsentContent({
 }: {
   request: ConsentRequest;
   accepting: boolean;
-  onAccept: () => void;
+  onAccept: (trustsCode: boolean) => void;
   onCancel: () => void;
 }): React.JSX.Element {
   const { tab, update } = request;
@@ -76,8 +79,9 @@ function ConsentContent({
   const reviewed = update ?? tab;
   // Keyed on the request: a new question starts unacknowledged.
   const [acknowledged, setAcknowledged] = useState<object | null>(null);
-  const needsAcknowledgment = reviewed.access_level === "backend";
-  const blocked = needsAcknowledgment && acknowledged !== request;
+  const needsAcknowledgment = reviewed.access_level !== "ui";
+  const trusted = acknowledged === request;
+  const blocked = needsAcknowledgment && !trusted;
   // A staged update, with what it asks for that the installed version did not.
   const changes = useMemo(
     () => (update ? { update, added: addedAccess(tab, update) } : null),
@@ -116,7 +120,7 @@ function ConsentContent({
         </Button>
         <Button
           type="button"
-          onClick={onAccept}
+          onClick={() => onAccept(needsAcknowledgment && trusted)}
           disabled={accepting || blocked}
           autoFocus={!needsAcknowledgment}
         >
@@ -142,8 +146,9 @@ function ConsentLead({ tab }: { tab: PluginTabSummary }): React.JSX.Element {
     case "commands":
       return (
         <>
-          This custom tab runs code from {dir} and asks Cadencr to run programs on your computer.
-          Only allow tabs you trust: it can read and run what is listed below.
+          This custom tab runs code from {dir} and asks Cadencr to run the programs below with
+          arguments it chooses, which can make them run any code with your user rights. Only allow
+          it if you trust this code as much as an app you install.
         </>
       );
     case "ui":
@@ -164,6 +169,7 @@ function UpdateLead({
   tab: PluginTabSummary;
   update: PluginTabPendingUpdate;
 }): React.JSX.Element {
+  const { reach } = ACCESS_LEVEL_COPY[update.access_level];
   return (
     <span className="flex items-start gap-1.5">
       <ArrowUpCircle className="mt-px size-3.5 shrink-0 text-primary" aria-hidden />
@@ -178,9 +184,7 @@ function UpdateLead({
         ) : (
           "Cadencr keeps running the installed version until you allow it."
         )}
-        {update.access_level === "backend"
-          ? " Its program runs on your computer with your user rights."
-          : ""}
+        {reach ? ` ${reach}` : ""}
       </span>
     </span>
   );

@@ -4500,6 +4500,12 @@ export interface PluginTabConfiguration {
 export interface PluginTabConsentRequest {
   /** The hash the user was shown; must equal the current one. */
   permissions_hash: string;
+  /**
+   * The user ticked "I trust this code to run on my computer". Required
+   * (422 `PLUGIN_TAB_TRUST_REQUIRED`) for a tab that runs commands or ships
+   * a backend; ignored for a read-only one.
+   */
+  trusts_code?: boolean;
 }
 
 export interface PluginTabEnablement {
@@ -28261,7 +28267,9 @@ marketplace update (`pending_update.permissions_hash`), accept that update:
 it becomes the installed revision and its backend restarts on it. 409
 `PLUGIN_TAB_CONSENT_STALE` when `permissions_hash` is neither (409
 `MANAGED_TAB_UPDATE_CHANGED` when the staged update was replaced
-meanwhile). A changed consent revokes the tab's live grants.
+meanwhile); 422 `PLUGIN_TAB_TRUST_REQUIRED` when what is accepted runs
+commands or a backend and `trusts_code` is not set. A changed consent
+revokes the tab's live grants.
  */
 export const pluginTabConsent = (
   id: string,
@@ -28333,7 +28341,9 @@ marketplace update (`pending_update.permissions_hash`), accept that update:
 it becomes the installed revision and its backend restarts on it. 409
 `PLUGIN_TAB_CONSENT_STALE` when `permissions_hash` is neither (409
 `MANAGED_TAB_UPDATE_CHANGED` when the staged update was replaced
-meanwhile). A changed consent revokes the tab's live grants.
+meanwhile); 422 `PLUGIN_TAB_TRUST_REQUIRED` when what is accepted runs
+commands or a backend and `trusts_code` is not set. A changed consent
+revokes the tab's live grants.
  */
 export const usePluginTabConsent = <TError = ErrorType<unknown>, TContext = unknown>(
   options?: {

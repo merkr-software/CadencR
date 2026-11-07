@@ -674,7 +674,7 @@ describe("custom tabs in the marketplace", () => {
     );
     expect(tabMutations.consent).toHaveBeenCalledWith({
       id: "graph",
-      data: { permissions_hash: "hash-1" },
+      data: { permissions_hash: "hash-1", trusts_code: false },
     });
     expect(tabMutations.enable).not.toHaveBeenCalled();
     confirmConsent();
@@ -705,7 +705,7 @@ describe("custom tabs in the marketplace", () => {
     await waitFor(() =>
       expect(tabMutations.consent).toHaveBeenCalledWith({
         id: "graph",
-        data: { permissions_hash: "updated-permissions" },
+        data: { permissions_hash: "updated-permissions", trusts_code: false },
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -932,7 +932,7 @@ describe("custom tabs with a native backend in the marketplace", () => {
     await user.click(within(dialog).getByRole("button", { name: "Allow and update" }));
     expect(tabMutations.consent).toHaveBeenCalledWith({
       id: "graph",
-      data: { permissions_hash: "hash-staged" },
+      data: { permissions_hash: "hash-staged", trusts_code: false },
     });
     expect(updateManagedTab).not.toHaveBeenCalled();
   });

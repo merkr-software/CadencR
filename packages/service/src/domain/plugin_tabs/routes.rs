@@ -130,7 +130,9 @@ pub async fn plugin_tab_set_enablement_handler(
 /// it becomes the installed revision and its backend restarts on it. 409
 /// `PLUGIN_TAB_CONSENT_STALE` when `permissions_hash` is neither (409
 /// `MANAGED_TAB_UPDATE_CHANGED` when the staged update was replaced
-/// meanwhile). A changed consent revokes the tab's live grants.
+/// meanwhile); 422 `PLUGIN_TAB_TRUST_REQUIRED` when what is accepted runs
+/// commands or a backend and `trusts_code` is not set. A changed consent
+/// revokes the tab's live grants.
 #[utoipa::path(
     put,
     path = "/api/plugin-tabs/{id}/consent",
@@ -150,8 +152,10 @@ pub async fn plugin_tab_consent_handler(
         Some(super::registry::AcceptedUpdate {
             revision,
             permissions_hash: hash,
+            access_level,
         }) => {
             tab.require_pending_not_blocked()?;
+            consent::require_trust(&id, access_level, body.trusts_code)?;
             // The update is promoted before consent is recorded: a failed
             // promotion leaves the installed revision and its consent alone.
             super::managed::service::promote_pending(id.clone(), revision).await?;
@@ -165,8 +169,9 @@ pub async fn plugin_tab_consent_handler(
             hash
         }
         None => {
-            let (_, current) = tab.require_valid()?;
+            let (manifest, current) = tab.require_valid()?;
             consent::require_current(&id, &current, &body.permissions_hash)?;
+            consent::require_trust(&id, manifest.access_level(), body.trusts_code)?;
             current
         }
     };
@@ -296,6 +301,51 @@ mod tests {
     use crate::domain::plugin_tabs::revocation_tests::{echo, install, launch};
     use crate::domain::plugin_tabs::test_support;
 
+    #[tokio::test]
+    async fn consenting_to_a_commands_tab_requires_trusting_its_code() {
+        test_support::write_tab(
+            "reviewers",
+            json!({ "commands": [{ "program": "git", "reasoning": "Reads history." }] }),
+        );
+        let state = AppState::with_pool(test_support::pool().await);
+        let hash = registry::get("reviewers")
+            .await
+            .unwrap()
+            .permissions_hash()
+            .unwrap();
+        let consent = |trusts_code| {
+            plugin_tab_consent_handler(
+                State(state.clone()),
+                Path("reviewers".into()),
+                Query(PluginTabProjectQuery { project_id: None }),
+                Json(PluginTabConsentRequest {
+                    permissions_hash: hash.clone(),
+                    trusts_code,
+                }),
+            )
+        };
+
+        let refused = consent(false).await.unwrap_err();
+        assert_eq!(
+            test_support::error_code(&refused),
+            "PLUGIN_TAB_TRUST_REQUIRED"
+        );
+        assert_eq!(
+            consent::consented_hash(&state.write_pool, "reviewers")
+                .await
+                .unwrap(),
+            None
+        );
+        let Json(accepted) = consent(true).await.unwrap();
+        assert!(!accepted.enablement.consent_required);
+        assert_eq!(
+            consent::consented_hash(&state.write_pool, "reviewers")
+                .await
+                .unwrap(),
+            Some(hash.clone())
+        );
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn accepting_a_staged_update_says_the_backend_stopped_for_it() {
@@ -323,6 +373,7 @@ mod tests {
             Query(PluginTabProjectQuery { project_id: None }),
             Json(PluginTabConsentRequest {
                 permissions_hash: staged,
+                trusts_code: true,
             }),
         )
         .await

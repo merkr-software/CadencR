@@ -123,7 +123,7 @@ describe("a staged marketplace update", () => {
     await waitFor(() =>
       expect(mocks.consent.mock.calls[0]?.[0]).toEqual({
         id: "graph",
-        data: { permissions_hash: "hash-update" },
+        data: { permissions_hash: "hash-update", trusts_code: true },
       }),
     );
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -151,7 +151,7 @@ describe("a staged marketplace update", () => {
     await user.click(within(fresh).getByRole("button", { name: "Allow and update" }));
     await waitFor(() =>
       expect(mocks.consent.mock.calls[1]?.[0]).toMatchObject({
-        data: { permissions_hash: "hash-newer" },
+        data: { permissions_hash: "hash-newer", trusts_code: false },
       }),
     );
   });

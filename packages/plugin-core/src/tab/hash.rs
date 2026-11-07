@@ -2,7 +2,7 @@
 //!
 //! SHA-256 (lowercase hex) of the canonical JSON
 //! `{"permissions":[sorted],"allowed_origins":[sorted]}`, plus
-//! `"commands":[sorted programs]` when the tab lists commands and
+//! `"commands":[sorted programs],"trust":1` when the tab lists commands and
 //! `"backend":{"protocol":1,"binary":{<platform>:<path>, sorted by platform}}`
 //! when it ships a backend. The two later keys are omitted when empty, so a tab
 //! that declares neither keeps the hash it was consented under. Anything that
@@ -10,6 +10,11 @@
 //! stops matching and the user is asked again: a new scope, origin or program,
 //! a backend, a platform's binary added or moved, a protocol change. Labels,
 //! reasons, version bumps and configuration do not.
+//!
+//! `"trust":1` marks consent to commands given with the explicit "I trust this
+//! code" acknowledgment (a listed program runs with arguments the tab picks).
+//! Consents to commands recorded before it was required no longer match, so
+//! those users are asked again, now with that acknowledgment.
 //!
 //! A local tab's binaries are identified by path only: the user consents to
 //! whatever its author builds there. A marketplace tab's binary also carries
@@ -33,8 +38,13 @@ struct Canonical<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     commands: Vec<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    trust: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     backend: Option<CanonicalBackend<'a>>,
 }
+
+/// The version of the code-trust acknowledgment consent to commands carries.
+const COMMANDS_TRUST_VERSION: u32 = 1;
 
 /// A backend as consent sees it. Field order is the canonical key order.
 #[derive(Serialize)]
@@ -66,10 +76,12 @@ pub(crate) fn permissions_hash(
     permissions.sort_unstable();
     allowed_origins.sort_unstable();
     commands.sort_unstable();
+    let trust = (!commands.is_empty()).then_some(COMMANDS_TRUST_VERSION);
     let canonical = serde_json::to_vec(&Canonical {
         permissions,
         allowed_origins,
         commands,
+        trust,
         backend: execution.backend,
     })
     .expect("a struct of string lists always serializes");
@@ -193,6 +205,14 @@ mod tests {
         };
         let with_commands = permissions_hash(&strings(&["a"]), &[], git());
         assert_ne!(plain, with_commands);
+        // Consent to commands is consent with the code-trust acknowledgment.
+        let trusted: String = Sha256::digest(
+            br#"{"permissions":["a"],"allowed_origins":[],"commands":["git","jq"],"trust":1}"#,
+        )
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+        assert_eq!(with_commands, trusted);
         assert_eq!(
             with_commands,
             permissions_hash(

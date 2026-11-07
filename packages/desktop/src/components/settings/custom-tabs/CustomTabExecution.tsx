@@ -60,8 +60,10 @@ function CommandsAccess({
         </ul>
         <p className={cn(WARNING_BANNER_CLASS, "text-xs leading-snug")}>
           Cadencr runs these programs for the tab, without a shell, in this conversation&apos;s
-          folder, with whatever arguments the tab chooses. A program that can start others (for
-          example through <span className="font-mono">git</span> aliases) lets the tab do the same.
+          folder, with whatever arguments the tab chooses. Most programs can run any code from their
+          arguments (<span className="font-mono">git</span> aliases,{" "}
+          <span className="font-mono">find -exec</span>, <span className="font-mono">ssh</span>{" "}
+          options), so the tab can do anything you can.
         </p>
       </div>
     </div>
