@@ -244,7 +244,9 @@ async fn profile_set_updates_only_the_session_profile_column() {
 }
 
 #[tokio::test]
-async fn prompt_profile_rejects_provider_without_profile_support() {
+/// The composer can attach a profile while it shows another provider than the
+/// session runs: the prompt still goes out, and the profile is not applied.
+async fn prompt_profile_is_ignored_on_provider_without_profile_support() {
     let (tx, mut rx) = mpsc::unbounded_channel();
     let sdk_sessions: SdkSessions = Arc::new(Mutex::new(HashMap::new()));
     let app_state = make_test_app_state().await;
@@ -274,12 +276,29 @@ async fn prompt_profile_rejects_provider_without_profile_support() {
     );
     dispatch_envelope(envelope, &tx, &sdk_sessions, &app_state).await;
 
-    let Message::Text(text) = rx.recv().await.unwrap() else {
-        panic!("expected profile error text message");
-    };
-    let response: WsEnvelope = serde_json::from_str(&text).unwrap();
-    assert_eq!(response.action, "error");
-    assert_eq!(response.payload["code"], "PROFILE_ERROR");
+    let mut actions = Vec::new();
+    while let Ok(message) = rx.try_recv() {
+        let Message::Text(text) = message else {
+            continue;
+        };
+        let response: WsEnvelope = serde_json::from_str(&text).unwrap();
+        assert_ne!(
+            response.action, "error",
+            "an inapplicable profile must not fail the prompt: {text}"
+        );
+        actions.push(response.action);
+    }
+    let delivered: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM agent_messages WHERE session_id = ? AND content LIKE '%provider-neutral profile%'",
+    )
+    .bind(db_session_id)
+    .fetch_one(&app_state.read_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        delivered, 1,
+        "the prompt reaches the session; replies: {actions:?}"
+    );
 
     let persisted: Option<String> =
         sqlx::query_scalar("SELECT profile FROM agent_sessions WHERE id = ?")

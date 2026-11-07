@@ -8,7 +8,7 @@ use crate::domain::ws_session::protocol::{PromptSendPayload, WsEnvelope};
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 
 use super::super::session_profile::{
-    apply_profile_update, desired_profile_name, prompt_profile, resolve_provider_profile,
+    apply_profile_update, desired_profile_name, prompt_profile, resolve_supported_profile,
     validate_resume_profile_state, SessionProfileUpdate,
 };
 use super::super::{send_error, QueryState, SdkHandle, SdkSessions, WsSender};
@@ -40,7 +40,6 @@ pub(in crate::domain::ws_session) async fn prepare_prompt(
         send_error(sender, &envelope.id, "INVALID_MESSAGE_UUID", &message);
         return None;
     }
-    let has_profile_update = prompt_profile(&payload).is_some();
     let profile_update = match resolve_prompt_profile_update(
         app_state,
         sdk_sessions,
@@ -52,14 +51,11 @@ pub(in crate::domain::ws_session) async fn prepare_prompt(
     .await
     {
         Ok(update) => update,
-        Err(error) => {
-            send_error(sender, &envelope.id, "PROFILE_ERROR", &error);
+        Err((code, error)) => {
+            send_error(sender, &envelope.id, code, &error);
             return None;
         }
     };
-    if has_profile_update && profile_update.is_none() {
-        return None;
-    }
     Some(PreparedPrompt {
         payload,
         db_session_id,
@@ -274,16 +270,17 @@ async fn resolve_prompt_profile_update(
     payload: &PromptSendPayload,
     sender: &WsSender,
     envelope: &WsEnvelope,
-) -> Result<Option<SessionProfileUpdate>, String> {
+) -> Result<Option<SessionProfileUpdate>, (&'static str, String)> {
     let (provider, current_profile, cwd) = {
         let sessions = sdk_sessions.lock().await;
         let Some(handle) = sessions.get(&db_session_id) else {
-            send_error(
-                sender,
-                &envelope.id,
-                "SESSION_NOT_FOUND",
-                &format!("Session {db_session_id} not found. Send session.init first."),
-            );
+            let message = format!("Session {db_session_id} not found. Send session.init first.");
+            // A prompt without a profile reports the missing session and
+            // carries on; one with a profile has nothing to apply it to.
+            if prompt_profile(payload).is_some() {
+                return Err(("SESSION_NOT_FOUND", message));
+            }
+            send_error(sender, &envelope.id, "SESSION_NOT_FOUND", &message);
             return Ok(None);
         };
         (
@@ -298,11 +295,20 @@ async fn resolve_prompt_profile_update(
     let Some(profile_name) = selected_profile.as_deref() else {
         return Ok(None);
     };
-    let update = resolve_provider_profile(&provider, profile_name, &cwd).await?;
+    let profile_error = |error: String| ("PROFILE_ERROR", error);
+    // The composer can attach a profile while it shows another provider than
+    // the one the session runs; that provider has no profile to apply.
+    let Some(update) = resolve_supported_profile(&provider, profile_name, &cwd)
+        .await
+        .map_err(profile_error)?
+    else {
+        tracing::debug!(db_session_id, provider = %provider, "ignoring a prompt profile the session's provider does not support");
+        return Ok(None);
+    };
     {
         let sessions = sdk_sessions.lock().await;
         if let Some(handle) = sessions.get(&db_session_id) {
-            validate_resume_profile_state(handle, &update)?;
+            validate_resume_profile_state(handle, &update).map_err(profile_error)?;
         }
     }
     if current_profile.as_deref() != Some(update.name.as_str()) {
@@ -312,7 +318,7 @@ async fn resolve_prompt_profile_update(
             &update.name,
         )
         .await
-        .map_err(|error| format!("Failed to save the selected profile: {error}"))?;
+        .map_err(|error| profile_error(format!("Failed to save the selected profile: {error}")))?;
     }
     Ok(Some(update))
 }

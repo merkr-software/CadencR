@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHook } from "@/test-utils";
 import { useWsSessionStore } from "@/stores/ws-session-store";
 import { createSessionEntry, type SessionEntry } from "@/stores/ws-session-types";
-import { useWsSessionEffects } from "./WebSocketSessionFeatureBlockHooks";
+import { claudeProfileForPrompt, useWsSessionEffects } from "./WebSocketSessionFeatureBlockHooks";
 
 vi.mock("@/hooks/useAgentLetterFocus", () => ({ useAgentLetterFocus: vi.fn() }));
 
@@ -101,5 +101,24 @@ describe("useWsSessionEffects session initialization", () => {
   it("initializes a full session on mount", () => {
     const { initSession } = render(loadedSession(), true);
     expect(initSession).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("claudeProfileForPrompt", () => {
+  type Controls = Parameters<typeof claudeProfileForPrompt>[0];
+  const controls = (activeProviderId: string, supportsProfiles: boolean): Controls =>
+    ({
+      activeProviderId,
+      supportsProfiles,
+      claudeProfile: { selectedClaudeProfile: "work" },
+    }) as unknown as Controls;
+
+  it("attaches the profile for a provider with profiles", () => {
+    expect(claudeProfileForPrompt(controls("claude_code", true))).toBe("work");
+  });
+
+  it("drops the profile for a session confirmed on a provider without profiles", () => {
+    // `activeProviderId` is the session's confirmed provider once known.
+    expect(claudeProfileForPrompt(controls("opencode", false))).toBeUndefined();
   });
 });
