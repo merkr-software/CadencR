@@ -6,14 +6,17 @@ use serde_json::Value;
 use crate::types::{PermissionDenial, Usage};
 
 use super::events::{AssistantMessageBody, ModelUsageInfo, StreamEventData, SystemMessage};
+use super::malformed::MalformedMessage;
+use super::task_lifecycle::TaskLifecycleEvent;
 
 // ── SdkMessage ───────────────────────────────────────────────────────────────
 
 /// Tagged-union of every message the Claude Code CLI can emit.
 ///
-/// Deserialization uses a custom impl that first tries the fully-typed tagged
-/// enum, and on failure falls back to `Unknown(Value)` so the caller is never
-/// handed a hard error for forward-compatibility reasons.
+/// Deserialization uses a custom impl ([`SdkMessage::from_raw`]) that never
+/// fails: background-task frames become `TaskLifecycle`, a known message that
+/// fails its schema becomes `Malformed`, and an unseen message kind becomes
+/// `Unknown`. All three keep — and serialize as — the wire payload.
 ///
 /// ## Turn management
 ///
@@ -204,7 +207,8 @@ pub enum SdkMessage {
         data: Value,
     },
 
-    #[serde(rename = "rate_limit")]
+    /// Wire tag `rate_limit_event` (older CLIs: `rate_limit`).
+    #[serde(rename = "rate_limit_event")]
     RateLimit {
         uuid: String,
         session_id: String,
@@ -233,11 +237,22 @@ pub enum SdkMessage {
         state: String,
     },
 
-    /// Catch-all for any message type not yet typed.
+    /// Background-task lifecycle `system` frame (`task_started`,
+    /// `task_progress`, `task_notification`, `task_updated`,
+    /// `background_tasks_changed`), with its wire payload preserved.
+    #[serde(untagged)]
+    TaskLifecycle(TaskLifecycleEvent),
+
+    /// A message kind the SDK models whose payload did not match its schema.
+    /// Keeps its `type` so a drifted `result` still ends the turn.
+    #[serde(untagged)]
+    Malformed(MalformedMessage),
+
+    /// A message kind the SDK has never seen.
     ///
-    /// Preserves the raw JSON so callers can handle future CLI additions
-    /// without crashing.
-    #[serde(skip)]
+    /// Preserves (and serializes as) the raw JSON so callers can handle future
+    /// CLI additions without crashing.
+    #[serde(untagged)]
     Unknown(Value),
 }
 
@@ -248,7 +263,10 @@ impl SdkMessage {
     pub fn session_id(&self) -> Option<&str> {
         match self {
             SdkMessage::StreamEvent { session_id, .. } => Some(session_id),
-            SdkMessage::Result { session_id, .. } => Some(session_id),
+            // Defaulted when the CLI omits it (see the lenient `result` schema).
+            SdkMessage::Result { session_id, .. } => {
+                Some(session_id.as_str()).filter(|id| !id.is_empty())
+            }
             SdkMessage::System(s) => Some(s.session_id()),
             SdkMessage::Assistant { session_id, .. } => Some(session_id),
             SdkMessage::User { session_id, .. } => Some(session_id),
@@ -266,13 +284,20 @@ impl SdkMessage {
             SdkMessage::RateLimit { session_id, .. } => Some(session_id),
             SdkMessage::PromptSuggestion { session_id, .. } => Some(session_id),
             SdkMessage::CommandLifecycle { session_id, .. } => Some(session_id),
+            SdkMessage::TaskLifecycle(event) => event.session_id(),
+            SdkMessage::Malformed(message) => message.session_id(),
             SdkMessage::Unknown(_) => None,
         }
     }
 
-    /// Returns `true` if this is a `Result` message, signalling turn completion.
+    /// Returns `true` if this message ends the turn: a `Result`, or a `result`
+    /// whose payload failed to decode.
     pub fn is_turn_complete(&self) -> bool {
-        matches!(self, SdkMessage::Result { .. })
+        match self {
+            SdkMessage::Result { .. } => true,
+            SdkMessage::Malformed(message) => message.is_result(),
+            _ => false,
+        }
     }
 
     /// Returns `true` if this is a `StreamEvent` carrying a `content_block_delta`.

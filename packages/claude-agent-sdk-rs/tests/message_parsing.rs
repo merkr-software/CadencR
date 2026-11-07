@@ -395,10 +395,9 @@ fn system_status_compacting_started() {
     assert!(system.is_compaction_started());
 }
 
-/// The critical regression guard for issue #60: an untyped `system/status`
-/// degrades to `SdkMessage::Unknown`, whose `raw` serializes to `null` and is
-/// dropped before reaching the frontend. A typed variant must round-trip with
-/// `type` / `subtype` / `status` intact so the raw passthrough survives.
+/// The critical regression guard for issue #60: the typed `system/status`
+/// must round-trip with `type` / `subtype` / `status` intact so the raw
+/// passthrough reaches the frontend.
 #[test]
 fn roundtrip_system_status_preserves_raw_shape() {
     let raw = json!({
@@ -778,11 +777,10 @@ fn system_init_survives_missing_noncritical_fields() {
 }
 
 #[test]
-fn unknown_system_subtype_falls_back_to_unknown_for_background_agent_protocol() {
-    // Intentional: `system/task_started` & `task_notification` MUST stay
-    // `Unknown(raw)` so the run-in-background agent protocol can read their raw
-    // fields (issue #58). So a system message with an untyped subtype is the
-    // one place we deliberately do NOT add a catch-all.
+fn background_task_system_frames_are_typed_lifecycle_events() {
+    // `system/task_started` & co. are recognized explicitly (with their raw
+    // payload) for the run-in-background agent protocol (issue #58), instead
+    // of relying on a decoding failure to route them to `Unknown`.
     let raw = json!({
         "type": "system",
         "subtype": "task_started",
@@ -790,6 +788,17 @@ fn unknown_system_subtype_falls_back_to_unknown_for_background_agent_protocol() 
         "uuid": "u1",
         "task_id": "t1"
     });
+    let msg: SdkMessage = serde_json::from_value(raw.clone()).unwrap();
+    let SdkMessage::TaskLifecycle(event) = &msg else {
+        panic!("got {msg:?}");
+    };
+    assert_eq!(event.task_id(), Some("t1"));
+    assert_eq!(event.raw(), &raw);
+}
+
+#[test]
+fn untyped_system_subtype_falls_back_to_unknown() {
+    let raw = json!({ "type": "system", "subtype": "api_retry", "session_id": "s1" });
     let msg: SdkMessage = serde_json::from_value(raw).unwrap();
     assert!(matches!(msg, SdkMessage::Unknown(_)), "got {msg:?}");
 }

@@ -278,14 +278,69 @@ impl ReaderTask {
     }
 
     async fn update_turn_state(&self, message: &SdkMessage) {
-        if let SdkMessage::Result {
-            subtype, is_error, ..
-        } = message
-        {
-            *self.turn_state.lock().await = TurnState::TurnComplete {
+        let completed = match message {
+            SdkMessage::Result {
+                subtype, is_error, ..
+            } => TurnState::TurnComplete {
                 result_subtype: subtype.clone(),
                 is_error: *is_error,
-            };
+            },
+            // A `result` that failed to decode still ends the turn; unless the
+            // CLI explicitly reported success, treat it as failed.
+            SdkMessage::Malformed(malformed) if malformed.is_result() => TurnState::TurnComplete {
+                result_subtype: malformed.subtype().unwrap_or("malformed").to_string(),
+                is_error: malformed.reported_is_error().unwrap_or(true),
+            },
+            _ => return,
+        };
+        *self.turn_state.lock().await = completed;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures::StreamExt;
+    use tempfile::TempDir;
+
+    use super::super::test_support::{mock_mcp_servers, write_mock_cli};
+    use crate::messages::SdkMessage;
+    use crate::options::Options;
+    use crate::query::{query, TurnState};
+
+    /// A `result` whose `subtype` drifted cannot decode, yet the turn is over:
+    /// the turn state must still complete (as a failure) instead of staying
+    /// "streaming" forever.
+    #[tokio::test]
+    async fn malformed_result_still_completes_the_turn() {
+        let dir = TempDir::new().unwrap();
+        let script = r#"#!/bin/sh
+read -r INIT_REQ
+read -r MCP_REQ; MCP_ID=$(printf '%s' "$MCP_REQ" | sed -n 's/.*"request_id":"\([^"]*\)".*/\1/p'); printf '{"type":"control_response","response":{"subtype":"success","request_id":"%s","response":{"mcpServers":[]}}}\n' "$MCP_ID"
+read -r USER_PROMPT
+echo '{"type":"result","subtype":{"kind":"success"},"uuid":"u1","session_id":"sess_bad","duration_ms":"later"}'
+"#;
+        let options = Options {
+            path_to_cli: Some(write_mock_cli(dir.path(), script)),
+            mcp_servers: Some(mock_mcp_servers()),
+            ..Options::default()
+        };
+        let mut q = query(serde_json::Value::String("test".into()), options)
+            .await
+            .unwrap();
+
+        let mut saw_turn_end = false;
+        while let Some(message) = q.next().await {
+            if let Ok(message @ SdkMessage::Malformed(_)) = message {
+                saw_turn_end |= message.is_turn_complete();
+            }
         }
+
+        assert!(saw_turn_end, "the malformed result must reach the consumer");
+        assert_eq!(q.session_id().await, Some("sess_bad".to_string()));
+        assert!(matches!(
+            q.turn_state().await,
+            TurnState::TurnComplete { ref result_subtype, is_error: true }
+                if result_subtype == "malformed"
+        ));
     }
 }

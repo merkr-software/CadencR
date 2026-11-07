@@ -7,6 +7,37 @@ use crate::types::{PermissionDenial, Usage};
 
 use crate::messages::{AssistantMessageBody, ModelUsageInfo, StreamEventData, SystemMessage};
 
+use super::lenient::lenient;
+
+/// `type` tags [`SdkMessageInner`] models. A payload carrying one of these
+/// that still fails to decode is malformed, not unknown.
+pub(super) const KNOWN_TYPES: [&str; 20] = [
+    "stream_event",
+    "result",
+    "system",
+    "assistant",
+    "user",
+    "status",
+    "hook_started",
+    "hook_progress",
+    "hook_response",
+    "tool_progress",
+    "auth_status",
+    "task_notification",
+    "task_started",
+    "task_progress",
+    "files_persisted",
+    "tool_use_summary",
+    "rate_limit_event",
+    "rate_limit",
+    "prompt_suggestion",
+    "command_lifecycle",
+];
+
+/// `subtype` tags [`SystemMessage`] models; any other `system` subtype is a
+/// message kind the SDK has never seen.
+pub(super) const KNOWN_SYSTEM_SUBTYPES: [&str; 3] = ["init", "compact_boundary", "status"];
+
 /// Internal mirror of `SdkMessage` used by the derived deserializer.
 /// We keep this private and convert into the public enum, adding the
 /// `Unknown` fallback path.
@@ -20,24 +51,40 @@ pub(super) enum SdkMessageInner {
         uuid: String,
         session_id: String,
     },
+    /// Everything but the `subtype` tag tolerates absence, `null` and drift:
+    /// a `result` that fails to decode would never complete the turn.
     #[serde(rename = "result")]
     Result {
         subtype: String,
+        #[serde(default, deserialize_with = "lenient")]
         uuid: String,
+        #[serde(default, deserialize_with = "lenient")]
         session_id: String,
+        #[serde(default, deserialize_with = "lenient")]
         duration_ms: u64,
+        #[serde(default, deserialize_with = "lenient")]
         duration_api_ms: u64,
-        is_error: bool,
+        /// `None` when absent, `null` or drifted: the conversion then derives
+        /// it from `subtype` rather than reporting a failed turn as a success.
+        #[serde(default, deserialize_with = "lenient")]
+        is_error: Option<bool>,
+        #[serde(default, deserialize_with = "lenient")]
         num_turns: u64,
+        #[serde(default, deserialize_with = "lenient")]
         result: Option<String>,
+        #[serde(default, deserialize_with = "lenient")]
         errors: Option<Vec<String>>,
+        #[serde(default, deserialize_with = "lenient")]
         stop_reason: Option<String>,
+        #[serde(default, deserialize_with = "lenient")]
         total_cost_usd: f64,
+        #[serde(default, deserialize_with = "lenient")]
         usage: Usage,
-        #[serde(default)]
+        #[serde(default, deserialize_with = "lenient")]
         permission_denials: Vec<PermissionDenial>,
+        #[serde(default, deserialize_with = "lenient")]
         structured_output: Option<Value>,
-        #[serde(default, rename = "modelUsage")]
+        #[serde(default, rename = "modelUsage", deserialize_with = "lenient")]
         model_usage: HashMap<String, ModelUsageInfo>,
         #[serde(flatten)]
         extra: HashMap<String, Value>,
@@ -152,7 +199,7 @@ pub(super) enum SdkMessageInner {
         #[serde(flatten)]
         data: Value,
     },
-    #[serde(rename = "rate_limit", alias = "rate_limit_event")]
+    #[serde(rename = "rate_limit_event", alias = "rate_limit")]
     RateLimit {
         uuid: String,
         session_id: String,
