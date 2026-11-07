@@ -395,7 +395,8 @@ mod tests {
     fn signed_channels_keep_independent_high_water_and_preserve_legacy_cache() {
         let directory = tempfile::tempdir().unwrap();
         let legacy = crate::shared::registry_catalog_cache::path(directory.path(), Some("https://raw.githubusercontent.com/o/r/refs/heads/marketplace-v2/managed-index.json"));
-        let administrative = crate::shared::registry_catalog_cache::path(directory.path(), Some("https://raw.githubusercontent.com/o/r/refs/heads/marketplace-v2-admin/managed-index.json"));
+        let administrative = crate::shared::registry_catalog_cache::path(directory.path(), None);
+        assert_eq!(administrative, crate::shared::registry_catalog_cache::path(directory.path(), Some("https://raw.githubusercontent.com/o/r/refs/heads/marketplace-v2-admin/managed-index.json")));
         let now = DateTime::from_timestamp(Utc::now().timestamp(), 0).unwrap();
         persist(&legacy, &trust(), signed(now), now).unwrap();
         let legacy_bytes = std::fs::read(&legacy).unwrap();

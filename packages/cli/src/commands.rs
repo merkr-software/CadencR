@@ -105,14 +105,14 @@ fn run_registry(command: &RegistryCommand) -> Result<Option<String>, Diagnostic>
             generated_at,
             expires_at,
             output: destination,
-        } => build_index(
-            packages,
-            provider_handoffs.as_deref(),
-            *schema_version,
-            generated_at,
-            expires_at,
-            destination.as_deref(),
-        ),
+        } => build_index()
+            .packages(packages)
+            .maybe_provider_handoffs(provider_handoffs.as_deref())
+            .schema_version(*schema_version)
+            .generated_at(generated_at)
+            .expires_at(expires_at)
+            .maybe_destination(destination.as_deref())
+            .call(),
         RegistryCommand::PackProvider {
             package,
             target,
@@ -201,6 +201,7 @@ fn validate_registry(
         .map_err(|error| operation_error("REGISTRY_VALIDATION_FAILED", error))
 }
 
+#[bon::builder]
 fn build_index(
     packages: &Path,
     provider_handoffs: Option<&Path>,

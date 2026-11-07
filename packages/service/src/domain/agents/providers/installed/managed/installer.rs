@@ -399,7 +399,7 @@ fn not_installed(provider_id: &str) -> AppError {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use base64::Engine as _;
     use ed25519_dalek::{Signer as _, SigningKey};
 
@@ -413,7 +413,7 @@ mod tests {
     use crate::domain::agents::providers::installed::managed::trust::TrustedIndexKey;
     use crate::domain::agents::providers::installed::managed::SignedManagedProviderIndex;
 
-    fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn uncommitted_receipt() -> (tempfile::TempDir, ManagedPackageReceipt) {
         let directory = tempfile::tempdir().unwrap();
         let staging = directory.path().join("revision");
         let payload = staging.join("payload");
@@ -488,13 +488,15 @@ mod tests {
         (directory, receipt)
     }
 
-    fn staged_receipt(storage: &ManagedStorage) -> (tempfile::TempDir, ManagedPackageReceipt) {
+    pub(crate) fn staged_receipt(
+        storage: &ManagedStorage,
+    ) -> (tempfile::TempDir, ManagedPackageReceipt) {
         let (directory, receipt) = uncommitted_receipt();
         commit_staged_revision(storage, &directory.path().join("revision"), &receipt).unwrap();
         (directory, receipt)
     }
 
-    fn test_trust_store() -> ManagedTrustStore {
+    pub(crate) fn test_trust_store() -> ManagedTrustStore {
         let signing_key = SigningKey::from_bytes(&[23; 32]);
         ManagedTrustStore::new([TrustedIndexKey::new(
             "managed-installer-test",

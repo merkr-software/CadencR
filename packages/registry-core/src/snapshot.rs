@@ -72,7 +72,14 @@ pub fn prepare_catalog_snapshot(
 
     let mut namespace_upgrade = false;
     let previous_sha256 = match previous {
-        PreviousCatalog::Bootstrap => None,
+        PreviousCatalog::Bootstrap => {
+            if !crate::provider_handoff::records(candidate_signed)?.is_empty() {
+                return Err(RegistryError::single(
+                    "provider handoff requires an authenticated baseline",
+                ));
+            }
+            None
+        }
         PreviousCatalog::File(path) => {
             let bytes = read_file(path, CATALOG_LIMIT, "previous index")?;
             let baseline = parse_document(&bytes, "previous index")?;

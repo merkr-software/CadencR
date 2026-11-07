@@ -3,8 +3,10 @@
 use std::path::{Path, PathBuf};
 
 pub fn path(root: &Path, source: Option<&str>) -> PathBuf {
+    // Source-less compatible clients still use the current channel, never the
+    // legacy high-water/cache as an administrative admission fallback.
     let administrative = source
-        .is_some_and(|url| url.ends_with("/refs/heads/marketplace-v2-admin/managed-index.json"));
+        .is_none_or(|url| url.ends_with("/refs/heads/marketplace-v2-admin/managed-index.json"));
     root.join(if administrative {
         "administrative-catalog.json"
     } else {
@@ -29,6 +31,6 @@ mod tests {
             std::fs::read_to_string(&legacy).unwrap(),
             "later legacy generation"
         );
-        assert_eq!(path(root.path(), None), legacy);
+        assert_eq!(path(root.path(), None), administrative);
     }
 }

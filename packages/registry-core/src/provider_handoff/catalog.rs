@@ -60,7 +60,12 @@ pub(crate) fn continuity(previous: &Value, candidate: &Value) -> Result<(), Regi
             if !record.retires(package) {
                 return Err(bad("handoff omits a previous provider version"));
             }
-            record.check_package(package, true)?;
+            if previous["schema_version"] == 1 && candidate["schema_version"] == 2 {
+                let upgraded = serde_json::json!({"kind": "provider", "package": package});
+                record.check_package(&upgraded, true)?;
+            } else {
+                record.check_package(package, true)?;
+            }
         }
     }
     Ok(())
@@ -108,6 +113,106 @@ mod tests {
             .call()
             .unwrap();
         serde_json::from_slice(prepared.canonical_payload()).unwrap()
+    }
+
+    #[test]
+    fn handoff_snapshot_requires_an_authenticated_previous_catalog() {
+        let root = tempfile::tempdir().unwrap();
+        let private = root.path().join("private.pem");
+        let public = root.path().join("public.pem");
+        let previous = root.path().join("previous.json");
+        let candidate = root.path().join("candidate.json");
+        std::fs::write(&private, PRIVATE).unwrap();
+        std::fs::write(&public, PUBLIC).unwrap();
+        let old = package("0.4.1", "original");
+        let before = payload(vec![old.clone()], vec![], 5);
+        let after = payload(vec![old.clone()], vec![record(&old)], 4);
+        std::fs::write(
+            &previous,
+            crate::sign_index_payload(&before, &private, "test-key").unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            &candidate,
+            crate::sign_index_payload(&after, &private, "test-key").unwrap(),
+        )
+        .unwrap();
+        let prepare = |prior| {
+            crate::prepare_catalog_snapshot()
+                .catalog_file(&candidate)
+                .previous(prior)
+                .public_key_file(&public)
+                .key_id("test-key")
+                .repository("owner/registry")
+                .registry_commit(&"a".repeat(40))
+                .call()
+        };
+        assert!(prepare(crate::PreviousCatalog::Bootstrap)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("handoff requires an authenticated baseline"));
+        assert!(prepare(crate::PreviousCatalog::File(&previous)).is_ok());
+        let mut tampered: Value =
+            serde_json::from_slice(&std::fs::read(&previous).unwrap()).unwrap();
+        tampered["signed"]["packages"][0]["package"]["agent"]["name"] = json!("forged");
+        std::fs::write(&previous, serde_json::to_vec(&tampered).unwrap()).unwrap();
+        assert!(prepare(crate::PreviousCatalog::File(&previous)).is_err());
+    }
+
+    #[test]
+    fn explicit_schema_upgrade_uses_the_preserved_schema_two_retirement_digest() {
+        let root = tempfile::tempdir().unwrap();
+        let private = root.path().join("private.pem");
+        std::fs::write(&private, PRIVATE).unwrap();
+        let old = package("0.4.1", "original");
+        let mut previous = payload(vec![old.clone()], vec![], 5);
+        previous["schema_version"] = json!(1);
+        previous["packages"] = json!([old["package"].clone()]);
+        let baseline = crate::sign_index_payload(&previous, &private, "test-key").unwrap();
+        let now = Utc::now() - Duration::minutes(4);
+        let generated = now.to_rfc3339_opts(SecondsFormat::Secs, true);
+        let expires = (now + Duration::days(1)).to_rfc3339_opts(SecondsFormat::Secs, true);
+        let prepare = |records, allow| {
+            crate::prepare_incremental_publication_index()
+                .previous_bytes(&baseline)
+                .public_key_bytes(PUBLIC.as_bytes())
+                .key_id("test-key")
+                .schema_version(2)
+                .allow_schema_upgrade(allow)
+                .packages(vec![])
+                .provider_handoffs(records)
+                .generated_at(&generated)
+                .expires_at(&expires)
+                .call()
+        };
+        let good = record(&old);
+        let prepared = prepare(vec![good.clone()], true).unwrap();
+        let value: Value = serde_json::from_slice(prepared.canonical_payload()).unwrap();
+        assert_eq!(value["packages"][0], old);
+        assert!(prepare(vec![good.clone()], false).is_err());
+        let mut wrong = good;
+        wrong.retired_versions.insert(
+            "0.4.1".into(),
+            crate::digest::sha256_hex(&canonical_json_bytes(&old["package"])),
+        );
+        assert!(prepare(vec![wrong], true).is_err());
+    }
+
+    #[test]
+    fn retirement_destination_obeys_the_reserved_publisher_rule() {
+        let old = package("0.4.1", "original");
+        for publisher in ["cadencr", "Cadencr", "CADENCR"] {
+            let mut handoff = record(&old);
+            handoff.to.publisher = publisher.into();
+            handoff.to.repository = "https://github.com/acme/pi".into();
+            assert!(super::super::validate_records(&[handoff.clone()])
+                .unwrap_err()
+                .to_string()
+                .contains("reserved"));
+            handoff.to.repository = "https://github.com/Merkr-Software/pi".into();
+            super::super::validate_records(&[handoff]).unwrap();
+        }
     }
 
     #[test]

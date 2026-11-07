@@ -56,6 +56,9 @@ impl ManagedSessionScope {
     }
 
     pub(crate) fn native(&self, persisted: &str) -> Result<String, String> {
+        if !self.require_bound_id && !persisted.is_empty() {
+            return Ok(persisted.into());
+        }
         if let Some(binding) = persisted.strip_prefix(PREFIX) {
             let (owner, encoded) = binding
                 .split_once('.')
@@ -72,10 +75,7 @@ impl ManagedSessionScope {
             }
             return Ok(native);
         }
-        if self.require_bound_id || persisted.is_empty() {
-            return Err(INCOMPATIBLE.into());
-        }
-        Ok(persisted.into())
+        Err(INCOMPATIBLE.into())
     }
 }
 
@@ -104,10 +104,63 @@ mod tests {
             "a unicode session π",
             "cadencr-managed-v1.native",
         ] {
+            assert_eq!(previous.native(&previous.bind(native)).unwrap(), native);
             assert_eq!(successor.native(&successor.bind(native)).unwrap(), native);
         }
         assert!(successor
             .native("cadencr-managed-v1.new.invalid!base64")
             .is_err());
+    }
+
+    #[test]
+    fn only_a_matching_successor_receipt_requires_bound_ids() {
+        let (_directory, mut receipt) = super::super::installer::tests::uncommitted_receipt();
+        let legacy = ManagedSessionScope::from_receipt(&receipt);
+        assert_eq!(
+            legacy.native("cadencr-managed-v1.native").unwrap(),
+            "cadencr-managed-v1.native"
+        );
+        receipt.agent.repository = Some("https://github.com/acme/agent".into());
+        let mut previous = receipt.signed_index.legacy_mut().clone();
+        previous.signed.packages[0].agent.repository = receipt.agent.repository.clone();
+        let current = serde_json::json!({"kind":"provider","package":previous.signed.packages[0]});
+        let mut old = current.clone();
+        old["package"]["agent"]["version"] = serde_json::json!("0.0.1");
+        old["package"]["agent"]["repository"] = serde_json::json!("https://github.com/prior/agent");
+        old["package"]["host"]["publisher"] = serde_json::json!("prior");
+        let payload = serde_json::json!({"schema_version":2,
+            "generated_at":previous.signed.generated_at,
+            "expires_at":previous.signed.expires_at,"packages":[old.clone(),current],
+            "provider_handoffs":[{"provider_id":receipt.agent.id,
+                "from":{"publisher":"prior","repository":"https://github.com/prior/agent"},
+                "to":{"publisher":receipt.publisher,"repository":receipt.agent.repository},
+                "retired_versions":{"0.0.1":crate::shared::file_digest::sha256_hex(&cadencr_registry_core::canonical_json_bytes(&old))},
+                "reason":"Independent successor","authorization":"https://github.com/owner/registry/pull/1#issuecomment-1"}]});
+        use ed25519_dalek::Signer as _;
+        let key = ed25519_dalek::SigningKey::from_bytes(&[23; 32]);
+        let mut signature = previous.signature;
+        signature.value = base64::engine::general_purpose::STANDARD.encode(
+            key.sign(&cadencr_registry_core::canonical_json_bytes(&payload))
+                .to_bytes(),
+        );
+        receipt.signed_index =
+            serde_json::from_value(serde_json::json!({"signed":payload,"signature":signature}))
+                .unwrap();
+        super::super::installer::tests::test_trust_store()
+            .verify_index(receipt.signed_index.clone())
+            .unwrap();
+        let successor = ManagedSessionScope::from_receipt(&receipt);
+        assert!(successor.native("raw").is_err());
+        assert_eq!(
+            successor.native(&successor.bind("native")).unwrap(),
+            "native"
+        );
+        receipt.publisher = "nonmatching".into();
+        assert_eq!(
+            ManagedSessionScope::from_receipt(&receipt)
+                .native("raw")
+                .unwrap(),
+            "raw"
+        );
     }
 }

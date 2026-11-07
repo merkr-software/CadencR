@@ -22,10 +22,9 @@ pub(super) async fn spawn_pending_runtime_for_compact(
     app_state: &AppState,
 ) -> Option<RuntimeSessionHandle> {
     let _launch = app_state.session_runtimes.claim_spawn(db_session_id).await;
-    if WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id)
-        .await
-        .is_none()
-    {
+    let Some(row) =
+        WsSessionPersistence::get_session_row(&app_state.read_pool, db_session_id).await
+    else {
         send_error(
             sender,
             envelope_id,
@@ -33,7 +32,7 @@ pub(super) async fn spawn_pending_runtime_for_compact(
             "Session no longer exists",
         );
         return None;
-    }
+    };
     let mut spawn = match pending_spawn_config(sdk_sessions, db_session_id, sender, app_state).await
     {
         PendingCompactSpawnResult::Ready(spawn) => spawn,
@@ -71,9 +70,26 @@ pub(super) async fn spawn_pending_runtime_for_compact(
             return None;
         }
     };
-    if let Some(ref sid) = spawn.options.resume_session_id {
-        if !adapter.is_valid_resume_session_id(sid) {
-            spawn.options.resume_session_id = None;
+    match super::session_init_resume::checked_resume_session_id()
+        .adapter(&*adapter)
+        .provider_id(&spawn.provider_id)
+        .maybe_row_runtime_provider(row.runtime_provider.as_deref())
+        .maybe_runtime_session_id(
+            row.runtime_session_id
+                .as_deref()
+                .or(spawn.options.resume_session_id.as_deref()),
+        )
+        .call()
+    {
+        Ok(resume) => spawn.options.resume_session_id = resume,
+        Err(reason) => {
+            send_error(
+                sender,
+                envelope_id,
+                "MANAGED_SESSION_OWNER_CHANGED",
+                &reason,
+            );
+            return None;
         }
     }
 

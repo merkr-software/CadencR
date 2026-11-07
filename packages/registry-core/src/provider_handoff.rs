@@ -79,6 +79,13 @@ pub(crate) fn validate_records(records: &[ProviderHandoff]) -> Result<(), Regist
                 return Err(bad("invalid provider handoff owner"));
             }
         }
+        if let Some(error) = crate::reserved_publisher::reserved_publisher_error(
+            "handoff.to.publisher",
+            Some(&record.to.publisher),
+            Some(&record.to.repository),
+        ) {
+            return Err(bad(error));
+        }
         let authority = url::Url::parse(&record.authorization)
             .map_err(|_| bad("invalid provider handoff authorization URL"))?;
         if authority.scheme() != "https"

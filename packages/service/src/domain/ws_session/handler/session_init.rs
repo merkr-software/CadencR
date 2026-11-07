@@ -184,13 +184,6 @@ pub(super) async fn handle_init(
         stored_thinking_effort.clone(),
     )
     .await;
-    let resume_session_id = row.as_ref().and_then(|r| {
-        super::session_init_resume::resume_session_id_for_provider(
-            &effective_provider,
-            r.runtime_provider.as_deref(),
-            r.runtime_session_id.as_deref(),
-        )
-    });
     let init_input_tokens = row.as_ref().and_then(|r| r.input_tokens);
     let init_output_tokens = row.as_ref().and_then(|r| r.output_tokens);
     let init_context_window = row.as_ref().and_then(|r| r.context_window);
@@ -207,6 +200,24 @@ pub(super) async fn handle_init(
         return Some(db_session_id);
     };
 
+    let resume_session_id = match super::session_init_resume::checked_resume_session_id()
+        .adapter(&*adapter)
+        .provider_id(&effective_provider)
+        .maybe_row_runtime_provider(row.as_ref().and_then(|r| r.runtime_provider.as_deref()))
+        .maybe_runtime_session_id(row.as_ref().and_then(|r| r.runtime_session_id.as_deref()))
+        .call()
+    {
+        Ok(resume) => resume,
+        Err(reason) => {
+            send_error(
+                sender,
+                &envelope.id,
+                "MANAGED_SESSION_OWNER_CHANGED",
+                &reason,
+            );
+            return Some(db_session_id);
+        }
+    };
     if let Err(error) = WsSessionPersistence::update_runtime_selection_static()
         .pool(&app_state.write_pool)
         .session_id(db_session_id)
