@@ -372,6 +372,7 @@ impl AgentRuntimeAdapter for ClaudeCodeAdapter {
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: config.cwd,
             known_subagents: Vec::new(),
+            stop_escalation: None,
         }))
     }
 }

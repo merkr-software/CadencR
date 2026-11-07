@@ -54,6 +54,21 @@ impl StreamReaderTask {
         }
     }
 
+    /// A Stop between turns, while only background agents were running: the
+    /// CLI stops them and acknowledges, but sends no `result` since no turn
+    /// was running. Called when the last of them ended: that ends the stop.
+    pub(in crate::domain::ws_session) async fn end_background_only_stop(
+        &self,
+        state: &mut StreamReaderState,
+    ) {
+        if !state.turn_state.has_completed_turn() {
+            return;
+        }
+        if let Some(generation) = self.take_interruption().await {
+            self.handle_interrupted_end(state, generation).await;
+        }
+    }
+
     /// End a turn the service's own shutdown cut off, without the "agent
     /// stopped unexpectedly" error: it is captured (here, when the capture at
     /// the start of shutdown missed it), and the next start marks the

@@ -21,6 +21,9 @@ pub struct ClaudeCodeSession {
     pub(super) cwd: std::path::PathBuf,
     /// Sub-agents earlier runtimes launched, handed to the message pump.
     pub(super) known_subagents: Vec<KnownSubagent>,
+    /// The message pump's output, where an escalated Stop reports itself.
+    /// Weak, so the stream still ends when the pump does.
+    pub(super) stop_escalation: Option<super::stop_escalation::RuntimeEventSender>,
 }
 
 impl ClaudeCodeSession {
@@ -32,6 +35,7 @@ impl ClaudeCodeSession {
             prompt_receipts: std::sync::Arc::new(ClaudePromptReceipts::default()),
             cwd: std::path::PathBuf::new(),
             known_subagents: Vec::new(),
+            stop_escalation: None,
         }
     }
 }
@@ -152,6 +156,7 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     fn take_message_rx(&mut self) -> RuntimeMessageRx {
         let mut source_rx = self.query.take_message_rx();
         let (tx, rx) = mpsc::channel(64);
+        self.stop_escalation = Some(tx.downgrade());
         let prompt_receipts = std::sync::Arc::clone(&self.prompt_receipts);
         let mut subagents =
             ClaudeSubagentState::new(&self.cwd, std::mem::take(&mut self.known_subagents));
@@ -267,7 +272,8 @@ impl AgentRuntimeSession for ClaudeCodeSession {
     }
 
     async fn interrupt(&self) -> Result<(), RuntimeError> {
-        self.query.interrupt().await.map_err(RuntimeError::from)
+        super::stop_escalation::interrupt_or_terminate(&self.query, self.stop_escalation.as_ref())
+            .await
     }
 
     async fn close(&mut self) -> Result<(), RuntimeError> {

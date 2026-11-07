@@ -52,7 +52,11 @@ impl StreamReaderTask {
         };
         self.reflect_reported_status(&runtime_event);
         self.observe_reported_model(state, &runtime_event).await;
+        let had_background_agents = !state.live_background_agents.is_empty();
         track_background_agents(&mut state.live_background_agents, &runtime_event);
+        if had_background_agents && state.live_background_agents.is_empty() {
+            self.end_background_only_stop(state).await;
+        }
         self.track_subagents(state, &runtime_event, interrupted_generation.is_some())
             .await;
         if runtime_event.is_subagent_signal_only() {

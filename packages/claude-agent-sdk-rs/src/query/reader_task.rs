@@ -13,8 +13,8 @@ use crate::permissions::CanUseTool;
 use crate::transport::CliProcess;
 use crate::types::McpServerStatus;
 
-use super::cancelled_control::CancelledControlRequests;
-use super::permission_dispatch::handle_can_use_tool_request;
+use super::permission_dispatch::{handle_can_use_tool_request, release_permission_wait};
+use super::permission_requests::PermissionRequests;
 use super::turn_state::TurnState;
 use super::wire::{
     build_success_ack, control_cancel_request_id, control_request_subtype, parse_control_response,
@@ -30,7 +30,7 @@ pub(super) struct ReaderTask {
     pub mcp_servers: Arc<Mutex<Vec<McpServerStatus>>>,
     pub turn_state: Arc<Mutex<TurnState>>,
     pub pending_control: PendingControl,
-    pub cancelled_control_requests: CancelledControlRequests,
+    pub permission_requests: PermissionRequests,
     pub cancel_token: Option<CancellationToken>,
     pub kill_rx: mpsc::Receiver<()>,
 }
@@ -160,17 +160,9 @@ impl ReaderTask {
             return true;
         };
 
-        let inserted = self.cancelled_control_requests.mark(request_id).await;
-        let mut turn_state = self.turn_state.lock().await;
-        if matches!(
-            &*turn_state,
-            TurnState::WaitingForPermission { tool_use_id, .. } if tool_use_id == request_id
-        ) {
-            *turn_state = TurnState::AgentWorking;
+        if self.permission_requests.mark(request_id).await {
+            release_permission_wait(&self.turn_state, request_id).await;
         } else {
-            if inserted {
-                self.cancelled_control_requests.take(request_id).await;
-            }
             debug!(
                 request_id,
                 "received control_cancel_request for non-active permission request"
@@ -204,14 +196,23 @@ impl ReaderTask {
         }
         let request = parse_permission_request(raw);
         debug!(tool = %request.tool_name, "received permission request");
-        *self.turn_state.lock().await = TurnState::WaitingForPermission {
-            tool_name: request.tool_name.clone(),
-            tool_use_id: request.tool_use_id.clone(),
-        };
+        self.permission_requests.open(&request.tool_use_id).await;
+        {
+            let mut turn_state = self.turn_state.lock().await;
+            // A request after the turn's `result` comes from work that
+            // outlived the turn (a background sub-agent): it blocks no turn,
+            // and must not make `interrupt` wait for a `result`.
+            if !matches!(*turn_state, TurnState::TurnComplete { .. }) {
+                *turn_state = TurnState::WaitingForPermission {
+                    tool_name: request.tool_name.clone(),
+                    tool_use_id: request.tool_use_id.clone(),
+                };
+            }
+        }
         tokio::spawn(handle_can_use_tool_request(
             Arc::clone(&self.process_stdin),
             Arc::clone(&self.turn_state),
-            self.cancelled_control_requests.clone(),
+            self.permission_requests.clone(),
             self.tx.clone(),
             self.can_use_tool.as_ref().map(Arc::clone),
             request,

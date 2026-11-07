@@ -147,8 +147,7 @@ impl Query {
     ///
     /// After this call the stream will end.
     pub async fn close(&mut self) {
-        // Signal the reader loop to kill the child process.
-        let _ = self.kill_tx.send(()).await;
+        self.kill().await;
 
         // Wait for the reader task to finish (it will break after killing).
         if let Some(task) = self.reader_task.take() {
@@ -157,6 +156,13 @@ impl Query {
 
         // Drop stdin for good measure.
         self.process_stdin.lock().await.take();
+    }
+
+    /// Kill the child process without waiting for it, through a shared
+    /// handle. The stream ends once the reader has stopped it; use
+    /// [`close`](Query::close) to also wait for that.
+    pub async fn kill(&self) {
+        let _ = self.kill_tx.send(()).await;
     }
 
     /// Close stdin (no more user input). The CLI will finish its current

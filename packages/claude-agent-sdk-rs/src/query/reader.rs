@@ -20,7 +20,7 @@ use crate::permissions::CanUseTool;
 use crate::transport::CliProcess;
 use crate::types::McpServerStatus;
 
-use super::cancelled_control::CancelledControlRequests;
+use super::permission_requests::PermissionRequests;
 use super::reader_task::ReaderTask;
 use super::turn_state::TurnState;
 use super::wire::PendingControl;
@@ -37,7 +37,7 @@ pub(super) async fn reader_loop(
     mcp_servers: Arc<Mutex<Vec<McpServerStatus>>>,
     turn_state: Arc<Mutex<TurnState>>,
     pending_control: PendingControl,
-    cancelled_control_requests: CancelledControlRequests,
+    permission_requests: PermissionRequests,
     cancel_token: Option<CancellationToken>,
     kill_rx: mpsc::Receiver<()>,
 ) {
@@ -50,7 +50,7 @@ pub(super) async fn reader_loop(
         mcp_servers,
         turn_state,
         pending_control,
-        cancelled_control_requests,
+        permission_requests,
         cancel_token,
         kill_rx,
     }

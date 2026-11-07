@@ -37,10 +37,17 @@ impl Query {
             "session_id": session_id
         });
 
-        write_to_stdin(&self.process_stdin, &msg).await?;
-
-        // Reset turn state back to working
-        *self.turn_state.lock().await = TurnState::AgentWorking;
+        // Working from before the write: set after it, a fast `result` read
+        // meanwhile would be overwritten and the finished turn would look open.
+        let previous =
+            std::mem::replace(&mut *self.turn_state.lock().await, TurnState::AgentWorking);
+        if let Err(error) = write_to_stdin(&self.process_stdin, &msg).await {
+            let mut turn_state = self.turn_state.lock().await;
+            if *turn_state == TurnState::AgentWorking {
+                *turn_state = previous;
+            }
+            return Err(error);
+        }
         Ok(())
     }
 
