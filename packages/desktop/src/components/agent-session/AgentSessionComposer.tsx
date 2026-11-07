@@ -12,6 +12,7 @@ import { AgentTodoList } from "../AgentTodoList";
 import { AutoScrollChip } from "./AutoScrollChip";
 import { useComposerSessionInfo } from "./ComposerSessionSlots";
 import { SideConversations } from "../side-conversation/SideConversations";
+import { composerPropsEqual } from "./composer-props-equal";
 
 export interface AgentSessionComposerProps {
   sessionProps: AgentSessionProps;
@@ -124,7 +125,7 @@ export const AgentSessionComposer = memo(function AgentSessionComposer(
       )}
     </div>
   );
-});
+}, composerPropsEqual);
 
 /** Why the active mode won't hold with this model, or null when it will. */
 function modeIncompatibleReason(session: AgentSessionProps): string | null {
@@ -206,14 +207,8 @@ function AgentSessionMeta(
   );
 }
 
-function AgentSessionPrompt(
-  props: AgentSessionComposerProps & {
-    instruments: ReactElement | null;
-    sessionInfo: ReturnType<typeof useComposerSessionInfo>;
-    onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
-    schedules: ReactElement | null;
-  },
-): ReactElement {
+/** The prompt bar's derived inputs, kept stable across composer renders. */
+function useAgentSessionPromptInputs(props: AgentSessionComposerProps) {
   const session = props.sessionProps;
   const selectReferencedWorktree = useCallback(
     (branch: string): void => {
@@ -243,6 +238,8 @@ function AgentSessionPrompt(
       session.worktreeSelectedBranch,
     ],
   );
+  const { metaBarRef } = props;
+  const openModelPicker = useCallback(() => metaBarRef.current?.openModelPicker(), [metaBarRef]);
   const sideConversations = useMemo(
     () =>
       session.sessionId != null && props.projectPath ? (
@@ -250,6 +247,20 @@ function AgentSessionPrompt(
       ) : undefined,
     [props.projectPath, session.sessionId],
   );
+  return { referencedWorktreeSelection, openModelPicker, sideConversations };
+}
+
+function AgentSessionPrompt(
+  props: AgentSessionComposerProps & {
+    instruments: ReactElement | null;
+    sessionInfo: ReturnType<typeof useComposerSessionInfo>;
+    onScheduleRequest?: (prompt: string, onSaved: () => void) => void;
+    schedules: ReactElement | null;
+  },
+): ReactElement {
+  const session = props.sessionProps;
+  const { referencedWorktreeSelection, openModelPicker, sideConversations } =
+    useAgentSessionPromptInputs(props);
   return (
     <AgentPromptBar
       ref={props.promptBarRef}
@@ -272,9 +283,7 @@ function AgentSessionPrompt(
       onPlanRequestChanges={session.onPlanRequestChanges}
       onPlanReject={session.onPlanReject}
       onGateClose={session.onGateClose}
-      onOpenModelPicker={
-        session.onModelChange ? () => props.metaBarRef.current?.openModelPicker() : undefined
-      }
+      onOpenModelPicker={session.onModelChange ? openModelPicker : undefined}
       agentTabActive={props.agentTabActive}
       featureId={session.featureId}
       projectId={session.projectId}

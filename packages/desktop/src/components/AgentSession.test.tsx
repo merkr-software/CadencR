@@ -54,6 +54,12 @@ vi.mock("../api/generated", async (importOriginal) => ({
   useGetWorkspaceSetting: vi.fn(() => ({ data: { value: null } })),
 }));
 
+const claudeProfilesResult = vi.hoisted(() => ({
+  data: { active: "default", profiles: [{ name: "bedrock", env: {} }] },
+  isLoading: false,
+  isError: false,
+}));
+
 vi.mock("../api/agentRuntime", () => ({
   DEFAULT_CLAUDE_PROFILE_NAME: "default",
   useAgentCatalog: vi.fn(() => ({
@@ -78,11 +84,8 @@ vi.mock("../api/agentRuntime", () => ({
     },
     isLoading: false,
   })),
-  useClaudeCodeProfiles: vi.fn(() => ({
-    data: { active: "default", profiles: [{ name: "bedrock", env: {} }] },
-    isLoading: false,
-    isError: false,
-  })),
+  // One result object, like React Query's structurally shared data.
+  useClaudeCodeProfiles: vi.fn(() => claudeProfilesResult),
 }));
 
 // Mock hooks to avoid cascading tRPC dependencies
@@ -142,6 +145,19 @@ vi.mock("@/hooks/useImageAttachments", () => ({
     isDragging: false,
   })),
 }));
+
+// Counts composer renders: `useComposerSessionInfo` runs once per composer render.
+const composerRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("./agent-session/ComposerSessionSlots", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./agent-session/ComposerSessionSlots")>();
+  return {
+    ...actual,
+    useComposerSessionInfo: (...args: Parameters<typeof actual.useComposerSessionInfo>) => {
+      composerRenders.count += 1;
+      return actual.useComposerSessionInfo(...args);
+    },
+  };
+});
 
 function makeBlock(id: string, content: string): AgentBlockData {
   return { id, type: "text", content };
@@ -354,6 +370,45 @@ describe("AgentSession", () => {
       />,
     );
     expect(screen.getByText("Session")).toBeInTheDocument();
+  });
+
+  it("does not re-render the composer for stream deltas or the 1 Hz working clock", () => {
+    vi.useFakeTimers();
+    try {
+      const clock = {
+        startedAtMs: Date.now(),
+        waitingMs: 0,
+        waitingSinceMs: null,
+        model: null,
+      };
+      const props = {
+        agentType: "session",
+        status: "agent",
+        lifecycle: { phase: "active" },
+        onSend,
+        onStop,
+      } as const;
+      const { rerender } = render(
+        <AgentSession {...props} blocks={[makeBlock("a", "he")]} turnClock={{ ...clock }} />,
+      );
+      const afterMount = composerRenders.count;
+
+      // Each delta rebuilds blocks and the clock object with the same values.
+      for (const content of ["hel", "hell", "hello"]) {
+        rerender(
+          <AgentSession {...props} blocks={[makeBlock("a", content)]} turnClock={{ ...clock }} />,
+        );
+      }
+      act(() => {
+        vi.advanceTimersByTime(3_010);
+      });
+
+      expect(screen.getByText("hello")).toBeInTheDocument();
+      expect(screen.getAllByText("Working - 3s").length).toBeGreaterThan(0);
+      expect(composerRenders.count).toBe(afterMount);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows status badge - working", () => {

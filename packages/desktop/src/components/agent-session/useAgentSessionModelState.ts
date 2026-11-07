@@ -91,20 +91,34 @@ export function useAgentSessionModelState(params: UseAgentSessionModelStateParam
   // as 'paused' (session_bootstrap::find_or_create_session), so reading
   // status === "idle" here would lock the picker on ~20-25% of new sessions.
   const canChangeProvider = !!onProviderChange && !hasConversation;
-  const supportedThinkingEfforts = supportedThinkingEffortLevels(
-    modelSelectionStatus === "ready" ? selectedModel : undefined,
+  const readyModel = modelSelectionStatus === "ready" ? selectedModel : undefined;
+  const supportedThinkingEfforts = useMemo(
+    () => supportedThinkingEffortLevels(readyModel),
+    [readyModel],
   );
-  const supportsFastMode =
-    modelSelectionStatus === "ready" && selectedModel?.supports_fast_mode === true;
+  const supportsFastMode = readyModel?.supports_fast_mode === true;
 
-  return {
-    modelSelectionStatus,
-    providerOptions,
-    activeProviderId,
-    visibleModels,
-    currentModelLabel,
-    canChangeProvider,
-    supportedThinkingEfforts,
-    supportsFastMode,
-  };
+  // Stable while nothing changed: the composer is memoized on these values.
+  return useMemo(
+    () => ({
+      modelSelectionStatus,
+      providerOptions,
+      activeProviderId,
+      visibleModels,
+      currentModelLabel,
+      canChangeProvider,
+      supportedThinkingEfforts,
+      supportsFastMode,
+    }),
+    [
+      modelSelectionStatus,
+      providerOptions,
+      activeProviderId,
+      visibleModels,
+      currentModelLabel,
+      canChangeProvider,
+      supportedThinkingEfforts,
+      supportsFastMode,
+    ],
+  );
 }

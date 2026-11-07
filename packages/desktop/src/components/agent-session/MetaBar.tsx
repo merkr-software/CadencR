@@ -1,5 +1,5 @@
 import type { SessionConfigControls } from "./types";
-import { forwardRef, useState, type ReactNode } from "react";
+import { forwardRef, memo, useState, type ReactNode } from "react";
 import { AgentTodoList } from "../AgentTodoList";
 import type { WorktreeMode } from "@/lib/worktree-mode";
 import type { TodoItem } from "@/types/agent";
@@ -124,7 +124,7 @@ export interface MetaBarHandle {
   openModelPicker: () => void;
 }
 
-export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(props, ref) {
+const MetaBarImpl = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(props, ref) {
   const input = useMetaBarInput(props);
   const [internalModelPickerOpen, setInternalModelPickerOpen] = useState(false);
   const displayProviderId = input.currentSelection?.providerId;
@@ -219,6 +219,9 @@ export const MetaBar = forwardRef<MetaBarHandle, MetaBarProps>(function MetaBar(
   );
   return placed ? content : <div className={containerClassName}>{content}</div>;
 });
+
+/** Memoized: it sits beside the agent stream, whose every delta re-renders its parents. */
+export const MetaBar = memo(MetaBarImpl);
 
 /** The access / session-config group (and, outside the composer, the info chip). */
 function trailingGroup(

@@ -27,7 +27,8 @@ import type { MessageNavigatorControls } from "./agent-session/useMessageNavigat
 import type { DisplayItem } from "@/types/agent-stream";
 import { useAgentDisplayItems, useRootBlocks, useToolResultMap } from "./useAgentStreamData";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
-import { isTurnInProgress } from "@/stores/ws-turn-lifecycle";
+import type { TurnClock } from "@/lib/turn-clock";
+import { TurnProgressCursor } from "./agent-session/TurnProgressCursor";
 import type { AgentVerbosityMode } from "@/lib/agent-verbosity";
 
 type ScrollRef = (el: HTMLElement | null) => void;
@@ -46,6 +47,8 @@ interface AgentStreamVirtuosoContext {
   streamingBlockId: string | null;
   lifecycle?: TurnLifecycle;
   workingLabel: string;
+  /** Live turn clock: the cursor ticks its elapsed time itself. */
+  workingClock: TurnClock | null;
   /** Block holding the active search match: a compact run holding it unfolds. */
   searchBlockId: string | null;
 }
@@ -77,6 +80,8 @@ interface AgentStreamProps {
   showStreamingIndicator?: boolean;
   lifecycle?: TurnLifecycle;
   workingLabel?: string;
+  /** When set, the cursor shows this turn's live "Working · model · 12s" label. */
+  workingClock?: TurnClock | null;
   /** Base path to strip from file paths in diffs */
   basePath?: string;
   /** Callback ref for the scrollable container (auto-scroll listeners attach here). */
@@ -121,16 +126,6 @@ interface AgentStreamProps {
   messageNavigator?: MessageNavigatorControls | null;
 }
 
-const StreamingCursor = memo(function StreamingCursor({ label }: { label: string }) {
-  return (
-    // No inline padding: the cursor sits on the transcript's left edge.
-    <div className="flex items-center gap-2 py-2 text-xs text-primary">
-      <span className="animate-pulse">█</span>
-      <span className="font-medium tabular-nums">{label}</span>
-    </div>
-  );
-});
-
 // The spacer is unconditional and lives inside the list rather than as padding
 // on the wrapper: the composer's fade band sits on the scroller's clip edge, so
 // anything that comes to rest against that edge rests under the ramp. Keeping
@@ -146,7 +141,11 @@ const StreamFooter = memo(function StreamFooter({
   return (
     <>
       {context?.showStreamingIndicator && (
-        <TurnProgressCursor lifecycle={context.lifecycle} label={context.workingLabel} />
+        <TurnProgressCursor
+          lifecycle={context.lifecycle}
+          label={context.workingLabel}
+          clock={context.workingClock}
+        />
       )}
       <div aria-hidden style={STREAM_BOTTOM_GAP_STYLE} />
     </>
@@ -156,6 +155,21 @@ const StreamFooter = memo(function StreamFooter({
 const VIRTUOSO_COMPONENTS = {
   Footer: StreamFooter,
 } satisfies Components<DisplayItem, AgentStreamVirtuosoContext>;
+
+/** No rows yet: only the working cursor, while a turn runs. */
+function EmptyStream({ context }: { context: AgentStreamVirtuosoContext }) {
+  return (
+    <div className="p-3">
+      {context.showStreamingIndicator && (
+        <TurnProgressCursor
+          lifecycle={context.lifecycle}
+          label={context.workingLabel}
+          clock={context.workingClock}
+        />
+      )}
+    </div>
+  );
+}
 
 const LoadingOlderOverlay = memo(function LoadingOlderOverlay() {
   return (
@@ -220,11 +234,26 @@ function useVirtuosoContext({
   streamingBlockId,
   lifecycle,
   workingLabel,
+  workingClock,
   searchBlockId,
 }: AgentStreamVirtuosoContext): AgentStreamVirtuosoContext {
   return useMemo(
-    () => ({ showStreamingIndicator, streamingBlockId, lifecycle, workingLabel, searchBlockId }),
-    [showStreamingIndicator, streamingBlockId, lifecycle, workingLabel, searchBlockId],
+    () => ({
+      showStreamingIndicator,
+      streamingBlockId,
+      lifecycle,
+      workingLabel,
+      workingClock,
+      searchBlockId,
+    }),
+    [
+      showStreamingIndicator,
+      streamingBlockId,
+      lifecycle,
+      workingLabel,
+      workingClock,
+      searchBlockId,
+    ],
   );
 }
 
@@ -329,6 +358,7 @@ export const AgentStream = memo(function AgentStream({
   showStreamingIndicator = true,
   lifecycle,
   workingLabel = "Working",
+  workingClock = null,
   basePath,
   scrollContainerRef,
   virtuosoRef,
@@ -363,6 +393,7 @@ export const AgentStream = memo(function AgentStream({
     streamingBlockId: isStreaming ? (displayBlocks.at(-1)?.id ?? null) : null,
     lifecycle,
     workingLabel,
+    workingClock,
     searchBlockId,
   });
   const streamRefs = useAgentStreamRefs(virtuosoRef, scrollContainerRef);
@@ -373,15 +404,7 @@ export const AgentStream = memo(function AgentStream({
   );
   const renderItem = useAgentStreamItemRenderer(basePath, toolResultMap, verbosityMode);
 
-  if (displayItems.length === 0) {
-    return (
-      <div className="p-3">
-        {showStreamingIndicator && (
-          <TurnProgressCursor lifecycle={lifecycle} label={workingLabel} />
-        )}
-      </div>
-    );
-  }
+  if (displayItems.length === 0) return <EmptyStream context={virtuosoContext} />;
 
   return (
     // With the navigator on, the stream gives up 8px so its rail gets a lane
@@ -418,15 +441,4 @@ export const AgentStream = memo(function AgentStream({
       />
     </div>
   );
-});
-
-const TurnProgressCursor = memo(function TurnProgressCursor({
-  lifecycle,
-  label,
-}: {
-  lifecycle?: TurnLifecycle;
-  label: string;
-}) {
-  if (!isTurnInProgress(lifecycle)) return null;
-  return <StreamingCursor label={label} />;
 });

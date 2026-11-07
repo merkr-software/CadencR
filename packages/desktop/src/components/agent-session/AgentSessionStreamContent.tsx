@@ -2,6 +2,7 @@ import { memo, type ComponentProps, type ReactElement } from "react";
 import { AgentStream } from "../AgentStream";
 import type { AgentBlockData } from "@/types/agent-block";
 import type { TurnLifecycle } from "@/stores/ws-turn-lifecycle";
+import type { TurnClock } from "@/lib/turn-clock";
 
 type AgentStreamProps = ComponentProps<typeof AgentStream>;
 
@@ -14,6 +15,7 @@ interface AgentSessionStreamContentProps {
   turnActive: boolean;
   lifecycle?: TurnLifecycle;
   workingLabel: string;
+  workingClock: TurnClock | null;
   projectPath?: string;
   scrollContainerRef: AgentStreamProps["scrollContainerRef"];
   virtuosoRef: AgentStreamProps["virtuosoRef"];
@@ -38,6 +40,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
   turnActive,
   lifecycle,
   workingLabel,
+  workingClock,
   projectPath,
   scrollContainerRef,
   virtuosoRef,
@@ -64,6 +67,7 @@ export const AgentSessionStreamContent = memo(function AgentSessionStreamContent
       turnActive={turnActive}
       lifecycle={lifecycle}
       workingLabel={workingLabel}
+      workingClock={workingClock}
       basePath={projectPath}
       scrollContainerRef={scrollContainerRef}
       virtuosoRef={virtuosoRef}

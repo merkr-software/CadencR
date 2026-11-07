@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { PROVIDER_IDS } from "@/lib/providers";
 import { useAgentCatalog } from "../../api/agentRuntime";
 import { toastError } from "@/lib/api-errors";
@@ -75,9 +75,13 @@ export function useAgentSessionModelAndProfile(
     [onSend, profile.selectedClaudeProfile, scrollToBottom, sendsProfile],
   );
 
-  const visibleProviders = model.canChangeProvider
-    ? model.providerOptions
-    : model.providerOptions.filter((provider) => provider.id === model.activeProviderId);
+  const visibleProviders = useMemo(
+    () =>
+      model.canChangeProvider
+        ? model.providerOptions
+        : model.providerOptions.filter((provider) => provider.id === model.activeProviderId),
+    [model.activeProviderId, model.canChangeProvider, model.providerOptions],
+  );
 
   return {
     model,
