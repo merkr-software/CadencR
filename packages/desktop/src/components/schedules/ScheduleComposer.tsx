@@ -2,8 +2,8 @@
  * The schedule editor's prompt field: the real composer, not a textarea.
  *
  * A scheduled message is an ordinary prompt that happens to be sent later, so it
- * is written with the same editor and the same settings chips — `@` file
- * mentions, `@@` conversation references, and the provider's own `/` commands
+ * is written in the same composer card — the same editor and instruments: `@`
+ * file mentions, `@@` conversation references, and the provider's own `/` commands
  * and `$` skills, resolved for the project the run will happen in. Writing it in
  * a bare textarea meant learning a second, weaker way to write a prompt, and
  * left the runtime options stranded in unrelated dropdowns.
@@ -18,7 +18,8 @@ import { PromptEditor, type PromptEditorHandle } from "@/components/prompt-edito
 import type { ScheduleTarget } from "@/api/generated";
 import { shouldFocusPromptFromSurfaceClick } from "@/components/agent-prompt-focus";
 import { usePromptCommands } from "@/hooks/usePromptCommands";
-import { ScheduleSettingsBar } from "./settings/ScheduleSettingsBar";
+import { ScheduleInstruments } from "./settings/ScheduleInstruments";
+import { ScheduleLaunchManifest } from "./settings/ScheduleLaunchManifest";
 import { useScheduleRuntime } from "./settings/useScheduleRuntime";
 
 export interface ScheduleComposerProps {
@@ -51,23 +52,30 @@ export function ScheduleComposer({
   const runtime = useScheduleRuntime(target);
   const catalog = usePromptCommands(projectPath, runtime.providerId);
 
+  // The session composer's card: launch line (where each run works), the
+  // editor, then the instrument row. `data-composer-card` also anchors the
+  // editor's `@` and `/` menus to the card, as in a conversation.
   return (
-    <div className="flex flex-col gap-2">
-      <ScheduleSettingsBar
-        target={target}
-        onChange={onTargetChange}
-        runtime={runtime}
-        projectPath={projectPath}
-      />
-      <div
-        className="glass-surface flex max-h-48 min-h-0 items-start gap-1.5 rounded-lg border border-transparent bg-muted/40 py-3 pl-4 pr-2.5 transition-colors focus-within:bg-muted/55"
-        onClick={handleSurfaceClick}
-      >
+    <div
+      data-composer-card
+      className="glass-surface flex max-h-72 min-h-0 flex-col rounded-lg border border-transparent bg-muted/40 transition-colors focus-within:bg-muted/55"
+      onClick={handleSurfaceClick}
+    >
+      {/* An existing conversation already has a working copy; only a schedule
+          that creates one gets to choose. */}
+      {target.kind === "new_conversation" && (
+        <ScheduleLaunchManifest
+          target={target}
+          onChange={onTargetChange}
+          projectPath={projectPath}
+        />
+      )}
+      <div className="flex min-h-0 flex-1 items-start gap-1.5 px-4 pt-3.5 pb-2">
         <PromptEditor
           ref={editorRef}
           initialText={initialPrompt}
           onChange={onPromptChange}
-          placeholder="What should the agent do? (@ files, / commands)"
+          placeholder="Describe the task — @ for files, / for commands"
           className="min-h-16 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-0 py-0 text-sm leading-[22px] shadow-none focus:border-0 focus:ring-0"
           mentionProjectId={target.project_id ?? undefined}
           mentionFeatureId={target.feature_id ?? undefined}
@@ -82,6 +90,7 @@ export function ScheduleComposer({
           promptCommandPolicy={{ ...catalog.policy, userShell: false }}
         />
       </div>
+      <ScheduleInstruments target={target} onChange={onTargetChange} runtime={runtime} />
     </div>
   );
 }

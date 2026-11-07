@@ -232,7 +232,6 @@ export function MetaBarLeadingChips(props: LeadingChipsProps) {
           permissionMode={props.permissionMode}
           enabledOptInModes={props.enabledOptInModes}
           providerModes={props.providerModes}
-          onToggle={props.onPermissionModeToggle}
           onSelect={props.onPermissionModeSet}
           incompatibleReason={props.modeIncompatibleReason}
         />

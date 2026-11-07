@@ -22,9 +22,10 @@ export function ScheduleModelChip({ target, onChange, runtime }: ScheduleChipPro
 
   return (
     <ModelMetaChip
+      variant="instrument"
       open={open}
       onOpenChange={setOpen}
-      // No loading label: the chip row doesn't mount until `isResolving`
+      // No loading label: the instrument row doesn't mount until `isResolving`
       // clears, and the catalog is one of the layers that gates it. The label
       // itself derives from the catalog via the selection pair.
       selection={

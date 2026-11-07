@@ -157,7 +157,7 @@ describe("ScheduleComposer", () => {
   it("stores the working copy the run should use", async () => {
     const { user } = render(<Harness initial={{ kind: "new_conversation", project_id: 1 }} />);
 
-    await user.click(screen.getByRole("button", { name: "Branch / worktree behavior" }));
+    await user.click(screen.getByRole("button", { name: /^Where the agent works/ }));
     await user.click(await screen.findByRole("button", { name: /From branch with worktree/ }));
 
     expect(currentTarget()).toMatchObject({ worktree_mode: "new" });
@@ -176,7 +176,7 @@ describe("ScheduleComposer", () => {
     });
     const { user } = render(<Harness initial={{ kind: "new_conversation", project_id: 1 }} />);
 
-    await user.click(screen.getByRole("button", { name: /main/ }));
+    await user.click(screen.getByRole("button", { name: "Base branch: main" }));
     await user.click(await screen.findByText("feature/x"));
 
     expect(currentTarget()).toMatchObject({
@@ -190,12 +190,10 @@ describe("ScheduleComposer", () => {
       <Harness initial={{ kind: "conversation", project_id: 1, feature_id: 7 }} />,
     );
 
-    // The conversation's own model, and no working-copy chip: the run uses the
+    // The conversation's own model, and no launch line: the run uses the
     // conversation's worktree whatever the schedule says.
     expect(screen.getByText("Haiku")).toBeInTheDocument();
-    expect(
-      screen.queryByRole("button", { name: "Branch / worktree behavior" }),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText("Runs in")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /Haiku/ }));
     // Only the conversation's own agent is offered.
@@ -208,17 +206,17 @@ describe("ScheduleComposer", () => {
     expect(target.provider).toBeUndefined();
   });
 
-  it("cycles the collaboration mode and pins what it lands on", async () => {
+  it("pins the mode picked from the autonomy menu", async () => {
     const { user } = render(<Harness initial={{ kind: "new_conversation", project_id: 1 }} />);
 
     // Unpinned shows what a new conversation on this agent would start in.
-    const chip = screen.getByRole("button", { name: /Permission mode: Auto\./ });
-    await user.click(chip);
+    await user.click(screen.getByRole("button", { name: /^Mode: Auto\./ }));
+    // Shift+Tab isn't bound in the editor, so the menu doesn't advertise it.
+    expect((await screen.findByRole("menu")).querySelector("kbd")).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: /Auto-Accept Edits/ }));
 
     expect(currentTarget().permission_mode).toBe("acceptEdits");
-    expect(
-      screen.getByRole("button", { name: /Permission mode: Auto-Accept Edits/ }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Mode: Auto-Accept Edits/ })).toBeInTheDocument();
   });
 
   // An unpinned schedule inherits the conversation's mode, so the chip has to
@@ -226,7 +224,7 @@ describe("ScheduleComposer", () => {
   it("shows the mode the targeted conversation is already in", () => {
     render(<Harness initial={{ kind: "conversation", project_id: 1, feature_id: 7 }} />);
 
-    expect(screen.getByRole("button", { name: /Permission mode: Plan/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Mode: Plan/ })).toBeInTheDocument();
     expect(currentTarget().permission_mode).toBeUndefined();
   });
 
@@ -239,7 +237,7 @@ describe("ScheduleComposer", () => {
 
     expect(mockUseGetFeature).toHaveBeenCalledWith(7, expect.anything());
     expect(screen.getByText("Haiku")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Permission mode: Plan/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Mode: Plan/ })).toBeInTheDocument();
   });
 
   it("waits for the conversation before showing what the run is configured with", () => {

@@ -9,7 +9,6 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="plan"
-        onToggle={vi.fn()}
         onSelect={vi.fn()}
       />,
     );
@@ -22,19 +21,13 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="plan"
-        onToggle={vi.fn()}
         onSelect={vi.fn()}
       />,
     );
     // Claude's Plan is green, as in its CLI; Codex's Plan stays fuchsia.
     expect(screen.getByRole("button", { name: /Mode: Plan/ }).style.color).toBe("var(--acc-green)");
     rerender(
-      <ModeControl
-        providerId={PROVIDER_IDS.CODEX_CLI}
-        permissionMode="plan"
-        onToggle={vi.fn()}
-        onSelect={vi.fn()}
-      />,
+      <ModeControl providerId={PROVIDER_IDS.CODEX_CLI} permissionMode="plan" onSelect={vi.fn()} />,
     );
     expect(screen.getByRole("button", { name: /Mode: Plan/ }).style.color).toBe(
       "var(--chip-fuchsia-fg)",
@@ -47,7 +40,6 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="acceptEdits"
-        onToggle={vi.fn()}
         onSelect={onSelect}
       />,
     );
@@ -62,7 +54,6 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="acceptEdits"
-        onToggle={vi.fn()}
         onSelect={vi.fn()}
       />,
     );
@@ -71,7 +62,6 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="plan"
-        onToggle={vi.fn()}
         onSelect={vi.fn()}
       />,
     );
@@ -83,7 +73,6 @@ describe("ModeControl", () => {
       <ModeControl
         providerId={PROVIDER_IDS.CLAUDE_CODE}
         permissionMode="auto"
-        onToggle={vi.fn()}
         onSelect={vi.fn()}
         incompatibleReason="This model can't run Auto"
       />,

@@ -4,9 +4,9 @@
  * Profiles are a Claude Code concept — billing identity, not a runtime axis the
  * catalog advertises for every agent — so the knowledge that they exist is
  * confined to this file rather than living as a branch inside the generic chip
- * row (`provider-boundaries.md`). `ScheduleSettingsBar` renders it
+ * row (`provider-boundaries.md`). `ScheduleInstruments` renders it
  * unconditionally; it returns `null` for every provider that has no profiles,
- * which is the same shape `ScheduleAccessChip` uses for its own axis.
+ * which is the same shape `ScheduleAccessControl` uses for its own axis.
  *
  * This mirrors `useClaudeProfileSelection` on the session side: the schedule
  * pins a profile for its own runs and never touches the globally active one.
@@ -42,7 +42,7 @@ export function ScheduleProfileChip({
       isLoading={profiles.isLoading}
       isError={profiles.isError}
       onChange={(profile) => onChange({ ...target, profile })}
-      variant="compact"
+      variant="instrument"
       label="Profile"
     />
   );
