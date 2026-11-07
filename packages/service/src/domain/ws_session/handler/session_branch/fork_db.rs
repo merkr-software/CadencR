@@ -198,6 +198,40 @@ mod tests {
         }
     }
 
+    /// The fork starts at the effort of the last runtime override switch, not
+    /// the one the source's first `session.init` anchored.
+    #[tokio::test]
+    async fn fork_inherits_the_effort_of_the_last_runtime_override_switch() {
+        let pool = pool_with_source_feature().await;
+        sqlx::query("UPDATE agent_sessions SET runtime_provider = 'codex_cli', thinking_effort = 'high' WHERE id = 1")
+            .execute(&pool).await.unwrap();
+        let switched = crate::domain::agents::adapter::RuntimeConfigOverrides {
+            model: Some("gpt-5.6-luna".into()),
+            thinking_effort: Some("max".into()),
+            ..Default::default()
+        };
+        crate::domain::ws_session::persistence::WsSessionPersistence::update_runtime_config_static(
+        )
+        .pool(&pool)
+        .session_id(1)
+        .overrides(&switched)
+        .model("gpt-5.6-luna")
+        .thinking_effort("max")
+        .call()
+        .await
+        .unwrap();
+        let fork = create_forked_feature(&pool, 1, 9, 3, "q2", Some("forked-sid"))
+            .await
+            .unwrap();
+        let copied: (String, String) =
+            sqlx::query_as("SELECT model, thinking_effort FROM agent_sessions WHERE id = ?")
+                .bind(fork.new_session_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(copied, ("gpt-5.6-luna".to_string(), "max".to_string()));
+    }
+
     #[tokio::test]
     async fn create_forked_feature_shares_worktree_and_copies_prefix() {
         let pool = pool_with_source_feature().await;

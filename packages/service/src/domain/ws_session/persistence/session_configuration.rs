@@ -40,6 +40,33 @@ impl WsSessionPersistence {
         Ok(())
     }
 
+    /// Persist an override document together with the config it resolves to.
+    /// The `model` and `thinking_effort` columns mirror that effective config
+    /// for the readers that never parse the document (forks, schedules, usage
+    /// stats, session lists). `None` for the model (an inherited model nothing
+    /// resolved) keeps the column; `None` for the effort means "provider
+    /// default", like `update_thinking_effort_static(None)`.
+    #[builder]
+    pub async fn update_runtime_config_static(
+        pool: &SqlitePool,
+        session_id: i64,
+        overrides: &crate::domain::agents::adapter::RuntimeConfigOverrides,
+        model: Option<&str>,
+        thinking_effort: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        let json = serde_json::to_string(overrides).expect("runtime overrides serialize");
+        sqlx::query(
+            "UPDATE agent_sessions SET runtime_overrides = ?, model = COALESCE(?, model), thinking_effort = ? WHERE id = ?",
+        )
+        .bind(json)
+        .bind(model)
+        .bind(thinking_effort)
+        .bind(session_id)
+        .execute(pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn update_model_static(
         pool: &SqlitePool,
         session_id: i64,
