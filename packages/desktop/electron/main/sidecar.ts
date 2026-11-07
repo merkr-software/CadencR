@@ -1,40 +1,39 @@
-import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import net from "node:net";
 import path from "node:path";
-import type { Readable } from "node:stream";
 import { resolveConfigDir, resolveDatabasePath } from "./app-paths";
 import { childProcessEnv } from "./child-env";
 import { ensureLinuxSidecarExecutable } from "./sidecar-executable";
 import { createStartupWatchdog, recordStartupProgress, waitForHealthy } from "./sidecar-health";
-import { NEWER_DATABASE_RECOVERY_DETAIL, isNewerDatabaseStartupFailure } from "./startup-recovery";
+import { SIDECAR_BASE_URL, SIDECAR_PORT } from "./sidecar-port";
+import {
+  assertPortAvailable,
+  describeServiceFailure,
+  describeStartupFailure,
+  pumpLogs,
+  recordStderrLine,
+  stopChild,
+  type ServiceProcess,
+  type SidecarStatusUpdate,
+} from "./sidecar-process";
 import { sendShutdownIntent } from "./shutdown-intent";
 import type { AppCloseChoice } from "../../src/shared/app-close";
 
 export { ensureLinuxSidecarExecutable } from "./sidecar-executable";
+export { describeStartupFailure, parsePhaseLine } from "./sidecar-process";
+export type { SidecarPhase, SidecarStatusUpdate } from "./sidecar-process";
 
-const SIDECAR_PORT = 5004;
 const DEFAULT_DEV_API_BASE_URL = "http://127.0.0.1:5005";
-const STDERR_TAIL_LINES = 12;
-const PHASE_PREFIX = "CADENCR_PHASE ";
+/** Tells the service to shut down when its stdin closes (see `ServiceProcess`). */
+export const EXIT_WITH_PARENT_FLAG = "--exit-with-parent";
 
-type ServiceProcess = ChildProcessByStdio<null, Readable, Readable>;
-
-export type SidecarPhase =
-  | "starting_service"
-  | "waiting_for_service"
-  | "backing_up"
-  | "backup_failed"
-  | "migrating"
-  | "optimizing_storage"
-  | "compacting_database"
-  | "importing_usage"
-  | "loading_app";
-
-export interface SidecarStatusUpdate {
-  phase: SidecarPhase;
-  detail?: string;
+/** How a running service ended without Electron asking it to. */
+export interface SidecarExit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+  /** Exit status and the last stderr lines, for the user. */
+  detail: string;
 }
 
 export interface SidecarHandle {
@@ -58,6 +57,8 @@ export interface SpawnProductionSidecarOptions {
   appVersion?: string;
   browserBridge?: BrowserBridgeSidecarEnv;
   onStatus?: (update: SidecarStatusUpdate) => void;
+  /** The service exited after startup while nobody had asked it to stop. */
+  onUnexpectedExit?: (exit: SidecarExit) => void;
 }
 
 function normalizeBaseUrl(key: string, value: string): string {
@@ -149,7 +150,7 @@ function generateAuthToken(): string {
 export async function spawnProductionSidecar(
   options: SpawnProductionSidecarOptions = {},
 ): Promise<SidecarHandle> {
-  const baseUrl = `http://127.0.0.1:${SIDECAR_PORT}`;
+  const baseUrl = SIDECAR_BASE_URL;
   const authToken = generateAuthToken();
   const onStatus = options.onStatus ?? (() => {});
   const watchdog = createStartupWatchdog();
@@ -171,39 +172,89 @@ export async function spawnProductionSidecar(
     productionRendererDir(),
     options.browserBridge,
   );
-  let exited = false;
-  let exitCode: number | null = null;
-  let exitSignal: NodeJS.Signals | null = null;
-  const stderrTail: string[] = [];
-
-  child.on("exit", (code, signal) => {
-    exited = true;
-    exitCode = code;
-    exitSignal = signal;
-    console.info(`[cadencr-service] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
-  });
-  child.on("error", (error) => {
-    exited = true;
-    stderrTail.push(`Failed to start cadencr-service: ${error.message}`);
-  });
-  pumpLogs(child, reportStatus, stderrTail);
+  const watch = watchServiceProcess(child);
+  pumpLogs(child, reportStatus, watch.stderrTail);
 
   try {
-    await waitForHealthy(baseUrl, authToken, () => exited, watchdog);
+    await waitForHealthy(baseUrl, authToken, () => watch.exited, watchdog);
   } catch (error) {
     const baseMessage = error instanceof Error ? error.message : String(error);
     const failure = new Error(
-      describeStartupFailure(baseMessage, stderrTail, exitCode, exitSignal),
+      describeStartupFailure(baseMessage, watch.stderrTail, watch.exitCode, watch.exitSignal),
     );
     return rethrowAfterCleanup(failure, () => stopChild(child));
   }
   reportStatus({ phase: "loading_app" });
+  let stopRequested = false;
+  superviseServiceProcess(child, watch, () => stopRequested, options.onUnexpectedExit);
   return {
     baseUrl,
     authToken,
-    stop: () => stopChild(child),
+    stop: () => {
+      stopRequested = true;
+      return stopChild(child);
+    },
     setShutdownIntent: (choice) => sendShutdownIntent(baseUrl, authToken, choice),
   };
+}
+
+export interface ServiceProcessWatch {
+  exited: boolean;
+  exitCode: number | null;
+  exitSignal: NodeJS.Signals | null;
+  stderrTail: string[];
+}
+
+function watchServiceProcess(child: ServiceProcess): ServiceProcessWatch {
+  const watch: ServiceProcessWatch = {
+    exited: false,
+    exitCode: null,
+    exitSignal: null,
+    stderrTail: [],
+  };
+  child.on("exit", (code, signal) => {
+    watch.exited = true;
+    watch.exitCode = code;
+    watch.exitSignal = signal;
+    console.info(`[cadencr-service] exited code=${code ?? "null"} signal=${signal ?? "null"}`);
+  });
+  child.on("error", (error) => {
+    watch.exited = true;
+    recordStderrLine(watch.stderrTail, `Failed to start cadencr-service: ${error.message}`);
+  });
+  // Nothing is ever written, so an error here only means the service end of
+  // the pipe is gone: the exit that follows is what gets reported.
+  child.stdin.on("error", (error) => {
+    recordStderrLine(watch.stderrTail, `Service stdin closed: ${error.message}`);
+  });
+  return watch;
+}
+
+/**
+ * Past startup, an exit nobody asked for is reported once, with what the
+ * service last printed, so the window can offer a restart.
+ */
+export function superviseServiceProcess(
+  child: Pick<ServiceProcess, "once">,
+  watch: ServiceProcessWatch,
+  stopRequested: () => boolean,
+  onUnexpectedExit: ((exit: SidecarExit) => void) | undefined,
+): void {
+  if (!onUnexpectedExit) return;
+  const report = (code: number | null, signal: NodeJS.Signals | null): void => {
+    if (stopRequested()) return;
+    onUnexpectedExit({
+      code,
+      signal,
+      detail: describeServiceFailure(watch.stderrTail, code, signal),
+    });
+  };
+  // It can die between the health check and this listener.
+  if (watch.exited) {
+    report(watch.exitCode, watch.exitSignal);
+    return;
+  }
+  child.once("exit", report);
 }
 
 /**
@@ -238,7 +289,7 @@ function spawnService(
 ): ServiceProcess {
   return spawn(binary, serviceArgs(dbPath, appVersion, rendererDir), {
     env: serviceEnv(authToken, browserBridge),
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: ["pipe", "pipe", "pipe"],
   });
 }
 
@@ -265,7 +316,15 @@ export function serviceArgs(
 ): string[] {
   const settingsDir = resolveSettingsDir(dbPath);
 
-  const args = ["--db-path", dbPath, "--settings-dir", settingsDir, "--port", String(SIDECAR_PORT)];
+  const args = [
+    "--db-path",
+    dbPath,
+    "--settings-dir",
+    settingsDir,
+    "--port",
+    String(SIDECAR_PORT),
+    EXIT_WITH_PARENT_FLAG,
+  ];
   if (appVersion) args.push("--app-version", appVersion);
   // Enables remote-access serving; the local window still loads file://.
   if (rendererDir) args.push("--renderer-dir", rendererDir);
@@ -282,154 +341,4 @@ export function resolveSettingsDir(
   }
   // Preserve the legacy macOS layout beside ~/.cadencr/database.
   return path.join(path.dirname(path.dirname(dbPath)), "settings");
-}
-
-export function describeStartupFailure(
-  baseMessage: string,
-  stderrTail: string[],
-  exitCode: number | null,
-  exitSignal: NodeJS.Signals | null,
-): string {
-  if (stderrTail.some(isNewerDatabaseStartupFailure)) {
-    return NEWER_DATABASE_RECOVERY_DETAIL;
-  }
-
-  const detail = describeServiceFailure(stderrTail, exitCode, exitSignal);
-  return detail ? [baseMessage, detail].join("\n\n") : baseMessage;
-}
-
-function describeServiceFailure(
-  stderrTail: string[],
-  exitCode: number | null,
-  exitSignal: NodeJS.Signals | null,
-): string {
-  const parts: string[] = [];
-  if (exitCode !== null || exitSignal !== null) {
-    parts.push(`Service exit: code=${exitCode ?? "null"} signal=${exitSignal ?? "null"}.`);
-  }
-  if (stderrTail.length > 0) {
-    parts.push("Last log lines:");
-    parts.push(stderrTail.slice(-STDERR_TAIL_LINES).join("\n"));
-  }
-  return parts.join("\n");
-}
-
-async function assertPortAvailable(port: number): Promise<void> {
-  const available = await isPortAvailable(port);
-  if (!available) {
-    throw new Error(`cadencr-service cannot start because 127.0.0.1:${port} is already in use.`);
-  }
-}
-
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.once("error", () => resolve(false));
-    server.once("listening", () => {
-      server.close(() => resolve(true));
-    });
-    server.listen(port, "127.0.0.1");
-  });
-}
-
-function pumpLogs(
-  child: ServiceProcess,
-  onStatus: (update: SidecarStatusUpdate) => void,
-  stderrTail: string[],
-): void {
-  forwardStream(child.stdout, "info", (line) => {
-    const phaseUpdate = parsePhaseLine(line);
-    if (phaseUpdate) onStatus(phaseUpdate);
-  });
-  forwardStream(child.stderr, "warn", (line) => {
-    stderrTail.push(line);
-    if (stderrTail.length > STDERR_TAIL_LINES * 2) {
-      stderrTail.splice(0, stderrTail.length - STDERR_TAIL_LINES);
-    }
-  });
-}
-
-function forwardStream(
-  stream: Readable,
-  level: "info" | "warn",
-  onLine: (line: string) => void,
-): void {
-  const log = level === "info" ? console.info : console.warn;
-  let buffer = "";
-  stream.on("data", (chunk: Buffer) => {
-    buffer += chunk.toString("utf8");
-    let newlineIndex = buffer.indexOf("\n");
-    while (newlineIndex !== -1) {
-      const line = buffer.slice(0, newlineIndex).replace(/\r$/, "");
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.length > 0) {
-        log(`[cadencr-service] ${line}`);
-        onLine(line);
-      }
-      newlineIndex = buffer.indexOf("\n");
-    }
-  });
-  stream.on("end", () => {
-    if (buffer.length > 0) {
-      log(`[cadencr-service] ${buffer}`);
-      onLine(buffer);
-    }
-  });
-}
-
-export function parsePhaseLine(line: string): SidecarStatusUpdate | null {
-  if (!line.startsWith(PHASE_PREFIX)) return null;
-  const rest = line.slice(PHASE_PREFIX.length).trim();
-  const spaceIdx = rest.indexOf(" ");
-  const name = spaceIdx === -1 ? rest : rest.slice(0, spaceIdx);
-  const detail = spaceIdx === -1 ? "" : rest.slice(spaceIdx + 1).trim();
-  switch (name) {
-    case "backing_up":
-      return { phase: "backing_up", detail: detail || undefined };
-    case "backup_failed":
-      return { phase: "backup_failed", detail: detail || undefined };
-    case "migrating":
-      return { phase: "migrating", detail: detail || undefined };
-    case "optimizing_storage":
-      return { phase: "optimizing_storage", detail: detail || undefined };
-    case "compacting_database":
-      return { phase: "compacting_database", detail: detail || undefined };
-    case "importing_usage":
-      return { phase: "importing_usage", detail: detail || undefined };
-    default:
-      return null;
-  }
-}
-
-async function stopChild(child: ServiceProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  const termSent = child.kill("SIGTERM");
-  if (!termSent && !(await waitForExit(child, 100))) {
-    throw new Error("cadencr-service rejected SIGTERM and is still running");
-  }
-  if (await waitForExit(child, 2_000)) return;
-  if (child.exitCode === null && child.signalCode === null) {
-    const killSent = child.kill("SIGKILL");
-    if (!killSent && !(await waitForExit(child, 100))) {
-      throw new Error("cadencr-service rejected SIGKILL and is still running");
-    }
-  }
-  if (!(await waitForExit(child, 2_000))) {
-    throw new Error("cadencr-service did not exit after SIGKILL");
-  }
-}
-
-function waitForExit(child: ServiceProcess, timeoutMs: number): Promise<boolean> {
-  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const timeout = setTimeout(() => {
-      child.off("exit", onExit);
-      resolve(false);
-    }, timeoutMs);
-    const onExit = (): void => {
-      clearTimeout(timeout);
-      resolve(true);
-    };
-    child.once("exit", onExit);
-  });
 }

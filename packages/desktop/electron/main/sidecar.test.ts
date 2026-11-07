@@ -11,7 +11,10 @@ import {
   resolveSettingsDir,
   serviceArgs,
   serviceEnv,
+  superviseServiceProcess,
   waitForDevSidecar,
+  type ServiceProcessWatch,
+  type SidecarExit,
 } from "./sidecar";
 
 afterEach(() => {
@@ -101,6 +104,7 @@ describe("sidecar process arguments", () => {
       settingsDir,
       "--port",
       "5004",
+      "--exit-with-parent",
     ]);
     expect(args).not.toContain("--auth-token");
   });
@@ -128,6 +132,7 @@ describe("sidecar process arguments", () => {
       settingsDir,
       "--port",
       "5004",
+      "--exit-with-parent",
       "--app-version",
       "1.2.3",
     ]);
@@ -142,6 +147,7 @@ describe("sidecar process arguments", () => {
       settingsDir,
       "--port",
       "5004",
+      "--exit-with-parent",
       "--renderer-dir",
       "/res/renderer",
     ]);
@@ -278,5 +284,56 @@ describe("ensureLinuxSidecarExecutable", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("service supervision after startup", () => {
+  type ExitListener = (code: number | null, signal: NodeJS.Signals | null) => void;
+
+  function fakeChild(): { once: ReturnType<typeof vi.fn>; exit: ExitListener } {
+    let listener: ExitListener = () => undefined;
+    const once = vi.fn((_event: "exit", next: ExitListener) => {
+      listener = next;
+    });
+    return { once, exit: (code, signal) => listener(code, signal) };
+  }
+
+  function running(): ServiceProcessWatch {
+    return { exited: false, exitCode: null, exitSignal: null, stderrTail: ["panicked at db"] };
+  }
+
+  it("reports an exit nobody asked for with the last log lines", () => {
+    const child = fakeChild();
+    const onExit = vi.fn<(exit: SidecarExit) => void>();
+    superviseServiceProcess(child as never, running(), () => false, onExit);
+
+    child.exit(101, null);
+
+    expect(onExit).toHaveBeenCalledWith({
+      code: 101,
+      signal: null,
+      detail: "Service exit: code=101 signal=null.\nLast log lines:\npanicked at db",
+    });
+  });
+
+  it("stays quiet when Electron stopped the service itself", () => {
+    const child = fakeChild();
+    const onExit = vi.fn();
+    superviseServiceProcess(child as never, running(), () => true, onExit);
+
+    child.exit(null, "SIGTERM");
+
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it("reports an exit that happened before supervision attached", () => {
+    const child = fakeChild();
+    const onExit = vi.fn();
+    const watch = { ...running(), exited: true, exitCode: null, exitSignal: "SIGKILL" as const };
+
+    superviseServiceProcess(child as never, watch, () => false, onExit);
+
+    expect(onExit).toHaveBeenCalledWith(expect.objectContaining({ signal: "SIGKILL" }));
+    expect(child.once).not.toHaveBeenCalled();
   });
 });

@@ -25,6 +25,7 @@ import type {
 import type { ChangelogImageBytes } from "../../src/shared/changelog-image";
 import type { RendererErrorReportPayload } from "../../src/shared/renderer-error";
 import type { AppCloseChoice, AppCloseRequest } from "../../src/shared/app-close";
+import type { ServiceStatus } from "../../src/shared/service-status";
 import { notchHostBridge } from "./notch-host-bridge";
 import { installPluginTabPortRelay, pluginTabsHostBridge } from "./plugin-tabs-host-bridge";
 
@@ -218,7 +219,13 @@ contextBridge.exposeInMainWorld("cadencr", {
     onIpc("app:close-requested", cb),
   confirmClose: (choice?: AppCloseChoice): Promise<void> =>
     ipcRenderer.invoke("app:confirm-close", choice),
+  acknowledgeCloseRequest: (): Promise<void> => ipcRenderer.invoke("app:acknowledge-close"),
+  cancelClose: (): Promise<void> => ipcRenderer.invoke("app:cancel-close"),
   requestQuit: (): Promise<void> => ipcRenderer.invoke("app:request-quit"),
+  serviceStatus: (): Promise<ServiceStatus> => ipcRenderer.invoke("service:status"),
+  restartService: (): Promise<void> => ipcRenderer.invoke("service:restart"),
+  onServiceStatus: (cb: (status: ServiceStatus) => void): (() => void) =>
+    onIpc("service:status", cb),
   windowMinimize: (): Promise<void> => ipcRenderer.invoke("app:window-minimize"),
   windowToggleMaximize: (): Promise<void> => ipcRenderer.invoke("app:window-toggle-maximize"),
   windowClose: (): Promise<void> => ipcRenderer.invoke("app:window-close"),

@@ -129,7 +129,13 @@ const browserBridge: CadencrBrowserBridge = {
   onNotificationFallback: () => () => undefined,
   onCloseRequested: () => () => undefined,
   confirmClose: () => Promise.resolve(),
+  acknowledgeCloseRequest: () => Promise.resolve(),
+  cancelClose: () => Promise.resolve(),
   requestQuit: () => Promise.resolve(),
+  // Off the shell the service is not this page's to supervise.
+  serviceStatus: () => Promise.resolve({ state: "running" }),
+  restartService: () => unavailable("restartService"),
+  onServiceStatus: () => () => undefined,
   windowMinimize: () => unavailable("windowMinimize"),
   windowToggleMaximize: () => unavailable("windowToggleMaximize"),
   windowClose: () => unavailable("windowClose"),
