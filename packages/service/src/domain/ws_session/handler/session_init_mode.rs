@@ -18,7 +18,7 @@ pub(super) async fn resolve(
     db_session_id: i64,
     provider: &str,
     requested: Option<&str>,
-) -> (Option<RuntimePermissionMode>, Option<String>) {
+) -> Result<(Option<RuntimePermissionMode>, Option<String>), sqlx::Error> {
     let mode = supported_or_default_permission_mode(provider, requested);
     let wire = mode.as_ref().map(permission_mode_wire);
     if let (Some(requested), Some(wire)) = (requested, wire.as_deref()) {
@@ -29,8 +29,8 @@ pub(super) async fn resolve(
                 db_session_id,
                 wire,
             )
-            .await;
+            .await?;
         }
     }
-    (mode, wire)
+    Ok((mode, wire))
 }

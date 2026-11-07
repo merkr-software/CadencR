@@ -296,6 +296,7 @@ pub(crate) async fn publish_user_message(
 pub(crate) async fn mark_agent_running(
     write_pool: &sqlx::SqlitePool,
     session_status_tx: &crate::domain::session_status::SessionStatusBroadcaster,
+    feature_senders: &WsFeatureSenderRegistry,
     active_turns: &super::super::ActiveTurnRegistry,
     owner: &super::super::SdkSessions,
     db_session_id: i64,
@@ -303,7 +304,18 @@ pub(crate) async fn mark_agent_running(
 ) {
     // The owner pointer lets a remote device answer a gate against this turn.
     active_turns.begin_turn(db_session_id, owner).await;
-    WsSessionPersistence::mark_running_static(write_pool, db_session_id).await;
+    // The reader reads this status to tell a crash from a deliberate close;
+    // without it an unexpected stop would end the turn silently.
+    let running = WsSessionPersistence::mark_running_static(write_pool, db_session_id).await;
+    let what = "that the agent is working";
+    super::super::helpers::report_if_unsaved(
+        feature_senders,
+        feature_id,
+        db_session_id,
+        what,
+        running,
+    )
+    .await;
     session_status_tx.broadcast_running(db_session_id, feature_id);
 }
 

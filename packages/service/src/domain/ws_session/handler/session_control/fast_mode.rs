@@ -8,6 +8,7 @@ use super::super::fast_mode_support::{model_supports_fast_mode, FastModeTarget};
 use super::super::helpers::{parse_session_id, send_error};
 use super::super::types::{QueryState, SdkHandle, SdkSessions, WsSender};
 use crate::app_state::AppState;
+use crate::domain::ws_session::runtime::detached_runtime::{was_replaced, LIVE_SWITCH_ATTEMPTS};
 
 #[derive(Debug)]
 pub(super) enum FastModeChangeError {
@@ -75,6 +76,12 @@ pub(crate) async fn handle_fast_mode_set(
         );
         return;
     };
+    // Two devices switching at once must not leave the cell and the database
+    // on one value while the runtime runs the other.
+    let _control = app_state
+        .session_runtimes
+        .claim_control(db_session_id)
+        .await;
 
     let feature_id =
         match apply_fast_mode_change(sdk_sessions, app_state, db_session_id, payload.enabled).await
@@ -177,6 +184,9 @@ pub(super) async fn apply_fast_mode_change(
     .await
 }
 
+/// Switch the live runtime with the session lock released (see
+/// `detached_runtime`), then persist and record the change while the handle
+/// still runs that runtime.
 async fn apply_validated_fast_mode_change(
     sessions: &SdkSessions,
     app_state: &AppState,
@@ -184,48 +194,79 @@ async fn apply_validated_fast_mode_change(
     enabled: bool,
     validation_snapshot: Option<&FastModeConfigSnapshot>,
 ) -> Result<i64, FastModeChangeError> {
-    let mut sessions = sessions.lock().await;
-    let handle = sessions
-        .get_mut(&db_session_id)
-        .ok_or(FastModeChangeError::SessionNotFound)?;
-    if validation_snapshot.is_some_and(|snapshot| !snapshot.matches(handle)) {
-        return Err(FastModeChangeError::ConfigurationChanged);
-    }
-
-    let previous = handle.config.fast_mode;
-    let active_query = match &handle.state {
-        QueryState::Pending(_) => None,
-        QueryState::Active { query, .. } => Some(query.clone()),
-    };
-    info!(db_session_id, enabled, "updating fast mode");
-
-    if let Some(query) = active_query.as_ref() {
-        query
-            .read()
-            .await
-            .set_fast_mode(enabled)
-            .await
-            .map_err(|error| FastModeChangeError::Sdk(error.to_string()))?;
-    }
-
-    if let Err(error) =
-        WsSessionPersistence::update_fast_mode_static(&app_state.write_pool, db_session_id, enabled)
-            .await
-    {
-        let mut message = error.to_string();
-        if let Some(query) = active_query {
-            if let Err(rollback_error) = query.read().await.set_fast_mode(previous).await {
-                message.push_str(&format!("; runtime rollback failed: {rollback_error}"));
+    for _ in 0..LIVE_SWITCH_ATTEMPTS {
+        let (previous, target) = {
+            let sessions = sessions.lock().await;
+            let handle = sessions
+                .get(&db_session_id)
+                .ok_or(FastModeChangeError::SessionNotFound)?;
+            if validation_snapshot.is_some_and(|snapshot| !snapshot.matches(handle)) {
+                return Err(FastModeChangeError::ConfigurationChanged);
+            }
+            (handle.config.fast_mode, handle.state.active_query())
+        };
+        info!(db_session_id, enabled, "updating fast mode");
+        if let Some(query) = target.as_ref() {
+            if let Err(error) = query.read().await.set_fast_mode(enabled).await {
+                if was_replaced(sessions, db_session_id, query).await {
+                    continue;
+                }
+                return Err(FastModeChangeError::Sdk(error.to_string()));
             }
         }
-        return Err(FastModeChangeError::Persistence(message));
-    }
 
-    handle.config.fast_mode = enabled;
-    if let QueryState::Pending(options) = &mut handle.state {
-        options.fast_mode = enabled;
+        let mut guard = sessions.lock().await;
+        let handle = guard
+            .get_mut(&db_session_id)
+            .ok_or(FastModeChangeError::SessionNotFound)?;
+        if !handle.state.runs(target.as_ref()) {
+            continue;
+        }
+        let failure = if validation_snapshot.is_some_and(|snapshot| !snapshot.matches(handle)) {
+            FastModeChangeError::ConfigurationChanged
+        } else {
+            match WsSessionPersistence::update_fast_mode_static(
+                &app_state.write_pool,
+                db_session_id,
+                enabled,
+            )
+            .await
+            {
+                Ok(()) => {
+                    handle.config.fast_mode = enabled;
+                    if let QueryState::Pending(options) = &mut handle.state {
+                        options.fast_mode = enabled;
+                    }
+                    return Ok(handle.feature_id);
+                }
+                Err(error) => FastModeChangeError::Persistence(error.to_string()),
+            }
+        };
+        drop(guard);
+        return Err(roll_back_runtime(target, previous, failure).await);
     }
-    Ok(handle.feature_id)
+    Err(FastModeChangeError::ConfigurationChanged)
+}
+
+/// Put the runtime back on `previous` after the change failed to land.
+async fn roll_back_runtime(
+    target: Option<crate::domain::agents::adapter::RuntimeSessionHandle>,
+    previous: bool,
+    failure: FastModeChangeError,
+) -> FastModeChangeError {
+    let Some(query) = target else {
+        return failure;
+    };
+    let Err(rollback_error) = query.read().await.set_fast_mode(previous).await else {
+        return failure;
+    };
+    let rollback = format!("runtime rollback failed: {rollback_error}");
+    match failure {
+        FastModeChangeError::Persistence(message) => {
+            FastModeChangeError::Persistence(format!("{message}; {rollback}"))
+        }
+        _ => FastModeChangeError::Sdk(rollback),
+    }
 }
 
 pub(super) async fn send_fast_mode_set_ok(
@@ -303,6 +344,25 @@ mod tests {
             .await
             .unwrap();
         assert!(!stored);
+    }
+
+    #[tokio::test]
+    async fn the_live_runtime_switches_with_the_session_lock_released() {
+        use crate::domain::ws_session::handler::tests::cell_lock_probe::{
+            assert_unlocked, probe_handle,
+        };
+        let app_state = make_test_app_state().await;
+        let session_id = insert_session(&app_state, false).await;
+        let sessions = new_sdk_sessions();
+        let (handle, calls) = probe_handle(&sessions, 7);
+        sessions.lock().await.insert(session_id, handle);
+
+        apply_validated_fast_mode_change(&sessions, &app_state, session_id, true, None)
+            .await
+            .unwrap();
+
+        assert_unlocked(&calls, 1);
+        assert!(sessions.lock().await[&session_id].config.fast_mode);
     }
 
     #[tokio::test]

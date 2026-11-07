@@ -152,7 +152,9 @@ mod session_cleanup_tests {
 
         let mut p1 = WsSessionPersistence::new(pool.clone(), 1);
         let id1 = p1.find_or_create_session(None, None).await.unwrap();
-        WsSessionPersistence::mark_running_static(&pool, id1).await;
+        WsSessionPersistence::mark_running_static(&pool, id1)
+            .await
+            .unwrap();
 
         let mut p2 = WsSessionPersistence::new(pool.clone(), 2);
         p2.find_or_create_session(None, None).await.unwrap();
@@ -175,7 +177,9 @@ mod session_cleanup_tests {
         p.persist_user_message("hello", uuid::Uuid::new_v4())
             .await
             .unwrap();
-        WsSessionPersistence::mark_paused_static(&pool, id).await;
+        WsSessionPersistence::mark_paused_static(&pool, id)
+            .await
+            .unwrap();
         sqlx::query(
             "INSERT INTO session_runtime_ids (session_id, runtime_session_id) VALUES (?, ?)",
         )
@@ -217,7 +221,9 @@ mod session_cleanup_tests {
         let pool = setup_test_db().await;
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
-        WsSessionPersistence::mark_running_static(&pool, id).await;
+        WsSessionPersistence::mark_running_static(&pool, id)
+            .await
+            .unwrap();
 
         let result = WsSessionPersistence::delete_session_static(&pool, id).await;
         assert!(result.is_err());

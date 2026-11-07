@@ -36,10 +36,14 @@ pub(super) async fn forward_agent_mode_change(
     }
     let wire = permission_mode_wire(mode);
     debug!(task.db_session_id, mode = %wire, "agent switched its permission mode");
-    WsSessionPersistence::update_permission_mode_static(
-        &task.write_pool,
-        task.db_session_id,
-        &wire,
+    task.check_write(
+        WsSessionPersistence::update_permission_mode_static(
+            &task.write_pool,
+            task.db_session_id,
+            &wire,
+        )
+        .await,
+        "the agent's permission mode",
     )
     .await;
     let envelope = WsEnvelope::session_event(&WsSessionEvent::ModeChanged(ModeChangedPayload {

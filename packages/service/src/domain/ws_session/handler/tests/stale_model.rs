@@ -84,6 +84,13 @@ async fn idle_owner(app_state: &AppState) -> (SdkSessions, i64) {
         handle.runtime_provider = UNAVAILABLE_PROVIDER.to_string();
         handle.desired_model = Some("model-at-init".to_string());
         handle.spawned_model = Some("model-at-init".to_string());
+        // Spawned with everything else it was asked for, as a real spawn is,
+        // so only the model can differ.
+        handle.spawned_permission_mode = handle.desired_permission_mode.clone();
+        handle.spawned_access_mode = handle.desired_access_mode.clone();
+        handle.spawned_thinking_effort = handle.desired_thinking_effort.clone();
+        handle.spawned_claude_profile = handle.desired_claude_profile.clone();
+        handle.config.runtime_overrides_dirty = false;
     }
     app_state
         .active_turns

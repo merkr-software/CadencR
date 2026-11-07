@@ -98,6 +98,7 @@ pub(in crate::domain::ws_session) async fn handle_followup_prompt(
     mark_agent_running(
         &context.write_pool,
         &context.session_status_tx,
+        &context.ws_feature_senders,
         &context.active_turns,
         &context.sdk_sessions,
         context.db_session_id,

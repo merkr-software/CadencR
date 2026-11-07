@@ -4,6 +4,7 @@ use sqlx::SqlitePool;
 use crate::domain::session_status::SessionStatusBroadcaster;
 use crate::domain::ws_session::persistence::WsSessionPersistence;
 
+use super::super::helpers::send_state_not_saved;
 use super::super::send_error;
 
 pub(in crate::domain::ws_session) async fn persist_pause_and_send_session_error(
@@ -17,7 +18,10 @@ pub(in crate::domain::ws_session) async fn persist_pause_and_send_session_error(
     message: &str,
 ) {
     WsSessionPersistence::persist_error_message_static(pool, session_id, message, None).await;
-    WsSessionPersistence::mark_paused_static(pool, session_id).await;
+    let paused = WsSessionPersistence::mark_paused_static(pool, session_id).await;
     session_status_tx.broadcast_turn_failed(session_id, feature_id);
     send_error(sender, ref_id, code, message);
+    if let Err(error) = paused {
+        send_state_not_saved(sender, ref_id, "that the agent paused", &error);
+    }
 }

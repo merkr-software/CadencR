@@ -12,6 +12,7 @@ use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSessionHandle;
 use crate::domain::workflow::worktree;
 use crate::domain::ws_session::protocol::GateCloseReason;
+use crate::domain::ws_session::runtime::helpers::report_if_unsaved;
 
 /// Broadcast a `session.lifecycle` envelope so the frontend turn-lifecycle
 /// state machine flips only on backend-confirmed transitions (per
@@ -120,15 +121,34 @@ pub(crate) async fn handle_suspend(
     ) {
         // Persist so resume survives a subprocess death during suspend.
         // DB is the source of truth for resume IDs across restarts.
-        WsSessionPersistence::persist_runtime_session_id_static(
+        let written = WsSessionPersistence::persist_runtime_session_id_static(
             &app_state.write_pool,
             db_session_id,
             &runtime_provider,
             &sid,
         )
         .await;
+        let senders = &app_state.ws_feature_senders;
+        report_if_unsaved(
+            senders,
+            feature_id,
+            db_session_id,
+            "its resume point",
+            written,
+        )
+        .await;
     }
-    WsSessionPersistence::mark_paused_static(&app_state.write_pool, db_session_id).await;
+    let paused =
+        WsSessionPersistence::mark_paused_static(&app_state.write_pool, db_session_id).await;
+    let senders = &app_state.ws_feature_senders;
+    report_if_unsaved(
+        senders,
+        feature_id,
+        db_session_id,
+        "that the agent paused",
+        paused,
+    )
+    .await;
     app_state.session_status_tx.broadcast(
         db_session_id,
         feature_id,

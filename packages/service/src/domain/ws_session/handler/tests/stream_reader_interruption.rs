@@ -221,6 +221,42 @@ async fn intentional_stop_with_stream_close_is_benign_and_keeps_parent_wait_arme
 }
 
 #[tokio::test]
+async fn a_stop_that_had_to_kill_the_runtime_is_shown() {
+    let app_state = make_test_app_state().await;
+    let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));
+    let (ws_tx, mut ws_rx) = mpsc::unbounded_channel();
+    let session_id = 615;
+    setup_interrupted_session(&app_state, &sdk_sessions, session_id).await;
+
+    let (msg_tx, msg_rx) = mpsc::channel(2);
+    msg_tx.send(Ok(message_start())).await.unwrap();
+    msg_tx
+        .send(Err(RuntimeError::stop_escalated(
+            "The agent did not stop within 15s after Stop; its process was terminated.",
+        )))
+        .await
+        .unwrap();
+    drop(msg_tx);
+    spawn_test_stream_reader(
+        &app_state,
+        session_id,
+        1,
+        msg_rx,
+        ws_tx,
+        sdk_sessions,
+        DEFAULT_PROVIDER,
+    );
+
+    let actions = drain_actions(&mut ws_rx).await;
+    assert!(actions
+        .iter()
+        .any(|(action, payload)| { action == "ended" && payload["reason"] == "turn_interrupted" }));
+    assert!(actions.iter().any(|(action, payload)| {
+        action == "error" && payload["code"] == "AGENT_STOP_ESCALATED"
+    }));
+}
+
+#[tokio::test]
 async fn intentional_stop_suppresses_provider_error_result_and_parent_failure() {
     let app_state = make_test_app_state().await;
     let sdk_sessions = Arc::new(Mutex::new(HashMap::new()));

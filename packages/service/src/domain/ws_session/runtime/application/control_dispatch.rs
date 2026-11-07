@@ -106,10 +106,15 @@ async fn dispatch_to_active_owner(
         };
         // The owner's runtime stays alive between turns. One still on another
         // model is closed so the prompt spawns on the persisted selection.
-        if prompt_selection_sync::sync_handle(handle, &stored, app_state, session_id) {
-            apply_respawn_if_needed(handle, app_state, session_id).await;
-        }
-        match &handle.state {
+        let retired = if prompt_selection_sync::sync_handle(handle, &stored, app_state, session_id)
+        {
+            apply_respawn_if_needed(handle, app_state, session_id)
+                .await
+                .1
+        } else {
+            None
+        };
+        let context = match &handle.state {
             QueryState::Active { query, .. } => Some(FollowupPromptContext {
                 query: query.clone(),
                 delivery_lease: Some(handle.identity.begin_delivery()),
@@ -128,10 +133,18 @@ async fn dispatch_to_active_owner(
                 wait_for_delivery: true,
             }),
             QueryState::Pending(_) => None,
-        }
+        };
+        context.ok_or(retired)
     };
-    let Some(context) = target else {
-        return Ok(false);
+    let context = match target {
+        Ok(context) => context,
+        Err(retired) => {
+            // Closed before the pending dispatch spawns its replacement.
+            if let Some(retired) = retired {
+                retired.close_in(app_state).await;
+            }
+            return Ok(false);
+        }
     };
     handle_followup_prompt(context, payload)
         .await
@@ -229,7 +242,10 @@ async fn pending_context_from_handle(
     internal_replay: bool,
     spawn_claim: tokio::sync::OwnedMutexGuard<()>,
 ) -> Option<PendingPromptContext> {
-    let mut guard = sessions.lock().await;
+    let mut guard = app_state
+        .session_runtimes
+        .lock_settled(sessions, session_id)
+        .await;
     let handle = guard.get_mut(&session_id)?;
     let spawned_model = handle.desired_model.clone();
     let spawned_thinking_effort = handle.desired_thinking_effort.clone();

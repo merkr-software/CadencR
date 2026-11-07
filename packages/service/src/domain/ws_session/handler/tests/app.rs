@@ -181,7 +181,9 @@ async fn test_session_delete_paused_session() {
     // Create and pause a session
     let session_id_str = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
     let db_session_id: i64 = session_id_str.parse().unwrap();
-    WsSessionPersistence::mark_paused_static(&app_state.write_pool, db_session_id).await;
+    WsSessionPersistence::mark_paused_static(&app_state.write_pool, db_session_id)
+        .await
+        .unwrap();
 
     let envelope = make_envelope(
         "session",
@@ -216,7 +218,9 @@ async fn test_session_delete_running_session_fails() {
     // Create a session and mark it running (simulating active SDK query)
     let session_id_str = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
     let session_id: i64 = session_id_str.parse().unwrap();
-    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
+    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id)
+        .await
+        .unwrap();
 
     let envelope = make_envelope(
         "session",
@@ -244,7 +248,9 @@ async fn test_session_delete_running_session_keeps_in_memory_handle() {
 
     let session_id_str = init_session(&tx, &mut rx, &sdk_sessions, &app_state, 1).await;
     let session_id: i64 = session_id_str.parse().unwrap();
-    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id).await;
+    WsSessionPersistence::mark_running_static(&app_state.write_pool, session_id)
+        .await
+        .unwrap();
     sdk_sessions.lock().await.insert(
         session_id,
         make_active_handle(1, Some("runtime-session".to_string())),

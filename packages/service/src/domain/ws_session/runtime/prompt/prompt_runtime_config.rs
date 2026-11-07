@@ -1,13 +1,12 @@
-use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 use tracing::info;
 
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
 
 use super::super::control_policy::arm_bypass_for_respawn;
-use super::super::helpers::persist_and_close_query;
+use super::super::detached_runtime::{resume_session_id, DetachedRuntime};
 use super::super::{QueryState, SdkHandle, WsSender};
-use super::runtime_hold_registry::{notify_change_deferred, runtime_is_held};
+use super::respawn_deferral::{notify_change_deferred, respawn_deferral, RespawnDeferral};
 
 pub(in crate::domain::ws_session) struct DispatchChanges {
     pub(in crate::domain::ws_session) model_changed: bool,
@@ -17,59 +16,52 @@ pub(in crate::domain::ws_session) struct DispatchChanges {
     pub(in crate::domain::ws_session) profile_changed: bool,
     pub(in crate::domain::ws_session) overrides_changed: bool,
     pub(in crate::domain::ws_session) needs_respawn: bool,
-    /// A respawn was due but the live runtime still owes the agent a resume
-    /// (a background task or a scheduled wake-up), so it was kept: the
-    /// prompt steers it and the respawn waits for a later prompt.
-    pub(in crate::domain::ws_session) respawn_deferred: bool,
+    /// A respawn was due but the live runtime still owes the agent work (a
+    /// running turn, a background task or a scheduled wake-up), so it was
+    /// kept: the prompt steers it and the respawn waits for a later prompt.
+    pub(in crate::domain::ws_session) respawn_deferred: Option<RespawnDeferral>,
 }
 
+/// Respawn the runtime when a setting it was spawned with changed and nothing
+/// it still owes the agent would be cut off. The handle is reset to Pending
+/// here; the caller closes the returned runtime once the session lock is
+/// released (see `detached_runtime`).
 pub(in crate::domain::ws_session) async fn apply_respawn_if_needed(
     handle: &mut SdkHandle,
     app_state: &AppState,
     db_session_id: i64,
-) -> DispatchChanges {
+) -> (DispatchChanges, Option<DetachedRuntime>) {
     let mut changes = dispatch_changes(handle);
     if !changes.needs_respawn {
-        return changes;
+        return (changes, None);
     }
-    if active_runtime_is_held(handle, db_session_id) {
-        // Respawning closes the runtime, which kills its background tasks and
-        // drops its pending wake-up, so the agent would never resume.
+    let QueryState::Active { query, .. } = &handle.state else {
+        return (changes, None);
+    };
+    let query = query.clone();
+    if let Some(deferral) = respawn_deferral(app_state, db_session_id, &query) {
         info!(
             db_session_id,
-            "runtime config changed but the runtime owes a resume; deferring respawn"
+            ?deferral,
+            "runtime config changed but the runtime still owes the agent work; deferring respawn"
         );
         changes.needs_respawn = false;
-        changes.respawn_deferred = true;
-        return changes;
+        changes.respawn_deferred = Some(deferral);
+        return (changes, None);
     }
     log_respawn(handle, db_session_id);
     arm_bypass_for_respawn(handle, &app_state.read_pool).await;
-    let runtime_session_id = close_active_for_respawn(
-        handle,
-        &RuntimeCloseContext::builder()
-            .pool(&app_state.write_pool)
-            .feature_senders(&app_state.ws_feature_senders)
-            .build(),
-        db_session_id,
-    )
-    .await;
+    let runtime_session_id = resume_session_id(&query, &handle.runtime_provider).await;
     reset_handle_to_pending(handle, runtime_session_id);
-    changes
-}
-
-fn active_runtime_is_held(handle: &SdkHandle, db_session_id: i64) -> bool {
-    match &handle.state {
-        QueryState::Active { query, .. } => runtime_is_held(db_session_id, query),
-        QueryState::Pending(_) => false,
-    }
+    let retired = DetachedRuntime::of(handle, query, db_session_id, &app_state.session_runtimes);
+    (changes, Some(retired))
 }
 
 /// What a deferred respawn leaves unapplied, as user-facing labels. Model
 /// changes are already applied to the live runtime when they are made, so only
 /// the respawn-only settings are listed.
 fn deferred_changes(changes: &DispatchChanges) -> Vec<&'static str> {
-    if !changes.respawn_deferred {
+    if changes.respawn_deferred.is_none() {
         return Vec::new();
     }
     [
@@ -94,8 +86,8 @@ pub(in crate::domain::ws_session) fn notify_deferred_respawn(
     changes: &DispatchChanges,
 ) {
     let pending = deferred_changes(changes);
-    if !pending.is_empty() {
-        notify_change_deferred(sender, envelope_id, &pending);
+    if let (Some(reason), false) = (changes.respawn_deferred, pending.is_empty()) {
+        notify_change_deferred(sender, envelope_id, &pending, reason);
     }
 }
 
@@ -117,7 +109,7 @@ fn dispatch_changes_for_active(handle: &SdkHandle, is_active: bool) -> DispatchC
         effort_changed,
         profile_changed,
         overrides_changed,
-        respawn_deferred: false,
+        respawn_deferred: None,
         needs_respawn: is_active
             && (model_changed
                 || mode_changed
@@ -143,24 +135,6 @@ fn log_respawn(handle: &SdkHandle, db_session_id: i64) {
         new_claude_profile = ?handle.desired_claude_profile,
         "runtime config changed, respawning runtime with --resume"
     );
-}
-
-async fn close_active_for_respawn(
-    handle: &mut SdkHandle,
-    context: &RuntimeCloseContext<'_>,
-    db_session_id: i64,
-) -> Option<String> {
-    let QueryState::Active { query, .. } = &handle.state else {
-        return None;
-    };
-    persist_and_close_query(
-        query,
-        context,
-        db_session_id,
-        &handle.runtime_provider,
-        handle.feature_id,
-    )
-    .await
 }
 
 fn reset_handle_to_pending(handle: &mut SdkHandle, resume_session_id: Option<String>) {
@@ -216,7 +190,7 @@ pub(in crate::domain::ws_session) fn log_dispatch_decision(
         effort_changed = changes.effort_changed,
         profile_changed = changes.profile_changed,
         needs_respawn = changes.needs_respawn,
-        respawn_deferred = changes.respawn_deferred,
+        respawn_deferred = ?changes.respawn_deferred,
         state = match &handle.state {
             QueryState::Pending(_) => "pending",
             QueryState::Active { .. } => "active",
@@ -330,7 +304,8 @@ mod tests {
         /// An active handle whose effort changed since spawn, with its runtime
         /// registered as running `live` background tasks.
         fn effort_changed_handle(db_session_id: i64, live: usize) -> (SdkHandle, HoldRegistration) {
-            let mut handle = make_active_handle(1, Some("runtime-1".to_string()));
+            let mut handle =
+                make_active_handle(1, Some("33333333-3333-4333-8333-333333333333".to_string()));
             handle.desired_thinking_effort = Some("high".to_string());
             let QueryState::Active { query, .. } = &handle.state else {
                 unreachable!("make_active_handle is active");
@@ -349,13 +324,18 @@ mod tests {
             let app_state = make_test_app_state().await;
             let (mut handle, _registration) = effort_changed_handle(9201, 1);
 
-            let changes = apply_respawn_if_needed(&mut handle, &app_state, 9201).await;
+            let (changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9201).await;
 
             assert!(
                 matches!(handle.state, QueryState::Active { .. }),
                 "closing the runtime would kill its background task"
             );
-            assert!(changes.respawn_deferred && !changes.needs_respawn);
+            assert!(retired.is_none());
+            assert_eq!(
+                changes.respawn_deferred,
+                Some(RespawnDeferral::BackgroundWork)
+            );
+            assert!(!changes.needs_respawn);
             assert_eq!(deferred_changes(&changes), ["reasoning effort"]);
         }
 
@@ -364,11 +344,39 @@ mod tests {
             let app_state = make_test_app_state().await;
             let (mut handle, _registration) = effort_changed_handle(9202, 0);
 
-            let changes = apply_respawn_if_needed(&mut handle, &app_state, 9202).await;
+            let (changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9202).await;
 
             assert!(matches!(handle.state, QueryState::Pending(_)));
-            assert!(changes.needs_respawn && !changes.respawn_deferred);
+            assert!(changes.needs_respawn && changes.respawn_deferred.is_none());
             assert!(deferred_changes(&changes).is_empty());
+            let QueryState::Pending(options) = &handle.state else {
+                unreachable!();
+            };
+            assert_eq!(
+                options.resume_session_id.as_deref(),
+                Some("33333333-3333-4333-8333-333333333333")
+            );
+            retired
+                .expect("the replaced runtime is handed back to close")
+                .close_in(&app_state)
+                .await;
+        }
+
+        #[tokio::test]
+        async fn respawn_waits_for_the_running_turn() {
+            let app_state = make_test_app_state().await;
+            let (mut handle, _registration) = effort_changed_handle(9204, 0);
+            app_state.session_status_tx.broadcast_running(9204, 1);
+
+            let (changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9204).await;
+
+            assert!(
+                matches!(handle.state, QueryState::Active { .. }),
+                "a prompt sent mid-turn steers the turn instead of cutting it off"
+            );
+            assert!(retired.is_none());
+            assert_eq!(changes.respawn_deferred, Some(RespawnDeferral::LiveTurn));
+            assert_eq!(deferred_changes(&changes), ["reasoning effort"]);
         }
 
         #[tokio::test]
@@ -385,7 +393,8 @@ mod tests {
             handle.desired_thinking_effort = None;
             handle.desired_permission_mode = Some(RuntimePermissionMode::BypassPermissions);
 
-            let changes = apply_respawn_if_needed(&mut handle, &app_state, 9203).await;
+            let (changes, retired) = apply_respawn_if_needed(&mut handle, &app_state, 9203).await;
+            assert!(retired.is_some());
 
             assert!(changes.mode_changed && changes.needs_respawn);
             let QueryState::Pending(options) = &handle.state else {
@@ -407,7 +416,7 @@ mod tests {
             handle.desired_model = Some("opus".to_string());
             let mut changes = dispatch_changes_for_active(&handle, true);
             changes.needs_respawn = false;
-            changes.respawn_deferred = true;
+            changes.respawn_deferred = Some(RespawnDeferral::BackgroundWork);
 
             assert!(deferred_changes(&changes).is_empty());
         }

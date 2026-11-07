@@ -166,6 +166,7 @@ struct PendingCompactSpawn {
     spawned_permission_mode: Option<RuntimePermissionMode>,
     spawned_access_mode: Option<crate::domain::agents::adapter::RuntimeAccessMode>,
     spawned_thinking_effort: Option<String>,
+    spawned_claude_profile: Option<String>,
     options: RuntimeSpawnConfig,
 }
 
@@ -181,7 +182,10 @@ async fn pending_spawn_config(
     sender: &WsSender,
     app_state: &AppState,
 ) -> PendingCompactSpawnResult {
-    let mut sessions = sdk_sessions.lock().await;
+    let mut sessions = app_state
+        .session_runtimes
+        .lock_settled(sdk_sessions, db_session_id)
+        .await;
     let Some(handle) = sessions.get_mut(&db_session_id) else {
         return PendingCompactSpawnResult::Missing;
     };
@@ -217,6 +221,7 @@ async fn pending_spawn_config(
         spawned_permission_mode: spawned_permission_mode.clone(),
         spawned_access_mode: spawned_access_mode.clone(),
         spawned_thinking_effort: spawned_thinking_effort.clone(),
+        spawned_claude_profile: handle.config.claude_profile.clone(),
         options: RuntimeSpawnConfig {
             cwd: handle.config.cwd.clone(),
             permission_mode: spawned_permission_mode,
@@ -271,7 +276,48 @@ async fn activate_spawned_runtime(
     handle.spawned_permission_mode = spawn.spawned_permission_mode.clone();
     handle.spawned_access_mode = spawn.spawned_access_mode.clone();
     handle.spawned_thinking_effort = spawn.spawned_thinking_effort.clone();
+    // As a prompt spawn records it: a stale value reads as a profile change,
+    // and the next prompt would respawn the runtime compaction just started.
+    handle.spawned_claude_profile = spawn.spawned_claude_profile.clone();
     handle.runtime_control_endpoint = runtime_control_endpoint;
     handle.resume_session_id = None;
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ws_session::handler::tests::support::{
+        make_active_handle, make_test_app_state,
+    };
+    use crate::domain::ws_session::handler::types::new_sdk_sessions;
+    use crate::domain::ws_session::runtime::prompt::prompt_runtime_config::dispatch_changes;
+
+    #[tokio::test]
+    async fn a_compaction_runtime_records_the_profile_it_was_spawned_with() {
+        let app_state = make_test_app_state().await;
+        let sessions = new_sdk_sessions();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut handle = make_active_handle(1, None);
+        let query = handle.state.active_query().unwrap();
+        handle.state = QueryState::Pending(RuntimeSpawnConfig::default());
+        handle.desired_claude_profile = Some("work".to_string());
+        handle.config.claude_profile = Some("work".to_string());
+        handle.spawned_claude_profile = Some("previous".to_string());
+        handle
+            .manual_compact_spawn_pending
+            .store(true, Ordering::SeqCst);
+        sessions.lock().await.insert(71, handle);
+        let PendingCompactSpawnResult::Ready(spawn) =
+            pending_spawn_config(&sessions, 71, &tx, &app_state).await
+        else {
+            panic!("the pending handle yields a spawn config");
+        };
+
+        assert!(activate_spawned_runtime(&sessions, 71, &spawn, query, None).await);
+
+        let sessions = sessions.lock().await;
+        let changes = dispatch_changes(&sessions[&71]);
+        assert!(!changes.profile_changed && !changes.needs_respawn);
+    }
 }

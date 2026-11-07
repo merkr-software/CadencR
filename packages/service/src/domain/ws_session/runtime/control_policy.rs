@@ -23,7 +23,7 @@ pub(crate) fn adopt_runtime_overrides(handle: &mut SdkHandle, overrides: &Runtim
 }
 
 /// Allow bypass on the next spawn when a deferred bypass re-arm is pending
-/// (see [`apply_active_permission_mode`]). Called right before every
+/// (see `session_control::mode::plan_mode_change`). Called right before every
 /// prompt-time respawn.
 pub(in crate::domain::ws_session) async fn arm_bypass_for_respawn(
     handle: &mut SdkHandle,

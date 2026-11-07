@@ -73,18 +73,16 @@ impl WsSessionPersistence {
         session_id: i64,
         runtime_provider: &str,
         runtime_session_id: &str,
-    ) {
-        if let Err(e) = sqlx::query(
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
             "UPDATE agent_sessions SET runtime_provider = ?, runtime_session_id = ? WHERE id = ?",
         )
         .bind(runtime_provider)
         .bind(runtime_session_id)
         .bind(session_id)
         .execute(pool)
-        .await
-        {
-            error!(error = %e, "failed to persist runtime session_id");
-        }
+        .await?;
+        Ok(())
     }
 
     /// Persist only the runtime_session_id without changing the provider column.

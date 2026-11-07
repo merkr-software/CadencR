@@ -1,4 +1,3 @@
-use crate::domain::ws_session::runtime::helpers::RuntimeCloseContext;
 use std::sync::atomic::Ordering;
 
 use axum::extract::ws::Message;
@@ -6,10 +5,11 @@ use tracing::error;
 
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::{parse_session_id, persist_and_close_query, send_error};
+use super::super::helpers::{parse_session_id, send_error, send_state_not_saved};
 use super::super::types::{QueryState, SdkSessions, WsSender};
 use crate::app_state::AppState;
 use crate::domain::agents::adapter::RuntimeSpawnConfig;
+use crate::domain::ws_session::runtime::detached_runtime::{resume_session_id, DetachedRuntime};
 
 /// Handle session.interrupt
 pub(crate) async fn handle_interrupt(
@@ -150,28 +150,26 @@ pub(crate) async fn handle_destroy(
         }
     };
 
+    // Out of the map, the runtime reads as superseded to its stream reader, so
+    // the close below is benign and needs no session lock (see
+    // `detached_runtime`).
+    let retired = handle.state.active_query().map(|query| {
+        DetachedRuntime::of(&handle, query, db_session_id, &app_state.session_runtimes)
+    });
+    drop(sessions);
     let feature_id = handle.feature_id;
-    let runtime_provider = handle.runtime_provider.clone();
 
-    // Mark completed BEFORE closing the subprocess: closing ends the stream,
-    // and the per-turn reader interprets a clean close while the DB still shows
-    // `running` as an unexpected mid-turn death (raising an error). Flipping the
-    // status off `running` first makes this intentional close read as benign.
-    WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
+    // Mark completed BEFORE closing the subprocess too: a reader that looked
+    // the runtime up just before the removal reads the status instead.
+    if let Err(error) =
+        WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await
+    {
+        send_state_not_saved(sender, &envelope.id, "that the agent stopped", &error);
+    }
 
     // Close active subprocess if running
-    if let QueryState::Active { query, .. } = handle.state {
-        persist_and_close_query(
-            &query,
-            &RuntimeCloseContext::builder()
-                .pool(&app_state.write_pool)
-                .feature_senders(&app_state.ws_feature_senders)
-                .build(),
-            db_session_id,
-            &runtime_provider,
-            feature_id,
-        )
-        .await;
+    if let Some(retired) = retired {
+        retired.close_in(app_state).await;
     }
     app_state.session_status_tx.broadcast(
         db_session_id,
@@ -296,41 +294,47 @@ pub(crate) async fn handle_clear(
         }
     };
 
-    // Close active subprocess if any, capturing runtime_session_id for archive.
-    // If stream already finished (Pending with resume), extract from those options.
-    let cli_sid = match &handle.state {
+    // Spawns wait until the archive is written (see `detached_closes`), so a
+    // prompt sent meanwhile from another device never lands before the clear
+    // divider or has its own resume id archived — with or without a live
+    // runtime to close.
+    let archive_lease = app_state
+        .session_runtimes
+        .begin_detached_close(db_session_id);
+
+    // Capture runtime_session_id for the archive. A live runtime is closed once
+    // the session lock is released (see `detached_runtime`); if the stream
+    // already finished (Pending with resume), extract it from those options.
+    let (cli_sid, retired) = match &handle.state {
         QueryState::Active { query, .. } => {
             // Flip status off `running` BEFORE closing: closing ends the stream,
             // and the per-turn reader treats a clean close while the DB still
             // shows `running` as an unexpected mid-turn death (raising
             // `AGENT_STOPPED`). An intentional clear must read as a benign close.
             // (`archive_and_clear` below only nulls the runtime id, not status.)
-            WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id).await;
-            persist_and_close_query(
-                query,
-                &RuntimeCloseContext::builder()
-                    .pool(&app_state.write_pool)
-                    .feature_senders(&app_state.ws_feature_senders)
-                    .build(),
-                db_session_id,
-                &handle.runtime_provider,
-                handle.feature_id,
+            if let Err(error) =
+                WsSessionPersistence::mark_completed_static(&app_state.write_pool, db_session_id)
+                    .await
+            {
+                send_state_not_saved(sender, &envelope.id, "that the agent stopped", &error);
+            }
+            let query = query.clone();
+            let cli_sid = resume_session_id(&query, &handle.runtime_provider).await;
+            (
+                cli_sid,
+                Some(DetachedRuntime::of(
+                    handle,
+                    query,
+                    db_session_id,
+                    &app_state.session_runtimes,
+                )),
             )
-            .await
         }
-        QueryState::Pending(opts) => opts.resume_session_id.clone(),
+        QueryState::Pending(opts) => (opts.resume_session_id.clone(), None),
     };
 
     // Also clear the init-time resume_session_id in case it wasn't consumed yet
     let cli_sid = cli_sid.or_else(|| handle.resume_session_id.take());
-
-    // Archive and clear in DB (pass cli_sid to avoid re-reading it)
-    WsSessionPersistence::archive_and_clear(
-        &app_state.write_pool,
-        db_session_id,
-        cli_sid.as_deref(),
-    )
-    .await;
 
     // Reset handle to Pending with fresh options (no resume)
     let fresh_options = RuntimeSpawnConfig {
@@ -349,6 +353,20 @@ pub(crate) async fn handle_clear(
         ..RuntimeSpawnConfig::default()
     };
     handle.state = QueryState::Pending(fresh_options);
+    drop(sessions);
+
+    // The close persists the runtime id; the archive then moves it aside.
+    if let Some(retired) = retired {
+        retired.close_in(app_state).await;
+    }
+    // Archive and clear in DB (pass cli_sid to avoid re-reading it)
+    WsSessionPersistence::archive_and_clear(
+        &app_state.write_pool,
+        db_session_id,
+        cli_sid.as_deref(),
+    )
+    .await;
+    drop(archive_lease);
 
     let reply = WsEnvelope::session_reply(
         &envelope.id,

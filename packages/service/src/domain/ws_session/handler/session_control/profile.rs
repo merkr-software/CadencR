@@ -1,6 +1,6 @@
 use super::super::super::persistence::WsSessionPersistence;
 use super::super::super::protocol::*;
-use super::super::helpers::{parse_session_id, send_error};
+use super::super::helpers::{parse_session_id, send_error, send_state_not_saved};
 use super::super::session_profile::{
     apply_profile_update, desired_profile_name, resolve_provider_profile,
     validate_resume_profile_state,
@@ -96,12 +96,15 @@ pub(crate) async fn handle_profile_set(
     };
 
     if changed || current_profile.as_deref() != Some(update.name.as_str()) {
-        WsSessionPersistence::update_profile_static(
+        if let Err(error) = WsSessionPersistence::update_profile_static(
             &app_state.write_pool,
             db_session_id,
             &update.name,
         )
-        .await;
+        .await
+        {
+            send_state_not_saved(sender, &envelope.id, "the profile", &error);
+        }
     }
     super::reply_and_broadcast(
         app_state,

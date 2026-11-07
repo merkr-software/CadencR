@@ -2,7 +2,6 @@
 
 use super::WsSessionPersistence;
 use sqlx::SqlitePool;
-use tracing::error;
 
 impl WsSessionPersistence {
     pub async fn reopen_session(
@@ -26,38 +25,27 @@ impl WsSessionPersistence {
         Ok(())
     }
 
-    pub async fn mark_paused_static(pool: &SqlitePool, session_id: i64) {
-        let now = chrono::Utc::now().to_rfc3339();
-        if let Err(e) =
-            sqlx::query("UPDATE agent_sessions SET status = 'paused', ended_at = ? WHERE id = ?")
-                .bind(&now)
-                .bind(session_id)
-                .execute(pool)
-                .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to mark session paused");
-        }
+    pub async fn mark_paused_static(pool: &SqlitePool, session_id: i64) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET status = 'paused', ended_at = ? WHERE id = ?")
+            .bind(chrono::Utc::now().to_rfc3339())
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
-    pub async fn mark_running_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(e) = sqlx::query(
-            "UPDATE agent_sessions SET status = 'running', ended_at = NULL WHERE id = ?",
-        )
-        .bind(session_id)
-        .execute(pool)
-        .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to mark session running");
-        }
+    pub async fn mark_running_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE agent_sessions SET status = 'running', ended_at = NULL WHERE id = ?")
+            .bind(session_id)
+            .execute(pool)
+            .await?;
+        Ok(())
     }
 
-    pub async fn mark_completed_static(pool: &SqlitePool, session_id: i64) {
-        if let Err(e) = Self::try_mark_completed_static(pool, session_id).await {
-            error!(error = %e, session_db_id = session_id, "failed to mark session completed");
-        }
-    }
-
-    pub(crate) async fn try_mark_completed_static(
+    pub async fn mark_completed_static(
         pool: &SqlitePool,
         session_id: i64,
     ) -> Result<(), sqlx::Error> {
@@ -69,18 +57,13 @@ impl WsSessionPersistence {
         Ok(())
     }
 
-    #[allow(dead_code)]
-    pub async fn mark_error_static(pool: &SqlitePool, session_id: i64) {
-        let now = chrono::Utc::now().to_rfc3339();
-        if let Err(e) =
-            sqlx::query("UPDATE agent_sessions SET status = 'error', ended_at = ? WHERE id = ?")
-                .bind(&now)
-                .bind(session_id)
-                .execute(pool)
-                .await
-        {
-            error!(error = %e, session_db_id = session_id, "failed to mark session error");
-        }
+    /// Earlier name of [`Self::mark_completed_static`], kept for the
+    /// permission bridge until it is renamed there.
+    pub(crate) async fn try_mark_completed_static(
+        pool: &SqlitePool,
+        session_id: i64,
+    ) -> Result<(), sqlx::Error> {
+        Self::mark_completed_static(pool, session_id).await
     }
 
     pub async fn update_token_usage(
@@ -120,7 +103,9 @@ impl WsSessionPersistence {
         let Some(session_id) = self.session_db_id else {
             return;
         };
-        Self::mark_completed_static(&self.write_pool, session_id).await;
+        Self::mark_completed_static(&self.write_pool, session_id)
+            .await
+            .unwrap();
     }
 }
 
@@ -200,7 +185,9 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::mark_paused_static(&pool, id).await;
+        WsSessionPersistence::mark_paused_static(&pool, id)
+            .await
+            .unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT status FROM agent_sessions WHERE id = ?")
             .bind(id)
@@ -216,8 +203,12 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::mark_paused_static(&pool, id).await;
-        WsSessionPersistence::mark_running_static(&pool, id).await;
+        WsSessionPersistence::mark_paused_static(&pool, id)
+            .await
+            .unwrap();
+        WsSessionPersistence::mark_running_static(&pool, id)
+            .await
+            .unwrap();
 
         let row: (String, Option<String>) =
             sqlx::query_as("SELECT status, ended_at FROM agent_sessions WHERE id = ?")
@@ -235,7 +226,9 @@ pub(super) mod session_state_tests {
         let mut p = WsSessionPersistence::new(pool.clone(), 1);
         let id = p.find_or_create_session(None, None).await.unwrap();
 
-        WsSessionPersistence::mark_completed_static(&pool, id).await;
+        WsSessionPersistence::mark_completed_static(&pool, id)
+            .await
+            .unwrap();
 
         let row: (String,) = sqlx::query_as("SELECT status FROM agent_sessions WHERE id = ?")
             .bind(id)
@@ -319,7 +312,7 @@ pub(super) mod session_state_tests {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         sqlx::raw_sql("CREATE TABLE agent_sessions (id INTEGER PRIMARY KEY, status TEXT, ended_at TEXT); INSERT INTO agent_sessions VALUES (7, 'running', NULL); CREATE TRIGGER reject_completion BEFORE UPDATE OF status ON agent_sessions BEGIN SELECT RAISE(FAIL, 'storage unavailable'); END;")
             .execute(&pool).await.unwrap();
-        assert!(WsSessionPersistence::try_mark_completed_static(&pool, 7)
+        assert!(WsSessionPersistence::mark_completed_static(&pool, 7)
             .await
             .is_err());
         let row: (String, Option<String>) =

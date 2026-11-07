@@ -11,6 +11,8 @@ pub(crate) use registry::SessionRuntimeRegistry;
 
 pub(crate) mod access;
 pub(crate) mod control_policy;
+pub(crate) mod detached_closes;
+pub(crate) mod detached_runtime;
 pub(crate) mod helpers;
 pub(crate) mod post_plan_mode;
 pub(crate) mod session_init_resume;
