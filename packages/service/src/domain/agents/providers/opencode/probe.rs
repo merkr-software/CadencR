@@ -13,8 +13,8 @@ const PROBE_LOG_PREFIX: &str = "opencode models probe";
 
 /// Run the probe, returning opencode's resolved provider/model list.
 ///
-/// Errors bubble up so the cache layer can log + fall back. Caller must
-/// not retry hot — the cache is responsible for TTL-bounding respawns.
+/// Errors bubble up so the cache layer can log + fall back. The cache owns
+/// retries: at most one immediate retry on a cold cache, then a backoff.
 pub(super) async fn run() -> Result<ConfigProvidersResponse, RuntimeError> {
     opencode_sdk_rs::list_models_from_cli()
         .await

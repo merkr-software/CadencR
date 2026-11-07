@@ -13,6 +13,7 @@
 
 #![allow(clippy::should_implement_trait)]
 
+mod cli_command;
 pub mod client;
 pub mod error;
 pub mod mcp;
