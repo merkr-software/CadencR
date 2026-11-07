@@ -3,7 +3,8 @@
  * holds a socket for. Global "is an agent working?" checks (power blocker,
  * Stop all agents, OS suspend) read the status book, which covers agents
  * started by a schedule, MCP, or another device — never the local
- * `TurnLifecycle`, which only knows conversations loaded here.
+ * `TurnLifecycle`, which only knows conversations loaded here. The others are
+ * reached over HTTP (`unloaded-agent-control`).
  */
 import type { LiveAgentStatus } from "@/types/agent";
 import { useSessionStatusStore } from "@/stores/session-status-store";
@@ -17,8 +18,8 @@ export const TURN_IN_PROGRESS: ReadonlySet<LiveAgentStatus> = new Set(["agent", 
 export interface BusySessionTargets {
   /** ws-session keys of busy conversations loaded here with a live runtime. */
   loaded: string[];
-  /** Busy sessions this window has no conversation socket for. */
-  unreachable: number;
+  /** Session ids of busy sessions this window has no conversation socket for. */
+  unreachable: number[];
 }
 
 export function busySessionTargets(statuses: ReadonlySet<LiveAgentStatus>): BusySessionTargets {
@@ -29,12 +30,13 @@ export function busySessionTargets(statuses: ReadonlySet<LiveAgentStatus>): Busy
     }
   }
   const loaded: string[] = [];
-  let unreachable = 0;
+  const unreachable: number[] = [];
   for (const [id, entry] of Object.entries(useSessionStatusStore.getState().bySession)) {
     if (!statuses.has(entry.status)) continue;
-    const sessionId = loadedByDbId.get(Number(id));
+    const sessionDbId = Number(id);
+    const sessionId = loadedByDbId.get(sessionDbId);
     if (sessionId) loaded.push(sessionId);
-    else unreachable += 1;
+    else unreachable.push(sessionDbId);
   }
   return { loaded, unreachable };
 }

@@ -354,6 +354,10 @@ export interface AgentSelectionResponse {
   selections: AgentSelectionResponseSelections;
 }
 
+export interface AgentSessionControlAck {
+  accepted: boolean;
+}
+
 export interface AgentSessionRow {
   agent_type: string;
   /** @nullable */
@@ -33014,6 +33018,83 @@ export const useSaveSessionDraft = <TError = ErrorType<unknown>, TContext = unkn
   return useMutation(getSaveSessionDraftMutationOptions(options), queryClient);
 };
 
+/**
+ * @summary Stop the session's running turn.
+ */
+export const interruptAgentSession = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<AgentSessionControlAck>({
+    url: `/api/sessions/${sessionId}/interrupt`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getInterruptAgentSessionMutationKey = () => ["interruptAgentSession"] as const;
+
+export const getInterruptAgentSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof interruptAgentSession>>,
+    TError,
+    InterruptAgentSessionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof interruptAgentSession>>,
+  TError,
+  InterruptAgentSessionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getInterruptAgentSessionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof interruptAgentSession>>,
+    InterruptAgentSessionMutationVariables
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return interruptAgentSession(sessionId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type InterruptAgentSessionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof interruptAgentSession>>
+>;
+
+export type InterruptAgentSessionMutationError = ErrorType<void>;
+export type InterruptAgentSessionMutationVariables = { sessionId: number };
+
+/**
+ * @summary Stop the session's running turn.
+ */
+export const useInterruptAgentSession = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof interruptAgentSession>>,
+      TError,
+      InterruptAgentSessionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof interruptAgentSession>>,
+  TError,
+  InterruptAgentSessionMutationVariables,
+  TContext
+> => {
+  return useMutation(getInterruptAgentSessionMutationOptions(options), queryClient);
+};
+
 export const listSessionPromptQueue = (sessionId: number, signal?: AbortSignal) => {
   return customInstance<QueuedPrompt[]>({
     url: `/api/sessions/${sessionId}/prompt-queue`,
@@ -33624,6 +33705,83 @@ export const useAskSessionSideQuestion = <TError = ErrorType<unknown>, TContext 
   TContext
 > => {
   return useMutation(getAskSessionSideQuestionMutationOptions(options), queryClient);
+};
+
+/**
+ * @summary Pause the session for an OS sleep, keeping its resume point.
+ */
+export const suspendAgentSession = (sessionId: number, signal?: AbortSignal) => {
+  return customInstance<AgentSessionControlAck>({
+    url: `/api/sessions/${sessionId}/suspend`,
+    method: "POST",
+    signal,
+  });
+};
+
+export const getSuspendAgentSessionMutationKey = () => ["suspendAgentSession"] as const;
+
+export const getSuspendAgentSessionMutationOptions = <
+  TError = ErrorType<void>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof suspendAgentSession>>,
+    TError,
+    SuspendAgentSessionMutationVariables,
+    TContext
+  >;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof suspendAgentSession>>,
+  TError,
+  SuspendAgentSessionMutationVariables,
+  TContext
+> => {
+  const mutationKey = getSuspendAgentSessionMutationKey();
+  const { mutation: mutationOptions } = options
+    ? options.mutation && "mutationKey" in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey } };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof suspendAgentSession>>,
+    SuspendAgentSessionMutationVariables
+  > = (props) => {
+    const { sessionId } = props ?? {};
+
+    return suspendAgentSession(sessionId);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type SuspendAgentSessionMutationResult = NonNullable<
+  Awaited<ReturnType<typeof suspendAgentSession>>
+>;
+
+export type SuspendAgentSessionMutationError = ErrorType<void>;
+export type SuspendAgentSessionMutationVariables = { sessionId: number };
+
+/**
+ * @summary Pause the session for an OS sleep, keeping its resume point.
+ */
+export const useSuspendAgentSession = <TError = ErrorType<void>, TContext = unknown>(
+  options?: {
+    mutation?: UseMutationOptions<
+      Awaited<ReturnType<typeof suspendAgentSession>>,
+      TError,
+      SuspendAgentSessionMutationVariables,
+      TContext
+    >;
+  },
+  queryClient?: QueryClient,
+): UseMutationResult<
+  Awaited<ReturnType<typeof suspendAgentSession>>,
+  TError,
+  SuspendAgentSessionMutationVariables,
+  TContext
+> => {
+  return useMutation(getSuspendAgentSessionMutationOptions(options), queryClient);
 };
 
 export const runArchivedCleanup = (signal?: AbortSignal) => {

@@ -1,4 +1,5 @@
 pub mod auto_name;
+pub mod control_routes;
 pub mod handler;
 pub mod permissions;
 pub mod persistence;

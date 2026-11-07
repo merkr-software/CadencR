@@ -61,6 +61,7 @@ use crate::domain::usage_stats::models as usage_stats_models;
 use crate::domain::usage_stats::routes as usage_stats_routes;
 use crate::domain::workspace::models as workspace_models;
 use crate::domain::workspace::routes as workspace_routes;
+use crate::domain::ws_session::control_routes as ws_control_routes;
 use crate::domain::ws_session::protocol as ws_protocol;
 use crate::domain::ws_session::routes as ws_routes;
 
@@ -169,6 +170,8 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_routes::set_schedule_enabled_handler,
         schedules_routes::run_schedule_handler,
         ws_routes::get_prompt_commands,
+        ws_control_routes::interrupt_agent_session,
+        ws_control_routes::suspend_agent_session,
         virtual_skills_routes::list_virtual_skills,
         feature_layouts_routes::list_layouts_handler,
         feature_layouts_routes::create_layout_handler,
@@ -641,6 +644,7 @@ use crate::domain::ws_session::routes as ws_routes;
         schedules_models::ScheduleDeleted,
         schedules_models::ScheduleRunResult,
         ws_routes::PromptCommandsResponse,
+        ws_control_routes::AgentSessionControlAck,
         virtual_skills_routes::VirtualSkillPayload,
         virtual_skills_routes::VirtualSkillParametersPayload,
         crate::domain::agents::orchestration_skills::SkillWorktree,
