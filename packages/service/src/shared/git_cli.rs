@@ -1,16 +1,17 @@
 use std::path::Path;
-use tokio::process::Command;
 
 use crate::error::AppError;
 
 mod background;
 mod read_only;
+mod spawn;
 
 pub use background::{
     git_ref_resolves_background, run_git_background, run_git_safe_background,
     run_git_safe_refs_background,
 };
 pub use read_only::{git_ref_resolves_readonly, run_git_readonly_bounded};
+pub use spawn::{git_command, git_std_command};
 
 /// Run a git command with the given arguments in the specified working directory.
 ///
@@ -29,7 +30,7 @@ pub async fn run_git_output_with_env(
     cwd: &Path,
     env: &[(&str, &str)],
 ) -> Result<std::process::Output, AppError> {
-    Command::new("git")
+    git_command()
         .args(args)
         .envs(env.iter().copied())
         .current_dir(cwd)
@@ -227,7 +228,7 @@ async fn run_raw(args: &[&str], cwd: &Path) -> Result<String, AppError> {
 }
 
 async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
-    let output = Command::new("git")
+    let output = git_command()
         .args(args)
         .current_dir(cwd)
         .output()
@@ -268,7 +269,7 @@ pub async fn run_git_capture(
     args.extend_from_slice(flags);
     args.extend_from_slice(positionals);
 
-    let output = Command::new("git")
+    let output = git_command()
         .args(&args)
         .current_dir(cwd)
         .output()
@@ -302,11 +303,13 @@ fn sanitize_git_stderr(stderr: &str) -> String {
     use regex_lite::Regex;
     static PATH_RE: std::sync::LazyLock<Regex> =
         std::sync::LazyLock::new(|| Regex::new(r"(/[a-zA-Z0-9_.~\-]+){2,}").unwrap());
+    const MAX_CHARS: usize = 200;
     let cleaned = PATH_RE.replace_all(stderr, "<path>");
-    if cleaned.len() > 200 {
-        format!("{}…", &cleaned[..200])
-    } else {
-        cleaned.into_owned()
+    // Truncate on a character boundary: byte slicing panics inside a
+    // multi-byte character (accented paths, localized hook output).
+    match cleaned.char_indices().nth(MAX_CHARS) {
+        Some((cut, _)) => format!("{}…", &cleaned[..cut]),
+        None => cleaned.into_owned(),
     }
 }
 
@@ -352,6 +355,20 @@ mod tests {
         let out = scrub_home_prefix(&input);
         assert!(out.starts_with("error in ~/"), "{out}");
         assert!(!out.contains(home_str.as_ref()), "{out}");
+    }
+
+    #[test]
+    fn sanitize_git_stderr_truncates_on_a_character_boundary() {
+        // 199 ASCII bytes put the 200-byte cut inside the two-byte `é`.
+        let stderr = format!("{}é{}", "a".repeat(199), "é".repeat(50));
+        let sanitized = sanitize_git_stderr(&stderr);
+        assert_eq!(
+            sanitized.chars().count(),
+            201,
+            "200 chars plus the ellipsis"
+        );
+        assert!(sanitized.ends_with("é…"), "{sanitized}");
+        assert_eq!(sanitize_git_stderr("short"), "short");
     }
 
     #[tokio::test]

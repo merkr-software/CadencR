@@ -10,11 +10,13 @@ const mocks = vi.hoisted(() => {
   }));
   const toastSuccess = vi.fn();
   const toastError = vi.fn();
+  const toastWarning = vi.fn();
   return {
     mergeMutateAsync,
     useMergeFeatureBranch,
     toastSuccess,
     toastError,
+    toastWarning,
   };
 });
 
@@ -28,6 +30,7 @@ vi.mock("sonner", () => ({
   toast: {
     success: mocks.toastSuccess,
     error: mocks.toastError,
+    warning: mocks.toastWarning,
   },
 }));
 
@@ -38,6 +41,7 @@ beforeEach(() => {
   mocks.useMergeFeatureBranch.mockClear();
   mocks.toastSuccess.mockReset();
   mocks.toastError.mockReset();
+  mocks.toastWarning.mockReset();
 });
 
 describe("MergeDialog errors", () => {
@@ -137,6 +141,22 @@ describe("MergeDialog errors", () => {
       ),
     ).toBeInTheDocument();
     expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a cleanup warning returned with a successful merge", async () => {
+    const warning =
+      "Could not switch '/repo' back to 'other': checkout failed. It is still on 'main'.";
+    mocks.mergeMutateAsync.mockResolvedValueOnce({ success: true, warning });
+    const onOpenChange = vi.fn();
+
+    const { user } = render(
+      <MergeDialog featureId={1076} open={true} onOpenChange={onOpenChange} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Merge" }));
+
+    expect(mocks.toastSuccess).toHaveBeenCalledTimes(1);
+    expect(mocks.toastWarning).toHaveBeenCalledWith(warning);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("merges on Cmd+Enter while focus is on a merge-option radio card", async () => {

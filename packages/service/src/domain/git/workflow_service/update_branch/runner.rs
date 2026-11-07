@@ -2,6 +2,7 @@ mod lock_recovery;
 
 use std::path::Path;
 
+use crate::domain::git::commands::unmerged_paths;
 use crate::domain::git::models::{GitOperationKind, GitOperationResponse, UpdateBranchStrategy};
 use crate::error::AppError;
 use crate::shared::git_cli::{git_output_error, guard_positionals, run_git_output_with_env};
@@ -81,24 +82,6 @@ async fn invoke(worktree: &Path, args: &[&str]) -> Result<std::process::Output, 
         &[("GIT_EDITOR", "true"), ("GIT_SEQUENCE_EDITOR", "true")],
     )
     .await
-}
-
-async fn unmerged_paths(worktree: &Path) -> Result<Vec<String>, AppError> {
-    let args = ["diff", "--name-only", "--diff-filter=U", "-z"];
-    let output = run_git_output_with_env(&args, worktree, &[("GIT_OPTIONAL_LOCKS", "0")]).await?;
-    if !output.status.success() {
-        return Err(git_output_error(&args, &output));
-    }
-
-    let mut paths = Vec::new();
-    for bytes in output.stdout.split(|byte| *byte == 0) {
-        if bytes.is_empty() {
-            continue;
-        }
-        let path = String::from_utf8_lossy(bytes).into_owned();
-        paths.push(path);
-    }
-    Ok(paths)
 }
 
 fn inspection_error(primary: &AppError, inspection: AppError) -> AppError {

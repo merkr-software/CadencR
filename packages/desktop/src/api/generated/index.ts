@@ -3964,6 +3964,14 @@ export interface MergeResult {
   /** @nullable */
   error?: string | null;
   success: boolean;
+  /**
+   * Set on a *successful* merge whose cleanup did not complete — e.g. the
+   * target worktree could not be switched back to the branch it had
+   * checked out before. The merge itself is committed; the UI must still
+   * tell the user the worktree was left on another branch.
+   * @nullable
+   */
+  warning?: string | null;
 }
 
 export interface MessageFullContentResponse {

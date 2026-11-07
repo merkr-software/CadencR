@@ -161,6 +161,12 @@ pub struct MergeResult {
     /// was something else (dirty target worktree, fast-forward refused, …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conflict_files: Option<Vec<String>>,
+    /// Set on a *successful* merge whose cleanup did not complete — e.g. the
+    /// target worktree could not be switched back to the branch it had
+    /// checked out before. The merge itself is committed; the UI must still
+    /// tell the user the worktree was left on another branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, ToSchema)]

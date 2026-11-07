@@ -2,7 +2,6 @@ use std::path::Path;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
-use tokio::process::Command;
 
 use crate::error::AppError;
 
@@ -39,7 +38,7 @@ async fn run_with_input(
     #[builder(default = TIMEOUT)] timeout: Duration,
     stdin: Option<&[u8]>,
 ) -> Result<Vec<u8>, AppError> {
-    let mut command = Command::new("git");
+    let mut command = super::git_command();
     command
         .args([
             "-c",

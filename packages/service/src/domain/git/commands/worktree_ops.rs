@@ -5,7 +5,9 @@ use std::path::Path;
 
 use crate::domain::git::models::WorktreeInfo;
 use crate::error::AppError;
-use crate::shared::git_cli::{run_git, run_git_background, run_git_safe_refs};
+use crate::shared::git_cli::{
+    git_ref_resolves_background, run_git, run_git_background, run_git_safe_refs,
+};
 use crate::shared::worktree_paths::compute_worktree_path;
 
 /// List all worktrees for a repository.
@@ -143,33 +145,37 @@ pub async fn create_worktree(
             .map_err(|e| AppError::Internal(format!("Failed to create directory: {e}")))?;
     }
 
-    // Try with -b first; fall back without -b if branch already exists
-    match run_git_safe_refs(
-        &["worktree", "add"],
-        &["-b", branch_name],
-        &[&worktree_str],
-        repo_path,
-    )
-    .await
-    {
-        Ok(_) => {}
-        Err(e) => {
-            let err_msg = e.to_string();
-            if err_msg.contains("already exists") {
-                run_git_safe_refs(
-                    &["worktree", "add"],
-                    &[],
-                    &[&worktree_str, branch_name],
-                    repo_path,
-                )
-                .await?;
-            } else {
-                return Err(e);
-            }
-        }
-    }
-
+    add_worktree_for_branch(repo_path, &worktree_str, branch_name).await?;
     Ok((worktree_str, branch_name.to_string()))
+}
+
+/// Attach an existing branch, otherwise create it. Decided from the ref
+/// itself: Git's "already exists" message is translated with the user's
+/// locale and also names unrelated collisions.
+async fn add_worktree_for_branch(
+    repo_path: &Path,
+    worktree_path: &str,
+    branch_name: &str,
+) -> Result<(), AppError> {
+    let branch_ref = format!("refs/heads/{branch_name}");
+    if git_ref_resolves_background(&branch_ref, repo_path).await? {
+        run_git_safe_refs(
+            &["worktree", "add"],
+            &[],
+            &[worktree_path, branch_name],
+            repo_path,
+        )
+        .await?;
+    } else {
+        run_git_safe_refs(
+            &["worktree", "add"],
+            &["-b", branch_name],
+            &[worktree_path],
+            repo_path,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Parse `git worktree list --porcelain` and return a map of
@@ -269,6 +275,50 @@ mod tests {
         // An unborn repository has no refs. The command still succeeds and
         // should return an empty set rather than a phantom branch.
         assert!(list_local_branches(repo.path()).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn worktree_add_creates_missing_branches_and_attaches_existing_ones() {
+        let repo = tempfile::tempdir().unwrap();
+        let worktrees = tempfile::tempdir().unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.email=t@e",
+                "-c",
+                "user.name=T",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "seed",
+            ][..],
+            &["branch", "existing"][..],
+        ] {
+            run_git(args, repo.path()).await.unwrap();
+        }
+        let fresh = worktrees
+            .path()
+            .join("fresh")
+            .to_string_lossy()
+            .into_owned();
+        let attached = worktrees
+            .path()
+            .join("attached")
+            .to_string_lossy()
+            .into_owned();
+
+        add_worktree_for_branch(repo.path(), &fresh, "fresh-branch")
+            .await
+            .unwrap();
+        add_worktree_for_branch(repo.path(), &attached, "existing")
+            .await
+            .unwrap();
+
+        let branches = list_worktree_branches(repo.path()).await.unwrap();
+        assert!(branches.contains_key("fresh-branch"), "{branches:?}");
+        assert!(branches.contains_key("existing"), "{branches:?}");
     }
 
     #[test]

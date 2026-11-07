@@ -30,7 +30,7 @@ pub(super) async fn checks(root: &Path) -> Vec<Check> {
 }
 
 async fn git(root: &Path, args: &[&str]) -> Result<Output, ()> {
-    let mut command = tokio::process::Command::new("git");
+    let mut command = crate::shared::git_cli::git_command();
     command
         .args([
             "-c",
