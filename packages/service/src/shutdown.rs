@@ -19,6 +19,10 @@ use std::time::Duration;
 
 use tokio::sync::oneshot;
 
+mod parent;
+
+pub use parent::{watch_parent, ParentWatch};
+
 /// How long the requests axum already accepted get to finish once the listener
 /// is closed. A connection that never closes on its own — an idle WebSocket —
 /// must not hold shutdown hostage, so the wait is bounded.
@@ -29,8 +33,22 @@ const DRAIN_GRACE: Duration = Duration::from_secs(3);
 /// so every extra await here is another moment spent accepting requests we have
 /// already decided not to serve. `drain_started` fires at that same instant,
 /// which is what tells the caller the HTTP drain has begun.
-pub async fn stop_admitting_on_signal(drain_started: oneshot::Sender<()>) {
-    wait_for_signal().await;
+///
+/// With a [`ParentWatch`] (the desktop shell passes `--exit-with-parent`),
+/// the shell's exit is a signal too.
+pub async fn stop_admitting_on_signal(
+    drain_started: oneshot::Sender<()>,
+    parent: Option<ParentWatch>,
+) {
+    match parent {
+        Some(parent) => tokio::select! {
+            _ = wait_for_signal() => {},
+            _ = parent.exited() => {
+                tracing::info!("The desktop shell exited (stdin closed)");
+            },
+        },
+        None => wait_for_signal().await,
+    }
     tracing::info!("Shutdown signal received, shutting down gracefully...");
     let _ = drain_started.send(());
 }

@@ -39,6 +39,17 @@ pub async fn run_git_output_with_env(
         .map_err(|error| AppError::GitCommandError(format!("Failed to spawn git: {error}")))
 }
 
+/// `git <args> failed: <stderr>` as a user-facing refusal. The arguments are
+/// path-redacted like stderr: a worktree or repository path in them would
+/// otherwise reach the response body, remote devices included.
+pub(crate) fn git_failure(args: &[&str], stderr: &str) -> AppError {
+    AppError::git_rejected(format!(
+        "git {} failed: {}",
+        redact_paths(&args.join(" ")),
+        sanitize_git_stderr(stderr.trim())
+    ))
+}
+
 /// Convert a captured non-zero Git result into the standard user-facing error
 /// while retaining both output streams when Git split useful context between
 /// them.
@@ -51,7 +62,10 @@ pub fn git_output_error(args: &[&str], output: &std::process::Output) -> AppErro
         (stderr, "") => stderr.to_string(),
         (stderr, stdout) => format!("{stderr} ({stdout})"),
     };
-    AppError::GitCommandError(format!("git {} failed: {detail}", args.join(" ")))
+    AppError::git_rejected(format!(
+        "git {} failed: {detail}",
+        scrub_home_prefix(&args.join(" "))
+    ))
 }
 
 /// Run a git command with extra environment variables injected for this one
@@ -70,13 +84,7 @@ pub async fn run_git_with_env(
     let output = run_git_output_with_env(args, cwd, env).await?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let sanitized = sanitize_git_stderr(stderr.trim());
-        return Err(AppError::GitCommandError(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            sanitized
-        )));
+        return Err(git_failure(args, &String::from_utf8_lossy(&output.stderr)));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -209,8 +217,9 @@ pub fn guard_positionals(positionals: &[&str]) -> Result<(), AppError> {
     validate_positionals(positionals)
 }
 
-/// Spawn `git` with `args` in `cwd`. Returns stdout on success; on failure
-/// returns a `GitCommandError` with the (sanitized) stderr.
+/// Spawn `git` with `args` in `cwd`. Returns stdout on success. A spawn
+/// failure is an internal `GitCommandError`; a non-zero exit is a user-facing
+/// `GitRejected` carrying the (sanitized) stderr.
 ///
 /// This is the default / mutating spawn path. Use it for any command that
 /// is part of a user-initiated flow — `commit`, `push`, `merge`, `rebase`,
@@ -236,13 +245,7 @@ async fn run_raw_bytes(args: &[&str], cwd: &Path) -> Result<Vec<u8>, AppError> {
         .map_err(|e| AppError::GitCommandError(format!("Failed to spawn git: {e}")))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let sanitized = sanitize_git_stderr(stderr.trim());
-        return Err(AppError::GitCommandError(format!(
-            "git {} failed: {}",
-            args.join(" "),
-            sanitized
-        )));
+        return Err(git_failure(args, &String::from_utf8_lossy(&output.stderr)));
     }
 
     Ok(output.stdout)
@@ -279,7 +282,7 @@ pub async fn run_git_capture(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let scrubbed = scrub_home_prefix(stderr.trim());
-        return Err(AppError::GitCommandError(scrubbed));
+        return Err(AppError::git_rejected(scrubbed));
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -298,18 +301,23 @@ fn scrub_home_prefix(s: &str) -> String {
     s.replace(home_str.as_ref(), "~")
 }
 
-/// Strip absolute paths and truncate stderr to avoid leaking filesystem info.
-fn sanitize_git_stderr(stderr: &str) -> String {
+/// Replace absolute paths with `<path>`.
+fn redact_paths(text: &str) -> String {
     use regex_lite::Regex;
     static PATH_RE: std::sync::LazyLock<Regex> =
         std::sync::LazyLock::new(|| Regex::new(r"(/[a-zA-Z0-9_.~\-]+){2,}").unwrap());
-    const MAX_CHARS: usize = 200;
-    let cleaned = PATH_RE.replace_all(stderr, "<path>");
-    // Truncate on a character boundary: byte slicing panics inside a
-    // multi-byte character (accented paths, localized hook output).
-    match cleaned.char_indices().nth(MAX_CHARS) {
+    PATH_RE.replace_all(text, "<path>").into_owned()
+}
+
+const GIT_STDERR_MAX_CHARS: usize = 200;
+
+/// Strip absolute paths and truncate stderr to avoid leaking filesystem info.
+/// Truncates on a character boundary: localized git output is not ASCII.
+fn sanitize_git_stderr(stderr: &str) -> String {
+    let cleaned = redact_paths(stderr);
+    match cleaned.char_indices().nth(GIT_STDERR_MAX_CHARS) {
         Some((cut, _)) => format!("{}…", &cleaned[..cut]),
-        None => cleaned.into_owned(),
+        None => cleaned,
     }
 }
 
@@ -317,6 +325,24 @@ fn sanitize_git_stderr(stderr: &str) -> String {
 mod tests {
     use super::*;
     use std::env::temp_dir;
+
+    #[test]
+    fn a_refusal_redacts_paths_in_its_arguments() {
+        let error = git_failure(
+            &[
+                "worktree",
+                "remove",
+                "/Users/someone/.cadencr/worktrees/demo",
+            ],
+            "fatal: '/Users/someone/.cadencr/worktrees/demo' is not a working tree",
+        );
+        let message = error.to_string();
+        assert!(!message.contains("someone"), "{message}");
+        assert!(
+            message.contains("git worktree remove <path> failed"),
+            "{message}"
+        );
+    }
 
     #[tokio::test]
     async fn run_git_safe_rejects_flag_positional() {

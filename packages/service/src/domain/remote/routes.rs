@@ -7,7 +7,7 @@
 //! pairing code rather than a bearer token.
 
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{delete, get, post, put};
 use axum::{Extension, Json, Router};
 
@@ -161,12 +161,20 @@ pub async fn browser_origins_handler(State(state): State<AppState>) -> Json<Remo
     })
 }
 
+/// Missing renderer and an unavailable port are conditions the user can act
+/// on, so they keep their message; TLS, secret and serve setup failures are
+/// internal.
 fn start_error(err: RemoteError) -> AppError {
     match err {
         RemoteError::NoRendererDir | RemoteError::RendererIndexMissing(_) => {
             AppError::ServiceUnavailable(err.to_string())
         }
-        _ => AppError::Internal(err.to_string()),
+        RemoteError::BindFailed => {
+            AppError::coded(StatusCode::CONFLICT, "REMOTE_BIND_FAILED", err.to_string())
+        }
+        RemoteError::Tls(_) | RemoteError::Secrets(_) | RemoteError::ServeFailed(_) => {
+            AppError::Internal(err.to_string())
+        }
     }
 }
 
@@ -412,6 +420,53 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(enabled.as_deref(), Some("false"));
+    }
+
+    #[tokio::test]
+    async fn enable_reports_an_occupied_port_as_a_user_error() {
+        use crate::remote::{RemoteConfig, RemoteController};
+        use axum::response::IntoResponse;
+        let renderer = tempfile::tempdir().unwrap();
+        std::fs::write(renderer.path().join("index.html"), "<!doctype html>").unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let occupied = std::net::TcpListener::bind(("0.0.0.0", 0)).unwrap();
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let mut state = AppState::with_pool(pool);
+        state.remote = std::sync::Arc::new(RemoteController::new(RemoteConfig {
+            renderer_dir: Some(renderer.path().to_owned()),
+            remote_port: occupied.local_addr().unwrap().port(),
+            data_dir: data.path().to_owned(),
+        }));
+
+        let response = enable_handler(State(state))
+            .await
+            .unwrap_err()
+            .into_response();
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "could not bind the remote listener (port may be in use)",
+                "code": "REMOTE_BIND_FAILED"
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn remote_setup_failures_stay_internal() {
+        use axum::response::IntoResponse;
+        let error = start_error(RemoteError::Tls(anyhow::anyhow!("key at /secret")));
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["error"], "Internal server error");
     }
 
     const IPHONE_SAFARI: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) \

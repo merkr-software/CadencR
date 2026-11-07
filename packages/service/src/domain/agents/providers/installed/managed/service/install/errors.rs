@@ -11,7 +11,7 @@ use crate::domain::agents::providers::installed::managed::quarantine::{
 };
 use crate::domain::agents::providers::installed::managed::receipt::ManagedPackageReceipt;
 use crate::domain::agents::providers::installed::managed::ResolvedManagedProviderPackage;
-use crate::error::AppError;
+use crate::error::{AppError, GitRejection};
 
 pub(super) fn failure(
     service: &ManagedProviderService,
@@ -165,7 +165,13 @@ pub(super) fn append_context(error: AppError, context: String) -> AppError {
     let message = |value: String| format!("{value}; {context}");
     match error {
         AppError::DatabaseError(value) => AppError::DatabaseError(message(value)),
+        AppError::DatabaseBusy(value) => AppError::DatabaseBusy(message(value)),
+        AppError::ConstraintViolation(value) => AppError::ConstraintViolation(message(value)),
         AppError::GitCommandError(value) => AppError::GitCommandError(message(value)),
+        AppError::GitRejected(rejection) => AppError::GitRejected(GitRejection {
+            message: message(rejection.message),
+            ..rejection
+        }),
         AppError::NotFound(value) => AppError::NotFound(message(value)),
         AppError::BadRequest(value) => AppError::BadRequest(message(value)),
         AppError::Internal(value) => AppError::Internal(message(value)),

@@ -7,8 +7,10 @@
 //!   when non-empty. The clean working tree short-circuits before the diff
 //!   even runs.
 //! - **checkout**: authoritative `git checkout`. `run_git_capture` returns
-//!   git's verbatim stderr (home-dir scrubbed) in `AppError::GitCommandError`
-//!   on failure — the toast surfaces it as-is.
+//!   git's verbatim stderr (home-dir scrubbed) in `AppError::GitRejected`
+//!   on failure — returned as a 4xx `{error, code}` the toast surfaces as-is
+//!   (dirty-tree overlap → 409 `GIT_LOCAL_CHANGES_CONFLICT`, unknown branch →
+//!   422 `GIT_REF_NOT_FOUND`).
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -95,7 +97,7 @@ async fn validate_checkout(
     let mut overlap = overlap;
     overlap.sort();
     overlap.dedup();
-    Err(AppError::GitCommandError(format_overwrite_error(&overlap)))
+    Err(AppError::git_rejected(format_overwrite_error(&overlap)))
 }
 
 async fn checkout(state: &AppState, body: CheckoutBody) -> Result<SuccessResponse, AppError> {
@@ -134,7 +136,7 @@ pub(crate) async fn resolve_ref(repo: &Path, branch: &str) -> Result<String, App
             return Ok(suffix.to_string());
         }
     }
-    Err(AppError::GitCommandError(format!(
+    Err(AppError::git_rejected(format!(
         "error: pathspec '{branch}' did not match any file(s) known to git"
     )))
 }
@@ -284,10 +286,76 @@ mod tests {
         run_git(&["init", "-q"], repo).await.unwrap();
         let err = resolve_ref(repo, "no-such-branch").await.unwrap_err();
         match err {
-            AppError::GitCommandError(msg) => {
-                assert!(msg.contains("pathspec 'no-such-branch'"), "{msg}")
+            AppError::GitRejected(rejection) => {
+                assert_eq!(rejection.kind, crate::error::GitFailureKind::RefNotFound);
+                assert!(
+                    rejection.message.contains("pathspec 'no-such-branch'"),
+                    "{}",
+                    rejection.message
+                )
             }
-            other => panic!("expected GitCommandError, got {other:?}"),
+            other => panic!("expected GitRejected, got {other:?}"),
         }
+    }
+
+    async fn response_body(error: AppError) -> (axum::http::StatusCode, serde_json::Value) {
+        use axum::response::IntoResponse;
+        let response = error.into_response();
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    #[tokio::test]
+    async fn conflicting_checkout_is_a_409_with_git_message() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &["config", "user.email", "test@example.com"],
+            &["config", "user.name", "Test"],
+            &["config", "commit.gpgsign", "false"],
+        ] {
+            run_git(args, repo).await.unwrap();
+        }
+        std::fs::write(repo.join("a.txt"), "main\n").unwrap();
+        run_git(&["add", "a.txt"], repo).await.unwrap();
+        run_git(&["commit", "-qm", "main"], repo).await.unwrap();
+        run_git(&["checkout", "-qb", "other"], repo).await.unwrap();
+        std::fs::write(repo.join("a.txt"), "other\n").unwrap();
+        run_git(&["commit", "-qam", "other"], repo).await.unwrap();
+        run_git(&["checkout", "-q", "main"], repo).await.unwrap();
+        std::fs::write(repo.join("a.txt"), "dirty\n").unwrap();
+
+        let error = run_git_capture(&["checkout"], &[], &["other"], repo)
+            .await
+            .unwrap_err();
+        let (status, body) = response_body(error).await;
+        assert_eq!(status, axum::http::StatusCode::CONFLICT);
+        assert_eq!(body["code"], "GIT_LOCAL_CHANGES_CONFLICT");
+        let message = body["error"].as_str().unwrap();
+        assert!(
+            message.contains("would be overwritten by checkout"),
+            "{message}"
+        );
+        assert!(message.contains("a.txt"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn missing_branch_is_a_422_with_git_message() {
+        let dir = tempfile::tempdir().unwrap();
+        run_git(&["init", "-q"], dir.path()).await.unwrap();
+        let error = resolve_ref(dir.path(), "no-such-branch").await.unwrap_err();
+        let (status, body) = response_body(error).await;
+        assert_eq!(status, axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "error: pathspec 'no-such-branch' did not match any file(s) known to git",
+                "code": "GIT_REF_NOT_FOUND"
+            })
+        );
     }
 }
