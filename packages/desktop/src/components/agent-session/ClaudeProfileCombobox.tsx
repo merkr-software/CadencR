@@ -21,7 +21,8 @@ export interface ClaudeProfileComboboxProps {
   isError: boolean;
   onChange: (profile: string) => void;
   triggerClassName?: string;
-  variant?: "default" | "compact";
+  /** `instrument`: the composer card's instrument row (the schedule editor). */
+  variant?: "default" | "instrument";
   label?: string;
   /**
    * The globally configured active profile (Settings → Agents), which is a
@@ -81,7 +82,7 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        side={variant === "compact" ? "top" : undefined}
+        side={variant === "instrument" ? "top" : undefined}
         className="w-64 overflow-hidden p-0"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
@@ -129,20 +130,17 @@ export const ClaudeProfileCombobox = memo(function ClaudeProfileCombobox({
   );
 });
 
-function triggerBaseClassName(variant: "default" | "compact"): string {
-  if (variant === "compact") {
-    return "inline-flex h-8 min-w-0 max-w-[180px] items-center justify-between gap-1.5 overflow-hidden whitespace-nowrap rounded-md border border-border bg-muted/40 px-2.5 text-[11px] font-medium text-foreground shadow-sm hover:bg-accent [&_svg]:size-3 [&_svg]:shrink-0 [&_svg]:opacity-70";
+function triggerBaseClassName(variant: "default" | "instrument"): string {
+  if (variant === "instrument") {
+    return "composer-instrument min-w-0 max-w-[180px] shrink gap-1.5 overflow-hidden text-foreground/85 [&_svg]:size-3 [&_svg]:opacity-50";
   }
   // Filled, not `bg-transparent`: this variant renders on the session-info
   // popover, where a transparent trigger reads as text rather than a control.
-  // Same `bg-muted/40` as the compact variant so the two never drift apart.
   return "inline-flex h-8 min-w-32 items-center justify-between gap-2 whitespace-nowrap rounded-md border border-border bg-muted/40 px-3 py-2 text-xs shadow-xs transition-[color,box-shadow] outline-none hover:bg-accent focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 }
 
-function loadingClassName(variant: "default" | "compact"): string {
-  if (variant === "compact") {
-    return "inline-flex h-8 items-center rounded-md border border-border/50 bg-muted/30 px-2.5 text-[11px] text-muted-foreground";
-  }
+function loadingClassName(variant: "default" | "instrument"): string {
+  if (variant === "instrument") return "composer-instrument text-muted-foreground";
   return "text-[11px] text-muted-foreground";
 }
 

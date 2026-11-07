@@ -24,12 +24,12 @@ export interface ModeControlProps {
   permissionMode?: PermissionMode;
   enabledOptInModes?: PermissionMode[];
   providerModes?: readonly RuntimeProviderModeOption[];
-  /** Shift+Tab cycle. */
-  onToggle?: () => void;
   /** Jump straight to a mode from the menu (the control hides without it). */
   onSelect?: (mode: PermissionMode) => void;
   /** Why the active mode won't hold with the current model, if it won't. */
   incompatibleReason?: string | null;
+  /** Off where Shift+Tab isn't bound to this control (the schedule editor). */
+  showShortcut?: boolean;
 }
 
 /**
@@ -44,9 +44,9 @@ export const ModeControl = memo(function ModeControl({
   permissionMode,
   enabledOptInModes,
   providerModes = [],
-  onToggle,
   onSelect,
   incompatibleReason,
+  showShortcut = true,
 }: ModeControlProps): ReactElement | null {
   const visible = getVisibleModes(providerId, enabledOptInModes ?? [], providerModes);
   const active =
@@ -55,7 +55,7 @@ export const ModeControl = memo(function ModeControl({
       : null;
   const announcement = useModeAnnouncement(active);
   const cycleKeys = useShortcutKeys("agent-permission-mode");
-  if (!active || !onToggle || !onSelect) return null;
+  if (!active || !onSelect) return null;
 
   const choose = (mode: ProviderMode): void => {
     if (mode.id !== active.id) onSelect(mode.id);
@@ -91,7 +91,7 @@ export const ModeControl = memo(function ModeControl({
         <DropdownMenuContent side="top" align="start" className="w-72 p-1">
           <DropdownMenuLabel className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
             Autonomy
-            <KbdShortcut keys={cycleKeys} scope="agent" />
+            {showShortcut && <KbdShortcut keys={cycleKeys} scope="agent" />}
           </DropdownMenuLabel>
           {visible.map((mode) => (
             <DropdownMenuItem

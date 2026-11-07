@@ -244,7 +244,6 @@ function SkillModeControl({
           enabledOptInModes={enabledOptInModes}
           providerModes={provider?.modes}
           onSelect={onChange}
-          onToggle={cycle}
         />
       ) : (
         <button
